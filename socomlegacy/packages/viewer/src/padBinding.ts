@@ -1,5 +1,5 @@
-import { pressurePad, PRESSURE_PAD_ID, PRESSURE_PAD_INDEX } from './pressurePad';
-import { pressureConnectOffered } from './pressureDetect';
+import { pressurePad, PRESSURE_PAD_ID, PRESSURE_PAD_INDEX, type PressureDiagnostics, type PressureLinkStatus } from './pressurePad';
+import { pressureConnectAbsent, pressureConnectOffered } from './pressureDetect';
 import { ControllerInput, MENU_REQUIRED, buttonDown, padHasTouchpad, resolveConflict } from './controllerInput';
 import { readOverlayButton } from './modern/overlay/binding';
 import { controllerLabelFamily, isSteamFamily, steamButtonName } from './controllerLabels';
@@ -209,8 +209,16 @@ export class PadBinding {
     this.select(`${PRESSURE_PAD_INDEX}:${PRESSURE_PAD_ID}`);
     return true;
   }
+  /** PAD-DS3: the Connect row's state (`pressurePad.status()`), read-only. */
+  pressureStatus(): PressureLinkStatus { return pressurePad.status(); }
+  /** DS3-PRESSURE (f): the last report's readout (`pressurePad.diagnostics()`), read-only. */
+  pressureDiagnostics(): PressureDiagnostics | null { return pressurePad.diagnostics(); }
+  /** PAD-DS3: the chosen pad gives pressure (a connected DS3 reader, a profile's flag, or a seen light press) -- hints only. */
+  pressureCapable(): boolean { return this.input.pressureCapable(); }
   /** PS2P: the WebHID Connect row is offered -- Chromium (WebHID) with a 054c:0268 pad connected (`./pressureDetect`). */
   pressureConnectable(): boolean { return pressureConnectOffered(this.input.devices); }
+  /** DS3-PRESSURE (c): why the Connect row is absent while a pad is present (`./pressureDetect`), or null -- words only. */
+  pressureAbsent(): 'no-webhid' | 'wrapped' | null { return pressureConnectAbsent(this.input.devices); }
   /**
    * PS2P: the chosen pad is pressure-capable and SEPARATE's Crouch and Prone share one button -- its light and its firm
    * press (`ControllerInput.poll`, `StancePress`); the mapping's two rows say which.

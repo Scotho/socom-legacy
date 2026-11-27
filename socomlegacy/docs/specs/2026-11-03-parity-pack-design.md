@@ -65,7 +65,8 @@ runtime and ffmpeg. It is also the reader's side: what comes back and how to rea
 - **The pack carries third-party files**: PCSX2 (GPL v3; its notice and source link go in the README), Harry62's
   pnach, and the memory cards holding PSRewired's r0004 package. The pack is handed to named testers by a private
   channel, never posted. Whether and to whom it may go is the owner's (HUMAN_TASKS row, section 9).
-- **A PCSX2 run on the owner's host is at his word only** (EPH.R3): building the pack is not a run; the first live
+- **A PCSX2 run on the owner's host was at his word only** (EPH.R3; amended by MISSION OT.R145, 2026-11-24: no word per
+  run for any parity harness, on a Shadow PC under the host rule, never the hub PC): building the pack is not a run; the first live
   smoke run of a built pack is a HUMAN_TASKS row with the exact command, not something this work does unasked.
 - **Heavy runs serial** (AGENTS.md "Layout" 5): the page build and the pack's own extraction are heavy; the builder
   runs them one at a time and under the host lock's `check` where the desktop tree is present.

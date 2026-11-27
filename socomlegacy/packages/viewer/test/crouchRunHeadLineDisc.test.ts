@@ -7,7 +7,8 @@ import { FsAssetSource } from '@s2u/archive/node';
 import { readSkeleton } from '@s2u/scene';
 import { Animator, PLAY_CLIPS, type MoverSnapshot } from '../src/animator';
 import { clipsFromPack, motionTableFromArchive } from '../src/motionTable';
-import { groundPolygons, POSED_HEAD_READING, WALL_HEAD_LINE_READING, Walker, wallProbeHeights, type Stance } from '../src/mover';
+import { FIRE_VERSIONS, WEAPON_CLIPS, WeaponPose } from '../src/weaponPose';
+import { groundPolygons, POSED_HEAD_AIMED_READING, POSED_HEAD_READING, WALL_HEAD_LINE_READING, Walker, wallProbeHeights, type Stance } from '../src/mover';
 import { Traversal } from '../src/traversal';
 import { loadSimMap } from '../src/simMap';
 
@@ -55,13 +56,13 @@ describe.skipIf(!HAVE)(`the crouch run under MP72's warehouse lintel${HAVE ? '' 
     expect(WALL_HEAD_LINE_READING).toBe('posed');
   }, 120_000);
 
-  // Review F3 (2026-11-07): a partial-push crouch run, the stick in (0.8, 0.9], takes the greater of the 0.8 and 0.9
-  // samples, 16.530 + 2 = 18.53, over the lintel's 18.23 -- still stopped; from 0.9 (16.006 + 2) it passes. The
-  // animator's own head at 0.86 is 16.215 (18.215), so the original may pass there by 0.015: the reading over-stops.
-  it('a partial-push crouch run (0.86) is still stopped by the lintel (POSED_HEAD_READING takes 16.530 there); at 0.9 it passes', async () => {
+  // Review F3 (2026-11-07) said the greater of the 0.8 and 0.9 samples over-stops a partial push: the animator's own head
+  // at 0.86 is 16.215. LATER 1169 (B) (the main controller's ruling, 2026-11-18): the samples are interpolated, 16.216 + 2
+  // = 18.216 under the lintel's 18.23 -- the 0.86 crouch run passes, as the animator's head says (was: stopped, 16.530).
+  it('a partial-push crouch run (0.86) passes under the lintel on the interpolated head (16.216); at 0.9 it passes', async () => {
     const part = await drive('crouch', 0.86);
     expect(part.posture).toBe('stand');
-    expect(part.z).toBeLessThan(1460);
+    expect(part.z).toBeGreaterThan(1490);
     expect((await drive('crouch', 0.9)).z).toBeGreaterThan(1490);
   }, 120_000);
 
@@ -140,4 +141,50 @@ describe.skipIf(!HAVE)(`the crouch run under MP72's warehouse lintel${HAVE ? '' 
     }
     expect(prone, 'prone').toBeCloseTo(P.prone, 2);
   }, 120_000);
+
+  it('POSED_HEAD_AIMED_READING is the same animator with the Fire set at weight 1 (LATER 1201): idle, stand rows, crouch rows', () => {
+    const mp2 = new Uint8Array(readFileSync(join(RUN, 'MP2.ZDB')));
+    const toc = parseZdb(mp2);
+    const clips = clipsFromPack(new Uint8Array(readFileSync(join(RUN, 'MOTION_P.ZAR'))), [...new Set([...PLAY_CLIPS, ...WEAPON_CLIPS, ...Object.values(FIRE_VERSIONS)])]);
+    const table = motionTableFromArchive(new Uint8Array(readFileSync(join(RUN, 'READERC.ZAR'))))!;
+    const REST: MoverSnapshot = {
+      vx: 0, vz: 0, vy: 0, yaw: 0, airborne: false, crouched: false, landing: null, jumps: 0, stance: 'stand',
+      ground: { state: 'idle', forward: 0, right: 0, cls: -1 }, action: null,
+    };
+    const peak = (snap: MoverSnapshot): number => {
+      const sk = readSkeleton(Zar.parse(zdbMember(mp2, toc, 'CLIB_GEO.ZED')), 'seal_A_scuba');
+      const anim = new Animator(sk, clips, table, { random: () => 0 });
+      const pose = new WeaponPose(new Map(clips.map((c) => [c.name, c])), table);
+      anim.setWeapon('rifle');
+      pose.item = 'rifle';
+      anim.addPoseLayer(pose.fireLayer);
+      const head = sk.indexOf('head');
+      let hi = -Infinity;
+      for (let i = 0; i < 300; i++) {
+        pose.fireWeight = 1; pose.step(1 / 60);
+        anim.step(1 / 60, { ...snap, aimWeight: 1 });
+        if (i >= 120) hi = Math.max(hi, sk.world[head]![13]!);
+      }
+      return hi;
+    };
+    const A = POSED_HEAD_AIMED_READING;
+    expect(peak(REST), 'idle stand').toBeCloseTo(A.idle.stand, 2);
+    expect(peak({ ...REST, stance: 'crouch', crouched: true }), 'idle crouch').toBeCloseTo(A.idle.crouch, 2);
+    const D = Math.SQRT1_2;
+    const dirs: Record<'forward' | 'back' | 'right' | 'left', [number, number][]> = {
+      forward: [[1, 0], [D, D], [D, -D]], back: [[-1, 0], [-D, D], [-D, -D]],
+      right: [[0, 1], [D, D], [-D, D]], left: [[0, -1], [D, -D], [-D, -D]],
+    };
+    for (const [cls, list] of Object.entries(dirs) as [keyof typeof dirs, [number, number][]][]) {
+      A.stand[cls].forEach((want, i) => {
+        const m = (i + 1) / 10;
+        const got = Math.max(...list.map(([f, r]) => peak({ ...REST, vz: -65 * m, ground: { state: 'stand', forward: f * m, right: r * m, cls: 1 } })));
+        expect(got, `aimed stand ${cls} ${m}`).toBeCloseTo(want, 2);
+      });
+      const c = ({ right: 0, forward: 1, left: 2, back: 3 } as const)[cls];
+      let crouch = -Infinity;
+      for (const m of [0.3, 0.8]) for (const [f, r] of list) crouch = Math.max(crouch, peak({ ...REST, stance: 'crouch', crouched: true, vz: -20, ground: { state: 'crouch', forward: f * m, right: r * m, cls: c } }));
+      expect(crouch, `aimed crouch ${cls}`).toBeCloseTo(A.crouch[cls], 2);
+    }
+  }, 240_000);
 });

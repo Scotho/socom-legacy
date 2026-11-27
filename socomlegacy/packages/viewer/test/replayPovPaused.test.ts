@@ -330,7 +330,7 @@ const BOT_PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cells
 /** `../../match/test/botController.test.ts`' `flat()` map (a floor, sixteen spawn slots), cut to the floor. */
 function botMap(): SimMap {
   const floor: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25,
-    ptcount: 4, cameratype: 0, points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]) };
+    ptcount: 4, cameratype: 0, points: Float32Array.from([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400]) };
   const solid = solidWalls([floor]);
   const owners: CollisionOwner[] = solid.map((p, i) => ({ modelName: 'worldmodel', path: p.path, first: i, count: 1 }));
   const ground = packGround(BOT_PARAMS, solid, owners);

@@ -1,7 +1,19 @@
 /* OT.R121's cover (`./lobbyLinkCover.ts`; product track, a browser adaptation's own element): one page element over
-   the front end's canvases while a lobby link's login path runs behind it. Its look as the cover shipped it; in a sheet,
-   not in a script's inline style (the viewer chrome's rule, `test/chrome_classes.test.ts`). */
+   the front end's canvases while a lobby link's login path runs behind it. In a sheet, not in a script's inline style
+   (the viewer chrome's rule, `test/chrome_classes.test.ts`). WM-37 (`./loadIn.ts` `LOAD_IN_COVER_ADAPTATION`; the
+   owner's "12 b approved on both", 2026-11-15): the black wall with its white line is gone -- the cover is the design
+   system's ground with a low gold glow, the shared DEPLOYING panel on it (`./console/deployPanel.css`), its parts rising
+   in. It stands opaque from its first frame (no fade in: nothing behind it is ever seen), and at the hand-off fades
+   out over the game's own lobby (`is-leaving`, `--s2u-dur-lx-slide`, `LOAD_IN_LEAVE_MS`). */
 #lobby-link-cover {
-  position: fixed; inset: 0; z-index: 2147483000; background: #000; color: #ccc;
-  display: flex; align-items: center; justify-content: center; font: 16px sans-serif; letter-spacing: 0.04em;
+  position: fixed; inset: 0; z-index: 2147483000; display: block; overflow: hidden;
+  color: var(--s2u-text-strong);
+  background:
+    radial-gradient(120% 80% at 50% 115%, color-mix(in srgb, var(--s2u-gold) 10%, transparent), transparent 60%),
+    linear-gradient(180deg, var(--s2u-ground), var(--s2u-ground-deep));
+}
+#lobby-link-cover.is-leaving { animation: lobby-link-cover-out var(--s2u-dur-lx-slide) var(--s2u-ease) both; pointer-events: none; }
+@keyframes lobby-link-cover-out { to { opacity: 0; transform: scale(1.015); } }
+@media (prefers-reduced-motion: reduce) {
+  #lobby-link-cover.is-leaving { animation: none; opacity: 0; }   /* gone from the picture at once (the review's F4) */
 }

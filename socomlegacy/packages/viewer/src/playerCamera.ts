@@ -1,9 +1,10 @@
 import { Vector3, type Camera } from 'three';
-import { segmentHit, segmentHits, SEAL_TUNING, type Grid, type WorldPoly } from '@s2u/scene';
+import { segmentHit, segmentHits, SEAL_TUNING, surfaceMaterial, type Grid, type WorldPoly } from '@s2u/scene';
 import type { Stance } from './walk';
 import { MAP_FOV } from './accuracy';
-import { ACTION_SECONDS, isCameraClassSurface, STANCE } from './mover';
+import { ACTION_SECONDS, isCameraClassSurface, PROBE_LIFT_FLOOR_R0004, STANCE } from './mover';
 import { deathEye, deathFar, orbit, type DeathCamera, type DeathStick } from './deathCamera';
+import { cameraEffectsTurn, turnLook } from './cameraEffects';
 import {
   CAM_BACK, CAM_CLOSE, CAM_FAR, CAM_MARGIN, HEAD_EYE_WALL_BACK_PLACEHOLDER, headEye, localCamera, lookHeight, peekShift, ramp, scopeEyeHeight, scopePeekShift, toWorld,
   LEAD_DOWN, CAM_HOLD, CAM_REGROW, cameraPass, isPeekCameraSurface, newPassState, TYPE_ONE_CLEAR, type LocalCamera, type PassState, type Vec3,
@@ -324,6 +325,19 @@ function buriedTarget(grid: Grid, target: Vec3, accept: (p: WorldPoly) => boolea
 }
 
 /**
+ * JUMP_OVERHEAD_CAMERA_ADAPTATION (PR #842, Benny's, carried; research 90 s10.1): an intended divergence by the owner's
+ * ruling (H309, "no see through anywhere"; for jumps, 2026-11-22: "No see-through: take the fix"). On the player's own
+ * camera, while the body is AIRBORNE (a jump, a fall, a knock, a let-go) or in the standing jump's or the launch's action
+ * on the floor (`PlayerCamera.jumping`), the drawn look point is held `CAM_MARGIN` under the first camera face over the
+ * body's axis and the drawn eye lowered by as much. The original's running jump sees over such a roof (B-20's capture);
+ * a fall's frame in the original is unmeasured. Watched cameras (the spectator's follow, a player's view, a replay, the
+ * Xbox prototype) do NOT take it: they keep the original's frame. The game's eye is never moved.
+ */
+export const JUMP_OVERHEAD_CAMERA_ADAPTATION = 'the own drawn camera, airborne or in the jump/launch action' as const;
+/** `JUMP_OVERHEAD_CAMERA_ADAPTATION`'s overhead cast starts this far over the feet, clear of the ground stood on (its own). */
+const JUMP_OVERHEAD_AXIS_BASE_ADAPTATION = 1;
+
+/**
  * A face the clearance may move for. `FUN_0029cd20` passes over cameratype 1 within 2.75 of the target; the near
  * rectangle does too, or a sheet the main probe ignores would pull the eye in (research 90 §10).
  */
@@ -408,10 +422,16 @@ function clearNearRect(grid: Grid | null, target: Vec3, eye: Vec3, accept: (p: W
       for (let i = 0; i < corners.length; i++) {
         const corner = corners[i]!;
         const face = segmentHit(grid, out, corner, accept);
-        if (!face || face.t <= 0.001 || face.t >= 0.999 || !stopsCamera(face, target)) continue;
+        if (!face || face.t <= 0.001 || !stopsCamera(face, target)) continue;
         const nrm = face.normal;
         const sign = dot(sub(out, face.point), nrm) >= 0 ? 1 : -1;
         const pen = dot(sub(corner, face.point), nrm) * sign;
+        // H309's adaptation, not the original's: a corner is cleared when it lies past the face (pen < 0), however
+        // near the face's crossing sits to the corner. A cut on the hit's t (was t >= 0.999) skipped a corner a few
+        // thousandths past (LATER 1057's corner orbit: t 0.9995, the corner 0.0029 through), and the loop stopped
+        // there. A corner on the face or the eye's side of it is not a crossing. Each push sets the corner NEAR_CLEAR
+        // off the face it met, so a corner once cleared is not met again by that face.
+        if (pen >= 0) continue;
         const axes = [scale(nrm, sign), along, back];
         let move = scale(nrm, sign * NEAR_PUSH_MIN);
         for (const dir of axes) {
@@ -440,10 +460,15 @@ function clearNearRect(grid: Grid | null, target: Vec3, eye: Vec3, accept: (p: W
  * pass's eye and target (`FUN_0029bf70`), the shot's and the order's (`WalkMode.placed`). They differ only by the drawn
  * camera's presentation (#479's review F1, research 382): body-side pull-backs (`HEAD_EYE_WALL_BACK_PLACEHOLDER`) and the near clearance
  * (`NEAR_CLEARANCE_ADAPTATION`, H309). A clearance slide moves `eye` and `target` by the same vector, so the drawn view
- * stays parallel to the aim and the reticle stays at the frame's centre.
+ * stays parallel to the aim; the aim point then sits off the frame's centre by the slide's parallax, and the reticle
+ * follows it there under RETICLE_DISPLACED_CAMERA_AIM_ADAPTATION's default, the round's line (`./reticle` `hudAim`).
+ * `slid` (AIM-AT-REST, the review's F2): the drawn camera is NOT the game's -- a body-side pull-back, the near clearance
+ * or the jump's overhead cap moved its eye or look point at either tick drawn or at this frame's recheck. False, the
+ * drawn pair is the pass's (the airborne lift aside, which moves the drawn camera and its aim point alike, `./walk`
+ * `follow`), and the reticle sits on the frame's exact centre (`./reticle` `hudAim`).
  */
-export interface CameraView { eye: Vec3; target: Vec3; far: Vec3; aim: { eye: Vec3; target: Vec3 } }
-type TickView = { eye: Vec3; target: Vec3; far: Vec3; aimEye: Vec3; aimTarget: Vec3; feet: Vec3; peek: number };
+export interface CameraView { eye: Vec3; target: Vec3; far: Vec3; aim: { eye: Vec3; target: Vec3 }; slid?: boolean }
+type TickView = { eye: Vec3; target: Vec3; far: Vec3; aimEye: Vec3; aimTarget: Vec3; feet: Vec3; peek: number; jump: boolean; slid: boolean };
 
 /**
  * LEAD_PROBE_START_PLACEHOLDER (LATER 308; research 201 section 14, research 83 section 8.1): where the downward lead
@@ -475,6 +500,16 @@ export class PlayerCamera {
 
   /** TRAVERSAL SEAM (`./traversal`'s lean): the peek value `DAT_004161c0`, -1 left .. 1 right, the next tick reads. */
   peek = 0;
+
+  /**
+   * `JUMP_OVERHEAD_CAMERA_ADAPTATION`'s gate, the next tick reads: the body is AIRBORNE (a jump, a fall, a knock, a
+   * let-go) or in the standing jump's or the launch's action on the floor. On the ground otherwise it found faces over
+   * the body's axis that are no roof over the player (a road slab beside a prone body, a sloped roof's edge) and put the
+   * drawn eye under the floor (Crossroads; seat-movement's B-19 sweep). Only this flag opens the cap: a drawn offset
+   * that is no jump (a turret's catch-up restart, LATER 96) does not (#842's review, F1). No floor on the drop inside the
+   * gate: decided, not shown to bite (review F2; a LATER row).
+   */
+  jumping = false;
 
   /**
    * The frame's width/height this tick (`FlyCamera.aspect`, which `fit` wrote from the canvas, or the PS2 aspect
@@ -568,9 +603,9 @@ export class PlayerCamera {
     const passed = cameraPass(this.grid, target, eye0, this.pass, dt, accept);
     // H309's drawn-camera protection also covers an ordinary downward target beyond a wall (research 382 §1).
     // Neither the target nor the pass's eye is a safe anchor: each is pulled back from the body's axis.
-    const draw = this.draw(feet, target, passed, accept, this.peek !== 0);
+    const draw = this.draw(feet, target, passed, accept, this.peek !== 0, this.jumping);
     const next = { eye: draw.eye, target: draw.target, far, aimEye: passed, aimTarget: target,
-      feet: [feet[0]!, feet[1]!, feet[2]!] as Vec3, peek: this.peek };
+      feet: [feet[0]!, feet[1]!, feet[2]!] as Vec3, peek: this.peek, jump: this.jumping, slid: draw.slid };
     this.prev = this.cur ?? next;
     this.cur = next;
   }
@@ -580,28 +615,70 @@ export class PlayerCamera {
     if (this.cur) this.prev = this.cur;
   }
 
-  /** The camera between the last two ticks, `alpha` of the way (the mover's part-tick); null before the first tick. */
-  view(alpha: number): CameraView {
+  /**
+   * The camera between the last two ticks, `alpha` of the way (the mover's part-tick); null before the first tick.
+   * `lift` (JUMP_OVERHEAD_CAMERA_ADAPTATION): the drawn body's offset from the simulated one (MISSION R8's airborne
+   * height, `./walk` `follow`) -- the drawn eye and look point are returned moved by it, and the frame's recheck is made
+   * where they are drawn. The offset was added after the recheck, so in the air it carried the eye up to a game frame's
+   * travel through a ceiling, a lintel or a slope the recheck had cleared. The game's aim is not moved by it.
+   */
+  view(alpha: number, lift?: readonly number[]): CameraView {
     const cur = this.cur, prev = this.prev ?? cur;
     if (!cur || !prev) return { eye: [0, 0, 0], target: [0, 0, -1], far: [0, 0, -CAM_FAR], aim: { eye: [0, 0, 0], target: [0, 0, -1] } };
     const t = Math.max(0, Math.min(1, alpha));
-    const eye = lerp(prev.eye, cur.eye, t), target = lerp(prev.target, cur.target, t);
+    const lifted = lift !== undefined && (lift[0] !== 0 || lift[1] !== 0 || lift[2] !== 0);
+    const up = (p: Vec3): Vec3 => lifted ? [p[0] + lift[0]!, p[1] + lift[1]!, p[2] + lift[2]!] : p;
+    const eye = up(lerp(prev.eye, cur.eye, t)), target = up(lerp(prev.target, cur.target, t));
     // Safe endpoints need not have a safe chord around a corner. Recheck the frame actually drawn, without
     // advancing the pass's timers or touching the interpolated game aim (H309, research 382 §1).
-    const draw = this.draw(lerp(prev.feet, cur.feet, t), target, eye,
+    const simFeet = lerp(prev.feet, cur.feet, t);
+    const draw = this.draw(up(simFeet), target, eye,
       (t < 1 ? prev.peek : cur.peek) !== 0 ? isPeekCameraSurface : isCameraClassSurface,
-      (t < 1 ? prev.peek : cur.peek) !== 0);
+      (t < 1 ? prev.peek : cur.peek) !== 0,
+      t < 1 ? prev.jump : cur.jump, simFeet[1]);                         // the flag alone (review F1); the lift only moves the recheck
+    const far = lerp(prev.far, cur.far, t);
+    const aim = { eye: lerp(prev.aimEye, cur.aimEye, t), target: lerp(prev.aimTarget, cur.aimTarget, t) };
+    // LATER 1246 (`./cameraEffects`): the node `camera_effects`' turn multiplied into the view (`FUN_002998f0`
+    // D:L142020-142024) -- the look turned about the eye in the camera's axes, the eye still; the drawn look, the game's
+    // and the aim point alike, so the frame, the reticle's ray (D:L142028), the use pick and the shot all carry it.
+    const turn = cameraEffectsTurn();
+    // AIM-AT-REST: displaced at either tick this frame lies between, or by the recheck here.
+    const slid = (t < 1 && prev.slid) || (t > 0 && cur.slid) || draw.slid;
+    if (!turn) return { eye: draw.eye, target: draw.target, far, aim, slid };
     return {
-      eye: draw.eye, target: draw.target, far: lerp(prev.far, cur.far, t),
-      aim: { eye: lerp(prev.aimEye, cur.aimEye, t), target: lerp(prev.aimTarget, cur.aimTarget, t) },
+      eye: draw.eye, target: turnLook(draw.eye, draw.target, turn), far: turnLook(aim.eye, far, turn),
+      aim: { eye: aim.eye, target: turnLook(aim.eye, aim.target, turn) }, slid,
     };
   }
 
   /** Presentation only: preserve the ordinary look span and the existing peek correction; never change the game pass. */
-  private draw(feet: readonly number[], target: Vec3, eye: Vec3, accept: (p: WorldPoly) => boolean, peek: boolean): { eye: Vec3; target: Vec3 } {
+  private draw(feet: readonly number[], target: Vec3, eye: Vec3, accept: (p: WorldPoly) => boolean, peek: boolean, jump = false, castFloor = -Infinity): { eye: Vec3; target: Vec3; slid: boolean } {
+    // JUMP_OVERHEAD_CAMERA_ADAPTATION: the look point rises with the jump (the posed root's 15.08, the feet in a running
+    // jump), and under a low roof, a lintel or a catwalk it rose through the face over the head -- the pass is cast from
+    // it and every guard here trusts it, so the eye followed it out and the frame showed the room through its ceiling.
+    // The body's axis is the safe side upward too: the first face over it, from just above the feet to the higher of the
+    // look point and the eye, holds the look point `CAM_MARGIN` under it, the eye down by as much; and an anchor still
+    // over that face is pulled back from the axis under it, not from the axis at its own height -- which stood above
+    // the room, where a level line met nothing and the eye stayed out past the wall behind the body (Frostfire's
+    // tunnels and pipeworks, the report's place). Drawn only; the game's eye (the shot's, the room's) is the pass's as
+    // before. AN INTENDED DEPARTURE by the owner's ruling (H309, "no see through anywhere"; confirmed for jumps
+    // 2026-11-22): the original's RUNNING jump lifts its view over such a roof too (B-20, a capture of r0004 at
+    // Frostfire's tunnel mouths, counts unreviewed; research 90 §10.1), and this ruled it off. Under a roof within its
+    // head ray the original REFUSES the jump (its roof ray, r0004 0x584670 at 0x583530; B-20's capture: the standing jump
+    // 6 of 6), which the port asks since B-20 (`./mover` `jumpClear`): there this cap only guards a fall or a knock.
+    // Only airborne or in the jump's action (`jumping`): otherwise `top` is Infinity and the frame is next's exactly.
+    const top = jump ? this.overheadTop(feet, Math.max(target[1], eye[1]), target, accept, castFloor) : Infinity;
+    const drop = Math.min(0, top - target[1]);
+    if (drop < 0) { target = [target[0], target[1] + drop, target[2]]; eye = [eye[0], eye[1] + drop, eye[2]]; }
     const bodySide = (point: Vec3): Vec3 => {
       if (!this.grid) return point;
-      const axis: Vec3 = [feet[0]!, point[1], feet[2]!];
+      // Level from the body's axis, or -- the point over the face above the body -- from the axis under that face.
+      // B-19 (H309, product track): a point UNDER the feet (prone with the pitch up, the pass's eye below the floor's
+      // level) is levelled from the look target's height on the axis, not its own: a cast at the point's height starts
+      // under the floor and met a roof edge or a stair's underside, dragging the drawn eye and target 10-39 u (Crossroads;
+      // seat-movement's sweep, cameraWallClip.test.ts). Drawn only; the game's eye is the pass's.
+      const level = point[1] < feet[1]! ? Math.max(target[1], feet[1]!) : point[1];
+      const axis: Vec3 = [feet[0]!, Math.min(level, top), feet[2]!];
       const hit = segmentHits(this.grid, axis, point, accept).find((h) => stopsCamera(h, target));
       return hit ? add(hit.point, scale(unit(sub(axis, point)), HEAD_EYE_WALL_BACK_PLACEHOLDER)) : point;
     };
@@ -611,7 +688,32 @@ export class PlayerCamera {
     const span = peek ? sub(focus, pulled) : sub(target, eye);
     const aspect = Number.isFinite(this.nearAspect) && this.nearAspect > 0 ? this.nearAspect : GAME_ASPECT;
     const out = clearNearRect(this.grid, focus, pulled, accept, aspect, span);
-    return { eye: out, target: add(out, span) };
+    // AIM-AT-REST: each guard hands its input back unmoved when it moves nothing (`bodySide`'s point, `clearNearRect`'s
+    // eye), so the drawn camera is displaced exactly when one of them, or the cap, moved something.
+    const slid = drop < 0 || focus !== target || pulled !== eye || out !== pulled;
+    return { eye: out, target: add(out, span), slid };
+  }
+
+  /** The height `CAM_MARGIN` under the first face over the body's axis, from just over the feet up to `upTo`; none, Infinity. */
+  private overheadTop(feet: readonly number[], upTo: number, target: Vec3, accept: (p: WorldPoly) => boolean, castFloor = -Infinity): number {
+    if (!this.grid) return Infinity;
+    // JUMP-CAMERA-DIP (Craig's playtest, 2026-11-22, a release blocker): the cast never starts under the SIMULATED feet
+    // (`castFloor`): a drawn lift lagging below them started it under the ground, which it met from below and capped the
+    // drawn eye under (on a ramp, often on flat ground); and a LIQUID surface (a wading body's water) is no roof.
+    const baseY = Math.max(feet[1]!, castFloor) + JUMP_OVERHEAD_AXIS_BASE_ADAPTATION;
+    const base: Vec3 = [feet[0]!, baseY, feet[2]!], top: Vec3 = [feet[0]!, upTo, feet[2]!];
+    if (top[1] <= base[1]) return Infinity;
+    // ... and the body's OWN GROUND is no roof: an UP-facing face within the walker's floor window over the simulated feet
+    // (`PROBE_LIFT_FLOOR_R0004.stand`, the r0004 floored root the walk picks its floor under) is the ground the body is
+    // over -- running uphill, the airborne feet sit just under the slope at their own column (MP64: walkable terrain 1.46
+    // over the feet). A down-facing underside always counts, and an up-facing slab far over the head (Frostfire's
+    // refinery roof, modelled up-facing) still does.
+    const feetY = baseY - JUMP_OVERHEAD_AXIS_BASE_ADAPTATION;
+    const ownGround = (h: { normal: readonly number[]; point: readonly number[] }): boolean =>
+      h.normal[1]! > 0 && h.point[1]! - feetY < PROBE_LIFT_FLOOR_R0004.stand;
+    const hit = segmentHits(this.grid, base, top, accept)
+      .find((h) => !surfaceMaterial(h.poly.material).liquid && !ownGround(h) && stopsCamera(h, target));
+    return hit ? hit.point[1] - CAM_MARGIN : Infinity;
   }
 
   /** The pass's distance, `DAT_003de268`. */

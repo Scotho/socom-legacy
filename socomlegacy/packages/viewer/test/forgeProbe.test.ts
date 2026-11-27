@@ -20,7 +20,7 @@ const poly = (path: string, ditype: number, points: number[]): WorldPoly =>
   ({ modelName: 'box', path, region: 0, ditype, material: 0, ptcount: points.length / 3, cameratype: 0, points: new Float32Array(points) });
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 function world(over: Partial<ForgeProbeWorld> = {}): ForgeProbeWorld {
-  const top = poly('box', 3, [100, 50, -50, 200, 50, -50, 200, 50, 50, 100, 50, 50]);
+  const top = poly('box', 3, [100, 50, 50, 200, 50, 50, 200, 50, -50, 100, 50, -50]);
   const wall = poly('box', 2, [100, 0, -50, 100, 50, -50, 100, 50, 50, 100, 0, 50]);
   const grid = placementGridOf(floorGround(2000), [{ owner: 'forge/piece_0', polys: [top, wall], m: IDENTITY }]);
   return {

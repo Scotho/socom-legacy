@@ -32,11 +32,11 @@ const tap = (button: number, crossHolds = false): PadAction[] => {
  * contributor's): his pad map gives R3 Frame with a selection and moves the Place tool's Snap to L3.
  */
 const CONTEXTS: [string, LegendContext, [PadGlyphName, string][]][] = [
-  // One tool, Select (the owner, 2026-11-17: an object spawns at once, no placing tool stays armed): no Tool to step.
+  // One tool, Select (the Forge's owner (crispy, OT.R112), 2026-11-17: an object spawns at once, no placing tool stays armed): no Tool to step.
   ['Build, nothing selected', { kind: 'build', selection: 0 },
     [['cross', 'Select'], ['cross', 'Hold: add'], ['dpad-v', 'Prop'], ['lstick', 'Fly'], ['rstick', 'Look'], ['select', 'Undo'], ['start', 'Menu']]],
   ['Build, a selection', { kind: 'build', selection: 1 },
-    [['cross', 'Select'], ['circle', 'Deselect'], ['circle', 'Hold: move'], ['square', 'Duplicate'], ['triangle', 'Delete'], ['dpad-h', 'Rotate'], ['r3', 'Frame'], ['start', 'Menu']]],
+    [['cross', 'Select'], ['circle', 'Deselect'], ['circle', 'Hold: move'], ['triangle', 'Delete'], ['dpad-h', 'Rotate'], ['r3', 'Frame'], ['start', 'Menu']]],   // no Duplicate since PR #5 (Square = Duplicate removed)
   ['Walk', { kind: 'walk' },
     [['lstick', 'Move'], ['rstick', 'Look'], ['cross', 'Jump'], ['circle', 'Stance'], ['square', 'Doors'], ['start', 'Build']]],
   ['the menu, a row', { kind: 'menu', depth: 0, sections: 4, item: { id: 'save', label: 'Saves' } },
@@ -117,16 +117,18 @@ describe('FUI-3: the design system\'s glyphs (padGlyph) and the strip', () => {
     expect(host.firstElementChild!.className).toBe('fx-legend-note');
     expect(host.firstElementChild!.textContent).toBe('Choose a prop first');
     const items = [...host.querySelectorAll('.s2u-prompt')];
-    expect(items.map((i) => i.tagName)).toEqual(['BUTTON', 'BUTTON', 'LI', 'BUTTON', 'BUTTON', 'BUTTON', 'BUTTON', 'BUTTON', 'BUTTON']);
-    const del = items[4] as HTMLButtonElement;
+    // PR #5 (seat-forge, item A7): seven prompts -- the Duplicate prompt and the L1 / R1 tool step are gone with Square =
+    // Duplicate and the one Select tool (the Forge's owner's choice, OT.R112).
+    expect(items.map((i) => i.tagName)).toEqual(['BUTTON', 'BUTTON', 'LI', 'BUTTON', 'BUTTON', 'BUTTON', 'BUTTON']);
+    const del = items[3] as HTMLButtonElement;
     expect(del.textContent).toBe('Triangle:Delete');
     expect(del.dataset['padPress']).toBe('delete');
     del.click();
     expect(pressed).toHaveBeenCalledWith('delete');
-    (items[6] as HTMLButtonElement).click();                              // R3: Frame (OT.R112)
+    (items[5] as HTMLButtonElement).click();                              // R3: Frame (OT.R112)
     expect(pressed).toHaveBeenLastCalledWith('frame');
-    (items[7] as HTMLButtonElement).click();                              // L1 / R1: a tap is R1's, the next tool
-    expect(pressed).toHaveBeenLastCalledWith('nextTool');
+    (items[6] as HTMLButtonElement).click();                              // Start: the menu
+    expect(pressed).toHaveBeenLastCalledWith('menu');
     drawLegend(document, host, legendFor({ kind: 'build', selection: 0 }, 'keys'), { pad: false, onPress: pressed });
     expect(host.classList.contains('is-pad')).toBe(false);
     expect(host.querySelector('.fx-legend-note')).toBeNull();

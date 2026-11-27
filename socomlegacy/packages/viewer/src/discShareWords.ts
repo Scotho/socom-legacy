@@ -229,9 +229,10 @@ export const shareQueued = (place: number): string => `Queued #${place}`;
  * launcher's words: the owner may change any.
  */
 
-/** The panel's row (directly above `SHARE_ROW_LABEL`), and the send area's head. */
+/** The panel's row (directly above `SHARE_ROW_LABEL`). */
 export const SEND_ROW_LABEL = 'Send Game Files';
-export const SEND_TITLE = SEND_ROW_LABEL;
+/** The send area's head (the owner, 2026-11-19: "change the wording on send game file at the top to ..."). */
+export const SEND_TITLE = 'Send this link to share your game files with another device';
 /** The disc mark menu's row, in the menu's capitals (DISC-LABELS: DISC ISO, RETAIL DISC). */
 export const SEND_MENU_LABEL = 'SEND DISC';
 /** The legend's Cross on the enabled row (and the menu's row). */

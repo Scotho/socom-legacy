@@ -9,7 +9,7 @@ import { MeshError, transact, type Attrs, type Topo } from './topology';
 /**
  * The geometry tools (a browser adaptation, after a level editor's mesh tools): each changes the mesh in place and says what it
  * made, so the selection can follow. Every tool that changes the mesh's shape of faces runs as one transaction over a
- * `./topology` `Topo` (the owner, 2026-11-19: "rebuild it as half edge"): built from its few operators, checked at the
+ * `./topology` `Topo` (the Forge's owner (crispy, OT.R112), 2026-11-19: "rebuild it as half edge"): built from its few operators, checked at the
  * end, and undone whole where the check fails -- a tool does all its work or none. A face a tool touches loses its disc
  * face normal (the compile computes it anew).
  */
@@ -72,7 +72,7 @@ export function snapVerts(m: EditMesh, verts: Iterable<number>, step: number, ax
 }
 
 /**
- * Points put where `places` says (the reference editor's Snap to Grid, Snap to Vertex and Snap Edges, the owner,
+ * Points put where `places` says (the reference editor's Snap to Grid, Snap to Vertex and Snap Edges, the Forge's owner (crispy, OT.R112),
  * 2026-11-20): each point moved, nothing joined -- two points brought to one place stay two; the faces touched lose
  * their disc normal and take fresh uvs.
  */
@@ -103,7 +103,7 @@ export function deleteFaces(m: EditMesh, faces: Iterable<number>): void {
 }
 
 /**
- * Deletes points as a level editor's vertex Delete does (the owner, 2026-11-19: one to one with the
+ * Deletes points as a level editor's vertex Delete does (the Forge's owner (crispy, OT.R112), 2026-11-19: one to one with the
  * reference editor): each face round a point loses that corner -- its two
  * neighbours joined straight across -- and a triangle, which would have only two left, goes. A box's corner deleted
  * leaves its three faces cut back to triangles round a three-sided hole.
@@ -218,7 +218,7 @@ export function mergeFaces(m: EditMesh, f: number, g: number): number | null {
 }
 
 /**
- * Edges each cut into `cuts` + 1 equal pieces (Subdivide on edges; its Cuts, the owner 2026-11-19: "parametric values
+ * Edges each cut into `cuts` + 1 equal pieces (Subdivide on edges; its Cuts, the Forge's owner (crispy, OT.R112), 2026-11-19: "parametric values
  * ... for each edit tool"). Returns the pieces' keys, for the selection.
  */
 export function subdivideEdges(m: EditMesh, edges: readonly (readonly [number, number])[], cuts = 1): string[] {
@@ -266,7 +266,7 @@ function extrudeIn(T: Topo, faces: readonly number[], distance: number): { faces
     if (face.mapping) T.setFace(f, { mapping: lockMapping(face.mapping, translation(d)) });
   }
   // A wall each border edge a -> b: a, b, b', a' -- faces out. In the face's object (a map's world is one mesh, its
-  // objects its faces' groups: a wall with none would be in no object -- the owner, 2026-11-17); its collision words
+  // objects its faces' groups: a wall with none would be in no object -- the Forge's owner (crispy, OT.R112), 2026-11-17); its collision words
   // left to its slope (`hullGeometry` `wordsOf`), a wall's, not the floor's it was pulled off.
   const walls: number[] = [];
   for (const e of border) {
@@ -432,7 +432,7 @@ export function dissolveFaces(m: EditMesh, faces: readonly number[]): number[] {
 
 /**
  * A new face of a bridge: its corners on `verts`, each corner's attributes off `from` (its source corner), in `source`'s
- * draw style and object (group). Its collision (the owner, 2026-11-18: "make sure to add the collision flags properly"):
+ * draw style and object (group). Its collision (the Forge's owner (crispy, OT.R112), 2026-11-18: "make sure to add the collision flags properly"):
  * on a hull object, `source`'s surface words made a floor's or a wall's by the new face's own facing (`floorOrWall`:
  * material, region and the indoor and reverb bits kept); a drawn face carries none, its hull taking its section's words
  * by facing at Build (`surfaceMatcher`), as an extrude's walls do.
@@ -443,7 +443,7 @@ function bridgeFace(T: Topo, verts: readonly number[], from: readonly number[], 
 }
 
 /**
- * A level editor's Bridge on two faces (a browser adaptation; the owner, 2026-11-18): the two faces removed and a four-sided face
+ * A level editor's Bridge on two faces (a browser adaptation; the Forge's owner (crispy, OT.R112), 2026-11-18): the two faces removed and a four-sided face
  * along each pair of their edges joining them -- a tunnel from one to the other. The faces need as many points each
  * and no point in common. Each point of `f` is paired with one of `g`'s, `g`'s taken in the opposite turn (the two
  * faces look at each other across the gap, or away from each other), at the offset whose pairs lie nearest in all.
@@ -483,7 +483,7 @@ export function bridgeFaces(m: EditMesh, f: number, g: number, segments = 1): { 
     }
     T.kill(f);
     T.kill(g);
-    // Segments (the reference editor's bridge Steps; the owner 2026-11-19: "parametric values"): each long edge from f's
+    // Segments (the reference editor's bridge Steps; the Forge's owner (crispy, OT.R112), 2026-11-19: "parametric values"): each long edge from f's
     // point to its g partner cut into `segments` pieces, the cuts joined round the tunnel -- rings along it.
     const steps = Math.max(1, Math.round(segments));
     if (steps > 1) {
@@ -634,7 +634,7 @@ function insetIn(T: Topo, faces: readonly number[], distance: number): { faces: 
 }
 
 /**
- * every modeller's Inset (a browser adaptation; the owner, 2026-11-18): the region `faces` make shrunk
+ * every modeller's Inset (a browser adaptation; the Forge's owner (crispy, OT.R112), 2026-11-18): the region `faces` make shrunk
  * `distance` inward in its own plane, a ring of new four-sided faces filling the border between the old outline and the
  * new -- an extrude by nothing, its border's copies then moved in. Faces touching each other inset as one region;
  * apart, each its own. At a border point the move is the mitre of its two border edges' inward sides, so the ring keeps
@@ -643,7 +643,7 @@ function insetIn(T: Topo, faces: readonly number[], distance: number): { faces: 
  * (inside the ring now) and the ring.
  */
 export function insetFaces(m: EditMesh, faces: readonly number[], distance: number, steps = 1): { faces: number[]; ring: number[] } {
-  // Steps (the reference editor's Inset Steps; the owner 2026-11-19: "parametric values"): `steps` rings, the distance
+  // Steps (the reference editor's Inset Steps; the Forge's owner (crispy, OT.R112), 2026-11-19: "parametric values"): `steps` rings, the distance
   // shared evenly between them, each inset from the last.
   const n = Math.max(1, Math.round(steps));
   return transact(m, {}, { faces: [], ring: [] }, (T) => {
@@ -662,7 +662,7 @@ export function insetFaces(m: EditMesh, faces: readonly number[], distance: numb
 /* ---------- edges pulled out ---------- */
 
 /**
- * Edges pulled out into new faces (ProBuilder's and other modellers' Shift-drag on edges; the owner, 2026-11-18): each edge
+ * Edges pulled out into new faces (ProBuilder's and other modellers' Shift-drag on edges; the Forge's owner (crispy, OT.R112), 2026-11-18): each edge
  * `a`-`b` given a copy of its two points and a four-sided face between them, which runs the edge the other way from the
  * face that has it -- so the new face carries that surface on across the edge, as a face across a border's gap does
  * (`bridgeEdges`). Edges side by side share their copied points: a strip, not loose faces. Each new face takes its
@@ -771,7 +771,7 @@ function ringBetween(T: Topo, f: number, X: number, Y: number): number[] {
 }
 
 /**
- * Quad Slice (Ctrl+D in the reference editor's face tool; its Cuts X and Y, the owner 2026-11-19: one to one with it,
+ * Quad Slice (Ctrl+D in the reference editor's face tool; its Cuts X and Y, the Forge's owner (crispy, OT.R112), 2026-11-19: one to one with it,
  * and "parametric values ... for each edit tool"): each face with four corners (`quadCorners`) cut into a grid of
  * (`cutsX` + 1) x (`cutsY` + 1) quads -- its first and third sides cut `cutsX` times, its second and fourth `cutsY`
  * times, evenly by length, and the cuts joined straight across through points blended from its four sides (a Coons
@@ -836,7 +836,9 @@ export function subdivideFaces(m: EditMesh, faces: readonly number[], cutsX = 1,
           pieces.push(ring);
         }
       }
-      for (const ring of pieces) made.push(T.faceLike(ring, f));
+      // PR #5 D1 (ours): each piece keeps the source's collision words (`propsOf` with its surface), as the knife's do;
+      // `faceLike` would make them a floor's or a wall's by facing (a sliced ladder face no longer climbable).
+      for (const ring of pieces) { const g = T.makeFace(ring, T.propsOf(f, { surface: true })); T.normalsDown(g); made.push(g); }
       T.kill(f);
     }
     return made;
@@ -846,7 +848,7 @@ export function subdivideFaces(m: EditMesh, faces: readonly number[], cutsX = 1,
 /* ---------- loop cut ---------- */
 
 /**
- * A loop cut (every modeller's; the owner, 2026-11-18): the ring of edges `ring` (`./selection` `edgeRing`)
+ * A loop cut (every modeller's; the Forge's owner (crispy, OT.R112), 2026-11-18): the ring of edges `ring` (`./selection` `edgeRing`)
  * each split at its middle (`Topo.splitEdge`), and each four-sided face the ring crosses cut between its two new points
  * (`Topo.splitFace`) -- a new edge loop across the ring. Faces keep their style, object, mapping and collision words.
  * Returns the new loop's edges.
@@ -946,7 +948,7 @@ function cutExit(T: Topo, v: number, target: readonly number[]): { face: number;
 }
 
 /**
- * The reference editor's Edge Cut (the Knife; the owner, 2026-11-19: "do the knife on face like [it]"): the points
+ * The reference editor's Edge Cut (the Knife; the Forge's owner (crispy, OT.R112), 2026-11-19: "do the knife on face like [it]"): the points
  * clicked, in order -- each a point of the mesh, a place on an edge, or a place inside a face. From the first point on
  * an edge or a point (a place inside a face cannot start a cut), each next point is reached in a straight line across
  * the faces between (`cutExit`): where the line leaves a face, a point on that edge (or the edge's own end, within a
@@ -1059,7 +1061,7 @@ const onSegment = (a: readonly number[], b: readonly number[], p: readonly numbe
 /* ---------- bevel ---------- */
 
 /**
- * Blender's and other modellers' Bevel on edges, one segment -- a chamfer (a browser adaptation; the owner, 2026-11-18: "it
+ * Blender's and other modellers' Bevel on edges, one segment -- a chamfer (a browser adaptation; the Forge's owner (crispy, OT.R112), 2026-11-18: "it
  * should look like ... blender ... Fix it for both faces and edges"): the edges `edges` (each between two faces) bevelled
  * together, `width` across, worked out point by point as Blender's is, so bevelled edges meeting at a corner run into it
  * and meet on one seam. At each point of a bevelled edge, every face's corner there becomes:
@@ -1203,7 +1205,7 @@ function bevelIn(T: Topo, edges: readonly (readonly [number, number])[], width: 
     }
   }
   // Faces with neither edge bevelled at the point. Where the faces close round it (the reference editor's bevel walk
-  // round an end point; the owner, 2026-11-19: "always match hammer for all tools"): every edge there cut `width` along
+  // round an end point; the Forge's owner (crispy, OT.R112), 2026-11-19: "always match hammer for all tools"): every edge there cut `width` along
   // it (held at 15/16 of the edge, the reference's; under half where its far end is cut too) and the point dropped -- each such face's corner cut off, and the
   // patch below filling the hole round the point (an inset's diagonal at a column's foot: the patch ends on it, no
   // sharp point left inside). On a border, or keeping the edge (Shift-drag): the places their edges slid to, set in
@@ -1334,7 +1336,7 @@ function bevelIn(T: Topo, edges: readonly (readonly [number, number])[], width: 
       made.push(T.faceLike([...loop].reverse().map((y) => T.addCorner(y, cornerAttrs(m, m.faces[src]!.corners[0]!))), src));
     }
   }
-  // Segments (the reference editor's bevel Steps and Shape; the owner, 2026-11-19: "parametric values ... for each edit
+  // Segments (the reference editor's bevel Steps and Shape; the Forge's owner (crispy, OT.R112), 2026-11-19: "parametric values ... for each edit
   // tool"): each strip's two ends -- the edges across it, from F1's side to F2's -- cut into `segments` pieces along
   // its profile, from the straight chamfer (shape 0) to the curve through the corner the edge stood on (shape 1, a
   // quadratic curve the strip's sides are tangent to), and the cuts joined along the strip. An end two strips share
@@ -1541,7 +1543,7 @@ function joinAcross(T: Topo, from: readonly number[], to: readonly number[]): [n
 }
 
 /**
- * A loop cut of `cuts` loops (the owner, 2026-11-19: "parametric values ... for each edit tool"): the ring through edge
+ * A loop cut of `cuts` loops (the Forge's owner (crispy, OT.R112), 2026-11-19: "parametric values ... for each edit tool"): the ring through edge
  * `a`-`b` -- across each even-sided face to the side opposite, among `within` (one object's faces) -- each edge cut into
  * `cuts` + 1 equal pieces, the k-th cut of each edge joined to the k-th of the next across their face: `cuts` new
  * loops, evenly spaced. The ring is walked keeping each edge's ends lined up with the last's (a face's opposite side
@@ -1601,7 +1603,7 @@ export function loopCutAt(m: EditMesh, a: number, b: number, cuts = 1, within?: 
 }
 
 /**
- * The reference editor's vertex Shift-drag (the owner, 2026-11-19: "yes do the shift drag extend on vertices"): each
+ * The reference editor's vertex Shift-drag (the Forge's owner (crispy, OT.R112), 2026-11-19: "yes do the shift drag extend on vertices"): each
  * point on an open border -- two of its edges open, a face on one side only -- extended out of the border, every other
  * point pulled into a spike (`extrudeVerts`). Border points whose open edge between them is selected too (both ends)
  * pull that edge out (`extrudeEdges`: a strip, side by side sharing their copies); a border point alone gets a copy and
@@ -1630,7 +1632,7 @@ export function extrudeOrExtendVerts(m: EditMesh, verts: readonly number[], widt
     }
     // A border point alone: a copy, and a triangle off each of its two border edges to it, on the open side -- never one
     // face through the point's two neighbours, which at a corner of the border (a wall's foot meeting its side) lies
-    // across the face already there and folds over it as the copy is pulled (the owner, 2026-11-19: "I get this bad
+    // across the face already there and folds over it as the copy is pulled (the Forge's owner (crispy, OT.R112), 2026-11-19: "I get this bad
     // geometry"). Where the pull leaves the two in one plane (a point along a straight border), the caller joins them
     // into the one four-sided face the reference editor makes (`pairs`).
     for (const v of border) {
@@ -1679,7 +1681,7 @@ const faceNormalOf = (m: EditMesh, f: number): Vec3 => normalize(faceVerts(m, f)
 
 /**
  * Faces left bent -- their points no longer in one plane, a corner moved off it -- split into triangles with real edges
- * (the owner, 2026-11-19: "I also get that type of geometry in a lot of other tools, it is like an edge but it is
+ * (the Forge's owner (crispy, OT.R112), 2026-11-19: "I also get that type of geometry in a lot of other tools, it is like an edge but it is
  * invisible. Please fix on all the tools that do this"): a bent face is drawn as triangles anyway, its fold an edge no
  * one can see or pick; split, the fold is an edge like any other. Each triangle keeps the face's style, object, mapping
  * and its collision words as they were (the same surface, cut). A face within `1e-4` of its size of flat is left whole;
@@ -1728,7 +1730,7 @@ export function isBent(m: EditMesh, f: number): boolean {
 export const THICKEN_NOT_OPEN = 'select faces whose border is all open (a sheet, such as a plane): a closed solid has nothing to thicken';
 
 /**
- * Thicken Faces (the reference editor's, G in Face mode; the owner, 2026-11-20: "remove the hollow and add the
+ * Thicken Faces (the reference editor's, G in Face mode; the Forge's owner (crispy, OT.R112), 2026-11-20: "remove the hollow and add the
  * thicken faces"): each island of `faces` (joined by edges) whose border is open all round -- a sheet, no face beyond
  * it -- given a back `amount` behind it: a copy of its faces turned round and moved back along their normals (as the
  * reference's offset: each point pushed by the normals of the faces round it, then held to each face's moved plane),
@@ -1796,7 +1798,7 @@ export function thickenFaces(m: EditMesh, faces: readonly number[], amount: numb
 /* ---------- merge points ---------- */
 
 /**
- * Merge points (a level editor's; the owner, 2026-11-19): each group of `groups` made one point, at the group's middle
+ * Merge points (a level editor's; the Forge's owner (crispy, OT.R112), 2026-11-19): each group of `groups` made one point, at the group's middle
  * or (`at` 'last') where its last point is -- every face through them put on that point, a corner run onto the same
  * point dropped, a face left with under three points gone (a quad's two corners merged: a triangle). A face that would
  * pass the point twice is split there into its parts (a quad's opposite corners merged: it goes; the reference
@@ -1835,7 +1837,8 @@ export function mergeVerts(m: EditMesh, groups: readonly (readonly number[])[], 
         if (!parts.length) { T.kill(f); continue; }
         T.setRing(f, parts[0]!);
         T.touchFace(f);
-        for (const p of parts.slice(1)) T.faceLike(p, f);
+        // PR #5 D1 (ours): a split-off part keeps the face's own collision words, as the part kept in `f` does.
+        for (const p of parts.slice(1)) T.normalsDown(T.makeFace(p, T.propsOf(f, { surface: true })));
       }
       kept.push(keep);
     }
@@ -1867,14 +1870,14 @@ export function mergeGroups(m: EditMesh, verts: readonly number[], within: numbe
 /** An Edge mode Merge's refusals: a selected edge with faces on both sides, or two edges that run the same way. */
 export const MERGE_EDGES_NOT_OPEN = 'select open edges (a face on one side only) to weld';
 export const MERGE_EDGES_SAME_WAY = 'the two edges run the same way round: their faces would face opposite ways';
-/** Three or more open edges merged: their ends this near each other welded (the reference editor's 0.1, a reading). */
-export const MERGE_EDGES_WELD_READING = 0.1;
+/** Three or more open edges merged: their ends this near each other welded (the reference editor's 0.1; an editor value, a browser adaptation, FG.R2). */
+export const MERGE_EDGES_WELD_ADAPTATION = 0.1;
 
 /**
  * An Edge mode Merge's point groups (the reference editor's edge Merge): every edge open. Two edges welded into one --
  * each end paired with the other edge's far end (the faces beside them then run opposite ways along it, as a closed
  * surface's do), each pair met at its middle ('centre'); two edges sharing an end just have their other ends met.
- * Three or more: their ends welded where they lie within `MERGE_EDGES_WELD_READING` ('last').
+ * Three or more: their ends welded where they lie within `MERGE_EDGES_WELD_ADAPTATION` ('last').
  */
 export function edgeMergeGroups(m: EditMesh, faces: readonly number[], edges: readonly (readonly [number, number])[]): { groups: number[][]; at: 'centre' | 'last' } | { error: string } {
   const em = new Map<string, number[]>();
@@ -1898,13 +1901,13 @@ export function edgeMergeGroups(m: EditMesh, faces: readonly number[], edges: re
     if (a2 === b1) return { groups: [[a1, b2]], at: 'centre' };
     return { groups: [[a1, b2], [a2, b1]], at: 'centre' };
   }
-  return { groups: mergeGroups(m, runs.flat(), MERGE_EDGES_WELD_READING).filter((g) => g.length > 1), at: 'last' };
+  return { groups: mergeGroups(m, runs.flat(), MERGE_EDGES_WELD_ADAPTATION).filter((g) => g.length > 1), at: 'last' };
 }
 
 /* ---------- collapse ---------- */
 
 /**
- * Collapse on edges (the reference editor's Shift+O in Edge mode; the owner, 2026-11-20): `edges` in islands -- runs
+ * Collapse on edges (the reference editor's Shift+O in Edge mode; the Forge's owner (crispy, OT.R112), 2026-11-20): `edges` in islands -- runs
  * that meet at their ends -- each island's points made one point at their average (`mergeVerts` 'centre'). Returns
  * the point groups, one an island, for `mergeVerts`.
  */
@@ -1940,7 +1943,7 @@ export function collapseFaces(m: EditMesh, faces: readonly number[]): number[] {
 export const EXTEND_NOT_OPEN = 'select open edges (a face on one side only) to extend';
 
 /**
- * Extend Edges (the reference editor's N in Edge mode; the owner, 2026-11-20): each open edge of `edges` given a new
+ * Extend Edges (the reference editor's N in Edge mode; the Forge's owner (crispy, OT.R112), 2026-11-20): each open edge of `edges` given a new
  * four-sided face on its open side, its far edge `amount` out in the plane of the edge's face, square to the edge --
  * the face carrying the surface on, with that face's style, object and texture mapping (as the reference copies the
  * mapping), on a hull its collision words by its facing. Edges that meet share their new corner, set so each new edge
@@ -2000,7 +2003,7 @@ export function extendEdges(m: EditMesh, edges: readonly (readonly [number, numb
 const CLIP_ON_PLANE = 1e-6;
 
 /**
- * The reference editor's Clipping tool's cut (the owner, 2026-11-20: "implement the clipping tool"): `faces` cut by the
+ * The reference editor's Clipping tool's cut (the Forge's owner (crispy, OT.R112), 2026-11-20: "implement the clipping tool"): `faces` cut by the
  * plane `n` . p = `d` -- each edge across it split where it crosses (its other faces split there too, so nothing
  * cracks), each face across it cut in two between its points on the plane -- then, by `keep`, the faces on one side
  * taken away: 'front' keeps the side `n` points away from (n . p < d; the reference's Keep Front, its plane turned
@@ -2085,7 +2088,7 @@ export function mirrorMatrix(n: readonly number[], d: number): number[] {
 export const FILL_NOT_OPEN = 'select an open edge (a face on one side only): the edge of a hole';
 
 /**
- * Fill Hole (every modeller's; the owner, 2026-11-19: "do fill hole"; a browser adaptation, the game has no editor):
+ * Fill Hole (every modeller's; the Forge's owner (crispy, OT.R112), 2026-11-19: "do fill hole"; a browser adaptation, the game has no editor):
  * each hole one of `edges` lies on capped with one face. A hole is a loop of open edges (one face each, in the whole
  * mesh -- a map's world section's edge against the next section is no hole); from a selected edge the loop is walked
  * the way the faces beside it do not run, so the cap turns as they do and the surface closes. Several selected edges

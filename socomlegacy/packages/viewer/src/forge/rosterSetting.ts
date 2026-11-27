@@ -16,8 +16,13 @@ import type { CharacterRoster, RosterPick } from './layout';
  * (`../teamBody` `bodyForTeam`, `hitBodiesOfPage`, both by `types[side][i]`). The layout's arsenal applies after it
  * (`./arsenalSetting`), so its kit picks reach a lent type's kit too.
  *
- * Not carried: the lobby's ARMORY columns' portraits and captions (the base map's `EMnn` library and `UiVars`), and the
- * match server's rooms (its `forgeSimMap.ts`, outside this repository) -- both keep the map's own roster.
+ * FN-1b (research 425): the Forge lobby's room lends the same columns by the same rule (`rosterLending`, which this
+ * module's `withRoster` and the room's `match/src/forgeSimMap.ts` `forgeRoomRoster` both call): each column's kit and its
+ * hit skeleton from its disc map, before the arsenal.
+ *
+ * Not carried: the ARMORY columns' portraits and captions (the base map's `EMnn` library and `UiVars`): a lent column
+ * shows the base's at its index (none past the base's columns); its type, character and kit are the lent ones
+ * (`./match` `lobbyArmoryOver`).
  */
 export type RosterMap = Pick<LoadedMap, 'archive' | 'textures' | 'textureFlags'> & Partial<Pick<LoadedMap, 'textureMips' | 'types' | 'arsenal'>>;
 
@@ -48,41 +53,69 @@ function lentBody(body: LoadedBody, lib: RosterMap, into: { textures: Record<str
   };
 }
 
+/** One kept column (`rosterLending`): its pick, the map it is read from (`own` when that is the base itself), its body and kit. */
+export interface LentColumn<L, B, K> { pick: RosterPick; lib: L; own: boolean; body: B | null; kit: K | null }
+/** A side the roster names with at least one column kept: the columns in order, and its kits -- null when it keeps the base's. */
+export interface LentSide<L, B, K> { side: Side; columns: LentColumn<L, B, K>[]; kits: K[] | null }
+
+/**
+ * FN-1b (research 425): the roster's column rule, one pure function the page (`withRoster`, a body a `LoadedBody`) and
+ * the Forge room (`match/src/forgeSimMap.ts` `forgeRoomRoster`, a body a hit skeleton) both call, so the two keep and
+ * refuse the same columns in the same words. Each side named, its columns in order: the column's map is the base itself
+ * (`home`, its stem) or `libOf`'s (null: not there, "would not load"); its body and kit are that map's type `index` on the
+ * side (`read`); one with neither is left out ("has no ... type"). A side left with no column is not returned (it keeps
+ * the base's). A kept side's kits are its columns' kits when the base has kits (`hasKits`) and every kept column has one;
+ * else, with `hasKits`, the side keeps the base's kits and says so. `refused` in the side's order, its columns then its
+ * kits. Pure: it reads only through `libOf` and `read`.
+ */
+export function rosterLending<L, B, K>(roster: CharacterRoster, home: string, own: L, libOf: (stem: string) => L | null,
+  read: { body: (lib: L, side: Side, index: number) => B | null; kit: (lib: L, side: Side, index: number) => K | null },
+  hasKits: boolean): { sides: LentSide<L, B, K>[]; refused: string[] } {
+  const refused: string[] = [];
+  const sides: LentSide<L, B, K>[] = [];
+  for (const side of ROSTER_SIDES) {
+    const picks = roster[side];
+    if (picks.length === 0) continue;
+    const columns: LentColumn<L, B, K>[] = [], sideKits: K[] = [];
+    picks.forEach((p, column) => {
+      const at = `${SIDE_WORD[side]} ${column + 1}`;
+      const lib = p.map === home ? own : libOf(p.map);
+      if (!lib) { refused.push(`${at}: ${p.map} would not load`); return; }
+      const body = read.body(lib, side, p.index);
+      const kit = read.kit(lib, side, p.index);
+      if (!body && !kit) { refused.push(`${at}: ${p.map} has no ${SIDE_WORD[side]} type ${p.index + 1}`); return; }
+      columns.push({ pick: p, lib, own: lib === own, body, kit });
+      if (kit) sideKits.push(kit);
+    });
+    if (columns.length === 0) continue;
+    const kits = hasKits && sideKits.length === columns.length ? sideKits : null;
+    if (hasKits && !kits) refused.push(`${SIDE_WORD[side]}: a column's map has no kits, so the side keeps the map's own kits`);
+    sides.push({ side, columns, kits });
+  }
+  return { sides, refused };
+}
+
 /**
  * `map` with the roster's columns for its types and kits: each side named, its columns in order, each body lent from its
  * map (the map's own as it is) and its kit that map's. A column whose map is not there (`libOf` null) or has no such
- * type is left out and named; a side left with no column keeps the map's own.
+ * type is left out and named; a side left with no column keeps the map's own. The column rule is `rosterLending`'s.
  */
 export function withRoster<T extends RosterMap>(map: T, roster: CharacterRoster | null | undefined, libOf: (stem: string) => RosterMap | null): { map: T; refused: string[] } {
   if (rosterIsEmpty(roster)) return { map, refused: [] };
-  const refused: string[] = [];
   const into = { textures: { ...map.textures } as Record<string, unknown>, textureFlags: { ...map.textureFlags } as Record<string, unknown>,
     ...(map.textureMips ? { textureMips: { ...map.textureMips } as Record<string, unknown> } : {}) };
   const types = { seal: map.types?.seal ?? [], terrorist: map.types?.terrorist ?? [], ...(map.types?.escortees ? { escortees: map.types.escortees } : {}) };
   const ownKits = map.arsenal?.map?.kits;
   const kits: Record<Side, readonly CharacterKit[]> | null = ownKits ? { seal: ownKits.seal, terrorist: ownKits.terrorist } : null;
-  let lent = false;
-  for (const side of ROSTER_SIDES) {
-    const picks = roster![side];
-    if (picks.length === 0) continue;
-    const bodies: (LoadedBody | null)[] = [], sideKits: CharacterKit[] = [];
-    picks.forEach((p, column) => {
-      const at = `${SIDE_WORD[side]} ${column + 1}`;
-      const lib = p.map === map.archive ? map : libOf(p.map);
-      if (!lib) { refused.push(`${at}: ${p.map} would not load`); return; }
-      const body = lib.types?.[side][p.index] ?? null;
-      const kit = lib.arsenal?.map?.kits[side][p.index] ?? null;
-      if (!body && !kit) { refused.push(`${at}: ${p.map} has no ${SIDE_WORD[side]} type ${p.index + 1}`); return; }
-      bodies.push(body && lib !== map ? lentBody(body, lib, into) : body);
-      if (kit) sideKits.push(kit);
-    });
-    if (bodies.length === 0) continue;
-    lent = true;
-    types[side] = bodies;
-    if (kits && sideKits.length === bodies.length) kits[side] = sideKits;
-    else if (kits) refused.push(`${SIDE_WORD[side]}: a column's map has no kits, so the side keeps the map's own kits`);
+  const { sides, refused } = rosterLending<RosterMap, LoadedBody, CharacterKit>(roster!, map.archive, map, libOf, {
+    body: (lib, side, index) => lib.types?.[side][index] ?? null,
+    kit: (lib, side, index) => lib.arsenal?.map?.kits[side][index] ?? null,
+  }, kits !== null);
+  for (const s of sides) {
+    types[s.side] = s.columns.map((c) => (c.body && !c.own ? lentBody(c.body, c.lib, into) : c.body));
+    if (kits && s.kits) kits[s.side] = s.kits;
   }
-  if (!lent) return { map, refused };
+  if (sides.length === 0) return { map, refused };
   const arsenal = map.arsenal && kits && map.arsenal.map ? { ...map.arsenal, map: { ...map.arsenal.map, kits } } : map.arsenal;
   return { map: { ...map, ...into, types, ...(arsenal ? { arsenal } : {}) } as T, refused };
 }

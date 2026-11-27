@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { MAP_TABLE, MAP_TYPE_WORDS, isMapStem, mapDisplayName, mapLabel, mapRow, titleCase } from '../src/mapNames';
+import {
+  MAP_TABLE, MAP_TYPE_WORDS, MAP_VARIANTS, isMapStem, mapDisplayName, mapLabel, mapRow, mapVariant, titleCase, variantName, variantTitle,
+} from '../src/mapNames';
 
 /**
  * MN-1 (OT.R113, product track): the one map-name table every public surface names a map from. The 22 disc rows are
@@ -80,5 +82,58 @@ describe('the map table (MN-1)', () => {
     expect(mapLabel('--')).toBe('--');
     expect(isMapStem('MP2')).toBe(true);
     expect(isMapStem('MP2/classic')).toBe(false);
+  });
+});
+
+/**
+ * DAY-1 (`docs/plans/2026-11-23-day-mode.md`, DAY.R2, product track): a variant is the pair (stem, time) -- MP5 day,
+ * MP64 day, MP6 night -- one table beside MAP_TABLE; its names are the row's name plus the word, never a new literal of
+ * the map's name. A variant is in the release's offer once the owner accepts it (DAY.R7 flips `accepted`; DAY-R1: MP5 day).
+ */
+describe('the map variants (DAY-1, DAY.R2)', () => {
+  // DAY-RN1 (the owner, 2026-11-24 ~17:52Z: "prepare the day version the same way we did abandoned"): Rat's Nest (Day),
+  // MP8, a fourth pair -- accepted by the owner from its stills (MISSION OT.R158, 2026-11-25: "rats nest day: accepted").
+  it('holds the four pairs, each built on its MAP_TABLE row', () => {
+    expect(MAP_VARIANTS.map((v) => [v.stem, v.level, v.variant, v.word])).toEqual([
+      ['MP5', 5, 'day', 'DAY'], ['MP64', 64, 'day', 'DAY'], ['MP6', 6, 'night', 'NIGHT'], ['MP8', 8, 'day', 'DAY'],
+    ]);
+    for (const v of MAP_VARIANTS) {
+      expect(mapRow(v.stem), v.stem).toBeDefined();
+      expect(v.stem).toBe(`MP${v.level}`);
+    }
+  });
+
+  // DAY-R1 (DAY.R7): the owner accepted Abandoned (Day) for v0.4.32 (2026-11-24 ~05:20Z, the plan's Log), and Rat's
+  // Nest (Day) (MISSION OT.R158, 2026-11-25, verbatim: "rats nest day: accepted, using 5. Sky MP2, foc current[17,18,23]
+  // option"); Shadow Falls (Day) and Desert Glory (Night) stay out until he accepts their stills. The accepted set is pinned whole.
+  it('offers only the accepted variants: MP5 day (DAY-R1) and MP8 day (OT.R158)', () => {
+    expect(MAP_VARIANTS.filter((v) => v.accepted).map((v) => [v.stem, v.variant])).toEqual([['MP5', 'day'], ['MP8', 'day']]);
+  });
+
+  it("names each variant in the disc's caps and in the launcher's case", () => {
+    expect([variantName(5, 'day'), variantTitle(5, 'day')]).toEqual(['ABANDONED (DAY)', 'Abandoned (Day)']);
+    expect([variantName(64, 'day'), variantTitle(64, 'day')]).toEqual(['SHADOW FALLS (DAY)', 'Shadow Falls (Day)']);
+    expect([variantName(6, 'night'), variantTitle(6, 'night')]).toEqual(['DESERT GLORY (NIGHT)', 'Desert Glory (Night)']);
+    expect([variantName(8, 'day'), variantTitle(8, 'day')]).toEqual(["RAT'S NEST (DAY)", "Rat's Nest (Day)"]);
+    for (const v of MAP_VARIANTS) {
+      expect(variantName(v.level, v.variant)).toBe(`${mapRow(v.level)!.name} (${v.word})`);
+      expect(variantTitle(v.level, v.variant)).toBe(`${mapRow(v.level)!.title} (${titleCase(v.word)})`);
+    }
+  });
+
+  it('finds a pair by stem or level alike, and refuses a pair off the table', () => {
+    for (const v of MAP_VARIANTS) {
+      expect(mapVariant(v.stem, v.variant)).toBe(v);
+      expect(mapVariant(v.stem.toLowerCase(), v.variant)).toBe(v);
+      expect(mapVariant(v.level, v.variant)).toBe(v);
+    }
+    expect(mapVariant('MP2', 'day')).toBeUndefined();
+    expect(mapVariant('MP5', 'night')).toBeUndefined();
+    expect(mapVariant(64, 'night')).toBeUndefined();
+    expect(mapVariant(8, 'night')).toBeUndefined();
+    expect(mapVariant('MP99', 'day')).toBeUndefined();
+    expect(mapVariant(5.5, 'day')).toBeUndefined();
+    expect(variantName(5, 'night')).toBeUndefined();
+    expect(variantTitle('MP2', 'day')).toBeUndefined();
   });
 });

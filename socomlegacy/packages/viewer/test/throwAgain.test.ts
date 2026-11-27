@@ -98,7 +98,7 @@ describe('LATER 247: the same throwable thrown again, the thrower alone (a still
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]),
+  points: Float32Array.from([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400]),
 };
 const OWNERS: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
 const GROUND: GroundData = packGround(PARAMS, [FLOOR], OWNERS);
@@ -325,7 +325,9 @@ describe('LATER 247: throwing again as a match throws (the part on the real walk
  * throw clip's pop. Under the clip the plain trigger branch reads the button's level (D:L453543-453567) and a press with
  * a grenade left sets the wind-up bit (D:L453633-453637); at the pop the bit-0x80 branch clears it and remaps the edge
  * (D:L453484-453500), so a button still down reads as a fresh press on the next update and the wind-up chases from 0 on
- * the update after (`THROW_REARM_UPDATES_READING`, 2). A tap under the clip throws nothing; nothing re-arms with the
+ * the update after (`THROW_REARM_UPDATES_READING`, 2 game frames). LATER 1027 re-pin: the port counts those in game frames
+ * of real time, the first update at which 2 x 525/15734 = 0.0667345 s have passed since the pop's -- at these 1/60 s
+ * updates the 5th (4/60 = 0.0666667 s is 0.07 ms short), was the 2nd (page updates counted). A tap under the clip throws nothing; nothing re-arms with the
  * slot empty (`FUN_005bdb00` -> `FUN_005bda70`, D:L474519-474538).
  */
 describe('GRENADE-RETHROW: a press held through the first throw starts the second wind-up at the pop (the thrower alone)', () => {
@@ -356,7 +358,7 @@ describe('GRENADE-RETHROW: a press held through the first throw starts the secon
   }
 
   for (const kind of KINDS) {
-    it(`${kind}: pressed after the hand opens and held: the wind-up starts within 2 updates of the pop, from power 0; let go, it throws`, () => {
+    it(`${kind}: pressed after the hand opens and held: the wind-up starts 2 game frames after the pop (the 5th 60 Hz update), from power 0; let go, it throws`, () => {
       const r = rig(kind);
       const left0 = r.g.stats().left;
       r.throwOne();
@@ -365,9 +367,8 @@ describe('GRENADE-RETHROW: a press held through the first throw starts the secon
       r.g.pull();                                                      // pressed in the follow-through, held
       expect(r.until(() => r.g.phase() !== 'throwing')).toBeGreaterThan(0);
       const toHold = r.until(() => r.g.phase() === 'holding', 10);
-      expect(toHold).toBeGreaterThan(0);
-      expect(toHold).toBeLessThanOrEqual(2);
-      expect(r.g.stats().power).toBeGreaterThan(0);                   // chased this update, from 0 (3/s x 1/60 = 0.05)
+      expect(toHold).toBe(5);                                          // LATER 1027 re-pin: was <= 2 (page updates)
+      expect(r.g.stats().power).toBeGreaterThan(0);                   // chased this update, from 0 (1/60 s of the chase: 0.0513, LATER 1027)
       expect(r.g.stats().power).toBeLessThan(0.1);
       for (let i = 0; i < 30; i++) r.frame();
       r.g.release();
@@ -386,8 +387,7 @@ describe('GRENADE-RETHROW: a press held through the first throw starts the secon
     expect(r.until(() => r.log.thrown === 1)).toBeGreaterThan(0);
     expect(r.until(() => r.g.phase() !== 'throwing')).toBeGreaterThan(0);
     const toHold = r.until(() => r.g.phase() === 'holding', 10);
-    expect(toHold).toBeGreaterThan(0);
-    expect(toHold).toBeLessThanOrEqual(2);
+    expect(toHold).toBe(5);                                            // LATER 1027 re-pin: was <= 2 (page updates)
     for (let i = 0; i < 30; i++) r.frame();
     r.g.release();
     expect(r.until(() => r.log.thrown === 2)).toBeGreaterThan(0);
@@ -484,7 +484,7 @@ describe('GRENADE-RETHROW: through hands.trigger on the real walk, the second th
         }
         expect(popFrame).toBeGreaterThan(0);
         expect(holdFrame - popFrame).toBeGreaterThan(0);              // the second wind-up, no second trigger(true)
-        expect(holdFrame - popFrame).toBeLessThanOrEqual(2);
+        expect(holdFrame - popFrame).toBe(5);                          // LATER 1027 re-pin: 2 game frames at 1/60 s updates, was <= 2
         // the uncut clip pops about 0.78 s after the hand opens standing; the stick's cut well before it
         if (cut) expect(popFrame - opened).toBeLessThan(30);
         else expect(popFrame - opened).toBeGreaterThan(30);
@@ -554,14 +554,23 @@ describe('GRENADE-RETHROW fold (reviews F1, F3): the firearm taken under a trigg
    */
   const l1UnderHeld = (r: ReturnType<typeof part>): void => {
     const pull = vi.spyOn(Fire.prototype, 'pull');
+    let thrownAfter = 0;
+    r.t.grenade.on('throw', () => { thrownAfter++; });              // the throw already launched (holdThrough, popNoRearm)
     for (let i = 0; i < 4; i++) r.frame();
     expect(r.play!.weaponStats().raise.edge).toBe(1);              // the slot empty: the press no longer remapped
     r.firearm!.selectFirearm('rifle');                              // L1, R1 still held
-    expect(r.t.grenade.equipped()).toBe(true);                      // was: put away, the rifle up and firing
+    // EMPTY_THROWABLE_SWAP_OWNER: taken; the original refuses (research 326 s7.3 GR-1; QUIZTIME-EMPTY-r0004, record 2a95703e).
+    expect(r.t.grenade.equipped()).toBe(false);
     for (let i = 0; i < 30; i++) r.frame();
-    expect(r.t.grenade.equipped()).toBe(true);
-    expect(r.hands.heldPulls?.()).toBeNull();                       // the hand still the grenade's
-    expect(pull).not.toHaveBeenCalled();                            // no round
+    // EMPTY_THROWABLE_SWAP_OWNER: the rifle up; the original refuses (research 326 s7.3 GR-1; QUIZTIME-EMPTY-r0004, record 2a95703e).
+    expect(r.t.grenade.equipped()).toBe(false);
+    // EMPTY_THROWABLE_SWAP_OWNER: the held trigger the firearm's; the original refuses (research 326 s7.3 GR-1; QUIZTIME-EMPTY-r0004, record 2a95703e).
+    expect(r.hands.heldPulls?.()).toBe(0);
+    // EMPTY_THROWABLE_SWAP_OWNER: the rifle fires on the held R1 (count 0); the original refuses (research 326 s7.3 GR-1; QUIZTIME-EMPTY-r0004, record 2a95703e).
+    expect(pull).toHaveBeenCalledTimes(1);
+    expect(pull).toHaveBeenLastCalledWith(0);
+    expect(thrownAfter, 'the swap neither eats nor repeats the launched throw').toBe(0);
+    pull.mockClear();                                               // the let-go below: nothing more owed
     r.press(false);                                                 // R1 let go
     for (let i = 0; i < 4; i++) r.frame();
     expect(r.play!.weaponStats().raise.edge).not.toBe(1);
@@ -675,7 +684,8 @@ describe('LATER 792: the swap gate refuses a held trigger (FUN_005a8cb0 D:L46317
     expect(r.firearm!.shoulderGate(0)).toBe(true);                  // the edge 2: `!= 1` passes (D:L463175-463176)
     expect(untilEdge(r, 1)).toBe(true);
     r.firearm!.selectFirearm('rifle');
-    expect(r.t.grenade.equipped()).toBe(true);                      // refused
+    // EMPTY_THROWABLE_SWAP_OWNER: taken; the original refuses (research 326 s7.3 GR-1; QUIZTIME-EMPTY-r0004, record 2a95703e).
+    expect(r.t.grenade.equipped()).toBe(false);
     r.press(false);
     r.dispose();
   });
@@ -760,13 +770,13 @@ describe('LATER 792: the swap gate refuses a held trigger (FUN_005a8cb0 D:L46317
  * controller's bit 0x80 (`+0x170`, D:L453520-453537); the branch it guards runs on the first update `FUN_0059d830`
  * passes and `FUN_005a7d10(actor, 0)` finds no throw on top (D:L453478-453480, D:L453484; the two read the same list of
  * throw types, D:L457352-457355 and D:L462579-462582), and there it lowers the rifle and moves the edge `+0x118` as a
- * let-go: 3 -> 0, 2 or 1 -> 3, 0 -> 0 (D:L453485-453501). A throw in that list -- every rifle-hand throw and the pistol
- * hand's crouched and prone ones -- holds the branch until its pop; so with R1 held through the slot's last grenade the
+ * let-go: 3 -> 0, 2 or 1 -> 3, 0 -> 0 (D:L453485-453501). A throw in that list -- every rifle-hand throw and, since
+ * LATER 1442 (the sidearm swaps only its two peek tosses: `FUN_0058c960`'s hand pass), the pistol hand's standing,
+ * crouched and prone ones too, all the rifle's types -- holds the branch until its pop; so with R1 held through the slot's last grenade the
  * edge reads 1, then 3 at the pop, 2, 1 (GR-1's last leg: "At the pop ... the edge 3, 2, 1", 3/3), and the swap gate,
- * refusing at 1 alone (`FUN_005a8cb0` D:L463174-463181), takes an L1 on the two updates after the pop. The pistol
- * hand's standing throw is in neither list (`Pistol throw grenade`, `FUN_0058c820`'s pair D:L494748): its branch runs
- * on the update after the release, under the clip, so at its pop the held edge is 1 and the L1 is refused. Was (the
- * port): the branch run only for the pistol's standing throw (`lowerNext`), the edge 1 through every other pop.
+ * refusing at 1 alone (`FUN_005a8cb0` D:L463174-463181), takes an L1 on the two updates after the pop. *Was* (before
+ * LATER 1442): the pistol hand's standing throw read as `Pistol throw grenade`, in neither list, its branch run under
+ * the clip and the L1 refused at its pop; and before that (the port) the branch run only for that throw (`lowerNext`).
  */
 describe("LATER 792 item 1: the pop's edge remap under a held R1 (D:L453484-453501)", () => {
   const lastOne = (r: ReturnType<typeof part>): void => {
@@ -826,6 +836,7 @@ describe("LATER 792 item 1: the pop's edge remap under a held R1 (D:L453484-4535
     { name: 'the rifle hand, standing', pistol: false, crouched: false },
     { name: 'the rifle hand, crouched', pistol: false, crouched: true },
     { name: "the pistol hand, crouched (the rifle's throw type)", pistol: true, crouched: true },
+    { name: "the pistol hand, standing (the rifle's `Throw grenade`, LATER 1442)", pistol: true, crouched: false },
   ];
   for (const rig of GATED) {
     it(`${rig.name}: at the pop the held edge goes 1 -> 3 -> 2 -> 1`, () => {
@@ -852,18 +863,43 @@ describe("LATER 792 item 1: the pop's edge remap under a held R1 (D:L453484-4535
       expect(untilEdge(r, 2)).toBe(true);
       expect(untilEdge(r, 1)).toBe(true);
       r.firearm!.selectFirearm('rifle');
-      expect(r.t.grenade.equipped()).toBe(true);                    // refused
+      // EMPTY_THROWABLE_SWAP_OWNER: taken; the original refuses (research 326 s7.3 GR-1; QUIZTIME-EMPTY-r0004, record 2a95703e).
+      expect(r.t.grenade.equipped()).toBe(false);
       r.press(false);
       r.dispose();
     });
   }
-  it("the pistol hand, standing (`Pistol throw grenade`, in neither list): the branch ran under the clip, so the held edge stays 1 at the pop and L1 is refused", () => {
-    const r = setUp({ name: 'pistol standing', pistol: true, crouched: false });
-    toPop(r);
-    expect(edgesAfterPop(r, 10)).toEqual([1]);
+});
+
+/**
+ * B-01 D1 on the page's assembly (reading, reviewed by two readers; the countdown's state observed in IQ-169, unscored;
+ * the D1-specific leg IQ-185 (PC 4, B01-RECAP-PC4) owed): the slot's last grenade thrown
+ * under manual selection leaves the empty slot in the hand (research 361 s2; `grenadeCore.ts` `finishThrow`), and r0004's
+ * idle branch tests the hand's class alone (0x59bbac-0x59bbc4, 0x5cf750 reads no count; 0x59be00-0x59be0c skips the
+ * countdown's decrement and re-seed): the countdown stays frozen while the empty grenade is up, so the firearm taken back
+ * 6 s on comes up by itself, no press. What it pins: the countdown held while the empty slot is up and the rifle back
+ * at weight 1 within 8 page frames of the return -- not the S+2 frame (this rig runs no `kitFrame`, so no raise times;
+ * `weaponRaise.test.ts` "B-01 D1" holds S+2). `./matchThrow` fed `grenade` with the
+ * count folded in, so the port ran the countdown down under the empty slot and the rifle stayed down.
+ */
+describe('B-01 D1: the empty grenade in the hand freezes the countdown (0x59bbac-0x59bbc4, 0x59be00-0x59be0c)', () => {
+  it('RED: the last grenade thrown, 6 s idle with the empty slot up -- the countdown still 5 s; the firearm back, up with no press', () => {
+    const r = part(false, ['M67', 'AN-M8', null], 'rifle', true);
+    expect(r.t.takeSlot(2)).toBe(true);
+    for (let n = 0; n < 8 && r.t.grenade.stats().left > 1; n++) r.attempt();
+    expect(r.t.grenade.stats().left).toBe(1);
+    r.attempt();                                                    // the last one thrown, R1 let go
+    expect(r.t.grenade.stats().left).toBe(0);
+    expect(r.t.grenade.equipped()).toBe(true);                      // the empty slot stays in the hand (research 361 s2)
+    for (let i = 0; i < Math.round(6 / DT); i++) r.frame();
+    const raise = (): ReturnType<Play['weaponStats']>['raise'] => r.play!.weaponStats().raise;
+    expect(raise().countdown).toBeGreaterThan(4.9);                 // today: 0, run down under the empty slot
+    expect(raise().state).toBe('down');
     r.firearm!.selectFirearm('rifle');
-    expect(r.t.grenade.equipped()).toBe(true);                      // refused
-    r.press(false);
+    expect(r.t.grenade.equipped()).toBe(false);
+    const w: number[] = [];
+    for (let i = 0; i < 8; i++) { r.frame(); w.push(raise().weight); }
+    expect(w.at(-1)).toBe(1);                                       // within 8 page frames; today: 0, stays down
     r.dispose();
   });
 });

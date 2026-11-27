@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { GAME_FRAME_DT, type CollisionOwner, type GridParams, type SpawnSlot, type WeaponRecord, type WorldPoly } from '@s2u/scene';
+import { GAME_FRAME_DT, HE, M67, type CollisionOwner, type GridParams, type SpawnSlot, type WeaponRecord, type WorldPoly } from '@s2u/scene';
 import { fireScheduleTicks } from '../../viewer/src/net/fireGate';
 import { Accuracy, perturb } from '../../viewer/src/accuracy';
 import type { Health } from '../../viewer/src/net/damage';
@@ -45,7 +45,7 @@ function flatMap(): SimMap {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const floor: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
   };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const ground = packGround(params, [floor], owners);
@@ -325,10 +325,16 @@ describe('NCW-5: fire: stale needs the late line held past the slack window (the
         expect(r.out, `${holdS} s round ${r.round}`).toBe(r.roomSeq - r.seq > FIRE_ARRIVAL_JITTER_TICKS ? 'fire: stale' : 'fire: no frame');
       }
     }
-    // The 12 s hold, the "before" pinned: rounds 7-15 run in the fall's burst on the credit, refused 'rate' on the room's
-    // clock; 16-22 named at dropped commands, stale; 23 dropped within the bound, 'no frame'; the rest decided.
-    expect(t12.tally).toEqual({ decided: 13, 'fire: rate': 9, 'fire: stale': 7, 'fire: no frame': 1 });
-    expect(t12.rows.filter((r) => r.out === 'fire: rate').map((r) => r.round)).toEqual([7, 8, 9, 10, 11, 12, 13, 14, 15]);
+    // The 12 s hold, pinned: rounds 7-15 run in the fall's burst on the credit; 16-22 named at dropped commands, stale; 23
+    // dropped within the bound, 'no frame'; the rest decided. LATER 336 (re-pinned 2026-11-22, traced round by round
+    // against f6a3e33d78): of the burst, 7-9 are now decided and 10-15 refused 'rate' -- was decided 13, 'rate' 9 (7-15),
+    // now decided 16, 'rate' 6; no other round changed verdict. The burst's dating sits at the clamp (serverClock less
+    // FIRE_STALL_CREDIT_TICKS) while its commands' count climbs, so the offset falls between its rounds; the schedule now
+    // moves down with it within its slack (`Room.keepSchedule`), so the first rounds read on time, and past the slack the
+    // rest are refused as FIRE_STALL_CREDIT_TICKS's stated cost (at most (21 + 4) / rate + 1 in one tick). No lock is in
+    // play (LATER 169 not reached).
+    expect(t12.tally).toEqual({ decided: 16, 'fire: rate': 6, 'fire: stale': 7, 'fire: no frame': 1 });
+    expect(t12.rows.filter((r) => r.out === 'fire: rate').map((r) => r.round)).toEqual([10, 11, 12, 13, 14, 15]);
     expect(t12.rows.filter((r) => r.out === 'fire: stale').map((r) => r.round)).toEqual([16, 17, 18, 19, 20, 21, 22]);
     expect(t12.rows.filter((r) => r.out === 'fire: no frame').map((r) => r.round)).toEqual([23]);
   });
@@ -426,19 +432,44 @@ describe('NCW-5: fire: stale on a line whose lateness swings repeatedly (the fie
     }
     console.log(`NCW-5 swing counts: ${JSON.stringify(runs.map((x) => x.count))}`);
     expect(runs.map((x) => x.count)).toEqual(PINNED_SWING);
+    // LATER 336's delta review (finding 2): the rounds, not only the counts -- a swap of which rounds are refused fails here.
+    expect(runs.map((x) => x.got.rows.filter((y) => y.out === 'fire: rate').map((y) => y.round))).toEqual(PINNED_SWING_RATE);
+    const out = (seed: number, round: number): string | undefined => runs[seed - 1]!.got.rows.find((y) => y.round === round)?.out;
+    expect([out(1, 66), out(2, 93), out(3, 121), out(1, 67), out(2, 97)], 'the moved rounds, seed 1 round 67; seed 2 round 97 refused on the trunk too').toEqual(['decided', 'decided', 'decided', 'decided', 'fire: rate']);
   });
 });
 
 /**
+ * LATER 336 (re-pinned 2026-11-22, traced round by round against f6a3e33d78): one honest round a seed the trunk refused
+ * 'rate' is now decided -- seed 1 round 66 (decided 273 -> 274, rate 56 -> 55), seed 2 round 93 (268 -> 269, 61 -> 60),
+ * seed 3 round 121 (263 -> 264, 72 -> 71); no other round changed verdict and no refusal rose. Seed 1's is the rework's
+ * (the schedule moved down with a fall of the line's offset within its slack, `Room.keepSchedule`); seeds 2 and 3's the
+ * re-review's fold (the slack a lay at the clamp took returned as fire paused, `Room.scheduleLaid`). The rework before
+ * the fold (ad059bb03c) refused seed 1 round 67, which the trunk fires, and the fold fires it again. Seed 2 round 97 is
+ * refused 'rate' on the trunk AND here (one run, 2026-11-22: room.ts at agent/next 78543913b3 against this branch, the
+ * per-seed 'rate' rounds differ ONLY by seed 1 round 66, seed 2 round 93 and seed 3 round 121); an earlier line here that
+ * said the trunk fired it was wrong (the 336 delta2 review's finding 1).
+ *
  * The swing's counts today (seeds 1-3), the "before". It does NOT reproduce the field's stale-heavy ratio (1,656 stale to
  * 114 rate, section 6): here 'rate' outnumbers 'stale' about 4 to 1. Every stale round was stale while pending (none on
  * arrival: `staleFires` 0) and named a command dropped as a backlog. 'undecided' = the last two rounds, still on the line
  * when the run stops.
  */
+/**
+ * LATER 336's delta review (finding 2): the rounds refused 'rate' per seed (`rows[].round`), measured on this branch at
+ * cb44b3121a (2026-11-22) with the counts above and compared with the trunk's (agent/next 78543913b3) in the same run:
+ * the only differences are the three rounds named above, now decided. Seed 2 round 97 is refused on the trunk and here.
+ */
+const PINNED_SWING_RATE: number[][] = [
+  [9, 38, 39, 40, 41, 42, 43, 44, 65, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 106, 107, 108, 109, 110, 127, 128, 163, 164, 165, 166, 167, 168, 169, 170, 171, 172, 195, 196, 197, 198, 199, 216, 217, 218, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253],
+  [11, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 52, 54, 78, 79, 80, 81, 82, 94, 95, 96, 97, 119, 120, 121, 122, 123, 124, 125, 126, 127, 144, 145, 146, 147, 148, 149, 168, 169, 170, 171, 172, 173, 174, 193, 194, 195, 196, 217, 218, 219, 220, 221, 222, 223, 224, 225, 242, 243, 247],
+  [13, 36, 37, 38, 39, 40, 41, 56, 57, 58, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 80, 89, 90, 91, 92, 93, 94, 95, 101, 102, 103, 104, 105, 119, 144, 146, 171, 172, 173, 174, 175, 176, 177, 178, 188, 189, 190, 191, 192, 193, 204, 205, 206, 207, 208, 209, 210, 229, 230, 231, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262],
+];
+
 const PINNED_SWING: unknown[] = [
-  { rounds: 350, decided: 273, stale: 16, rate: 56, noFrame: 3, other: 'undecided,undecided', staleOnArrival: 0, staleWhilePending: 16, staleOnBacklog: 16, commandsDropped: 106, staleFires: 0 },
-  { rounds: 350, decided: 268, stale: 16, rate: 61, noFrame: 3, other: 'undecided,undecided', staleOnArrival: 0, staleWhilePending: 16, staleOnBacklog: 16, commandsDropped: 108, staleFires: 0 },
-  { rounds: 350, decided: 263, stale: 11, rate: 72, noFrame: 2, other: 'undecided,undecided', staleOnArrival: 0, staleWhilePending: 11, staleOnBacklog: 11, commandsDropped: 70, staleFires: 0 },
+  { rounds: 350, decided: 274, stale: 16, rate: 55, noFrame: 3, other: 'undecided,undecided', staleOnArrival: 0, staleWhilePending: 16, staleOnBacklog: 16, commandsDropped: 106, staleFires: 0 },
+  { rounds: 350, decided: 269, stale: 16, rate: 60, noFrame: 3, other: 'undecided,undecided', staleOnArrival: 0, staleWhilePending: 16, staleOnBacklog: 16, commandsDropped: 108, staleFires: 0 },
+  { rounds: 350, decided: 264, stale: 11, rate: 71, noFrame: 2, other: 'undecided,undecided', staleOnArrival: 0, staleWhilePending: 11, staleOnBacklog: 11, commandsDropped: 70, staleFires: 0 },
 ];
 
 describe('NCW-5: fire: not alive -- the trade after death (B-trade, the "before")', () => {
@@ -847,8 +878,12 @@ describe("NCW-2 B-trade, Codex's review of PR #698", () => {
     expect(got.got.rows.map((r) => r.out)).toEqual(['decided', 'decided', 'fire: trade: reload or empty', 'fire: trade: reload or empty', 'fire: not alive']);
     expect(got.got.trade).toEqual({ decided: 1, refused: 2 });
     // The bundle as the death laid it, nothing added since: the rifle's [1, 30, 30] and the sidearm's full ring.
-    // The bundle by ammunition, each slot summed (PICKUP_AMMO_MATCH_READING): the M4A1's 1 + 30 + 30, the DE's ring whole.
-    expect(ammoOf(w.seen.told)).toEqual([[{ ammo: M4A1.ammo, count: 61 }, { ammo: DE.ammo, count: ringFor(DE).total() }]]);
+    // The bundle by ammunition, each slot summed (PICKUP_AMMO_MATCH_READING): the M4A1's 1 + 30 + 30, the DE's ring whole;
+    // R142 (BUNDLE_SLOTS_PLACEHOLDER): then the baked kit's M67 and HE slots, untouched, each with its record.
+    expect(ammoOf(w.seen.told)).toEqual([[
+      { ammo: M4A1.ammo, count: 61 }, { ammo: DE.ammo, count: ringFor(DE).total() },
+      { ammo: M67.ammo, item: M67.id, count: M67.capacity * M67.mags }, { ammo: HE.ammo, item: HE.id, count: HE.capacity * HE.mags },
+    ]]);
     expect(ammoOf(w.seen.lying)).toEqual(ammoOf(w.seen.told));
     expect(w.seen.ringTotal, 'the body keeps no round: nothing given back to it').toBe(0);
     expect(['play', 'decided']).toContain(w.seen.phase);

@@ -82,6 +82,21 @@ describe('SetPlayerDescription (FUN_00277640) as a row (web research 265 §1)', 
     await flush();
     expect([service.sent, str(uiVars, PLAYER_DESCRIPTION_VAR)]).toEqual([['typed'], 'typed']);
   });
+
+  /**
+   * R4P-324 (web research 263 §3a; `CENSOR_HASH_C_READING`): r0004's description (0x00317b00) tail-jumps to `Censor`
+   * (0x00311fc0, at 0x317b08), whose copy takes `#` + 0xb2 for every `#C`; the callback 0x00317b10 sets
+   * `PlayerDescription` from the reply. The page sends the rewrite, and the answer written back leaves it rewritten.
+   */
+  it('R4P-324: the description sent with every #C rewritten to "#" + 0xb2; the variable ends as the answer, rewritten', async () => {
+    const uiVars = new UiVarManager();
+    const service = owner();
+    uiVars.set(uiVars.add(PLAYER_DESCRIPTION_VAR, null, 1), { type: 'string', value: '#Cabc sniper #c #B' });
+    expect(new OnlineOptionsCommands({ uiVars, service }).SetPlayerDescription({} as never, {} as never, undefined)).toBe(true);
+    await flush();
+    expect(service.sent).toEqual(['#\u00b2abc sniper #c #B']);
+    expect(str(uiVars, PLAYER_DESCRIPTION_VAR)).toBe('#\u00b2abc sniper #c #B');
+  });
 });
 
 /** A 256-byte record (hex) as the services' PlayerInfo answers it: `'E'`, the description at +0x9f (the codec's string rule). */

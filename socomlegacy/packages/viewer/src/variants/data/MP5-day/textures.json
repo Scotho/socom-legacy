@@ -1,0 +1,78 @@
+[
+ {
+  "name": "ground01.tif",
+  "width": 256,
+  "height": 256,
+  "bytes": 262144,
+  "sha256": "075fa351264fde57332bce73d4c5973c1be09badbd598d211b7cf5c7a2cc4dc6",
+  "why": "changed: the same name in SOCOM II MP5 holds other pixels",
+  "s2": {
+   "width": 256,
+   "height": 256
+  }
+ },
+ {
+  "name": "leafbig.tif",
+  "width": 64,
+  "height": 64,
+  "bytes": 16384,
+  "sha256": "e390b048f3ac98d1f016c88e16655457191d024b37d48d404857101c884f46b0",
+  "why": "changed: the same name in SOCOM II MP5 holds other pixels",
+  "s2": {
+   "width": 64,
+   "height": 64
+  }
+ },
+ {
+  "name": "lightrays.tif",
+  "width": 32,
+  "height": 32,
+  "bytes": 4096,
+  "sha256": "81c53ad2322273dc0978bd7924ded11aebe05e60209c484812f74acdcda31d4f",
+  "why": "SOCOM 1 only: drawn by the sky/sun props or the light-ray parts"
+ },
+ {
+  "name": "sky01.tif",
+  "width": 128,
+  "height": 128,
+  "bytes": 65536,
+  "sha256": "6ede7d4563e0660e797e1fea1e705dffc46f2ee6dde03cb4b233dd9136e16e32",
+  "why": "changed: the same name in SOCOM II MP5 holds other pixels",
+  "s2": {
+   "width": 128,
+   "height": 128
+  }
+ },
+ {
+  "name": "stone01.tif",
+  "width": 128,
+  "height": 128,
+  "bytes": 65536,
+  "sha256": "817b2388410f491a56e483b9d12099d306ddb2c4123e19d1b35a2b1956bd56b1",
+  "why": "changed: the same name in SOCOM II MP5 holds other pixels",
+  "s2": {
+   "width": 128,
+   "height": 128
+  }
+ },
+ {
+  "name": "sun.tif",
+  "width": 16,
+  "height": 16,
+  "bytes": 1024,
+  "sha256": "13d7ed828be6b7bc4f0dff6cdd0874287699765710364a28345682f72641da94",
+  "why": "SOCOM 1 only: drawn by the sky/sun props or the light-ray parts"
+ },
+ {
+  "name": "thai3r_palmfrond1.tif",
+  "width": 128,
+  "height": 128,
+  "bytes": 65536,
+  "sha256": "777dd6c7b107509745d219b1f12f355552fc86d0e95dbcf44ef4f7f0e453c37c",
+  "why": "changed: the same name in SOCOM II MP5 holds other pixels",
+  "s2": {
+   "width": 128,
+   "height": 128
+  }
+ }
+]

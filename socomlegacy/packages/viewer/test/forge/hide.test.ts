@@ -24,7 +24,7 @@ const map = {
     { modelName: 'barrel', parts: [{}], matrices: new Float32Array(at(50, 50)), order: 1, alternate: false, facade: 0, lod: null, paths: ['worldmodel/barrel=barrel'] },
   ],
   ground: packGround(grid, [
-    poly('worldmodel', 'worldmodel', new Float32Array([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000])),
+    poly('worldmodel', 'worldmodel', new Float32Array([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000])),
     poly('crate', `${P}/climb`, top(100, 200, 10)), poly('crate', `${P}/climb`, top(-300, 0, 10)), poly('barrel', 'worldmodel/barrel=barrel', top(50, 50, 30)),
   ], [
     { modelName: 'worldmodel', path: 'worldmodel', first: 0, count: 1 },

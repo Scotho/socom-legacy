@@ -247,10 +247,18 @@ const FIXTURES = resolve(process.env.S2U_TEST_FIXTURES || resolve(dirname(fileUR
  * by ip5-a, held on both backends by ip5-b, 2026-11-02). Both builders run under the stub's uniform limit, 16,384 bytes
  * (WebGL2's least; the IP5 review's finding 4): real WebGPU allows 65,536, so there a 257-1,024-instance mesh takes the
  * buffer path too and is shared as well -- these are the WebGL2-limit counts.
+ *
+ * Re-pinned at the fogplug (research 439 s4a, 2026-11-17; MP2 was 29/29/7, MP6 55/55/12), the meshes listed by name off
+ * `buildWorld` at 38b6607450 and a2cbb370d8: a part's band is now `vparams` byte 5 per part, not `lod.rdr` by model name,
+ * and `world.ts` keeps an UNRAMPED banded part with several placements one instanced draw, a RAMPED one a mesh per
+ * placement. MP2 +3: `grate_midlod` (14 placements, 3 parts, band in 0 out 360, unramped) was a mesh per placement by
+ * `lod.rdr`'s name and is three instanced draws now. MP6 -4 (no `lod.rdr`, so unbanded and instanced before): ramped
+ * byte-5 bands make a mesh per placement of `mp6_tire_single` (3, 2 parts, out 450-750), `mp6_light_outside` (9, out
+ * 440-540) and `m6_palette_5high` (2, out 240-400).
  */
 const MAPS: [string, { meshes: number; before: number; after: number }][] = [
-  ['MP2.ZDB', { meshes: 29, before: 29, after: 7 }],
-  ['MP6.ZDB', { meshes: 55, before: 55, after: 12 }],
+  ['MP2.ZDB', { meshes: 32, before: 32, after: 9 }],
+  ['MP6.ZDB', { meshes: 51, before: 51, after: 12 }],
   ['MP72.ZDB', { meshes: 123, before: 123, after: 10 }],
 ];
 

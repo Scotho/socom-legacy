@@ -1,7 +1,7 @@
 import { victoryFromBytes } from './victoryData';
 import {
   parseRdr, parseZdb, rdrGet, readTexManifest, Reader, Zar, zdbMember,
-  type RdrNode, type TexDetail, type TexEntry,
+  type TexDetail, type TexEntry,
   type AssetSource, type ZdbEntry,
 } from '@s2u/archive';
 import { decodeTexture, parseTextureRecord, type Rgba } from '@s2u/gs';
@@ -11,7 +11,7 @@ import {
   archivePositionForm, centreOf, centroidsOf, interpretChainPartsAs, mergeMeshes, walkChain, type LineStrip, type MeshData, type PositionForm,
 } from '@s2u/mesh';
 import {
-  buildGrid, collisionLines, DEFAULT_GRID_PARAMS, IDENTITY, loadModelLibrary, lodBands, parseCameraParams, parseClutter,
+  buildGrid, collisionLines, DEFAULT_GRID_PARAMS, IDENTITY, loadModelLibrary, parseCameraParams, parseLodObject, visualBand, parseClutter,
   DEFAULT_ENV_TEXTURE, parseGlobalLighting, parseGridParams, parseMaterialPalette, parseSceneGraph, parseWorldRoot, placeClutter, type EnvMaterial, type LodBand,
   placeInstances, placementCells, resolveChunk, toColumnMajor, transformPoint,
   type CameraParams, type CollisionLines, type GlobalLighting, type Grid, type GridParams, type ModelLibrary,
@@ -19,7 +19,7 @@ import {
 } from '@s2u/scene';
 import { BULLET_MARK, parseAiMaps, VALVE_OF_ITEM, placeSpawnSlots, spawnsFor, type AiMaps, type EscorteeStart, type GameType, type SpawnSlot, type Spawns } from '@s2u/scene';
 import type { TextureFlags } from './materialSpec';
-import { applyR0004MapPatch, mapCollision, r0004DropsClutter, type CollisionOwner, type WorldPoly } from '@s2u/scene';
+import { applyR0004MapPatch, hullModels, mapCollision, r0004DropsClutter, type CollisionOwner, type WorldPoly } from '@s2u/scene';
 import { groundGrid, packGround, type GroundData } from './mover';
 import { placementKey } from './forge/layout';
 import { openingStand, type Stand } from './stand';
@@ -38,7 +38,7 @@ import { readDoors, type DoorSpec } from './doors';
 import { readGates, type GateSpec } from './gates';
 import { craneRides, readCranes, splitCranePlacements, type CraneSpec } from './cranes';
 import { readTacData, type TacData } from './tacMap';
-import { bombStartOf, mapEscortees, mapTurrets } from './simMap';
+import { bombStartOf, mapDefaultMaterial, mapEscortees, mapTurrets } from './simMap';
 import { worldNodesOf, worldPiecePlanFor, type WorldPieceInfo, type WorldPieceSwap } from './worldPieces';
 import { reverbZones } from './soundData';
 
@@ -85,6 +85,12 @@ export type LoadedMesh = MeshData & {
    * such path. The merge keeps such chunks apart by it, so each takes its own texture offset (`WorldView.setNodeUvOffset`).
    */
   scrollPath?: string;
+  /**
+   * LATER 951 (research 436): a world chunk under a node a program's `OBJECT_TRANSLATE_STATE` moves
+   * (`MapMeta.motion.translated`) -- the deepest such path: a sky held at the camera. The merge keeps such chunks apart by
+   * it, and the drawing moves them with their node (`WorldView.moveNode`).
+   */
+  movePath?: string;
   /**
    * The uv step per engine tick of a scrolling texture (`TextureScroll_Object` on the world root:
    * Frostfire's oceans and sky horizon), or null for the still majority.
@@ -135,6 +141,13 @@ export type LoadedMesh = MeshData & {
    */
   detailRange?: number;
   /**
+   * Research 439: the visual's own LOD band (`vparams` byte 5 into the world root's `LOD_Object`,
+   * `LOD_VISUAL_BAND_READING`), tested at its node's world origin (`LOD_BAND_ANCHOR_READING`): drawn only in its band's
+   * range, faded across its ramps (`./world`). Only a prop's part carries one -- a banded world-model node is drawn
+   * apart as a prop (`place`). Absent: drawn at every range.
+   */
+  lod?: LodBand;
+  /**
    * PF-30: the visual's centroid (`DETAIL_CENTROID_READING`) in this mesh's frame -- the world's for a world chunk,
    * the model's for a prop's part -- before any merge; a merged draw carries it per vertex (`MeshData.centroids`).
    */
@@ -175,7 +188,10 @@ export interface LoadedMap {
     modelName: string; parts: LoadedMesh[]; matrices: Float32Array; order: number; alternate: boolean;
     /** `m_facade` on the node: non-zero, every placement is turned to face the camera each frame. */
     facade: number;
-    /** The model's LOD band, or null: shown by camera range, one copy of a pair at a time. */
+    /**
+     * A band for every part of the entry, or null. Built by hand only (tests): the loader bands each part on its own
+     * (`LoadedMesh.lod`, research 439), as the original bands each visual, and leaves this null.
+     */
     lod: LodBand | null;
     /** Per placement, in `matrices` order: the grid cells it is filed in (see `LoadedMesh.cells`). */
     cells?: number[][];
@@ -496,13 +512,15 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
   // Each model's library, the first holding it (`loadModelLibrary` keeps the first of a name).
   const modelLibraries: Record<string, string> = {};
   for (const a of archives) for (const key of a.zar.root.children) if (!(key.name in modelLibraries)) modelLibraries[key.name] = a.lib;
-  const chunksOf = decoder(library, notes);
+  // Research 439: the world root's band table, each visual's `vparams` byte 5 indexing it (`LOD_VISUAL_BAND_READING`).
+  const lodTable = lodTableOf(bytes, toc, stem, notes);
+  const chunksOf = decoder(library, notes, lodTable);
   // The engine's grid, cells only: what each placement is filed under for the engine order (W1.2).
   const grid = worldGrid(bytes, toc, stem, notes);
   // Web sprint 4: the arsenal's source (ZWEAPON.ZAR, READERC.ZAR) once; MAP-10b: its turret definitions join the turrets'
   // drawn parts to the scene (`turretParts`).
   const kitSource = await loadKitSource(source);
-  const placement = place(library, bytes, toc, stem, notes, buildGrid(grid, [], [], []), kitTurretDefs(kitSource));
+  const placement = place(library, bytes, toc, stem, notes, buildGrid(grid, [], [], []), kitTurretDefs(kitSource), lodTable);
   /** The world's meshes, each with its place in the scene walk, so a blended surface keeps its own draw. */
   const parts: LoadedMesh[] = [];
   let chunk = 0;
@@ -523,7 +541,7 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
   // the grid and the doors were already taken from the whole graph in `place` (`hull`); this loop does not touch them.
   // #432 (OT.R69): a piece that moves or breaks (an alternate state, a switch path) keeps the disc's draw; #337: so does
   // a piece that rides a crane.
-  const piecePlan = worldPiecePlanFor(placement.models, placement.world, options, (p) => placement.alternate(p) || placement.switchPath(p) !== null || placement.scrollPath(p) !== null || ridesCrane(p));
+  const piecePlan = worldPiecePlanFor(placement.models, placement.world, options, (p) => placement.alternate(p) || placement.switchPath(p) !== null || placement.scrollPath(p) !== null || placement.movePath(p) !== null || ridesCrane(p));
   const pieceOrder = new Map<number, number>();
   const pieceCells = new Map<number, number[]>();
   const worldNodes = options?.worldNodes && placement.models ? worldNodesOf(placement.models, placement.world) : null;
@@ -554,6 +572,7 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
     const alternate = placement.alternate(p);
     const switchPath = placement.switchPath(p);
     const scrollPath = placement.scrollPath(p);
+    const movePath = placement.movePath(p);
     const scroll = placement.scroll(p);
     const cells = placement.cells(p);
     meshes.forEach((mesh, i) => {
@@ -566,6 +585,7 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
         ...(mesh.detailOn ? {} : { detailOn: false }), ...(mesh.detailRange !== undefined ? { detailRange: mesh.detailRange } : {}),
         ...(switchPath !== null ? { switchPath } : {}),
         ...(scrollPath !== null ? { scrollPath } : {}),
+        ...(movePath !== null ? { movePath } : {}),
         ...(hasVertexAlpha(mesh) ? { vertexAlpha: true } : {}),
         ...(mesh.alphaPass ? { alphaPass: true } : {}),
         ...(worldNodes ? { worldNode: worldNodes.of[wi] ?? -1 } : {}),
@@ -645,7 +665,7 @@ export async function loadMap(source: AssetSource, path: string, onStage?: OnSta
       members.forEach((p, i) => matrices.set(p.world, i * 16));
       props.push({
         modelName: first.modelName, parts: geometry, matrices, order, alternate,
-        facade: first.facade, lod: placement.lod.get(first.modelName) ?? null,
+        facade: first.facade, lod: null,
         cells: members.map((p) => placement.cells(p)),
         paths: members.map((p) => p.path),
         walk: members.map((p) => placement.rank(p)),
@@ -1156,7 +1176,7 @@ export function mergeWorld(
     // every draw is gated whole (`LoadedMesh.detailOn`, `detailRange`); a texture with no detail pass is not split.
     const bound = key !== '' && detail[key] !== undefined;
     const gate = bound ? `|d${part.detailOn === false ? 0 : 1}${part.detailRange !== undefined ? `:${part.detailRange}` : ''}` : '';
-    const group = `${key}|${part.fog ? 1 : 0}${part.lit ? 'L' : ''}${part.cull ? 'C' : ''}${part.alternate ? 'A' : ''}${part.vertexAlpha ? 'V' : ''}${part.alphaPass ? 'P' : ''}${scroll}|e${part.reflect ?? 0}|${blended ? `b${part.order}` : `r${run}`}${part.switchPath ? `|w${part.switchPath}` : ''}${part.scrollPath ? `|x${part.scrollPath}` : ''}${gate}`;
+    const group = `${key}|${part.fog ? 1 : 0}${part.lit ? 'L' : ''}${part.cull ? 'C' : ''}${part.alternate ? 'A' : ''}${part.vertexAlpha ? 'V' : ''}${part.alphaPass ? 'P' : ''}${scroll}|e${part.reflect ?? 0}|${blended ? `b${part.order}` : `r${run}`}${part.switchPath ? `|w${part.switchPath}` : ''}${part.scrollPath ? `|x${part.scrollPath}` : ''}${part.movePath ? `|m${part.movePath}` : ''}${gate}`;
     if (blended) run++;
     // PF-30: a detail-bound part brings its visual's centroid on every vertex (`MeshData.centroids`, kept through
     // `mergeMeshes`); the other draws spend nothing on it.
@@ -1176,6 +1196,7 @@ export function mergeWorld(
     alternate: list[0]!.alternate,
     ...(list[0]!.switchPath ? { switchPath: list[0]!.switchPath } : {}),
     ...(list[0]!.scrollPath ? { scrollPath: list[0]!.scrollPath } : {}),
+    ...(list[0]!.movePath ? { movePath: list[0]!.movePath } : {}),
     scroll: list[0]!.scroll,
     reflect: list[0]!.reflect ?? 0,
     cells: unionCells(list.map((part) => part.cells ?? [])),
@@ -1402,8 +1423,8 @@ interface Placement {
   switchPath: (p: PlacedModel) => string | null;
   /** LATER 782: the deepest scrolled path the placement lies under (`MapMeta.motion.scrolled`), or null (`scrollPath`). */
   scrollPath: (p: PlacedModel) => string | null;
-  /** The LOD band per model name (`lodBands`), for the copies the engine shows by camera range. */
-  lod: Map<string, LodBand>;
+  /** LATER 951: the deepest translated path the placement lies under (`MapMeta.motion.translated`), or null (`movePath`). */
+  movePath: (p: PlacedModel) => string | null;
   /** The texture scroll of a placement's node (`TextureScroll_Object`), or null. */
   scroll: (p: PlacedModel) => [number, number] | null;
   /**
@@ -1445,7 +1466,7 @@ const noCollision = (): CollisionLines => ({ positions: new Float32Array(0), col
 const ALTERNATE_STATE = /^(vis_)?whats_left$|^parts$|^(beer|radio)_parts$|^nolight$|_off$|_pulse$/i;
 
 function place(library: ModelLibrary, bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: Notes, grid: Grid,
-  turretDefs: readonly TurretDef[] | null = null): Placement {
+  turretDefs: readonly TurretDef[] | null = null, lodTable: readonly LodBand[] = []): Placement {
   try {
     const geo = Zar.parse(zdbMember(bytes, toc, `${stem}_GEO.ZED`));
     const models = parseSceneGraph(geo);
@@ -1459,8 +1480,12 @@ function place(library: ModelLibrary, bytes: Uint8Array, toc: ZdbEntry[], stem: 
     // world model or prop (`FUN_003389c0` D:L236080-236081 -> `FUN_00317fc0`); merged into the world's draws it stood
     // as placed. 23 nodes on 7 maps: MP7's moon and five stars, MP52's four pipes, MP11's four glows, MP53's and
     // MP71's suns, M72's six smoke columns, M82's `g4445`.
-    const turned = (p: PlacedModel): boolean => p.modelName === WORLD_MODEL && p.facade !== 0;
-    const world = placed.filter((p) => p.modelName === WORLD_MODEL && !turned(p));
+    // Research 439: so is a world-model node with a banded visual -- the original bands each visual at its node's origin
+    // (`FUN_003374c0` D:L235458-235470), which a merged world draw cannot (28 nodes on 7 maps: Desert Glory's upper
+    // walls, Death Trap's bulbs and flares, Abandoned's coffins among them).
+    const banded = (p: PlacedModel): boolean => (p.band ?? []).some((b) => visualBand(lodTable, b) !== null);
+    const apart = (p: PlacedModel): boolean => p.modelName === WORLD_MODEL && (p.facade !== 0 || banded(p));
+    const world = placed.filter((p) => p.modelName === WORLD_MODEL && !apart(p));
     if (world.length === 0) throw new Error(`no ${WORLD_MODEL} node carries visuals`);
     const groups = new Map<string, PlacedModel[]>();
     const ranks = new Map<PlacedModel, number>();
@@ -1497,9 +1522,15 @@ function place(library: ModelLibrary, bytes: Uint8Array, toc: ZdbEntry[], stem: 
       for (const e of meta.motion?.scrolled ?? []) if (under(p.path, e) && (best === null || e.length > best.length)) best = e;
       return best;
     };
+    /** LATER 951: the deepest translated path over a placement (`LoadedMesh.movePath`). */
+    const movePath = (p: PlacedModel): string | null => {
+      let best: string | null = null;
+      for (const e of meta.motion?.translated ?? []) if (under(p.path, e) && (best === null || e.length > best.length)) best = e;
+      return best;
+    };
     for (const p of [...placed, ...clutterPlaced]) {
       ranks.set(p, ranks.size);
-      if (p.modelName === WORLD_MODEL && !turned(p)) continue;
+      if (p.modelName === WORLD_MODEL && !apart(p)) continue;
       // A group draws its first member's chunks at every member's matrix, so it must not mix instance
       // contexts the engine lights differently: the `_L` suffix is per context, not per node --
       // Death Trap's `access_topgate` is `N000_I000_V00` beside `N000_I001_V00_L`, Requiem's
@@ -1525,7 +1556,7 @@ function place(library: ModelLibrary, bytes: Uint8Array, toc: ZdbEntry[], stem: 
       alternate,
       switchPath,
       scrollPath,
-      lod: lods(bytes, toc, notes),
+      movePath,
       scroll,
       cells: (p) => placementCells(grid, p, clutterPlaced.has(p) ? 'clutter' : 'model').map((c) => c.index),
     };
@@ -1541,7 +1572,7 @@ function place(library: ModelLibrary, bytes: Uint8Array, toc: ZdbEntry[], stem: 
     };
     return {
       world: [every], props: [], origin: worldOrigin(bytes, toc, stem, notes), collision: noCollision(),
-      rank: () => 0, alternate: () => false, switchPath: () => null, scrollPath: () => null, lod: new Map(), scroll: () => null,
+      rank: () => 0, alternate: () => false, switchPath: () => null, scrollPath: () => null, movePath: () => null, scroll: () => null,
       // No graph, no node bboxes: nothing to file the one modal placement by, so it is drawn after the walk.
       cells: () => [],
     };
@@ -1585,16 +1616,19 @@ function turretParts(bytes: Uint8Array, toc: ZdbEntry[], stem: string, models: S
   }
 }
 
-/** The LOD band per model named by `READERM.ZAR/lod.rdr`, or none when the record is missing or will not parse. */
-function lods(bytes: Uint8Array, toc: ZdbEntry[], notes: Notes): Map<string, LodBand> {
+/**
+ * The world root's `LOD_Object` as bands (`parseLodObject`), the table each visual's `vparams` byte 5 indexes
+ * (`LOD_VISUAL_BAND_READING`, research 439), or none when the key is missing or the root will not read. It replaces
+ * `READERM.ZAR/lod.rdr` read by model name: the game never reads that file, and 26 of the 34 maps lack it.
+ */
+function lodTableOf(bytes: Uint8Array, toc: ZdbEntry[], stem: string, notes: Notes): LodBand[] {
   try {
-    const readerm = Zar.parse(zdbMember(bytes, toc, 'READERM.ZAR'));
-    const lod = readerm.root.children.find((k) => k.name.toLowerCase() === 'lod.rdr');
-    if (!lod) return new Map();
-    return lodBands(parseRdr(readerm.data(lod)) as RdrNode);
+    const zed = Zar.parse(zdbMember(bytes, toc, `${stem}.ZED`));
+    const key = zed.find('LOD_Object');
+    return key ? parseLodObject(zed.data(key)) : [];
   } catch (e) {
     notes.add(`lod table: ${say(e)}`);
-    return new Map();
+    return [];
   }
 }
 
@@ -1638,7 +1672,8 @@ function hull(models: SceneNode[], bytes: Uint8Array, toc: ZdbEntry[], stem: str
   try {
     // CLT-2 (research 422; CLT.R2): the worldmodel's hull, then CLUTTER.ZAR's instances' appended -- `mapCollision`,
     // the room's own (`./simMap`), so the two hulls stay one.
-    const hulls = mapCollision(models, stem, () => parseClutter(Zar.parse(zdbMember(bytes, toc, 'CLUTTER.ZAR'))), WORLD_MODEL);
+    // LATER 1003: with the archive's libraries joined (`hullModels`), as the room's (`./simMap`).
+    const hulls = mapCollision(hullModels(bytes, toc, stem, models, (line) => notes.add(line)), stem, () => parseClutter(Zar.parse(zdbMember(bytes, toc, 'CLUTTER.ZAR'))), WORLD_MODEL);
     polys = hulls.polys;
     owners = hulls.owners;
     for (const line of hulls.notes) notes.add(line);
@@ -1669,7 +1704,10 @@ function groundOf(polys: WorldPoly[], owners: CollisionOwner[], models: SceneNod
   for (const line of gates.diagnostics) notes.add(line);
   const cranes = readCranes(bytes, toc, models, owners, polys);
   for (const line of cranes.diagnostics) notes.add(line);
-  return { ground: packGround(grid, polys, owners), doors: doors.doors, gates: gates.gates, cranes: cranes.cranes };
+  const ground = packGround(grid, polys, owners);
+  const soil = mapDefaultMaterial(bytes, toc, stem);              // FLE-2: byte 0's soil, the map's default (`./simMap`)
+  if (soil) ground.defaultMaterial = soil;
+  return { ground, doors: doors.doors, gates: gates.gates, cranes: cranes.cranes };
 }
 
 /**
@@ -1862,9 +1900,11 @@ type DecodedMesh = MeshData & {
   cull: boolean; lit: boolean; reflect: number; alphaPass: boolean;
   /** PF-30: the visual's `vparams` bit 14, its detail gate range and its model-space centroid, when the scene gives them. */
   detailOn: boolean; detailRange?: number; centre?: [number, number, number];
+  /** Research 439: the visual's band (`LoadedMesh.lod`), when byte 5 names one. */
+  lod?: LodBand;
 };
 
-function decoder(library: ModelLibrary, notes: Notes): (p: PlacedModel) => { meshes: DecodedMesh[]; lines: LineStrip[] } {
+function decoder(library: ModelLibrary, notes: Notes, lodTable: readonly LodBand[] = []): (p: PlacedModel) => { meshes: DecodedMesh[]; lines: LineStrip[] } {
   return (p) => {
     const entry = library.get(p.modelName);
     if (!entry) {
@@ -1889,10 +1929,13 @@ function decoder(library: ModelLibrary, notes: Notes): (p: PlacedModel) => { mes
         // Stalker's eight `_L` chunks is on a `NODE_FLAGS_LIT` node. Every other chunk keeps `p.lit`.
         // The alpha pass is per visual too (`PlacedModel.alphaPass`, the visual's `vparams` bit 0).
         // PF-30: so are the detail pass's bit 14, its gate's range and the centroid it is measured from.
+        // Research 439: and so is its LOD band, byte 5 of its `vparams` (`LOD_VISUAL_BAND_READING`).
         const centre = p.centres?.[i] ?? null, detailRange = p.detailRanges?.[i] ?? null;
+        const lod = visualBand(lodTable, p.band?.[i] ?? 0);
         meshes.push(...parts.meshes.map((mesh) => ({
           ...mesh, cull: p.cull[i] ?? true, lit: at.lit, reflect: p.material?.[i] ?? 0, alphaPass: p.alphaPass?.[i] ?? false,
           detailOn: p.detail?.[i] ?? true, ...(detailRange !== null ? { detailRange } : {}), ...(centre ? { centre } : {}),
+          ...(lod ? { lod } : {}),
         })));
         lines.push(...parts.lines);
       } catch (e) {

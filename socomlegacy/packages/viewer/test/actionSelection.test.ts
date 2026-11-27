@@ -39,14 +39,15 @@ describe('original contextual action rotation (research 303)', () => {
     expect(s.pick({})).toBeNull();
   });
   // AD-6 (FUN_0021f850 D:L74050-74293, each entry at the tail: FUN_002209c0 D:L74589-74590): offered together -- the order
-  // of what is offered together, not a claim the original offers these at once -- the list is the bits' order.
+  // of what is offered together, not a claim the original offers these at once -- the list is the bits' order, but for
+  // the owner's ruling OT.R128: a hostage's order ahead of a pickup (against the original's).
   it("AD-6: the list offered together is FUN_0021f850's order -- the turret ahead of C4, the victory point ahead of a pickup -- and the rotation cycles it in that order", () => {
     const s = new ActionSelection();
     const inputs = { bombDrop: true, escortee: true, pickup: true, victory: true, c4: true, turret: true };
     expect(s.pick(inputs)).toBe('turret');
     const cycled: string[] = [];
     for (let n = 0; n < 6; n++) { cycled.push(s.pick(inputs)!); s.rotate('left'); }
-    expect(cycled).toEqual(['turret', 'c4', 'victory', 'pickup', 'escortee', 'bombDrop']);
+    expect(cycled).toEqual(['turret', 'c4', 'escortee', 'victory', 'pickup', 'bombDrop']);   // OT.R128, amended 2026-11-15 (the original's: victory, pickup, escortee)
     expect(s.pick(inputs)).toBe('turret');                        // the whole list turned once: the head again
     s.rotate('right');
     expect(s.pick(inputs)).toBe('bombDrop');                      // tail to head

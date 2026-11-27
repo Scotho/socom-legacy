@@ -22,8 +22,9 @@ import { readPreference, savePreference } from './startupSettings';
  *   characters' render-map shadow (`./charShadow`, which the original casts while its shadows global `DAT_003df138` is
  *   on) and the world's drop-shadow decals (`./world` `WorldView.setShadows`). Off skips their work; the original's
  *   global and every value read for them are not changed.
- * - **Show FPS** (`showFps`; off by default): the START menu's SHOW FPS readout (`./matchFps`, cq41E0VR), kept under its
- *   own key `FPS_SHOWN_KEY` and read through here, so the launcher's row and the START menu's are one setting.
+ * - **Show FPS** (`showFps`; off by default): the match's SHOW FPS readout (`./matchFps`, cq41E0VR; toggled from the
+ *   native VIDEO OPTIONS, no START menu row since WM-LAUNCHER), kept under its own key `FPS_SHOWN_KEY` and read through
+ *   here, so the launcher's row and the native one are one setting.
  *
  * Render scale and Shadows are one JSON value under `VIDEO_SETTINGS_KEY`, through the page's one storage door
  * (`./pageStore` `pageSettings`, via `./startupSettings` `readPreference`); read by the launcher's Options
@@ -82,7 +83,7 @@ export function renderCapFor(preset: RenderScale, devicePixelRatio: number | und
 /**
  * VS-3 (the video settings plan, product track; the spec §4.2's Render scale and Resolution ceiling rows; a browser
  * adaptation, no original): the ratio cap of a render scale `pct` (50-100) under a resolution `ceiling` (720 / 1080 /
- * 1440 px tall, or 0 = native), pure.
+ * 1440 px tall, 0 = native, or `CEILING_DEVICE`: the device's full ratio, no class or height cap), pure.
  *
  * - The base: under a height ceiling, Balanced's ratio, min(device, 1) (`RENDER_RATIO_BALANCED_ADAPTATION`); at the
  *   native ceiling, `pixelRatioCap` (the device's ratio, at most 2 on a desktop and 1.5 on a touch device).
@@ -95,6 +96,7 @@ export function renderCapFor(preset: RenderScale, devicePixelRatio: number | und
  */
 export function renderCapForV2(pct: number, ceiling: Ceiling, devicePixelRatio: number | undefined, touch: boolean, _cssWidth: number, cssHeight: number): RenderCap {
   const share = (Number.isFinite(pct) ? Math.min(RENDER_SCALE_PCT_MAX_ADAPTATION, Math.max(RENDER_SCALE_PCT_MIN_ADAPTATION, pct)) : RENDER_SCALE_PCT_MAX_ADAPTATION) / 100;
+  if (ceiling === CEILING_DEVICE) return { ratioCap: (devicePixelRatio || 1) * share, maxHeightPx: Number.POSITIVE_INFINITY };   // BUG-I5
   if (ceiling === 0) return { ratioCap: pixelRatioCap(devicePixelRatio, touch) * share, maxHeightPx: Number.POSITIVE_INFINITY };
   const ratio = Math.min(devicePixelRatio || 1, RENDER_RATIO_BALANCED_ADAPTATION) * share;
   const height = cssHeight > 0 ? cssHeight : 1;
@@ -126,8 +128,15 @@ export const VIDEO_SETTINGS_V2_ADAPTATION = 'VS-1: the browser video settings v2
 /** The page key of the v2 value (a browser adaptation, no original). */
 export const VIDEO_SETTINGS_KEY_V2 = 's2u.viewer.video2';
 
-export type Preset = 'auto' | 'performance' | 'balanced' | 'quality' | 'custom';
-export type Ceiling = 720 | 1080 | 1440 | 0;                 // 0 = native
+export type Preset = 'auto' | 'performance' | 'balanced' | 'quality' | 'lite' | 'custom';   // WM-5a: lite
+export type Ceiling = 720 | 1080 | 1440 | 0 | -1;            // 0 = native, -1 = the device's full ratio (CEILING_DEVICE)
+/**
+ * BUG-I5 TOUCH-CEILING (INTAKE I-5; the v0.4.32 batch; a browser adaptation, no original -- the console drew one 640 x 448
+ * frame): the ceiling a player picks to draw at the device's FULL pixel ratio, past the class cap (1.5 on a touch device,
+ * `TOUCH_PIXEL_RATIO_CAP_ADAPTATION`; 2 on a desktop) and with no height cap -- for a phone mirrored to a monitor, which
+ * the touch cap leaves blurry. No preset and not Automatic hold it: only a player's own pick reaches it.
+ */
+export const CEILING_DEVICE = -1 as const;
 export type FrameCap = 0 | 30 | 60 | 120;                     // 0 = off
 export type Overlay = 'off' | 'fps' | 'full';
 export type Shadows = 'off' | 'low' | 'medium' | 'high';
@@ -163,13 +172,15 @@ export const RENDER_SCALE_PCT_MAX_ADAPTATION = 100;
 export const RENDER_SCALE_PCT_STEP_ADAPTATION = 5;
 /**
  * The rows no preset owns (a browser adaptation, no original): the performance overlay is an instrument (the spec §7)
- * whose on / off is the START menu's own key, written there outside this keeper -- so it neither makes Custom nor is
- * reset by choosing a preset. Restore defaults still turns it off.
+ * whose on / off is the START menu's own key, written there outside this keeper; the colour filter is an accessibility
+ * setting, not a quality row (WM-R20-FOLDS item 3, the controller's ruling, seat 8f; the saved-settings audit's R4) --
+ * so neither makes Custom nor is reset by choosing a preset. Restore defaults still turns both off (its text: "Every row
+ * above back to Automatic").
  */
-export const PRESET_FREE_ROWS_ADAPTATION: readonly RowKey[] = ['overlay'];
+export const PRESET_FREE_ROWS_ADAPTATION: readonly RowKey[] = ['overlay', 'colourFilter'];
 
-const PRESETS: readonly Preset[] = ['auto', 'performance', 'balanced', 'quality', 'custom'];
-const CEILINGS: readonly Ceiling[] = [720, 1080, 1440, 0];
+const PRESETS: readonly Preset[] = ['auto', 'performance', 'balanced', 'quality', 'lite', 'custom'];
+const CEILINGS: readonly Ceiling[] = [720, 1080, 1440, 0, CEILING_DEVICE];
 const FRAME_CAPS: readonly FrameCap[] = [0, 30, 60, 120];
 const OVERLAYS: readonly Overlay[] = ['off', 'fps', 'full'];
 const SHADOW_TIERS: readonly Shadows[] = ['off', 'low', 'medium', 'high'];
@@ -181,7 +192,7 @@ const PCTS: readonly number[] = Array.from({ length: (RENDER_SCALE_PCT_MAX_ADAPT
 const DETAILS: readonly number[] = Array.from({ length: Math.round((DETAIL_DISTANCE_MAX - DETAIL_DISTANCE_MIN) / DETAIL_DISTANCE_STEP) + 1 }, (_, i) => clampDetailDistance(DETAIL_DISTANCE_MIN + i * DETAIL_DISTANCE_STEP));
 
 const words = <T,>(values: readonly T[], word: (v: T) => string) => values.map((value) => ({ value, word: word(value) }));
-const PRESET_WORDS: Readonly<Record<Preset, string>> = { auto: 'Automatic', performance: 'Performance', balanced: 'Balanced', quality: 'Quality', custom: 'Custom' };
+const PRESET_WORDS: Readonly<Record<Preset, string>> = { auto: 'Automatic', performance: 'Performance', balanced: 'Balanced', quality: 'Quality', lite: 'Lite', custom: 'Custom' };
 const LIVE = ['launcher', 'overlay'] as const;
 
 /**
@@ -190,11 +201,11 @@ const LIVE = ['launcher', 'overlay'] as const;
  */
 export const VIDEO_SCHEMA: readonly VideoRow[] = [
   { key: 'preset', kind: 'choice', values: words(PRESETS, (p) => PRESET_WORDS[p]), group: 'quality', surfaces: LIVE, apply: 'live', customOnly: false,
-    effect: 'Automatic picks for this device; Custom appears when any row below differs from the preset. Restore defaults returns to Automatic.' },
+    effect: 'Automatic picks for this device; Custom appears when any row below differs from the preset. Restore defaults returns to Automatic. Lite: For consoles and low-power devices: 720p at 75 %, at most 30 frames a second, no shadows, antialias off. Lite also draws PS2 pixels unless you choose a Sharpness.' },
   { key: 'renderScalePct', kind: 'percent', values: words(PCTS, (p) => `${p}%`), group: 'display', surfaces: ['launcher', 'overlay', 'native'], apply: 'live', customOnly: false,
     effect: 'A share of the preset\'s pixel ratio: fewer pixels drawn, faster frames, a softer picture.' },
-  { key: 'ceiling', kind: 'choice', values: words(CEILINGS, (c) => (c === 0 ? 'Native' : `${c}p`)), group: 'display', surfaces: LIVE, apply: 'live', customOnly: false,
-    effect: 'The tallest picture drawn, in device pixels; a larger screen is drawn at this height and stretched.' },
+  { key: 'ceiling', kind: 'choice', values: words(CEILINGS, (c) => (c === 0 ? 'Native' : c === CEILING_DEVICE ? 'Device' : `${c}p`)), group: 'display', surfaces: LIVE, apply: 'live', customOnly: false,
+    effect: 'The tallest picture drawn, in device pixels; a larger screen is drawn at this height and stretched. Device: the full sharpness of the screen, for a phone or tablet shown on a monitor (costs the most).' },
   { key: 'frameCap', kind: 'choice', values: words(FRAME_CAPS, (f) => (f === 0 ? 'Off' : String(f))), group: 'display', surfaces: LIVE, apply: 'live', customOnly: false,
     effect: 'Draws at most this many frames a second; the game steps the same either way. Vsync is the browser\'s and always on.' },
   { key: 'overlay', kind: 'choice', values: words(OVERLAYS, (o) => ({ off: 'Off', fps: 'FPS', full: 'FPS + frame time + ping' })[o]), group: 'display', surfaces: ['launcher', 'overlay', 'native'], apply: 'live', customOnly: false,
@@ -211,7 +222,7 @@ export const VIDEO_SCHEMA: readonly VideoRow[] = [
     effect: 'The browser\'s graphics interface: Automatic asks for WebGPU first, and WebGL2 where it is missing or after a WebGPU error; on an Xbox the console always draws WebGL2, whichever is chosen. After a WebGPU error the setting stays on WebGL2; elsewhere, choose Automatic again to bring WebGPU back. Applies when the next match starts.' },
   { key: 'power', kind: 'choice', values: words(POWERS, (p) => ({ default: 'Default', 'high-performance': 'High performance', 'low-power': 'Low power' })[p]), group: 'renderer', surfaces: LIVE, apply: 'nextMatch', customOnly: true,
     effect: 'Which graphics chip a two-chip laptop is asked for; applies when the next match starts.' },
-  { key: 'colourFilter', kind: 'choice', values: words(COLOUR_FILTERS, (c) => c[0]!.toUpperCase() + c.slice(1)), group: 'picture', surfaces: LIVE, apply: 'live', customOnly: true,
+  { key: 'colourFilter', kind: 'choice', values: words(COLOUR_FILTERS, (c) => c[0]!.toUpperCase() + c.slice(1)), group: 'picture', surfaces: LIVE, apply: 'live', customOnly: false,   // WM-R20-FOLDS (b): no preset's, so drawn under every one
     effect: 'A colour-blind filter over the whole picture, the HUD included; it hides nothing.' },
 ];
 
@@ -222,11 +233,22 @@ const COMMON_ROWS = {
 /**
  * The presets' values (the spec §4.2's defaults; VS.R3: shadows Off on Performance; VS.R5: Medium is today's draw; a
  * browser adaptation, no original). Balanced is today's draw exactly: 100 % of ratio 1, at most 1440 px tall.
+ *
+ * WM-5a (the weekend mega sprint, 2026-11-14; a browser adaptation, no original): **Lite** (the controller's ruling A, seat
+ * 8f: renamed from "Low power", a value of the Power row on the same page) -- 720p at 75 %, at most 30 frames a second, no
+ * shadows, antialias off (the Xbox row's); while it (or a Custom made from it, `litePictureLaid`) is the preset the PS2
+ * picture is drawn where none is saved, and never written (WM-R20-FOLDS item 2, the controller's ruling over ruling B:
+ * passing through Lite is not a choice of picture -- another named preset brings the class's default back; the picture
+ * is VIDEO MODE's own key, not a row here, `./picture` `pictureDefault`). On the second developer's physical report from his console (the live page
+ * stable at 30 fps in PS2 mode with the 30 cap), not a measurement of ours; not on the probe's ladder (`./autoQuality`).
+ * Its renderer stays Automatic's: a preset's graphics row is written to the renderer's key, so a WebGL2 here would
+ * overwrite a saved Xbox pick, and the Xbox class draws WebGL2 under every preset already (`./deviceClass` `classGraphics`).
  */
 export const PRESET_VALUES: Readonly<Record<Exclude<Preset, 'auto' | 'custom'>, Readonly<Rows>>> = {
   performance: { ...COMMON_ROWS, renderScalePct: 75, ceiling: 1080, shadows: 'off' },
   balanced: { ...COMMON_ROWS, renderScalePct: 100, ceiling: 1440, shadows: 'medium' },
   quality: { ...COMMON_ROWS, renderScalePct: 100, ceiling: 0, shadows: 'medium' },
+  lite: { ...COMMON_ROWS, renderScalePct: 75, ceiling: 720, shadows: 'off', frameCap: 30, antialias: false },
 };
 
 /** What Automatic chose: VS-7's (`./autoQuality` `autoResolved`) -- the first-match probe's saved preset, else the device class's start. */
@@ -256,13 +278,26 @@ const deviates = (v: Rows, preset: Preset): boolean => {
 /** Custom: chosen, or any row a preset owns differs from `PRESET_VALUES[v.preset]` (Automatic: from its resolved values). */
 export function isCustom(v: VideoSettingsV2): boolean { return deviates(v, v.preset); }
 
-/** What is stored: the settings, and the overlay's mode kept while it is off. */
-interface Stored { v: VideoSettingsV2; mode: 'fps' | 'full' }
+/**
+ * What is stored: the settings, the overlay's mode kept while it is off, and whether a Custom was made from Lite.
+ * WM-R20-FOLDS item 2 (a browser adaptation): `fromLite` is stored as `from: 'lite'` in the v2 JSON of a Custom made from
+ * Lite (absent otherwise; v0.4.22 had no Lite and ignores the field), so such a Custom keeps Lite's PS2 picture without
+ * the picture being written (`litePictureLaid`).
+ */
+interface Stored { v: VideoSettingsV2; mode: 'fps' | 'full'; fromLite?: boolean }
 
 const parseObject = (raw: string | null): Record<string, unknown> | null => {
   if (!raw) return null;
   try { const v: unknown = JSON.parse(raw); return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null; } catch { return null; }
 };
+/**
+ * WM-R20-FOLDS item 2 (a browser adaptation, no original): whether the stored v2 value (raw) lays Lite's PS2 picture --
+ * Lite is the preset, or a Custom made from it. Read by `./picture` `pictureDefault` beneath a saved picture, never over it.
+ */
+export function litePictureLaid(raw: string | null): boolean {
+  const v2 = parseObject(raw);
+  return !!v2 && (v2.preset === 'lite' || (v2.preset === 'custom' && v2.from === 'lite'));
+}
 const graphicsOf = (saved: string | null): Graphics => (saved === 'webgl2' || saved === 'webgpu' ? saved : 'auto');   // 'xbox': Automatic (VS-7's class)
 
 function readStored(read: (key: string) => string | null): Stored {
@@ -273,7 +308,8 @@ function readStored(read: (key: string) => string | null): Stored {
     if (v2.overlay === 'full') mode = 'full';
     const base = baseOf(preset);
     rows = { ...base };
-    if (preset !== 'auto') for (const k of JSON_ROWS) if (VALID[k](v2[k])) (rows as Record<RowKey, unknown>)[k] = v2[k];   // a field out of range: its preset's alone
+    if (preset !== 'auto') { for (const k of JSON_ROWS) if (VALID[k](v2[k])) (rows as Record<RowKey, unknown>)[k] = v2[k]; }   // a field out of range: its preset's alone
+    else if (VALID.colourFilter(v2.colourFilter)) rows.colourFilter = v2.colourFilter;   // WM-R20-FOLDS item 3: Automatic keeps the filter too
   } else {
     const v1 = parseObject(read(VIDEO_SETTINGS_KEY));
     if (v1) {
@@ -294,7 +330,7 @@ function readStored(read: (key: string) => string | null): Stored {
   const savedGraphics = graphicsOf(read(GRAPHICS_BACKEND_KEY));
   rows.graphics = preset === 'auto' && savedGraphics === 'auto' ? rows.graphics : savedGraphics;
   rows.overlay = read(FPS_SHOWN_KEY) === '1' ? mode : 'off';
-  return { v: { preset, ...rows }, mode };
+  return { v: { preset, ...rows }, mode, fromLite: preset === 'custom' && v2?.from === 'lite' };
 }
 
 /** The stored v2 settings: v2, else the v1 value migrated, else Automatic; a field out of range reads its preset's value alone. */
@@ -302,11 +338,13 @@ export function readVideoSettingsV2(read: (key: string) => string | null = readP
   return readStored(read).v;
 }
 
-const serialize = ({ v, mode }: Stored): string => {
-  if (v.preset === 'auto') return JSON.stringify({ preset: 'auto', overlay: mode });
+const serialize = ({ v, mode, fromLite }: Stored): string => {
+  // WM-R20-FOLDS item 3: Automatic's rows are never stored, but a colour filter on is the player's (absent while Off, as before).
+  if (v.preset === 'auto') return JSON.stringify(v.colourFilter === 'off' ? { preset: 'auto', overlay: mode } : { preset: 'auto', overlay: mode, colourFilter: v.colourFilter });
   const out: Record<string, unknown> = { preset: v.preset };
   for (const k of JSON_ROWS) out[k] = v[k];
   out.overlay = mode;
+  if (v.preset === 'custom' && fromLite) out.from = 'lite';                          // WM-R20-FOLDS item 2: a Custom made from Lite
   return JSON.stringify(out);
 };
 
@@ -314,7 +352,7 @@ const serialize = ({ v, mode }: Stored): string => {
 const tierOf = (v: Rows): RenderScale => {
   const exact = RENDER_SCALES.find((s) => PRESET_VALUES[s].renderScalePct === v.renderScalePct && PRESET_VALUES[s].ceiling === v.ceiling);
   if (exact) return exact;
-  return v.ceiling === 0 ? 'quality' : v.ceiling === RENDER_MAX_HEIGHT_BALANCED_ADAPTATION ? 'balanced' : 'performance';
+  return v.ceiling === 0 || v.ceiling === CEILING_DEVICE ? 'quality' : v.ceiling === RENDER_MAX_HEIGHT_BALANCED_ADAPTATION ? 'balanced' : 'performance';   // BUG-I5 review F1: Device as Native
 };
 const toV1 = (v: VideoSettingsV2): VideoSettings => ({ renderScale: tierOf(v), shadows: v.shadows !== 'off', showFps: v.overlay !== 'off' });
 const sameV1 = (a: VideoSettings, b: VideoSettings): boolean => a.renderScale === b.renderScale && a.shadows === b.shadows && a.showFps === b.showFps;
@@ -363,12 +401,14 @@ function videoStore(read: (key: string) => string | null, write: (key: string, v
   // device class, whose WebGL probe the front end's start must not make -- the native rows' keeper is built there).
   let cached: Stored | null = shared ? null : readStored(read);
   if (shared) hearPageDetail();   // a store of its own (a test's) has no other writer of its detail key
-  const now = (): Stored => (shared || !cached ? readStored(read) : { v: { ...cached.v }, mode: cached.mode });
+  const now = (): Stored => (shared || !cached ? readStored(read) : { v: { ...cached.v }, mode: cached.mode, fromLite: cached.fromLite });
   // `was`: what the change was made from (VS-7: a cleared Xbox pick changes what `now` reads before the commit).
-  const commit = (to: Stored, was: Stored = now()): void => {
+  const commit = (change: Stored, was: Stored = now()): void => {
     const from = was;
+    // WM-R20-FOLDS item 2: a Custom made from Lite (from Lite itself, or from such a Custom) stays one; anything else is not.
+    const to: Stored = { ...change, fromLite: change.v.preset === 'custom' && (from.v.preset === 'lite' || !!from.fromLite) };
     if (from.mode === to.mode && (Object.keys(to.v) as (keyof VideoSettingsV2)[]).every((k) => from.v[k] === to.v[k])) return;
-    cached = { v: { ...to.v }, mode: to.mode };
+    cached = { v: { ...to.v }, mode: to.mode, fromLite: to.fromLite };
     const wasV1 = toV1(from.v), is = toV1(to.v);
     const v1Moved = wasV1.renderScale !== is.renderScale || wasV1.shadows !== is.shadows;
     // v2 written whenever v1 is, so a v1 value never stands alone to be migrated over Automatic (VS-7: a class change moves v1 under 'auto')
@@ -383,7 +423,12 @@ function videoStore(read: (key: string) => string | null, write: (key: string, v
     // (read as 'auto') is never rewritten to 'auto' unasked -- only `set({ graphics: 'auto' })` clears it.
     const keyOf = (v: VideoSettingsV2): Graphics => (v.preset === 'auto' && v.graphics === resolveAutomatic().graphics ? 'auto' : v.graphics);
     const key = keyOf(to.v);
-    if (keyOf(from.v) !== key && !(key === 'auto' && read(GRAPHICS_BACKEND_KEY) === 'xbox')) writeGraphicsKey(read, write, key);
+    // LATER 1275 (rides v0.4.29, the main controller's ruling): under Automatic with the pick the renderer row reads the
+    // pick's own WebGL2, and a change of another row (Shadows, the frame cap) made a Custom carrying it -- its key 'webgl2'
+    // was written over the pick and the page left the Xbox class. A saved pick is rewritten only when the renderer row
+    // itself changed (an explicit renderer choice); a preset's 'auto' still never clears it unasked.
+    const pick = read(GRAPHICS_BACKEND_KEY) === 'xbox';
+    if (keyOf(from.v) !== key && !(pick && (key === 'auto' || to.v.graphics === from.v.graphics))) writeGraphicsKey(read, write, key);
     for (const f of [...heardV2]) f({ ...to.v });
     if (!sameV1(wasV1, is)) for (const f of [...heardV1]) f({ ...is });
   };
@@ -413,6 +458,8 @@ export function videoSettingsKeeperV2(read: (key: string) => string | null = rea
         writeGraphicsKey(read, write, 'auto');
         if (v.preset === 'auto') { const base = resolveAutomatic(); for (const k of PRESET_ROWS) (v as Record<RowKey, unknown>)[k] = base[k]; }
       }
+      // WM-R20-FOLDS item 2 (over WM-5a's ruling B): choosing Lite writes no picture -- Lite's PS2 picture is laid beneath
+      // a saved one while Lite (or a Custom made from it) is the preset (`litePictureLaid`, `./picture` `pictureDefault`).
       if (isPreset(patch.preset)) {
         if (patch.preset === 'custom') v.preset = 'custom';
         else {
@@ -480,7 +527,7 @@ export type VideoSettingsKeeper = ReturnType<typeof videoSettingsKeeper>;
  * screen's three rows (`@s2u/ui` `VideoRowsKeeper`, which does not import the viewer) on the v2 keeper.
  * - **RENDER SCALE**'s three boxes read the preset drawn: a named preset its own; Automatic what it resolved to
  *   (`./autoQuality` `presetOfRows`, else the tier its percent and ceiling stand for -- the Xbox class's 720p start lights
- *   PERFORMANCE); Custom the tier its rows stand for. A press writes that tier's render scale and ceiling ONLY, as the v1
+ *   PERFORMANCE); Custom and Lite (WM-5a) the tier their rows stand for. A press writes that tier's render scale and ceiling ONLY, as the v1
  *   keeper's render scale does, and keeps every other row; the preset becomes Custom where they leave it
  *   (VS-SCALE-KEEPS-ROWS, 2026-11-14, a player's report: "on mobile it kept resetting my settings, the frame rates back"
  *   -- a press had written the whole preset, its frame cap 0 over a chosen cap, its shadows and the rest, unsaid; VS-1
@@ -490,7 +537,7 @@ export type VideoSettingsKeeper = ReturnType<typeof videoSettingsKeeper>;
  * - **SHOW FPS** is the performance overlay: Off, or FPS (a full readout already on is kept).
  */
 export function videoRowsKeeperV2(keeper: VideoSettingsKeeperV2 = videoSettingsKeeperV2()): VideoRowsKeeper {
-  const drawnPreset = (v: VideoSettingsV2): RenderScale => (v.preset === 'auto' ? presetOfRows(v) ?? tierOf(v) : v.preset === 'custom' ? tierOf(v) : v.preset);
+  const drawnPreset = (v: VideoSettingsV2): RenderScale => (v.preset === 'auto' ? presetOfRows(v) ?? tierOf(v) : v.preset === 'custom' || v.preset === 'lite' ? tierOf(v) : v.preset);
   const tierFor = (v: VideoSettingsV2): Shadows => {
     const own = v.preset === 'auto' ? resolveAutomatic().shadows : v.preset === 'custom' ? 'off' : PRESET_VALUES[v.preset].shadows;
     return own === 'off' ? 'medium' : own;

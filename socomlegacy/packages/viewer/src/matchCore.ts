@@ -1,10 +1,10 @@
 import type { Scene } from 'three';
-import { itemClass, spawnsFor, type Loadout, type Side, type Spawns } from '@s2u/scene';
+import { itemClass, spawnsFor, type Loadout, type Side, type SpawnSlot, type Spawns } from '@s2u/scene';
 import { applyFog, ELF_DEFAULT_FOGCOL, type FogSettings } from './fog';
 import type { Input } from './gamepad';
 import { brightenOf, type Lighting } from './lighting';
 import type { LoadedMap } from './loadMap';
-import { BAKED_LOADOUT, kitRecords, slotModel, typeLoadout, wireLoadout } from './loadout';
+import { BAKED_LOADOUT, kitRecords, slotModel, typeLoadout, wireKit } from './loadout';
 import type { Team } from './net/protocol';
 import type { HeldRef, RemotePlayers } from './remotePlayers';
 import { openingStand } from './stand';
@@ -140,7 +140,8 @@ export function sideLoadoutOf(map: LoadedMap | null, side: Side, type = 0): Load
  */
 export function setRemoteMap(remote: Pick<RemotePlayers, 'setMap'>, map: LoadedMap, lighting: Lighting, view: () => WorldView | null): void {
   remote.setMap(map, lighting, (team, kit, type) => {
-    const l = wireLoadout(kit) ?? sideLoadoutOf(map, team, type), table = map.arsenal?.table ?? null;
+    // R4P-103: a pickup's kit may carry six records (a launcher's round appended, `wireKit`).
+    const l = wireKit(kit) ?? sideLoadoutOf(map, team, type), table = map.arsenal?.table ?? null;
     const recs = kitRecords(table, l);
     const held = (model: string | null): HeldRef | null => heldRefOf(view(), map, model);
     const launcher = l.find((id) => itemClass(id) === 'rocketLauncher');   // NU-6 F2: the kit's first (FUN_005c6a40 D:L479823)
@@ -213,6 +214,21 @@ export function standOf(map: LoadedMap, view: Pick<WorldView, 'box'>, side: Side
   const [cx, cy, cz] = centre(view.box as WorldView['box']);
   const reach = Math.max(view.box.max.x - view.box.min.x, view.box.max.z - view.box.min.z) || 1000;
   return { spawn, from: [cx, cy + reach * 0.4, cz + reach * 0.6], to: [cx, cy, cz], feet: null };
+}
+
+/**
+ * The free walk's spawn (`WalkMode.setGround`'s second argument). A BROWSER ADAPTATION (FP.R13 item 5: the test room
+ * walks an authored map; product track, no original): where `standOf` found no measured stand (`feet` null) on an
+ * authored content map, the map's first side-0 (team A) slot standing on its floor, else the first slot of any side on
+ * its floor, else null. A disc map, or any map with a measured stand, gets `feet` itself, untouched -- the slots are
+ * not read (W1.R9: which slot a player gets is game logic; the offline room's own spawn selection is not this).
+ */
+export function freeWalkSpawn(
+  feet: MapStand['feet'], slots: readonly SpawnSlot[] | undefined, authored: boolean,
+): [number, number, number] | null {
+  if (feet !== null || !authored || !slots) return feet;
+  const slot = slots.find((s) => s.side === 0 && s.onFloor) ?? slots.find((s) => s.onFloor);
+  return slot ? [slot.position[0], slot.position[1], slot.position[2]] : null;
 }
 
 /** The camera's lanes a frame feeds (`./camera` `FlyCamera`). */

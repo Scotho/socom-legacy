@@ -24,7 +24,7 @@ const GROUND: GroundData = packGround(
   { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 },
   [{
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]),
+    points: Float32Array.from([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]),
   }],
   [{ modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1 }],
 );
@@ -68,16 +68,17 @@ describe('the swap is replicated only when the mover takes it', () => {
     dispose();
   });
 
-  it('a swap refused through a jump sends no press and keeps the rifle', () => {
+  it('B-65 standing (the owner divergence, OT.R151): a swap through a standing jump is taken as the overlay, sends the press and takes the pistol', () => {
     const { walk, tick, dispose } = rig();
     expect(walk.jump()).toBe(true);
     tick();
-    expect(walk.swapWeapon('pistol')).toBeNull();                  // the jump (its action, then the air) refuses it
+    // Was: refused (the jump's action, FUN_005b4340(actor, 4)); AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION takes it now.
+    const pick = walk.swapWeapon('pistol');
+    expect(pick).not.toBeNull();
+    expect(pick!.overlay).toBe(true);
     const cmds = [...tick(), ...tick()];
-    for (const c of cmds) {
-      expect(c.buttons & Button.Swap).toBe(0);
-      expect(c.weapon).toBe(0);
-    }
+    expect(cmds.some((c) => (c.buttons & Button.Swap) !== 0)).toBe(true);
+    expect(cmds[cmds.length - 1]!.weapon).toBe(1);
     dispose();
   });
 });
@@ -203,11 +204,12 @@ describe('the page and the room take a tick\'s presses in the original\'s order:
     dispose();
   });
 
-  it('swapGate answers as the swap would, with no side effect: refused in the air, in the scope the last tick left, after a stance press', () => {
+  it('swapGate answers as the swap would, with no side effect: taken in the standing jump (B-65), in the scope the last tick left, after a stance press', () => {
     const { walk, tick, dispose } = both();
     expect(walk.swapGate()).toBe(true);
     walk.jump();
-    expect(walk.swapGate()).toBe(false);                          // the jump's action, then the air (FUN_005b4340(actor, 4))
+    // B-65 standing (OT.R151): the standing jump's action no longer refuses (was false: FUN_005b4340(actor, 4)).
+    expect(walk.swapGate()).toBe(true);
     for (let i = 0; i < 120; i++) tick();
     expect(walk.swapGate()).toBe(true);
     walk.setScopedMove(true);

@@ -219,7 +219,7 @@ export interface FlyCameraOptions {
   /** World-space point under the pointer for orbit and dolly gestures. */
   pivotAt?: (clientX: number, clientY: number) => Vector3 | null;
   /**
-   * An Alt press the page takes for itself (the owner, 2026-11-17: "make the alt+drag to copy"): a gizmo handle under the
+   * An Alt press the page takes for itself (the Forge's owner (crispy, OT.R112), 2026-11-17: "make the alt+drag to copy"): a gizmo handle under the
    * pointer -- its copy's drag -- so the Alt orbit leaves it alone.
    */
   orbitBlocked?: (e: PointerEvent) => boolean;
@@ -347,6 +347,15 @@ export class FlyCamera {
   /** The shake and the bob this look frame gave, and the kit's scoped sway (`setKitOffset`): their sum is `screen`. */
   private lookOffset: [number, number] = [0, 0];
   private kitOffset: [number, number] = [0, 0];
+  /**
+   * R4P-220, POV_SHAKE_ADAPTATION (the Player View; product track, a browser adaptation with no original): the watched
+   * body's feet while the view is drawn on it (`setSubjectFeet`, from `./matchNet` `spectatePov`), the view's own shake
+   * (`shakeSubject`), what it last gave and the subject's own offset (`setSubjectOffset`): their sum is `screen`.
+   */
+  private subjectFeetNow: [number, number, number] | null = null;
+  private subjectShake = new ScreenShake();
+  private subjectShakeOffset: [number, number] = [0, 0];
+  private subjectOffset: [number, number] = [0, 0];
   /** The map's near plane (`setClipPlanes`), and the head view's shorter one while it holds (`setViewNear`, OBF-1). */
   private mapNear = DEFAULT_NEAR;
   private viewNear: number | null = null;
@@ -719,6 +728,24 @@ export class FlyCamera {
     if (pitch !== this.pitch) { this.pitch = pitch; this.apply(); }
   }
 
+  /**
+   * SCOPE-EXIT-AIM (`./scopeCarry`, `SCOPE_EXIT_AIM_CARRY_ADAPTATION` -- the owner's intentional divergence, research 381
+   * section 6): turns the walking look by (`dyaw`, `dpitch`) radians at a view change across the scope's edge -- the yaw
+   * wrapped, the pitch held as `addPitch` holds the kick (the stance's limits; outside them, the hard +-1.4 rad). Returns
+   * the turn the look took (a pitch cut at a limit is less than asked). Walking only; flying, nothing.
+   */
+  carryLook(dyaw: number, dpitch: number): [number, number] {
+    if (!this.walking || (dyaw === 0 && dpitch === 0)) return [0, 0];
+    const [lo, hi] = this.walkPitch;
+    const outside = this.pitch > hi + 1e-9 || this.pitch < lo - 1e-9;
+    const pitch = outside ? MathUtils.clamp(this.pitch + dpitch, -PITCH_HARD, PITCH_HARD) : this.clampPitch(this.pitch + dpitch);
+    const took = pitch - this.pitch;
+    this.yaw = wrapYawRad(this.yaw + dyaw);
+    this.pitch = pitch;
+    this.apply();
+    return [dyaw, took];
+  }
+
   pose(): Pose {
     const p = this.activeCamera.position;
     return { x: p.x, y: p.y, z: p.z, yaw: wrapYaw(MathUtils.radToDeg(this.yaw)), pitch: MathUtils.radToDeg(this.pitch) };
@@ -746,6 +773,8 @@ export class FlyCamera {
     this.stickBoost = false;
     this.law.reset();
     this.turnRate = 0;
+    this.subjectOffset = [0, 0];
+    this.endSubjectShake();                          // R4P-220: the Player View's subject and shake do not cross a switch
     if (!on) {
       this.lookOffset = [0, 0];
       this.kitOffset = [0, 0];
@@ -867,6 +896,7 @@ export class FlyCamera {
     const arrowTilt = (this.keys.has('arrowup') ? 1 : 0) - (this.keys.has('arrowdown') ? 1 : 0);
     if (this.walking) this.walkLook(dt, arrowTurn, arrowTilt);
     else {
+      this.subjectShakeFrame(dt);                       // R4P-220: the Player View's own shake (POV_SHAKE_ADAPTATION)
       // A pad's corner is past the rim (`./gamepad` `padStick`); flying, the pair is held to the disc as it always was.
       const rim = Math.max(1, Math.hypot(this.lookX, this.lookY));
       const lookX = this.lookX / rim, lookY = this.lookY / rim;
@@ -1079,7 +1109,50 @@ export class FlyCamera {
    */
   setSubjectOffset(x: number, y: number): void {
     if (this.walking) return;
-    this.setScreenOffset(x, y);
+    this.subjectOffset = [x, y];
+    this.setScreenOffset(x + this.subjectShakeOffset[0], y + this.subjectShakeOffset[1]);
+  }
+
+  /**
+   * R4P-220, POV_SHAKE_ADAPTATION (the Player View; product track, a browser adaptation with no original -- the owner's
+   * criterion: the view receives every event the living player it shows does): the watched body's feet while the view is
+   * drawn on it (`./matchNet` `spectatePov`; a dead body is never drawn), null the first frame it is not -- which also
+   * ends the view's shake. Walking, nothing: the page's own camera shakes by its own body (`shakeScreen`).
+   */
+  setSubjectFeet(feet: readonly number[] | null): void {
+    if (this.walking || !feet) { this.endSubjectShake(); return; }
+    this.subjectFeetNow = [feet[0]!, feet[1]!, feet[2]!];
+  }
+
+  /** R4P-220: the feet `setSubjectFeet` holds (a blast's distance is taken from them, `./matchThrow`), or null. */
+  subjectFeet(): readonly [number, number, number] | null {
+    return this.subjectFeetNow;
+  }
+
+  /**
+   * R4P-220, POV_SHAKE_ADAPTATION: a screen shake on the Player View (a blast by the watched body, `./matchThrow`), the
+   * walk's own `ScreenShake` law (`FUN_002994e0` / `FUN_00299c40`) on the view's own state, swung on this camera's frames
+   * (`update`) and added to the subject's offset. Only while a subject is drawn and the camera is not walking.
+   */
+  shakeSubject(shake: Shake): void {
+    if (!this.walking && this.subjectFeetNow) this.subjectShake.start(shake);
+  }
+
+  /** R4P-220: the view's shake ended and its offset taken back (the subject's own offset stays). */
+  private endSubjectShake(): void {
+    const had = this.subjectShakeOffset[0] !== 0 || this.subjectShakeOffset[1] !== 0;
+    this.subjectFeetNow = null;
+    this.subjectShake = new ScreenShake();
+    this.subjectShakeOffset = [0, 0];
+    if (had && !this.walking) this.setScreenOffset(this.subjectOffset[0], this.subjectOffset[1]);
+  }
+
+  /** R4P-220: one frame of the Player View's shake, while it swings (or the frame it stops), over the subject's offset. */
+  private subjectShakeFrame(dt: number): void {
+    const was = this.subjectShakeOffset;
+    if (!this.subjectFeetNow || (was[0] === 0 && was[1] === 0 && this.subjectShake.amplitude().every((a) => a === 0))) return;
+    this.subjectShakeOffset = this.subjectShake.step(dt);
+    this.setScreenOffset(this.subjectOffset[0] + this.subjectShakeOffset[0], this.subjectOffset[1] + this.subjectShakeOffset[1]);
   }
 
   /** The PS2 screen offset (`./look`, `viewOffset`) on the camera, or none. */
@@ -1395,7 +1468,7 @@ export class FlyCamera {
 
   /** `code`, not `key`: WASD stays where it is on an AZERTY keyboard, and shift does not rename letters. */
   /**
-   * The Forge's own fly keys (the shortcut list's Camera commands, `./forge/shortcuts`; the owner, 2026-11-20: every
+   * The Forge's own fly keys (the shortcut list's Camera commands, `./forge/shortcuts`; the Forge's owner (crispy, OT.R112), 2026-11-20: every
    * command's keys editable): a pressed key's code (lowercase) to the code the camera flies by (`keyw` forward, `keye`
    * up ...). A key the list moved off a fly command is nothing to the camera. Null: the keys as they are. Only in the
    * Forge's navigation, never while walking (the walk's keys are the game's).
@@ -1421,11 +1494,17 @@ export class FlyCamera {
       globalThis.document.exitPointerLock?.();
       return;
     }
+    // A browser adaptation with no original: macOS sends no keyup for a key pressed or released while Cmd is held, and a
+    // system shortcut's (Cmd+Shift+4, the screenshot) keyup goes to the system, never the page -- so a key down under
+    // Cmd is no move, and Cmd's press lets go of every key held (the camera sank on a stuck Shift, 2026-11-24).
+    if (e.metaKey) { this.keys.clear(); this.sprinting_ = false; }
     if (this.suspended) return;                     // a menu holds the input (`setInputSuspended`)
     if (this.keysHeldOff()) return;                 // the Forge's shortcut editor has the keys
     if (!import.meta.env.DEV && !this.kbmNow()) return;   // RB-8 (OT.R114): a `kbm` page's opt-in, asked at each key
     if (e.target instanceof HTMLElement && (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT')) return;
     const code = this.flyCode(e);
+    // ...and a key the camera owns is still kept from the browser's own chord on it (Cmd+S, Cmd+D), as before the fix
+    if (e.metaKey) { if (OWNED.has(code)) e.preventDefault(); return; }
     // While the Forge navigates -- RMB held to fly, or any other navigation drag (`forgeNavigating`) -- its fly keys are
     // the camera's alone, so the editor's W / E / R (the gizmo's modes) and the rest of the letters it flies on never
     // reach the page's own keys then.

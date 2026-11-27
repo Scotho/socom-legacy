@@ -4,6 +4,7 @@ import { PAD_BUTTON, PAD_PRESS, type GamepadLike, type PadButton } from './gamep
 import { keyboardSite } from './keyboardTesting';
 import { mountMenuTouch } from './menuTouch';
 import { LEFT_DEAD_ZONE, moveStick } from './moveStick';
+import { settingsAdvancedDesignOf, settingsAdvancedPromptAt, type SettingsAdvancedTap } from './settingsAdvanced';
 
 /**
  * The page's keyboard, pad and touch as the PS2 pad the menus read (PLAT-11; web research 116 §11-§12; the owner's
@@ -34,7 +35,11 @@ import { LEFT_DEAD_ZONE, moveStick } from './moveStick';
  * d-pad; Enter, Numpad Enter, X and Space CROSS; Backspace TRIANGLE; R CIRCLE; V SQUARE (the ARMORY's) -- and START
  * `P`, SELECT `O`, TRIGGER_L1 `PageUp`, TRIGGER_L2 `PageDown` (the disc's L1 / L2 bindings scroll up / down), TRIGGER_R1
  * `T` (its bindings open the chat), TRIGGER_R2 `Y`. Esc is left to the page (it releases the mouse). `BUTTON_EXECUTE`
- * needs no key (it is START, R116.2); L3 and R3 none (no binding word names them). [reading]
+ * needs no key (it is START, R116.2); L3 and R3 none (no binding word names them). Where these keys are live (a
+ * development build, `MenuPageInput.takesKey`) a menu key wins on every screen: Enter and Numpad Enter are CROSS on
+ * the screens that bind `USBKBD_ENTER` too (`dlgGameLobby`, `dlgMPBriefingRoom`), and `ENTER_OPENS_CHAT_ADAPTATION`
+ * (`./softKeyboardKeys`, the owner, 2026-11-15) takes Enter as the USB Enter only where they are not (a release
+ * build). [reading]
  */
 export const MENU_KEYS_READING: Readonly<Record<string, PadSlotName>> = {
   KeyW: 'UP', ArrowUp: 'UP', KeyS: 'DOWN', ArrowDown: 'DOWN', KeyA: 'LEFT', ArrowLeft: 'LEFT', KeyD: 'RIGHT', ArrowRight: 'RIGHT',
@@ -101,8 +106,12 @@ const POINTER_EVENTS = ['pointerdown', 'pointerup', 'pointermove', 'pointercance
 
 type PointerMenuInput = Pick<MenuInput, 'tap'> & Partial<Pick<MenuInput, 'pointerDown' | 'pointerMove' | 'pointerUp'>>;
 
-/** Browser adaptation shared by the home menus and the in-match overlay: click and drag native sliders. */
-export function attachMenuPointer(input: PointerMenuInput, canvas: HTMLCanvasElement): () => void {
+/**
+ * Browser adaptation shared by the home menus and the in-match overlay: click and drag native sliders. WM-6A
+ * (`./settingsAdvanced`): with `advanced`, a press inside the ADVANCED prompt's box on the screen shown
+ * (`settingsAdvancedPromptAt`) is SQUARE (`advanced.square`), not the tap -- which, off every control, is lost (B-21).
+ */
+export function attachMenuPointer(input: PointerMenuInput, canvas: HTMLCanvasElement, advanced?: SettingsAdvancedTap | null): () => void {
   let active: number | null = null;
   const oldTouchAction = canvas.style.touchAction;
   canvas.style.touchAction = 'none';
@@ -118,6 +127,7 @@ export function attachMenuPointer(input: PointerMenuInput, canvas: HTMLCanvasEle
       if (p.button !== 0 || (active !== null && active !== (p.pointerId ?? 0))) return;
       release();
       const at = framePoint(p.clientX, p.clientY, canvas.getBoundingClientRect());
+      if (at && advanced && settingsAdvancedPromptAt(advanced.design(), at.x, at.y)) { advanced.square(); event.preventDefault(); return; }   // WM-6A
       if (at) {
         active = p.pointerId ?? 0;
         if (input.pointerDown) input.pointerDown(at.x, at.y); else input.tap(at.x, at.y);
@@ -148,6 +158,14 @@ export function attachMenuPointer(input: PointerMenuInput, canvas: HTMLCanvasEle
 export class MenuPageInput implements MenuInputSource {
   private readonly held = new Set<string>();
   private readonly latched = new Set<string>();
+  /** WM-6A: buttons pressed by the pointer (the ADVANCED prompt's SQUARE), read down once as a latched key is. */
+  private readonly pressed = new Set<PadSlotName>();
+  /** WM-6A: the ADVANCED prompt's tap (`attachMenuPointer`'s `advanced`), set by `attachMenuInput`; null, none. */
+  advanced: SettingsAdvancedTap | null = null;
+  /** The keys are attached (`attach`, a development build only, OT.R29). */
+  private keysLive = false;
+  /** `MenuInputSource.usbKey`: the dispatch's step 6 pop, set by `connectSoftKeyboard` (`ENTER_OPENS_CHAT_ADAPTATION`). */
+  declare usbKey?: () => number | null;
 
   constructor(private readonly pads: () => readonly (GamepadLike | null)[] = () => [],
     private readonly touch: () => GamepadLike | null = () => null,
@@ -162,15 +180,24 @@ export class MenuPageInput implements MenuInputSource {
     const touch = padSnapshot(this.touch(), zone);
     for (const button of touch.down) down.add(button);
     for (const code of [...this.held, ...this.latched]) { const b = MENU_KEYS_READING[code]; if (b) down.add(b); }
+    for (const b of this.pressed) down.add(b);
     this.latched.clear();
+    this.pressed.clear();
     return { down, stickX: touch.stickX || pad.stickX, stickY: touch.stickY || pad.stickY };
   }
 
   /** A key down (the code of `KeyboardEvent.code`). */
   keyDown(code: string): void { this.held.add(code); this.latched.add(code); }
   keyUp(code: string): void { this.held.delete(code); }
+  /** WM-6A: a button pressed by the pointer, read down on the next read only (`MENU_KEY_LATCH_READING`'s latch). */
+  press(button: PadSlotName): void { this.pressed.add(button); }
   /** Every key let go and no tap kept (the window lost the focus: no keyup will come; or the menus begin reading). */
-  release(): void { this.held.clear(); this.latched.clear(); }
+  release(): void { this.held.clear(); this.latched.clear(); this.pressed.clear(); }
+  /**
+   * Whether the key `code` is the menus' now: the keys are attached and `MENU_KEYS_READING` maps it. What
+   * `ENTER_OPENS_CHAT_ADAPTATION` asks before it takes Enter -- a menu key wins.
+   */
+  takesKey(code: string): boolean { return this.keysLive && MENU_KEYS_READING[code] !== undefined; }
 
   /**
    * The listeners while the front end has the screen: the keys on the canvas's document, capture phase (Esc and Ctrl /
@@ -191,6 +218,7 @@ export class MenuPageInput implements MenuInputSource {
       keyboardSite('s2u-kb-menus');
       doc.addEventListener('keydown', key, { capture: true });
       doc.addEventListener('keyup', key, { capture: true });
+      this.keysLive = true;
     }
     win.addEventListener('blur', blur);
     const pointerOff = this.attachPointer(input, canvas);
@@ -198,6 +226,7 @@ export class MenuPageInput implements MenuInputSource {
       doc.removeEventListener('keydown', key, { capture: true });
       doc.removeEventListener('keyup', key, { capture: true });
       win.removeEventListener('blur', blur);
+      this.keysLive = false;
       pointerOff();
       this.release();
     };
@@ -211,7 +240,7 @@ export class MenuPageInput implements MenuInputSource {
    * same frame point whichever canvas shows (a browser adaptation, as the rest of this file).
    */
   attachPointer(input: PointerMenuInput, canvas: HTMLCanvasElement): () => void {
-    return attachMenuPointer(input, canvas);
+    return attachMenuPointer(input, canvas, this.advanced);
   }
 
 }
@@ -248,6 +277,8 @@ export function attachMenuInput(canvas: HTMLCanvasElement, win: Window, deadZone
   poll();
   const page = new MenuPageInput(poll, () => touch.read(), deadZone);
   let input: MenuInput | null = null;
+  // WM-6A: the ADVANCED prompt's box on the session's screen (`./settingsAdvanced` `settingsAdvancedFrontEnd`) presses SQUARE.
+  page.advanced = { design: () => (input ? settingsAdvancedDesignOf(input) : null), square: () => { page.press('SQUARE'); } };
   const tap = {
     tap: (x: number, y: number) => input?.tap(x, y) ?? null,
     pointerDown: (x: number, y: number) => input?.pointerDown(x, y) ?? null,

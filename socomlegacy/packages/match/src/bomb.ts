@@ -1,4 +1,4 @@
-import { actorToWorldPoint, CLAYMORE_RULES, PLACE_CLAYMORE_ANIM, type HullCast } from '@s2u/scene';
+import { actorToWorldPoint, CLAYMORE_RULES, handAnim, PLACE_CLAYMORE_ANIM, type HullCast } from '@s2u/scene';
 import type { MapAction } from '../../viewer/src/mapActions';
 import { Button, TICK_HZ, type Command, type SimMap, type Stance, type Team } from '../../viewer/src/sim';
 import {
@@ -102,7 +102,8 @@ const BOMB_FLOOR_LIFT = 1;
  * kit's ground-placement branch with 0x98-0x9a and 0x9e (`FUN_005c1970` D:L476888, D:L477002-477010): `FUN_005c2430`
  * carries node `+0x300` (`rhand`, research 80) at (0, 0, 0) (`DAT_003f64c0`) through `FUN_002869d0` on the `+0x170`
  * skeleton, the body's matrix (`+0x50`) and its position (`+0x1c`) (D:L477198-477200). The pose is `Place claymore`'s
- * (`PLANT_ANIM`, D:L475480-475481) -- with the sidearm in the hand its pistol pair (`handAnim`) -- at `PLACEMENT_S`
+ * (`PLANT_ANIM`, D:L475480-475481) -- the rifle's in either hand (`handAnim`, LATER 1442; `.pistol`: its pistol pair's
+ * pose, a record the plant no longer takes) -- at `PLACEMENT_S`
  * (2.25 s, `+0x87c`) on the one-shot clock (`./throwPose`, `FUN_0028c4f0`: phase t / (2.7 x 54/55), key phase x 55):
  * key 46.682, the port's sampler and `writePose` (`viewer/src/animator.ts`) over the shared rig (every DEMOLITION map's
  * eight types alike; `central/test/bombPlantHand.test.ts` re-reads it off MOTION_P.ZAR and MP2's skeletons). Unread:
@@ -115,9 +116,13 @@ export const BOMB_PLANT_HAND_READING = {
   pistol: [1.750641, 6.814781, 0.164585] as const,
 } as const;
 
-/** The plant's hand in the world (`BOMB_PLANT_HAND_READING`): the feet's point turned by the facing's yaw. */
+/**
+ * The plant's hand in the world (`BOMB_PLANT_HAND_READING`): the feet's point turned by the facing's yaw, at the hand of
+ * the clip the page plays (`handAnim`: the sidearm keeps the rifle's `Place claymore`, LATER 1442's review F1).
+ */
 export function bombPlantHand(feet: readonly number[], yaw: number, pistol: boolean): V3 {
-  return actorToWorldPoint(feet, yaw, pistol ? BOMB_PLANT_HAND_READING.pistol : BOMB_PLANT_HAND_READING.rifle);
+  const rifle = handAnim(PLACE_CLAYMORE_ANIM, pistol) === PLACE_CLAYMORE_ANIM;
+  return actorToWorldPoint(feet, yaw, rifle ? BOMB_PLANT_HAND_READING.rifle : BOMB_PLANT_HAND_READING.pistol);
 }
 
 /**
@@ -328,6 +333,20 @@ export class BombAuthority {
       if (taker) this.pickup(taker);
     }
     if (this.state_ === BOMB_STATE.planted && this.detonateTick !== null && tick >= this.detonateTick) this.detonate();
+    this.publish();
+  }
+
+  /**
+   * R4P-248 (lead L258; reading, pending review): a health drop that left `id` alive (`Room.hitCancels`). r0004's
+   * SetHealth (twin `0x0054c300`, D4:L453015) runs `0x5bf4f0` on the planter's kit, clearing the plant's pending bit and
+   * timer (`+1` 0x02, `+0x87c`, D4:L513359-513361) and, for the bomb (0x9a), its target `+0x81c` (D4:L513365-513393): the
+   * placement under way ends with the bomb still carried and nothing set down. Its hold was spent at the commit; a held
+   * Action counts a fresh one (`command`). The switch that follows (`+0x828` first, `0x5bf57c..98`, else the first
+   * primary, else the first secondary) is the hand's, which a plant never left here.
+   */
+  hitCancel(id: number): void {
+    if (this.placing?.by !== id) return;
+    this.placing = null;
     this.publish();
   }
 

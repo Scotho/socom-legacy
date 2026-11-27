@@ -120,6 +120,18 @@ describe('the page\'s own body hurt and alive: the hurt rumble, not behind the v
     expect(count()).toBe(2);
   });
 
+  it('R4P-248: `ownHurts` counts the same non-lethal drops the rumble hears (the thrower\'s `hurts`), none for no drop or a lethal one', () => {
+    const { server, count, net } = page();
+    expect(net.ownHurts()).toBe(0);
+    server(hurt(hp({ [PART.BODY]: 40 }), PART.BODY));
+    server(hurt(hp({ [PART.BODY]: 40 }), PART.BODY));                                // no drop: the armour took it
+    server(hurt(hp({ [PART.BODY]: 30 }), PART.BODY));
+    expect(net.ownHurts()).toBe(2);
+    server(hurt(hp({ [PART.BODY]: 0, [PART.HEAD]: 8 }), PART.BODY));                 // lethal: the death's path
+    expect(net.ownHurts()).toBe(2);
+    expect(count()).toBe(2);
+  });
+
   it('no drop (the armour took it all) rumbles nothing; a lethal hit is the death\'s rumble, not this one', () => {
     const { server, count } = page();
     server(hurt(hp({}), PART.BODY));

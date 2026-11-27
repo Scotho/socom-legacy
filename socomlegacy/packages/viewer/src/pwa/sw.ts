@@ -1,6 +1,6 @@
 import { assetPrefix, decideFetch } from './fetchPolicy';
 import { gateFor, hashedAssetPath, hashedMissUsesNetwork, StaleGates, type StaleStore } from './staleRelease';
-import { cacheFirstFrom, pruneCaches, type CacheStorageLike } from './swCache';
+import { activateFrom, cacheFirstFrom, networkFirstFrom, type CacheStorageLike } from './swCache';
 
 /**
  * The service worker (PWA-3). Hand-written, bundled to a stable `/sw.js` (no content hash) by the Vite plugin.
@@ -21,7 +21,7 @@ declare const __PWA_BASE__: string;
 
 interface SwScope {
   addEventListener(type: 'install' | 'activate', fn: (ev: { waitUntil: (p: Promise<unknown>) => void }) => void): void;
-  addEventListener(type: 'fetch', fn: (ev: { request: Request; clientId?: string; respondWith: (p: Promise<Response>) => void }) => void): void;
+  addEventListener(type: 'fetch', fn: (ev: { request: Request; clientId?: string; respondWith: (p: Promise<Response>) => void; waitUntil: (p: Promise<unknown>) => void }) => void): void;
   addEventListener(type: 'message', fn: (ev: { data: unknown; source?: { id?: string } | null; waitUntil: (p: Promise<unknown>) => void }) => void): void;
   location: { href: string };
   skipWaiting: () => Promise<void>;
@@ -56,7 +56,8 @@ scope.addEventListener('install', (event) => {
 });
 
 scope.addEventListener('activate', (event) => {
-  event.waitUntil(pruneCaches(caches as unknown as CacheStorageLike, CACHE, ACTIVE_KEY).then(() => scope.clients.claim()));
+  // LATER 1048: the claim runs whatever the prune did (`./swCache` `activateFrom`).
+  event.waitUntil(activateFrom(caches as unknown as CacheStorageLike, CACHE, ACTIVE_KEY, () => scope.clients.claim()));
 });
 
 scope.addEventListener('message', (event) => {
@@ -96,7 +97,7 @@ scope.addEventListener('fetch', (event) => {
     return;
   }
   if (decision === 'network-first') event.respondWith(networkFirst(req));
-  else event.respondWith(cacheFirst(req, event.clientId));
+  else event.respondWith(cacheFirst(req, event.clientId, (stored) => event.waitUntil(stored)));
 });
 
 /** This build's hashed files, read while install still sees them on the server. One missing file does not fail install. */
@@ -119,12 +120,7 @@ async function precache(): Promise<void> {
 }
 
 async function networkFirst(req: Request): Promise<Response> {
-  try {
-    return await fetch(req);
-  } catch {
-    const cached = await caches.open(CACHE).then((cache) => cache.match(OFFLINE));
-    return cached ?? new Response('SOCOM II Legacy is offline.', { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-  }
+  return networkFirstFrom(caches as unknown as CacheStorageLike, CACHE, OFFLINE, req, (r) => fetch(r));
 }
 
 /** A hashed file outside the cache rule (`/testroom/assets/`): the network, unless its page's build is stale. */
@@ -133,6 +129,7 @@ async function passStale(req: Request, clientId: string): Promise<Response> {
   return hashedMissUsesNetwork(gate, req.url) ? fetch(req) : new Response('', { status: 404 });
 }
 
-async function cacheFirst(req: Request, clientId: string | undefined): Promise<Response> {
-  return cacheFirstFrom(caches as unknown as CacheStorageLike, CACHE, req, (r) => fetch(r), async () => hashedMissUsesNetwork(await gateFor(stale, staleStore, clientId), req.url));
+/** SW-ASSET-FETCH: the store after the answer, kept alive by the fetch event (`./swCache` `cacheFirstFrom`). */
+async function cacheFirst(req: Request, clientId: string | undefined, keep: (stored: Promise<void>) => void): Promise<Response> {
+  return cacheFirstFrom(caches as unknown as CacheStorageLike, CACHE, req, (r) => fetch(r), async () => hashedMissUsesNetwork(await gateFor(stale, staleStore, clientId), req.url), keep);
 }

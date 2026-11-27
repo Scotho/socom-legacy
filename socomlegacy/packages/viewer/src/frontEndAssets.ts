@@ -122,6 +122,8 @@ type Bank = UiTextureBank;
 const bank = uiTextureBank;
 
 export interface PageUiTextures {
+  /** Xbox memory adaptation: drop decoded images; retained banks recreate identical pixels on the next lookup. */
+  releaseDecoded?(): void;
   /** The lookup PLAT-14's drawer takes (`FrontEndSessionOptions.textures`): null until the name's bank is in. */
   textures: UiTextures;
   /** Every bank loaded or failed (for a test or a run that waits); the names of what would not read. */
@@ -218,6 +220,7 @@ export function pageUiTextures(source: AssetSource, stems: readonly string[] = F
   const banks: Bank[] = [];
   const missing: string[] = [];
   const cache = new Map<string, Rgba | null>();
+  let decodeGeneration = 0;
   const why = (e: unknown): string => (e instanceof Error ? e.message : String(e));
   const asked = new Set<string>();
   // A stem is asked from its read's start (no second read while one is out) and let go again if the read fails, so the
@@ -258,16 +261,18 @@ export function pageUiTextures(source: AssetSource, stems: readonly string[] = F
   const prefetch = (o: UiTexturePrefetchOptions): UiTexturePrefetch => {
     const max = o.maxBytes ?? UI_TEXTURE_PREFETCH_ADAPTATION.maxBytes;
     const st = { decoded: 0, bytes: 0, raced: 0, capped: false, stopped: false };
+    const generation = decodeGeneration;
+    const stopped = (): boolean => st.stopped || generation !== decodeGeneration;
     const run = async (): Promise<string | null> => {
       await ready;
       // Review fold 2: a stop during any wait reads nothing more from this page's source and asks no decode.
-      if (st.stopped) return null;
+      if (stopped()) return null;
       // The lazy banks, read as a dialog's build reads them (`need`): a failed read is let go for the next build to try.
       await Promise.all([...lazySet].filter((s) => !asked.has(s)).map((s) => load(s, [])));
-      if (st.stopped) return null;
+      if (stopped()) return null;
       let budget = 0;
       for (const b of banks.slice()) {
-        if (st.stopped) return null;
+        if (stopped()) return null;
         // The names this bank answers for the lookup (the first bank holding each) that nothing decoded yet.
         const names: string[] = [];
         for (const n of b.names) {
@@ -279,7 +284,7 @@ export function pageUiTextures(source: AssetSource, stems: readonly string[] = F
         }
         if (names.length) {
           const got = await o.decoder({ txr: b.txr, pal: b.pal, names, hash: o.seedKey !== undefined });
-          if (st.stopped) return null;
+          if (stopped()) return null;
           for (const g of got) {
             if (cache.has(g.name)) { st.raced++; continue; }              // the lookup decoded it first: its object stays
             cache.set(g.name, g.rgba);
@@ -292,13 +297,13 @@ export function pageUiTextures(source: AssetSource, stems: readonly string[] = F
       return null;
     };
     // Review fold 1: a decode the stop cut short (the worker closed under it) is the stop, not a failure: no reason.
-    const finished = run().catch((e: unknown) => (st.stopped ? null : why(e)));
+    const finished = run().catch((e: unknown) => (stopped() ? null : why(e)));
     return {
       get decoded() { return st.decoded; }, get bytes() { return st.bytes; }, get raced() { return st.raced; }, get capped() { return st.capped; },
       finished, stop: () => { st.stopped = true; },
     };
   };
-  return { textures, ready, need, prefetch };
+  return { textures, ready, need, prefetch, releaseDecoded: () => { decodeGeneration++; cache.clear(); } };
 }
 
 /** What the prefetch's start reads of the page's window. */

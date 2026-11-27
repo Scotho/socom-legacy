@@ -2,11 +2,13 @@ import { MOTION, NODE_CALLER, NODE_ROOT, type CollisionOwner, type EffectConditi
 import { groundPolygons, type GroundData } from './mover';
 import { AUTOSTART_INITIAL_READING, under, type MapMeta } from './mapMeta';
 import type { EnvWire } from './net/protocol';
-import { EffectRun, opacityTick, type EffectHost } from './effectRunner';
+import { EffectRun, isForgeScriptProgram, opacityTick, type EffectHost } from './effectRunner';
 import { valveApply, valveTest } from './doors';
 import { apply4 } from './doorMath';
 import { placeRefs, SceneHealth, SKIP_EFFECTS_VALVE, type SceneMeta, type SceneProgram, type SceneRunContext } from './sceneHealth';
 import { NodeFrame, profileStrokeTick, runsProfileStroke, runsScroll, scrollTick, type Vec3 } from './sceneScroll';
+import { CAMERA_EFFECTS_NODE, CameraEffects, publishCameraEffects } from './cameraEffects';
+import { isGateLeverProgram, leverHold } from './gates';
 
 /**
  * The world's mutable state (MAP-02; socomlegacy/docs/research/209-the-mutable-world.md s8-s10): one per room and one per
@@ -94,15 +96,23 @@ export interface WorldHooks {
    * Research 386 §3.2 (LATER 63): a program's `FIRE_WEAPON` (`FUN_0025ccb0` D:L107153-107326) -- the round started at the
    * command's node (`path`; null for none, D:L107229-107244), its fuse and second timer the command's floats
    * (D:L107312-107316) -- on the room's run only (a page's run of a death the room decided is presentation, PF.R26): the
-   * room fires it (`Room.sceneRound`). Was `BRIDGE_FIRE_WEAPON_READING` (PF.R32): the command fell through.
+   * room fires it (`Room.sceneRound`). Was `BRIDGE_FIRE_WEAPON_READING` (PF.R32): the command fell through. LATER 1038:
+   * `by` the run's presser (`WorldRunContext.by`, the context's type-9 entry, which `FUN_0025ccb0` makes the round's
+   * owner, D:L107285-107300), null for a run with none.
    */
-  fire?(op: Extract<EffectOp, { op: 'fireWeapon' }>, path: string | null): void;
+  fire?(op: Extract<EffectOp, { op: 'fireWeapon' }>, path: string | null, by: number | null): void;
   /**
    * V13-3c (`SCENE_DEATH_ON_WIRE_READING` 'targetOffOrTold'): a destructible's death this world decided and ran -- its
    * health at 0 (`SceneHealth`'s hit or blast, `FUN_00273a50` D:L120980-120989) -- by its record's id; never a death
    * taken from the wire (`takeDeath`). The room tells every page (`Room`'s `sceneDeath`).
    */
   died?(id: number): void;
+  /**
+   * LATER 951 (research 436): a program's `OBJECT_TRANSLATE_STATE` set a placed node's translation -- every placement at
+   * or under `path` moved by `delta`, a column-major 4x4 translation from the node's rest (`WorldView.moveNode`): a sky
+   * held at the camera.
+   */
+  translate?(path: string, delta: readonly number[]): void;
 }
 
 /**
@@ -313,16 +323,65 @@ export const BOAT_ROCK_PLACEHOLDER = 'still' as const;
 export const SCROLL_MOTION_PLACEHOLDER = 'travelOnWorldChunks' as const;
 
 /**
- * SCENE_NODE_TRANSFORM_PLACEHOLDER (DF-6; research 237 §6, 175 §5.1.1): a run's `OBJECT_TRANSLATE_STATE` (18),
- * `OBJECT_ROTATE_STATE` (19) or `OBJECT_MOTION_FROM_TO` (22) on a placed map node -- Desert Glory's `translate_sky` (the
- * dome held at the camera), `bug1..8` / `bee1..5` (their looped flights), `camera_jiggle` -- moves the node in the
- * original; the port's world has no per-node transform, so it draws nothing and the node stands where it was placed.
+ * SCENE_NODE_TRANSFORM_PLACEHOLDER (DF-6; research 237 §6, 175 §5.1.1; narrowed by LATER 951, research 436; narrowed by
+ * LATER 1246, research 428 s8.6): a run's `OBJECT_ROTATE_STATE` (19) or `OBJECT_MOTION_FROM_TO` (22) on a placed map
+ * node -- `bug1..8` / `bee1..5` (their looped flights) -- moves the node in the original; the port's world has no
+ * per-node rotation or flight, so it draws nothing and the node stands where it was placed. Since LATER 1246 the page's
+ * world runs `camera_jiggle`'s rotate and angular legs on `camera_effects` (`JIGGLE_PROGRAM`, `./cameraEffects`), the
+ * node the camera turns its view by (`./playerCamera` `view()`); MP6's `artil_camshake` -- the one other program on the
+ * disc that turns `camera_effects`, called by MP6's bombardment -- still turns nothing. Since LATER 951 the world runs `OBJECT_TRANSLATE_STATE` (18)
+ * whose reference is the camera (`translateTick`): the 26 skies, rain and dust a program holds at the camera on 13
+ * multiplayer and 8 campaign maps (research 436 s3) now stand there. Every other `OBJECT_TRANSLATE_STATE` on a placed
+ * node still draws nothing -- M61's `reset_blinds` / `down_blinds` (no reference), M52's `m52obj5..8` (the
+ * `savestate01..03` references), M61's `translate_sky` (reference `player`, unresolved): those props carry collision the
+ * port would not move with them, and what `player` names is not read.
  * The callee's own -6 (a part-fly's reparenting before its `OBJECT_MOTION`) is `SCENE_NODE_MOTION_PLACEHOLDER`'s; the
  * jets (`f181` / `f182`) are `SI_SCRIPT_MOTION_PLACEHOLDER`'s. Settled by a page-side per-node transform (the same
  * build `SCENE_NODE_MOTION_PLACEHOLDER` owes, LATER 766's flight) from the decoded commands (research 106 §4's
  * motion, `FUN_0025f9b0` / `FUN_0025fe70`) and a capture of Desert Glory's sky and bees.
  */
 export const SCENE_NODE_TRANSFORM_PLACEHOLDER = 'drawsNothing' as const;
+
+/**
+ * LATER 1246 (research 428 s8.6): the one program whose turn of `camera_effects` the page's world runs -- the autostart
+ * on 19 multiplayer maps' sets (MP2, MP6-MP12, MP51-MP53, MP61, MP64, MP71-MP73, MP81-MP83), one shape on every one.
+ * Not a reading: the brief's scope. MP6's `artil_camshake` (a 0.05 s shake, mostly roll) stays
+ * `SCENE_NODE_TRANSFORM_PLACEHOLDER`'s.
+ */
+export const JIGGLE_PROGRAM = 'camera_jiggle';
+
+/**
+ * CAMERA_NODE_READING (LATER 951, research 436 s1, s6; reading, pending review): a program's node named `camera` -- the
+ * reference (+7) of every sky's `OBJECT_TRANSLATE_STATE` -- is the game's own camera. The world makes its camera object
+ * and names it `camera` (`FUN_0031fd20` D:L221099-221111: `FUN_00314ee0` writes the name at +0x90, the object kept at the
+ * world's +0x128); the scene's name lookup searches the world by name (`FUN_00269230` D:L114366-114405: the world's own
+ * name, then its find-by-name, then the other roots at +0x6ba0); the camera's +0x30 is read elsewhere as the eye's place
+ * (D:L307417-307419). Not read: that the world's find-by-name (its vtable +0x24) reaches the object at +0x128. The port
+ * takes the page's camera place (`WorldState.setCamera`) for it.
+ */
+export const CAMERA_NODE_READING = 'theGameCamera' as const;
+
+/**
+ * SCENE_TRANSLATE_TICK_ORDER_READING (LATER 951, research 436 s4; reading, pending review): where in the game's frame the
+ * sky's tick runs against the camera's own update -- after it (the sky at this frame's eye) or before (a frame behind) --
+ * is not read. The page sets the camera's place before the world's step each frame, so the sky stands at this frame's
+ * eye. Settled by a read of the scene programs' tick against the camera's update in the frame loop, or a capture of a
+ * sky's seam while the camera moves fast.
+ */
+export const SCENE_TRANSLATE_TICK_ORDER_READING = 'cameraOfThisFrame' as const;
+
+/**
+ * SCENE_TRANSLATE_OFFSET_FRAME_READING (LATER 1183, research 436 s1, s6, s8; reviewed, and MEASURED: PC 3's memory read of
+ * the original on MP81 put the skyplane at eye - 220 x the camera's row 1 within 0.002 u at three pitches): `FUN_00310980`
+ * carries the tick's vector through the reference's whole matrix (`FUN_00308640` D:L206996-207030, a 4x4 point
+ * transform; parents up to the type-6 root), and the camera's 3x3 is the view's whole turn: `FUN_00294070` (run every
+ * frame from D:L50817) builds the view matrix from it (row 0, -row 1, -row 2, the eye, inverted), local -Z ahead and +Y
+ * up as a three.js camera's world matrix -- and PC 1's capture of the original (r0004) logged that matrix pitching with
+ * the view. So a held sky stands at eye + R x vector: Chain Reaction's `skyplane` (MP81, (0, -220, 0)) and M72's
+ * (0, 550, 0), the only two with a vector, slide along the view and rise or sink as it pitches; only the translation is
+ * written, so they never tilt. Before LATER 1183 a placeholder, 'cameraPositionOnly' (the vector unturned).
+ */
+export const SCENE_TRANSLATE_OFFSET_FRAME_READING = 'cameraTurn' as const;
 
 /**
  * INVALIDATE_ANIMATION_READING (DF-6; research 175 §5.1.1; reading, pending review): `INVALIDATE_ANIMATION` (49, tick
@@ -362,6 +421,17 @@ type WorldRunContext = SceneRunContext & {
    * `EXECUTE_ACTION`) -- so a refusal drops the whole tree (`dropTree`).
    */
   tree?: object;
+  /**
+   * LATER 1038 (research 213 §2.2; reading, pending review): the player whose press started this run -- the context's
+   * type-9 entry. `FUN_002b44e0` builds a switch program's context with types 3, 4 and 1 in its eight register
+   * arguments and, when the presser's id (`+4`) is not negative, 9 and that id on the stack before the terminator
+   * (0x2b45a8-0x2b45bc: `bltz` on the id, then `sd` of 9, the id and 0 at 0(sp), 8(sp) and 16(sp); the decompiler shows
+   * the register arguments only, D:L156826-156838); a peer's copy of the press passes the presser it names
+   * (D:L160543). Only the run `executeAction` starts for a press carries it: a `CALL_ANIMATION`'s callee is given a
+   * context of the command's own entries (`FUN_0025d5c0` D:L107755-107768; `callAnimation` drops it), and a program's
+   * `EXECUTE_ACTION` names no player.
+   */
+  by?: number;
 };
 
 /** LATER 782: a node's frame where the meta holds none (a map built by hand). */
@@ -376,14 +446,21 @@ export function bareMeta(stem = ''): MapMeta {
  * A room's own copy of a hull (MAP-02; `match/src/server.ts` `forkSimMap`, `./net/loopback` `simMapOfLoaded`): its own
  * owners -- whose flags the room's world turns -- and its own points -- which the room's doors turn -- and the packed
  * fields copied too. Build the room's grid off the copy (`groundGrid`): the grid links the owner objects themselves.
+ * The map's default soil rides the copy (FLE-2, as `packGround` carries it): a byte-0 floor stands a body at the floor +
+ * that soil's `FOOT_STEP_OFFSET` (`FUN_0059b440` D:L456513-456523; byte 0 the map's default, `FUN_002ddc30` D:L181208).
+ * Dropped, the room's bodies stood 0.8 over the page's on a GRASS / SNOW map's byte-0 floors, and the page's reconcile
+ * and its own floor pick fought every tick (the owner's MP5 feet shake, 2026-11-24; `test/forkGroundSoil.test.ts`).
  */
 export function forkGround(g: GroundData): GroundData {
-  return { grid: { ...g.grid }, owners: g.owners.map((o) => ({ ...o })), points: Float32Array.from(g.points), fields: Uint32Array.from(g.fields) };
+  return {
+    grid: { ...g.grid }, owners: g.owners.map((o) => ({ ...o })), points: Float32Array.from(g.points), fields: Uint32Array.from(g.fields),
+    ...(g.defaultMaterial !== undefined ? { defaultMaterial: g.defaultMaterial } : {}),
+  };
 }
 
 /**
  * A Forge layout's own self-starting script (`./forge/placedAccess`: the map script `forge_map_script`, an effect
- * object's `forge_object_<n>`). FORGE_SCRIPT_ACTIVE_ADAPTATION (the owner, 2026-11-13: "when I have a hide in a sequence
+ * object's `forge_object_<n>`). FORGE_SCRIPT_ACTIVE_ADAPTATION (the Forge's owner (crispy, OT.R112), 2026-11-13: "when I have a hide in a sequence
  * ... it doesn't work"; a browser adaptation, FG.R2): an autostart runs for the drawing (`display`, PF.R26), where a hide
  * only takes back what the run itself showed -- the disc's ambients never hide a node -- so a script's Hide of a prop
  * did nothing. A Forge script's Show and Hide turn the node's own flag instead, as `FORGE_SCRIPT_VALVE_ADAPTATION` keeps
@@ -407,6 +484,8 @@ export class WorldState {
   private readonly base: (number | undefined)[];
   private readonly valves = new Map<string, number>();
   private readonly used = new Set<number>();
+  /** LATER 976: each action's completed runs this round (`+0x3e`, `LAB_002b46d0`), for a `one_shot` record's refusal. */
+  private readonly completed = new Map<number, number>();
   private readonly hooks: WorldHooks[] = [];
   /** The moved nodes (`nodeMoved`): a path's move from its rest, row-major. */
   private readonly moves = new Map<string, number[]>();
@@ -436,6 +515,8 @@ export class WorldState {
    * a transform (research 387 §12.7).
    */
   private readonly translations = new Map<string, Vec3>();
+  /** LATER 951 (`CAMERA_NODE_READING`): the camera's world place as the page last set it (`setCamera`), or null (none). */
+  private camera: Vec3 | null = null;
   /**
    * LATER 782 (`SCROLL_MOTION_PLACEHOLDER`): each scrolled node's texture offset, in 1/4096ths (the steps `FUN_003bfee0`
    * adds to its visuals' vertices). Kept across the reset: the round's reset (`FUN_002ac0e0` D:L151976-151991) restores a
@@ -459,7 +540,7 @@ export class WorldState {
    */
   runAutostartPrograms = false;
   /**
-   * FORGE_SCRIPT_ROOM_ADAPTATION (the owner, 2026-11-13: a map script's Hide "still doesn't work"; a browser adaptation,
+   * FORGE_SCRIPT_ROOM_ADAPTATION (the Forge's owner (crispy, OT.R112), 2026-11-13: a map script's Hide "still doesn't work"; a browser adaptation,
    * FG.R2): the room runs a Forge layout's own self-starting scripts (`isForgeOwnScript`), as it runs a switch's press,
    * so their Show, Hide and blasts are the round's -- a page's own Hide was laid over by the room's next state
    * (`apply`). The room runs no disc autostart (`runAutostartPrograms` stays false there).
@@ -566,6 +647,7 @@ export class WorldState {
     this.valves.clear();
     for (const [n, v] of keep) this.valves.set(n, v);
     this.used.clear();
+    this.completed.clear();                  // LATER 976: `+0x3e` cleared at the round (D:L157454)
     this.invalidated.clear();                // DF-6: the sets' start clears +0x34 bit 0 (INVALIDATE_ANIMATION_READING)
     this.runs = [];
     this.health.reset();
@@ -588,6 +670,13 @@ export class WorldState {
    * type, at the welcome) was 0 from the first round's reset on.
    */
   setKeptValve(name: string, v: number): void {
+    // PR #5 B2 (simulation track; the planner's default in the form of the owner's B1 ruling, "a Forge map loses nothing
+    // by it"): only a world that runs a Forge layout's own program (`./effectRunner` `isForgeScriptProgram`) takes them.
+    // On any other world a disc program testing one (`objectives`, research 192 s2) reads 0, as before the PR.
+    // A damage trigger's program sits on its destructible, not among the programs (`./forge/placedAccess`; B2 review F1).
+    const forge = this.scene.programs.some((p) => isForgeScriptProgram(p.program.name))
+      || this.scene.destructibles.some((d) => isForgeScriptProgram(d.program.name));
+    if (!forge) return;
     this.kept.add(name);
     this.setValve(name, v);
   }
@@ -597,9 +686,43 @@ export class WorldState {
     this.valves.set(name, v);
   }
 
-  /** Whether the action has been used this round (its `+0x3f` bit 1; `FUN_002b5510` clears it). */
+  /**
+   * Whether the action was used this round (`FUN_002b5510`'s round reset clears it): the room marks a switch's use, and it
+   * means two things. (1) The record SCORED this round -- the original's `+0x3f` bit 1, which stops a second score only
+   * (`FUN_002bb5b0` D:L160627-160646; research 174), never a second use. (2) A FORGE switch's once-a-round use
+   * (USED_SWITCH_PROMPT_ADAPTATION, the owner's, FG.R2). A disc switch's second use is the original's to allow (LATER 976):
+   * refused only while its program runs, or for a `one_shot` record after a completed run (`executeAction`); most end their
+   * own use by turning their node off, so the pick finds nothing, but MP73's radios turn back on at 10 s and are called again.
+   */
   actionUsed(id: number): boolean {
     return this.used.has(id);
+  }
+
+  /**
+   * LATER 976: why action `id` may not be used now, or null -- `FUN_002b46f0` (r0001, D:L156872-156887; r0004 0x2b6160, the same
+   * rule on `+0x43` / `+0x42`: the 976 delta review's decode), the gate the press path
+   * asks (`FUN_00592d50` D:L452009) and the door pick reads (`./doors`): 'busy' while its program runs (`+0x10`); 'used' for
+   * a `one_shot` record once a run has completed (bit 3 with `+0x3e`; r0004 `+0x43` / `+0x42`), and for a used Forge switch
+   * (USED_SWITCH_PROMPT_ADAPTATION). The valve's lock (99) is the pick's own test (`actionAtPick`).
+   */
+  actionRefusal(id: number): 'busy' | 'used' | null {
+    const a = this.meta.actions[id];
+    if (!a) return null;
+    if (this.runs.some((r) => r.action === id && !r.run.finished)) return 'busy';
+    if (a.oneShot && (this.completed.get(id) ?? 0) > 0) return 'used';
+    if (isForgeScriptValve(a.valve) && this.used.has(id)) return 'used';
+    return null;
+  }
+
+  /**
+   * LATER 976: each action's run that ended -- of itself or stopped (`STOP_ANIMATION` -> `FUN_0026ff20(.., 5)`,
+   * D:L118878, which runs the end callback, D:L118599-118601) -- counts once (`LAB_002b46d0` adds 1 to `+0x3e`; r0004 0x2b6100 adds 1 to
+   * `+0x42`), for a `one_shot` record's refusal. r0004's end callback also re-runs a NETWORKED use refused while the
+   * program ran (research 213 s4, the deferred use: not built). A run a page drops (`dropTree`, a browser adaptation) does not. Whether the original counts
+   * a run ended by its FAIL command is unread; the port counts it (it is `finished`).
+   */
+  private countCompleted(): void {
+    for (const r of this.runs) if (r.run.finished && r.action >= 0) this.completed.set(r.action, (this.completed.get(r.action) ?? 0) + 1);
   }
 
   markUsed(id: number): void {
@@ -704,6 +827,7 @@ export class WorldState {
     // FORGE_SCRIPT_START_AFTER_HUD_ADAPTATION: the Forge programs the round's reset started, now the HUD's round has.
     if (this.deferredStarts.length) { const starts = this.deferredStarts; this.deferredStarts = []; for (const s of starts) s(); }
     for (const r of [...this.runs]) r.run.update(dt);
+    this.countCompleted();
     this.runs = this.runs.filter((r) => !r.run.finished);
     this.stepFades(dt);
   }
@@ -840,6 +964,31 @@ export class WorldState {
     return t ? [...t] : null;
   }
 
+  /**
+   * LATER 951 (`CAMERA_NODE_READING`, `SCENE_TRANSLATE_TICK_ORDER_READING`): the camera's world place this frame, set by
+   * the page before the world's step -- what a program's node named `camera` stands at. A world never given one (the
+   * room's, a test) holds no node at the camera.
+   */
+  setCamera(eye: Vec3, turn: ArrayLike<number> | null = null): void {
+    this.camera = [eye[0], eye[1], eye[2]];
+    // LATER 1183: the camera's world matrix (column-major, as three's `matrixWorld.elements`), for its 3x3; null, none.
+    this.cameraTurn = turn ? [turn[0]!, turn[1]!, turn[2]!, turn[4]!, turn[5]!, turn[6]!, turn[8]!, turn[9]!, turn[10]!] : null;
+  }
+
+  /**
+   * LATER 1246 (`./cameraEffects`): this world's node `camera_effects`, which `camera_jiggle` turns and the page's camera
+   * reads once this world starts its autostarts (`publishCameraEffects`; the room's world never does).
+   */
+  readonly cameraEffects = new CameraEffects();
+
+  /** LATER 1246: a command of `JIGGLE_PROGRAM` on its `camera_effects`, in a run that is not silent (not the room's). */
+  private jiggles(program: EffectProgram, node: number, ctx: WorldRunContext): boolean {
+    return !ctx.silent && program.name === JIGGLE_PROGRAM && program.nodes[node]?.toLowerCase() === CAMERA_EFFECTS_NODE;
+  }
+
+  /** LATER 1183: the camera's 3x3 (its x, y and z axes, three numbers each), or null (the vector added unturned). */
+  private cameraTurn: number[] | null = null;
+
   /** LATER 782: the scrolled node's texture offset, in texture repeats (`WorldHooks.scroll`), or null (no scroll moved it). */
   scrollOffset(path: string): [number, number] | null {
     const o = this.uvOffsets.get(path);
@@ -865,30 +1014,32 @@ export class WorldState {
   stopProgram(name: string): void {
     const n = name.toLowerCase();
     for (const r of [...this.runs]) if (!r.run.finished && r.run.program.name.toLowerCase() === n) r.run.stop();
+    this.countCompleted();
     this.runs = this.runs.filter((r) => !r.run.finished);
   }
 
   /**
    * `EXECUTE_ACTION` (174 s3): the action whose valve is `valve` (`FUN_002b4e80`, `MapMeta.actions`, case aside) runs its
-   * animation with its node and its valve as the context (`FUN_002b44e0`) -- refused while that action's animation
-   * still runs (D:L156787), and (XR-04) once it was used this round (`markUsed`: a switch runs once a round; the game
-   * hides the switch, research 213 s4). `silent` is a joiner's replay (`skip_effects` reads 1), the room's own world's
+   * animation with its node and its valve as the context (`FUN_002b44e0`, r0001; r0004 0x2b5ef0, which also KEEPS a networked use
+   * refused while the program runs and re-runs it at the program's end -- research 213 s4, the deferred use: not built) --
+   * refused while that action's animation still runs (D:L156787); a `one_shot` record once a run has completed (`+0x3e`, D:L156799-156800; LATER 976); and a Forge
+   * switch once it was used this round (USED_SWITCH_PROMPT_ADAPTATION; a disc switch's second use is not refused here). `silent` is a joiner's replay (`skip_effects` reads 1), the room's own world's
    * by default (`skipEffects`, ROOM_SKIP_EFFECTS_READING); `presentation` a page's run of the room's (PF.R26). True when
-   * it started.
+   * it started. `by` the presser (LATER 1038, `WorldRunContext.by`): the room's press passes it; none else does.
    */
-  executeAction(valve: string, silent = this.skipEffects, presentation = false, tree?: object): boolean {
+  executeAction(valve: string, silent = this.skipEffects, presentation = false, tree?: object, by?: number): boolean {
     // FORGE_SCRIPT_WRECK_ADAPTATION (`SceneHealth.wreck`): a Forge switch's wreck of a placed damage trigger is its death.
     const wrecked = this.health.wreck(valve, silent, presentation);
     if (wrecked !== null) return wrecked;
     const v = valve.toLowerCase();
     const i = this.meta.actions.findIndex((a) => a.valve.toLowerCase() === v);
-    if (i < 0 || this.used.has(i) || this.runs.some((r) => r.action === i && !r.run.finished)) return false;
+    if (i < 0 || this.actionRefusal(i) !== null) return false;                          // FUN_002b44e0 D:L156797-156800
     const a = this.meta.actions[i]!;
     const lib = this.program(a.anims[0] ?? '');
     if (!lib) return false;
     const nodes = placeRefs(this.meta, lib.program.nodes, lib.search, lib.program.root, a.path, lib.parents);
     // DF-6 review F2: an animation invalidated this round starts nothing (INVALIDATE_ANIMATION_READING): false.
-    return this.runProgram(lib.program, { root: nodes[lib.program.root] ?? null, nodes, caller: a.path, valve: a.valve, silent, presentation, ...(tree ? { tree } : {}) }, i) !== null;
+    return this.runProgram(lib.program, { root: nodes[lib.program.root] ?? null, nodes, caller: a.path, valve: a.valve, silent, presentation, ...(tree ? { tree } : {}), ...(by !== undefined ? { by } : {}) }, i) !== null;
   }
 
   /**
@@ -919,6 +1070,13 @@ export class WorldState {
    * already plays (`ambientOwned`) keeps its sounds and calls there.
    */
   private startAutostarts(): void {
+    // LATER 1246 (`CAMERA_EFFECTS_PHASE_READING`): the page's camera reads this world's `camera_effects`, from no turn --
+    // the page's own world only. A room's world comes here too (`runForgeScripts`, its Forge layout's own scripts) and
+    // must not take the page camera's node away from a room on the same page (PR #5 import, item A2).
+    if (this.runAutostartPrograms) {
+      this.cameraEffects.reset();
+      publishCameraEffects(this.cameraEffects);
+    }
     for (const lib of this.scene.programs) {
       if (!AUTOSTART_INITIAL_READING.startsWithSet(lib.program.flags)) continue;
       if (lib.program.name.toLowerCase() === 'objectives') continue;
@@ -940,7 +1098,7 @@ export class WorldState {
         autostartName: lib.program.name,
         ...(forge ? { forgeScript: true } : {}),
       }); };
-      // FORGE_SCRIPT_START_AFTER_HUD_ADAPTATION (the owner, 2026-11-14: a map program's first MESSAGE "doesn't run" unless
+      // FORGE_SCRIPT_START_AFTER_HUD_ADAPTATION (the Forge's owner (crispy, OT.R112), 2026-11-14: a map program's first MESSAGE "doesn't run" unless
       // it waits a few seconds; a browser adaptation, FG.R2): the page resets its world as the round's start arrives, then
       // the HUD starts the round, which clears its message window (`Hud.startRound`) -- a Forge program's message posted
       // in between was gone at once. A Forge program starts on the page's next step instead, after the HUD's round start.
@@ -1067,18 +1225,29 @@ export class WorldState {
           if (ctx.presentation || ctx.display) return;
           const path = op.node === 0 ? null : at(op.node);
           if (op.node !== 0 && path === null) return;                 // a node no placement carries: no round
-          for (const h of [...this.hooks]) h.fire?.(op, path);
+          for (const h of [...this.hooks]) h.fire?.(op, path, ctx.by ?? null);   // LATER 1038: the run's presser
           return;
         }
         // DF-6 (INVALIDATE_ANIMATION_READING): the named animation, or this one, refuses its later starts this round.
         case 'invalidate': this.invalidated.add((op.anim ?? run.program.name).toLowerCase()); return;
-        // DF-6 (SCENE_NODE_TRANSFORM_PLACEHOLDER): a placed node's translate, rotate or from-to draws nothing -- but
+        // DF-6 (SCENE_NODE_TRANSFORM_PLACEHOLDER): a placed node's rotate or from-to draws nothing -- but
         // (LATER 782, SCENE_PROFILE_MOTION_READING) a speed-profile stroke from a given start moves the node's own
         // translation here, which a SCROLL_MOTION reads (Fish Hook's `water_node*`). BOAT_ROCK_PLACEHOLDER: a rotation
         // is not run.
-        case 'translate': case 'rotate': return;
+        // LATER 1246 (`JIGGLE_PROGRAM`): `camera_jiggle`'s own turn of `camera_effects` is run on this world's node, which the
+        // page's camera reads (`./cameraEffects`); a room's run (`silent`) turns nothing.
+        case 'rotate':
+          if (this.jiggles(run.program, op.node, ctx)) this.cameraEffects.rotate(op);
+          return;
+        // LATER 951 (research 436): `FUN_00263890`, once a tick (a looped autostart runs it again each tick).
+        case 'translate': this.translateTick(op, run.program, at); return;
+        // LATER 1381 (`./gates` `leverHold`): a lever gate's program holds on its presser's command and its handle's timed
+        // turn here as in the room's run, so the page's leaf sound comes with the room's slide; a node not placed is done
+        // at once (D:L108905-108918). Every other program's from-to and `ai::ANIMATE` are as before.
+        case 'aiAnimate': return isGateLeverProgram(run.program) ? leverHold(op, () => false) : undefined;
         case 'fromTo': {
           const p = at(op.node);
+          if (p !== null && !runsProfileStroke(op) && isGateLeverProgram(run.program)) return leverHold(op, () => true);
           if (p === null || !runsProfileStroke(op)) return;
           const rest = this.frameOf(p).rest;
           return profileStrokeTick(op, {
@@ -1090,6 +1259,7 @@ export class WorldState {
         // node fading over the motion's lifetime and gone at its end -- unless its program turns that node off itself.
         // The command still ends at once, as every motion did before: what follows it in the sequence is not held.
         case 'motion': {
+          if (this.jiggles(run.program, op.motion.node, ctx)) return this.cameraEffects.motion(op);
           // The review's F2: a page's own death (offline play, `SceneHealth.apply` on a world whose `skipEffects` is
           // false) fades too; the room's runs are silent (`ROOM_SKIP_EFFECTS_READING`) and draw nothing.
           if (ctx.display || ctx.silent) return;
@@ -1128,6 +1298,41 @@ export class WorldState {
   };
 
   /**
+   * LATER 951 (research 436 s1): `OBJECT_TRANSLATE_STATE`'s tick, `FUN_00263890` D:L111263-111350. The target (+6) and the
+   * reference (+7) as the run placed them (D:L111288-111289; `FUN_0026f4e0` with no lookup: the run's slots). A vector: the
+   * record's (+8) added to the target's own translation (flag 4, D:L111302-111307) or alone (flag 1, D:L111297-111300; the
+   * add is `FUN_00309240` D:L207508-207515); flag 2 adds the place of the context's type-5 entry when there is one
+   * (D:L111309-111328) and nothing when there is none (D:L111315) -- the port's world runs give none (whether an
+   * autostart's run has one in the game is not read), and no disc command at the camera sets the flag (research 436 s3, s6). Then through the reference's world matrix (D:L111329-111332, `FUN_00310980`
+   * D:L212139-212147): run here only when the reference is the camera (`CAMERA_NODE_READING`,
+   * `SCENE_TRANSLATE_OFFSET_FRAME_READING`: the vector turned by the camera's 3x3); any other reference, or none, stays `SCENE_NODE_TRANSFORM_PLACEHOLDER`'s.
+   * The target keeps its own X / Y / Z where flag 8 / 0x10 / 0x20 is set (D:L111333-111345) and takes the rest
+   * (`FUN_003157d0`, D:L111346; D:L215063-215074). The drawing is handed the move from the node's rest (`WorldHooks.translate`).
+   */
+  private translateTick(op: Extract<EffectOp, { op: 'translate' }>, program: EffectProgram, at: (node: number) => string | null): void {
+    if (!holdsAtCamera(op, program) || this.camera === null) return;
+    const target = at(op.node);
+    if (target === null) return;
+    const frame = this.frameOf(target);
+    const own = this.translations.get(target) ?? frame.rest;
+    let v: Vec3 = [0, 0, 0];
+    if ((op.flags & 4) !== 0) v = [own[0] + op.xyz[0], own[1] + op.xyz[1], own[2] + op.xyz[2]];
+    else if ((op.flags & 1) !== 0) v = [op.xyz[0], op.xyz[1], op.xyz[2]];
+    const r = this.cameraTurn;                                   // LATER 1183: eye + R x v (SCENE_TRANSLATE_OFFSET_FRAME_READING)
+    if (r) v = [r[0]! * v[0] + r[3]! * v[1] + r[6]! * v[2], r[1]! * v[0] + r[4]! * v[1] + r[7]! * v[2], r[2]! * v[0] + r[5]! * v[1] + r[8]! * v[2]];
+    v = [this.camera[0] + v[0], this.camera[1] + v[1], this.camera[2] + v[2]];
+    const t: Vec3 = [
+      (op.flags & 8) !== 0 ? own[0] : v[0],
+      (op.flags & 0x10) !== 0 ? own[1] : v[1],
+      (op.flags & 0x20) !== 0 ? own[2] : v[2],
+    ];
+    this.translations.set(target, t);
+    const from = frame.place(frame.rest), to = frame.place(t);
+    const delta = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, to[0] - from[0], to[1] - from[1], to[2] - from[2], 1];
+    for (const h of [...this.hooks]) h.translate?.(target, delta);
+  }
+
+  /**
    * A `CALL_ANIMATION` of the set's animation `name` from a run of context `ctx` (`FUN_0025d5c0`), its callee's
    * NODE_CALLER `caller`: the one path a scene program's call and a door program's (`doorCall`) take. The callee's
    * references placed under the caller's root (`SCENE_INSTANCE_SCOPE_READING`), its run the caller's context otherwise.
@@ -1138,7 +1343,10 @@ export class WorldState {
     const lib = this.program(name);
     if (!lib) { if (ctx.presentation) for (const h of [...this.hooks]) h.call?.(name, ctx.root); return false; }
     const nodes = placeRefs(this.meta, lib.program.nodes, lib.search, lib.program.root, ctx.root, lib.parents);
-    this.runProgram(lib.program, { ...ctx, root: nodes[lib.program.root] ?? null, nodes, caller });
+    // LATER 1038 (the review of 077e8ec19c, F1): the callee is not given the press's presser -- `FUN_0025d5c0` builds
+    // its context of the command's own entries and ends the list with a type 10, no 9 (D:L107755-107768).
+    const { by: _presser, ...inherited } = ctx;
+    this.runProgram(lib.program, { ...inherited, root: nodes[lib.program.root] ?? null, nodes, caller });
     return true;
   }
 
@@ -1184,7 +1392,7 @@ export class WorldState {
     if (!world) {
       if (name?.toLowerCase() === 'camera') return null;                // SCENE_SOUND_CAMERA_NODE_PLACEHOLDER
       // FORGE_OBJECT_PLACE_ADAPTATION (as `placeOf`'s): a Forge object is no node of the disc's scene, its place is its
-      // own (`MapMeta.forgePlaces`) -- a Forge program's SOUND at "The object" sounds there, not unplaced (the owner,
+      // own (`MapMeta.forgePlaces`) -- a Forge program's SOUND at "The object" sounds there, not unplaced (the Forge's owner (crispy, OT.R112),
       // 2026-11-14: "it doesn't sound like it is coming from the object but feels global"). The disc's own never hit it.
       const forge = path === null ? undefined : this.meta.forgePlaces?.[path];
       if (forge) {
@@ -1213,7 +1421,7 @@ export class WorldState {
     const out = new Set<string>();
     for (const lib of this.scene.programs) {
       const p = lib.program;
-      const moves = p.sequences.flatMap((q) => q.ops).filter((o) => o.op === 'translate' && p.nodes[o.ref]?.toLowerCase() === 'camera');
+      const moves = p.sequences.flatMap((q) => q.ops).filter((o) => o.op === 'translate' && holdsAtCamera(o, p));
       if (!moves.length) continue;
       const nodes = placeRefs(this.meta, p.nodes, lib.search, p.root, null, lib.parents);
       for (const o of moves) if (o.op === 'translate' && nodes[o.node]) out.add(nodes[o.node]!);
@@ -1291,6 +1499,11 @@ export class WorldState {
   private emit(path: string, on: boolean): void {
     for (const h of [...this.hooks]) h.visible?.(path, on);
   }
+}
+
+/** LATER 951: an `OBJECT_TRANSLATE_STATE` whose reference (+7) is the program's node `camera` (`CAMERA_NODE_READING`). */
+export function holdsAtCamera(op: Extract<EffectOp, { op: 'translate' }>, program: EffectProgram): boolean {
+  return op.ref !== 0 && program.nodes[op.ref]?.toLowerCase() === 'camera';
 }
 
 /**

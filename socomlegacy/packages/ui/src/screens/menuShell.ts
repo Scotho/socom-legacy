@@ -70,6 +70,13 @@ export interface MenuShellHost {
   states: { loadScreen(): void; popToMenu(): void; menuScreen(): void; shutdown(): void };
   /** `FUN_0022ed10`: the relaunch (research 115 §9). */
   reboot(): void;
+  /**
+   * **A browser adaptation, not the original's** (WM-OPTIONS-EXIT, product track): a host that does not show MENUFADER
+   * (the in-match Settings, `NativeOptionsHost` with `saveOnReturn`) may ask a switch at once -- dispatched on the frame
+   * that consumes it, with no fade to black (A4, 2 x step a frame, D:L262277-262286) and no `MENU_SWITCH_COUNTDOWN`
+   * (D:L262395, D:L262450-262456). Absent or false (every front-end host): the original's switch, unchanged.
+   */
+  switchAtOnce?: boolean;
   /** `DAT_0049e2cd`: booted from the disc (REBOOT then seeks ahead first, `FUN_0039dfc0`). */
   bootedFromDisc?: boolean;
   seekAhead?(): void;
@@ -169,6 +176,7 @@ export class MenuShell {
         q.pushHistory(this.currentName);                                               // FUN_0027f3f0, D:L262330
         this.switchTo(name);
         q.consume();
+        this.switchAtOnceNow();                                                        // the host's adaptation only
         return;                                                                        // A6-A9 skipped this frame
       }
       q.consume();
@@ -177,6 +185,19 @@ export class MenuShell {
     this.host.widgetsTick?.(step);                                                     // A7
     this.host.focusTick?.(step, !this.popups.shown(this.screen));                      // A8
     this.host.subclassTick?.(step);                                                    // A9
+    this.switchAtOnceNow();                                                            // a BACK record's switch
+  }
+
+  /**
+   * `MenuShellHost.switchAtOnce` (a browser adaptation): a switch in flight dispatched now, as the countdown's last call
+   * does (the backplane shown, idle, the dispatch) -- after the queue's record is consumed, so the new dialog's ONSTART
+   * records are not taken for it. Without the host's option: nothing.
+   */
+  private switchAtOnceNow(): void {
+    if (!this.host.switchAtOnce || this.switchState < 0) return;
+    this.screen.backplane.visible = true;
+    this.switchState = -1;
+    this.dispatch(this.currentName);
   }
 
   /** `CGameMenu_DrawForeplane` and the backplane draw (`CMenuState_Tick` steps 7-9): PLAT-14's draw list, which writes the alphas. */

@@ -206,22 +206,21 @@ export function particleScale(s: Pick<ParticleSource, 'scales'>, t: number): num
 }
 
 /**
- * The camera-distance fade (`FUN_003286d0`) on squared distance: 1 inside, falling linearly in d² to 0 across the far
- * pair; rising across the near pair when there is one (near start is where it is 0).
+ * The camera-distance fade (`FUN_003286d0`, D:L225901-225919) on squared distance, in the original's order: 0 past the far
+ * end or at/inside the near start; else the far ramp alone past the far start; else the near ramp inside the near end;
+ * else 1. The pairs are squared as the disc writes them (`FUN_00266830`, D:L113213-113243), so a near pair whose end is
+ * below its start -- [100, 0], FRAG_sparks' `spark_streak` -- culls at its start with no ramp (LATER 1249; reading,
+ * pending review). An equal pair's span has no slope (D:L113219-113220): its ramp is 0.
  */
 export function particleFade(s: Pick<ParticleSource, 'nearFade' | 'farFade'>, distance2: number): number {
-  let f = 1;
-  if (s.farFade) {
-    const [a, b] = [s.farFade[0] ** 2, s.farFade[1] ** 2];
-    if (distance2 >= b) return 0;
-    if (distance2 > a) f *= b > a ? (b - distance2) / (b - a) : 0;
-  }
-  if (s.nearFade && s.nearFade[1] > 0) {
-    const [a, b] = [s.nearFade[0] ** 2, s.nearFade[1] ** 2];
-    if (distance2 <= a) return 0;
-    if (distance2 < b) f *= (distance2 - a) / (b - a);
-  }
-  return f;
+  const far = s.farFade ? [s.farFade[0] ** 2, s.farFade[1] ** 2] as const : null;
+  // No near pair is the constructor's default [0, 0] (`FUN_00328e90`, D:L226252-226275): 0 only at d² = 0. No far pair
+  // is its FLT_MAX: never culled, never ramped.
+  const near = s.nearFade ? [s.nearFade[0] ** 2, s.nearFade[1] ** 2] as const : [0, 0] as const;
+  if ((far && far[1] <= distance2) || distance2 <= near[0]) return 0;
+  if (far && far[0] < distance2) return far[1] === far[0] ? 0 : (far[1] - distance2) / (far[1] - far[0]);
+  if (distance2 < near[1]) return near[1] === near[0] ? 0 : (distance2 - near[0]) / (near[1] - near[0]);
+  return 1;
 }
 
 /**

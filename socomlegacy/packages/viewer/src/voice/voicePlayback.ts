@@ -295,6 +295,34 @@ export class VoicePlayback {
     if (this.gain) this.gain.gain.value = headsetGain(this.headset()) * VOICE_PLAYBACK_GAIN_OWNER;
   }
 
+  /**
+   * TALK-CUE-PCM (MISSION OT.R146; research 170 s5.4): the talk cue's interleaved stereo frames on the headset output,
+   * now. The original writes it to the headset (r0001 `FUN_0030f6e0` D:L211357-211390) at the headset's volume only
+   * (`FUN_0030fef0` D:L211697-211704), so it takes a gain node of its own at headsetGain -- never the voice's, which
+   * carries VOICE_PLAYBACK_GAIN_OWNER for the room's voice (OT.R44). TALK_CUE_MIX_PLACEHOLDER: the original queues the
+   * cue in the headset's one stream behind incoming voice (unread how); here it is mixed over it at once. False when
+   * nothing played (closed, no context, not running, HEADSET VOLUME 0).
+   */
+  playCue(frames: Int16Array, rate: number): boolean {
+    if (this.closed) return false;
+    const ctx = this.open();
+    if (!ctx || (ctx.state !== undefined && ctx.state !== 'running')) { this.output.resumeIfAllowed?.(); return false; }
+    const level = headsetGain(this.headset());
+    if (level === 0) return false;
+    const n = frames.length >> 1;
+    const buffer = ctx.createBuffer(2, n, rate);
+    const left = buffer.getChannelData(0), right = buffer.getChannelData(1);
+    for (let i = 0; i < n; i++) { left[i] = frames[2 * i]! / 32768; right[i] = frames[2 * i + 1]! / 32768; }
+    const gain = ctx.createGain();
+    gain.gain.value = level;
+    gain.connect(ctx.destination);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(gain);
+    source.start(ctx.currentTime);
+    return true;
+  }
+
   /** The floor entry's holder changed: the next frame starts a new run (a new talk, perhaps a new page on a reused id). */
   restart(): void { this.jitter.reset(); }
 

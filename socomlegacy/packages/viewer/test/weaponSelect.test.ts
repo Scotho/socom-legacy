@@ -7,7 +7,8 @@ import { readHud } from '../src/hudAssets';
 import { DPAD_GLYPH, FONT_SPECIAL_01, FONT_TEXT_01 } from '../src/hudFont';
 import { closedMenu, step, type MenuContext, type MenuInput, type MenuState } from '../src/weaponSelectState';
 import {
-  ARROW_HIGH, ARROW_LOW, ARROW_ORIENT, CARD_TEXT_OFFSET, deadHelpLines, DRAW_ORDER, drawWeaponSelect, EMPTY_SLOT_NAME_READING, INVENTORY_GLYPH, menuFade, menuInputOfKey, menuInputOfPad,
+  ARROW_HIGH, ARROW_LOW, ARROW_ORIENT, CARD_TEXT_OFFSET, deadHelpLines, DRAW_ORDER, drawWeaponSelect, EMPTY_SLOT_NAME_READING, EXCHANGE_NARROW_FRAME_ADAPTATION, exchangeFrameNarrow,
+  INVENTORY_GLYPH, menuFade, menuInputOfKey, menuInputOfPad,
   MenuPulses, promptLines, pulse, PULSE_HIGH, PULSE_LOW, PULSE_PHASE_READING, weaponSelectLayout, WEAPON_SELECT_KEY_READING,
   WEAPON_SELECT_MENU_KEYS_READING, type Rgb, type WeaponSelectItem, type WsSprite, type WsText,
 } from '../src/weaponSelect';
@@ -410,6 +411,79 @@ describe('drawWeaponSelect: the layout as the HUD pass\'s quads (layer 1), as th
     expect(quads).toEqual([]);
     const faded = drawWeaponSelect({ width: 640, height: 448 }, weaponSelectLayout(picker, seal, 0), SIZES);
     expect(faded.quads).toEqual([]);
+  });
+
+  // EXCHANGE_NARROW_FRAME_ADAPTATION (a browser adaptation, no original; a player's report, 2026-11-22: "4:3 cuts off
+  // loadout when dead"). A quad as [left, top, w, h]; a layout cut to some of its parts.
+  const boxes = (quads: { x: number; y: number; w: number; h: number }[]): number[][] => quads.map((q) => [q.x - q.w / 2, q.y - q.h / 2, q.w, q.h]);
+  const parts = (items: WeaponSelectItem[], keep: (part: string) => boolean): { items: WeaponSelectItem[] } => ({ items: items.filter((i) => keep(i.part)) });
+  const PROMPT = { prompt: { ghost: false, device: 'pad', sinceDeath: 1 } } as const;
+  const listed = drive(closedMenu(kit(54, 15, 121, 126, 194)), 'inventory');
+  /** The 4:3 picture of the Shape row (`../src/shape`: 597.3 units wide), the reported window, an old monitor's, a 5:4. */
+  const NARROW = [[1440, 1080], [1473, 1105], [1024, 768], [1280, 1024]] as const;
+  /** The console's frame and its double (640 units wide exactly), 16:9, 16:10, 21:9, a phone held sideways. */
+  const WIDE = [[640, 448], [1280, 896], [1280, 720], [1920, 1080], [3840, 2160], [1920, 1200], [2560, 1080], [844, 390]] as const;
+
+  it('names a frame narrow below 640 units of its own scale, and not at 640 or over', () => {
+    expect(NARROW.map(([width, height]) => exchangeFrameNarrow({ width, height }))).toEqual(NARROW.map(() => true));
+    expect(WIDE.map(([width, height]) => exchangeFrameNarrow({ width, height }))).toEqual(WIDE.map(() => false));
+    expect(exchangeFrameNarrow({ width: 1279, height: 896 })).toBe(true);
+    expect(EXCHANGE_NARROW_FRAME_ADAPTATION).toContain('a browser adaptation');
+  });
+
+  it.each(NARROW)('on a narrow frame (%i x %i) the menu is the console frame\'s from the left edge: the list\'s names wholly on the picture', (width, height) => {
+    const s = height / 448;
+    for (const state of [listed, picker]) {
+      const menu = parts(weaponSelectLayout(state, seal, OPEN, PROMPT).items, (p) => p !== 'prompt');
+      const console640 = boxes(drawWeaponSelect({ width: 640, height: 448 }, menu, SIZES).quads);
+      const drawn = boxes(drawWeaponSelect({ width, height }, menu, SIZES).quads);
+      expect(drawn).toHaveLength(console640.length);
+      drawn.forEach((box, n) => box.forEach((v, k) => expect(v, `quad ${n} [${k}]`).toBeCloseTo(console640[n]![k]! * s, 6)));
+      // The panels start 10 units off the frame, as the console's do (x -10); every letter of the list and its title is on it.
+      const letters = boxes(drawWeaponSelect({ width, height }, parts(menu.items, (p) => p === 'row' || p === 'title'), SIZES).quads);
+      expect(letters.length).toBeGreaterThan(0);
+      expect(Math.min(...letters.map((b) => b[0]!))).toBeGreaterThanOrEqual(0);
+      expect(Math.min(...drawn.map((b) => b[0]!))).toBeCloseTo(-10 * s, 6);
+      expect(Math.max(...drawn.map((b) => b[0]! + b[2]!))).toBeLessThanOrEqual(width);
+    }
+  });
+
+  it.each(NARROW)('on a narrow frame (%i x %i) the dead\'s prompt and the taunt menu\'s parts stay on the centre line', (width, height) => {
+    const s = height / 448;
+    const chat: WeaponSelectItem[] = [
+      { kind: 'sprite', part: 'chatPanel', texture: 'newweapnbkrnd.tif', x: 20, y: 20, w: 600, h: 27, turn: 0, flipU: false, flipV: false, rgb: [160, 250, 250], alpha: 100 },
+      { kind: 'text', part: 'chatText', text: 'Send a custom taunt to your enemies', x: 30, y: 41, scale: 1, align: 'left', rgb: [128, 128, 128], alpha: 80 },
+    ];
+    for (const centred of [parts(weaponSelectLayout(listed, seal, OPEN, PROMPT).items, (p) => p === 'prompt'), { items: chat }]) {
+      const console640 = boxes(drawWeaponSelect({ width: 640, height: 448 }, centred, SIZES).quads);
+      const drawn = boxes(drawWeaponSelect({ width, height }, centred, SIZES).quads);
+      expect(drawn.length).toBeGreaterThan(0);
+      expect(drawn).toHaveLength(console640.length);
+      drawn.forEach((box, n) => expect(box[0], `quad ${n}`).toBeCloseTo(width / 2 + (console640[n]![0]! - 320) * s, 6));
+    }
+  });
+
+  it.each(WIDE)('on a frame 640 units wide or wider (%i x %i) every part stands about the centre line, as before the adaptation', (width, height) => {
+    const s = height / 448;
+    for (const state of [listed, picker]) {
+      const layout = weaponSelectLayout(state, seal, OPEN, PROMPT);
+      const console640 = boxes(drawWeaponSelect({ width: 640, height: 448 }, layout, SIZES).quads);
+      const drawn = boxes(drawWeaponSelect({ width, height }, layout, SIZES).quads);
+      expect(drawn).toHaveLength(console640.length);
+      drawn.forEach((box, n) => {
+        expect(box[0], `quad ${n} left`).toBeCloseTo(width / 2 + (console640[n]![0]! - 320) * s, 6);
+        box.slice(1).forEach((v, k) => expect(v, `quad ${n} [${k + 1}]`).toBeCloseTo(console640[n]![k + 1]! * s, 6));
+      });
+    }
+  });
+
+  it('the left anchor (the R2 inventory\'s) is the same on a narrow frame as on a wide one', () => {
+    const layout = weaponSelectLayout(picker, seal, OPEN);
+    const console640 = boxes(drawWeaponSelect({ width: 640, height: 448 }, layout, SIZES, { anchor: 'left' }).quads);
+    for (const [width, height] of [...NARROW, ...WIDE]) {
+      const drawn = boxes(drawWeaponSelect({ width, height }, layout, SIZES, { anchor: 'left' }).quads);
+      drawn.forEach((box, n) => box.forEach((v, k) => expect(v).toBeCloseTo(console640[n]![k]! * (height / 448), 6)));
+    }
   });
 });
 

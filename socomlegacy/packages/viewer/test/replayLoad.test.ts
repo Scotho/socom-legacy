@@ -39,8 +39,8 @@ describe('loadSegment: fetch, gunzip by DecompressionStream when the bytes are g
     const bytes = concat([encodeRecord({ kind: 'header', header: header({ protocol: 9 }) })]);
     const err = await loadSegment('http://localhost:5303/segments/0.s2r', { fetch: fakeFetch(bytes) }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ReplayLoadError);
-    expect(REPLAY_PROTOCOLS).toEqual([10, 11, 12, 13, 14, 15, 16]); // SEP-POP's 12, PLANT-AIM's 13, ER-2's 14, PROTO-15's 15 and WIRE-16's 16 beside the kept 10 and 11
-    expect((err as Error).message).toBe('This recording was made with network protocol 9; this build plays protocols 10, 11, 12, 13, 14, 15 and 16.');
+    expect(REPLAY_PROTOCOLS).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19]); // SEP-POP's 12, PLANT-AIM's 13, ER-2's 14, PROTO-15's 15, WIRE-16's 16, WM-DATA-17's 17, LATER 1147's 18 (research 443) and LATER 1141's 19 (research 441) beside the kept 10 and 11
+    expect((err as Error).message).toBe('This recording was made with network protocol 9; this build plays protocols 10, 11, 12, 13, 14, 15, 16, 17, 18 and 19.');
   });
   it('another format, no header, an empty file, a failed fetch, a bad gzip: each a ReplayLoadError in words', async () => {
     const url = 'http://localhost:5303/segments/0.s2r';

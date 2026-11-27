@@ -28,11 +28,12 @@ import { throwableRecord, type ThrowableRecord } from './projectile';
  * does -- `INGAME_AUTOFILL_SIDE_READING` (research 94 §A5.4, R94.4). r0004 (OT.R97) turns the mask the right way in the
  * put-back only (r4 0x2d3cd0's 0x2d3f4c-0x2d3f58) and keeps it inverted in the walk (r4 0x2d3fc0's 0x2d41fc-0x2d4208).
  *
- * Not modelled: the remembered put-back (r0001 `FUN_0023eca0` D:L88639-88653 through `FUN_0023bc50`; the ARMORY's
- * `FUN_00283170` D:L128917-128920 through `FUN_00283e60`), which gives back the equipment a launcher primary displaced
- * when it leaves (LATER 616). `pick` forgets what a launcher displaces and refills its slots by `autoFill`, which never
- * takes a no-duplicate item already carried, so r0001's "two mine slots" cannot be built here -- r0004's outcome (its
- * carry-once lists add the Claymore and the PMN, r4 0x2d3cd0 and 0x285150) by construction (R4B-06, research 378).
+ * The remembered put-back (R4P-221, LATER 616; research 378 §11): a launcher primary coming in remembers what it
+ * displaces (`Remembered`, the kit's `+0x1530`/`+0x1531`, r0001 `FUN_0023fef0` D:L89203-89316) and, when it leaves,
+ * gives it back (r0001 `FUN_0023eca0` D:L88638-88653; r0004 `FUN_002d25e0`) through r0004's carry-once helper
+ * (`FUN_002d3cd0`, `putBackItem`), so a grenade comes back a grenade and a carried mine is never given twice -- r0004's
+ * outcome for the double mines (research 378 §3). Proven for the M4A1-M203 by capture Q221-PC2. The ARMORY's own copy
+ * (`FUN_00283170` / r0004 `FUN_00284480`) is the same pick here (`ARMORY_RULES_READING`, viewer `armoryState.ts`).
  */
 
 /** An empty slot (`EQUIP_NONE`, id 255) and the second slot a cost-2 item fills (`FULL_SLOT`, id 254). */
@@ -89,6 +90,21 @@ const CLASS_RANGES: readonly (readonly [number, number, ItemClass])[] = [
 export function itemClass(id: number): ItemClass {
   for (const [lo, hi, c] of CLASS_RANGES) if (id >= lo && id <= hi) return c;
   return 'internal';
+}
+
+/**
+ * HIT_STAT_CLASSES_READING (R4P-105; research 216 s9; reading, pending review): the classes whose projectile counts no
+ * hit -- r0004 0x3f2670 takes the class of the projectile's own record's item id (`+0x7c` through 0x3f3cb0, r0001's
+ * `FUN_003d1a60`, `itemClass`) and answers 0 for 0x79 (121, the thrown items) and 0xab (171, the launched rounds), 1
+ * for everything else; its three callers (0x5a7774, 0x5a7c2c, 0x5ab858) skip the hit (0x54a2c0) and the times-hit
+ * (0x549710) behind it, the part's damage applied either way. The rockets (0xb9, 185-189) still count. New in r0004:
+ * r0001's three sites count every projectile's first body.
+ */
+export const HIT_STAT_CLASSES_READING: ReadonlySet<ItemClass> = new Set<ItemClass>(['grenade', 'launcherRound']);
+
+/** Whether a projectile whose own record is item `id` counts a hit on the body it meets (r0004 0x3f2670). */
+export function countsHit(id: number): boolean {
+  return !HIT_STAT_CLASSES_READING.has(itemClass(id));
 }
 
 export type SlotKind = 'primary' | 'secondary' | 'equipment';
@@ -200,6 +216,30 @@ export interface Arsenal {
   items: ReadonlyMap<number, ArsenalItem>;
   byName: ReadonlyMap<string, ArsenalItem>;
   order: readonly number[];
+  /**
+   * PICKUP-LINE (viewer `src/pickupLine.ts` `PICKUP_TEXT_READING`): each `ZAMMO` record's `DisplayName` by its
+   * `InternalName` -- the string the ammo loader `FUN_003cedb0` stores at the record's `+4` (D:L322655-322659, the key
+   * at 0x3fc648 "DisplayName"; the setter `FUN_003d4650` D:L326753-326765), the one a take posts. The disc's bytes as
+   * the reader gives them, spaces kept (" CHEM LIGHT ", "7.62 x 54 R "). A record with no `DisplayName` holds the
+   * loader's own default, `AMMO_DISPLAY_NAME_DEFAULT_READING` ("NOT FOUND"). Optional: a hand-built arsenal may carry none
+   * (`ammoDisplayNameOf` then falls back to the `InternalName`, the port's own).
+   */
+  ammoDisplayNames?: ReadonlyMap<string, string>;
+}
+
+/**
+ * What the ammo loader `FUN_003cedb0` stores for a `ZAMMO` record that lacks the key: its own default string "NOT FOUND"
+ * (copied in at D:L322642-322643; the `DisplayName` lookup falls back to it, D:L322655-322658). [reading, pending review]
+ */
+export const AMMO_DISPLAY_NAME_DEFAULT_READING = 'NOT FOUND' as const;
+
+/**
+ * A `ZAMMO` record's `DisplayName` by its `InternalName` (`Arsenal.ammoDisplayNames`; "NOT FOUND" for a record without
+ * one, as the original's loader stores). Else the `InternalName` itself: the PORT'S OWN fallback, reached only by an
+ * arsenal with no `ammoDisplayNames` map at all (a hand-built one, in tests) or an ammo name absent from the table.
+ */
+export function ammoDisplayNameOf(arsenal: Arsenal | null | undefined, ammo: string): string {
+  return arsenal?.ammoDisplayNames?.get(ammo) ?? ammo;
 }
 
 /** A map's arsenal: its valves, each side's selectable items, and its character types' kits. */
@@ -244,6 +284,11 @@ function list(script: RdrNode, key: string): RdrNode[][] {
 /** `zweapon.rdr`, parsed -> the arsenal (every `ZWEAPON` record, its round from `ZAMMO`). */
 export function arsenalOf(script: RdrNode): Arsenal {
   const rounds = new Map(list(script, 'ZAMMO').map((r) => [str(rdrGet(r, 'InternalName')) ?? '', r] as const));
+  const ammoDisplayNames = new Map<string, string>();
+  for (const [name, r] of rounds) {
+    // FUN_003cedb0 D:L322655-322658: a record without the key keeps the loader's default.
+    if (name !== '') ammoDisplayNames.set(name, str(rdrGet(r, 'DisplayName')) ?? AMMO_DISPLAY_NAME_DEFAULT_READING);
+  }
   const items = new Map<number, ArsenalItem>(), byName = new Map<string, ArsenalItem>(), order: number[] = [];
   for (const r of list(script, 'ZWEAPON')) {
     const name = str(rdrGet(r, 'InternalName'));
@@ -270,7 +315,7 @@ export function arsenalOf(script: RdrNode): Arsenal {
     byName.set(name, item);
     order.push(id);
   }
-  return { items, byName, order };
+  return { items, byName, order, ammoDisplayNames };
 }
 
 /**
@@ -655,19 +700,160 @@ export function autoFill(arsenal: Arsenal, valves: ReadonlyMap<string, number>, 
 }
 
 /**
+ * R4P-221: what a launcher primary displaced, remembered beside the kit until it leaves -- the in-game kit's pair
+ * `+0x1530`/`+0x1531` (r0001 `FUN_0023fef0` D:L89203-89316; the ARMORY's per character, r0001 `DAT_003dd060`/`61`,
+ * r0004 `DAT_00408220`/`21`). The port's pair is its own means: the capture Q221-PC2 shows the put-back, not where
+ * r0004 stores the pair. `EMPTY_ITEM` for nothing remembered.
+ */
+export type Remembered = readonly [number, number];
+export const NO_REMEMBERED: Remembered = [EMPTY_ITEM, EMPTY_ITEM];
+
+/**
+ * CARRY_ONCE_PUT_BACK_READING (R4P-221; research 378 §11): the ids the in-game put-back helper swaps when one is
+ * remembered and already carried -- r0001's list (`FUN_0023bc50` D:L87215-87221: the F2000 FRAG, the MGL, the M79, the
+ * GL FRAG, the M203 rounds 0xab-0xaf, the Detonator, the M203, none, C4, 0xfe, the thermal scope, the Satchel, the bomb
+ * 0x9a, 2X) with the PMN and the Claymore added by r0004 (`FUN_002d3cd0` D4:L182764; the atlas's masked diff of the two
+ * bodies, `docs/atlas/data/r0004/labels/reread2-002.check.md` lines 86-90: those two added, nothing dropped). The
+ * ARMORY's copy (r4 0x285150, research 378 §3) differs (the LAW and the RPG-7 in, the rounds, none and 0xfe out); the
+ * port's ARMORY takes the in-game rules (`ARMORY_RULES_READING`). [reading, pending review]
+ */
+export const CARRY_ONCE_PUT_BACK_READING: ReadonlySet<number> = new Set([
+  0xb7, ITEM.MGL, ITEM.M79, 0xb3, 0xae, 0xad, 0xac, 0xab, 0xaf, 0xc1, ITEM.M203, EMPTY_ITEM, ITEM.C4, FULL_SLOT, ITEM.THERMAL,
+  ITEM.SATCHEL, 0x9a, ITEM.DOUBLE_AMMO, ITEM.PMN, ITEM.CLAYMORE,
+]);
+
+/**
+ * The put-back's results that the next-item walk replaces (r0004 `FUN_002d25e0` D4:L182097-182102, as r0001
+ * `FUN_0023eca0` D:L88646-88652): none, 0xfe, the thermal scope, the bomb (0x9a). With the thermal here a remembered
+ * thermal scope is never given back by a launcher leaving -- `ARMORY_THERMAL_DROP_READING`. The second id is walked
+ * too, before these, when the helper changed it and it equals the first (D:L88643-88645) -- not when it came back as
+ * itself, so a remembered C4 can come back beside a substitute C4 (research 378 §11).
+ */
+const PUT_BACK_WALKED: ReadonlySet<number> = new Set([EMPTY_ITEM, FULL_SLOT, ITEM.THERMAL, 0x9a]);
+
+/**
+ * ARMORY_THERMAL_DROP_READING (R4P-221; research 378 §5, §11): the ARMORY's release (r0004 `FUN_00284480`
+ * D4:L136662-136669, r4 0x284518-0x284554) treats a remembered thermal scope as none unless the slot-0 item's class is
+ * sniper; the primary's setter releases slot 0 before it writes the new item (`FUN_002856f0` D4:L137156-137157), so the
+ * item tested is the one LEAVING. The pair is only remembered by a launcher primary, which is never a sniper, so here a
+ * remembered thermal is always dropped -- the in-game undo's own rule (`PUT_BACK_WALKED`). Unread: whether a remembered
+ * thermal is reachable at all in the ARMORY, and what a sniper leaving it does. [reading, pending review]
+ */
+export const ARMORY_THERMAL_DROP_READING = 'launcher-leaving-drops-thermal' as const;
+
+/**
+ * PUTBACK_SLOT_ORDER_READING (R4P-221; research 378 §11): where the remembered ids go when a launcher leaves. The M203
+ * rifles: the first id into the M203's slot (r0001 `FUN_0023eca0` D:L88864-88880), the second into slot 3 when it
+ * holds any M203 round -- every round loop (0xaf, 0xab, 0xac, 0xad, 0xae: D:L88882-88919, D:L88921-88958,
+ * D:L88960-88997, D:L88999-89036, D:L89038-89070) carries the same slot-3 test (D:L88897, D:L88936, D:L88975,
+ * D:L89014, D:L89053; r4 0x2d2938-0x2d2958 for 0xaf, 0x2d2a70-0x2d2a90 for 0xab, 0x2d2ba8-0x2d2bc8), the M203 locked
+ * in slot 2 so the test's flag never turns; any other round the walk's item. The M79, the MGL, the F2000: the first id
+ * into the first slot found holding one of the launcher's rounds, the loops in r0004's order FRAG, HE, SMOKE
+ * (`putBackRounds`): r0004 clears the first-id flag once (r4 0x2d2fa8) and carries it across the M79's three loops
+ * (tested at r4 0x2d3028/0x2d3038, 0x2d3138/0x2d3148, 0x2d3248/0x2d3258) and the MGL's (the indexed `+0x1530` writes at
+ * r4 0x2d3424, 0x2d3534, 0x2d3644); r0001 had the FRAG loop alone (the M79 D:L88676-88710, the flag cleared at
+ * D:L88676 and set at D:L88709; the MGL D:L88730-88763; the F2000 D:L88784-88817), and the F2000 has the FRAG loop alone
+ * in both. Any other round the walk's. Q221-PC2 proves the unmoved case (the M67 and the HE back in their own slots),
+ * not a moved one. [reading, pending review]
+ */
+export const PUTBACK_SLOT_ORDER_READING = 'r0004-putback-round-order' as const;
+
+/** The launcher primaries whose entry remembers and whose exit puts back (`FUN_0023fef0` D:L89203-89316). */
+const LAUNCHER_PRIMARIES: ReadonlySet<number> = new Set([ITEM.M16_203, ITEM.M4_203, ITEM.M79, ITEM.MGL, ITEM.F2000]);
+
+/**
+ * r0004's put-back helper (`FUN_002d3cd0`, the rewrite of r0001 `FUN_0023bc50` D:L87188-87271): a remembered `id` comes
+ * back as itself unless it is already carried (slots 2-4) and on the carry-once list (`CARRY_ONCE_PUT_BACK_READING`);
+ * then the next item after it in the file's order that is equipment (no primary, pistol or rocket launcher), not the
+ * thermal scope (r0004, D4:L182791) and allowed to the player's OWN side (r0004's mask, r4 0x2d3f4c-0x2d3f58) takes its
+ * place, through the same test again. The original walks without end when nothing qualifies; the port returns
+ * `EMPTY_ITEM` then (its own guard, never reached on the disc's valves).
+ */
+export function putBackItem(arsenal: Arsenal, valves: ReadonlyMap<string, number>, side: Side, loadout: Loadout, id: number): number {
+  // An empty slot holds no record, so it never matches (r0001 `FUN_0023bc50` D:L87202-87210 skips a null slot).
+  const carried = loadout.slice(2).filter((c) => c !== EMPTY_ITEM), order = arsenal.order, tried = new Set<number>();
+  let cur = id;
+  while (carried.includes(cur) && CARRY_ONCE_PUT_BACK_READING.has(cur)) {
+    if (tried.has(cur)) return EMPTY_ITEM;
+    tried.add(cur);
+    const start = order.indexOf(cur);
+    let next: number | null = null;
+    for (let k = 1; k <= order.length && next === null; k++) {
+      const c = order[(start + k + order.length) % order.length]!;
+      if (slotKindOf(c) !== 'equipment' || itemClass(c) === 'rocketLauncher' || c === ITEM.THERMAL) continue;
+      if (valveAllows(valves, side, c)) next = c;
+    }
+    if (next === null) return EMPTY_ITEM;
+    cur = next;
+  }
+  return cur;
+}
+
+/**
+ * The rounds a single-slot launcher's put-back loops look for, in r0004's order (`PUTBACK_SLOT_ORDER_READING`): the M79
+ * 0xb3, 0xb0, 0xb2 (heads r4 0x2d2fb4, 0x2d30c8, 0x2d31d8), the MGL 0xaf, 0xab, 0xad (0x2d33bc, 0x2d34d0, 0x2d35e0), the
+ * F2000 its FRAG alone (r0001 D:L88784-88817). `null` for the M203 rifles.
+ */
+function putBackRounds(primary: number): readonly number[] | null {
+  if (primary === ITEM.M79) return [ITEM.GL_FRAG, 176, 178];
+  if (primary === ITEM.MGL) return [ITEM.M203_FRAG, 171, 173];
+  if (primary === ITEM.F2000) return [ITEM.F2000_FRAG];
+  return null;
+}
+
+/**
  * `FUN_0023fef0` (L89138-89323) with `FUN_0023eca0` (L88610-89136): put `id` in `slot`. What the old item brought
  * leaves with it (a launcher's rounds and the M203, a cost-2 item's partner, a sniper's thermal scope), refilled by the
- * auto-fill; a cost-2 item fills the next equipment slot (4 wraps to 2) with its round or `FULL_SLOT`; a launcher
- * primary fills slots 2 (and 3). Returns the new loadout and the valves as the menu now sees them. The caller checks
- * `selectable` and `slotLocked` first, as the menu does.
+ * auto-fill -- but a launcher primary leaving gives back what it displaced (`remembered`, R4P-221: `putBackItem`,
+ * `PUTBACK_SLOT_ORDER_READING`); a cost-2 item fills the last empty equipment slot but its own, else the next (4 wraps
+ * to 2), with its round or `FULL_SLOT`; a launcher primary remembers slots 2 (and 3) and fills them. Returns the new
+ * loadout, the valves as the menu now sees them and the remembered pair. The caller checks `selectable` and
+ * `slotLocked` first, as the menu does, and carries `remembered` to its next pick.
  */
-export function pick(arsenal: Arsenal, valves: ReadonlyMap<string, number>, side: Side, loadout: Loadout, slot: number, id: number): { loadout: Loadout; valves: Map<string, number> } {
+export function pick(
+  arsenal: Arsenal, valves: ReadonlyMap<string, number>, side: Side, loadout: Loadout, slot: number, id: number,
+  remembered: Remembered = NO_REMEMBERED,
+): { loadout: Loadout; valves: Map<string, number>; remembered: Remembered } {
   const kit = [...loadout];
   const old = kit[slot]!;
   kit[slot] = id;
+  let kept: Remembered = remembered;
   // The old item's dependants leave (FUN_0023eca0): refilled from the auto-fill, never the id just removed.
   let seen = menuValves(valves, kit[0]!);
-  if (old !== id && old !== EMPTY_ITEM) {
+  if (slot === 0 && old !== id && LAUNCHER_PRIMARIES.has(old)) {
+    // R4P-221: the put-back. The two ids are worked out first, on the kit and valves as they stand with the launcher
+    // still in (FUN_0023eca0 D:L88638-88653; r0004 FUN_002d25e0 D4:L182089-182102).
+    const before = menuValves(valves, old);
+    const r1 = putBackItem(arsenal, before, side, loadout, remembered[0]);
+    let r2 = putBackItem(arsenal, before, side, loadout, remembered[1]);
+    const out = (i: number): boolean => dependentOf(loadout[i]!, old);
+    for (let i = 2; i <= 4; i++) if (out(i)) kit[i] = EMPTY_ITEM;
+    if (r2 !== remembered[1] && r2 === r1) r2 = autoFill(arsenal, seen, side, kit as unknown as Loadout, old, r2);
+    const rounds = putBackRounds(old);
+    let first: number | undefined;
+    if (rounds === null) first = [2, 3, 4].find((i) => loadout[i] === ITEM.M203);
+    else for (const r of rounds) if (first === undefined) first = [2, 3, 4].find((i) => loadout[i] === r);
+    const m203Round = (x: number): boolean => x >= 171 && x <= 175;
+    const second = rounds === null && m203Round(loadout[3]!) ? 3 : undefined;
+    let placed1: number = EMPTY_ITEM;
+    for (let i = 2; i <= 4; i++) {
+      if (!out(i)) continue;
+      if (i === first) {
+        placed1 = PUT_BACK_WALKED.has(r1) ? autoFill(arsenal, seen, side, kit as unknown as Loadout, old, old) : r1;
+        kit[i] = placed1;
+      } else if (i === second) {
+        kit[i] = PUT_BACK_WALKED.has(r2) ? autoFill(arsenal, seen, side, kit as unknown as Loadout, old, placed1) : r2;
+      } else {
+        kit[i] = autoFill(arsenal, seen, side, kit as unknown as Loadout, old, old);
+      }
+    }
+    // The round sweeps run after the put-back (r0001 D:L88920-89070 for the M203 rifles' other rounds; r0004's M79 and
+    // MGL HE and SMOKE heads after the FRAG's, r4 0x2d30c8/0x2d31d8 and 0x2d34d0/0x2d35e0): a substitute that is one of
+    // the leaving launcher's rounds (the helper walks under its valves) is refilled by the walk.
+    for (let i = 2; i <= 4; i++) if (dependentOf(kit[i]!, old)) kit[i] = autoFill(arsenal, seen, side, kit as unknown as Loadout, old, old);
+    // The undo clears the pair as it gives it back (D:L88880, D:L88894, D:L88689).
+    kept = NO_REMEMBERED;
+  } else if (old !== id && old !== EMPTY_ITEM) {
     for (let i = 2; i <= 4; i++) {
       if (i !== slot && dependentOf(kit[i]!, old)) {
         kit[i] = EMPTY_ITEM;
@@ -675,16 +861,29 @@ export function pick(arsenal: Arsenal, valves: ReadonlyMap<string, number>, side
       }
     }
   }
-  // A cost-2 item's partner slot: the next equipment slot, 4 wrapping to 2.
+  // A cost-2 item's partner slot (ARSENAL-PARTNER; reading, pending review): `FUN_0023fef0` D:L89167-89184 -- the next
+  // equipment slot (4 wrapping to 2) is only the default; the walk over slots 2..4 then takes each slot reading empty
+  // (0xff) other than the pick's own, so the LAST empty one wins. (The original's slot with no record reads -2, not
+  // empty; the port's kit always holds five ids.) r0004's twin is at 0x240010 (+0x120; research 378 section 3): its walk,
+  // 0x240064-0x2400c4, is word-identical to r0001's 0x23ff44-0x23ffa4 (the review's re-read of both r0004 images).
   const item = arsenal.items.get(id);
   if (item && item.slotCost === 2 && slot >= 2) {
-    const partner = slot === 4 ? 2 : slot + 1;
+    let partner = slot === 4 ? 2 : slot + 1;
+    for (let i = 2; i <= 4; i++) if (i !== slot && kit[i] === EMPTY_ITEM) partner = i;
     kit[partner] = id === ITEM.LAW ? ITEM.LAW_HEAT : id === ITEM.RPG7 ? ITEM.RPG_ROUND : FULL_SLOT;
   }
-  // A launcher primary fills its slots.
+  // A launcher primary remembers what it displaces (R4P-221; FUN_0023fef0 D:L89203-89316: the M203 rifles slots 2 and 3,
+  // the M79, the MGL and the F2000 slot 2, the other half of the pair kept), then fills its slots. The M203 rifles test
+  // slot 2 alone: empty, both ids are none (D:L89301-89306; r4 0x240250-0x240274). The F2000 reads slot 2 with no test
+  // (D:L89276-89281); the port's empty slot reads none there.
+  if (slot === 0 && old !== id && LAUNCHER_PRIMARIES.has(id)) {
+    kept = id === ITEM.M16_203 || id === ITEM.M4_203
+      ? (kit[2] === EMPTY_ITEM ? [EMPTY_ITEM, EMPTY_ITEM] : [kit[2]!, kit[3]!])
+      : [kit[2]!, kept[1]];
+  }
   if (slot === 0) for (const [s, fill] of launcherFill(id)) kit[s] = fill;
   seen = menuValves(valves, kit[0]!);
-  return { loadout: kit as unknown as Loadout, valves: seen };
+  return { loadout: kit as unknown as Loadout, valves: seen, remembered: kept };
 }
 
 /** One step of the menu: the item put in a slot (`FUN_0023fef0`'s arguments). */
@@ -697,11 +896,14 @@ export type PickRefusal = 'slot' | 'unknown' | 'locked' | 'refused';
  * The server's authority over the kit (W4.R6): the picks the menu made, replayed in order through the menu's own rules
  * -- each slot 0-4, each item known, the slot not locked (`slotLocked`), the item one the side may put there
  * (`selectable` under the menu's valves) -- each applied with `pick`, so the kit that results is computed here, never
- * taken from the page. An empty list keeps the kit. The first refused step refuses the request.
+ * taken from the page. An empty list keeps the kit. The first refused step refuses the request. The remembered pair
+ * (R4P-221) is carried from each pick to the next, starting from `remembered` (none by default), and returned.
  */
-export function applyPicks(arsenal: Arsenal, valves: ReadonlyMap<string, number>, side: Side, current: Loadout, picks: readonly Pick[]):
-  { loadout: Loadout } | { refused: PickRefusal; at: number } {
-  let kit = current;
+export function replayPicks(
+  arsenal: Arsenal, valves: ReadonlyMap<string, number>, side: Side, current: Loadout, picks: readonly Pick[],
+  remembered: Remembered = NO_REMEMBERED,
+): { loadout: Loadout; remembered: Remembered } | { refused: PickRefusal; at: number } {
+  let kit = current, kept = remembered;
   for (let at = 0; at < picks.length; at++) {
     const { slot, id } = picks[at]!;
     if (!Number.isInteger(slot) || slot < 0 || slot > 4) return { refused: 'slot', at };
@@ -709,7 +911,16 @@ export function applyPicks(arsenal: Arsenal, valves: ReadonlyMap<string, number>
     const seen = menuValves(valves, kit[0]!);
     if (slotLocked(seen, side, kit, slot)) return { refused: 'locked', at };
     if (!selectable(seen, side, kit, slot, id)) return { refused: 'refused', at };
-    kit = pick(arsenal, valves, side, kit, slot, id).loadout;
+    const r = pick(arsenal, valves, side, kit, slot, id, kept);
+    kit = r.loadout;
+    kept = r.remembered;
   }
-  return { loadout: kit };
+  return { loadout: kit, remembered: kept };
+}
+
+/** `replayPicks` from nothing remembered, the kit alone returned (the room's, the bots' and the menus' replay). */
+export function applyPicks(arsenal: Arsenal, valves: ReadonlyMap<string, number>, side: Side, current: Loadout, picks: readonly Pick[]):
+  { loadout: Loadout } | { refused: PickRefusal; at: number } {
+  const r = replayPicks(arsenal, valves, side, current, picks);
+  return 'refused' in r ? r : { loadout: r.loadout };
 }

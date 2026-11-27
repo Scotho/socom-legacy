@@ -1,3 +1,5 @@
+import { uiVarMasked } from '../text/displayMask';
+import { secureCodes } from '../text/captions';
 import type { UiDrawItem } from '../compositor/drawList';
 import { DIALOG_EVENTS } from '../dialog';
 import { measureText } from '../text/layout';
@@ -10,7 +12,7 @@ import {
   SKB_FN, SKB_KEY_TYPE, SKB_PIECE_ATLAS_READING, findSoftKeyboard, isEmptySkbKey, sameSkbKey,
   type SkbCommon, type SkbKey, type SkbLayout, type SkbTextProps, type SoftKeyboardParams,
 } from './params';
-import { skbBlank, skbGridCase, skbRaise, skbString, skbWithinCaps, skbWrap } from './text';
+import { skbBlank, skbGridCase, skbRaise, skbString, skbTakeEdit, skbWithinCaps, skbWrap } from './text';
 import type { TextInputRequest } from './textInput';
 import { usbKeyAction, type UsbKey } from './usb';
 
@@ -151,6 +153,13 @@ export class SoftKeyboard {
   /** The main text: the two lines joined (`FUN_00399d20`'s join). */
   get codes(): number[] { return [...this.lines[0], ...this.lines[1]]; }
   get text(): string { return skbString(this.codes); }
+  /**
+   * The two edit lines as drawn: as typed, or one `*` a character while the page masks the variable edited
+   * (`../text/displayMask`, STREAMER-P1: a browser adaptation; the original draws them as typed).
+   */
+  get shownLines(): [number[], number[]] {
+    return uiVarMasked(this.varName) ? [secureCodes(this.lines[0]), secureCodes(this.lines[1])] : [[...this.lines[0]], [...this.lines[1]]];
+  }
   get recipient(): string { return skbString(this.recipientCodes); }
   /** The cursor as an index into the focused edit's text. */
   get cursor(): number { return this.curCol + (this.curLine === 1 ? this.lines[0].length : 0); }
@@ -542,13 +551,17 @@ export class SoftKeyboard {
 
   /**
    * `FUN_00399d20` (D:L291348-291396): `UiVar` and `UiVar2` added (temporary when new) and set to the main text and the
-   * recipient's, then `ON_SKB_APPLY2` in Action2 mode, else `ON_SKB_APPLY`, with the text.
+   * recipient's, then `ON_SKB_APPLY2` in Action2 mode, else `ON_SKB_APPLY`, with the text. r0004's `SkbTakeText` first
+   * rewrites `$~` to `$-` in both (`SKB_TAKE_EDIT_READING`, D4:L315622-315648, D4:L315676-315702, D4:L315719; L358).
    */
   private apply(): void {
     const r = this.request!, vars = this.o.host.uiVars();
-    const text = this.text;
+    const text = skbTakeEdit(this.text);
     vars.set(vars.add(this.varName, null, 1), { type: 'string', value: text });
-    vars.set(vars.add(r.uiVar2, null, 1), { type: 'string', value: this.recipient });
+    // r0004 SkbTakeText (r4 0x3ba2f0-0x3ba348; D4:L315657-315663 per the lead): a keyboard on CHATTEXT also stores the
+    // edited text as CHATMESSAGE, before the recipient and the dispatch (IGNORE/FRIENDS read it); reading, pending review (research 119).
+    if (this.varName === 'CHATTEXT') vars.set(vars.add('CHATMESSAGE', null, 1), { type: 'string', value: text });
+    vars.set(vars.add(r.uiVar2, null, 1), { type: 'string', value: skbTakeEdit(this.recipient) });
     this.o.host.event(this.mode === 2 ? SKB_EVENTS.APPLY2 : SKB_EVENTS.APPLY, text);
   }
 
@@ -699,12 +712,13 @@ export class SoftKeyboard {
     }
     this.drawText(out, l.purposeString, this.o.host.locText?.(this.title) ?? this.title, 'SkbPurpose');
     const user = l.userString;
-    if (user) this.lines.forEach((line, i) => this.drawCodes(out, user, line, 0, i * l.userStringLineHeight, 'SkbUserString'));
+    const shown = this.shownLines;                                       // STREAMER-P1: masked while the page masks the variable
+    if (user) shown.forEach((line, i) => this.drawCodes(out, user, line, 0, i * l.userStringLineHeight, 'SkbUserString'));
     if (this.mode === 1 && l.msgPlayerString) this.drawCodes(out, l.msgPlayerString, this.recipientCodes, 0, 0, 'SkbRecipient');
     if (this.blink < 0.5) {
       const props = this.focusRecipient ? l.msgPlayerString : l.userString;
       const m = this.measure(props);
-      const edit = this.focusRecipient ? this.recipientCodes : this.lines[this.curLine as 0 | 1];
+      const edit = this.focusRecipient ? this.recipientCodes : shown[this.curLine as 0 | 1];
       const x = (props?.x ?? 0) + (m ? m(edit.slice(0, this.curCol)) : 0);
       const y = (this.focusRecipient ? l.cursorY2nd : l.cursorY) + this.curLine * l.userStringLineHeight;
       quad('SkbCursor', null, rx + x, ry + y, l.cursorSize[0], l.cursorSize[1], [0, 0, 1, 1], [255, 255, 255]);

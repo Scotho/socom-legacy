@@ -127,7 +127,7 @@ The envelope `forge-bundle.json` holds exactly four fields; any other is refused
 |---|---|
 | `schema` | Always `s2u.creator/forge-map-bundle`. |
 | `version` | Always `1`. |
-| `layout` | A Forge layout record, `forge-layout` version 3: the map. Its `base` is `content:` plus a library stem when it stands on a content map, with `contentBase` (`mapId` and the pack's `ref`) naming that map; its `requires` lists the packs it needs. |
+| `layout` | A Forge layout record, `forge-layout` version 3 or 4 (version 4 keeps a piece's angles on a hundredth of a degree, and is written only when one is off the whole degree): the map. Its `base` is `content:` plus a library stem when it stands on a content map, with `contentBase` (`mapId` and the pack's `ref`) naming that map; its `requires` lists the packs it needs. |
 | `packs` | A list of at most 64 `{ref, root}` entries. `ref` is the pack's `id`, `version` and `hash` (the pack digest, 64 lower-case hex digits); `root` is the pack's folder, ending `/`, with `s2u-pack.json` at its top. |
 
 - `forge-bundle.json` sits at the zip's root, or inside one top folder (a zipped folder). Every other file belongs to

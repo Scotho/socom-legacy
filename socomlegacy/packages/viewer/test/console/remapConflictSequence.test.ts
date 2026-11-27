@@ -97,7 +97,13 @@ function answer(p: Pad, choice: 'swap' | 'replace' | 'cancel'): void {
   hold(p);
 }
 
-describe('B188 e2e buttonMapping:89 -- the spec\'s sequence through the page\'s live pad pieces', () => {
+/**
+ * The timers are already fake: the case's time is the page's own rendering, CPU-bound -- 2956 ms of the default 5 s on a
+ * quiet 8-core box (load 0.97, 2026-11-15), and it timed out on a loaded host. 20 s keeps it off the host's load (tests only).
+ */
+const SEQUENCE_TIMEOUT_MS = 20_000;
+
+describe('B188 e2e buttonMapping:89 -- the spec\'s sequence through the page\'s live pad pieces', { timeout: SEQUENCE_TIMEOUT_MS }, () => {
   it('Crouch onto Prone\'s button asks each time: Swap, then Replace, then Cancel', () => {
     const { p } = boot();
     // STM-1 (STM.R1): the Crouch and Prone rows are SEPARATE's -- the spec steps the Stance mode first, and Prone takes the

@@ -200,3 +200,40 @@ describe('LATER 146: a forge piece carries its collider frame', () => {
     expect(own[1]!.frame).toBeUndefined();
   });
 });
+
+describe('FLE-2: a Forge layout keeps its map\'s default soil (research 151 s9.1; the fall-leave-edge plan)', () => {
+  it('layoutGround carries the base ground\'s defaultMaterial to the grid, and a body on a byte-0 floor stands 0.8 under it on GRASS', async () => {
+    const { Walker } = await import('../../src/mover');
+    const base = { ...packGround(grid, [poly('floor', 'worldmodel/floor', new Float32Array([-500, 0, 500, 500, 0, 500, 500, 0, -500, -500, 0, -500]))],
+      [{ modelName: 'floor', path: 'worldmodel/floor', first: 0, count: 1 }]), defaultMaterial: 4 };   // GRASS, -0.8
+    const laid = layoutGround(base, []);
+    expect(laid.defaultMaterial).toBe(4);
+    const w = new Walker(groundGrid(laid));
+    expect(w.place(0, 5, 0)).toBe(true);
+    for (let i = 0; i < 30; i++) w.tick({ forward: 0, right: 0, boost: false });
+    expect(w.state.y).toBeCloseTo(-0.8, 6);
+    const bare = new Walker(groundGrid(layoutGround({ ...base, defaultMaterial: undefined }, [])));
+    bare.place(0, 5, 0);
+    expect(bare.state.y).toBeCloseTo(0, 6);                     // no default: byte 0 is soil 0, no offset
+  });
+});
+
+describe('FLE-2 (the review\'s F4): a Forge repack keeps the map\'s default soil', () => {
+  it('groundWithout (a hidden prop) carries defaultMaterial, so a byte-0 floor still holds a body 0.8 under on GRASS', async () => {
+    const { groundWithout } = await import('../../src/forge/hide');
+    const { Walker } = await import('../../src/mover');
+    const floor = poly('floor', 'worldmodel/floor', new Float32Array([-500, 0, 500, 500, 0, 500, 500, 0, -500, -500, 0, -500]));
+    const crate = poly('crate', 'worldmodel/crate_3', top(100, 200, 10));
+    const base = packGround(grid, [floor, crate], [
+      { modelName: 'floor', path: 'worldmodel/floor', first: 0, count: 1 },
+      { modelName: 'crate', path: 'worldmodel/crate_3', first: 1, count: 1 },
+    ], 4);                                                         // GRASS, -0.8
+    const hidden = groundWithout(map, base, new Set(['0:0']));
+    expect(hidden).not.toBe(base);                                 // repacked: the crate's polygon dropped
+    expect(groundPolygons(hidden)).toHaveLength(1);
+    expect(hidden.defaultMaterial).toBe(4);
+    const w = new Walker(groundGrid(hidden));
+    expect(w.place(0, 5, 0)).toBe(true);
+    expect(w.state.y).toBeCloseTo(-0.8, 6);
+  });
+});

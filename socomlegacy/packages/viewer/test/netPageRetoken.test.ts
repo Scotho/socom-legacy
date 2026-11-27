@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PerspectiveCamera } from 'three';
 import { HELD_RIFLE, HELD_SIDEARM } from '@s2u/scene';
 import { Hud } from '../src/hud';
-import { GAME_ENDED_DIALOG_READING, GAME_SOCKET_CLOSED_DIALOG_READING, NetPage, retryDelayMs, type NetPageDeps } from '../src/netPage';
+import { RESUME_ATTEMPT_WAIT_MS_ADAPTATION, GAME_ENDED_DIALOG_READING, GAME_SOCKET_CLOSED_DIALOG_READING, NetPage, retryDelayMs, type NetPageDeps } from '../src/netPage';
 import { GAME_HELLO_WAIT_MS_ADAPTATION } from '../src/gameLobbyHost';
 import { NetClient, type NetWalk, type WebSocketLike } from '../src/net/client';
 import {
@@ -163,17 +163,44 @@ describe('SA-6c: the match\'s reconnect awaits the re-token (NetPage.retry, NetP
     expect(s.asks()).toBe(1);
   });
 
-  it('a failure: back into the backoff, asked again at its next step (2 s after a reach), then open', async () => {
+  it('a failure: back into the backoff, asked again at its next step (1.5 s after a reach, LATER 359), then open', async () => {
     const s = scripted(async (n) => (n === 1 ? { kind: 'backoff' } : placed()));
     const p = page({ pinned: door(), token: TOKEN, reseat: s.p });
     p.welcomedThenDropped();
     await settle();
-    p.run(1_800);
+    p.run(1_300);
     expect(s.asks()).toBe(1);
     p.run(400);
     expect(s.asks()).toBe(2);
     await settle();
     expect(p.sockets).toHaveLength(2);
+  });
+
+  // LATER 359a, the review's F2 (the main controller: fold it): the owner's "back within ~20 s resumes" -- a link that
+  // drops packets (no answer, no close) until 16 s after the drop must still resume inside the body's 20 s hold. Each
+  // re-token asked during the outage hangs for ever; one asked after it answers at once. A resume attempt's own bound
+  // (`RESUME_ATTEMPT_WAIT_MS_ADAPTATION`, 3 s) lets the next one be asked; at the old 10 s the second hung to ~25 s.
+  it('LATER 359a F2: an outage ending 16 s after the drop resumes before 20 s -- a hung re-token is cut at 3 s', async () => {
+    let dropAt = Number.POSITIVE_INFINITY;                     // set at the drop, on the harness's clock
+    let opened: number | null = null;
+    const s = scripted(() => (performance.now() - dropAt >= 16_000 ? Promise.resolve(placed()) : new Promise<Reseat>(() => {})));
+    const p = page({ pinned: door(), token: TOKEN, reseat: s.p });
+    p.last().onopen?.({} as Event);
+    p.server(welcome);
+    p.run(50);
+    const start = performance.now();
+    dropAt = start;
+    p.last().onclose?.({ code: 1006, reason: '' } as CloseEvent);
+    for (let ms = 0; ms < 20_000 && opened === null; ms += 100) {
+      p.run(100);
+      await vi.advanceTimersByTimeAsync(100);
+      await settle();
+      if (p.sockets.length > 1) opened = performance.now() - start;
+    }
+    expect(opened, 'a socket reopened inside the 20 s hold').not.toBeNull();
+    expect(opened!).toBeGreaterThanOrEqual(15_000);
+    expect(opened!).toBeLessThan(20_000);
+    expect(RESUME_ATTEMPT_WAIT_MS_ADAPTATION).toBe(3_000);
   });
 
   it('a hung re-token never freezes the retries: the backoff at GAME_RETOKEN_WAIT_MS_ADAPTATION, asked again after its step', async () => {
@@ -182,7 +209,7 @@ describe('SA-6c: the match\'s reconnect awaits the re-token (NetPage.retry, NetP
     p.welcomedThenDropped();
     await vi.advanceTimersByTimeAsync(GAME_RETOKEN_WAIT_MS_ADAPTATION);
     await settle();
-    p.run(1_800);
+    p.run(1_300);
     expect(d.asks()).toBe(1);
     p.run(400);
     expect(d.asks()).toBe(2);
@@ -443,6 +470,8 @@ describe('SA-41: a placed seat\'s hello refused before its admit re-tokens once 
  */
 describe('SA-57: the match\'s socket never welcomed is a drop (NetPage.retry, GAME_HELLO_WAIT_MS_ADAPTATION)', () => {
   const W = GAME_HELLO_WAIT_MS_ADAPTATION;
+  /** LATER 359a F2: a reached match's resume attempt waits `RESUME_ATTEMPT_WAIT_MS_ADAPTATION` for its welcome, not `W`. */
+  const R = RESUME_ATTEMPT_WAIT_MS_ADAPTATION;
   const LOST = 'CONNECTION LOST. RECONNECTING. . .';
   const quiet = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
   const idle: NetWalk = { setNetTap: () => {}, respawn: () => false, nudge: () => {}, setLocked: () => {} };
@@ -456,7 +485,7 @@ describe('SA-57: the match\'s socket never welcomed is a drop (NetPage.retry, GA
     expect(s.asks()).toBe(1);
     expect(p.sockets).toHaveLength(2);                             // the re-token's socket: its upgrade never completes
     p.run(0);                                                      // the first frame after the open: the wait starts
-    p.run(W - 100);
+    p.run(R - 100);
     expect(p.sockets[1]!.closed).toBe(false);
     expect(p.net.status().state).toBe('connecting');
     p.run(100);
@@ -485,7 +514,7 @@ describe('SA-57: the match\'s socket never welcomed is a drop (NetPage.retry, GA
     await settle();
     p.last().onopen?.({} as Event);                                // the hello sent; no welcome, no close
     p.run(0);                                                      // the first frame after the open: the wait starts
-    p.run(W - 100);
+    p.run(R - 100);
     expect(p.sockets[1]!.closed).toBe(false);
     p.run(100);
     expect(p.sockets[1]!.closed).toBe(true);
@@ -503,6 +532,47 @@ describe('SA-57: the match\'s socket never welcomed is a drop (NetPage.retry, GA
     expect(p.net.status().state).toBe('online');
     expect(holds).toEqual([true, false, true]);
     expect(p.sockets).toHaveLength(3);
+  });
+
+  // LATER 359a re-review B1: a resume attempt's socket that opened (its hello sent, the server may have seated it) and
+  // waited past the 3 s is given up with NO `bye` -- a `bye` reads as a leave and frees the seat; dropped, the room parks
+  // it and the next attempt resumes it.
+  it('LATER 359a B1: a resume socket that opened and waited past its 3 s welcome is dropped with no bye', async () => {
+    quiet();
+    const s = scripted(async () => placed());
+    const p = page({ pinned: door(), token: TOKEN, reseat: s.p });
+    p.welcomedThenDropped();
+    await settle();
+    expect(p.sockets).toHaveLength(2);
+    p.last().onopen?.({} as Event);                                // the hello sent; the welcome late
+    p.run(0);
+    p.run(R + 100);
+    expect(p.sockets[1]!.closed).toBe(true);
+    const byes = p.sockets[1]!.sent.map((d) => { try { return (JSON.parse(d) as { type?: string }).type; } catch { return null; } }).filter((t) => t === 'bye');
+    expect(byes).toEqual([]);
+  });
+
+  // LATER 359a B1's re-review, finding 1: past the fast retries (attempt 18 on, the 30 s wait) a reached match's socket that
+  // opened and lapsed is dropped with no bye too -- the seat is still held (3 minutes), and a bye would free it.
+  it('LATER 359a B1 F1: a reached match past the fast retries -- its 30 s lapse drops with no bye too', async () => {
+    quiet();
+    let place = false;
+    const s = scripted(async () => (place ? placed() : { kind: 'backoff' }));
+    const p = page({ pinned: door(), token: TOKEN, reseat: s.p });
+    p.welcomedThenDropped();
+    for (let ms = 0; ms < 60_000 && s.asks() < 18; ms += 500) { p.run(500); await vi.advanceTimersByTimeAsync(500); await settle(); }
+    expect(s.asks()).toBeGreaterThanOrEqual(18);
+    place = true;
+    const before = p.sockets.length;
+    for (let ms = 0; ms < 15_000 && p.sockets.length === before; ms += 500) { p.run(500); await vi.advanceTimersByTimeAsync(500); await settle(); }
+    expect(p.sockets.length).toBe(before + 1);
+    p.last().onopen?.({} as Event);                                // the hello sent; the welcome never comes
+    p.run(0);
+    p.run(W + 100);
+    const sock = p.sockets[before]!;
+    expect(sock.closed).toBe(true);
+    const byes = sock.sent.map((d) => { try { return (JSON.parse(d) as { type?: string }).type; } catch { return null; } }).filter((t) => t === 'bye');
+    expect(byes).toEqual([]);
   });
 
   it('a local game\'s seat (no re-token) past the wait reopens on the pinned socket with the ticket', () => {
@@ -688,7 +758,7 @@ describe('SA-57: the match\'s socket never welcomed is a drop (NetPage.retry, GA
       await settle();
       p.last().onopen?.({} as Event);
       p.run(0);
-      p.run(W);                                                    // lapsed at the wait's last frame
+      p.run(R);                                                    // lapsed at the resume attempt's wait's last frame (LATER 359a F2)
       expect(p.sockets[1]!.closed, String(code)).toBe(true);
       const lines = p.posted.filter((m) => m.includes(LOST)).length;
       p.run(500);
@@ -701,7 +771,7 @@ describe('SA-57: the match\'s socket never welcomed is a drop (NetPage.retry, GA
       p.run(200);
       expect(s.asks(), String(code)).toBe(2);
       await settle();
-      p.run(5_000);
+      p.run(R - 500);                                              // under the next socket's own 3 s wait
       expect(s.asks(), String(code)).toBe(2);
       expect(p.sockets, String(code)).toHaveLength(3);
       expect(p.posted.filter((m) => m.includes(LOST)), String(code)).toHaveLength(lines);

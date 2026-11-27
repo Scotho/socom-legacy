@@ -94,7 +94,7 @@ function climbAndPlace(w: Walker, t: Traversal, events: TraversalEvent[], hold: 
 const quad = (pts: number[], ditype: number, appflags = 0, path = 'worldmodel/q'): WorldPoly => ({
   modelName: 'worldmodel', path, region: 0, ditype, material: 25, ptcount: 4, cameratype: 0, appflags, points: Float32Array.from(pts),
 });
-const floor = (x0: number, z0: number, x1: number, z1: number, y: number): WorldPoly => quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], 3);
+const floor = (x0: number, z0: number, x1: number, z1: number, y: number): WorldPoly => quad([x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z0], 3);
 function box(x0: number, z0: number, x1: number, z1: number, h: number, appflags: number): WorldPoly[] {
   return [
     quad([x0, 0, z1, x1, 0, z1, x1, h, z1, x0, h, z1], 2, appflags),

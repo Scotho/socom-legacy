@@ -5,6 +5,8 @@ import { HELD_RIFLE, HELD_SIDEARM } from '@s2u/scene';
 import { Hud } from '../src/hud';
 import * as netPage from '../src/netPage';
 import { NetPage, type NetPageDeps } from '../src/netPage';
+import { keepSeatOnUnload, releaseSeatKeep, resetSeatKeepForTest } from '../src/seatKeep';
+import { fetchAccountService } from '../src/connectHost';
 import type { WebSocketLike } from '../src/net/client';
 import { decodeCommands, encodeSnapshot } from '../src/net/codec';
 import { overall } from '../src/net/damage';
@@ -266,7 +268,7 @@ describe('RECONNECT-GHOST (D) step 1 on the page\'s own parts: the pouch and the
     const c = document.createElement('canvas');
     c.setPointerCapture = () => undefined; c.releasePointerCapture = () => undefined; c.hasPointerCapture = () => false;
     const mode = new WalkMode(new FlyCamera(c), () => undefined);
-    const floor = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]) };
+    const floor = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]) };
     mode.setGround(packGround({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 }, [floor], [{ modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1 }]), null);
     expect(mode.respawn([150, 0, 150], 0)).toBe(true);
     const spawns = mode.spawns();
@@ -293,7 +295,7 @@ describe('RESUME-MOUNTED on a real WalkMode: the first command after a mounted r
     const c = document.createElement('canvas');
     c.setPointerCapture = () => undefined; c.releasePointerCapture = () => undefined; c.hasPointerCapture = () => false;
     const mode = new WalkMode(new FlyCamera(c), () => undefined);
-    const floor = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]) };
+    const floor = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]) };
     mode.setGround(packGround({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 }, [floor], [{ modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1 }]), null);
     const sent: Uint8Array[] = [];
     let sock: { onopen: ((e: unknown) => void) | null; onmessage: ((e: { data: unknown }) => void) | null } | null = null;
@@ -354,7 +356,7 @@ describe('the review\'s F3 (OT.R59): a resume the walk cannot stand at once', ()
     const c = document.createElement('canvas');
     c.setPointerCapture = () => undefined; c.releasePointerCapture = () => undefined; c.hasPointerCapture = () => false;
     const mode = new WalkMode(new FlyCamera(c), () => undefined);
-    const floor = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]) };
+    const floor = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]) };
     mode.setGround(packGround({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 }, [floor], [{ modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1 }]), null);
     expect((mode as unknown as { resume(...a: unknown[]): boolean }).resume([10, 0, 20], 0, 'crouch', 1, null)).toBe(true);
     const w = (mode as unknown as { walker: { posture: string } | null }).walker;
@@ -368,7 +370,7 @@ describe('the review\'s F3 (OT.R59): a resume the walk cannot stand at once', ()
     const c = document.createElement('canvas');
     c.setPointerCapture = () => undefined; c.releasePointerCapture = () => undefined; c.hasPointerCapture = () => false;
     const mode = new WalkMode(new FlyCamera(c), () => undefined);
-    const floor = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]) };
+    const floor = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]) };
     mode.setGround(packGround({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 }, [floor], [{ modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1 }]), null);
     expect(mode.respawn([150, 0, 150], 0)).toBe(true);
     for (let i = 0; i < 3; i++) mode.frame(1 / 60);
@@ -448,6 +450,119 @@ describe('RECONNECT-GHOST step 2: the page says bye (OT.R59)', () => {
     } finally {
       globalThis.removeEventListener('pagehide', frontEnd);
     }
+  });
+
+  // LATER 896 part 2, its review's F1: the REAL order in a lobby match -- the front end's pagehide (registered first, at the
+  // page's mount) stops its session: the LobbyMatch's end -> the match's close (NetPage.close -> NetClient.close) -> the
+  // mount's teardown (releaseSeatKeep) -> the session's logout. With the seat kept: no bye, and no logout.
+  it('LATER 896 part 2 (review F1): the front end’s own pagehide chain sends neither the bye nor the logout when the seat is kept', async () => {
+    const { LobbyMatch, deferredMatch } = await import('../src/lobbyMatch');
+    const calls: string[] = [];
+    const fetchFn = (async (url: string) => { calls.push(url); return new Response(JSON.stringify({ status: 0 }), { status: 200 }); }) as unknown as typeof fetch;
+    const service = fetchAccountService('https://play.redotcom.test', fetchFn);
+    let match: InstanceType<typeof LobbyMatch> | null = null;
+    const frontEnd = (): void => { match?.stop(); void service.logout!('tkt'); };   // the session's close: the match, then the logout
+    globalThis.addEventListener('pagehide', frontEnd);                // registered first, as the front end's mount is
+    try {
+      const p = page();
+      p.server(welcome());
+      const sent = p.socket().sent;
+      let t = 0;
+      const roundStart = { type: 'roundStart', round: 1, seconds: 360, wins: { seal: 0, terrorist: 0 }, rounds: 11, epoch: 1, startTick: 0 };
+      const hand = { client: p.net.client, held: true, welcome: null, roundStart, mission: 'mp2', mediusWorldId: 7, gameName: 'g', lateJoiner: false };
+      match = new LobbyMatch({
+        now: () => t, screen: { show: () => {}, hide: () => {} }, load: () => Promise.resolve(),
+        start: (m: { client: Parameters<typeof deferredMatch>[0] }) => deferredMatch(m.client, Promise.resolve({ release: () => p.net.release(), close: () => { p.net.close(); releaseSeatKeep(); }, ended: () => null })),
+        back: () => {}, holds: () => {},
+      } as never);
+      match.start(hand as never);
+      await Promise.resolve(); await Promise.resolve();
+      for (let i = 0; i < 100 && match.phase !== 'match'; i++) { t += 50; match.frame(); }
+      expect(match.phase).toBe('match');
+      await Promise.resolve();
+      keepSeatOnUnload();                                              // "Reload and rejoin" pressed
+      const from = sent.length;
+      globalThis.dispatchEvent(new Event('pagehide'));
+      await Promise.resolve(); await Promise.resolve();
+      expect(sent.slice(from).filter((d) => typeof d === 'string' && d.includes('"bye"')), 'no bye').toHaveLength(0);
+      expect(calls.filter((u) => u.includes('/account/logout')), 'no logout').toHaveLength(0);
+    } finally {
+      globalThis.removeEventListener('pagehide', frontEnd);
+      resetSeatKeepForTest();
+    }
+  });
+
+  // GRAPHICS-RECOVERY (Shadow row 129, GFXRECOVERY-PC2): a loss DURING THE MATCH LOAD, the automatic reload run once (the
+  // match's own "Reload and rejoin": keepSeatOnUnload, then location.reload), and the match's teardown running BEFORE the
+  // reload's unload (its close, then releaseSeatKeep, as matchMount's teardown does) -- the room heard the bye and the
+  // logout. The manual button runs the same action, so both paths are pinned: neither the bye nor the logout.
+  it.each(['automatic', 'manual'] as const)('GRAPHICS-RECOVERY: %s reload, the teardown before the unload: no bye, no logout', async (path) => {
+    const gl = await import('../src/graphicsLost');
+    const calls: string[] = [];
+    const fetchFn = (async (url: string) => { calls.push(url); return new Response(JSON.stringify({ status: 0 }), { status: 200 }); }) as unknown as typeof fetch;
+    const service = fetchAccountService('https://play.redotcom.test', fetchFn);
+    const frontEnd = (): void => { void service.logout!('tkt'); };   // the front end's pagehide: its logout
+    globalThis.addEventListener('pagehide', frontEnd);
+    history.replaceState(null, '', path === 'automatic' ? '/?graphicsrecovery=reload' : '/?graphicsrecovery=notice');
+    const reload = vi.fn();
+    const rejoin = (): void => { keepSeatOnUnload(); reload(); };     // matchMount's own "Reload and rejoin"
+    const off = gl.setGraphicsLostAction({ actions: [
+      { label: gl.GRAPHICS_LOST_REJOIN_LABEL, run: rejoin },
+      { label: gl.GRAPHICS_LOST_LEAVE_LABEL, run: () => {} },
+    ] }, document);
+    try {
+      const p = page();
+      p.server(welcome());
+      const sent = p.socket().sent;
+      if (path === 'automatic') {
+        const r = { onDeviceLost: (_: never): void => undefined };
+        gl.watchGraphicsLost(r, document);
+        (r.onDeviceLost as (i: unknown) => void)({ api: 'WebGPU', message: 'Device lost', reason: 'unknown' });
+      } else {
+        rejoin();                                                      // the notice's button: the player's own press
+      }
+      expect(reload).toHaveBeenCalledTimes(1);
+      const from = sent.length;
+      p.net.close(); off(); releaseSeatKeep();                         // the match's teardown, before the reload's unload
+      globalThis.dispatchEvent(new Event('pagehide'));                // the reload's unload
+      await Promise.resolve(); await Promise.resolve();
+      expect(sent.slice(from).filter((d) => typeof d === 'string' && d.includes('"bye"')), 'no bye').toHaveLength(0);
+      expect(calls.filter((u) => u.includes('/account/logout')), 'no logout').toHaveLength(0);
+    } finally {
+      off();
+      globalThis.removeEventListener('pagehide', frontEnd);
+      history.replaceState(null, '', '/');
+      sessionStorage.clear();
+      gl.resetGraphicsRecordForTest();
+      resetSeatKeepForTest();
+    }
+  });
+
+  // LATER 896 part 2 (`../src/seatKeep`): "Reload and rejoin" after a graphics loss -- that unload says no bye, so the room
+  // parks the seat for the account's next session (central lobbyGameParkedResume.test.ts); every other unload says it.
+  it('LATER 896 part 2: with the seat kept, a page going away says NO bye (its socket dropped), and does not reconnect', () => {
+    const p = page();
+    p.server(welcome());
+    keepSeatOnUnload();
+    try {
+      const before = p.sockets.length;
+      globalThis.dispatchEvent(new Event('pagehide'));
+      expect(p.sockets.flatMap((s) => s.sent).filter((d) => typeof d === 'string' && d.includes('"bye"'))).toHaveLength(0);
+      p.run(30_000);
+      expect(p.sockets.length, 'no reconnect from a page going away').toBe(before);
+    } finally { resetSeatKeepForTest(); }
+  });
+
+  // LATER 1242 (LATER 896's fresh review, F2): the press, then a pagehide into the back/forward cache (`persisted`) in place
+  // of the reload -- no unload, so the page goes as any page does: its bye said, never a parked seat.
+  it('LATER 1242: with the seat kept, a pagehide into the back/forward cache still says its bye', () => {
+    const p = page();
+    p.server(welcome());
+    keepSeatOnUnload();
+    try {
+      globalThis.dispatchEvent(Object.assign(new Event('pagehide'), { persisted: true }));
+      expect(p.sockets.flatMap((s) => s.sent).filter((d) => typeof d === 'string' && d.includes('"bye"'))).toHaveLength(1);
+    } finally { resetSeatKeepForTest(); }
   });
 });
 

@@ -46,7 +46,7 @@ default tree shows `assets`, `viewport`, `object` and `inspector`; `map`, `conte
 | T7 | Duplicate, Delete (`button[title^="Duplicate"]`, ...) | built, off the page by his design (page.ts:1038-1039); Edit > Duplicate / Delete (page.ts:12219-12220); Ctrl+D, Del | `pressMenubar(doc, 'Edit', 'Duplicate')` | GONE from the toolbar |
 | T8 | Check `[data-forge="check"]`, Create lobby `[data-forge="lobby"]`, Walk, Save map, Play `.fx-play` | the same (page.ts:968-969, 1042-1043) | as before; `toolbarButton(doc, 'Check')` | SAME |
 | T9 | Controls, Docks | `.fx-group--help` (page.ts:1034) | `toolbarButton(doc, 'Controls')` | SAME |
-| T10 | `.fx-tools-row` (the placing tools) | the same (page.ts:2138-2160) | as before | SAME |
+| T10 | `.fx-tools-row` (the placing tools) | the same (page.ts `toolsRow`); a spawn, bomb or hostage tool wears its billboard badge (`markBadge`, `aria-hidden`, its glyph in its text: 'Ss' on Spawn SEAL); since PR #5 a press spawns at the view's centre and selects (`spawnAtCentre`), no tool armed | `toolbarButton(doc, 'Spawn SEAL')` (its word less the badge) | CHANGED |
 | T11 | `.fx-group--base` holding New / Open / Saves | holds the layout's name and the file input only once New / Open / Saves leave (page.ts:1028, 12233) | none -- a layout pin | GONE (its buttons) |
 | T12 | (none) | the menu bar `.fx-menubar`: File, Edit, Window (page.ts:12129-12234), each list drawn at the body while open (`.fx-menubar-list.fx-menubar-floating`) | `menubarRow(doc, menu, label)`, `pressMenubar(...)` | NEW |
 

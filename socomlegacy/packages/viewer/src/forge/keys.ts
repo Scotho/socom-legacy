@@ -2,7 +2,7 @@
  * The forge editor's keys (OT.R68, the owner 2026-10-21: keyboard and mouse for everything in the forge's creation UI,
  * not once its matches have started), pure: a key and the page's state in, the editor's action out. A browser
  * adaptation with no original; the page (`./page`) wires it in every build. Which key does what is the shortcut list's
- * (`./shortcuts`; the owner, 2026-11-20: every command's keys editable in Edit > Preferences), never written here.
+ * (`./shortcuts`; the Forge's owner (crispy, OT.R112), 2026-11-20: every command's keys editable in Edit > Preferences), never written here.
  * The fly camera's and the walk's own keys are theirs (`../camera`, `../walk`).
  */
 import type { MenuInput } from './padMenu';
@@ -29,7 +29,7 @@ export interface ForgeKeyState {
   geometry?: boolean;
   /**
    * Geometry mode's scopes in force (its selection mode, a running tool): a key one of its own commands has there is
-   * the mode's, never a General command's (the owner, 2026-11-20: "give them to geometry modes"). Absent: none.
+   * the mode's, never a General command's (the Forge's owner (crispy, OT.R112), 2026-11-20: "give them to geometry modes"). Absent: none.
    */
   geometryScopes?: readonly ShortcutScope[];
   /** The Outliner has the focus: its keys (the shortcut list's Outliner commands) are its. Absent: no. */

@@ -259,6 +259,8 @@ describe.skipIf(!HAVE_DISC)(`movement.climb: LATER 147 -- the original's fixed c
           "M73 worldmodel/g734",
           "M73 worldmodel/g747",
           "M81 clutter/barrelclosed#158",
+          "M83 worldmodel/broken_bell430/bell430_destroyed=bell430_destroyed/fuse_back/di_badbak/g123_1",
+          "M83 worldmodel/broken_bell430/bell430_destroyed=bell430_destroyed/fuse_back/di_badbak/g123_1",
           "MP1 worldmodel/pipe/dicamonly",
           "MP1 worldmodel/pipe/dipip",
           "MP1 worldmodel/pipe/dipip",
@@ -296,7 +298,7 @@ describe.skipIf(!HAVE_DISC)(`movement.climb: LATER 147 -- the original's fixed c
           "MP82 worldmodel/wc",
           "MP82 worldmodel/wc",
         ],
-        "wideWalls": 122,
+        "wideWalls": 124,
       }
     `);
   }, 300_000);

@@ -185,6 +185,7 @@ function keyGroups(mode: ControlMode, toggle: boolean): ControlGroup[] {
         { keys: 'Tab (hold)', does: 'scoreboard' },
         { keys: 'M', does: 'map' },
         { keys: 'Esc', does: 'release the mouse' },
+        { keys: 'Enter / `', does: 'chat (open the round line)' },   // ROUND_CHAT_ENTER_OPENS_ADAPTATION (`./roundTextLine`)
         ...(toggle ? [{ keys: 'G', does: 'fly camera' }] : []),
         { keys: 'F', does: 'fullscreen' },
       ],

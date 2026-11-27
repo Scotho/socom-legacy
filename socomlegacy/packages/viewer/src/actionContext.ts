@@ -55,15 +55,29 @@ export const ACTION_CONTEXT_BITS: Readonly<Record<Context, readonly number[]>> =
 };
 
 /**
- * The contexts in the picker's build order (`FUN_0021d9d0`, `FUN_0021f850`; AD-6, research 214 s4): the turret (its mount
- * and release, the list's first two bits), the plant and the defuse (one bit, never both at once), the traversal (the
- * slide's bit then the climb's), a door or a switch (one bit), C4, the victory dance (research 303), a weapon's pickup
- * (PF-34; LkPaioX5 (c): the first candidate's, then the second's), a hostage's order (HX-4a), the drop last.
+ * The ORIGINAL's order, a reading: the contexts in the picker's build order (`FUN_0021d9d0`, `FUN_0021f850`; AD-6, research
+ * 214 s4): the turret (its mount and release, the list's first two bits), the plant and the defuse (one bit, never both at
+ * once), the traversal (the slide's bit then the climb's), a door or a switch (one bit), C4, the victory dance (research
+ * 303), a weapon's pickup (PF-34; LkPaioX5 (c): the first candidate's, then the second's), a hostage's order (HX-4a), the
+ * drop last. Kept as the original's record; the port picks by `ACTION_CONTEXT_ORDER` (OT.R128).
  */
-export const ACTION_CONTEXT_ORDER: readonly Context[] = ['turret', 'bombPlant', 'bombDefuse', 'traversal', 'door', 'switch', 'c4', 'victory', 'pickup', 'pickup2', 'escortee', 'bombDrop'];
+export const ACTION_CONTEXT_ORDER_READING: readonly Context[] = ['turret', 'bombPlant', 'bombDefuse', 'traversal', 'door', 'switch', 'c4', 'victory', 'pickup', 'pickup2', 'escortee', 'bombDrop'];
 
 /**
- * The first context in reach, in the picker's order (the list's head); null with none. `traversal` is in reach only while
+ * The order the port picks and rotates by: the owner's ruling OT.R128 (2026-11-14; the plan's WM.R3; amended 2026-11-15)
+ * AGAINST the original's order (`ACTION_CONTEXT_ORDER_READING`), so a player beside a hostage and a dropped weapon does
+ * not take the weapon by accident. What moved: `escortee` (a hostage's FOLLOW! / HOLD POSITION, bits 0x4000 / 0x8000)
+ * from after `pickup2` to before `victory` -- ahead of the pickups (WM-1) and, by OT.R128, amended 2026-11-15 ("only
+ * weapon pickups and hopefully victory dance"), ahead of the victory dance too. Nothing else moved: the turret, the
+ * plant and the defuse, the traversal, a door, a switch and C4 keep their places ahead of it, the victory dance and the
+ * two TAKEs keep their order after it, and the drop is last. Not the original's; the d-pad rotation (research 303) still
+ * reaches every entry.
+ */
+export const ACTION_CONTEXT_ORDER: readonly Context[] = ['turret', 'bombPlant', 'bombDefuse', 'traversal', 'door', 'switch', 'c4', 'escortee', 'victory', 'pickup', 'pickup2', 'bombDrop'];
+
+/**
+ * The first context in reach, in the port's order (`ACTION_CONTEXT_ORDER`, OT.R128 amended: a hostage's order ahead of
+ * the victory dance and the pickups; the list's head); null with none. `traversal` is in reach only while
  * the traversal offers its own action -- a ledge's climb prompt, a ladder's slide -- not merely while walking.
  */
 export function pickContext(inputs: ContextInputs): ActionContext {
@@ -71,7 +85,9 @@ export function pickContext(inputs: ContextInputs): ActionContext {
   return null;
 }
 
-/** Original action-list head and rotation, ISO FUN_0021d9d0 / FUN_00595320; research 303.
+/** Original action-list head and rotation, ISO FUN_0021d9d0 / FUN_00595320; research 303. The list's order is the
+ * port's (`ACTION_CONTEXT_ORDER`, OT.R128, amended 2026-11-15: a hostage's order ahead of the victory dance and the
+ * pickups, against the original's; the turret, plant, defuse, traversal, door, switch and C4 keep their places ahead).
  * The list is rebuilt when availability changes. Left rotates head to tail, Right tail to head.
  * Call input with press edges, not held-direction levels. */
 export class ActionSelection {

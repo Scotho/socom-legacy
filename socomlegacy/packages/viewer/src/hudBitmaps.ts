@@ -1,5 +1,5 @@
 import { Zar, zdbMember, type ZdbEntry } from '@s2u/archive';
-import { decodeTexture, PaletteTable, parseTextureRecord, type Rgba } from '@s2u/gs';
+import { decodeTexture, PaletteTable, parseTextureRecord, type Rgba, type WrapMode } from '@s2u/gs';
 
 /**
  * The HUD's bitmaps (web sprint 2, W2.4): `RUN\COMMON\HUD2_TXR.ZED` rides in every `MP*.ZDB` (72 textures, the
@@ -45,7 +45,19 @@ export interface ReticleBitmaps {
   accuracy: Rgba | null;
   /** `RETICLE_SET_TEXTURES` by name, those the archive holds. */
   sets?: Record<string, Rgba>;
+  /**
+   * B-77: each bitmap's sampling as its own record's bind packet sets it (`ReticleSampler`), by texture name; a name
+   * absent here (a packet with no GS state) is drawn with `./reticle`'s `RETICLE_SAMPLER_WITHOUT_RECORD`.
+   */
+  samplers?: Record<string, ReticleSampler>;
 }
+
+/**
+ * B-77: how a HUD bitmap is sampled, off its texture record's bind packet (`parseTextureRecord(...).gs`): `linear` is
+ * TEX1.MMAG, the wraps CLAMP's WMS/WMT. The sprite's draw `FUN_003643b0` chains that packet (D:L261666) and writes no
+ * TEX1 of its own (D:L261673-261674), so these are the draw's (reading, pending review).
+ */
+export interface ReticleSampler { linear: boolean; wrapS: WrapMode; wrapT: WrapMode }
 
 /**
  * Named textures out of one library: `texdat` hands back a key's `texdat` bytes (or null when the library has no
@@ -54,21 +66,24 @@ export interface ReticleBitmaps {
  */
 export function decodeNamedTextures(
   texdat: (name: string) => Uint8Array | null, palettes: PaletteTable, names: readonly string[],
-): { textures: Record<string, Rgba>; diagnostics: string[] } {
+): { textures: Record<string, Rgba>; samplers: Record<string, ReticleSampler>; diagnostics: string[] } {
   const textures: Record<string, Rgba> = {};
+  const samplers: Record<string, ReticleSampler> = {};
   const diagnostics: string[] = [];
   for (const name of names) {
     const bytes = texdat(name);
     if (!bytes) { diagnostics.push(`${name}: not in the library`); continue; }
     try {
-      const decoded = decodeTexture(parseTextureRecord(name, bytes), palettes);
+      const record = parseTextureRecord(name, bytes);
+      const decoded = decodeTexture(record, palettes);
       for (const d of decoded.diagnostics) diagnostics.push(`${name}: ${d}`);
       textures[name] = decoded.rgba;
+      if (record.gs) samplers[name] = { linear: record.gs.bilinear, wrapS: record.gs.wrapS, wrapT: record.gs.wrapT };   // B-77
     } catch (e) {
       diagnostics.push(`${name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  return { textures, diagnostics };
+  return { textures, samplers, diagnostics };
 }
 
 /**
@@ -110,11 +125,11 @@ export function readReticle(bytes: Uint8Array, toc: ZdbEntry[]): { bitmaps: Reti
     const child = key ? txr.child(key, 'texdat') : undefined;
     return key && child ? txr.data(child) : null;
   };
-  const { textures, diagnostics } = decodeNamedTextures(
+  const { textures, samplers, diagnostics } = decodeNamedTextures(
     texdat, PaletteTable.fromZars([pal]), [...new Set<string>([...Object.values(RETICLE_TEXTURES), ...RETICLE_SET_TEXTURES])]);
   const fixed = textures[RETICLE_TEXTURES.fixed], floating = textures[RETICLE_TEXTURES.floating];
   const notes = diagnostics.map((d) => `reticle: ${d}`);
   if (!fixed || !floating) return { bitmaps: null, diagnostics: notes };
   const sets = Object.fromEntries(RETICLE_SET_TEXTURES.filter((n) => textures[n]).map((n) => [n, textures[n]!]));
-  return { bitmaps: { fixed, floating, accuracy: textures[RETICLE_TEXTURES.accuracy] ?? null, sets }, diagnostics: notes };
+  return { bitmaps: { fixed, floating, accuracy: textures[RETICLE_TEXTURES.accuracy] ?? null, sets, samplers }, diagnostics: notes };
 }

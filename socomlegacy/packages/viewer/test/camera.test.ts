@@ -252,6 +252,27 @@ describe('FlyCamera', () => {
     expect(-fly.pose().z).toBeCloseTo(parked, 6);
   });
 
+  it('Cmd lets go of held keys, and a key down under Cmd is no move (macOS sends no keyup then: the screenshot\'s stuck Shift)', () => {
+    // Cmd+Shift+4: Cmd down, Shift down under it -- its keyup goes to the system, never the page.
+    globalThis.dispatchEvent(new KeyboardEvent('keydown', { code: 'MetaLeft', metaKey: true }));
+    globalThis.dispatchEvent(new KeyboardEvent('keydown', { code: 'ShiftLeft', metaKey: true, shiftKey: true }));
+    run(fly, 1, 60);
+    expect(fly.pose().y).toBeCloseTo(0, 6);
+    // Shift held first, then Cmd: Cmd's press drops it.
+    press('ShiftLeft');
+    run(fly, 0.2, 12);
+    expect(fly.pose().y).toBeLessThan(0);
+    globalThis.dispatchEvent(new KeyboardEvent('keydown', { code: 'MetaLeft', metaKey: true, shiftKey: true }));
+    run(fly, 2, 120);                                            // the glide settles; no key drives it on
+    const parked = fly.pose().y;
+    run(fly, 1, 60);
+    expect(fly.pose().y).toBeCloseTo(parked, 6);
+    // A key the camera owns is still kept from the browser's own chord on it (Cmd+S), as before the fix; no move of it.
+    const save = new KeyboardEvent('keydown', { code: 'KeyS', metaKey: true, cancelable: true });
+    globalThis.dispatchEvent(save);
+    expect([save.defaultPrevented, fly.groundWish().forward]).toEqual([true, 0]);
+  });
+
   it('pitch cannot pass straight up or straight down', () => {
     fly.setPose({ pitch: 200 });
     expect(fly.pose().pitch).toBeLessThan(90);

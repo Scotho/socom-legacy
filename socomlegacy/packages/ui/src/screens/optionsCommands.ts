@@ -283,7 +283,12 @@ export class OptionsCommands {
     host.setHandler('SetStickPreset', this.SetStickPreset);
     host.setHandler('SetScreenOrigin', this.SetScreenOrigin);
     host.setHandler('CheckVideoMode', checkVideoMode(this.o.dialog));          // OT.R79: the page's mode 0; VIDEO's strip left alone
-    host.setBindingGate(VIDEO_PICTURE_GATE, videoPictureGate((p) => { this.o.picture?.set(p); }));
+    host.setBindingGate(VIDEO_PICTURE_GATE, videoPictureGate((p) => {
+      // Browser picture adaptation: the first widget tick echoes its initialized selection. Only a changed
+      // native selection reaches the page's explicit setter, which may apply a graphics shortcut.
+      const picture = this.o.picture;
+      if (picture && picture.get() !== p) picture.set(p);
+    }));
     host.setBindingGate(VIDEO_ROW_HELP_GATE, videoRowHelpGate((cmd) => host.dispatch(cmd)));   // CPS-4b's rows' help lines (an adaptation)
     host.setBindingGate(OPTIONS_PARKED_GATE, optionsRowGate);
     host.setControlGate(OPTIONS_PARKED_GATE, optionsControlGate);

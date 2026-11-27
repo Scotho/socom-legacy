@@ -64,8 +64,9 @@ export interface MatchNetParts {
   /**
    * SPECTATOR-VIEW W6: `setMagnification` and `lookOptions` (INVERT PITCH) optional for the stand-ins with no projection.
    * PV-5b: `placeView`, `setViewNear` and `setSubjectOffset`, the player's view's; without `placeView` it never draws.
+   * R4P-220: `setSubjectFeet`, the drawn body's feet for the view's own shake (POV_SHAKE_ADAPTATION); absent, none.
    */
-  fly: Pick<FlyCamera, 'setPose'> & Partial<Pick<FlyCamera, 'setMagnification' | 'lookOptions' | 'aspect' | 'placeView' | 'setViewNear' | 'setSubjectOffset'>>;
+  fly: Pick<FlyCamera, 'setPose'> & Partial<Pick<FlyCamera, 'setMagnification' | 'lookOptions' | 'aspect' | 'placeView' | 'setViewNear' | 'setSubjectOffset' | 'setSubjectFeet'>>;
   loadouts: Pick<PlayerLoadout, 'picks' | 'type' | 'seated' | 'setType' | 'unseated' | 'roomAnswer'> & Partial<Pick<PlayerLoadout, 'setEquipmentLimit' | 'held' | 'tables'>>;
   firearm: Pick<MatchFirearm, 'records' | 'roundEffects' | 'roundImpact' | 'died' | 'spawnKit'> & Partial<Pick<MatchFirearm, 'hurt' | 'threatThrow' | 'setSubjectView'>> & {
     /** NET-REFILL: `setNetRefill` optional for the stand-ins that build no `Fire`. */
@@ -203,9 +204,15 @@ export function matchNetDeps<C extends MatchCapabilities>(p: MatchNetParts & { c
     // is handed the follow's today. `setPose` also clears the glide and the finger's owed look and puts the FOV at rest
     // (PV-7b's lens ends with the view); it touches neither the magnification, the screen offset nor the near plane,
     // which are given back after it. A follow frame's own `setPose` comes after this and stands.
-    p.fly.setPose({ x: pose.eye[0], y: pose.eye[1], z: pose.eye[2], yaw: pose.yaw, pitch: pose.pitch });
+    // PV-SPAWN-FACING (the owner's report on v0.4.22, 2026-11-14): never while the page's own walker walks (`povFrame`'s
+    // guard). The undraw runs at the watcher's own spawn (the page's `spawn` -> `unbench` -> `SpectatorView.reset`), after
+    // the walk's respawn has set the fly camera's look to the spawn's facing; the fly camera is the walk's, which reads its
+    // look every tick, so the stale watched pose would overwrite the room's facing -- the camera swung and the body turned.
+    // The rest is given back as before; the free camera (the watcher still dead or spectating) still gets the pose (F2).
+    if (p.walk.mode?.() !== 'walk') p.fly.setPose({ x: pose.eye[0], y: pose.eye[1], z: pose.eye[2], yaw: pose.yaw, pitch: pose.pitch });
     p.fly.setViewNear?.(null);                         // the map's near plane (`FlyCamera.setViewNear`, the walk's own writer)
     p.fly.setSubjectOffset?.(0, 0);
+    p.fly.setSubjectFeet?.(null);                      // R4P-220: no body drawn, no view shake (POV_SHAKE_ADAPTATION)
     p.remote.setPovHidden?.(null);
     p.firearm.setSubjectView?.(null);                 // PV-7b: after `setPose`, so the FOV's one writer ends on the page's own
   };
@@ -308,6 +315,9 @@ export function matchNetDeps<C extends MatchCapabilities>(p: MatchNetParts & { c
       p.fly.placeView!(pose.eye, pose.target);
       p.fly.setViewNear?.(pose.near);                    // null: the map's
       p.fly.setSubjectOffset?.(pose.offset[0], pose.offset[1]);
+      // R4P-220, POV_SHAKE_ADAPTATION (the owner's criterion: the view receives every event the living player it shows
+      // does): the drawn body's feet -- living, or `povFrame` drew none -- which a blast's shake is measured from.
+      p.fly.setSubjectFeet?.(body.feet);
       p.remote.setPovHidden?.(pose.head ? body.id : null);
       // PV-7b: the watched player's lens on the page (`MatchFirearm.setSubjectView`), once the camera is placed.
       const net = p.povNet?.() ?? null, c = net?.commandClock() ?? null;

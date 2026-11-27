@@ -2,6 +2,10 @@ import { DIALOG_EVENTS } from '../dialog';
 import { locTextBytes } from '../text/codes';
 import { VALVE_TYPE, type ValveStore } from '../valves';
 import type { PersonaLobby } from './personaCommands';
+import { classicBanText, localZoneOffset, PLAYER_BANNED_STATUS, type ShownBan, type ZoneOffset } from './banWords';
+
+/** OPS-A3: the ban's words reach `@s2u/ui`'s index through this module's (`export * from './screens/lobbyClient'`). */
+export * from './banWords';
 
 /**
  * The client's Medius lobby object (0x44f370) as the connect and the login use it (ONL-07; web research 157 §2): the
@@ -215,8 +219,11 @@ export const LOGOUT_TIMEOUT_MS = 5_000;
 export type LobbyStatePhase = 1 | 2 | 3;
 export type LobbyStateHandler = (phase: LobbyStatePhase) => void;
 
-/** The service's answer to a login: the Medius status and, on success, the session's ticket. */
-export interface LobbyLoginReply { status: number; ticket?: string }
+/**
+ * The service's answer to a login: the Medius status and, on success, the session's ticket. OPS-A3: with
+ * PLAYER_BANNED_STATUS, what central shows of the ban (`./banWords` `ShownBan`), when it shows it.
+ */
+export interface LobbyLoginReply { status: number; ticket?: string; ban?: ShownBan }
 
 /**
  * The requests the states send, as the page's service answers them (the transport is ours; each status is the Medius
@@ -251,8 +258,11 @@ export interface LobbyService {
   sessionEndedWhy?(ticket: string): Promise<SessionEndReason | null>;
 }
 
-/** SESSION-TAKEOVER's fold: the one reason the server tells for a session's end (`LobbyService.sessionEndedWhy`). */
-export type SessionEndReason = 'taken-over';
+/**
+ * SESSION-TAKEOVER's fold: the reasons the server tells for a session's end (`LobbyService.sessionEndedWhy`) -- a
+ * takeover, and since OPS-A3 a ban (central's `ACCOUNT_BANNED_REASON`; the page's line says `BANNED_PERMANENT_ADAPTATION`).
+ */
+export type SessionEndReason = 'taken-over' | 'banned';
 
 export interface LobbyClientOptions {
   /** The valve registry (0x49e800). */
@@ -272,6 +282,8 @@ export interface LobbyClientOptions {
   every?: (ms: number, fn: () => void) => () => void;
   /** A one-shot timer (`LOGOUT_TIMEOUT_MS`) answering its cancel. Absent: the global `setTimeout` / `clearTimeout`. */
   after?: (ms: number, fn: () => void) => () => void;
+  /** OPS-A3: the zone a banned login's end is said in (`./banWords` `ZoneOffset`). Absent: the browser's own (`localZoneOffset`). */
+  zoneOffset?: ZoneOffset;
 }
 
 const afterTimeout = (ms: number, fn: () => void): (() => void) => {
@@ -526,6 +538,9 @@ export class LobbyClient implements PersonaLobby {
         if (r.status === MEDIUS_STATUS.AccountNotFound) { this.forgetPassword(); this.queueState(LOBBY_STATE.ACCOUNT_NOT_FOUND); return; }   // D:L191165-191168
         if (r.status === MEDIUS_STATUS.AccountLoggedIn) this.post('MP_PLAYER_LOGGED_IN');                    // D:L191169-191173
         else if (r.status === MEDIUS_STATUS.InvalidPassword) this.post('MP_INVALID_PASSWORD');               // D:L191174-191178
+        // OPS-A3 (H464; an adaptation): central's banned refusal takes the same event and dialog, with the ban's sentence
+        // for its text where the original passes "Login Failure" (`./banWords` `classicBanText`: what the dialog holds).
+        else if (r.status === PLAYER_BANNED_STATUS) this.post('MP_MEDIUS_ERROR', classicBanText(r.ban ?? null, this.o.zoneOffset ?? localZoneOffset));
         else this.post('MP_MEDIUS_ERROR', LOGIN_FAILURE_TEXT);                                               // D:L191179-191182
         this.settle();
       });

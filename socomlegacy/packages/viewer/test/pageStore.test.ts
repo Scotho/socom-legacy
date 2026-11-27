@@ -234,3 +234,56 @@ describe('the page\'s records (DA-7, DA-8): one IndexedDB object store of struct
       .rejects.toMatchObject({ kind: 'unavailable' });
   });
 });
+
+/**
+ * LATER 1270 (v0.4.27's field, one Safari page: "undefined is not an object (evaluating 'o.result.objectStoreNames')" in
+ * `onupgradeneeded`): WebKit fired the upgrade with no database on the request. The open is refused as unavailable --
+ * the path a browser with no IndexedDB takes -- the upgrade aborted, and nothing thrown. A browser adaptation.
+ */
+describe('LATER 1270: an upgrade the browser gives no database', () => {
+  it('refuses the open as unavailable, aborts the upgrade and throws nothing', async () => {
+    const thrown: unknown[] = [];
+    let aborted = false;
+    const factory = {
+      open() {
+        const req: Record<string, unknown> & { onupgradeneeded?: () => void; onsuccess?: () => void; onerror?: () => void } = {
+          result: undefined, error: null,
+          transaction: { abort: () => { aborted = true; } },
+        };
+        setTimeout(() => {
+          try { req.onupgradeneeded?.(); } catch (e) { thrown.push(e); }
+          if (aborted) { req.error = new DOMException('aborted', 'AbortError'); req.onerror?.(); return; }
+          req.result = { close() {}, transaction() { throw new DOMException('no store', 'NotFoundError'); } };
+          req.onsuccess?.();
+        }, 0);
+        return req;
+      },
+    } as unknown as IDBFactory;
+    const report = vi.fn();
+    expect(await openPageRecords(() => factory, report).get(DISC_HANDLE_SLOT)).toBeUndefined();
+    expect(thrown).toEqual([]);
+    expect(aborted).toBe(true);
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(report.mock.calls[0]![0]).toMatchObject({ kind: 'unavailable', operation: 'open' });
+  });
+});
+
+describe('LATER 1270 review F2: no transaction to abort, and a success after the refusal', () => {
+  it('the late success with no database throws nothing and keeps the refusal', async () => {
+    const thrown: unknown[] = [];
+    const factory = {
+      open() {
+        const req: Record<string, unknown> & { onupgradeneeded?: () => void; onsuccess?: () => void } = { result: undefined, error: null, transaction: null };
+        setTimeout(() => {
+          try { req.onupgradeneeded?.(); } catch (e) { thrown.push(e); }
+          try { req.onsuccess?.(); } catch (e) { thrown.push(e); }
+        }, 0);
+        return req;
+      },
+    } as unknown as IDBFactory;
+    const report = vi.fn();
+    expect(await openPageRecords(() => factory, report).get(DISC_HANDLE_SLOT)).toBeUndefined();
+    expect(thrown).toEqual([]);
+    expect(report.mock.calls[0]![0]).toMatchObject({ kind: 'unavailable', operation: 'open' });
+  });
+});

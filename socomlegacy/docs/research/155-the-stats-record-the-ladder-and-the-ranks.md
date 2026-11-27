@@ -120,7 +120,7 @@ takes, by block offset:
 | +0x16 | team kills (YOUR STATS' FRIENDLY KILLS; not in the record) | `FUN_00545c10` D:L411850-411869 | -2 |
 | +0x18 | escortees killed | `FUN_00545390` D:L411516-411549 | -2; +3 to a Terrorist in ESCORT |
 | +0x1c | escortees brought out (a SEAL's) | `FUN_00545480` D:L411552-411573 | +3 |
-| +0x32 | primary objectives (YOUR STATS; not in the record) | `FUN_00545650`, `FUN_00545750`, `FUN_00545800` D:L411620-411719 | -- |
+| +0x32 | primary objectives (YOUR STATS; not in the record) | `FUN_00545650` and `FUN_00545750` (whose tail the export splits off as `FUN_00545800`: it increments +0x1a, and +0x32 online), plus the else-branch, D:L411620-411719 | -- |
 | +0x34 | bonus objectives | not read | -- |
 | +0x36 | bombs defused | `FUN_00545650` D:L411620-411652 | +2 |
 | +0x38 | bombs planted | `FUN_005455d0` D:L411598-411617 | +2 |

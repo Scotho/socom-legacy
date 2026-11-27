@@ -141,4 +141,14 @@ describe('CLT-2: r0004 drops Sujo\'s barrel_open at (614, 30, 1134) (r0004 r4 0x
     expect(kept.length * 2).toBe(all.length);
     expect(kept.every((p) => p.rowMajor[12] === 0)).toBe(true);
   });
+  it('LATER 999: a placement’s path is its instance’s owner root, record numbers kept past a dropped record', () => {
+    const m = models();
+    m[1]!.name = 'barrel_open';
+    m[1]!.visuals = 1;
+    const two = [instance('barrel_open', translate(614, 30, 1134)), instance('barrel_open', translate(0, 0, 0))];
+    const kept = placeClutter(m, two, (c) => !r0004DropsClutter('MP61', c.modelName, c.matrix)).placed;
+    const roots = clutterCollision(m, two, 0, 'MP61').owners.map((o) => o.path).filter((p) => !p.slice('clutter/'.length).includes('/'));
+    expect([...new Set(kept.map((p) => p.path))]).toEqual(roots);
+    expect(roots).toEqual(['clutter/barrel_open#1']);
+  });
 });

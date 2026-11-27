@@ -3,10 +3,10 @@ import {
   type EditMesh, type StyleSlot, type TextureMapping, type Vec3,
 } from './editMesh';
 // Used inside `applyTexture` alone (`./primitives` reads this module too: no value of it is needed as either loads).
-import { NEW_GEOMETRY_COLOR_PLACEHOLDER } from './primitives';
+import { NEW_GEOMETRY_COLOR_ADAPTATION } from './primitives';
 
 /**
- * Face texturing as a level editor does it (a browser adaptation; the owner, 2026-11-14: texturing that works as a level
+ * Face texturing as a level editor does it (a browser adaptation; the Forge's owner (crispy, OT.R112), 2026-11-14: texturing that works as a level
  * editor's does). A face carries a material (its draw style's texture) and a `TextureMapping`: two axes, a scale and a shift
  * each. The tools are a level editor's face edit sheet:
  * - **apply** a texture to the selected faces (`applyTexture`), keeping their mapping, or world- or face-aligned;
@@ -172,7 +172,7 @@ export function applyTexture(
   refreshUvs(m, faces, size);
   // An untextured face's colour (a blank floor's grey, `UNTEXTURED_FLOOR_COLOR_ADAPTATION`) gives way to the texture's:
   // its corners -- its own now (`refreshUvs`) -- back to new geometry's colour, so the texture shows as it is.
-  for (const f of bare) for (const c of m.faces[f]!.corners) m.cColor.splice(c * 4, 4, ...NEW_GEOMETRY_COLOR_PLACEHOLDER);
+  for (const f of bare) for (const c of m.faces[f]!.corners) m.cColor.splice(c * 4, 4, ...NEW_GEOMETRY_COLOR_ADAPTATION);
 }
 
 /**
@@ -232,7 +232,7 @@ export function styleWithLook(m: EditMesh, style: number, look: FaceLook['style'
 export interface DetailChange { on?: boolean; range?: number }
 
 /**
- * `faces` given `change` (the owner, 2026-11-18: per mesh, a Detail checkbox and distance): each face's draw with the
+ * `faces` given `change` (the Forge's owner (crispy, OT.R112), 2026-11-18: per mesh, a Detail checkbox and distance): each face's draw with the
  * words set (`styleWithLook`), so faces sharing a draw with others are split into their own -- as retexturing does.
  */
 export function setDetail(m: EditMesh, faces: readonly number[], change: DetailChange): void {
@@ -478,7 +478,7 @@ export function lockMapping(map: TextureMapping, mat: ArrayLike<number>): Textur
 
 
 /**
- * Each texture's natural size (the owner, 2026-11-17: texturing "easy ... for noobs", kept standard): the median world
+ * Each texture's natural size (the Forge's owner (crispy, OT.R112), 2026-11-17: texturing "easy ... for noobs", kept standard): the median world
  * units a texel over the faces of `m` that wear it, as the map's own makers laid it (at most `sample` faces a texture,
  * read off their uvs as `medianTexelScale` reads the map's), by lowercase name. What Reset puts a face back to.
  */

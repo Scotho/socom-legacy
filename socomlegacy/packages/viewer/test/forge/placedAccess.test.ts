@@ -196,6 +196,49 @@ describe("a placed gate's lever (FC2-6, H424 (b)'s default)", () => {
     expect(leversOf(map)).toEqual([[['forge_switch_2', 'worldmodel/forge_switch_2', 'forge_switch_2_valve']]]);
     expect(map.meta!.actions.some((a) => a.path === 'worldmodel/forge_gate_1')).toBe(false);
   });
+
+  /*
+   * FN-8 (ours; the batch review's B-2, a browser adaptation): a switch on a prop (`node`) is left out LATE, in the
+   * switches' loop, when its node lies under or over an action's path already placed (`baseActions`) -- after the gate's
+   * `named` was decided. Here the switch naming the first gate sits on the second gate's leaf, and the second gate (no
+   * switch names it) keeps its disc lever on its root `worldmodel/forge_gate_2`: the switch lies under that record.
+   */
+  it('RED (FN-8, B-2): a gate whose only switch is left out late (its node under a placed action\'s path) keeps its disc lever', () => {
+    // Expected RED before the fix: the first gate's levers [] (placedAccess.ts:705, `named` by look alone), so
+    // "expected [ [], [ [ 'forge_gate_2', ... ] ] ] to deeply equal [ [ [ 'forge_gate_1', ... ] ], ... ]".
+    const { map, unplaced } = withPlacedAccess(base(), [marker(0), marker(100)], () => t,
+      [{ gate: 0, node: 'worldmodel/forge_gate_2/gate_move1', at: [0, 0, 0], yaw: 0 }]);
+    expect(unplaced).toBe(1);
+    expect(leversOf(map)).toEqual([
+      [['forge_gate_1', 'worldmodel/forge_gate_1', 'forge_gate_1_lever1']],
+      [['forge_gate_2', 'worldmodel/forge_gate_2', 'forge_gate_2_lever1']],
+    ]);
+    // Each lever's record present, in the gates' order (the disc levers at their gates, as with no switch at all).
+    expect(map.meta!.actions.map((a) => [a.node, a.path, a.type])).toEqual([
+      ['forge_gate_1', 'worldmodel/forge_gate_1', 'SWITCH'],
+      ['forge_gate_2', 'worldmodel/forge_gate_2', 'SWITCH'],
+    ]);
+    expect(map.gates!.map((g) => g.levers.map((l) => l.action))).toEqual([[0], [1]]);
+  });
+
+  it('CONTROL (FN-8): placeable switches -- one apart, one on a named gate\'s leaf -- leave the actions\' order as before', () => {
+    // Expected GREEN before the fix and after. The first gate takes switch 1 (apart); the second switch 2, on the first
+    // gate's leaf (no record there: the first gate keeps no lever); the third, named by none, its disc lever.
+    const { map, unplaced } = withPlacedAccess(base(), [marker(0), marker(100), marker(200)], () => t, [
+      { gate: 0, at: [50, 0, 0], yaw: 0 },
+      { gate: 1, node: 'worldmodel/forge_gate_1/gate_move1', at: [0, 0, 0], yaw: 0 },
+    ]);
+    expect(unplaced).toBe(0);
+    expect(map.meta!.actions.map((a) => a.node)).toEqual(['forge_gate_3', 'forge_switch_1', 'gate_move1']);
+    expect(leversOf(map)).toEqual([
+      [['forge_switch_1', 'worldmodel/forge_switch_1', 'forge_switch_1_valve']],
+      // A lever record's first field is the switch's own name, wherever it is mounted (the runner's fn8-d8cd375d: the
+      // same at the RED commit and the fix, so the order this CONTROL guards holds; the row's first field was miswritten).
+      [['forge_switch_2', 'worldmodel/forge_gate_1/gate_move1', 'forge_switch_2_valve']],
+      [['forge_gate_3', 'worldmodel/forge_gate_3', 'forge_gate_3_lever1']],
+    ]);
+    expect(map.gates!.map((g) => g.levers.map((l) => l.action))).toEqual([[1], [2], [0]]);
+  });
 });
 
 const ISO = process.env['SOCOM_ISO'];

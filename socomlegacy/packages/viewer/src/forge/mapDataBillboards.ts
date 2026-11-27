@@ -50,7 +50,7 @@ export const MAP_DATA_MARKS: Record<string, { glyph: string; colour: string; wor
   userSiteTerrorist: { glyph: '!', colour: '#e0e0e0', word: 'Site · Terrorist (MPBOMB)' },
   // A placed gate's switch: a context action (SWITCH), the map's ! mark.
   userSwitches: { glyph: '!', colour: '#e0e0e0', word: 'Switch (SWITCH)' },
-  // An emitter (the owner, 2026-11-14: "use emitters ... a nice new icon/letter for the billboard"; "we basically
+  // An emitter (the Forge's owner (crispy, OT.R112), 2026-11-14: "use emitters ... a nice new icon/letter for the billboard"; "we basically
   // replaced the effect asset"): every Forge object (`./forgeObjects`) -- a disc map's self-starting program copied
   // (`flags & 3 == 1`, research 89 s12), a sound's or an effect's tile, your own program -- and the map's own (`./mapData`
   // `ambients`): E, in the cyan the old Effect mark had (no other kind's: not the hostages' yellow, the views' pink or
@@ -349,7 +349,7 @@ export class MapDataBillboards {
       sprite.raycast(ray, found);
       if (found[0]) hits.push({ object: sprite, distance: found[0].distance });
     }
-    // A drawn mark before any hidden one, wherever they stand (the owner, 2026-11-13: a click on a billboard always picks
+    // A drawn mark before any hidden one, wherever they stand (the Forge's owner (crispy, OT.R112), 2026-11-13: a click on a billboard always picks
     // it): a hidden mark nearer the camera took the click, then lost it to the wall in front. Drawn on top, a drawn
     // mark is nearer than any geometry (`distance` 0), in every view; Always on top off, at its true distance.
     const ranked = hits.map((h) => {
@@ -396,7 +396,7 @@ export class MapDataBillboards {
   private camera: MarkCamera | null = null;
 
   /**
-   * Every mark sized for `camera`'s draw (a browser adaptation, FG.R2; the owner, 2026-11-13): the same size on screen
+   * Every mark sized for `camera`'s draw (a browser adaptation, FG.R2; the Forge's owner (crispy, OT.R112), 2026-11-13): the same size on screen
    * in every view -- `BILLBOARD_SCREEN_SIZE` of its depth under a perspective camera, as a screen-size sprite was drawn,
    * and the same share of the picture under an orthographic one. Sized here, not by three's screen-size sprites
    * (`sizeAttenuation` off): the renderer builds that program once for the first camera it meets, so a page that first

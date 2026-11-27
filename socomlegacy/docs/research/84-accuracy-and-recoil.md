@@ -117,11 +117,88 @@ research 208; this section said "every 60 Hz tick" until PF-02 of 2026-10-04, re
    rate `FUN_00594600` writes (`(old − new pitch) / dt`, 452954); `+0x1350` is the carried velocity the air step moves
    by (`FUN_0054d9a0`, 416524-416547) [reading: bit 5 is the airborne bit]. A vehicle's own values stand in when
    mounted. Clamped to `[min, max]`.
+   **AS-34 L78 (2026-11-24; reading, pending review; the running jump capture-scored, below).** On r0004 the tick is
+   0x5c9b40-0x5c9f54 (r0001 `FUN_005c2670`, the same length; its five word differences two global addresses and the three
+   loads of the carried vector, each 4 higher, beside nine call targets that only moved with the code -- the second read,
+   patches-contrib, 2026-11-24): the term (0x5c9db4-0x5c9e30) sums **all three** components of body
+   **`+0x1354/+0x1358/+0x135c`** (loads 0x5c9e00, 0x5c9e08, 0x5c9e10) -- r0001's `+0x1350..+0x1358` read on r0004 is the
+   wrong three words. The base term (0x5c9d5c-0x5c9d6c) is unchanged. The vector's y (r0001 `+0x1354`, r0004 `+0x1358`)
+   has 19 stores in 11 functions on r0001 and 21 in 13 on r0004 (ten / nine copies of body `+0x3c`, the rest zero or a
+   stack vector), so r0004 changed who writes it. **The dive's start** r0004 0x5838a0 (first read as the running jump's; named below) (r0001 `FUN_0057e540`)
+   copies `+0x38/+0x3c/+0x40` into the vector (0x5839f0-0x583a00), then zeroes its y (0x583a04) and the body's own
+   velocity `+0x2c..+0x34` (0x583a08-0x583a10); the air step (r0004 0x552bb8-0x552d5c, r0001 `FUN_0054d9a0`) moves by
+   the vector's x and z and never writes the y. **Named (patches-contrib's trace, 2026-11-24; reading, pending review):**
+   the action 0x5838a0 pushes, `DAT_0040a0d8`, is `dive_to_prone` (`FUN_005ec760(0x662048)`, D4:L537519) -- the DIVE's
+   start, which arms no impulse (`+0x1364` = 0.2, `+0x1368` = 0, D4:L481457-481471). The jump IQ-158 measured is ACTION 8,
+   pushed by its literal id in r0004 0x583490 (D4:L481396) and `FUN_0058d710` case 2 (D4:L486439): a delayed launch,
+   `+0x1364` = 0.1 s, `+0x1360` = 0.4, `+0x1368` = jump_factor x gravity x -0.4 (D4:L481397-481400, D4:L486440-486442;
+   dynamics.rdr's 0.85 and 235 through `FUN_005a15a0`, D4:L497681-497683) = -79.9, copied into `+0x1340` when the timer
+   runs out (0x5b57f8-0x5b5800) and integrated by gravity in the same tick (0x5a1058-0x5a1078): +72.07 u/s up on the first
+   airborne frame, -7.83 a frame after at dt = 1/30 s (+72.06 / -7.84 at research 80's 525/15734 s frame; which dt
+   `+0x2e0` holds is not traced), as IQ-158 recorded (+72.1, -7.85). The two moves are kept apart below. **Capture-scored for the running jump** (IQ-158, record
+   `D:/s2u-records/B13-BLOOM-PC2/B13-BLOOM-PC2.zip`, sha256 4ba5b4db27de7e6c138150733010b87d3b9350d0184142b1b78ba9530671e699,
+   on the hub, outside git; r0004 against the page at `agent/next` 37d0dd032c): the page's movement size matched the
+   original's reticle target within 0.1 px on every rifle-up frame but the running jump's 22 airborne frames, where the
+   original's body velocity is 0 and the carried velocity drives the bloom; fed the carried velocity there, the page missed
+   0. The port (`accuracy.ts` `movementSize`, `airBloomFeed`; `Walker.carriedAir`; `matchFirearm.ts`'s feed): in the air
+   it adds `|carried|^2 / 65`, all three; on a running jump's flight the body is 0 and the carried vector the walker's pair
+   with y 0. **The y 0 holds from flat ground only** (the fresh review of the docs batch, 2026-11-25, F2): the zeroing of
+   the carried y at 0x583a04 belongs to the dive's start, and action 8's launch COPIES body `+0x3c` into it, not zero
+   (atlas-parity's second read, 2026-11-25; reading, pending review): r0004 0x583490 stores `+0x1358` = `+0x3c` at D4:L481404
+   (0x5837fc-0x583800, after the impulse's store), as `FUN_0058d710` case 2 does (D4:L486446), and nothing after zeroes it;
+   r0001's twin `FUN_0057e1b0` copies `+0x3c` into `+0x1354` (D:L440827). So the code copies the body's vertical velocity at
+   the launch frame; the captures (IQ-158, IQ-194) show it 0 from flat ground, which is where the port's y 0 agrees. A
+   launch with `+0x3c` non-zero (a slope, a step, a jump off a moving body) is not covered by the port -- filed as LATER 1571
+   (v0.4.33; a source read, an r0004 slope take-off capture, then a failing test and the copy). *Was:* the base term counted the mover's velocity in the air and the airborne term added the mover's own
+   `(vx^2 + vz^2) / 65`. Not settled: a walk-off fall's carried y (`CARRIED_FALL_Y_READING`), which waits on the r0004
+   trace of `+0x1354..+0x135c` and `+0x105e` each frame through a walk-off fall. **A departure kept (the fresh review's F5,
+   2026-11-24; reading, pending review):** the fall override (its gate has FOUR conditions: action 8, action 9, `FUN_0058d660`, or the dive's action
+   `DAT_0040a0d8` = `dive_to_prone`; D:L440897, D4:L481458; it sets `+0x30` = minus `+0x1340`, D4:L455105-455108; the second read,
+   patches-contrib, 2026-11-24) the body's velocity is read -- r0004
+   0x552a98-0x552af8 writes `+0x2c` = 0, `+0x30` = minus the fall speed `+0x1340`, `+0x34` = 0 (r0001 D:L416500-416513) --
+   but the port still feeds the mover's own (vx, vy, vz) under Mult plus the carried pair on every flight that is not a
+   running jump's (`AIR_BODY_VELOCITY_READING`): about 10 px more target at a 26 u/s walk-off. The fix is queued, not
+   built in AS-34. **OPEN (the second read, then the trace and IQ-194):** the override covers action 8 and the dive on every frame of
+   their flights, and in flight `+0x1340` is NOT zero: `FUN_005a0f60` integrates it by gravity each tick (gated on the controller's vtable +0x34 answering 0 or `FUN_0058d660`, the
+   knockdown-fall test, answering 0, D4:L497507-497515; g x 0.8 under action `DAT_0040a120`, D4:L497516-497518; it runs
+   in action 8's flight -- atlas-parity's second read) (D4:L497517-497522; r0001 D:L456490-456496), the dive's start writes none and action 8's launch copies its impulse
+   in (patches-contrib's trace, reading, pending review). Yet IQ-194 (record `D:/s2u/records/IQ194-JUMPBLOOM-PC4.zip` on PC 4, outside git, sha256 1e576bb2e68d0efe8a904aa7af00f372b5b4399e4266ab8098d143207008c5b1; a capture of the original, unscored; PC 4, r0004, frame-locked with paused reads, no torn rows) reads `+0x2c/+0x30/+0x34` = 0 through action 8's flight, the vertical speed in `+0x1340`, and the target =
+   carry² / 65 on all 154 airborne frames -- so fix 1 stands as built (IQ-158 capture-scored; IQ-194 observed, unscored). How `+0x30` reads 0 while the
+   override writes minus `+0x1340` (the order of the override, the kit's tick and the read within a frame) is not traced.
+   IQ-158's torn rows (a nonzero `+0x30` = the frame's feet displacement x 30) were the arc in another word, not the
+   frame's `+0x30`; the inference drawn from them is withdrawn. The record's own open points (for its author): the
+   carried speed's fall-off 48.8 -> 36.6 -> 26 u/s while airborne, which the air step does not make while bit 5 is set --
+   ATLAS's bloom double-check (2026-11-24, relayed, reading) found no decay in code either and reads it as one frame's
+   chain (48.8² / 65 = 36.6, clamped to 26), so the port builds none -- and which word its "+0x1354" names (on r0004 the
+   vector's x). ATLAS's check agrees on the structure built: the base term from the body's own velocity (forced to
+   (0, minus `+0x1340`, 0) in the jump's blends, D4:L455096-455109 as relayed), the carry term 3-D with no Mult; at a ~30 u/s carry the
+   port's old sum gave 26 against 13.8 (`accuracy.test.ts` pins 900 / 65).
+   **The standing jump (AS-34, the controller's ruling 2026-11-24; reading, pending review).** Action 178 never sets bit 5,
+   but the base term squares body `+0x30` too: ATLAS (relayed, D4:L455067-455073 save it to `+0xf50`, D4:L454198-454206
+   restore it before the kit's tick) and IQ-158 (B13-BLOOM-PC2, capture-scored: peak 29.61 u/s, 29.61² / 65 = 13.49 the
+   target, the size opening to 5.89 px; the page's 1.00). The port feeds the `seal_jump` root's y velocity at the action's
+   phase (`Walker.carriedAir`'s `rise`, from the clip's `skel_root` y keys, `actionRoots`) into the velocity's y
+   (`airBloomFeed`; `STANDING_JUMP_RISE_READING`, §11). On the disc's `seal_jump` (`standingJumpBloom.test.ts`, the
+   fixture `MOTION_P.ZAR`, the kit stepped by the mover's tick) the port's peak rise is 29.616 u/s and its peak target
+   13.494 -- the capture's -- and its size at each game frame's end matches IQ-158 trial 1 from 2.404 through the apex's
+   1.000 and 1.889 within 0.01 px. The descent is MISSION R8's ruled deviation (the bloom's sub-frame stair-steps not
+   reproduced), not a new reading (the re-review's N1): one `seal_jump` key segment is 1.566 game frames, so the original
+   takes 4 whole 1 px steps over the two descent segments (2.889 ... 5.889) where the port, sampling the rise each 60 Hz
+   tick under a dt-scaled dilate, takes 7 half-steps (2.388, 3.387, 4.386, 5.385, pinned at its own values). The capture's
+   peak is on the descent; the port's stair-step under R8 is half a step short of it. The first frame (the port's 1.499
+   against the capture's 2.000) is unexplained. *Was (a test artefact, the fresh review's F1):* "about 8.40 px,
+   an open gap" -- the kit stepped by its own 1/29.97 s per 1/60 s mover tick. The restore (r0004 0x54e660-0x54e694; r0001
+   D:L413966-413970) applies to every top action whose entry is not looped (three conditions: the descriptor's `+0x4a` bit 4 clear, a top
+   entry, the entry's `+0x28` flag 0x40 clear; which flag means 'looped' is not shown), not to action 178 alone (save 0x552994-0x5529b8,
+   D:L416474): a one-shot whose root moves vertically reaches the bloom there, and the port feeds the standing jump's alone
+   -- a departure, named in §11. The owner-ruled air control (OT.R108) lets a sideways standing jump
+   bloom on the page where r0004 ignores the sideways stick: named, not a miss.
 4. `size < target`: `size += TargetDilateUponMovement` (**a frame**, not a second: 29.97 px/s at the game's frame;
    the port's old 60 Hz tick gave 60) up to the target;
    `size > target`: `size −= TargetConstrict × dt` down to it.
 
-**Each round** (`FUN_005c3360(kit, weapon)`, from `FUN_005c5340` 479542): unless scoped (§8), `size += Dilate ×
+**Each round** (`FUN_005c3360(kit, weapon)`, from `FUN_005c5340` 479542): unless scoped (§8; a pull's second scoped
+round drops to first person first and so blooms, AS-34 L77), `size += Dilate ×
 (1 + s)`, `s` the burst scalar -- `n = count + 1 − AccBurstCnt_Min`, and when positive `min(n, AccBurstCnt_Max) ×
 slope` (the cap is on `n`, so the M4A1 reaches 7 × 0.01 = 0.07, not 0.03) -- clamped to `[min, max]`.
 
@@ -135,8 +212,11 @@ at 26 -- the look is the biggest term; a round +7, closing again in 0.14 s; auto
 - A round, not scoped (`body+0x200 < 5 && != 4`): if the pull's count (`kit+0x818`, §6) equals `KnockCount`, `kit+0x24
   −= ReticuleKnock × KnockEntryStrength`; if greater, `−= ReticuleKnock`; below, nothing. The count is incremented
   before (`FUN_005be9a0` 475516), so on the SD the first round climbs 4.8 pixels and each after it 12.
-- Clamped to ± `ReticuleKnockMax` × the camera's y scale (`cam+0x474` = the zoom × 1.0, `FUN_0029b2f0`) × the
-  aim-to-muzzle depth ratio `(d_aim − d_fire) / d_aim` (`FUN_00290830` of the two points) -- ≈ 1, taken as 1.
+- Clamped to ± `ReticuleKnockMax` × the camera's y scale (`cam+0x474` = the zoom × 1.0, `FUN_0029b2f0`; the port's
+  `round(..., magnification)`, AS-34 L77: was 1 always, `SCOPED_SECOND_ROUND_CAP_SCALE_READING`) × the
+  aim-to-muzzle depth ratio `(d_aim − d_fire) / d_aim` (`FUN_00290830` of the two points). *Was:* "≈ 1, taken as 1".
+  LATER 1141 (research 441; reading, pending review): built from the port's live geometry (`depthRatio`); on the original
+  0.40 near and 0.70 far for the 552 SD crouched, derived (f = cap / 54) from the capture-scored caps (research 441 s2).
   `kit+0x20` (x) is clamped the same way but no round moves it.
 - Each tick both offsets return toward 0 at `ReticuleKnockReturn × dt` (70 px/s standing).
 - **Where it shows:** the HUD's reticle centre is `(320 + kit+0x18 + kit+0x20, 224 + kit+0x1c + kit+0x24)`
@@ -155,8 +235,9 @@ at 26 -- the look is the biggest term; a round +7, closing again in 0.14 s; auto
   `hfov` 0.6109: tx = 0.0026346, ty = 0.0023817 per pixel -- ~1.2× the true tangent of a drawn pixel (0.0020342
   vertically), so the cone is a fifth wider than the reticle drawn. Ported as is (`tangentPerPixel`).
 - `+0x5d4 = kit+0x20 × tx × k`, `+0x5d8 = −kit+0x24 × ty × k` (up positive), `+0x5dc = size × ty × 0.707` -- `k` =
-  `d_aim / (cam+0x474 × (d_aim − d_fire))`, the depth ratio (≈ 1) **over the magnification** (§17); the radius has no
-  `k`. Scoped, see §8.
+  `d_aim / (cam+0x474 × (d_aim − d_fire))`, the depth ratio **over the magnification** (§17); the radius has no
+  `k`. Scoped, see §8. LATER 1141 (research 441; reading, pending review): f is the port's live ratio now (*was:* ≈ 1),
+  and the cone is rolled at the firepoint about the line to the aim point (`FUN_005aa6e0`, `FUN_00592260`).
 - `FUN_00592260(seal, dir)` for each round: `right = dir × (0, 1, 0)`, `up = right × dir` (**unnormalised**: cos(pitch)
   long), `a = +0x5d4 + +0x5dc × s1`, `b = +0x5d8 + +0x5dc × s2`, `dir += right·a + up·b`, with `s = u·|u|`, `u =
   (rand() − 0x3fffffff) × 9.313226e-10` in [−1, 1). A square whose corners are on the circle of radius `size`; three
@@ -168,8 +249,142 @@ at 26 -- the look is the biggest term; a round +7, closing again in 0.14 s; auto
 ## 6. The fire modes and the trigger (`FUN_005c0940`, `FUN_005c09f0`, `FUN_005c4600`, `FUN_005c0ae0`)
 
 - **Rounds a pull** (`FUN_005c0940`, 476281): mode 1 → 1, 2 → 3, 3 → 10,000, 0 → 0, ≥ 4 → 1.
-- **The wait** (`FUN_005c09f0`, 476313): mode 1 `FireWait`; 2 and 3 `FireWait × 0.8`; 0 → 1 s. The SD: 0.14 s semi,
-  0.112 s burst and automatic (536 a minute); the M4A1 0.12 / 0.096 (625).
+- **The wait** (r0004 0x5c76f0, r0001 `FUN_005c09f0` 476313): mode 1 and modes ≥ 4 `FireWait × 1.2`; 2 and 3
+  `FireWait × 0.8`; 0 → 1 s. The SD: 0.168 s semi, 0.112 s burst and automatic (536 a minute); the M4A1 0.144 / 0.096
+  (625); the Mark 23 0.24 semi.
+  - **SWAP-FIRE (2026-11-22; the levels apart, below):** r0004's
+    GetFireDelay scales `FireWait` by 1.2 (the word 0x3f99999a, 0x5c7760-0x5c7770) when the slot's mode (`kit+0x6fc`
+    at `kit+0x824`) is 1 or ≥ 4; r0001's `FUN_005c09f0` (D:L476313-476341, the same branch at 0x5c0a48-0x5c0a64) leaves
+    it unscaled. This section's earlier "mode 1 `FireWait`" was that read of the wrong build (OT.R97). The readers:
+    `pilot/kill/keyjob-swapfire-iii-press.md` s4 (agent-mail) and ATLAS's `docs/atlas/readings/swap-fire-r0001-vs-r0004-bytes.md`
+    (agent/spc-atlas). The port: `viewer/src/accuracy.ts` `FIRE_WAIT_SINGLE_SCALE`, `fireInterval`, `fireFrames`; the
+    room's gate through `viewer/src/net/fireGate.ts` (`fastestWait`, `fireScheduleTicks`, `launchedRoundWaitTicks`).
+    The levels, kept apart:
+    - **Mode 1 (single), proven**: ATLAS's capture on the original running, both builds from a fresh boot
+      (`origin/agent/spc-atlas` 0d721152d1, `socomlegacy/docs/atlas/captures/L5-single-fire-wait-r0001-vs-r0004.md`): the
+      timer `kit+0x81c` set to 0.144 s on the M4A1 (5 game frames, 36 of 36 gaps) and 0.24 s on the Mark 23 (8, 21 of
+      21) in r0004, against 0.12 (4) and 0.2 (6) in r0001; automatic 0.096 s, 3 frames, in both (no x 1.2). The code
+      location of the x 1.2 stays a reading (the capture checked the running `GetFireDelay` bytes equal the image's).
+    - **Modes ≥ 4, reading**: the same branch (`slti 4`, 0x5c7750, falling through to 0x5c7760), read at the bytes by
+      three readers; no capture. Modes ≥ 5 are the round modes (`FUN_003d2a60`); what mode 4 is, is unread.
+    - **The turret's x 1.2 (`MGL FRAG TURRET`, `fireModes [1]`: 60 → 72 ticks), reading**: it rests on the earlier
+      reading that a mounted gun's kit takes its wait from the same function with mode word 1 (r0001;
+      `match/test/roomTurrets.test.ts`); the capture measured hand weapons only.
+    - **Frame counts not captured, projected** (OBF-19's model over the read values): the M40A1 18, the M87ELR 26, a 1 s
+      turret 36 game frames. Settles as proven: a capture of `kit+0x81c` on each.
+  - **The classes read and the launchers, at r0004 (LATER 1365, LATER 1387; 2026-11-24; reading, pending review).** The
+    facts the x 1.2's reach rests on, cited here at the bytes (r0004, `socom2_game.elf` of `disc_r0004`) and at r0001's
+    twin (`FUN_<addr>` D:L<line>), so a reader re-reads them without the mailbox; every one is a **reading, pending
+    review** unless it says otherwise. Read at the bytes by the classes read, its review and the launchers' read (each
+    a reader who did not write the one before; none a reviewer of this note). Provenance only (agent-mail, not
+    re-readable from the repository): `pilot/kill/keyjob-firewait-classes-read.md`, `keyjob-firewait-classes-review.md`,
+    `keyjob-later1365-1395-read.md`. **Reviewed in part** (2026-11-24, the review of `agent/later-1365` f58f511695,
+    `pilot/kill/review-later1365-f58f511695.md`, provenance only): a reviewer has re-read items 2, 5, 6 and 9 at the
+    source; items 3 (the classes other than the launchers), 4, 7, most of 10 and the origin of the launcher's mode word
+    (the store at r0004 0x5d0510, its source not traced) stay **pending review**.
+    1. **The wait has one path.** The timer is `kit+0x81c`; its only float stores are in the fire function 0x5c5550
+       (0x5c5d44, and the general store 0x5c5e28 that every item outside its few branches -- the designator 0x0b, the
+       context items 0x97-0x9e and 0xc1, the thrown class 0x79 -- reaches with no class test) and the run-down by the
+       frame's dt, clamped at 0 (0x5c81b8-0x5c81d4); its other stores are zeros (0x5bf0e0, 0x5bf578, 0x5c94c0,
+       0x5cf9b0). The fire function has three direct callers: 0x5c7e68 and 0x5c816c in the kit's update 0x5c7ce0, both
+       passing 0x5c76f0's value of that frame (taken once, 0x5c7e40), and 0x5c6cdc for the context items (not
+       firearms). The gate 0x5c77f0 refuses while the timer is above 0 (0x5c7a88-0x5c7a98), with no class exemption.
+       The update 0x5c7ce0 has one caller, the character's tick 0x555b90: a bot's kit runs it too. r0001 twins: the
+       set `FUN_005be9a0` D:L475488 / D:L475517, the run-down `FUN_005c0fd0` D:L476643-476646, the gate `FUN_005c0ae0`
+       D:L476446-476448.
+    2. **0x5c76f0, arm by arm** (0x5c7730-0x5c77c4; r0001 `FUN_005c09f0` D:L476313-476341): the base 0.1, else the
+       record's `+0x50`; the mode word `kit+0x6fc` + 4 x `kit+0x824`; mode 0 -> 1 s (0x5c7730-0x5c773c); 1 (the equal
+       test, 0x5c774c) and, signed, 4 and up (`slti 4`, 0x5c7750) -> x 1.2 (the word 0x3f99999a, `mul.s` at 0x5c7770);
+       2 and 3 -> x 0.8 (0x3f4ccccd); negative -> x 0.2. No class and no item id is read. **Which record's `+0x50`**:
+       0x5cac50 -> 0x5cac10 -> 0x5cdd10 -- the slot's own, unless its record is a carrier (0x3e7f00: ids 0x34, 0x3d,
+       0x8e, 0x8f, 0x3f, or class 0x91) with a mode of 4 and up, then the slot holding the round whose id is the mode:
+       in a round mode, the **round's** `FireWait`. The last step of that cycle, 0x5cb530, is unread (item 10).
+    3. **The classes, each with its level:**
+
+       | class | mode word | wait at r0004 | level |
+       |---|---|---|---|
+       | hand weapon, single | 1 | x 1.2 | **proven** (ATLAS's capture above, M4A1 and Mark 23) |
+       | hand weapon, automatic | 3 | x 0.8 | **proven** for the M4A1 (the same capture: 0.096 s in both builds) |
+       | hand weapon, burst | 2 | x 0.8 | reading, pending review (the classes read and its review) |
+       | shotguns (class 0x51; the Spas 12, the JACKHAMMER, the 870) | 1 (the JACKHAMMER 1 or 3) | x 1.2 in single, the pump's `+0x820` beside it | reading, pending review (two readers) |
+       | launched rounds off a carrier (rounds 171-184) | the round's id | the round's `FireWait` x 1.2 | reading, pending review (two readers; `fireGate.ts` `launchedRoundWaitTicks`) |
+       | the LAW and the RPG-7 (rounds 185 / 186) | the round's id | 3 s x 1.2, the RPG's 1 s lock on top (item 9) | reading, pending review (three readers; re-read at the source by the review of f58f511695, the mode word's origin not) |
+       | MGL FRAG TURRET (230) | 1 | x 1.2 | reading, pending review (two readers; item 4) |
+       | PKM / LMG TURRET (205 / 207) | 3 | x 0.8 | reading, pending review (two readers) |
+       | bots | as the AI sets it (item 10) | x 1.2 when the AI's mode is 1 | reading, pending review (two readers), the mode per weapon unread |
+       | mode 0 (a slot never cycled; a carrier with no round) | 0 | 1 s; no round leaves (0x5c7640 answers 0 a pull) | reading, pending review (two readers) |
+
+    4. **The turret's mode 1.** The mount (0x54b1d8-0x54b20c; r0001 `FUN_005463c0` D:L412214-412218) makes the turret's
+       weapon a new slot of the occupant's own kit (0x5c3180 fills it, 0x5cc160 takes it up), so its round leaves by
+       0x5c7e68 / 0x5c816c like any other. The new slot's mode word is stored 0 (0x5c3010, in 0x5c2fc0); the take-up's
+       tail (0x5cc5d4-0x5cc61c) runs the mode cycle 0x5cbc50 once, to 1. The parser (0x3f0a60-0x3f0af4): `MaxFireMode`
+       n enables 0..n, `BurstMode` / `SingleMode` / `AutoMode` enable 2 / 1 / 3. The records through `readWeapon`:
+       MGL FRAG TURRET (230) `fireWait` 1, `fireModes` [1] -> 1.2 s; PKM (205) and LMG TURRET (207) 0.12, [3] -> the
+       cycle walks to 3, x 0.8. The modes are held by `scene/test/weapons.test.ts` (the turrets' fire modes, off the
+       fixture's `ZWEAPON.ZAR`); the `fireWait` values by the classes review's `readWeapon` probe only (a source read,
+       no test). Proven by a read of the mode word and `kit+0x81c` mounted on an MGL turret.
+    5. **The lock's arming, 0x5cc9d0, by its own read** (called by the fire function at 0x5c617c, after the wait's
+       store; r0001 `FUN_005c5340` D:L479287-479343, from `FUN_005be9a0`). The magazine arm (0x5cd1f0-0x5cd210;
+       D:L479318-479321): `+0x820` = `ReloadDelay`, flag 0. The after-shot arm (0x5cd220-0x5cd350; D:L479322-479343):
+       the resolved record's byte `+0x58` (`ReloadAfterShot`) set and the carried round not id 0x8e; then EITHER the
+       slot's own id outside the list of ten (0xff, 0xfe, 0xc3, 0xc2, 0x91, 0x8d, 0x92, 0x0b, 0xc1, 0xbe; `firearms.ts`
+       `LOCK_EXEMPT`), the slot's count (0x5caef0) 2 or over (0x5cd308) and `+0x820` reading 0 (0x5cd314-0x5cd324), OR
+       the resolved id 0xba (0x5cd330-0x5cd338; D:L479339-479342) -- then `+0x820` = the resolved record's
+       `ReloadDelayAfterShot` (0x3f4e70), flag 1. The setter is 0x5ca780 (r0001 `FUN_005c32b0`); the parser's defaults
+       0.01 for `ReloadDelay` (0x3f0c1c-0x3f0c4c) and `ReloadDelayAfterShot` (0x3f0c5c-0x3f0c84). Read at the bytes by
+       the classes review and the launchers' read, then re-read from here by the review of f58f511695 (the magazine
+       arm's lines corrected to D:L479318-479321 by it).
+    6. **The lock block** (0x5c7d94-0x5c7e20; r0001 `FUN_005c0fd0` D:L476550-476563): a frame that enters with `+0x820`
+       non-zero runs it down, calls the expiry when it goes below 0 (the after-shot's 0x5ca4d0, r0001 `FUN_005c3000`;
+       the reload's 0x5c9f60, r0001 `FUN_005c2a90`; the bit of `kit+2` chooses), and leaves to 0x5c8490 in every case,
+       the expiry's frame included: no trigger test, no fire, no run-down of `+0x81c`. So the lock's frames add to the
+       wait's (`viewer/src/net/fireGate.ts` `lockFrames`).
+    7. **The other emitters** of 0x5cc9d0 -- 0x5c97c0 and 0x5c9860 (in 0x5c8860), 0x5bf3e4, 0x5bf480, 0x5c3c84 --
+       write no non-zero wait (the launchers' read).
+    8. **The frame counts at r0004** (projected: OBF-19's float32 model over the read values at the port's
+       `GAME_FRAME_DT` 525/15734 s, no capture): the 870 1 + 27 = 28 (its `ReloadAfterShot` with no
+       `ReloadDelayAfterShot`, the default 0.01 s, one frame); a held M40A1 15 + 18; the M87ELR 15 + 26; the Spas 12 17;
+       the JACKHAMMER 11 single, 8 automatic; the MGL FRAG TURRET 36; the LAW HEAT 108; the RPG 108 + 30 = 138. They
+       replace r0001's counts in the timer's paragraph below (the 870's 1 + 23, the M40A1's 15 + 15, the M87ELR's
+       15 + 21), kept there as r0001's.
+    9. **The launchers (LATER 1365; built 2026-11-24, `agent/later-1365`).** The LAW's and the RPG-7's mode word is the
+       round's id (185 / 186, so 4 and up) and the base the round's `FireWait` (item 2; ids 0x91 / 0x92 take the fire
+       function's general store, 0x5c5e28); the records (`readWeapon`, research 94 §C11): both rounds `FireWait` 3,
+       `ReloadAfterShot`, `ReloadDelayAfterShot` 1. So the wait is 3 x 1.2 = 3.6000001 s in float32: 108 game frames.
+       The LAW (slot 0x91, resolved 0xb9) arms no lock: its id is in the list and 0xb9 is not 0xba. The RPG-7 (slot
+       0x92, resolved 0xba) arms the 1 s lock by the 0xba test, with no test of the count or of `+0x820`, so on its
+       last rocket too (item 5); its 30 frames add (item 6): **108 frames (3.604 s) the LAW, at least 138 (4.605 s) the
+       RPG** -- a floor until `RPG_AFTER_SHOT_CLIP_READING` is read: at the lock's expiry, with a next rocket, r0001
+       `FUN_005c3000` (D:L477551-477650) starts the after-shot clip (its call at D:L477643; r0004 0x5ca4d0 unread), and a
+       clip that holds the fire past the wait's 108 run-downs makes the original's gap longer --
+       against r0001's 90 and 120 and the port's earlier 3 s for both (the room's 179 ticks). The port now
+       (`viewer/src/net/fireGate.ts`): `rocketLockSeconds`, `rocketWaitFrames` (the page's `rocket.ts` wait and the
+       launch's `fireWait`, which `matchThrow.ts` hands the firearm at the lower) and `rocketWaitTicks` (the room's
+       `rocketWaitUntil`: 215 / 275 ticks, an honest page's 216.2 / 276.3). The match bots' rocket cadence moves with
+       it: `match/src/bots/matchBots.ts` holds a bot's next rocket while `p.ran < p.rocketWaitUntil`, so 215 / 275 ticks
+       where it was 179 (`match/test/botLauncher.test.ts`, 'LATER 1365: a bot's LAW rocket sets the bound it reads').
+       `kit+0x8b8`, which `rocket.ts` used to
+       name as the rocket's wait, is another timer in both builds (run down at 0x5c7d68-0x5c7d80 / D:L476546, before
+       the lock block) and never holds `FireWait`. **Not built:** a `FireCore` with no gun (`fireCore.ts` :1939 /
+       :1990) still waits the raw `FireWait` -- built and run, it turned 17 cases of `viewer/test/fire.test.ts` red (and one
+       more in a second viewer file of the same batch), which pin that kit's r0001 timing; traced since: no shipped page
+       runs one (`matchFirearm.ts` and `xboxPrototype/combatRuntime.ts` set a gun at once); LATER 1468. Proven by the `eph-parity` harness on r0004 with a
+       LAW and then an RPG-7 up: the mode word (185 / 186), `kit+0x81c` (3.6 at the shot), `kit+0x820` (0 / 1.0), and
+       the frame gap between two rockets held on the trigger (108 / at least 138); the same run on r0001 (90 / 120) proves the
+       pair.
+    10. **The named unknowns** (§11 lists the ones a port value rests on): 0x5cb530 and 0x5cdee0 (which round the
+        carrier's cycle picks); the expiry calls 0x5ca4d0 / 0x5c9f60 and the clip the RPG's begins
+        (`RPG_AFTER_SHOT_CLIP_READING`); whether the RPG's lock also holds a firearm taken up inside its 1 s
+        (`ROCKET_LOCK_FIREARM_READING`); the rockets 187-189, whose records nobody read (`ROCKET_ROUNDS_187_189_READING`);
+        where the round is spent against the count's read at r0004 (0x5c43a0, called at 0x5c6188, a candidate);
+        whether the console's kit runs at the port's dt (`ROCKET_FRAME_DT_READING`: at 1/30 s the rockets' N is 109,
+        not 108); the AI's mode per weapon (0x5cac80's AI arm, 0x5cacd4-0x5cad5c: a bot's 870 or MGL at mode 2 or 3
+        would take x 0.8); what mode 4 is; 0x2c3400's emitter.
+    11. **Comments to re-point to this section** (LATER 1387's tail, LATER 1469, not done here: the files are other
+        seats'): `central/test/room.test.ts`:1336-1342, `match/test/roomShotgunGuard.test.ts`:139-145, and the three PAR-59
+        comments in `viewer/test/matchActions.test.ts` -- "research 84 s6" in place of the key-job file names; and
+        `match/src/room.ts`:2544-2545, :9772-9773 (rockets 3 s apart on `kit+0x8b8`) and :2103, :2608, :9723 (`kit+0x8b8`
+        named the rate timer), which the review of f58f511695 found stale (item 9: `kit+0x8b8` is another timer).
 - **The timer** (LATER 326, 2026-10-23; reading, pending review): the wait is the kit's timer `+0x81c`, **set** to it when
   a round leaves (`FUN_005be9a0` D:L475488, D:L475517, `param_2` the rate `FUN_005c09f0` hands it at D:L476571), run down
   by the frame's dt once a game frame and **clamped at 0** (`FUN_005c0fd0` D:L476644-476646: no leftover carried), the
@@ -188,7 +403,8 @@ at 26 -- the look is the biggest term; a round +7, closing again in 0.14 s; auto
   (`FUN_005c3000`) begun then (D:L476550-476560): 0.01 s is 1 frame, 0.5 s 15 (0.5005 s), 1 s 30 (1.0010 s). The page's
   kit steps it at its game-frame steps (`fire.ts` `kitTimerStep`), and a frame it runs in -- the frame it ends in
   included -- has no fire tick (`frameTimed`): no gate and no run-down of `+0x81c`, so a held M40A1 fires every 15 + 15
-  frames (1.001 s), the M87ELR every 15 + 21, the 870 every 1 + 23 -- the bots' count (`botFireFrames`, LATER 588 (c)).
+  frames (1.001 s), the M87ELR every 15 + 21, the 870 every 1 + 23 -- r0001's counts; r0004's are 15 + 18, 15 + 26
+  and 1 + 27, projected (item 8 above) -- the bots' count (`botFireFrames`, LATER 588 (c)).
   Was: both timers on the page's browser frames, the lock's end and a reload's up to a game frame early on a fast page,
   and `+0x81c` run down through the lock (a held M40A1 every 15 frames). The press's own frame against the kit's frame
   is `RELOAD_PRESS_FRAME_READING` (s11). The clips that follow (`reloadLeft`, `afterShotLeft`: `FUN_005a7ab0`'s lock, the
@@ -431,6 +647,24 @@ vision 1.01 (with its effect callbacks); **4** the 9× view (9.0, the `zoom_cont
   `*2binocular` names are data indices in the anim set); the way down and the body mask are readings
   (`BINOCULAR_LOWER_READING`, `BINOCULAR_BODY_READING`, §11).
 
+**The scope-out steps, proven by a capture (LANE-KILL item 3, B-61; 2026-11-21).** A capture of the original running (r0004
+under PCSX2, PC 3; the state byte `actor+0x200`, the factor `actor+0x204`; summary
+`agent-mail/evidence/weekend-mega-2026-11-14/rig/KILL3-PC3/KILL3-summary.md`; record `D:/s2u-records/KILL3-PC3/KILL3-PC3.zip`,
+sha256 9eaffc0ae577cd658cde04e46dcc87cc75ec9a17fefe839ab6eacc3a9e045ab0, on the hub, outside git) shows the scope-out steps **proven** for the M4A1 SD and the M87ELR, day and
+night, 3 trials each, identical: the day steps 0 -> 1 -> 5 -> (6) -> 5 -> 1 -> 0 (the M4A1 SD's extra Up at its one level does
+nothing); the **night extra step** is 1 then 3 -- 0 -> 1 -> 3 -> 5 -> (6) -> 5 -> 3 -> 1 -> 0, the night vision between first
+person and the scope, the same back (state 1, plain first person, is there at night too); the factors 1.0, 1.01, 3.0 (M4A1 SD),
+8.0 and 16.0 (M87ELR). Leaving the scope lands in first person (1, or 3 at night), then third person on the next Down: the
+original's own steps. `packages/viewer/test/zoomCapture.test.ts` holds it against the real records (states exact, the
+factors within +-5e-5, the record's resolution: `zoom204` is logged to 4 decimals, so not float-exact, and the night factors are
+asserted too: 1.01 at states 1 and 3, then 3.0 / 8.0 / 16.0); the port already matched. Two SEPARATE bolt shots ~2.4 s apart stay scoped on the original;
+that is not a departure and does not test "a second round of ONE pull drops the scope" (`FUN_005c5340`, an automatic's
+burst), which the capture did not exercise.
+
+**Not covered by that capture -- these stay readings:** the maps (only DESERT GLORY and NIGHT STALKER were captured); the
+other 11 scoped weapons; state 4 (the binoculars); state 2 on a turret; the page's d-pad wiring and its map night flag
+(the test passes `night` as a boolean).
+
 ### 7.1 The transition table, row by row (MATCH-04's audit)
 
 Web sprint 6, MATCH-04 (W6.R3: an audit of what 2026-10-01 built, not a rebuild), 2026-10-01. Every setter of
@@ -559,6 +793,193 @@ node `+0x2e8` is was not read here. **Since 2026-10-04 (web sprint 25, PF-05):**
 `seal_prone`'s 2.168. The comparison is still PLAT-36's (a recomp first-person frame against the page's, PLAT-30, and
 a PEEK of `body+0x200` and `cam+0xd8`).
 
+### 7.2 The d-pad under a throw's clip (R4P-111, 2026-11-23; reading, pending review)
+
+- **The code, r0004 (the specification, OT.R97).** The controller's zoom block at 0x59b278 asks the gate 0x5aeac0 and
+  runs the d-pad's Down (0x548e10, called at 0x59b2a4) and Up (0x548fc0, at 0x59b368) only when it answers; the gate
+  answers no while the top play's type (its `+0x2c`; the play from 0x55a4a0, r0001's `FUN_00555170`) is in the list 0x5ad9f0
+  asks with a second argument of 0 (at 0x5aeb8c): seven types always (0x5ada08-0x5ada70: `Throw grenade`, `Crouch throw
+  grenade` (twice), `Prone throw grenade`, `Toss grenade`, `Pistol toss grenade`, `Prone toss grenade`, `Pistol prone
+  toss grenade`) and four more for 0 (0x5ada78-0x5adab0: `Peek right toss`, `Peek left toss`, `Pistol peek right toss`,
+  `Pistol peek left toss`) -- **eleven**, the words named by their start-up stores (0x5e9884-0x5e9a8c) [reading: r0004's ELF
+  decoded at the R4P-111 fold, agreeing with its review]. Not in it: `Pistol throw grenade` (0x409da0, store
+  0x5e9a3c), `Pistol crouch throw grenade`, `Pistol prone throw grenade`, `Place claymore`, `Put on wall` and their
+  pistol types. `ZOOM_GATE_THROW_TYPES` (`zoom.ts`) is the eleven.
+- **The code, r0001.** `FUN_00594cf0` runs Down `FUN_00544400` (D:L453316) and Up `FUN_005445b0` (D:L453324) only
+  when `FUN_005a8da0` answers (D:L453313); `FUN_005a8da0` (D:L463193 on) compares the top's `+0x2c` with **nine** types
+  inline (D:L463214-463227; ten comparisons, `Crouch throw grenade` twice): r0004's eleven less the two pistol peek
+  tosses (the nine `FUN_005a7de0` names, research 251 §4).
+- **Which type is on top.** The hand's variant: `FUN_00588bc0` maps the asked type to its base, then to the hand's
+  variant by `+0xf79` (D:L446087-446088), and pushes that (D:L446292), the play's `+0x2c`; the body's `+0x534` takes the
+  base of it (D:L446298-446299). r0004 the same: 0x58e27c (base), 0x58e28c (the hand's variant), the push 0x58ea9c,
+  `+0x534` at 0x58eadc-0x58eae8. The review's F1 read from that that with the sidearm in the hand a standing throw at
+  power 0.6 or more or aimed up (and a crouched throw while moving, which takes the standing type) puts `Pistol throw
+  grenade` on top -- in neither build's list -- and steps. **The capture contradicts it** (ZOOMF1-PC2, below): with a
+  primary in the kit and the MARK 23SD drawn, the standing throws put the RIFLE's `Throw grenade` (49) on top and the
+  zoom is refused. The hand variant is keyed on the type's anim-set record (LATER 1442; reading, pending review): the
+  pistol type only where byte +5 bit 1 is set, which among the throw and placing types is the two peek tosses alone
+  (research 85 §8.1 item 3; `packages/scene/src/projectile.ts` `PISTOL_HAND_SWAP_CLIPS`), so no state plays `Pistol
+  throw grenade` -- as ZOOMF1B-PC2 found (20 throws, none; unscored). The pistol's peek tosses are in r0004's list and
+  are refused; the sidearm's standing toss, crouched and prone throws play the rifle's types, in the list too. *Was:
+  "what the hand variant is keyed on ... is not read yet"; the crouched and prone pistol types "name no clip".* A throw's type is pushed at the
+  release request, so the wind-up (R1 held) is outside the term; a placing's type is in neither list.
+- **The capture.** WFEEL-C7-PC2 (r0004, Shadow PC 2, memory reads per frame with the key events marked; record
+  sha256 `5fe029d35a7781162225f1629c2fadb6376fcc0e1ae9ba19f3ba95f5cfa3a5f6`; capture, **unscored**, not proven): 44 of
+  44 Ups at +200 and +600 ms after the R1 release leave `+0x200` and `+0x204` unchanged -- the standing throw (clip
+  49, 1.50 s, the rifle in the hand), the rifle peek tosses (239 / 238), the pistol peek tosses (top 241 / 240) and the
+  M67 crouched throw (243) -- and 20 of 20 control Ups at +2400 ms step 0xff00 -> 0x1 (1.000 -> 1.010) at once. The
+  pistol peek tosses' "top clip 241 / 240" is the play's `+0x2c`, the pistol's type, and their "action word 239 / 238"
+  is the body's `+0x534`, the base type (the summary does not name its offsets; its sibling rows read `+0x534`). The
+  gate reads the former: the pistol peek tosses are refused on r0004 because its list holds their two types; on r0001,
+  by the reading, they would not be. The capture ran no Down, no wind-up, no placing and **no sidearm standing throw**;
+  and it cannot attribute a refusal to the throw list alone -- that the list is the term that refused is the reading
+  (`+0x1e4` and the top's other fields during a clip were not logged).
+- **The sidearm's standing throw, captured.** ZOOMF1-PC2 (IQ-116; r0004, M51, Shadow PC 2, slot 5 as WFEEL-C7; MARK
+  23SD drawn then MARK141 selected, a primary in the kit, standing, third person; per-frame `+0x200`, `+0x204`, `+0x534`,
+  the top clip and its phase; capture, **unscored**, not proven; record held on PC 2): 3 hard throws (R1 1500 ms) and
+  1 light (400 ms), the top before = 83 (the pistol-drawn stance), the throw clip **49** (`Throw grenade`), action 49;
+  d-pad Up at +200 and +600 ms **refused** in all 4 (0xff00, 1.000 unchanged), the control Up after the clip stepped
+  (0xff00 -> 0x1, 1.010). F1's case does not step. The clip pick is settled (LATER 1442; reading, pending review): the
+  hand pass takes the pistol type only where the anim-set record has byte +5 bit 1 (`FUN_0058c960` D:L448200 on,
+  `FUN_005e3ac0` D:L495755-495768; r0004 0x591fec -> 0x5eb290 / 0x5eb2c8), set for the two peek tosses alone among the
+  throw and placing types (`FUN_005e0690` D:L494815-494950; r0004 0x5e89a0-0x5e9154), and ZOOMF1B-PC2 (20 throws, no
+  `Pistol throw grenade` in any state; unscored) agrees, so the port plays the rifle's `Throw grenade` there and the
+  gate refuses it. *Was: the port played its pistol variant, the pick called open, and the gate read that clip as
+  `Throw grenade` (`zoom.ts` `zoomGateType`, R4P-111's narrow fix, removed with LATER 1442).*
+- **The page.** `GrenadeCore.throwClipActive`: a throw's phase, no placing, from `startThrow` to `finishThrow`, and the
+  PLAYED clip's type (`handAnim`'s, the hand's variant: the pistol type only for the peek tosses, LATER 1442)
+  in `ZOOM_GATE_THROW_TYPES`; told through `./matchThrow`'s hands
+  (`FirearmHands.throwClip`); `./matchFirearm` `stepZoom` returns the view unchanged while it holds -- in, out and the
+  cycle (the cycle is the page's binding over in and out). `ZOOM_THROW_CLIP_REFUSED_READING` (§11).
+- **Up under a placing, r0004 only (LATER 1427, 2026-11-23; reading, pending review).** Read off r0004's ELF by hand
+  (capstone, the R4P-111 fold's method). After the zoom gate (0x59b278) and Up's own press byte (`lbu 5(s0)`, 0x59b2f0)
+  and `+0x221` (0x59b300), the Up branch loads the view byte `+0x200` **signed** (`lb`, 0x59b30c) and, when it is 0 or
+  under (`blez` 0x59b310, third person), calls Up (0x548fc0, 0x59b368) as before; above 0 it calls Up only when the
+  action test 0x57d220 answers no for each of three types. (a) **The types**: `Place claymore` (the word 0x409d18,
+  loaded at 0x59b318; filled at start-up, store 0x5e98e8), **0x3d `Put on ground`** and 0x3e `Put on wall` (literals at
+  0x59b338 and 0x59b34c; named by the action-name table at 0x6610c0: entry 0x3d -> the string 0x660928, 0x3e -> 0x660938,
+  the table r0001 has at 0x661060, research 181). **The pistol types refuse too**: 0x57d220(actor, T) answers when the
+  body's action word `+0x534` equals T (0x57d234-0x57d244) or T's back-link (0x5e9260, the type record's `+2`; r0001
+  `FUN_005e1a90`, 0x57d248-0x57d260); `+0x534` is the back-link of the play's type (0x58eadc-0x58eae8 at the push), and the
+  pairing 0x5e94c0 (r0001 `FUN_005e1cf0` D:L495160-495166) writes each pistol type's `+2` as its rifle type (0x5e95b0),
+  called with 0x3d / 0x82 `Pistol put on ground` (0x5e82b8), 0x3e / 0x83 `Pistol put on wall` (0x5e82c8) and
+  `Place claymore` / `Pistol place claymore` (0x409d18 / 0x409d20, 0x5e857c-0x5e858c; r0001 D:L494740-494741,
+  D:L494772). That a rifle type's own `+2` is itself is not read off the loader; ZOOMF1-PC2 shows it for clip 49 (action
+  word 49; capture, unscored). (b) **The views**: every state above 0 -- first person (1) and its THERMAL twin (2), the
+  night vision (3), the binoculars (4), every scope (5-12); third person is free. (c) **Up only**: Down (0x548e10,
+  0x59b2a4, its branch 0x59b288-0x59b2e8) has no such term. The page's cycle is an adaptation over Up (the mouse's one
+  button, `matchMount.ts`, and the xbox prototype's binding; the original has no cycle) and is refused whole with it, so
+  under a placing above 0 its wrap from the last step back to 0 is refused too (`matchFirearm.ts` `stepZoom`), where
+  Down still takes the view down: the adaptation never moves the view where the original's Up would not run (fold of the
+  review's F4). (d) **The top play, not the stack**: `+0x534` follows the top -- written at the push and again when the
+  top changes (0x58f0e8-0x58f128: the stack's play after 0x28ed90, its type's back-link; -1 with none, 0x58f104) -- so
+  the test is the top play's type, not any entry below it. A third writer (fold of the review's F2): 0x5827c0(actor,
+  hand) at 0x582880-0x5828a8 takes `+0x22` of the play 0x28d570 returns for the stack (`+0x1c0`, after 0x55a4a0), stores
+  it and then its back-link (0x5e9260). Read: it is the hand's re-typing of the stack -- unless the body's action is
+  `Swap rifle` (the word 0x409e48, filled at 0x5e9be0 from the string 0x661978; 0x57d220 at 0x5827ec), it walks every
+  play on the stack (`+0x1c8` down to 0), re-types each for the hand (0x591f10 with the hand, stored at `+0x22`) and
+  its clip (0x5eb3f0, `+4`), then writes `+0x534` from the new top; its 14 callers pass the hand (those read: 0x556960
+  with the body's `+0xf79`; 0x57f3f0, 0x5abcb8 and 0x5cc824 with 2, 0x5cc7f4 with 1; the rest unread). It does not change the rule: the top's type, through
+  its back-link, as at the push. **r0001 has no such term**: `FUN_00594cf0` calls `FUN_005445b0` under the
+  press byte and `+0x221` alone (D:L453322-453324). **The page**: `GrenadeCore.placingClipActive` -- a throw's phase
+  whose played type is one of the three or a pistol pair (`zoom.ts` `zoomUpPlacingType`): the claymore's and the PMN's
+  `Place claymore`, C4's `Put on wall` (`startPlacing`, `plantC4` too), each the pistol's with the sidearm up -- from the
+  placing's start to its clip's end (`finishThrow`), the window `throwClipActive` uses. **And the bomb's own** (fold of
+  the review's F1): r0004 pushes `Place claymore` through the push 0x582720 (which writes `+0x534`, 0x58eae8) at four
+  item-fire sites, 0x5c5798, 0x5c58d0, 0x5c5920 and 0x5c5d08 (r0001 `FUN_005be9a0`'s claymore -0x67, PMN -0x62, satchel
+  -0x68 and MPBOMB -0x66 branches, D:L475322, D:L475354, D:L475371, D:L475480), and in the bomb's state-1 handler
+  0x5a3860 at 0x5a3960 (the manual drop; r0001 `FUN_0059ddb0` D:L457606-457612). The port plays the plant's and the
+  manual drop's outside the core, on the own body (`bombPage.ts` `startOwnClip`, `PLANT_ANIM` = `PLACE_CLAYMORE_ANIM`,
+  its pistol pair with the sidearm up), so `BombPage.ownPlacingClip` answers while the clip it started is still the own
+  body's top (`ownBombBody`'s `placing`: the throw pose's clip until its pop at the hold's end), handed as
+  `MatchActions.pageHands.placingClip` through `actionHands` and ORed with the core's in `./matchThrow`'s hands. The
+  satchel's (-0x68) is not played: the port has no satchel item (research 251, "The satchel"). The port plays no
+  `Put on ground`; who pushes 0x3d in the original is still unread. No literal push of it is in r0001's decompilation
+  (a search of `FUN_0057d540(.., 0x3d, ..)`), and the five r0004 sites the review named are not it (fold of its F3):
+  the three virtual calls with a1 = 0x3d -- 0x576a68 and 0x576a98 in 0x576870 (`CSealCtrlAi`'s vtable at 0x668d88;
+  r0001 `FUN_005714b0` D:L433901, D:L433904) and 0x59d510 in 0x59d4a0 (`CSealCtrl`'s at 0x668e48 and `CSealCtrlCopy`'s
+  at 0x432b78; r0001 `FUN_005979a0` D:L454476) -- are the controller's vtable `+0x24`, the death handlers' character
+  sound, whose id 0x3d is `CHRSND_DEATH_QUIET` (research 179, the death sound's answer: `FUN_005979a0`'s vtable `+0x24` id); of the two 0x3e sites,
+  0x5c5aa4 is C4's own `Put on wall` push (0x582720 at 0x5c5b10, r0001 D:L475420's twin; the port's `plantC4`), and
+  0x5d11a8 in 0x5d1100 (called at 0x5d1d54 and 0x5d1eb0) feeds the same controller `+0x24` sound call (0x5d12a4), a sound
+  id, not the action. None is a player's own placing the port has. `./matchFirearm` `stepZoom` returns the view unchanged for Up and the cycle while it
+  holds and the view is above 0 (`zoomUpPlacingRefused`); Down and third person are free.
+  `ZOOM_UP_PLACING_REFUSED_READING` (§11). Not captured: no capture ran a placing with the zoom (owed: r0004, a claymore
+  and a C4 placing, d-pad Up at +200 ms from third person and from first person, Down from first person; the pistol's
+  placing the same).
+- **Not built:** the gate's other terms -- the alive bit `+0xe1` 0x10 (D:L463201; r0004 0x5aeacc: the page's
+  `walk.isDead()` in `matchFirearm.ts` `stepZoom` holds it), a global byte with `FUN_002c2fd0` (D:L463202; r0004
+  0x5aeae8-0x5aeb00; what the byte and the call are was not read), the stance word `+0x174`, the top's posture byte 8,
+  the swap `FUN_005a7980`, the type pairs at D:L463232 on, `+0x1e4`, `FUN_0054f6e0`, `+0x528`, `FUN_00579ea0`.
+
+### 7.3 The view at a round's end (R4P-234b, 2026-11-23; reading, held by forced captures, pending review)
+
+- **The original (r0004, the specification).** `_OnMissionComplete` 0x2ac270 writes the camera's field of view at zoom
+  1.0 (`FUN_0029c7f0(1.0, cam)`, D4:L159788) and resets the camera object's `+0xe4` view byte (D4:L159789). Q234B
+  (Q234B-PC2, forced, goggles on): the body's zoom state stays -- `+0x200` 0x103, `+0x204` 1.01, `DAT_004074c0` 1.01 --
+  at the return and 3 s after. Q234C (IQ-126, Q234C-PC2, forced, 4/4; goggles 1.01 and a scope 3.0): the camera's
+  `+0x470/+0x474` (S = `*(cam+0xb4)`) go 1.01 or 3.0 -> 1 and `+0x2c8` 0.99 or 0.333 -> 1 at the return, and STAY on
+  frames 1-5 and 3 s later, while `+0x200` (3, 5) and `+0x204` (1.01, 3.0) keep the goggles' or the scope's values.
+  Q234D (forced, goggles on): the zoom step 0x1f0490 still runs every frame (90/90) but eases from the camera's own
+  `S+0x470` (now 1.0) at the rate `DAT_00435608`, which is 0 once a zoom has settled (D4:L57750-57753), so it carries
+  1.0 (`DAT_004074b8` 1.01 -> 1.0 from the first resumed frame) while the target `DAT_004074c0` stays 1.01; d-pad
+  presses after the call change nothing (`+0x200` unchanged; the same presses step the zoom after a state load). A
+  fresh state load ends it (all 1.0, `+0x200` 0xff00). Instruments named (the atlas's ready queue, R4P-234 / row 48,
+  `agent/spc-atlas` 4c62f5fc89 and bb7ae649a9): the function entered by an instrumented call, not the game's own
+  mission end; the hold's end shown by a state load, not the game's own next-round path.
+- **The moment, measured.** Research 397 §3-§4 traced 0x2ac270 itself running at an online round's end (proven for its
+  conditions: r0004, the joining console, a two-player classic match, rounds ended by the clock): about 3 s after the
+  clock's zero, as ROUND COMPLETE comes up, tied to it within about 2 s. Its traced calls (0x2ac354, 0x2ac368) sit in
+  the online-only block; the FOV write (0x2ac42c-0x2ac43c) and the `+0xe4` reset (0x2ac458) follow it in the same body
+  and run online and offline alike -- the bytes' reading, not traced. Not measured: the host's path (the six callers'
+  which, `ra` one level deep), a round won rather than ended by the clock, the last round and the match's end, the FOV
+  hold's own timing.
+- **A zoom still running at the call (the review's F1; reading from the bytes, unmeasured).** Neither 0x2ac270 nor
+  0x29c7f0 writes the rate `DAT_00435608`; only the step 0x1f0490 zeroes it, on arrival (0x1f05b0, 0x1f05e0). So a run
+  not settled at the call (a scope stepped in within its run's time, about 0.2-0.7 s, before the call) resumes on the
+  next frame from the camera's `S+0x470` = 1.0 and eases to the kept target: the original does not hold 1.0 then, and
+  neither does the page (`Zoom.endRoundView` leaves the rate). Q234C/Q234D ran settled zooms only; a forced capture with
+  a press within the run's time before the call would settle it. Test: `roundEndCameraFov.test.ts`, "a zoom still
+  running at the call".
+- **The page.** At the round end's call -- `NetPage.sweepDrops`, `ENGINE_READ_S` after the `roundOver`, once a result,
+  the same moment as `roundEndEffects` (research 283 §9-§10; the call's moment research 397 §3-§4, above) -- NetPage's
+  `roundEndZoom` (handed by `./matchThrow`'s `netDeps`) calls `MatchFirearm.roundEndView` -> `Zoom.endRoundView`: the
+  magnification on screen to `ROUND_END_CAMERA_FOV_READING` (1.0), the state and its target kept, and the run's rate
+  left as it is; `Zoom.update` then carries 1.0 at a settled zoom's rate 0 as the original's step does, and `viewFrame`
+  writes the FOV from it each frame. `stepZoom` refuses in, out and the cycle while `Zoom.roundEnded`. The next set-up
+  -- `Zoom.reset` (`spawnKit`'s `Zoom.respawn` at the next round, `setView` at a new map, a death, leaving the walk) --
+  ends it. Tests: `packages/viewer/test/roundEndCameraFov.test.ts` (the drawn FOV and render view, goggles and scope,
+  input refused, the spawn and a new map ending it, a zoom mid-run easing on), `netPageRound.test.ts` (the moment),
+  `matchThrow.test.ts` (the wiring).
+- **The zoom's other writers during the hold** (the page's code, read at its source; the hold refuses only the d-pad's
+  `stepZoom`). `Zoom.set` stays reachable: `setZoom(1)` from `./matchThrow` (an item up with a scope on, and a raised
+  launcher past first person), `./matchFirearm`'s fired round's scope drop (`accuracy.round(...).dropZoom`, a scoped
+  round), `switchFireMode`'s launcher-round drop and `setHold`, the kit's switch (`switchZoom` -> `Zoom.switchWeapon`)
+  and its slot change (`Zoom.setWeapon`), the turret's mount edges (`Zoom.setMount`), and a claim's `renew`
+  (`Zoom.setWeapon` on the claimed slot's record). The press-driven ones -- the trigger, an item or a launcher raised,
+  the fire-mode switch, the kit's switch, a mount -- are stopped by the walk's round hold (`WalkMode.setRoundHold`,
+  walk.ts: no stick and no press from the first round screen's frame; that frame against the call's, `ENGINE_READ_S`, by
+  source inspection, not run), not by the zoom. A claim's `renew` is not press-driven: a claim the room grants inside
+  the hold reaches it. `setWeapon` and `setHold` change the state only to drop a view the new record or hold cannot keep
+  (to 1: goggles off a night map, a scope the record has none of, a launcher round's mode past first person); otherwise
+  nothing, and the view stays at 1.0. Where any of them reaches `Zoom.set` with a new state, the run starts from the
+  drawn 1.0 toward the new target (`set` writes the rate; `update` eases `applied`): a drop to first person draws 1.01
+  within a frame or two, a scope's step would ease to its magnification -- as r0004's step would (0x1f0750 sets the run,
+  0x1f0490 eases from `S+0x470` = 1.0; the bytes' reading, unmeasured). `died` and leaving the walk reset, and end the
+  hold, as before.
+- **Not settled.** The game's own next-round path ending the hold (the captures ended it by a state load); a person's
+  play of a real mission end (route 2, as R4P-234's fog); what the original does with a zoom state set by another path
+  than the d-pad after the call (above: the page's paths and the model they follow are the bytes' reading, none
+  measured); a zoom mid-run at the call (above). **What the original SHOWS during the hold is unmeasured**: the HUD's
+  zoom readout (the page's `hud.setZoom(zoom.hudZoom())` keeps the kept state's, 3.0x with a scope, over a 1.0 view),
+  the goggles' lens (state 3 kept: the page keeps the lens on; patches-contrib's round-end fog reset is not on this
+  base), and a scope's mask and reticle over a 1.0 view -- the page draws each from the kept state; Q234C/Q234D read
+  memory, not the screen.
+- **A spectator's view (an adaptation question for the owner; not built).** PV-7b's player view (`povLens`,
+  `POV_VIEW_ADAPTATION`) is not held: a watched scoped body still draws magnified through the round screens. The
+  original has one camera (`*0x4429b0`), which goes to 1.0 whatever it shows; the lens has no original, so this is not
+  a parity gap, only a consistency question.
+
 ## 8. Scoped: the kick, the drop and the sway
 
 - **The kick starts only scoped, on the first round.** `FUN_005c5340` (479059-479549), the round's leaving: `if
@@ -573,6 +994,30 @@ a PEEK of `body+0x200` and `cam+0xd8`).
   pitch it started from, which an upward pitch stick drags along at 0.04 x the push a game frame (`DAT_00650980`).
 - **In a scope the round is exact but for the sway:** `FUN_005bd100` with `body+0x200 ≥ 4` sets the radius 0 and the
   offsets to `(−sway x, −sway y)` (474217-474226). No bloom and no knock scoped (`FUN_005c3360`'s gate).
+  **Corrected 2026-11-24 (AS-34 L77; reading, pending review):** a pull's **second** scoped round does take both. The
+  drop is the same code on r0004, word for word but two moved call targets (r0001 0x5c5ed8-0x5c5f1c = r0004 0x5cd580-0x5cd5c4, D:L479399-479406) and calls r0004
+  0x5492c0(body, 1) (r0001 `FUN_005448a0`), which stores the new view in `+0x200` at once (0x5492f0; D:L410938-410941);
+  Recoil (r0004 0x5ca830-0x5cac10 = r0001 `FUN_005c3360`, the same code but for two global addresses and moved call targets, 25 words in all; the
+  second read) runs after it in
+  the same call of Fire (r0004 0x5cc9d0, its Recoil call at 0x5cdbc0; D:L479541-479542), so its gate (D:L477752-477753)
+  reads 1: the knock (D:L477755-477761), the clamp on `cam+0x474` / `+0x470` (D:L477762-477795), the bloom
+  (D:L477797-477805) and the bend (D:L477806-477807; R4P-256's, research 442 -- the first scoped round adds none, the
+  same gate's other half). The clamp's camera scale is still the scope's: the only stores to `cam+0x474` in r0004 are
+  five camera functions (0x295010, 0x2967f0, 0x296c70, 0x297a80, 0x29c7f0 -- the zoom setter, its store at 0x29c810, D4:L150578-150592; the second read's correction of
+  0x29c650), and 0x5492c0's two camera calls (0x292930,
+  0x2928e0) write `+0x480` / `+0x484` only (`SCOPED_SECOND_ROUND_CAP_SCALE_READING`). On the M4A1 SD a scoped pull at 3x
+  ends its second round at size 8, offset y -12; after a prior -45 knock, -57 (cap 135 at a depth ratio of 1; 54 at the note's 0.40). *Struck (the fresh review's F3,
+  2026-11-24):* "a shotgun's scoped first shell ... its pellets after the first drop and then bloom" -- the pull's count
+  `kit+0x818` is counted once a SHELL, before the pellet loop (D:L475516; the loop D:L475591-475677 on `+0x880`; r0004
+  0x5c5e10-0x5c5e20, the loop from 0x5c60c0, Fire at 0x5c617c), and Fire stores no `+0x818`, so every pellet of a first
+  shell sees count 1: none drops or blooms. The port counts once a ray (`Accuracy.round` per pellet from `fireCore.ts`'s
+  volley) -- a departure, `PELLET_PULL_COUNT_READING` (§11, note only). Moot in play today: the three multi-pellet weapons
+  (Spas 12, JACKHAMMER, 870: four pellets) each have one `ZoomMode` (1.5), so their zoom steps to view state 4 and never
+  to 5 or above, where the drop and the kick are. The port: `Accuracy.round` gates on the state after the drop and takes
+  the magnification (`matchFirearm.ts`, the rifle's and the turret's round; the room's `ShotCone` a scoped command's at
+  the scope's greatest, `ROOM_SCOPED_ROUND_CAP_ADAPTATION`, the fresh review's F4). *Was:* the gate on the state before the drop -- the second round added nothing.
+  Settled by Q-256 step (3): the scoped burst, kit `+0x84c`, `+0x24` and `cam+0x474` beside `+0x200` on the first
+  unscoped frame.
 - **The sway** (`FUN_005b9280` 472136-472185, flag `DAT_00650940` = 1): per axis `p += dt × ((PP + 0.75)|p/L| + PP +
   0.25)`, `L = SniperDistLimit × (0.8 × steadiness + 0.2)`, and at ±L the sign of `SniperDistPPFrame` flips -- in the
   weapon's own table -- so it swings end to end, a little faster going positive (the +0.75/+0.25). Steadiness is the
@@ -697,24 +1142,35 @@ a PEEK of `body+0x200` and `cam+0xd8`).
 
 | what | value | why |
 |---|---|---|
-| the aim-to-muzzle depth ratio in the knock clamp and the cone | 1 | `FUN_00290830`'s two depths ≈ equal at range |
+| the aim-to-muzzle depth ratio in the knock clamp and the cone | was 1; replaced 2026-11-18 (LATER 1141) | `depthRatio` from the port's live geometry, reading, pending review (research 441); the capture's f at two poses not yet met (LATER 1159) |
 | steadiness (`body+0xeb0`) | the exertion, ported (§17) | the pitch stick from the mouse's pitch rate is a reading; its divisor `pitch_rate` x 1.72, no stick gain (LATER 351, 2026-10-25) |
 | the room's pitch throttle without the zoom (`CONE_PITCH_MAGNIFICATION_READING`, `net/shotCone.ts`) | was 1 | retired 2026-10-26 (LATER 476): the look's own divisor is `1 / zoom.lookScale()` (`FUN_005be660` D:L453807-453812, × 0.2 more in view state 4, D:L453813-453816) -- the page's throttle inverts it (`look.ts` `pitchStickInView`) and the room's cone the command's (`AimMover.lookScale` from `lookGate.ts` `lookScaleOf`); was: the page at the zoom on screen and the room at 1 (binoculars at RECRUIT: the page 0.78 at the settled x9.0 on screen, the room 0.087, for the original's 0.65) |
 | the room's scope level (`CONE_SCOPE_LEVEL_READING`, `net/shotCone.ts`) | the scope's least magnification | LATER 476's review (F1): the command carries the scope bit, not the view state, so `lookScaleOf` gives a scoped command 1 / `ZoomMode[1]`; on the M40A1 [1.5, 6, 12] at state 6 the page reads RECRUIT's full push 0.65 and the room's cone 0.325. Settled by the level on the wire, or the room tracking the zoom steps. P13 (2026-11-02, the online-parity sweep's AR-8): no verdict reads it while `CONE_SWAY_BOX_ADAPTATION` stands (a scoped command's exertion feeds no check); it goes live with that box's build, LATER 640, which settles it |
 | the room's scoped box (`CONE_SWAY_BOX_ADAPTATION`, `net/shotCone.ts`; P13, the sweep's AR-1) | the whole box, +-`SniperDistLimit` at the most exertion, magnification 1 | an adaptation, the room's trust (no original: the game has no server): the page's scoped round leaves at the sway's point (§8, divided by the magnification, §17), the room takes any claim in the box -- at least three times an honest round's reach at a 3x scope and up to about eight at a low exertion (3 / 0.36: the sway steps only while the exertion is over 0.2, `FUN_005b9280` D:L472139, so its limits never close below 0.36 of the box); honest play untouched. The point's check over the window with a named slack is LATER 640; research 91 §16 |
 | the room's raise (`ROOM_RAISE_TRUST_ADAPTATION`, `match/src/room.ts`; P13, the sweep's AR-3 = WK-4) | none: the page refuses | an adaptation, the room's trust (no original): `FUN_005c0ae0` refuses a bullet-class round below a full raise (D:L476420-476438; research 215 §8.3-8.5); the page holds it for the rifle (LATER 180) and the rocket launcher (LATER 192), the room only the launcher's take-up and the firearm's way back (`heldReadyAt`, `firearmReadyAt`), so a forged page fires 2 game frames early from a lowered rifle or launcher; honest play untouched. The room's own raise is LATER 641 |
 | the look gate's kick term (`net/lookGate.ts` `lookAllowance`, `kickingView`; P13, the sweep's AR-5) | `LookContext.kickRate` on a command with `Button.Scope` or `Button.Binoculars` only | reading, pending review: the kick starts and ticks only in the 9x view or a scope (§8; `kickStarts` / `kickTicks`), so the gate's pitch allowance takes its rate there alone, on the command's own view (an unscoping command's kick laid a frame late rides in the bank, `LOOK_SLACK_TICKS_PLACEHOLDER`; `lookGate.test.ts` 'leaving the scope mid-kick'). Was: on every command -- a forged unscoped page had 0.5 rad/s of pitch over the fastest stick and the return. `OPEN_LOOK_CONTEXT` holds no pitch in any view |
-| the airborne term | `(vx² + vz²) / 65` while `airborne` | `+0x1350` read as the carried air velocity, bit 5 as airborne |
+| the airborne term | was `(vx² + vz²) / 65` of the mover's velocity while `airborne`; replaced 2026-11-24 (AS-34 L78, §3 item 3) | `\|carried\|² / 65`, all three components of r0004 body `+0x1354..+0x135c` (r0001 `+0x1350..+0x1358`), bit 5 as airborne; reading, pending review, the running jump capture-scored (IQ-158, B13-BLOOM-PC2) |
+| the camera scale of a scoped pull's second round (`SCOPED_SECOND_ROUND_CAP_SCALE_READING`, `accuracy.ts`; AS-34 L77) | the running magnification at the round (`Zoom.magnification()`) | reading, pending review: the drop 0x5492c0 writes no `cam+0x474` (its camera calls 0x292930 / 0x2928e0 write `+0x480` / `+0x484`; not chased below its direct callees), the five r0004 writers 0x295010, 0x2967f0, 0x296c70, 0x297a80, 0x29c7f0 (the zoom setter; corrected from 0x29c650 by the second read) take the running magnification (§8). Settled by Q-256 step (3) |
+| a walk-off fall's carried y (`CARRIED_FALL_Y_READING`, `accuracy.ts`; AS-34 L78) | 0 | reading, pending review: a fall copies body `+0x3c` into r0004 `+0x1358`; whether it is non-zero at a fall's start is not settled statically (§3 item 3). Settled by the r0004 trace of `+0x1354..+0x135c` and `+0x105e` through a walk-off fall |
+| the body's velocity in the air (`AIR_BODY_VELOCITY_READING`, `accuracy.ts`; AS-34 L78) | zero in action 8's flight (the jump IQ-158 / IQ-194 measured); the dive's start zeroes it at launch; the mover's own on any other flight | reading, pending review: r0004 0x5838a0 (the dive's start, `dive_to_prone`) zeroes `+0x2c..+0x34` at 0x583a08-0x583a10; for action 8, IQ-158's clean reads saw 0 on every airborne frame and IQ-194 (frame-locked, paused reads; unscored) confirms 0 through the flight, the vertical speed in `+0x1340` (§3, the OPEN point); the carried y: the launch copies body `+0x3c` (D4:L481404), 0 from flat ground in the captures; a non-zero launch is not covered (§3). A departure on the other flights (the fresh review's F5): in the fall override (four conditions: actions 8, 9, `FUN_0058d660` or `dive_to_prone`, D:L440897) the original's is (0, minus the fall speed `+0x1340`, 0) (r0004 0x552a98-0x552af8; r0001 D:L416500-416513), the port's the mover's (vx, vy, vz); the fix is queued, not built |
+| the standing jump's body vertical (`STANDING_JUMP_RISE_READING`, `accuracy.ts`; AS-34) | the `seal_jump` root's y velocity at the action's phase, in the bloom's velocity y | reading, pending review: ATLAS (relayed) D4:L455067-455073 / D4:L454198-454206, `+0x30` saved and restored around the kit's tick; IQ-158 B13-BLOOM-PC2 (capture-scored) peak 29.61 u/s, size 5.89 px; the port's game-frame sizes match from 2.404 through the apex within 0.01 px, its descent half a frame short (peak within 0.5 px; `standingJumpBloom.test.ts`). Not read: that `+0x30` is the root's rate unlagged. A departure: the restore (r0004 0x54e660-0x54e694) covers every non-looped top action, the port feeds the standing jump's root alone. The room's cone is fed it (`AimMover.rise`, the bloom only; its frame's velocity stays the mover's). Settled by ATLAS's T1 trace |
+| `STANDING_JUMP_VELOCITY_PLACEHOLDER` | was: the page's standing jump wrote no vertical, its size 1.00 | replaced 2026-11-24 by `STANDING_JUMP_RISE_READING` (AS-34) |
+| the weapon swap's bloom and pull count (AS-34 L6) | carried across the swap | note only: already matches (closed by 8663073033; `SWAP_KNOCK_READING`, research 321); r0004's swap 0x5cc160 (r0001 `FUN_005c4b10`) stores none of `kit+0x20`, `+0x24`, `+0x818`, `+0x84c`; no change in AS-34, the scored capture still owed |
+| the pull's count per pellet (`PELLET_PULL_COUNT_READING`; AS-34, the fresh review's F3) | the port counts `kit+0x818` once a ray (`Accuracy.round` per pellet) | note only: a departure; the original counts once a shell before the pellet loop (D:L475516; r0004 0x5c5e10-0x5c5e20), so no pellet of a scoped first shell drops or blooms; moot while no multi-pellet weapon has a scope level (Spas 12, JACKHAMMER, 870: one `ZoomMode`, view state 4 only). The fix: count once a shell in `fireCore.ts`'s volley |
+| the room's cap on a scoped round (`ROOM_SCOPED_ROUND_CAP_ADAPTATION`, `net/shotCone.ts`; AS-34, the fresh review's F4) | `ReticuleKnockMax` x the scope's greatest `ZoomMode` on a scoped command's round, 1 otherwise | an adaptation, the room's trust (no original: the game has no server): the page caps at the running magnification (`SCOPED_SECOND_ROUND_CAP_SCALE_READING`), at most the scope's level, and the command carries no level (`CONE_SCOPE_LEVEL_READING`), so the room takes the greatest -- never under the page's on the dropping round; its box spans the offset to 0. The real bounds (the re-review's N2, N3): the next round carries no Scope bit (the room's scale 1) while the page's magnification still runs out (about 1.99 at the M4A1 SD's next round), so the room's cap can be the tighter there -- about 0.5 px on the SD standing, inside the 4.3 px slack (other scoped automatics not computed); and a forged page that keeps the Scope bit set gets every round from the second at view 5 under the wide cap (the SD's offset toward -135, about -128 by 30 rounds, against -45), and the first unscoped frame's box spans that offset for one round. Scaling only the dropping round is the same rule here (every scoped round from the second drops) |
 | the look rates (`LOOK_JUMP_READING`, `accuracy.ts` `lookRates`) | differences of `fly.pose()` a frame (the page) or of the command's yaw/pitch a tick (the server's `ShotCone`) | the body's `+0x44`/`+0x60` (`FUN_005c2670` 477256); a jump of 45° or more is a placement -- the game has no such gate |
 | the scoped sway | ported, not drawn | no drawing reader found (§8) |
 | the scope's eye standing (`HEAD_HEIGHT_READING`, `stature.ts`) | 18.3 | an estimate: 0.936 of the measured 19.6 stature (web sprint 2, W2.3). **Retired 2026-10-04 (web sprint 25, PF-05; research 180 §1.3, V1 #2):** the eye is `FUN_0029ae50`'s on the skeleton root (`SCOPE_EYE_READING`); the 18.3 stays only for the placeholder head capsule, renamed `HEAD_VOLUME_HEIGHT_READING` |
 | the placeholder head capsule's height (`HEAD_VOLUME_HEIGHT_READING`, `stature.ts`) | 18.3 | an estimate: 0.936 of the stature (W2.3), read only by `net/hitVolumes.ts`'s fallback volumes without a skeleton; PF-21 (sprint 28) retires those volumes for `skeletonVolumes` |
 | the view from the head's eye (`SCOPE_EYE_READING`, `cameraRig.ts`) | posed `skel_root` + (0, 4.4, -2.5); prone + (max(6q, 0) + 1.8) x 2 / max(n_y, 0.5) up, max(n_y, 0.5) x 0.7 x -7 ahead: 15.884 standing, 9.904 crouched, 5.768 prone | `FUN_0029ae50` (D:L142565-142624) on `cam+0xc8` = the body's `+0x2e8` = `skel_root` (`FUN_002956e0` D:L139749-139750, `FUN_0028e7b0` D:L419606-419608); research 180 §1.3, CONFIRMED by V1 #2. A reading for one step: that `FUN_00295b00`'s view is the scope's and first person's; the z 0 while `FUN_005a78d0` / `FUN_005a77e0(body,1,1,1)` answers is not taken. Owed: PLAT-36's first-person frame standing and prone, PINE `cam+0xd8` (research 206 §4.4 S2 item 2). The page stands it on the posed root, the room (`headPoint`) on the move's or the stance's |
 | the prone eye's inputs (`PRONE_EYE_TERMS_PLACEHOLDER`, `cameraRig.ts`) | was: look term q 0, ground normal y 1 | replaced 2026-10-31 (PRONE-TILT-2 (2), research 217 s7.7): the ground normal's y is the body's saved floor normal (`body+0x1348`, `Walker.floorNormal`), carried in the room's frame (`AimFrame.groundNormalY`); the look term is `PRONE_EYE_LOOK_PLACEHOLDER` |
-| the prone eye's look term (`PRONE_EYE_LOOK_PLACEHOLDER`, `cameraRig.ts`) | 0 | q (`cam+0xb4` -> `+0x24`) has no settled meaning (research 180 §1.3); 0 is a level or downward look |
+| the prone eye's look term (`PRONE_EYE_LOOK_READING`, `cameraRig.ts`) | `'same-command'` | replaced 2026-11-23 (PRONE_EYE_LOOK; research 217 s7.7): q = sin(look DOWN), the camera's row 2 y: looking down the eye rises 6q x 2 / n_y, level or up 0. *Was* `PRONE_EYE_LOOK_PLACEHOLDER` 0, whose words had the sign backwards ("0 is a level or downward look") |
 | the view from the head kept off a wall (`HEAD_EYE_WALL_BACK_PLACEHOLDER`, `cameraRig.ts`) | 0.1 | an estimate, no source: the page's eye and the room's start head (`room.ts` `startRefused`) put 0.1 short of a wall between the body's axis and `FUN_0029ae50`'s eye, along one line (`cameraRig.ts` `headEye`, level at the eye's height; shared since 2026-10-04: the page stops at a camera surface, the room at any polygon, so a wall the camera skips still holds the room's head on the body's side). Owed till PF-16: the room's line stands at the stance root's eye (prone 5.4), the page's at the posed root's (about 5.77), so a wall top between the two can refuse an honest prone start. The original needs none: its prone probe, a fan of segments (PF-16), keeps the body off a wall; the port's shared radius 3.5 leaves the prone eye 1.4 past one |
 | the prone body's top (`PRONE_HEIGHT_READING`, `stature.ts`) | 3 | resolved 2026-10-05 (web sprint 28, PF-21): the original has no prone height; `PRONE_HEIGHT` is the prone size class's 6.0 (`FUN_0054aa30` D:L415119-415122), the old name an alias for the held `main.ts` (research 180 §1.4, research 217 §4) |
 | the kick's stick follow (`STICK_FOLLOW_PLACEHOLDER`, `rifleKick.ts`) | 0, now `STICK_FOLLOW` 0.04 x the push a game frame | while the kick falls the game raises the rest by the pad's pitch push (`ctrl+0x138` x `DAT_003df198` x `DAT_00650980` 0.04, `FUN_005b9280` D:L472095-472117), capped at the falling pitch; resolved 2026-10-04 (PF-06): `DAT_00650980` = 0x3d23d70a, `DAT_003df198` = 1.0 in `.data`, once a call so once a game frame of 525/15734 s (research 181 §2.9), `ctrl+0x138` the pad's pitch axis in [-1, 1] that also drives the look's pitch (`FUN_002c6280` -> `FUN_002c65b0`, research 202 §2.5); the page reads it from the look law's ramped push (`LookLaw.pitchAxis`: the pad's stick, the arrow keys standing for it), the raw mouse gives 0; owed, minor: a dump with the right stick held up and one down for the axis's sign on the console (research 202 §2.5); retired |
+| the zoom under a throw's clip (`ZOOM_THROW_CLIP_REFUSED_READING`, `zoom.ts`; R4P-111) | every step refused while a throw or toss type is the top action | reading, pending review: r0004 the zoom block 0x59b278 -> the gate 0x5aeac0 -> the list 0x5ad9f0 at 0x5aeb8c, eleven types (`ZOOM_GATE_THROW_TYPES`); r0001 `FUN_00594cf0` D:L453313 -> `FUN_005a8da0` D:L463214-463227, nine (§7.2); the type on top is the hand's; the sidearm-drawn standing throw puts the rifle's `Throw grenade` (49) on top and is refused (ZOOMF1-PC2, r0004, 4 of 4, unscored; ZOOMF1B-PC2; the port plays the rifle's clip there, the pistol type only for the peek tosses, LATER 1442); the capture WFEEL-C7-PC2 (unscored) agrees on all 44 Ups it ran inside a clip and all 20 controls after one |
+| the view at a round's end (`ROUND_END_CAMERA_FOV_READING`, `zoom.ts`; R4P-234b) | 1.0 from the round end's call to the next set-up, the zoom state kept, the zoom's steps refused | reading, held by forced captures of r0004 (Q234B, Q234C 4/4, Q234D), pending review: `_OnMissionComplete` 0x2ac270's `FUN_0029c7f0(1.0, cam)` (D4:L159788); the step 0x1f0490 carries 1.0 at the settled rate 0 (`DAT_00435608`, D4:L57750-57753), a run not settled eases on from 1.0 (the rate not written; unmeasured); presses refused (§7.3); the call's moment research 397 §3-§4 (proven, a joiner's clock-ended round). Owed: the game's own next-round path ending it (the captures ended it by a state load) and a person's play of a real mission end. Settles patches-contrib's `ROUND_END_CAMERA_FOV_PLACEHOLDER` (R4P-234, research 456 on its branch, not on this base) |
+| the zoom's Up under a placing (`ZOOM_UP_PLACING_REFUSED_READING`, `zoom.ts`; LATER 1427) | Up refused above third person while a placing type is the body action | reading, pending review: r0004 0x59b30c-0x59b360 (the view byte signed, above 0; 0x57d220 on `+0x534` over `Place claymore`, 0x3d `Put on ground`, 0x3e `Put on wall`, the pistol types through their back-links 0x5e95b0), Down free; r0001 none (D:L453322-453324); `GrenadeCore.placingClipActive` and the bomb's own plant and manual drop (`BombPage.ownPlacingClip`), `stepZoom` (§7.2); not captured |
 | night maps (state 3) | ported | `main.ts` reads the map's `NightMission` (§14, `FUN_00318da0` 217135) into `Zoom.setNight`; `test/zoom.test.ts` 'night maps: third person zooms into the night vision' |
 | the reticle colour | rest | no targets in the viewer |
 | the accuracy pip | drawn | `fire.ts` `blockedMuzzle` (`FUN_005aa6e0`, the 0.008 tolerance each axis at D:L464356-464370, none without a kept aim D:L464339-464341; was: "at 464340-464350") -> `main.ts` -> `reticle.ts` `stepPip` (`FUN_00215250`); its two rays take the original's admission since AD-2 (§19) |
@@ -729,7 +1185,13 @@ a PEEK of `body+0x200` and `cam+0xd8`).
 | the room's schedule window (`FIRE_SCHEDULE_WINDOW_ADAPTATION`, `net/fireGate.ts`; LATER 588 (a)) | 7 ticks | an adaptation, no original: a page frame under the 0.1 s clamp (6 ticks) and a tick of naming, inside which a late round keeps its chain's schedule; §6 |
 | the page's mirror of the room's gate (`ROOM_GATE_MIRROR_ADAPTATION`, `fire.ts`; LATER 587's second fold) | online, no round the room's gate refuses at its named command | an adaptation, no original; replaces the first fold's `PRESS_TICK_FLOOR_ADAPTATION`; §6. The page and the room can drift after a refusal only the room makes (cone, muzzle or early through `refuseRound`, nofire): the room is the more lenient side on every path found, so no honest round is wrongly refused, but that is unproven and has no test |
 | the fire mode a weapon comes up in (`DEFAULT_FIRE_MODE_FULL_AUTO_ADAPTATION`, `accuracy.ts` `defaultFireMode`, `fullAutoDefault`; OT.R100, the owner, 2026-11-03) | automatic for every weapon whose modes include 3, at spawn, the page's mount and a pickup | a browser adaptation on the owner's ruling, no original: the original's spawn default is burst where enabled, else the first mode (`originalSpawnFireMode`, `FUN_005c0250` D:L476181-476192, §6), and a pickup's the highest mode in the hand, the first at a swap (`pickupFireMode`, research 323 R323.11). It moves the spawn default of 20 weapons: off burst, the 15 with single, burst and automatic (M4A1, M4A1 SD, M4A1-M203, 552, 552SD, AK-47, AKS-74, AK-105, KBP OTs-14 Groza, HK5, HK5SD, F90, 9mm Sub, MP5K, F2000); off single, the 5 with single and automatic (Model 18, M14, JACKHAMMER, SA-80 A2, Steyr Aug); the automatic-only M60E3, M63A and .PKM already come up on it (`weapons.parity.test.ts`). The player's in-game L3 switch (`FUN_005c4600`) overrides it, kept per slot across respawns while the weapon is unchanged (`matchFirearm.ts` `spawnKit`) |
+| the fire mode a weapon PICKED UP comes up in (`PICKUP_FASTEST_FIRE_MODE_ADAPTATION`, `accuracy.ts` `fastestFireMode`, applied in `takeKit.ts`; OT.R100 as extended by the owner 2026-11-22) | the weapon's fastest firearm mode -- automatic 3, else burst 2, else single 1 -- in the hand or not | a browser adaptation on the owner's ruling ("an intentional divergence and qol fix"), no original: the original's pickup mode is `pickupFireMode` (the highest in the hand, the first at a swap; research 323 R323.11), so an M16A2 / M16A2-M203 taken with the other firearm out or an item up came up on single; now burst (a player's report, Discord, 2026-11-21). The spawn default already lands on every pinned weapon's fastest mode (`weapons.parity.test.ts`); the player's L3 switch overrides |
 | the reload press's game frame (`RELOAD_PRESS_FRAME_READING`, `fire.ts`; LATER 330) | `'next'`: the press's own frame keeps its fire tick, the delay's first run-down the next game frame's | reading, pending review: R arms `+0x820` in `FUN_00594cf0` (D:L453460-453463), whose caller is not read; `FUN_005506a0` runs a virtual update (vtable `+0x3c`, D:L417905) before the kit's frame (D:L417907), so `'same'` (the timer run down in the press's frame, the reload a game frame sooner) is not ruled out. Settled by resolving that slot or by a capture of a press and its reload's first frame |
+| the RPG's after-shot clip (`RPG_AFTER_SHOT_CLIP_READING`; LATER 1365) | not modelled: the RPG waits its 138 game frames (`net/fireGate.ts` `rocketWaitFrames`), a floor until this is read | note only: the lock's expiry calls the after-shot routine 0x5ca4d0 (r0001 `FUN_005c3000`), unread at r0004, and the clip it begins; if that clip holds the fire past the wait's 108 run-downs it binds instead (§6, items 6 and 10). Settled by a read of 0x5ca4d0 and its clip's length, or the capture of §6 item 9 |
+| whether the RPG's lock holds a firearm taken up inside it (`ROCKET_LOCK_FIREARM_READING`; LATER 1365) | the port hands the firearm the rocket's remaining wait at the lower (`matchThrow.ts`, `holdWait`), the lock's frames in it | note only: `kit+0x820` is the kit's one timer, not the slot's [inference], so a firearm taken up during the RPG's 1 s would wait it out too; unread. Settled by a read of the swap path against `+0x820`, or a capture of a rifle taken up inside the lock |
+| the rockets 187-189 (`ROCKET_ROUNDS_187_189_READING`; LATER 1365) | the port's rockets are the LAW HEAT (185) and the RPG (186) alone | note only: nobody has read those records; whether any carries `ReloadAfterShot`, or is 0xba's kind, is unknown. Settled by `readWeapon` over them |
+| the console kit's frame dt for the rockets' count (`ROCKET_FRAME_DT_READING`; LATER 1365) | `GAME_FRAME_DT` 525/15734 s: the LAW HEAT 108 frames, the RPG 138 | note only: at a dt of 1/30 s the wait's run-downs are 109, not 108 (§6 item 9); the port's 525/15734 is research 208's. Settled by the capture of §6 item 9 (the frame gap between two rockets) |
+| the night grain's stream (`NVG_GRAIN_RANDOM_READING`, `reticle.ts`; R4P-246) | `1`: the port's own newlib `rand()` stream from its initial state | reading: the original's `rand()` is the game's shared one, seeded from a clock (`FUN_00197728` from D:L249647, D:L249651) and drawn at 291 call sites, so which bytes fall on a frame is not the port's; the generator is ported exactly, the byte conversion ported but for the EE FPU's truncation (the second read's note, to confirm: if it rounds toward zero the console never writes 255 and about 5 draws in a million land one index lower than the port's; visually nil) (§14.1). Not to be settled texel for texel; capture Q-246's coverage and brightness measures are what the port is to be scored by |
 | the tracer's start without a muzzle (`MUZZLE_READING`, `fire.ts`) | (1.2, -1.5, 3) units in the view's right, up, ahead | a reading, no source: an offset from the eye drawn only when the shot has no muzzle point (no held weapon's muzzle, or the aim point too near it: `fire.ts` `drawTracer`'s `fromMuzzle` false) |
 
 ## 12. Evidence
@@ -740,6 +1202,11 @@ Screenshots (PS2 presentation, Frostfire spawn A; `socomlegacy/test-fixtures/scr
 opened), `4-first-person.png`, `5-scope.png` (the SD at 3×: the tube and the dashed cross). The binoculars
 (`e2e/binoculars.spec.ts`, 1280 × 720, Modern): `test-fixtures/screens/binoculars/binoculars.png` -- the Mark 23 at 9×,
 the two-lens mask with its rim and the black bars beside it, "ZOOM: 9.0x" and the RANGE line at (515, 40).
+
+BUG-B14 (gun feel) parity pin (2026-11-24): `packages/viewer/test/b14GunFeelParity.test.ts` holds the port's sizes and
+f = 1 climbs (AK-47 single/auto/crouch/prone, M16A2 burst, 552 SD auto) and the page's start modes against IQ-159 (r0004,
+PC 3; an unscored capture, its summary only, the record pending). Not pinned: the climb caps (fitted f, LATER 1141), the
+552 SD's round 4, and the HK5 SD round-10 size and the DE .50 recovery, which differ (v0.4.33).
 
 ## 13. Penetration: what a round goes through
 
@@ -803,9 +1270,9 @@ the blast. `REACH_HITS_READING`'s surface-test clause settled with it (209 §14,
   - the colour: `FUN_003b78d0(0, LensFX_NVG)` loads a colour matrix whose rows are all `(r, g, b) x 0.33` and
     `a x 3.03` of the map's `LensFX_NVG` -- `(0.2, 0.898, 0.2, 0.24)` on every map -- and the camera's colour
     `cam+0xd0` becomes the lens times the fog's; leaving, `FUN_003b78d0(0.25, (1, 1, 1, 0))` eases it back in four steps;
-  - `noise50.tif` (64x64), refilled with random texels every frame, over x 5-635, y 75-373 at alpha 64 -- **not drawn**:
-    its palette ramp (`FUN_00354a00(tex, 0x42, 0x49, 0x7f)`) is not decoded, and white noise at half alpha is not what
-    the frame would show;
+  - `noise50.tif` (64x64), refilled with random texels every frame, over x 5-635, y 75-373 at alpha 64 -- drawn since
+    R4P-246 (§14.1; was "not drawn": `FUN_00354a00(tex, 0x42, 0x49, 0x7f)` read as a palette ramp, which it is not --
+    it rewrites the texture's ALPHA_1 to 0x49, the destination brighten);
   - `.NV_GOGGLES_ON` / `.NV_GOGGLES_OFF` on the way in and out (`DAT_0044ce30/38`, `FUN_005448a0`).
   `LensFX_StarlightScope` (0.3, ...) is the same for a scope on a night map (states 4+) [not ported].
 - **The viewer:** the goggles on the reticle's layer (`nightLayout`); the colour as a frame filter on the canvas -- an
@@ -813,6 +1280,73 @@ the blast. `REACH_HITS_READING`'s surface-test clause settled with it (209 §14,
   the night's dark lighting) before the textures modulate them, which only the world renderer can do; the viewer takes
   the rows' weights as a luminance, a gain of 3 for the lift, tinted by the lens. **Request (maps/lighting):** in state 3
   replace each vertex colour's channels by that sum.
+
+### 14.1 The grain (R4P-246 NVG-GRAIN, 2026-11-24; reading, pending review)
+
+The owner kept the grain (round 2, R2-P-INL-NVG, "exclude"). The transcription is r0001's, re-read at the source by
+its implementer; a reviewer's re-read is owed.
+
+- **The quads.** `BitmapReticule_Init` (`FUN_002178c0`) loads `noise50.tif` into `hud+0x30f0` (`FUN_00321390`,
+  D:L71079-71086) and, only when it is found, appends four quads (`hud+0x3940`, +0x1f0 each) to the HUD's list
+  `hud+0x34` (`FUN_001feae0` D:L71090-71095, inserting before the list's end `hud+0x38`, D:L70989) -- the goggles'
+  list, after their four (D:L71027-71032) -- then shows them and sets their alpha to 64 (`+0x1c`, then `+0x34` with
+  64.0, D:L71097-71102; the class's constructor `FUN_00359640` sets 128 through the same `+0x34`). `FUN_00359590`
+  lays the corners (D:L71104-71111): x 5-320 / 320-635, y 75-224 / 224-373, four 315x149 quarters tiling x 5-635,
+  y 75-373 and meeting at (320, 224). `FUN_00359140` gives the UVs (D:L71112-71119): 0.01 (0x3c23d70a) and 0.995
+  (0x3f7eb852), in the four corner sets the goggles' quads take (D:L71071-71078), so each quarter is mirrored as the
+  goggle quad of its quarter.
+- **The blend.** `FUN_00354a90(tex, 0x42, 0x49, 0x7f)` (D:L71120) is a thunk -- read at the bytes, r0001 0x354a90:
+  a load of the texture's `+0x20` into the first argument and a jump to 0x354a00 with that pointer plus 0x10 in the
+  delay slot -- handing the texture's GS register list to `FUN_00354a00` (D:L252534-252566), which walks the list for
+  register 0x42 (ALPHA_1) and writes 0x49 over its value (0x7f: the register id kept). On the disc every map's
+  `noise50.tif` record sets ALPHA_1 0x44 (the source blend), so the init's rewrite is what draws it. 0x49: A (bits
+  0-1) = 1, Cd; B (2-3) = 2, zero; C (4-5) = 0, As; D (6-7) = 1, Cd -- `(Cd - 0) * As >> 7 + Cd`, the view
+  brightened by the grain's alpha, its colour never read (`@s2u/gs` `decodeAlpha` names 0x49 `destination`).
+- **The texture** (off the disc through `parseTextureRecord` and `HUD2_PAL.ZED`, every one of the 22 maps; the
+  dev-disc test in `nightGrain.test.ts`): 64x64 PSMT8, TEX0 TCC 1, TFX 0 (MODULATE), bilinear, REPEAT; its CT32
+  palette is white, its alphas rising 46 to 128 in lookup order (`NVG_GRAIN_ALPHA_RAMP`), the same 256 on every map.
+  Under MODULATE the drawn alpha is `At * Av >> 7`, Av the quad's 64: 23-64 of 128, a pixel brightened by 18-50 %.
+- **The refill.** Each frame the goggles are on (`hud+0x4100`, D:L70359-70363) the HUD update (`FUN_00216770`) re-sets
+  the four quads' alpha from `hud+0x4104` (D:L70364-70369; only D:L71267 writes it: 64.0) and rewrites every one of the
+  64x64 texel bytes (D:L70370-70385; the same loop runs once at the init, D:L71121-71135): each is
+  `(char)(int)((float)r * 4.656613e-10 * 255.0)` of a `FUN_00197740` draw -- newlib's `rand()` (D:L14524-14537): the
+  64-bit state times 0x5851f42d4c957f2d (`FUN_0019eb18`, the 64-bit multiply, D:L19950-19962) plus 1, returning its
+  high word's low 31 bits. The byte is a palette index; in the port a draw of 2^31 - 64 or more rounds to 1.0 and gives
+  255. If the EE's FPU rounds toward zero (the second read's hardware note, TO CONFIRM), the console never writes 255 and
+  about 5 draws in a million land one index lower than the port's: visually nil.
+- **Shown and hidden** with the goggles: `ChangeReticule` (`FUN_00213e20`) hides both sets of four (`+0x18`) when
+  `hud+0x4100` is clear and shows them (`+0x1c`) when it is set (D:L69351-69367, under the condition at D:L69279).
+- **r0004.** By the desktop host's function match (`game/harry62/return_set/match_r0001_r0004.csv`, a local file, not
+  in either repository) and the bytes compared for this note: `FUN_002178c0`, `FUN_00216770` and `FUN_00213e20` sit at
+  the same addresses, "relinked-body" (the init's differing words are only `lui` / `addiu` / `lwc1` / `sw` address
+  words and `jal` targets; its immediates 64.0, 75.0, 635.0, 373.0 and 0x49 sit at the same offsets); `FUN_00197740` is
+  exact; `FUN_00354a90` / `FUN_00354a00` are r0004 0x003720c0 / 0x00372030, exact; `FUN_00359590` is 0x00376d70
+  (exact), `FUN_00359140` 0x00376920 (hash and callees). An r0004 decompilation exists on ATLAS (not on this host): the
+  second read (patches-contrib, 2026-11-24) read the same blocks there -- the init D4:L77126-77181, the update
+  D4:L76405-76432, `+0x4104` D4:L77314, the show and hide D4:L75375 -- and finds `FUN_00354a90` and `FUN_00359590`
+  RELINKED there, not byte-exact (the 'exact' above is withdrawn for those two).
+
+**The port** (`viewer/src/reticle.ts`: `NVG_GRAIN`, `NVG_GRAIN_ALPHA_RAMP`, `NightGrainRandom`, `nightGrainByte`,
+`nightGrainLayout`): the night-vision layer of the three-backed HUD pass adds the four quads at those rectangles (the
+640x448 frame scaled by the frame's height about its centre, as the goggles), drawn after the goggles and before the
+ring and the arms, visible exactly when the goggles are. Their texture is the port's own 64x64: each texel a byte of
+the ported generator through the ramp, filled once at the bitmaps' load and again once a game frame (`GAME_FRAME_DT`,
+timed on `performance.now()`) while the goggles are drawn. The blend is three's custom blend `src * dstColor + dst * 1`
+with the shader emitting `At * Av / 128` in every channel (the texels carry `At`, the material's colour `64 / 128`):
+the GS's `(Cd - 0) * As + Cd` in FORM, not bit-equal: the GS truncates twice and the port blends in float, so the port
+can be up to about one level brighter; whether the GS clamps or wraps on an overflow is not checked. The grain is built
+only when the goggles' texture is also present (the original does not require it; moot while every map has both). Held by `packages/viewer/test/nightGrain.test.ts` (unit tests; a dev-disc test over
+every map).
+
+- **What is not the original's:** the stream's seed and position (`NVG_GRAIN_RANDOM_READING`, §11). The raw (WebGPU)
+  HUD path, `viewer/src/xboxPrototype/reticleFrame.ts` (`reticleQuads`, the goggles at L67-73), draws the goggles
+  without the grain: not claimed by R4P-246 -- the xbox fork is frozen (OT.R148), so the gap is a line on
+  XBOX-LIGHTWEIGHT-GAPS.md (seat-merge, 2026-11-24), fixed only on the owner's ruling.
+- **Capture Q-246** (IQ-138, Q246-PC2, r0004 LAN Sandstorm night; the original running, not the port): the grain
+  redrawn every frame (still-body frame difference 4.6-4.7 at N=1 with the goggles on, 0.10 off), none with them off
+  (coverage 0.004-0.09 off against 0.044-0.36 on), the view brightened (flat areas ~107-127 on, ~21-26 off). Those
+  three observations of the original are **proven**; the port has not been scored against them -- a port run under the
+  same set-up and the same measures is owed -- so the port's grain is a **reading, pending review**.
 
 ## 15. The scope's sway, settled
 

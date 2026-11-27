@@ -8,6 +8,8 @@
   three halves are r0004's outcome in the port already, with no change (§6). A draft of item 11's state-8 half and two
   change-free pins (items 6 and 16) were backed out at the first review's fold (§2.6-§2.8 say why). No code and no test
   changes, and no constant is named, so research 101 takes no row and the placeholder ledger is unchanged.
+- Amended 2026-11-24 (R4P-104; reading, pending review): item 15's AI half is ported (the escortees' landing clip,
+  §2.11) and the mission's wait read (§6.1: no grace online, the queue's claim corrected). The rest of this note stands.
 - The owner's bar for this task (Craig, 2026-11-09T01:45Z): "Do not fudge things you are not confident in. If you don't
   have a very high confidence in the change (that it is original and won't break our other systems, leave it as not in
   until that gap is closed)". An item is ported only when its r4 site and its r0001 counterpart read unambiguously, and
@@ -63,7 +65,7 @@
 | 7 | the host's climbable-object handler (`FUN_005b1350`'s twin) gains a release request (type 4) and clears an occupant that no longer stands for a live actor before it grants; the client (`FUN_005b1570`'s twin) re-asks the two ladder starts when the grant arrives and sends the release when they refuse | the port has no climbable-object occupancy at all: each mover mounts a ladder on its own commands (`Traversal.touchLadder`), with no ask, no grant and no holder | **not ported** (§2.9): nothing to attach it to | reading |
 | 9 | the online push-apart between SEALs (`FUN_0054f7e0`'s twin) skips a climbing SEAL unless "Step up" is on top, skips type 0x23 on top, and when the state `+0x174` is 2 (prone) or type 0x13 or 0x19 is on top, is pushed only by a prone or state-8 body, keeps a push only against the velocity `+0xf44` (the velocity zeroed, the depth capped at 1) and drops one along it, and floors the second site's velocity dot at -1 with the velocity zeroed; unflagged, the first site's depth is capped at 6 (new at that site); both cases remove the push's component from `+0x1354` at the first site (r0001: the second site only) | the port has no push-apart between SEALs in either build's form: its bodies pass through each other (LATER 711) | **not ported** (§2.10): the push-apart itself is not built | reading |
 | 15 (landing) | `FUN_005af590`'s twin lands when its timer is out **or** in a network game | the port's mover lands every time; nothing reads the timer | **already r0004's** online, no change (§6.1) | reading |
-| 15 (AI) | `FUN_005ac1f0`'s twin: in a network game an AI controller (vtable +0x30) returns class 0 after the sound: no damage, and the landing's clip is class 0's | the port's hostages take no fall damage (they never reach `fallDamage`) but their landing clip is still classed; the port's CPU seats (an adaptation) take fall damage as players | **not ported** (§2.11) | reading |
+| 15 (AI) | `FUN_005ac1f0`'s twin: in a network game an AI controller (vtable +0x30) returns class 0 after the sound: no damage, and the landing's clip is class 0's | the port's hostages take no fall damage (they never reach `fallDamage`); since R4P-104 their landing clip is class 0's (`Walker.onlineAi`); the port's CPU seats (an adaptation, `MATCH_BOT_FALL_ADAPTATION`) take fall damage as players | **ported by R4P-104** (2026-11-24, the clip half; §2.11) | reading, pending review |
 | 15 (credit) | `FUN_005ac1f0`'s twin: a fall death's killer online is the faller (`actor+4`); offline still the local player | the room counts a fall death the faller's own: `kill(p, null, ...)`, the faller's -2 and a suicide | **already r0004's**, no change (§6.2) | reading |
 
 ## 1. What changed
@@ -369,13 +371,22 @@ CPU seats are an adaptation (the original has no online bots, `VOTE_HUMAN_SEATS_
 players do. Whether r0004's AI rule binds them is not settled: the OT.R93 mapping of a CPU seat to `IsAi` (COMBINED-CUT,
 `MoverSim.ai`) and `WEAPON_LINE_BOTS_READING` are each ruled for their own rule.
 
-**Not ported.** Damage alone for the CPU seats would leave their landing clip r0001's (a heavy landing playing `Hit`
-with no damage), and the clip half needs the shared `Walker` to know the network game and the AI controller, on the page
-(which predicts and draws other bodies) and in the room alike; the hostages' clip half has the same need. **What would
-close it:** the controller's word on whether the CPU seats are r0004's AI for this rule (a `HUMAN_TASKS.md` row if the
-owner's); `Walker.land`'s class taken as 0 for an AI online, with the room's and the page's agreement pinned (a bot's
-and a hostage's heavy landing: clip, damage, sound); a PCSX2 `--build r0004` online Extraction game, a hostage led off a
-ledge over 115 a second (its clip and its health).
+**Ported, the clip half (R4P-104, 2026-11-24; reading, pending review).** seat-kill's r0004 re-read confirmed the rule
+keys on nothing but the controller's class (vtable slot +0x30: 1 for `CSealCtrlAi` alone, 0 for `CSealCtrl`,
+`CSealCtrlSquirm` and `CRemoteCtrl`) and "online" on nothing but the byte r4 0x45d481: it covers ANY AI-controlled body
+on the console that runs it, in a network game. The port's flag stands for "is an escortee": match `hostageFollow.ts`
+sets `Walker.onlineAi` on each follower's walker (Extraction's hostages; Escort's VIPs are the same followers) -- an
+inference that the original's online AI bodies are exactly those (the `vehicles.rdr` NPCs, research 175 / 193; no other
+online AI spawn checked; R4P-104's fold of the non-author second read, "PARTLY") -- and `Walker.land` then picks the living landing's clip over the hard rate by class 0
+(`AI_ONLINE_LANDING_CLASS`, viewer `net/damage.ts`): `landHard`, never `hit` / `hitStomach` / `landDeath`; the landing's
+`cls`, the sound's, stays the real class (r4 0x5b1ff0-0x5b2134 plays the sounds before the spare). A dead body is still
+class 3 (D:L466658-466660). Held by match `test/hostageFall.test.ts`: the clip on the follower's walker, and (since the
+second read's fold) the damage half -- a hostage dropped 130 units in a running Extraction room lands alive, its health
+unchanged, the room's `fallDamage` running over players alone. **The CPU seats are ruled out** by the owner's
+AS-09 note: they keep fall damage, a browser adaptation (`MATCH_BOT_FALL_ADAPTATION`, research 151 §5) -- the spare
+never keys on `sim.ai` -- pinned by match `test/roomFall.test.ts` ("a match bot (sim.ai) takes fall damage as a
+player"). Still owed: capture Q-104 / IQ-073 (a) (research 151 §6), a hostage or VIP led off a drop over 120 units on
+r0004 online: its clip, its health, its sound.
 
 ## 3. Held by the owner (not touched)
 
@@ -407,7 +418,14 @@ that were already there: central `test/round.parity.test.ts` ("a fall of 120 uni
 r4 0x5b52d8-0x5b5300, the head of `FUN_005af590`'s twin (r4 0x5b52b0): the landing runs when the timer at r4 0x442ff8
 is at most 0 (r0001 `DAT_004365e8`, D:L466654; the same instructions at r0001 0x5af5b8-0x5af5d0), **or** when the
 network flag byte r4 0x45d481 is set (0x5b52f0-0x5b52fc: r0001 has only the timer's branch, 0x5af5d0 to the end);
-offline the timer still gates. `FUN_001ecb10` sets the timer to 10.0 (D:L51045); what counts it down is not read. The
+offline the timer still gates. `FUN_001ecb10` sets the timer to 10.0 (D:L51045). **What counts it down, read (R4P-104,
+2026-11-24; reading, pending review):** the timer is the mission object's `+0x108` (r4 0x442ff8); the mission's tick
+r4 0x2abf30 (r0001 `FUN_002aa490` D:L151051-151069) adds dt to `+0xe0` and, while `+0x108 > 0`, takes dt off it
+(0x2abf54-0x2abf68), no clamp at 0; it is set to 10.0 at the core state's re-entry (`FUN_001ecb10`) and at the mission's
+open and re-open (r4 0x2ad720, 0x2addfc; r0001 `FUN_002abd40` D:L151838, `FUN_002ac410` D:L152044). Offline it gates
+the ordinary landing alone (r4 0x5b52b0): a knock's, a dive's and state 9's landings do not pass it. **So the queue's
+R4P-104 claim of "no fall damage in a mission's first 10 s" is offline only**: r0004 online lands from the first frame,
+and the room must not grow a grace (pinned by match `test/roomFall.test.ts`, "no grace online"). The
 port's mover lands every time (`Walker.land`, viewer `mover.ts`); nothing in the page or the room reads the timer (`git
 grep` 2026-11-09: no reader; research 230 §5 lists it unread). Online -- the room and its pages -- that is r0004's
 outcome, with no change. Offline (the test room) both builds gate on the timer and the port does not: r0001's gap,

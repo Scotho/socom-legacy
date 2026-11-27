@@ -43,5 +43,11 @@ export const STATUS_LATENCY_BANDS_ADAPTATION: StatusLatencyBands | null = { good
 /**
  * The one region listed today (`packages/central/src/rooms.ts` `BRIEFING_ROOMS_LISTED_ADAPTATION`, US CENTRAL).
  * The card's words. Not a hostname.
+ *
+ * WM-3 (the region move): the status data carries no region -- `/health` reports host counts only, and
+ * `/status-config.json` only matches a probe origin to a label already shown here -- so the label cannot follow it. This
+ * line is the single place to change when the hosts move to another region (e.g. 'US East match server'), in the release
+ * that ships the move; a deployed `/status-config.json` that names the old label must be given the new one at the same
+ * time, or its latency probe is ignored (`statusModel.ts` `probeOrigins`).
  */
 export const STATUS_REGION_LABELS_ADAPTATION = ['US Central match server'] as const;

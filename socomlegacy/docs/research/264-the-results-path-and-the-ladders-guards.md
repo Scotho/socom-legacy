@@ -439,7 +439,7 @@ reconciliation (§2.6) passes it by; the operator's log line is kept beside it.
 | `players` | under five at the match's start: not counted, rating or fold | OT.R33 calls 2 and 3 (`plans/2026-10-02-online-path-target.md`:354-361), H168; `countsForLadder` | the owner's rule | "four at the match's start" |
 | `password` | counted (the ruling: "All games count", public or password); the other value excludes it with a line | OT.R33 call 2; `LADDER_PASSWORD_GAMES_PLACEHOLDER` kept for the one-line flip (§6) | the owner's rule; the flip a placeholder | "a password game as LADDER_PASSWORD_GAMES_PLACEHOLDER says" |
 | a leave | not a limit: the quitter's match kept, folded at the end as it stood; in no calculator of its round or a later one | OT.R33 call 7 (b), `LEAVE_COST_OWNER` (§2.3) | the owner's rule | `results.test.ts` (SVC-07) |
-| the banned | off the board and out of the total; the seam `bannedAccounts()` (no writer: the store holds no account ban until SVC-23's), read by the board (`LadderService`'s default `banned`) and the void (its line marks a banned account restored, still off the board) | OT.R33 call 11; `LADDER_BANNED_SOURCE_PLACEHOLDER` (research 261 §6) | the owner's rule; its source a placeholder | "a banned account off the board and out of the total" |
+| the banned | off the board and out of the total; the seam `bannedAccounts()` (its writer the store's account bans since OPS-A2, `bannedAccountIds`), read by the board (`LadderService`'s default `banned`) and the void (its line marks a banned account restored, still off the board) | OT.R33 call 11; the store's `account_bans` (`LADDER_BANNED_SOURCE_PLACEHOLDER` retired 2026-11-15, research 261 §6) | the owner's rule; its source the store's account bans (the OPS lane; product track) | "a banned account off the board and out of the total" |
 | the bounds | an account on two seats, kills above the opposing seats, a classic round under 15 s: to the dead-letter file with `why` (§2.5) | `RESULT_BOUNDS_ADAPTATION` | adaptation | `resultsNegative.test.ts` (SVC-07) |
 
 Not built here: the roadmap block's "the audit ledger's note when both sides' seats share an address" -- the results
@@ -850,8 +850,9 @@ line), `tauntMenu.test.ts` (the TCM closed at depth 0 and 1). **RED** -- `netPag
 - **SVC-23a** (2026-10-10; §3; reviewed 2026-10-10 by a fresh reviewer: FAIL -- the two-void order, §3.3, fixed in the
   same task; the fix re-reviewed PASS WITH FINDINGS; the server package's typecheck exit 0 at the merge): built -- the
   limits' ledger lines, the
-  board's entry, the void and its CLI. Left from it: **H-next c** (`VOID_AUTHORITY_PLACEHOLDER`, the owner's); the
-  account ban that gives `bannedAccounts` a writer (SVC-23's, `LADDER_BANNED_SOURCE_PLACEHOLDER`); the same-address
+  board's entry, the void and its CLI. Left from it: **H-next c** (`VOID_AUTHORITY_PLACEHOLDER`, the owner's); ~~the
+  account ban that gives `bannedAccounts` a writer (SVC-23's, `LADDER_BANNED_SOURCE_PLACEHOLDER`)~~ *(2026-11-15: built by
+  OPS-A2 on the OPS lane -- the ladder's banned set is the store's, `bannedAccountIds`; the placeholder retired)*; the same-address
   note (§3.1: SVC-23b's, with the signals; *still owed, §5.1: the results carry no address*); the void's CLI in the
   image (`deploy/README.md` builds it beside the bundle; the Dockerfile is unchanged); ~~**the ledger's counter after a
   restore** (the re-review's low, from SVC-07's restore: the queue's counter restarts from the stored marks, so after a

@@ -1,5 +1,9 @@
-import { LOBBY_KEEPALIVE_MS, LOGOUT_TIMEOUT_MS, MEDIUS_STATUS, type LobbyService } from '@s2u/ui';
+import {
+  BANNED_PERMANENT_ADAPTATION, LOBBY_KEEPALIVE_MS, LOGOUT_TIMEOUT_MS, MEDIUS_STATUS, PLAYER_BANNED_STATUS, banWords, localZoneOffset,
+  type LobbyLoginReply, type LobbyService, type ShownBan, type ZoneOffset,
+} from '@s2u/ui';
 import { pageAccountService, type AccountRequestOptions } from '../connectHost';
+import { accountNameRefusal, nameCharLabel } from '../accountName';
 
 /**
  * The modern UI's session (MU-2 of `docs/plans/2026-10-09-modern-ui-parallel.md`): sign in, create an account, sign
@@ -84,7 +88,11 @@ export type SessionState = 'signed-out' | 'signing-in' | 'agreement' | 'signed-i
 export type SignInErrorCode =
   | 'not-found' | 'logged-in' | 'bad-password' | 'failed'
   | 'name-taken' | 'not-accepted' | 'create-failed'
-  | 'unreachable' | 'session-lost' | 'signed-in-elsewhere' | 'missing' | 'busy';
+  | 'unreachable' | 'session-lost' | 'signed-in-elsewhere' | 'missing' | 'busy'
+  /** NAMES-MIDDLE: a name central would refuse, said before it is sent (`MU_NAME_CHARACTERS_ADAPTATION`). */
+  | 'name-characters' | 'name-spacing'
+  /** OPS-A3: central's banned refusal (-972), or a session a ban ended (`MU_BANNED_WORDS_ADAPTATION`). */
+  | 'banned';
 
 export interface SignInError {
   code: SignInErrorCode;
@@ -179,7 +187,18 @@ const WORDS: Record<'failed' | 'create-failed' | 'unreachable' | 'session-lost' 
   busy: 'Already signing in',
 };
 
-const loginError = (status: number): SignInError => {
+/**
+ * MU_BANNED_WORDS_ADAPTATION (OPS-A3, the owner's row H464; product track, a browser adaptation -- a service ban has no
+ * original): central's banned refusal (-972, `PLAYER_BANNED_STATUS`, its reply's `ban`) is said in `@s2u/ui`'s ban words
+ * (`banWords`: the sentence, timed in the browser's zone and UTC when the ban has an end, and the public reason's line
+ * when there is one), never as a plain failure; a reply with no `ban` (an older central) the permanent sentence. A session
+ * a ban ended (the renewal's 401, its why `banned`) says the permanent sentence (the 401 carries no date). The words are
+ * text: every surface that shows them puts them in as text. Every other status reads as before.
+ */
+export const MU_BANNED_WORDS_ADAPTATION = "central's banned refusal and a session a ban ended are said in the ban's words" as const;
+
+const loginError = (status: number, ban: ShownBan | null = null, zone: ZoneOffset = localZoneOffset): SignInError => {
+  if (status === PLAYER_BANNED_STATUS) return { code: 'banned', status, message: banWords(ban, zone) };   // MU_BANNED_WORDS_ADAPTATION
   const w = LOGIN_WORDS[status];
   return w ? { code: w[0], status, message: w[1] } : { code: 'failed', status, message: WORDS.failed };
 };
@@ -188,6 +207,24 @@ const createError = (status: number): SignInError => {
   return w ? { code: w[0], status, message: w[1] } : { code: 'create-failed', status, message: WORDS['create-failed'] };
 };
 const plain = (code: keyof typeof WORDS): SignInError => ({ code, status: null, message: WORDS[code] });
+
+/**
+ * MU_NAME_CHARACTERS_ADAPTATION (NAMES-MIDDLE; product track, a browser adaptation): central refuses a new account's name
+ * that holds a character the game cannot draw, or that is not its own cleaned form (`../accountName`
+ * `ACCOUNT_NAME_CHARACTERS_ADAPTATION`), with RegistrationFailed alone -- its reply carries no reason, and the classic
+ * page's registration (state 6, REGISTRATION_FAILURE, a disc string) says none. So the panel checks the name by the same
+ * rule before it sends it and says why, naming each character (`nameCharLabel`: `U+200B`, `а (U+0430)`); nothing is sent.
+ * A name the rule takes goes to central as before.
+ */
+export const MU_NAME_CHARACTERS_ADAPTATION = 'a new name central would refuse is said at once, its characters named' as const;
+
+const nameError = (name: string): SignInError | null => {
+  const r = accountNameRefusal(name);
+  if (r === null) return null;
+  return r.kind === 'characters'
+    ? { code: 'name-characters', status: null, message: `That name has characters the game cannot show: ${r.chars.map(nameCharLabel).join(', ')}` }
+    : { code: 'name-spacing', status: null, message: 'A name cannot start or end with a space, or hold two spaces together' };
+};
 
 /**
  * OT.R61 (PERSONA-PERSIST (a)): the account services beside the plain one -- `remember` (`../connectHost`
@@ -203,6 +240,8 @@ export interface SessionOptions {
   every?: (ms: number, fn: () => void) => () => void;
   /** A one-shot timer (LOGOUT_TIMEOUT_MS) answering its cancel. Absent: `setTimeout`. */
   after?: (ms: number, fn: () => void) => () => void;
+  /** MU_BANNED_WORDS_ADAPTATION: the zone a ban's end is said in. Absent: the browser's own (`localZoneOffset`). */
+  zoneOffset?: ZoneOffset;
 }
 
 export function createSession(service: LobbyService, opts: SessionOptions = {}): ModernSession {
@@ -210,6 +249,7 @@ export function createSession(service: LobbyService, opts: SessionOptions = {}):
   const forgetting = opts.services?.forget ?? null;
   const every = opts.every ?? ((ms, fn) => { const id = setInterval(fn, ms); return () => clearInterval(id); });
   const after = opts.after ?? ((ms, fn) => { const id = setTimeout(fn, ms); return () => clearTimeout(id); });
+  const zone = opts.zoneOffset ?? localZoneOffset;
   let state: SessionState = 'signed-out';
   let account: SessionAccount | null = null;
   let ticket: string | null = null;
@@ -270,9 +310,10 @@ export function createSession(service: LobbyService, opts: SessionOptions = {}):
         const ended = generation;
         if (!service.sessionEndedWhy) return;
         service.sessionEndedWhy(held).then((r) => {
-          if (r === 'taken-over' && ended === generation && state === 'signed-out' && error?.code === 'session-lost') {
-            set('signed-out', null, null, plain('signed-in-elsewhere'));
-          }
+          if (ended !== generation || state !== 'signed-out' || error?.code !== 'session-lost') return;
+          if (r === 'taken-over') set('signed-out', null, null, plain('signed-in-elsewhere'));
+          // MU_BANNED_WORDS_ADAPTATION: a session a ban ended -- the permanent sentence (the 401 carries no date).
+          else if (r === 'banned') set('signed-out', null, null, { code: 'banned', status: null, message: BANNED_PERMANENT_ADAPTATION });
         }, () => { /* no answer: the loss stands as said */ });
       }, () => { /* a request never answered: nothing changes, the next period tries again */ });
     });
@@ -280,7 +321,7 @@ export function createSession(service: LobbyService, opts: SessionOptions = {}):
 
   /** The login, as the original's state 7 sends it; `gen` the attempt's generation; `via` the service (OT.R61). */
   const login = async (gen: number, name: string, password: string, via: LobbyService = service): Promise<SignInResult> => {
-    let reply: { status: number; ticket?: string };
+    let reply: LobbyLoginReply;
     try {
       reply = await via.login({ name, password });
     } catch {
@@ -299,7 +340,7 @@ export function createSession(service: LobbyService, opts: SessionOptions = {}):
       startKeepAlive(gen, reply.ticket);
       return { ok: true };
     }
-    const e = loginError(reply.status);
+    const e = loginError(reply.status, reply.ban ?? null, zone);
     set('signed-out', null, null, e);
     return { ok: false, error: e };
   };
@@ -352,6 +393,9 @@ export function createSession(service: LobbyService, opts: SessionOptions = {}):
     },
 
     create(q) {
+      // MU_NAME_CHARACTERS_ADAPTATION: a name central would refuse is said at once, nothing sent.
+      const refused = launched || state !== 'signed-out' || !q.name || !q.password ? null : nameError(q.name);
+      if (refused) { set('signed-out', null, null, refused); return Promise.resolve({ ok: false, error: refused }); }
       return attempt(q, (gen) => register(gen, q));
     },
 

@@ -82,10 +82,20 @@ export class RifleKick {
     const k = this.record();
     if (!k || dt <= 0) return 0;
     if (this.state === 1 && this.goal > 0) {
-      const progress = this.progress + k.rate * dt;
+      // LATER 1027 (MISSION R8.1, a browser adaptation of the rule's window): D:L472124-472130 runs once a game frame --
+      // progress += rate x dt; past the goal, state 2 and no pitch; else pitch += rate x dt -- so the rise is n whole
+      // steps s = rate x GAME_FRAME_DT (n = floor(goal / s), an equal goal adding its step), then the crossing frame.
+      // Run continuously, the pitch rises at the rate a second up to n s, and the kick falls once the progress reaches
+      // (n + 1) s: at a 30 Hz page the original's frames, at any rate its peak (the page's own step peaked at
+      // floor(goal / (rate dt)) of them: 0.0917 for 0.0834 at 60 Hz).
+      const s = k.rate * GAME_FRAME_DT;
+      const cap = Math.floor(this.goal / s + 1e-9) * s;
+      const before = this.progress;
+      const progress = before + k.rate * dt;
       this.progress = progress;
-      if (this.goal < progress) { this.state = 2; return 0; }
-      return k.rate * dt;
+      const rise = Math.min(progress, cap) - Math.min(before, cap);
+      if (progress >= cap + s - 1e-9) this.state = 2;
+      return rise;
     }
     if (this.state === 2) {
       const next = pitch - k.returnRate * dt;

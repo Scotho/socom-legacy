@@ -69,6 +69,18 @@ describe('the no-GPU notice (browser adaptation, CPS-4c)', () => {
     expect(document.querySelector('[data-graphics-lost]')).toBeNull();   // its own element, not graphicsLost's
   });
 
+  // LATER 1265 (v0.4.27's field, an Apple M1 Max on Chromium, 2026-11-20): WebGL2 refused but WebGL1 still made a hardware
+  // context, so the probe named the GPU and stayed silent -- and the player went into four matches that had no backend.
+  it('LATER 1265: a hardware WebGL1 context but no WebGL2 shows the restart notice (the game needs WebGL2)', () => {
+    const { win, flush } = fakeWin();
+    m.watchSoftwareRenderer(document, win, () => ({ renderer: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)', software: false, webgl2: false }));
+    flush();
+    const el = document.querySelector('[data-no-gpu]');
+    expect(el, 'the notice is shown').not.toBeNull();
+    expect(el!.textContent).toMatch(/WebGL2/);
+    expect(el!.textContent).toMatch(/close the browser completely and open it again/);
+  });
+
   it('never shows for a hardware renderer', () => {
     const { win, flush } = fakeWin();
     m.watchSoftwareRenderer(document, win, () => HARD);

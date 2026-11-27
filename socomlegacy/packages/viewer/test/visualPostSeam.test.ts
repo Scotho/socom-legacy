@@ -11,7 +11,7 @@ vi.mock('three/webgpu', async (importOriginal) => {
     backend = { isWebGLBackend: true, createRenderPipeline() {} };
     async init() {}
     setPixelRatio() {}
-    setSize() {}
+    setSize() {} setDrawingBufferSize() {}
     setClearColor() {}
     getRenderTarget() { return this.target; }
     setRenderTarget(t: RenderTarget | null) { this.target = t; }

@@ -14,6 +14,9 @@ import { VOICE_CAPTURE_PROCESSOR, VOICE_FRAME_SAMPLES_READING, type WebCodecs } 
 import { mountVoice, nextVoiceSeq, VOICE_TALK_WATCHDOG_ADAPTATION, type MatchVoiceDeps } from '../src/voice/voiceClient';
 import { VOICE_JITTER_MS_PLACEHOLDER, VOICE_PLAYBACK_GAIN_OWNER, VOICE_SEQ_AHEAD_FRAMES_PLACEHOLDER, VoiceJitter } from '../src/voice/voicePlayback';
 import { createHeadsetPage, mountHeadset, VOICE_MIC_NOTICE_PLACEHOLDER } from '../src/voice/headset';
+import type { VoiceSessionDiag } from '../src/voice/voiceDiag';
+import { resetStreamerCache, saveStreamerRow, setStreamerMode } from '../src/streamerMode';
+import { Settings } from '@s2u/card';
 
 /**
  * SVC-20b-page (web sprint 20, wave 2; research 226 §3): the page's voice client -- the microphone opened at the first
@@ -88,7 +91,16 @@ class FakeContext {
   readonly audioWorklet = { addModule: async (url: string): Promise<void> => { this.modules.push(url); } };
   createMediaStreamSource(stream: unknown) { this.streams.push(stream); return { connect: () => undefined, disconnect: () => undefined }; }
   createGain() { const g = { gain: { value: 1 }, connect: () => undefined, disconnect: () => undefined }; this.gains.push(g); return g; }
-  createBuffer(_channels: number, length: number, _rate: number) { const d = new Float32Array(length); return { getChannelData: () => d }; }
+  /** Every buffer made: its channels, rate and data (TALK-CUE-PCM: a cue is a 2-channel buffer at 8 kHz). */
+  readonly buffers: { channels: number; rate: number; data: Float32Array[] }[] = [];
+  /** TALK-CUE-PCM: a cue's buffer throws (the audio failing). */
+  throwCue = false;
+  createBuffer(channels: number, length: number, rate: number) {
+    if (this.throwCue && channels === 2) throw new Error('audio unavailable');
+    const data = Array.from({ length: channels }, () => new Float32Array(length));
+    this.buffers.push({ channels, rate, data });
+    return { getChannelData: (c: number) => data[c] ?? data[0]! };
+  }
   createBufferSource(): FakeSource {
     const s: FakeSource = { buffer: null, at: null, start: (w) => { s.at = w; }, connect: () => undefined, disconnect: () => undefined };
     this.sources.push(s);
@@ -114,7 +126,20 @@ interface RigOptions {
   noOpus?: boolean;
   /** The headset UX (`../src/voice/headset`), when the test reads its lines. */
   headset?: MatchVoiceDeps['headset'];
+  /** E15: the session's diagnostic sink (`MatchVoiceDeps.diag`); absent, a sink that keeps nothing. */
+  diag?: MatchVoiceDeps['diag'];
+  /** E15: the microphone's answer waits for `openMic()` (a slow permission prompt or device). */
+  slowMic?: boolean;
+  /** STREAMER-P1: where the voice is mounted (`MatchVoiceDeps.place`); absent, the client's default. */
+  place?: MatchVoiceDeps['place'];
+  /** STREAMER-P1: the social set's answer for a speaker (`MatchVoiceDeps.friendOrClan`). */
+  friendOrClan?: MatchVoiceDeps['friendOrClan'];
+  /** TALK-CUE-PCM: the cue's table; absent, a synthetic one; null, none (the public edition). */
+  talkCueTable?: Uint8Array | null;
 }
+
+/** TALK-CUE-PCM: a synthetic 2,000-byte table (byte i = i mod 256) -- no byte of the game's table in this file. */
+const SYNTHETIC_TABLE = Uint8Array.from({ length: 2000 }, (_, i) => i & 0xff);
 
 /** WebCodecs that refuses the Opus configurations (`isVoiceSupported` false). */
 class NoOpus { constructor(readonly init: unknown) {} configure(): void {} close(): void {} static async isConfigSupported(config: unknown) { return { supported: false, config }; } }
@@ -122,22 +147,30 @@ const NO_OPUS = { AudioEncoder: NoOpus, AudioDecoder: NoOpus, AudioData: class {
 
 function rig(o: RigOptions = {}) {
   const sent: ClientEvent[] = [], frames: Uint8Array[] = [], contexts: FakeContext[] = [], nodes: FakeNode[] = [];
-  const cues: { name: string; volume: number }[] = [];
   const track = { stopped: 0, stop() { track.stopped++; } };
   const stream = { getTracks: () => [track] } as unknown as MediaStream;
   let micCalls = 0, clockMs = 0;
   let resumeCapture = (): void => {};
+  let openMic = (): void => {};
   const vars = new Map<string, { value: unknown }>();
   const { wc, counts } = webCodecs();
   const client = { id: OWN, send: (e: ClientEvent) => { sent.push(e); }, sendVoice: (f: Uint8Array) => { frames.push(f); } };
   const deps: MatchVoiceDeps = {
     net: () => ({ client }),
     tuners: () => tunersOfVars({ find: (n) => vars.get(n) }),
-    talkCue: (name, volume) => { cues.push({ name, volume }); },
-    microphone: async () => { micCalls++; return o.mic === 'null' ? null : stream; },
+    talkCueTable: o.talkCueTable === undefined ? SYNTHETIC_TABLE : o.talkCueTable,
+    talkCueTail: 0x21,                                             // a synthetic tail (non-zero: a reversed cue opens non-silent)
+    microphone: async () => {
+      micCalls++;
+      if (o.slowMic) await new Promise<void>((r) => { openMic = r; });
+      return o.mic === 'null' ? null : stream;
+    },
     microphoneOn: () => o.microphoneOn ?? true,
     webCodecs: o.noOpus ? NO_OPUS : wc,
     ...(o.headset ? { headset: o.headset } : {}),
+    diag: o.diag ?? ((): void => undefined),
+    ...(o.place ? { place: o.place } : {}),
+    ...(o.friendOrClan ? { friendOrClan: o.friendOrClan } : {}),
     audioContext: (options) => {
       const c = new FakeContext(options);
       if (o.suspended && options?.sampleRate === 8000) {
@@ -169,6 +202,8 @@ function rig(o: RigOptions = {}) {
   const letGo = (): void => { expect(pad([])).toBe(false); pad([], 1.5); };
   const capture = (): FakeContext | undefined => contexts.find((c) => c.modules.length > 0 && !c.closed);
   const playback = (): FakeContext | undefined => contexts.find((c) => c.gains.length > 0);
+  /** TALK-CUE-PCM: the cues played, in order -- a grant opens with table[0] (0), a reversed cue with the synthetic tail (0x21). */
+  const cues = (): ('grant' | 'reversed')[] => (playback()?.buffers ?? []).filter((b) => b.channels === 2 && b.rate === 8000).map((b) => (b.data[0]![0] === 0 ? 'grant' : 'reversed'));
   /** One 640-sample block out of the worklet, every sample `v`. */
   const block = (v = 0.25): void => { nodes[0]!.port.onmessage?.({ data: new Float32Array(VOICE_FRAME_SAMPLES_READING).fill(v) }); };
   const floor = (holder: number | null): void => { voice.netDeps().voiceFloor({ type: 'voiceFloor', channel: 0, holder }); };
@@ -181,99 +216,194 @@ function rig(o: RigOptions = {}) {
   const advance = (ms: number): void => { now += ms / 1000; clockMs = now * 1000; };
   return {
     voice, sent, frames, contexts, nodes, track, stream, vars, counts, cues, deps, pad, hold, letGo, capture, playback, block, floor, down, talks, advance,
-    micCalls: () => micCalls, resumeCapture: () => { resumeCapture(); },
+    micCalls: () => micCalls, resumeCapture: () => { resumeCapture(); }, openMic: () => { openMic(); },
   };
 }
 
-describe('the requested TCM_SELECT microphone-ready cue', () => {
-  it('waits for capture and the local grant, sounds once through repeated frames, and stays silent on release', async () => {
+describe("E15: the voice session's field diagnostic (voicediag), told once at the session's end", () => {
+  it('a press held through a slow microphone reports the wait from the press to the first frame sent', async () => {
+    const diags: VoiceSessionDiag[] = [];
+    const r = rig({ slowMic: true, diag: (d) => { diags.push(d); } });
+    r.hold();                                     // the first press at 0.05 s; the microphone's answer still pending
+    await settle();
+    r.advance(2000);                              // two seconds of a permission prompt, the press held through it
+    r.openMic(); await settle();
+    r.pad(['Circle']); r.floor(OWN);              // the talk asked, the floor granted
+    r.block(); r.block(); await settle();
+    expect(r.frames.length).toBeGreaterThan(0);
+    r.letGo();
+    r.voice.dispose();
+    expect(diags).toHaveLength(1);
+    const d = diags[0]!;
+    expect(d.presses).toBe(1);
+    expect(d.firstSendMs, 'the press-to-first-frame wait spans the slow microphone').toBeGreaterThanOrEqual(2000);
+    expect(d.sent).toBe(r.frames.length);
+    expect(d).toMatchObject({ asks: 1, ungranted: 0, headset: 'ok', codec: 'ready' });
+  });
+
+  it('an ask the floor never granted (another talker held it) counts as ungranted; no frame sent: firstSendMs null', async () => {
+    const diags: VoiceSessionDiag[] = [];
+    const r = rig({ diag: (d) => { diags.push(d); } });
+    r.hold(); await settle();
+    r.floor(7); r.pad(['Circle']); r.block(); await settle();   // a teammate holds the channel
+    r.letGo();
+    r.voice.dispose();
+    expect(diags).toHaveLength(1);
+    expect(diags[0]).toMatchObject({ presses: 1, asks: 1, ungranted: 1, sent: 0, firstSendMs: null });
+  });
+
+  it('a refused microphone reads headset "refused"; a session with no press tells nothing', async () => {
+    const a: VoiceSessionDiag[] = [], b: VoiceSessionDiag[] = [];
+    const r = rig({ mic: 'null', diag: (d) => { a.push(d); } });
+    r.hold(); await settle(); r.letGo(); r.voice.dispose();
+    expect(a).toHaveLength(1);
+    expect(a[0]).toMatchObject({ presses: 1, headset: 'refused', asks: 0, sent: 0 });
+    const q = rig({ diag: (d) => { b.push(d); } });
+    q.floor(7); q.down(7, 0); await settle(); q.voice.dispose();
+    expect(b, 'listening only: nothing to tell').toEqual([]);
+  });
+
+  it('dispose twice tells once', async () => {
+    const diags: VoiceSessionDiag[] = [];
+    const r = rig({ diag: (d) => { diags.push(d); } });
+    r.hold(); await settle(); r.letGo();
+    r.voice.dispose(); r.voice.dispose();
+    expect(diags).toHaveLength(1);
+  });
+});
+
+describe('TALK-CUE-PCM: the original\'s talk cue on the headset (OT.R146; the read pilot/sound/read-talk-cue-pcm.md s4)', () => {
+  it('the grant: once a held request is granted, through repeated floors and frames; a busy floor is silent', async () => {
     const r = rig();
     r.hold(); await settle();
     r.floor(7); r.pad(['Circle']);
-    expect(r.cues).toEqual([]);
+    expect(r.cues(), 'another talker holds the floor: silent').toEqual([]);
     r.floor(OWN);
-    expect(r.cues).toEqual([{ name: '.TCM_SELECT', volume: 0.75 }]);
+    expect(r.cues()).toEqual(['grant']);
     r.floor(OWN); r.pad(['Circle']); r.block(); await settle();
-    expect(r.cues).toHaveLength(1);
-    r.letGo(); r.floor(null);
-    expect(r.cues).toHaveLength(1);
+    expect(r.cues(), 'repeated floors and frames: no second grant').toEqual(['grant']);
+    r.voice.dispose();
+  });
+
+  it('the release from the granted talk plays the reversed cue (r0004 0x0032c9d0)', async () => {
+    const r = rig();
+    r.hold(); await settle(); r.floor(OWN);
+    r.letGo();
+    expect(r.cues()).toEqual(['grant', 'reversed']);
+    r.floor(null);
+    expect(r.cues(), 'the room\'s floor after the release: nothing more').toEqual(['grant', 'reversed']);
     r.hold(); r.floor(OWN);
-    expect(r.cues).toHaveLength(2);
+    expect(r.cues()).toEqual(['grant', 'reversed', 'grant']);
+    r.voice.dispose();
+  });
+
+  it('a release while still asking (never granted) is silent', async () => {
+    const r = rig();
+    r.hold(); await settle();
+    r.letGo(); r.floor(null);
+    expect(r.cues()).toEqual([]);
+    r.voice.dispose();
+  });
+
+  it('the floor lost while talking -- another takes it, or the room\'s 10 s cap clears it -- plays the reversed cue (r0004 0x0032c6c0)', async () => {
+    const r = rig();
+    r.hold(); await settle(); r.floor(OWN);
+    r.floor(7);
+    expect(r.cues()).toEqual(['grant', 'reversed']);
+    r.floor(OWN);
+    expect(r.cues(), 'the held talk granted again').toEqual(['grant', 'reversed', 'grant']);
+    r.floor(null);                                               // the cap: the room clears the entry
+    expect(r.cues()).toEqual(['grant', 'reversed', 'grant', 'reversed']);
     r.voice.dispose();
   });
 
   it("a re-press within one round trip waits for a fresh grant: the floor still naming self from before the release does not cue (the finish's review F2)", async () => {
     const r = rig();
-    r.hold(); await settle();
-    r.floor(OWN);
-    expect(r.cues).toHaveLength(1);
+    r.hold(); await settle(); r.floor(OWN);
     r.letGo();                                                   // `off` sent; the room's next floor not yet heard
     r.hold(); await settle();
-    expect(r.cues, 'the stale holder (self) is no grant of this press').toHaveLength(1);
-    r.floor(null);                                               // the release heard; the request held through the lockout
-    expect(r.cues).toHaveLength(1);
+    expect(r.cues(), 'the stale holder (self) is no grant of this press').toEqual(['grant', 'reversed']);
+    r.floor(null);
+    expect(r.cues()).toEqual(['grant', 'reversed']);
     r.floor(OWN);                                                // the fresh grant
-    expect(r.cues).toHaveLength(2);
+    expect(r.cues()).toEqual(['grant', 'reversed', 'grant']);
     r.voice.dispose();
   });
 
-  it('sounds again if another player takes the floor and the held local talk is granted again', async () => {
-    const r = rig(); r.hold(); await settle();
-    r.floor(OWN); r.floor(7); r.floor(OWN);
-    expect(r.cues).toHaveLength(2);
-    r.voice.dispose();
-  });
-
-  it.each([{ mic: 'null' as const }, { microphoneOn: false }, { noOpus: true }, { permission: 'denied' as const }])('does not signal readiness without a usable microphone: %j', async (options) => {
+  it.each([{ mic: 'null' as const }, { microphoneOn: false }, { noOpus: true }, { permission: 'denied' as const }])('no headset (no usable microphone): no request and no cue: %j', async (options) => {
     const r = rig(options); await settle();
-    r.hold(); r.floor(OWN); await settle();
-    expect(r.cues).toEqual([]);
+    r.hold(); r.floor(OWN); await settle(); r.letGo();
+    expect(r.cues()).toEqual([]);
     r.voice.dispose();
   });
 
-  it('does not beep for a stale grant after release, while listening, or after disposal', async () => {
+  it('no cue for a stale grant while listening, or after disposal', async () => {
     const r = rig(); r.floor(OWN);
-    expect(r.cues).toEqual([]);
-    r.floor(null); r.hold(); await settle(); r.letGo(); r.floor(OWN);
-    expect(r.cues).toEqual([]);
-    r.voice.dispose(); r.floor(null); r.floor(OWN); r.voice.pad(true);
-    expect(r.cues).toEqual([]);
+    expect(r.cues()).toEqual([]);
+    r.floor(null);
+    r.voice.dispose(); r.floor(OWN); r.voice.pad(true);
+    expect(r.cues()).toEqual([]);
   });
 
   it('waits for suspended capture to resume: the request goes when it runs, and only its grant cues', async () => {
-    // Restated by the finish's review F2: a suspended capture sends no request until it resumes (`captureOn` awaits
-    // `ctx.resume`), so a floor naming self before that is no grant of this press (a room grants only a request it heard).
     const r = rig({ suspended: true }); r.hold(); await settle(); r.floor(OWN);
-    expect(r.cues).toEqual([]);
+    expect(r.cues()).toEqual([]);
     r.resumeCapture(); await settle();
-    expect(r.cues, 'the request just sent: no grant heard for it yet').toEqual([]);
+    expect(r.cues(), 'the request just sent: no grant heard for it yet').toEqual([]);
     r.floor(OWN);
-    expect(r.cues).toHaveLength(1);
+    expect(r.cues()).toEqual(['grant']);
     r.voice.dispose();
   });
 
-  it('respects HEADSET VOLUME and does not interrupt sending if cue playback fails', async () => {
+  it('HEADSET VOLUME 0 plays no cue; a failing cue never stops the talk', async () => {
     const r = rig(); r.deps.tuners = () => ({ headset: 0 });
     r.hold(); await settle(); r.floor(OWN);
-    expect(r.cues).toEqual([]);
+    expect(r.cues()).toEqual([]);
     r.letGo(); r.floor(null); r.deps.tuners = () => ({ headset: 0.4 });
     r.hold(); r.floor(OWN);
-    expect(r.cues).toEqual([{ name: '.TCM_SELECT', volume: 0.4 }]);
-    r.letGo(); r.floor(null); await settle(); r.deps.talkCue = () => { throw new Error('audio unavailable'); };
+    expect(r.cues()).toEqual(['grant']);
+    r.letGo(); r.floor(null); await settle();
+    r.playback()!.throwCue = true;
     r.hold(); expect(() => r.floor(OWN)).not.toThrow();
     r.block(); r.block(); await settle(); expect(r.frames.length).toBeGreaterThan(0);
     r.voice.dispose();
   });
 
-  it('rearms on a changed channel and a replacement connection, without reusing the old grant', async () => {
+  it('a channel change while talking ends the talk with the reversed cue (FUN_0030fcd0 D:L211590; r0004 0x0032c978-0x0032ca74); a new grant cues again', async () => {
     const r = rig(); r.hold(); await settle(); r.floor(OWN);
+    r.voice.netDeps().voiceFloor({ type: 'voiceFloor', channel: 1, holder: null });   // the room: the new channel, the floor released
+    expect(r.cues()).toEqual(['grant', 'reversed']);
     r.voice.netDeps().voiceFloor({ type: 'voiceFloor', channel: 1, holder: OWN });
-    expect(r.cues).toHaveLength(2);
+    expect(r.cues()).toEqual(['grant', 'reversed', 'grant']);
+    r.voice.dispose();
+  });
+
+  it('a replacement connection rearms silently, without reusing the old grant', async () => {
+    const r = rig(); r.hold(); await settle(); r.floor(OWN);
     r.letGo(); await settle();
     const next = { ...r.deps.net()!.client, id: 22 };
     r.deps.net = () => ({ client: next });
-    r.hold(); expect(r.cues).toHaveLength(2);
-    r.floor(22); expect(r.cues).toHaveLength(3);
+    r.hold(); expect(r.cues().filter((c) => c === 'grant')).toHaveLength(1);
+    r.floor(22); expect(r.cues().filter((c) => c === 'grant')).toHaveLength(2);
+    r.voice.dispose();
+  });
+
+  it('the microphone switched off mid-talk resets silently, as the device re-open does (FUN_0030fef0 D:L211679-211683): no reversed cue, and no grant cue without a new grant', async () => {
+    let on = true;
+    const r = rig(); r.deps.microphoneOn = () => on;
+    r.hold(); await settle(); r.floor(OWN);
+    on = false; r.pad(['Circle']);
+    expect(r.cues(), 'switched off: silent').toEqual(['grant']);
+    on = true; r.pad(['Circle']); await settle();
+    expect(r.cues(), 'back on: the old grant is no grant').toEqual(['grant']);
+    r.voice.dispose();
+  });
+
+  it('no table (the public edition): no cue, the talk unchanged', async () => {
+    const r = rig({ talkCueTable: null });
+    r.hold(); await settle(); r.floor(OWN); r.block(); r.block(); await settle(); r.letGo();
+    expect(r.cues()).toEqual([]);
+    expect(r.frames.length).toBeGreaterThan(0);
     r.voice.dispose();
   });
 });
@@ -741,5 +871,164 @@ describe('one wiring (PF, constraint 1): the capability on both switches, its ho
     expect(s).toContain("from '../gameMicrophone'");
     expect(s).not.toContain('getUserMedia');
     expect(s).not.toMatch(/^(?:const|let|void)[^\n]*getGameMicrophone\(/m);
+  });
+});
+
+/**
+ * STREAMER-P1 slice 2 (product track, a browser adaptation; the scope's s3.1, s3.2, s4.2, s4.3): Voice from others and My
+ * voice, by where the voice is mounted (`place`: the game lobby or a match). The incoming gate is Streamer mode's own,
+ * never the microphone switch's (the no-headset state). These run under node: the page's settings are a memory store
+ * swapped in for the module's (`pageSettings` is the page's localStorage), so the switch is set through it.
+ */
+describe('STREAMER-P1: Voice from others and My voice', () => {
+  const data = new Map<string, string>();
+  const ls = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k, v); }, removeItem: (k: string) => { data.delete(k); } };
+  const g = globalThis as unknown as { localStorage?: unknown };
+  const had = g.localStorage;
+  const on = (rows: Partial<{ voiceIn: 'everyone' | 'matches-friends' | 'friends' | 'off'; myVoice: 'everywhere' | 'matches' | 'off' }> = {}): void => {
+    setStreamerMode(true);
+    if (rows.voiceIn) saveStreamerRow('voiceIn', rows.voiceIn);
+    if (rows.myVoice) saveStreamerRow('myVoice', rows.myVoice);
+  };
+  const before = (): void => { data.clear(); g.localStorage = ls; resetStreamerCache(); };
+  const after = (): void => { data.clear(); resetStreamerCache(); g.localStorage = had; };
+  void Settings;
+
+  it('incoming, a lobby mount: a stranger frame is dropped under Matches + friends & clan (counted), played under Everyone', async () => {
+    before();
+    try {
+      on();                                                                       // the preset: matches-friends
+      const r = rig({ place: 'lobby' });
+      r.down(7, 1); await settle();
+      expect(r.counts.decoded).toBe(0);
+      expect(r.voice.state().streamer).toBe(1);
+      saveStreamerRow('voiceIn', 'everyone');
+      r.down(7, 2); await settle();
+      expect(r.counts.decoded).toBeGreaterThan(0);
+      expect(r.voice.state().streamer).toBe(1);
+      r.voice.dispose();
+    } finally { after(); }
+  });
+
+  it('incoming, a match mount: played under Matches + friends & clan, dropped under Off; the default place is a match', async () => {
+    before();
+    try {
+      on();
+      const r = rig({ place: 'match' });
+      r.down(7, 1); await settle();
+      expect(r.counts.decoded).toBeGreaterThan(0);
+      const d = rig();                                                            // no place: a match
+      d.down(7, 1); await settle();
+      expect(d.counts.decoded).toBeGreaterThan(0);
+      saveStreamerRow('voiceIn', 'off');
+      const before2 = r.counts.decoded;
+      r.down(7, 2); await settle();
+      expect(r.counts.decoded).toBe(before2);
+      expect(r.voice.state().streamer).toBe(1);
+      r.voice.dispose(); d.voice.dispose();
+    } finally { after(); }
+  });
+
+  it('a friend or clan mate passes in the lobby under Matches + friends & clan; Friends & clan only drops a stranger in a match', async () => {
+    before();
+    try {
+      on();
+      const r = rig({ place: 'lobby', friendOrClan: (id) => id === 8 });
+      r.down(8, 1); await settle();
+      expect(r.counts.decoded).toBeGreaterThan(0);
+      saveStreamerRow('voiceIn', 'friends');
+      const m = rig({ place: 'match', friendOrClan: (id) => id === 8 });
+      m.down(7, 1); await settle();
+      expect(m.counts.decoded).toBe(0);
+      m.down(8, 2); await settle();
+      expect(m.counts.decoded).toBeGreaterThan(0);
+      r.voice.dispose(); m.voice.dispose();
+    } finally { after(); }
+  });
+
+  it('the trap: the microphone switch off is the no-headset state as before, whatever Streamer mode says (no streamer count)', async () => {
+    before();
+    try {
+      const r = rig({ microphoneOn: false, place: 'lobby' });
+      r.down(7, 1); await settle();
+      expect([r.counts.decoded, r.voice.state().streamer, r.voice.state().headset]).toEqual([0, 0, false]);
+      on({ voiceIn: 'everyone' });
+      r.down(7, 2); await settle();
+      expect(r.counts.decoded).toBe(0);                                           // still no headset: Everyone does not lift it
+      r.voice.dispose();
+    } finally { after(); }
+  });
+
+  it('outgoing, My voice = Matches only: in a lobby a talk press opens no microphone and sends nothing; in a match it does both', async () => {
+    before();
+    try {
+      on();                                                                       // the preset: matches
+      const l = rig({ place: 'lobby' });
+      l.hold(); await settle();
+      expect([l.micCalls(), l.talks(), l.voice.state().talking]).toEqual([0, [], false]);
+      expect([l.capture(), l.nodes.length, l.frames]).toEqual([undefined, 0, []]);   // no capture made: nothing to send
+      const m = rig({ place: 'match' });
+      m.hold(); await settle();
+      expect(m.micCalls()).toBe(1);
+      expect(m.talks()).toEqual([{ type: 'voiceTalk', on: true }]);
+      l.voice.dispose(); m.voice.dispose();
+    } finally { after(); }
+  });
+
+  it('the review’s F5: a talk under way when My voice is turned to refuse it is let go -- voiceTalk off, not talking', async () => {
+    before();
+    try {
+      setStreamerMode(true);
+      saveStreamerRow('myVoice', 'everywhere');
+      const l = rig({ place: 'lobby' });
+      l.hold(); await settle();
+      expect(l.talks()).toEqual([{ type: 'voiceTalk', on: true }]);
+      saveStreamerRow('myVoice', 'matches');
+      l.pad(['Circle']);                                                            // still held
+      expect(l.talks()).toEqual([{ type: 'voiceTalk', on: true }, { type: 'voiceTalk', on: false }]);
+      expect(l.voice.state().talking).toBe(false);
+      l.voice.dispose();
+    } finally { after(); }
+  });
+
+  it('outgoing, My voice = Off: no press opens the microphone anywhere; Off mode: as before', async () => {
+    before();
+    try {
+      on({ myVoice: 'off' });
+      const m = rig({ place: 'match' });
+      m.hold(); await settle();
+      expect([m.micCalls(), m.talks()]).toEqual([0, []]);
+      m.voice.dispose();
+      setStreamerMode(false);
+      const l = rig({ place: 'lobby' });
+      l.hold(); await settle();
+      expect(l.micCalls()).toBe(1);                                               // the mode Off: a lobby talk as today
+      l.voice.dispose();
+    } finally { after(); }
+  });
+});
+
+describe('STREAMER-P1 (IQ-229 F2): the voice state names a refused floor holder to no indicator (shownHolder), display only', () => {
+  const data = new Map<string, string>();
+  const g = globalThis as unknown as { localStorage?: unknown };
+  const had = g.localStorage;
+  const ls = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k, v); }, removeItem: (k: string) => { data.delete(k); } };
+  it('Friends & clan in a match: a stranger holder is shownHolder null (holder kept); a friend and the page itself shown; Off-mode as before', () => {
+    data.clear(); g.localStorage = ls; resetStreamerCache();
+    try {
+      const r = rig({ place: 'match', friendOrClan: (id) => id === 8 });
+      r.floor(7);
+      expect([r.voice.state().holder, r.voice.state().shownHolder, r.voice.allows?.(7)]).toEqual([7, 7, true]);   // Streamer mode Off
+      setStreamerMode(true);
+      saveStreamerRow('voiceIn', 'friends');
+      expect([r.voice.state().holder, r.voice.state().shownHolder, r.voice.allows?.(7)]).toEqual([7, null, false]);
+      r.floor(8);
+      expect([r.voice.state().shownHolder, r.voice.allows?.(8)]).toEqual([8, true]);
+      r.floor(OWN);
+      expect(r.voice.state().shownHolder).toBe(OWN);
+      r.floor(null);
+      expect(r.voice.state().shownHolder).toBeNull();
+      r.voice.dispose();
+    } finally { data.clear(); resetStreamerCache(); g.localStorage = had; }
   });
 });

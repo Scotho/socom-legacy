@@ -457,7 +457,7 @@ const GHOST_ICON_SCALE = 0.045;
 const GHOST_RING_RADIUS = 6;
 
 /**
- * An emitter's ghost (the owner, 2026-11-14: "just have a small circle gizmo as the live preview"): a sound, an effect or
+ * An emitter's ghost (the Forge's owner (crispy, OT.R112), 2026-11-14: "just have a small circle gizmo as the live preview"): a sound, an effect or
  * an emitter has no model to show while it is placed, so a small ring on the ground in its billboard's colour stands in
  * for one -- a gizmo as every other asset's ghost is its model, never its billboard.
  */

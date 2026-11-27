@@ -10,7 +10,7 @@ import { FrontEndMachine } from '../../src/screens/frontEndMachine';
 import { PopupSlot } from '../../src/screens/popupSlot';
 import { MenuInput, type PadSlotName } from '../../src/input/index';
 import { GET_TEXT_INPUT, SKB_SOUND, SoftKeyboardFrontEnd, readSoftKeyboards, type UsbKey } from '../../src/keyboard';
-import { findNode, loadDialog, UiVarManager } from '../../src/index';
+import { findNode, loadDialog, setUiVarDisplayMask, UiVarManager } from '../../src/index';
 import { textFace } from '../text/fixtures';
 import { r, rec } from '../widgets/fixtures';
 import { animation, command, sound } from '../screens/zanimAsm';
@@ -53,7 +53,7 @@ const DESIGN: DialogDesign = loadDialog([['SCREENS', r('SCRIPT_LIBRARY', 't.rdr'
   // The persona form's fields as dlgNetPlayerName holds them: a TEXT and a SECURETEXT printing their UIVARs (FUN_00379260).
   'OBJECTS', [rec('NAMEFIELD', 'TEXT', 300, 100, r('UIVAR', [r('NAME', 'PLAYERNAMEVAR')])), rec('PWFIELD', 'SECURETEXT', 300, 160, r('UIVAR', [r('NAME', 'PLAYERPASSWORD')]))])]]);
 
-function rig(uiVars?: UiVarManager) {
+function rig(uiVars?: UiVarManager, design: DialogDesign = DESIGN) {
   let m!: FrontEndMachine;
   const heard: string[] = [];
   const face = textFace();
@@ -67,7 +67,8 @@ function rig(uiVars?: UiVarManager) {
   const queue: UsbKey[] = [];
   skb.usbKey = () => queue.shift() ?? null;
   const held = new Set<PadSlotName>();
-  input.source = { read: () => ({ down: new Set(held), stickX: 0, stickY: 0 }) };
+  const menuKeys: number[] = [];                                                    // the dispatch's step 6 queue (FUN_002dbd90)
+  input.source = { read: () => ({ down: new Set(held), stickX: 0, stickY: 0 }), usbKey: () => menuKeys.shift() ?? null };
   const slot = new PopupSlot();
   slot.connect(parts.makePopup);
   const movie = {
@@ -75,7 +76,7 @@ function rig(uiVars?: UiVarManager) {
     frame: () => 'menu' as const, unload: () => {}, load: () => input.built(),
   };
   m = new FrontEndMachine({
-    dialog: (n) => (n === 'dlgTest.rdr' ? DESIGN : null), sets: SETS, host, popups: slot, startDialog: 'dlgTest.rdr',
+    dialog: (n) => (n === 'dlgTest.rdr' ? design : null), sets: SETS, host, popups: slot, startDialog: 'dlgTest.rdr',
     built: parts.built, draw: skb.drawOver(parts.draw), widgetsTick: parts.widgetsTick, setEnabled: parts.setEnabled,
     focusTick: skb.tick, input: input.dispatch, pad: input.read, activate: input.activate, movie,
   });
@@ -84,7 +85,7 @@ function rig(uiVars?: UiVarManager) {
   const run = (n = 1): void => { for (let i = 0; i < n; i++) last = m.frame(UI_TICK_SECONDS); };
   const press = (b: PadSlotName): void => { held.add(b); run(); held.delete(b); run(); };
   run(2);
-  return { m, skb, input, parts, heard, queue, run, press, take: () => heard.splice(0), items: () => last };
+  return { m, skb, input, parts, heard, queue, menuKeys, run, press, take: () => heard.splice(0), items: () => last };
 }
 
 describe('GetTextInput in the front end', () => {
@@ -187,5 +188,104 @@ describe('GetTextInput in the front end', () => {
     expect(vars.find('PLAYERPASSWORD')?.value).toEqual({ type: 'string', value: 'pass12345678' });   // 13 typed, 12 kept
     expect(codes('PWFIELD')).toEqual(Array(12).fill(0x2a));
     expect(codes('NAMEFIELD')).toEqual([0x47, 0x6f]);
+  });
+});
+
+/**
+ * WM-ENTER-CHAT (the page's `ENTER_OPENS_CHAT_ADAPTATION`, `packages/viewer/src/softKeyboardKeys.ts`): the page asks the
+ * front end's keyboard whether the screen showing has an EVENT binding of `USBKBD_ENTER` (0x2c) -- the game lobby's and
+ * the briefing rooms' on the disc (web research 119) -- and a USB Enter popped at the dispatch's step 6 fires it
+ * (`FUN_00368650`, D:L264243-264246), whose animation opens the keyboard. Synthetic dialogs.
+ */
+const CHAT_DESIGN: DialogDesign = loadDialog([['SCREENS', r('SCRIPT_LIBRARY', 't.rdr',
+  'ANIMATIONS', [r('EVENT', 'USBKBD_ENTER', 'ANIMATION', 'name'), r('EVENT', 'ON_SKB_APPLY', 'ANIMATION', 'applied')],
+  'FONT', 'font_t',
+  'CONTROLS', [button('A', 100, r('BUTTON', 'SQUARE', 'ANIMATION', 'pw'))])]]);
+/** A screen that names `USBKBD_ENTER` only as a BUTTON's word would be no binding of the event: here, none at all. */
+const NO_CHAT_DESIGN: DialogDesign = loadDialog([['SCREENS', r('SCRIPT_LIBRARY', 't.rdr',
+  'ANIMATIONS', [r('EVENT', 'ON_SKB_APPLY', 'ANIMATION', 'applied'), r('BUTTON', 'TRIGGER_R1', 'ANIMATION', 'name')],
+  'FONT', 'font_t',
+  'CONTROLS', [button('A', 100, r('BUTTON', 'SQUARE', 'ANIMATION', 'pw'))])]]);
+
+describe("SoftKeyboardFrontEnd.usbKbdEnterScreen: the screen showing, when it has a USBKBD_ENTER binding", () => {
+  it("answers the showing screen's design on a screen with an EVENT binding of USBKBD_ENTER (0x2c), the same one each time; null on one without, null with no screen", () => {
+    const chat = rig(undefined, CHAT_DESIGN).skb;
+    expect(chat.usbKbdEnterScreen()).not.toBeNull();
+    expect(chat.usbKbdEnterScreen()).toBe(chat.usbKbdEnterScreen());
+    expect(rig(undefined, NO_CHAT_DESIGN).skb.usbKbdEnterScreen()).toBeNull();
+    expect(rig(undefined, DESIGN).skb.usbKbdEnterScreen()).toBeNull();
+    const none = new SoftKeyboardFrontEnd({ machine: () => ({ shell: () => null }) as unknown as FrontEndMachine, parts: {} as DialogPartsHost });
+    expect(none.usbKbdEnterScreen()).toBeNull();
+  });
+
+  it("a USB Enter (0x28 or 0x58) popped at step 6 fires the binding, which opens the keyboard; another key does not", () => {
+    for (const hid of [0x28, 0x58]) {
+      const t = rig(undefined, CHAT_DESIGN);
+      t.take();
+      t.menuKeys.push(0x29);                                                          // Escape: step 6 tests only the two Enters
+      t.run();
+      expect(t.skb.keyboard.isOpen).toBe(false);
+      t.menuKeys.push(hid);
+      t.run();
+      expect([hid, t.take(), t.skb.keyboard.isOpen]).toEqual([hid, ['skb0', '.name'], true]);
+      expect(t.menuKeys).toEqual([]);
+    }
+  });
+
+  it("on a screen with no USBKBD_ENTER binding a popped Enter does nothing", () => {
+    const t = rig(undefined, NO_CHAT_DESIGN);
+    t.take();
+    t.menuKeys.push(0x28);
+    t.run();
+    expect([t.take(), t.skb.keyboard.isOpen]).toEqual([[], false]);
+  });
+});
+
+/**
+ * STREAMER-P1 (OT.R152; a browser adaptation, `../../src/text/displayMask`): a variable the page names is drawn as a
+ * SECURETEXT draws its own -- in the TEXT that prints it and in the keyboard's typed lines -- its value unchanged.
+ */
+describe('STREAMER-P1: the page\'s display mask over a UI variable', () => {
+  const typeName = (t: ReturnType<typeof rig>, hids: number[]): void => {
+    t.press('CROSS');                                                                // A: PLAYERNAMEVAR
+    t.run(8);
+    for (const hid of hids) t.queue.push({ hid, shift: false, capsLamp: false });
+    t.run();
+  };
+  const userGlyphs = (t: ReturnType<typeof rig>) => JSON.stringify(t.skb.keyboard.shownLines);
+
+  it('unset: the TEXT prints the value as before', () => {
+    setUiVarDisplayMask(null);
+    const vars = new UiVarManager();
+    const t = rig(vars);
+    typeName(t, [0x0a, 0x12]);                                                       // "go"
+    t.press('CIRCLE');
+    t.run(8);
+    const c = findNode(t.m.shell()!.screen.root, 'NAMEFIELD')?.content;
+    expect(c?.kind === 'text' ? c.text.codes : null).toEqual([0x67, 0x6f]);
+  });
+
+  it('named: the TEXT draws one * a character and the keyboard draws its typed line masked; the value is the typed text', () => {
+    setUiVarDisplayMask((n) => n === 'PLAYERNAMEVAR');
+    try {
+      const vars = new UiVarManager();
+      const a = rig(vars);
+      typeName(a, [0x0a, 0x12]);                                                     // "go"
+      const go = userGlyphs(a);
+      const b = rig(new UiVarManager());
+      typeName(b, [0x0b, 0x0c]);                                                     // "hi": the same two stars
+      expect(userGlyphs(b)).toBe(go);
+      expect(a.skb.keyboard.shownLines).toEqual([[0x2a, 0x2a], []]);
+      expect(a.skb.keyboard.text).toBe('go');                                         // what is typed is kept as typed
+      a.press('CIRCLE');
+      a.run(8);
+      expect(vars.find('PLAYERNAMEVAR')?.value).toEqual({ type: 'string', value: 'go' });
+      const c = findNode(a.m.shell()!.screen.root, 'NAMEFIELD')?.content;
+      expect(c?.kind === 'text' ? c.text.codes : null).toEqual([0x2a, 0x2a]);
+      setUiVarDisplayMask(null);
+      const u1 = rig(new UiVarManager()); typeName(u1, [0x0a, 0x12]);
+      const u2 = rig(new UiVarManager()); typeName(u2, [0x0b, 0x0c]);
+      expect(userGlyphs(u1)).not.toBe(userGlyphs(u2));                               // unmasked, the two lines differ
+    } finally { setUiVarDisplayMask(null); }
   });
 });

@@ -16,16 +16,20 @@ import { createGameRig, HAVE, WORLD } from './createGameRig';
  * (OT.R58 amended by the owner 2026-11-07, V13.R1): six -- BLIZZARD (MP1) and THE RUINS (MP12) join, DEMOLITION both.
  * DF-14 (OT.R58 amended a second time 2026-11-08, DF.R1): eight -- FISH HOOK (MP71) and DESERT GLORY (MP6) join, EXTRACTION
  * both; the map outside the offer these cases name is MP10 (BLOOD LAKE, EXTRACTION) or MP52 (THE MIXER, ESCORT).
+ * DAY-4 (DAY.R5, DAY.R7; DAY-R1 accepted MP5 day): ABANDONED (DAY)'s row, [5, 'ABANDONED (DAY)'], follows ABANDONED's
+ * wherever ABANDONED is listed, so its number 5 shows twice in these lists; OT.R158 (the owner accepted Rat's Nest (Day),
+ * 2026-11-25): RAT'S NEST (DAY)'s row follows RAT'S NEST's the same way, so 8 shows twice.
  */
 
 const cmd = (fn: string, arg = 'NA'): ZAnimUiCommand => ({ anim: 'init_cg_screen', sequence: 'NA', nodeIndex: 0, node: null, opcodeByte: 0, fn, arg, loc: 0, bytes: new Uint8Array(16) });
 
 const MISSIONS: MissionRecord[] = [
   { number: 51, name: 'VIGILANCE', type: 5, multiplayer: true }, { number: 52, name: 'THE MIXER', type: 3, multiplayer: true },
-  { number: 71, name: 'FISH HOOK', type: 4, multiplayer: true },
+  { number: 64, name: 'SHADOW FALLS', type: 5, multiplayer: true }, { number: 71, name: 'FISH HOOK', type: 4, multiplayer: true },
   { number: 72, name: 'CROSSROADS', type: 2, multiplayer: true }, { number: 1, name: 'BLIZZARD', type: 2, multiplayer: true },
-  { number: 2, name: 'FROSTFIRE', type: 5, multiplayer: true },
+  { number: 2, name: 'FROSTFIRE', type: 5, multiplayer: true }, { number: 5, name: 'ABANDONED', type: 5, multiplayer: true },
   { number: 6, name: 'DESERT GLORY', type: 4, multiplayer: true }, { number: 7, name: 'NIGHT STALKER', type: 2, multiplayer: true },
+  { number: 8, name: "RAT'S NEST", type: 5, multiplayer: true },
   { number: 10, name: 'BLOOD LAKE', type: 4, multiplayer: true }, { number: 12, name: 'THE RUINS', type: 2, multiplayer: true },
 ];
 
@@ -40,17 +44,19 @@ function rows(offered?: () => readonly number[] | null, o: { present?: (n: numbe
   return playListNumbers(uiVars.find('ROWS')?.value);
 }
 
-describe('CREATE GAME lists the eight (V13-2, V13-3, DF-14), narrowed by the server\'s offer when it names one, never widened (OT.R58)', () => {
-  it('no offer handed in, or the server naming none (null): the eight, in missionlist.rdr\'s order -- the release unchanged', () => {
-    expect(rows()).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
-    expect(rows(() => null)).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
+describe("CREATE GAME lists the eleven maps in thirteen rows (V13-2, V13-3, DF-14, B5, RN-1; DAY-4's ABANDONED (DAY) and OT.R158's RAT'S NEST (DAY) after their maps), narrowed by the server's offer when it names one, never widened (OT.R58)", () => {
+  it("no offer handed in, or the server naming none (null): the thirteen rows, in missionlist.rdr's order -- the release unchanged", () => {
+    expect(rows()).toEqual([51, 64, 71, 72, 1, 2, 5, 5, 6, 7, 8, 8, 12]);
+    expect(rows(() => null)).toEqual([51, 64, 71, 72, 1, 2, 5, 5, 6, 7, 8, 8, 12]);
   });
 
-  it('the server\'s offer: the eight among it, in missionlist.rdr\'s order (not the answer\'s); a map outside the eight (MP10, MP52) never listed', () => {
+  it('the server\'s offer: the eleven among it, in missionlist.rdr\'s order (not the answer\'s); a map outside the eleven (MP10, MP52) never listed', () => {
     expect(rows(() => [72, 2, 10])).toEqual([72, 2]);
     expect(rows(() => [10, 52, 51, 72, 2, 7])).toEqual([51, 72, 2, 7]);
     expect(rows(() => [12, 10, 1, 52])).toEqual([1, 12]);             // V13-2, V13-3: BLIZZARD and THE RUINS served are listed
     expect(rows(() => [6, 10, 71, 52])).toEqual([71, 6]);             // DF-14: FISH HOOK and DESERT GLORY served are listed
+    expect(rows(() => [5, 10, 64, 52])).toEqual([64, 5, 5]);          // B5: SHADOW FALLS and ABANDONED served are listed (DAY-4: and ABANDONED (DAY))
+    expect(rows(() => [8, 10, 52])).toEqual([8, 8]);                  // RN-1: RAT'S NEST served is listed (OT.R158: and RAT'S NEST (DAY))
   });
 
   it('an offer of none, or of none of the four, lists none; Medley and Random are never listed; a mission whose archive is absent stays out', () => {
@@ -62,7 +68,7 @@ describe('CREATE GAME lists the eight (V13-2, V13-3, DF-14), narrowed by the ser
 
   it('the offer is read at each GetAvailableMPMissions: an answer that lands later is the one listed', () => {
     let offer: readonly number[] | null = null;
-    expect(rows(() => offer)).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
+    expect(rows(() => offer)).toEqual([51, 64, 71, 72, 1, 2, 5, 5, 6, 7, 8, 8, 12]);
     offer = [7, 10];
     expect(rows(() => offer)).toEqual([7]);
   });
@@ -71,7 +77,7 @@ describe('CREATE GAME lists the eight (V13-2, V13-3, DF-14), narrowed by the ser
     expect(rows(() => [72, 2, 10], { allMaps: () => true })).toEqual([72, 2, 10]);
     expect(rows(() => [10, 52], { allMaps: () => true })).toEqual([52, 10]);
     expect(rows(() => [72, 2, 10], { allMaps: () => false })).toEqual([72, 2]);
-    expect(rows(() => null, { allMaps: () => true })).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
+    expect(rows(() => null, { allMaps: () => true })).toEqual([51, 64, 71, 72, 1, 2, 5, 5, 6, 7, 8, 8, 12]);
   });
 });
 

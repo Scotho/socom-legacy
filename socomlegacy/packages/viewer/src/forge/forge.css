@@ -857,7 +857,7 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-assets li.fx-group-head { cursor: default; padding-top: 10px; font: var(--fx-type-caption); letter-spacing: .12em; text-transform: uppercase; color: var(--fx-dim); }
 .fx-assets li.fx-group-head:hover { background: none; }
 .fx-toggle { display: flex; align-items: center; gap: var(--s2u-space-2); height: 24px; cursor: pointer; font: var(--fx-type-control); }
-/* Every on / off in the Forge a switch (the owner, 2026-11-12: "just a switch for everything ... across all of the forge
+/* Every on / off in the Forge a switch (the Forge's owner (crispy, OT.R112), 2026-11-12: "just a switch for everything ... across all of the forge
    ui"): each checkbox of the page drawn as the pill, labelled (`.fx-toggle`) or not; the agent's switch and the game overlay's keep their own. */
 :is(.fx-toggle input[type=checkbox], :where(body.forge-page) input[type=checkbox]:not(.agent-panel__switch, .s2u-check input)) {
   appearance: none;
@@ -940,10 +940,15 @@ body:not(.has-fx-dock-right) .fx-dock-preview[data-zone='bottom'] { right: 0; }
 .fx-arsenal-grid td:not(:first-child), .fx-arsenal-grid th:not(:first-child) { text-align: center; width: 72px; }
 .fx-arsenal-group th { padding-top: var(--s2u-space-2); font: var(--fx-type-caption); color: var(--fx-dim); }
 .fx-arsenal-grid tr.is-changed td:first-child { color: var(--fx-gold); }
-/* The Characters section (`./panels/rosterSection`): a column a row, its map and its type. */
+/* The Characters section (`./panels/rosterSection`): a column a row, its map above its type. Side by side in a side's
+   half of the dock, a select's label ("MP11 · DEATH TRAP") wrapped to two lines over the rows beside it (picture B3b at
+   0b5a034883): each select takes the side's whole width, its label on one line and clipped if still too long (an
+   ellipsis where the browser draws one on a select; the full name in its open list). A row's two selects sit closer
+   (2 px) than one row to the next (4 px). Seen once, on Chromium at the dock's default width: every label whole, the
+   arrows shown, nothing overlapping (a picture at 10357c97de, not a test). */
 .fx-roster { display: flex; flex-direction: column; gap: var(--s2u-space-2); }
-.fx-roster-row { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-.fx-roster-row .fx-select { width: 100%; min-width: 0; }
+.fx-roster-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.fx-roster-row .fx-select { width: 100%; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The Surface, sound & view section (`./panels/worldSection`). */
 .fx-world { display: flex; flex-direction: column; gap: var(--s2u-space-2); }
 .fx-world-reverb { display: grid; grid-template-columns: auto 1fr 40px 64px; align-items: center; gap: 4px 6px; }
@@ -1163,7 +1168,7 @@ body.is-playing .fx-viewport-modes { display: none; }
 .fx-snap-section-start { margin-top: var(--s2u-space-2); padding-top: var(--s2u-space-3); border-top: 1px solid var(--fx-edge); }
 .fx-workplane-normal { color: var(--fx-text); font-size: 0.9em; }
 .fx-workplane-buttons { display: flex; gap: var(--s2u-space-1); }
-/* Pick and Reset as buttons (the owner, 2026-11-17: "make the pick and reset buttons a bit more visible"). */
+/* Pick and Reset as buttons (the Forge's owner (crispy, OT.R112), 2026-11-17: "make the pick and reset buttons a bit more visible"). */
 .fx-workplane-buttons .fx-tool { flex: 1; justify-content: center; padding: 4px 8px; color: var(--fx-text); background: var(--fx-veil); border: 1px solid var(--fx-edge); border-radius: var(--fx-radius); }
 .fx-workplane-buttons .fx-tool:hover:not(:disabled) { background: var(--fx-hover); border-color: var(--fx-gold); }
 .fx-workplane-buttons .fx-tool:disabled { opacity: var(--fx-disabled); cursor: not-allowed; background: var(--fx-veil); border-color: var(--fx-edge); }
@@ -1930,7 +1935,7 @@ body.is-matching .fx-legend { display: none; }
   height: 40px;
   display: flex;
   align-items: center;
-  /* Centred, every mode and layer alike (the owner, 2026-11-16); `safe`: wider than the window, it starts at the left
+  /* Centred, every mode and layer alike (the Forge's owner (crispy, OT.R112), 2026-11-16); `safe`: wider than the window, it starts at the left
      and scrolls, never cut off at either end. */
   justify-content: safe center;
   gap: 6px;
@@ -1968,7 +1973,7 @@ body.is-matching .fx-legend { display: none; }
 .fx-light-rig__buttons { display: flex; gap: 6px; flex: none; }
 .fx-light-rig__colour { width: 36px; height: 24px; padding: 0; border: 1px solid var(--fx-control-edge); background: none; cursor: pointer; }
 .fx-light-rig__row .fx-num { width: 64px; }
-/* A property table (the owner, 2026-11-12: "Property Text | Widget, where all the widgets are all left aligned to the
+/* A property table (the Forge's owner (crispy, OT.R112), 2026-11-12: "Property Text | Widget, where all the widgets are all left aligned to the
    largest text in that property table"): a panel's body as one grid -- its labels' column as wide as its widest label,
    then the widgets, then a readout at the end. Each row lines up on it (`subgrid`); a heading, a note or a section of
    its own spans the whole width. */
@@ -1982,6 +1987,13 @@ body.is-matching .fx-legend { display: none; }
 .fx-prop-table > .fx-setting-nums > .fx-setting,
 .fx-prop-table > .fx-light-rig__slot > .fx-setting { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; align-items: center; row-gap: 4px; }
 .fx-prop-table > .fx-setting-nums, .fx-prop-table > .fx-light-rig__slot { display: contents; }
+/*
+ * PR #5 (a regression of the import, product track): the page's Day / night and Fog distance rows moved into the light rig
+ * (`./panels/lightRigEditor` slots) took only the table's middle column, ~108 px at the dock's width, and their words and
+ * button left the slider none (0 px wide: Shadow PC 2's probe at d88f80b3ab). Their controls span the middle and last
+ * columns; the grid is unchanged.
+ */
+.fx-prop-table > .fx-light-rig__slot > .fx-setting > :last-child { grid-column: 2 / -1; }
 /* The light rig's rows: the label, then its widgets in a line as they were. */
 .fx-prop-row { font: var(--fx-type-control); }
 .fx-prop-label { grid-column: 1; color: var(--fx-dim); }
@@ -2003,7 +2015,7 @@ body.is-matching .fx-legend { display: none; }
 /* A switch in a table: its words in the label column, the switch in the widgets'. */
 .fx-prop-table > .fx-toggle > span { grid-column: 1; grid-row: 1; color: var(--fx-dim); }
 .fx-prop-table > .fx-toggle > input { grid-column: 2; justify-self: start; }
-/* One property style in every panel (the owner, 2026-11-12: "keep the same text style, height, spacing for all the
+/* One property style in every panel (the Forge's owner (crispy, OT.R112), 2026-11-12: "keep the same text style, height, spacing for all the
    properties ... like the transform's Position and Rotation"; "Don't make it all caps"): every property's label in the
    transform caption's face, in its own case; every row the transform row's height (the stepper's 26px), 6px apart. */
 .fx-field-caption,
@@ -2276,7 +2288,7 @@ body.forge-page:not(.is-playing) > .mu-touch-menu { display: none; }
   body.forge-page option::checkmark { display: none; }
   /* The row under the pointer or the keys on gold, its words dark (the system's list's light blue, in the Forge's colour). */
   body.forge-page option:is(:hover, :focus-visible):not(:disabled) { color: var(--fx-on-accent); background: var(--fx-gold); outline-style: none; }
-  /* A group's heading a heading (the owner, 2026-11-13: "make those headers look like actual header ... room to
+  /* A group's heading a heading (the Forge's owner (crispy, OT.R112), 2026-11-13: "make those headers look like actual header ... room to
      breathe ... a line/divider between Multiplayer and Campaign"; every map list alike -- Across maps, Multiplayer,
      Campaign, Custom / Preset): the menus' own section heading's look (`.fx-viewport-modes-heading`: capitals, spaced,
      dim), larger, with space above and below it, and a rule between one group and the next. Its options set in under
@@ -2284,7 +2296,7 @@ body.forge-page:not(.is-playing) > .mu-touch-menu { display: none; }
   body.forge-page optgroup {
     display: block; padding: 10px 0 4px; font: var(--fx-type-control); font-size: 12px; font-weight: 700;
     letter-spacing: 0.12em; text-transform: uppercase; color: var(--fx-dim); text-indent: 12px;   /* the heading's line set in, its options' own */
-    /* Its band a shade of its own (the owner, 2026-11-13: "a nice background color so they stand out"), the options under
+    /* Its band a shade of its own (the Forge's owner (crispy, OT.R112), 2026-11-13: "a nice background color so they stand out"), the options under
        it back on the list's own panel -- so only the heading wears it. */
     padding-bottom: 0; background: var(--fx-panel-2);
   }
@@ -2294,10 +2306,10 @@ body.forge-page:not(.is-playing) > .mu-touch-menu { display: none; }
   body.forge-page optgroup > option:first-of-type { margin-top: 6px; }
   body.forge-page optgroup option { padding: 5px 12px 5px 22px; font-weight: 400; letter-spacing: normal; text-transform: none; text-indent: 0; }
   body.forge-page select::picker(select) { max-height: min(70vh, 560px); overflow-y: auto; }
-  /* A row greyed by its words alone (the owner, 2026-11-13: "when an item is disabled, don't change the background color,
+  /* A row greyed by its words alone (the Forge's owner (crispy, OT.R112), 2026-11-13: "when an item is disabled, don't change the background color,
      just the text"): a faded row let its group heading's band through. */
   body.forge-page option:disabled { opacity: 1; color: color-mix(in srgb, var(--fx-text) 38%, transparent); cursor: default; }
-  /* A row's note set at its right (`optionWithNote`: a map's count; the owner, 2026-11-13: "right aligned"), dim, its
+  /* A row's note set at its right (`optionWithNote`: a map's count; the Forge's owner (crispy, OT.R112), 2026-11-13: "right aligned"), dim, its
      separator unseen here (the closed field reads the three as one line). On the hover's gold, and greyed, as its words. */
   body.forge-page option:has(> .fx-option-note) { display: flex; align-items: center; }
   body.forge-page option > .fx-option-sep { display: none; }
@@ -2320,7 +2332,7 @@ body.forge-page:not(.is-playing) > .mu-touch-menu { display: none; }
   position: fixed; z-index: 1000; display: flex; flex-direction: column; width: 380px; height: min(560px, 80vh);
   padding: 0 8px 8px; box-sizing: border-box; background: var(--fx-panel); border: 1px solid var(--fx-edge);
   border-radius: 6px; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5); overflow: hidden;
-  /* Resized by its corner (the owner, 2026-11-13: "movable and resizable"). */
+  /* Resized by its corner (the Forge's owner (crispy, OT.R112), 2026-11-13: "movable and resizable"). */
   resize: both; min-width: 260px; min-height: 240px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px);
 }
 .fx-asset-picker-head {
@@ -2333,7 +2345,7 @@ body.forge-page:not(.is-playing) > .mu-touch-menu { display: none; }
 .fx-assets-pane.is-picking > .fx-asset-tabs,
 .fx-assets-pane.is-picking > .fx-assets-foot { display: none; }
 
-/* A Source's Custom (a damage trigger's, a switch's, a program's; the owner, 2026-11-13: "make the custom row a bit more
+/* A Source's Custom (a damage trigger's, a switch's, a program's; the Forge's owner (crispy, OT.R112), 2026-11-13: "make the custom row a bit more
    visible"): gold and bold; the groups' own divider sets it apart from the maps under it. */
 body.forge-page option[value="*custom"] { padding: 7px 12px; color: var(--fx-gold); font-weight: 700; }
 /* Its group header straight under it, no gap between: the header's own line the one divider. */
@@ -2343,7 +2355,7 @@ body.forge-page option[value="*custom"]:is(:hover, :focus-visible) { color: var(
 /* An Inspector row with room above it (`InspectorEditor.gap`): a script's header, each of its steps, its Add row. */
 .fx-inspect-data > .fx-inspect-gap { margin-top: 12px; }
 
-/* ---- The Script editor's node view (`./panels/scriptGraph`; the owner, 2026-11-13: "a nodal view of the same underlying
+/* ---- The Script editor's node view (`./panels/scriptGraph`; the Forge's owner (crispy, OT.R112), 2026-11-13: "a nodal view of the same underlying
    data", then "parameters inside the node ... sideways ... the + more obvious"). A flow left to right: its event, each
    step a node coloured by its family holding its own rows, an If's lanes one over another joined at its End if, a While's
    body above its line back; every wire's + shown. */
@@ -2441,7 +2453,7 @@ body.forge-page option[value="*custom"]:is(:hover, :focus-visible) { color: var(
 .fx-inspect-data > .is-script-focus { background: color-mix(in srgb, var(--fx-gold) 12%, transparent); }
 .fx-inspect-data > dt.is-script-focus { color: var(--fx-gold); box-shadow: inset 2px 0 0 var(--fx-gold); padding-left: 4px; }
 
-/* A While (the owner, 2026-11-13: "make the return while line connect to the nodes and have the arrow go in the right
+/* A While (the Forge's owner (crispy, OT.R112), 2026-11-13: "make the return while line connect to the nodes and have the arrow go in the right
    direction"): its head and its End while each in a column (`.fx-sg-post`) as tall as the block, the node in its middle;
    the line back drops from the End while's middle, runs along under the body and rises into the head, its arrow there.
    The block's room above matches the line's below, so the wires stay through its middle. */
@@ -2461,7 +2473,7 @@ body.forge-page option[value="*custom"]:is(:hover, :focus-visible) { color: var(
 .fx-sg-while.has-return .fx-sg-post.is-head > .fx-sg-post-drop::after { content: ''; position: absolute; left: calc(50% - 6px); top: 0; width: 0; height: 0;
   border: 6px solid transparent; border-bottom: 9px solid var(--sg-flow); border-top: 0; }
 
-/* An If's lanes (the owner, 2026-11-13: "make the if/else if/else if chain a bit more organized"): each a row -- its
+/* An If's lanes (the Forge's owner (crispy, OT.R112), 2026-11-13: "make the if/else if/else if chain a bit more organized"): each a row -- its
    condition in a column as wide as a node (the If's "then", an Else if's node, the Otherwise), its steps after, every
    lane's starting at the same place -- set apart by a faint band. */
 .fx-sg-lane { padding: 10px 0; }
@@ -2481,7 +2493,7 @@ body.forge-page option[value="*custom"]:is(:hover, :focus-visible) { color: var(
 .fx-map-script-open .fx-ico { width: 14px; height: 14px; }
 .fx-map-script-count { font-size: 11px; }
 
-/* The Script editor's Flags legend (the owner, 2026-11-13): at its left, every flag of the layout's scripts -- marked
+/* The Script editor's Flags legend (the Forge's owner (crispy, OT.R112), 2026-11-13): at its left, every flag of the layout's scripts -- marked
    where the script shown uses it, unfolded to its uses (each one a jump to its step) -- then the game's own values. */
 .fx-sg-body { display: flex; flex: 1 1 auto; min-height: 0; }
 .fx-sg-body > .fx-sg-canvas { flex: 1 1 auto; min-width: 0; }
@@ -2509,7 +2521,7 @@ body.forge-page option[value="*custom"]:is(:hover, :focus-visible) { color: var(
 .fx-sg-game { display: flex; align-items: center; gap: 6px; padding: 4px 6px; }
 .fx-sg-game .fx-sg-flag-name { color: var(--sg-media); }
 
-/* The Original map tab (the owner, 2026-11-13: "see the official maps' map scripting"): its program and sequence
+/* The Original map tab (the Forge's owner (crispy, OT.R112), 2026-11-13: "see the official maps' map scripting"): its program and sequence
    pickers in the bar; an engine command no script step stands for, grey (`native`); a read-only node its words. */
 .fx-sg-disc { display: inline-flex; align-items: center; gap: 12px; }
 .fx-sg-disc-field { display: inline-flex; align-items: center; gap: 6px; }
@@ -2519,13 +2531,13 @@ body.forge-page option[value="*custom"]:is(:hover, :focus-visible) { color: var(
 .fx-sg-fam-native { --fam: color-mix(in srgb, var(--fx-text) 45%, transparent); }
 .fx-sg-legend[hidden] { display: none; }
 
-/* The legend's sequence rows' rename and remove (the owner, 2026-11-13: the sequence bar's, moved to the left bar). */
+/* The legend's sequence rows' rename and remove (the Forge's owner (crispy, OT.R112), 2026-11-13: the sequence bar's, moved to the left bar). */
 .fx-sg-seq-remove { flex: 0 0 auto; width: 18px; height: 18px; margin-left: 2px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--fx-dim); font-size: 10px; cursor: pointer; }
 .fx-sg-seq-remove:hover { color: var(--fx-on-accent); background: var(--sg-action); }
 .fx-sg-seq-input { flex: 1 1 auto; min-width: 0; height: 22px; font-size: 12px; }
 .fx-sg-seq-add { align-self: stretch; height: 24px; margin: 4px 2px 0; padding: 0 8px; font-size: 12px; }
 
-/* The legend's sequences (the owner, 2026-11-13: "add our sequences to the left hand side bar"); every legend row keeps
+/* The legend's sequences (the Forge's owner (crispy, OT.R112), 2026-11-13: "add our sequences to the left hand side bar"); every legend row keeps
    its height so the legend scrolls rather than squeezes. */
 .fx-sg-legend > * { flex-shrink: 0; }
 .fx-sg-seq-item .fx-sg-flag-top { padding: 0 6px 0 0; cursor: default; }
@@ -2537,7 +2549,7 @@ body.forge-page option[value="*custom"]:is(:hover, :focus-visible) { color: var(
 .fx-sg-seq-item.is-here { box-shadow: inset 3px 0 0 var(--sg-flow); background: color-mix(in srgb, var(--sg-flow) 10%, transparent); }
 .fx-sg-seq-who { color: var(--fx-dim); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* A text field's suggestions (a flag's name): its button, and the list under it (the owner, 2026-11-13). */
+/* A text field's suggestions (a flag's name): its button, and the list under it (the Forge's owner (crispy, OT.R112), 2026-11-13). */
 .fx-inspect-suggest { color: var(--sg-state, var(--fx-accent)); }
 .fx-inspect-suggest .fx-ico { fill: color-mix(in srgb, currentColor 30%, transparent); }
 .fx-suggest-list { position: fixed; z-index: 2000; display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; padding: 3px;
@@ -2562,7 +2574,7 @@ body.forge-page option[value="*custom"]:is(:hover, :focus-visible) { color: var(
 .fx-step-pick.is-empty .fx-step-pick-words { color: var(--fx-dim); }
 
 /* The program sidebar's edge: a drag resizes it (a double click its default); a sequence's name on a line of its own,
-   its state under it (the owner, 2026-11-13: "when I add a new sequence, I can't even read it"). */
+   its state under it (the Forge's owner (crispy, OT.R112), 2026-11-13: "when I add a new sequence, I can't even read it"). */
 .fx-sg-legend { border-right: 0; }
 .fx-sg-legend-grip { flex: 0 0 5px; cursor: col-resize; background: var(--fx-edge); transition: background-color 80ms ease-out; }
 .fx-sg-legend-grip:hover, .fx-sg-legend-grip.is-dragging { background: var(--fx-gold, var(--fx-accent)); }
@@ -2611,7 +2623,7 @@ body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grab
 /* The top bar's labels (Mode, Select, Layer): the second toolbar's section label look, centred on the row. */
 .fx-bar-label { align-self: center; padding-left: 2px; }
 /* Layer after the selection modes: a gap and a rule between them. */
-/* Every section of both bars set apart (the owner, 2026-11-17: "give spacing between each section of buttons ... too
+/* Every section of both bars set apart (the Forge's owner (crispy, OT.R112), 2026-11-17: "give spacing between each section of buttons ... too
    squished and it is very hard to read ... add dividers and spacing for each"): on the top bar, a caption after other
    controls opens its section with a full-height rule and room either side; on the second toolbar the sections' boxes
    stand further apart, their captions clear of their buttons. */
@@ -2668,7 +2680,7 @@ body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grab
 }
 .fx-geo-status[hidden] { display: none; }
 
-/* Create's shape menu (the owner, 2026-11-17: "a preview image and it is categorized better"): its button the shape's
+/* Create's shape menu (the Forge's owner (crispy, OT.R112), 2026-11-17: "a preview image and it is categorized better"): its button the shape's
    picture and word; its panel the shapes by group, a picture each, the chosen one gold. */
 .fx-geo-block-shape { display: inline-flex; align-items: center; gap: var(--s2u-space-1); }
 .fx-geo-block-shape .fx-shape-icon { width: 18px; height: 18px; flex: none; }
@@ -2693,7 +2705,7 @@ body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grab
 .fx-shape-num .fx-num { width: 80px; }
 .fx-shape-unit { color: var(--fx-dim); }
 .fx-shape-setting input[type="checkbox"] { justify-self: start; }
-/* Create's settings panel in the viewport's lower left, among the legends (the owner, 2026-11-17: "make the settings a
+/* Create's settings panel in the viewport's lower left, among the legends (the Forge's owner (crispy, OT.R112), 2026-11-17: "make the settings a
    little window in the viewport (bottom left) similar to legend"): live to the pointer, its head the shape (a click opens
    the shapes), its rows the settings; dimmed gold while it shows a shape hovered in the menu. */
 .fx-legend-stack > .fx-create-panel { position: static; }
@@ -2727,7 +2739,7 @@ body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grab
 .fx-texture-warn { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font: var(--fx-type-caption); color: var(--fx-gold); }
 .fx-texture-warn[hidden] { display: none; }
 
-/* Edit > Preferences: the shortcut editor (`./shortcutEditor`; the owner, 2026-11-20). One card, its list scrolling. */
+/* Edit > Preferences: the shortcut editor (`./shortcutEditor`; the Forge's owner (crispy, OT.R112), 2026-11-20). One card, its list scrolling. */
 .fx-prefs { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); display: flex; flex-direction: column; overflow: hidden; }
 .fx-prefs header { display: flex; align-items: baseline; gap: var(--s2u-space-3); }
 .fx-prefs header h2 { margin: 0; }
@@ -2778,7 +2790,7 @@ body.fx-tile-dragging, body.fx-tile-dragging * { user-select: none; cursor: grab
 .fx-surfprops-note[hidden] { display: none; }
 .fx-surfprops-area { display: flex; gap: 0; }
 .fx-surfprops-area > .fx-asset-tab { flex: 1 1 0; justify-content: center; }
-/* The Collision section's Property (`./geometry/editor` `propertyUi`; the owner, 2026-11-20: easy to find): first in the
+/* The Collision section's Property (`./geometry/editor` `propertyUi`; the Forge's owner (crispy, OT.R112), 2026-11-20: easy to find): first in the
    section, in the accent's outline, the tabs beside it its values. */
 .fx-geo-prop { display: inline-flex; align-items: center; gap: 6px; margin-right: 6px; }
 .fx-geo-prop-word { font: var(--fx-type-caption); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fx-gold); }

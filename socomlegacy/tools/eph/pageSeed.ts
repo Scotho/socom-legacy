@@ -46,7 +46,10 @@ export interface PadProfile {
   prone: number;
 }
 
-/** startupSettings.ts defaultController. */
+/**
+ * startupSettings.ts defaultController, but for the dead zone: the page's default went to 0.05 (WM-PAD-DEADZONE), and
+ * this saved profile keeps the 0.15 every run so far was recorded with (a saved profile keeps its own, WM.R20).
+ */
 export function defaultPadProfile(): PadProfile {
   return { version: 1, bindings: Array.from({ length: 16 }, (_, i) => i), deadZone: 0.15, crouch: -1, prone: -1 };
 }
@@ -89,6 +92,12 @@ export function pageSeed(pad: PadIdentity = EPH_PAD): Record<string, string> {
  * `__ephPadWrite([[kind, index, pressed, value], ...])` applies a whole write (./pageMap PageWrite) in one task, so no
  * walk tick reads half of it, and answers the walk tick it was applied after (`__viewer.ephFrame().tick`, null without
  * one): the page polls the pad at its next frame, so the write first runs on that tick + 1 (the hunt's M4 stale clock).
+ *
+ * LATER 1165 (d) (Option A): `__ephPadSchedule([[tick, kind, index, pressed, value, line], ...])` hands the page the
+ * whole script as walk ticks, once; every poll of the pad (`getGamepads`, the page's frame read) first applies each event
+ * due by the walk's next tick (`ephFrame().tick + 1`), in the order given, and logs `[line, tick, landed, write]` --
+ * `__ephPadLog()` answers the log. No CDP write per event, so no wall-clock lateness: an event lands on its tick, or
+ * later where the frame covering it runs more than one tick (the walk reads one input a frame), never earlier.
  */
 export function ephPadInitScript(seed: Record<string, string>, pad: PadIdentity = EPH_PAD): string {
   return `(() => {
@@ -104,7 +113,27 @@ export function ephPadInitScript(seed: Record<string, string>, pad: PadIdentity 
   const snap = () => ({ id: ${JSON.stringify(pad.id)}, index: 0, connected: true, mapping: ${JSON.stringify(pad.mapping)}, timestamp: 0,
     axes: state.axes.slice(), buttons: state.buttons.map((b) => ({ pressed: b.pressed, value: b.value })) });
   Object.defineProperty(g, '__ephRealPads', { configurable: true, value: () => Array.from(real()).filter((p) => p !== null) });
-  Object.defineProperty(nav, 'getGamepads', { configurable: true, value: () => [snap()] });
+  const queue = [], landed = [];
+  const walkTick = () => { try { const f = g.__viewer && g.__viewer.ephFrame ? g.__viewer.ephFrame() : null; return f && typeof f.tick === 'number' ? f.tick : null; } catch (e) { return null; } };
+  const drain = () => {
+    if (queue.length === 0) return;
+    const now = walkTick();
+    if (now === null) return;
+    while (queue.length && queue[0][0] <= now + 1) {
+      const [due, kind, index, pressed, value, line, write] = queue.shift();
+      if (kind === 'axis') state.axes[index] = value;
+      else state.buttons[index] = { pressed: pressed, value: value };
+      landed.push([line, due, now + 1, write === undefined ? null : write]);
+    }
+  };
+  Object.defineProperty(nav, 'getGamepads', { configurable: true, value: () => { drain(); return [snap()]; } });
+  Object.defineProperty(g, '__ephPadSchedule', { configurable: true, value: (list) => {
+    const add = list.map((e, i) => [e, i]).sort((a, b) => a[0][0] - b[0][0] || a[1] - b[1]).map((x) => x[0]);
+    for (const e of add) queue.push(e);
+    queue.sort((a, b) => a[0] - b[0]);
+    return queue.length;
+  } });
+  Object.defineProperty(g, '__ephPadLog', { configurable: true, value: () => landed.map((e) => e.slice()) });
   Object.defineProperty(g, '__ephPadSet', { configurable: true, value: (kind, index, pressed, value) => {
     if (kind === 'axis') state.axes[index] = value;
     else state.buttons[index] = { pressed: pressed, value: value };

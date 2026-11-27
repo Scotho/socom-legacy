@@ -109,6 +109,8 @@ export const AGENT_CODE_WORDS: Readonly<Record<string, string>> = Object.freeze(
   UNSUPPORTED_FORMAT: 'A file is in a format this page does not read.',
   LOCAL_FILES_UNAVAILABLE: 'Choose a local folder or add files first.',
   STORAGE_FAILED: 'This browser could not store it.',
+  // LATER 1135: a file's request failed every time it was tried (not a bad file); what was fetched is kept for a resume
+  DOWNLOAD_FAILED: 'The download failed after several tries. What was fetched is kept: try again to resume.',
   DIGEST_MISMATCH: 'A file changed while it was being read.',
   ITEM_TOO_LARGE: 'A file is too large.',
   TRANSFER_TOO_LARGE: 'The transfer is too large.',

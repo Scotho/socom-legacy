@@ -6,7 +6,7 @@ import { FORGE_TOOL_ORDER, forgeKeyAction, forgeToolKeyHelp, forgeToolKeyLabel, 
 
 /**
  * OT.R68 (the owner, 2026-10-21: keyboard and mouse for everything in the forge's creation UI, not once its matches have
- * started): the editor's key map, pure, read from the shortcut list's defaults (`../src/forge/shortcuts`; the owner,
+ * started): the editor's key map, pure, read from the shortcut list's defaults (`../src/forge/shortcuts`; the Forge's owner (crispy, OT.R112),
  * 2026-11-20: Walk, Play and the menu keyless, Duplicate gone). A browser adaptation (no original).
  */
 const at: ForgeKeyState = { typing: false, match: false, menu: false, card: false, playing: false, pointerLocked: false };
@@ -27,7 +27,7 @@ describe('OT.R68: the forge editor\'s keys (the shortcut list\'s defaults)', () 
       .toEqual(['group', 'delete', 'delete', 'frame', 'docks', 'deselect']);
     expect(press('KeyG', { shift: true })).toBe('ungroup');
     expect(press('KeyA', { shift: true })).toBe('frame');
-    expect(press('KeyD', { ctrl: true }), 'Duplicate is gone (the owner, 2026-11-20)').toBeNull();
+    expect(press('KeyD', { ctrl: true }), 'Duplicate is gone (the Forge\'s owner (crispy, OT.R112), 2026-11-20)').toBeNull();
   });
 
   it('the gizmo\'s modes on W, E, R and its World / Local on Q', () => {

@@ -166,7 +166,11 @@ describe.skipIf(!HAVE)(`MP6's deck into the hostage room: the sandbags' climb, t
     for (const label of ['mid 1803', 'mid 1795']) {
       const r = runs.get(label)!;
       // SEGMENT-BODY part 2: offered from the start, 7.7 out, by the weapon line (its 22.93 reaches the face from there).
-      expect(r.firstOff, label).toBeGreaterThan(7.5);
+      // LATER 1194B (the walls trial, 2026-11-21): the contact is stored once a game frame, at its end (FUN_005483d0; the
+      // second read of LATER 1334), so the weapon line's offer forms at the walk's first frame end -- three ticks after
+      // the placing -- with the body a frame's move in: 6.917 off at mid 1803 (was 7.7, stored on the first tick). Still
+      // offered from the walk's first frame, by the weapon line. The port's own number.
+      expect(r.firstOff, label).toBeGreaterThan(6.8);
       expect(r.prompt, label).toBe('high');
       expect(r.automatic, label).toBe(false);
       expect(r.met.has('worldmodel/sausage_climber_dis'), label).toBe(true);
@@ -186,12 +190,22 @@ describe.skipIf(!HAVE)(`MP6's deck into the hostage room: the sandbags' climb, t
     // 49.6 degrees off) drops it (the corner drop, now in `Walker.storeContact`); the still body's side line keeps
     // meeting stop1_2, so the weapon line's slot is never consulted (D:L413618) and nothing re-forms. North-east from
     // 1808 the weapon line meets stop1_2 first (appflags 0): stored, nothing offered.
-    const corners = { 'corner 1814': { also: [] as string[], off: 6.1 }, 'corner 1808 ne': { also: ['worldmodel/g451'], off: 6.7 } };
+    // LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): the walk-in's ramp read half a tick ahead lands each corner at another
+    // point of the 60 Hz wall stop's sawtooth (one tick's move wide; H404, LATER 681/784). The head at this start is the
+    // trunk's start moved 0.5 on: 1814 stands 6.384 off (6.096 before the lead; the trunk's sweep z +0..0.7 gave 6.096 to
+    // 6.444, then a wrap to 5.888), and 1808 ne 6.447 (6.702 before). What (3) protects holds at both corners: no prompt,
+    // the same faces met, in the wedge at the platform, nothing climbed. These are the port's stops, pending a capture.
+    // LATER 1194B (the walls trial, 2026-11-21; re-measured on the hub at agent/walls a6af3e96f4): met once a game frame,
+    // a frame that would cross the face cut whole (FUN_005483d0's ground cut, second-read r0001 + r0004), each corner lands
+    // on another point of a FRAME's sawtooth: 1814 stands 6.612 off at x 1811.553 (was 6.38), 1808 ne 6.989 off at x
+    // 1810.924 (was 6.45, x in 1811.5-1813.5). What (3) protects still holds at both: no prompt, the same faces met, at the
+    // platform, nothing climbed. The port's stops, pending a capture.
+    const corners = { 'corner 1814': { also: [] as string[], off: 6.61 }, 'corner 1808 ne': { also: ['worldmodel/g451'], off: 6.99 } };
     for (const [label, c] of Object.entries(corners)) {
       const r = runs.get(label)!;
       expect(r.prompt, label).toBeNull();
       expect(r.met, label).toEqual(new Set(['worldmodel/stop1_2', 'worldmodel/sausage_climber_dis', ...c.also]));
-      expect(r.at[0], label).toBeGreaterThan(1811.5);                  // in the wedge, x about 1812.3-1812.7
+      expect(r.at[0], label).toBeGreaterThan(1810.5);                  // in the wedge, x about 1810.9-1811.6 (was 1812.3-1812.7)
       expect(r.at[0], label).toBeLessThan(1813.5);
       expect(r.at[1], label).toBeCloseTo(PLATFORM, 2);
       // SEGMENT-BODY: the centre line's reach, 1.1 x 1.4 r = 5.39, plus a tick, less the 1 of the deep-hit rule (D:L415166,

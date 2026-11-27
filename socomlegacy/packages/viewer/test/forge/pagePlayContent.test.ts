@@ -34,6 +34,9 @@ vi.mock('../../src/forge/archives', () => ({ Archives: class {
   clips = async () => null;
   list = async () => ({ entries: [], problems: [] });
   load = archiveLoad;
+  census = async () => null;
+  props = async () => null;
+  scriptNames = async () => null;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 const started = vi.hoisted(() => ({ options: [] as Record<string, unknown>[], reject: false, dispose: null as (() => void) | null }));

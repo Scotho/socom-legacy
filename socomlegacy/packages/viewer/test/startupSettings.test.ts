@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { resolveVisuals, parseController, defaultController, controllerStanceMode, STANCE_MODE_ABOUT, STANCE_MODE_KEY, STANCE_MODE_WORDS, setControllerStanceMode } from '../src/startupSettings';
+import * as Settings from '../src/startupSettings';
 import { PAGE_SETTING_KEYS } from '../src/pageStore';
 import { ControllerInput, calibrateStick } from '../src/controllerInput';
 import { padInput, padRaw } from '../src/gamepad';
@@ -69,8 +70,19 @@ describe('PP-5: the Prone bind and the Stance mode', () => {
     expect(lines[0]).toMatch(/^COMBINED: Triangle does it all/);
     expect(lines[0]).toMatch(/Square/);
     expect(lines[1]).toMatch(/^SEPARATE: Crouch and Prone get their own buttons/);
-    expect(lines[1]).toMatch(/Prone takes Triangle's button, and Triangle stops changing stance while Prone is bound\.$/);   // the review's F1
+    expect(lines[1]).toMatch(/Prone takes Triangle's button, and Triangle stops changing stance while Prone is bound\./);   // the review's F1 (STANCE-HELP-DS3: no longer the line's end)
     expect(STANCE_MODE_ABOUT).not.toMatch(/Prone-pop|Separate:/);
+  });
+  it('STANCE-HELP-DS3 (the owner, 2026-11-25, a browser adaptation): the row says where DS3 pressure is turned on', () => {
+    const note = (Settings as unknown as Record<string, unknown>)['STANCE_MODE_PRESSURE_NOTE'];
+    expect(typeof note).toBe('string');
+    expect(STANCE_MODE_ABOUT.endsWith(` ${String(note)}`)).toBe(true);
+    expect(String(note)).toMatch(/USB DualShock 3/);
+    expect(String(note)).toMatch(/Chrome or Edge/);
+    expect(String(note)).toMatch(/no driver wrapper/);
+    expect(String(note)).toMatch(/Button mapping > Connect USB pressure controller/);
+    expect(String(note)).toMatch(/SEPARATE/);
+    expect(STANCE_MODE_ABOUT.split(/(?=SEPARATE:)/)).toHaveLength(2);   // the note names SEPARATE without a colon
   });
 });
 

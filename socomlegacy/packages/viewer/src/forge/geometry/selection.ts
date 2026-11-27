@@ -7,7 +7,7 @@ import { Topo } from './topology';
 import { objectFaces, objectVerts, type GeoObject, type WorldGeometry } from './world';
 
 /**
- * Selection in a level editor's four modes (a browser adaptation; the owner, 2026-11-14: "an object mode, point mode, edge
+ * Selection in a level editor's four modes (a browser adaptation; the Forge's owner (crispy, OT.R112), 2026-11-14: "an object mode, point mode, edge
  * mode, and face mode"): a whole object, its points, its edges, its faces. Picking is by a ray (the camera's through the
  * cursor): the nearest face it hits, and in point and edge mode the point or edge of that hit nearest the ray within
  * `tolerance` world units. A selection converts between modes as a level editor's does (`selectionVerts`).
@@ -123,7 +123,7 @@ export function pickEdge(world: WorldGeometry, ray: Ray, tolerance: number): { o
 }
 
 /**
- * How a click takes what it hits (the owner, 2026-11-16: "holding shift + click should be additive not toggle selection.
+ * How a click takes what it hits (the Forge's owner (crispy, OT.R112), 2026-11-16: "holding shift + click should be additive not toggle selection.
  * ctrl + click should be toggleable"): `only` it alone (a plain click; a miss clears), `add` it added (Shift: never taken
  * out), `toggle` it in or out (Ctrl). `true` / `false` are the older `toggle` / `only`.
  */
@@ -207,9 +207,9 @@ export const selectedFaces = (sel: Selection, id: string): number[] =>
   sel.mode === 'face' ? [...(sel.items.get(id) ?? [])].filter((x): x is number => typeof x === 'number') : [];
 
 /**
- * Grow or Shrink selection (every modeller's; the owner, 2026-11-19: "implement the grow shrink selection"; a browser
+ * Grow or Shrink selection (every modeller's; the Forge's owner (crispy, OT.R112), 2026-11-19: "implement the grow shrink selection"; a browser
  * adaptation, the game has no editor): one object's `items` in `mode`, among `faces`, a step bigger or smaller.
- * As the reference editor's (the owner, 2026-11-19: "always match hammer for all tools"): Grow adds a point's
+ * As the reference editor's (the Forge's owner (crispy, OT.R112), 2026-11-19: "always match hammer for all tools"): Grow adds a point's
  * neighbours along its edges, the edges meeting a selected edge's ends, and the faces across a selected face's edges
  * (not those touching at a corner alone). Shrink takes off the border: a point with an unselected neighbour, an edge
  * with an end that an unselected edge meets, a face with an edge whose far side is unselected or open -- a selected
@@ -246,7 +246,7 @@ export function growSelection(m: EditMesh, faces: readonly number[], mode: 'poin
 }
 
 /**
- * Select Ribs (the reference editor's Ctrl+G in Edge mode; the owner, 2026-11-20): the selected edges, one run or one
+ * Select Ribs (the reference editor's Ctrl+G in Edge mode; the Forge's owner (crispy, OT.R112), 2026-11-20): the selected edges, one run or one
  * loop (the spine; anything else gives nothing), and from each spine edge on both its sides a walk across four-sided
  * faces -- each face's two edges beside the one walked in from (the ribs) taken, then on through its opposite edge
  * into the face beyond -- until a face is not four-sided, the walk runs off the mesh or comes back round. The ribs
@@ -380,13 +380,13 @@ export class PickIndex {
 }
 
 /**
- * The edge loop through edge `a`-`b` among `faces` (every modeller's loop select; the owner, 2026-11-18): from
+ * The edge loop through edge `a`-`b` among `faces` (every modeller's loop select; the Forge's owner (crispy, OT.R112), 2026-11-18): from
  * each end, on to the edge that carries straight on -- through a point with an even number of edges, the one halfway
  * round its fan (a grid's four: the one sharing no face with the edge arrived on; a sphere's pole: the meridian
  * opposite); along an open border, the next border edge -- until a point where none does (an odd number of edges, a
  * corner of a border), or back at the start. Returns its edges' keys, `a`-`b`'s first.
  *
- * Where it goes on from neither end (each end a corner of three or five edges: every edge of a box -- the owner,
+ * Where it goes on from neither end (each end a corner of three or five edges: every edge of a box -- the Forge's owner (crispy, OT.R112),
  * 2026-11-18: "I create a cube ... double click an edge, doesn't select a loop"), the loop is the border of `side`, the
  * face beside the edge the pointer was on (or the one facing the camera), as modellers loop a box's face: a cube's top
  * edge double-clicked from above, its four top edges.
@@ -404,7 +404,7 @@ export function edgeLoop(m: EditMesh, faces: readonly number[], a: number, b: nu
       return border.length === 1 ? border[0]! : null;
     }
     // Through a point whose faces go all the way round it in one fan (`Topo.fan`) with an even number of edges: the edge
-    // halfway round -- straight across a grid's four, through a sphere's pole to the meridian opposite (the owner,
+    // halfway round -- straight across a grid's four, through a sphere's pole to the meridian opposite (the Forge's owner (crispy, OT.R112),
     // 2026-11-18: "shouldn't an edge loop go around the full circle not just half way?"). An odd count (a box's corner)
     // stops it.
     const fan = t.fan(v);

@@ -493,6 +493,12 @@ describe('the custom matches adapter (FG-46; MU_CUSTOM_MATCHES_OPTIONAL_ADAPTATI
     await flush();
     expect(dev.c.join('L2')).toBe(`/forge/lobby/L2?devmode&server=${encodeURIComponent(BASE)}`);
     dev.c.dispose();
+    // N03-RECOVERY-ON review F1 (2026-11-25): the page's explicit graphicsrecovery=notice rides JOIN into the forge.
+    const notice = custom({ body: LISTED }, { search: '?graphicsrecovery=notice' });
+    notice.c.sync(true);
+    await flush();
+    expect(notice.c.join('L1')).toBe('/forge/lobby/L1?graphicsrecovery=notice');
+    notice.c.dispose();
     // The dev-tools switch on its own: the same server, under its own word (PR #333 review).
     const tools = custom({ body: LISTED }, { search: '?devtools' });
     tools.c.sync(true);

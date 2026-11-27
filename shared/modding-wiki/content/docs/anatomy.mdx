@@ -2,7 +2,7 @@
 title: "Pack anatomy"
 description: "Inside a v2 pack: the zip's layout, the manifest s2u-pack.json part by part, member paths, identity, dependencies, intents and handler claims."
 status: "Format only"
-source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/creator-contracts/src/packs.ts", "socomlegacy/packages/viewer/src/packs/registry.ts:612-620", "socomlegacy/packages/viewer/src/packs/registry.ts:224", "socomlegacy/packages/viewer/src/agent/localFiles.ts:37"]
+source: ["socomlegacy/docs/specs/2026-10-25-pack-framework.md", "socomlegacy/packages/creator-contracts/src/packs.ts", "socomlegacy/packages/viewer/src/packs/registry.ts:612-620", "socomlegacy/packages/viewer/src/packs/registry.ts:224", "socomlegacy/packages/viewer/src/agent/localFiles.ts:39"]
 ---
 
 **Status: Format only.** Everything on this page is checked by the pack contract, and a pack that passes is stored;
@@ -107,7 +107,7 @@ that differ only in letter case, or in Unicode form, collide. Any manifest text 
 **What the game's import reads.** The check above is the contract's. The game's local import, which hands files to
 the check, reads only these file types for a v2 pack: `.json`, `.zip`, `.glb`, `.gltf`, `.png`, `.ktx2`, `.ogg`,
 `.wav`, `.md`, `.txt`, `.bin`, `.dat`, `.cfg`, and a few of the game's own archive types (the viewer's
-`localFiles.ts`, line 37). So a member the contract allows can still be refused at import: an `.rgba` texture, or a
+`localFiles.ts`, line 39). So a member the contract allows can still be refused at import: an `.rgba` texture, or a
 `data` member of any type not in that list.
 
 **Sizes and hashes.** The check compares each member's stored size with its `size` row before reading a byte, then

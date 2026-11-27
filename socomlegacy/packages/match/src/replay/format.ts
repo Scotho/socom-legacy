@@ -1,5 +1,6 @@
 import {
-  decodeCommands, decodeCommandsV10, decodeCommandsV15, decodeSnapshot, decodeSnapshotV10, decodeSnapshotV15, encodeCommands, encodeSnapshot,
+  decodeCommands, decodeCommandsV10, decodeCommandsV15, decodeSnapshot, decodeSnapshotV10, decodeSnapshotV15, decodeSnapshotV16, encodeCommands,
+  encodeSnapshot,
   PROTOCOL_VERSION,
   type BodyState, type Command, type CommandBatch, type CraneWire, type DoorWire, type EnvWire, type HostageWire, type Role, type Rules, type ServerEvent,
   type Team,
@@ -78,6 +79,16 @@ export interface ReplayHeader {
   serverName: string | null;
   startedAt: string;                                      // ISO 8601, wall clock
   session: { id: string; segment: number } | null;        // a playtest's; null for a server recording
+  /**
+   * DAY-VARIANT-REPLAYS (product track, an adaptation; the owner's yes logged 17:16:59Z: additive, no format bump): the
+   * room's map variant (`RoomOptions.variant`, DAY-7b; `@s2u/archive` `MAP_VARIANTS`), written only when the room has one;
+   * `map` stays the night stem. A reader keeps it only when it is exactly 'day' or 'night' (`headerVariantOf`).
+   */
+  variant?: 'day' | 'night';
+}
+/** DAY-VARIANT-REPLAYS: a header's or a sidecar's `variant` when it is exactly 'day' or 'night', else undefined (ignored). */
+export function headerVariantOf(v: unknown): 'day' | 'night' | undefined {
+  return v === 'day' || v === 'night' ? v : undefined;
 }
 /**
  * SIMDROP-INSTR: a `fire: cone: *` refusal as the room judged it (`Room.fireAt`): the seat, the command the round named
@@ -130,7 +141,8 @@ export type ReplayRecord =
 /**
  * The wire's decoders by protocol (NET-WIRE, PT-01b): the `snap` and `cmd` payloads are the frames of the header's
  * protocol, and the reader picks their decoder by it -- protocol 10's frozen pair (`decodeSnapshotV10`,
- * `decodeCommandsV10`), protocol 11 to 15's (`decodeSnapshotV15`, `decodeCommandsV15`; WIRE-16) and the live codec's. A
+ * `decodeCommandsV10`), protocol 11 to 15's (`decodeSnapshotV15`, `decodeCommandsV15`; WIRE-16), protocol 16's snapshot
+ * (`decodeSnapshotV16`, beside the live `decodeCommands`; WM-DATA-17) and the live codec's. A
  * recording of any other protocol is refused, never misdecoded. Live play keeps one version (`Room.hello` refuses a
  * hello of another).
  */
@@ -155,6 +167,17 @@ const DECODERS: ReadonlyMap<number, WireDecoders> = new Map<number, WireDecoders
   [14, { snapshot: decodeSnapshotV15, commands: decodeCommandsV15 }],
   // Protocol 15: the layout as it stood before WIRE-16 (viewer `net/codecV15.ts`, frozen at the bump).
   [15, { snapshot: decodeSnapshotV15, commands: decodeCommandsV15 }],
+  // Protocol 16: 17 (WM-DATA-17, WM.R11) grew a body 55 -> 56 by the hand byte (`BodyState.hand`) and left the command as it
+  // was, so a 16 snapshot reads on its frozen decoder (viewer `net/codecV16.ts`), `hand` 0 (`HAND_SINCE_PROTOCOL`), and
+  // its commands on the live decoder.
+  [16, { snapshot: decodeSnapshotV16, commands: decodeCommands }],
+  // Protocol 17: 18 (LATER 1147, research 443) changed the fire button's rule alone (the pad layer's two-read press), no
+  // frame: a 17 recording's bytes read exactly as an 18 one's (match `test/replayFormat.test.ts`, the protocol-17 case).
+  [17, { snapshot: decodeSnapshot, commands: decodeCommands }],
+  // Protocol 18: 19 (LATER 1141, research 441) changed the round's cone (at the firepoint) and the `fire` message's JSON
+  // (`aim` the bare look, `at` added) alone, no frame: an 18 recording's bytes read exactly as a 19 one's (match
+  // `test/replayFormat.test.ts`, the protocol-18 case).
+  [18, { snapshot: decodeSnapshot, commands: decodeCommands }],
   [PROTOCOL_VERSION, { snapshot: decodeSnapshot, commands: decodeCommands }],
 ]);
 /** The protocols whose recordings this build plays, oldest first. */
@@ -220,6 +243,16 @@ function decodePayload(kind: Kind, payload: Uint8Array, wire: WireDecoders = DEC
     default: {
       const body: unknown = JSON.parse(fromUtf8.decode(payload));
       if (typeof body !== 'object' || body === null || Array.isArray(body)) throw new Error(`${kind} record is not a JSON object`);
+      if (kind === 'header') {
+        // DAY-VARIANT-REPLAYS: an odd `variant` is ignored, never thrown -- the header reads as one without it.
+        const h = (body as { header?: unknown }).header;
+        if (h && typeof h === 'object' && 'variant' in h && headerVariantOf((h as { variant?: unknown }).variant) === undefined) {
+          const { variant: _odd, ...rest } = h as Record<string, unknown>;
+          // through `unknown`, as the plain return below does in effect: the body is untyped JSON; dropping one key leaves
+          // it exactly as validated as a header with no variant (TS2352 otherwise, box/dvm2-22d49a40e)
+          return { ...(body as object), header: rest, kind } as unknown as ReplayRecord;
+        }
+      }
       return { ...(body as object), kind } as ReplayRecord;
     }
   }

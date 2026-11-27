@@ -54,3 +54,26 @@ describe('the live page and the START boundary (the slice-3 review, finding 2)',
     }
   });
 });
+
+describe('B-84: the launcher page offers the Overlay button row', () => {
+  it('Options > Controller lists it, and a save writes the key the overlay reads', async () => {
+    localStorage.clear();
+    document.body.innerHTML = '';
+    const A = liveAdapters(document, window);
+    try {
+      const { OVERLAY_BUTTON_ROW } = await import('../../../src/console/adapters/options');
+      const { readOverlayButton, OVERLAY_BUTTON_KEY } = await import('../../../src/overlayButtonSetting');
+      const { readPreference } = await import('../../../src/startupSettings');
+      const rows = A.options!.categories().find((c) => c.id === 'controller')!.rows;
+      expect(rows.map((r) => r.id)).toContain(OVERLAY_BUTTON_ROW);
+      A.options!.set(OVERLAY_BUTTON_ROW, 2);               // choices: Home (16) first, then 0, 1, ...: index 2 is button 1
+      expect(readPreference(OVERLAY_BUTTON_KEY)).toBe('1');
+      expect(readOverlayButton()).toBe(1);
+      const binding = await import('../../../src/modern/overlay/binding');
+      expect(binding.readOverlayButton()).toBe(1);
+    } finally {
+      A.dispose();
+      localStorage.clear();
+    }
+  });
+});

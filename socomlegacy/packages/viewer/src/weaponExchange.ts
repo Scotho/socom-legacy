@@ -1,10 +1,10 @@
-import { applyPicks, EMPTY_ITEM, menuValves, pick as pickItem, selectable, slotLocked, type Loadout, type Pick } from '@s2u/scene';
+import { EMPTY_ITEM, menuValves, pick as pickItem, replayPicks, selectable, slotLocked, type Loadout, type Pick, type Remembered } from '@s2u/scene';
 import { STICK_FIRE, STICK_REARM } from '@s2u/ui';
 import type { HudQuad, HudTri } from './hud';
 import { PAD_BUTTON, PAD_PRESS, type GamepadLike, type PadButton } from './gamepad';
 import { LEFT_DEAD_ZONE, moveStick } from './moveStick';
 import {
-  drawWeaponSelect, LIST_LAYOUT, menuInputOfKey, menuInputOfPad, MenuPulses, PICKER_LAYOUT, promptLines, WEAPON_SELECT_KEY_READING, weaponSelectLayout,
+  drawWeaponSelect, exchangeFrameNarrow, LIST_LAYOUT, menuInputOfKey, menuInputOfPad, MenuPulses, PICKER_LAYOUT, promptLines, WEAPON_SELECT_KEY_READING, weaponSelectLayout,
   type PromptInfo, type WeaponSelectLayout,
 } from './weaponSelect';
 import {
@@ -44,6 +44,11 @@ export interface WeaponExchangeDeps {
   opensOn: () => Loadout;
   /** A confirm (S4): the slot and the item put in it. */
   confirm: (pick: Pick) => void;
+  /**
+   * R4P-221: the remembered put-back pair the kit it opens on holds -- the one the side's list leaves, replayed from the
+   * type's kit as the room replays it (scene `replayPicks`), so the page's kit and the room's agree. Absent: none.
+   */
+  remembered?: () => Remembered | undefined;
 }
 
 /** A pad's standard buttons that are down (the Gamepad API's `pressed`, or a value past `PAD_PRESS`), by the PS2 pad's names. */
@@ -129,7 +134,8 @@ export class WeaponExchange {
     if (!wasOpen) {
       if (input !== 'inventory' || !canOpen(gate)) return false;
       // The lists open on the kit the type holds (`FUN_0023e370` L88306): the room's answer, else its own.
-      this.menu = closedMenu(this.deps.opensOn());
+      const remembered = this.deps.remembered?.();
+      this.menu = remembered === undefined ? closedMenu(this.deps.opensOn()) : { ...closedMenu(this.deps.opensOn()), remembered };
     }
     if (input === null) return wasOpen;
     const { state, event } = step(ctx, this.menu, input, canOpen(gate));
@@ -177,7 +183,7 @@ export class WeaponExchange {
     this.menu = { ...this.menu, loadout: kit };
   }
 
-  /** S8: the round's reset closes the menu over the kit the spawn took. */
+  /** S8: the round's reset (LATER 1542: not a spawn) closes the menu over `kit` -- its fade draws it; opens re-seat from `opensOn`. */
   reset(kit: Loadout): void {
     if (this.isOpen()) this.closedAt = this.deps.clock();
     this.menu = reset(kit);
@@ -205,10 +211,30 @@ export class WeaponExchange {
   }
 }
 
-/** A point on the canvas (its CSS pixels, `width` x `height`) on the 640x448 frame: `drawWeaponSelect`'s mapping undone. */
+/**
+ * A point on the canvas (its CSS pixels, `width` x `height`) on the 640x448 frame: `drawWeaponSelect`'s mapping of the
+ * menu's parts undone -- about the centre line, or from the left edge on a canvas narrower than 640 units, where the
+ * menu is drawn there (`./weaponSelect` `EXCHANGE_NARROW_FRAME_ADAPTATION`, a browser adaptation).
+ */
 export function frameOfPoint(px: number, py: number, canvas: { width: number; height: number }): [number, number] {
   const s = canvas.height / 448;
-  return [(px - canvas.width / 2) / s + 320, py / s];
+  return [exchangeFrameNarrow(canvas) ? px / s : (px - canvas.width / 2) / s + 320, py / s];
+}
+
+/**
+ * A point on the canvas's CSS box (`box`, from `getBoundingClientRect`) on the 640x448 frame, read on the drawing
+ * `buffer` the menu is drawn on (the HUD pass's frame, `./hud` `render`): across, the box's pixels to the buffer's and
+ * then `frameOfPoint`'s rule on the buffer; down, the frame is the box's whole height. The box's shape need not be the
+ * buffer's -- the PS2 picture shows its 640 x 448 buffer on a 4:3 box, and 4:3 stretched its 4:3 buffer over the window
+ * (`./picture`, `./shape`) -- and read as the box, a tap there landed up to 21 units off the part drawn under it (LATER
+ * 1316's F6, the menu's half). As the ARMORY's taps are read (`./armoryView` `frameOfClient`). A browser adaptation: the
+ * console has no pointer. A box that is its own buffer (no `buffer`, or the same width) is `frameOfPoint` exactly.
+ */
+export function frameOfClientPoint(
+  px: number, py: number, box: { width: number; height: number }, buffer: { width: number; height: number } = box,
+): [number, number] {
+  const across = buffer.width === box.width ? px : (px * buffer.width) / box.width;
+  return [frameOfPoint(across, 0, buffer)[0], py / (box.height / 448)];
 }
 
 const inside = (x: number, y: number, r: { x: number; y: number; w: number; h: number }): boolean =>
@@ -254,11 +280,11 @@ export function menuTap(ctx: MenuContext, s: MenuState, fx: number, fy: number):
 /**
  * The `loadout` request's list kept short: every confirm is kept (the room replays them all from the type's kit, so a
  * reconnect lands on the same kit), and a list that would grow past the useful is replaced by one pick a changed slot
- * -- primary first, as the menu would make them -- when that reaches the very kit the long list does (`applyPicks`
- * through the same rules); otherwise the long list stands.
+ * -- primary first, as the menu would make them -- when that reaches the very kit and the same remembered pair
+ * (R4P-221) the long list does (`replayPicks` through the same rules); otherwise the long list stands.
  */
 export function compactPicks(ctx: MenuContext, base: Loadout, picks: readonly Pick[]): Pick[] {
-  const want = applyPicks(ctx.arsenal, ctx.valves, ctx.side, base, picks);
+  const want = replayPicks(ctx.arsenal, ctx.valves, ctx.side, base, picks);
   if ('refused' in want) return [...picks];
   const out: Pick[] = [];
   let kit = base;
@@ -270,6 +296,9 @@ export function compactPicks(ctx: MenuContext, base: Loadout, picks: readonly Pi
     kit = pickItem(ctx.arsenal, ctx.valves, ctx.side, kit, slot, id).loadout;
     out.push({ slot, id });
   }
-  const same = kit.every((id, i) => id === want.loadout[i]);
+  // R4P-221: the shorter list must leave the same remembered pair too, or the picks after it replay differently.
+  const twin = replayPicks(ctx.arsenal, ctx.valves, ctx.side, base, out);
+  const same = kit.every((id, i) => id === want.loadout[i]) && !('refused' in twin)
+    && twin.loadout.every((id, i) => id === want.loadout[i]) && twin.remembered.every((id, i) => id === want.remembered[i]);
   return same && out.length < picks.length ? out : [...picks];
 }

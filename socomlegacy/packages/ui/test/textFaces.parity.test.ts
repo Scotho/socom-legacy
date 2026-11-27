@@ -18,12 +18,17 @@ const faces = (): [TextFace, TextFace] => readTextFaces(PIN.tree) as [TextFace, 
 const codes = (s: string): number[] => Array.from(s, (c) => c.charCodeAt(0));
 
 describe('fonts.rdr\'s faces from their golden pin (no game data)', () => {
-  it('two faces, font_titlebar_01 and font_text_01: 166 and 184 glyphs (185 records: code 96 twice is one glyph)', () => {
+  it('two faces, font_titlebar_01 and font_text_01: 167 and 185 glyphs (166 and 185 records, code 96 twice one glyph; each face\'s Code record of C also makes r0004\'s 0xb2)', () => {
     expect([PIN.archive, PIN.member]).toEqual(['RUN/READERC.ZAR', 'fonts.rdr']);
     expect(faceNames(PIN.tree)).toEqual(['font_titlebar_01', 'font_text_01']);
     const [title, text] = faces();
     expect([title.name, text.name]).toEqual(['font_titlebar_01', 'font_text_01']);
-    expect([title.glyphs.size, text.glyphs.size]).toEqual([166, 184]);
+    expect([title.glyphs.size, text.glyphs.size]).toEqual([167, 185]);
+    // R4P-324 (HASH_C_GLYPH_ALIAS_READING): r0004's loader 0x003796b0 parses C's record again into 0xb2 (0x37979c-0x3797f8).
+    for (const f of [title, text]) {
+      const c = f.glyphs.get(0x43)!;
+      expect(f.glyphs.get(0xb2), f.name).toEqual({ ...c, code: 0xb2, lKerning: 0, rKerning: 0, advance: -1, color: null });
+    }
     expect(title.textures).toEqual(['font_titlebar_01.tif']);
     expect(text.textures).toEqual(['font_text_01.tif', 'font_special_01.tif']);
   });

@@ -4,7 +4,7 @@ import { AI_PAINT_KINDS, aiBrushCells, aiCellKey, aiSoilAt, parseAiCellKey, with
 import { aiSoilKind } from '../../src/forge/aiMapOverlay';
 import { FLOOR_AI_SOIL, floorAiMaps } from '../../src/forge/floorAi';
 
-/** A layout's painted AI cells (`../../src/forge/aiSoil`; the owner, 2026-11-16): the soil bits alone, the disc's grid kept. */
+/** A layout's painted AI cells (`../../src/forge/aiSoil`; the Forge's owner (crispy, OT.R112), 2026-11-16): the soil bits alone, the disc's grid kept. */
 describe('painted AI cells', () => {
   const ai = floorAiMaps(100);                                 // 10 x 10 cells of 10 units, soil 3 (road)
 

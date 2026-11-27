@@ -132,6 +132,7 @@ dist/
 !/socomlegacy/test-fixtures/RUN/IRX/LIBSD.IRX
 !/socomlegacy/test-fixtures/RUN/LOCALE/STATES/UIMNLOC.ZAR
 !/socomlegacy/test-fixtures/RUN/MOTION_P.ZAR
+!/socomlegacy/test-fixtures/RUN/MP11.ZDB
 !/socomlegacy/test-fixtures/RUN/MP2.ZDB
 !/socomlegacy/test-fixtures/RUN/MP6.ZDB
 !/socomlegacy/test-fixtures/RUN/MP71.ZDB
@@ -204,3 +205,4 @@ release.tgz
 /.private/
 # LCM-18b: the medal tool's output (socomlegacy/tools/cards/extractMedals.ts) is disc art (RS.R8), never committed
 medal-*.png
+/workflow/runner/runner.env

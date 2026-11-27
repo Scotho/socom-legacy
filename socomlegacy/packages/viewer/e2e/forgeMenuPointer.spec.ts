@@ -318,7 +318,7 @@ test.describe('FUI-3: the pad menu\'s sections, sub-screens and the legend', () 
       expect(errors).toEqual([]);
     });
 
-    test('the Props screen: a grid in pages, Cross chooses a prop and the Place tool takes it', async ({ page }) => {
+    test('the Props screen: a grid in pages, Cross chooses a prop; Select stays the tool (PR #5: no Place tool)', async ({ page }) => {
       test.skip(!HAVE_MAPS, 'needs socomlegacy/public/maps/index.json and RUN/MP2.ZDB, the blank floor\'s library (not committed)');
       await livePad(page);
       await ready(page);
@@ -342,8 +342,12 @@ test.describe('FUI-3: the pad menu\'s sections, sub-screens and the legend', () 
       const model = (await cell.locator('.fx-menu-label').innerText()).trim();
       await press(page, CROSS);
       await expect(page.locator('.fx-menu')).toBeHidden();
-      await expect(page.locator('.fx-status .fx-cell').first()).toHaveText('PLACE');
-      await expect(page.locator('.fx-viewport .fx-legend')).toContainText('Place');
+      // PR #5 (OT.R112): the Forge's owner (crispy) removed the Place tool -- the cell's Cross spawns the prop at the view's
+      // centre (`../src/forge/page.ts` `chooseProp` -> `placePropAtCentre`). The mode cell reads only SELECT or PLAY
+      // (`refreshHint`), and the editor's pad legend opens on Cross "Select" with or without a selection
+      // (`../src/forge/shell/legend.ts` `padPrompts`, 'build').
+      await expect(page.locator('.fx-status .fx-cell').first()).toHaveText('SELECT');
+      await expect(page.locator('.fx-viewport .fx-legend')).toContainText('Select');
       await menuTo(page, 'props');
       await expect(onRow(page).locator('.fx-menu-value')).toHaveText(model);
     });

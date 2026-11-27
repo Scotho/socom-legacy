@@ -5,7 +5,7 @@ import { hullKeyOf, hullViewBuffers, materialName, reverbZoneNote } from '../../
 import { groundPolygons } from '../../src/mover';
 
 /**
- * The Collision layer's Surface properties (the owner, 2026-11-20; a browser adaptation, FG.R2): a face's material,
+ * The Collision layer's Surface properties (the Forge's owner (crispy, OT.R112), 2026-11-20; a browser adaptation, FG.R2): a face's material,
  * indoors (`m_inside`, the flags word's bit 3 as the hull carries it), reverb zone (bit 4), camera pass-through
  * (`m_cameratype` bit 1) and region read and set with every other word kept, the walk's hull carrying them, and the
  * collision view's Colour by modes.

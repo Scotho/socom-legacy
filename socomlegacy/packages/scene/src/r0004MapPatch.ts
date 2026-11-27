@@ -164,6 +164,8 @@ export interface R0004Applied {
   /** A node it edited inside a model that instances share: every placement of that model takes the edit. */
   shared?: string[];
   why?: string;
+  /** The owner's ruling that keeps this edit out of the port (`R0004_REJECTED_BY_RULING`); it then changed nothing. */
+  rejected?: string;
 }
 export interface R0004Report { level: string; id: string | null; applied: R0004Applied[] }
 
@@ -261,6 +263,13 @@ function bboxOf(polys: readonly CollisionPoly[]): Float32Array {
   return b;
 }
 
+/**
+ * The name the patch gives each node it ADDS (`addNode`): this prefix and the op's first pc, so an owner's path holds a
+ * segment beginning with it exactly when its polygons are an added node's (or under one) -- the grenade's flight reads
+ * it (`projectile.ts` `projectileNodeSides`, GRENADE_PATCH_NODE_SIDES_READING).
+ */
+export const R0004_NODE_NAME_PREFIX = 'r0004@';
+
 /** A new collision node (r4 0x3343d0 ctor, `AddDI`, has-DI, bbox; `R0004_NEW_NODE_PLACEHOLDER`). */
 function newNode(name: string, polys: readonly CollisionPoly[], matrix: Float32Array): SceneNode {
   return {
@@ -285,7 +294,7 @@ function apply(g: Graph, op: R0004Op): R0004Applied {
   switch (op.op) {
     case 'addNode': {
       const polys = op.polys.map(polyFrom);
-      const name = `r0004@${op.pcs[0]}`;
+      const name = `${R0004_NODE_NAME_PREFIX}${op.pcs[0]}`;
       if ('worldChildrenNamed' in op.parent) {
         // r4 0x2d7120-0x2d72e8: a cap under each direct child of the world root so named -- the new node `AddChild`ed to
         // the crate (node vtable +0x18 on the crate, r4 0x2d719c; G1b section 4), at the identity in the crate's frame.
@@ -423,14 +432,40 @@ function apply(g: Graph, op: R0004Op): R0004Applied {
 }
 
 /**
+ * The edits the owner has ruled the port does not apply: a known, deliberate departure from r0004 (OT.R97), each on
+ * its ruling, as OT.R108 rejected r0004's standing-jump segment. The table keeps every one as read (it is the
+ * transcription's, generated); `applyR0004MapPatch` skips it and its report names the ruling.
+ *
+ * - **OT.R127** (the owner, Craig, 2026-11-14, playtest 20261114-4874): mp72's new node at r4 0x2d8500, two
+ *   INVISIBLE_DI quads (word 0x44000c13) at y 60-80 across the front eaves of Crossroads' two gray market tents, about
+ *   (1390-1440, 1549-1555) and (1156-1159, 1488-1538) in x and z. Its bottom is 16.5 above the floor, under a standing
+ *   SEAL's head line, so the original stops a standing or crouch-running player there (rig Q21, tent 1: 5/5 each; a
+ *   crouch walk goes under) -- an intended improvement: both tents are walked into standing.
+ */
+export const R0004_REJECTED_BY_RULING: readonly { map: string; pc: string; ruling: string }[] = [
+  { map: 'mp72', pc: '0x2d8500', ruling: 'OT.R127' },
+];
+
+/**
  * r0004's edits for the level, applied to its graph in the code's order. `stem` is the archive's (`MP72`); the chain
- * reads it as the level's name (`levelNameOf`). A level the chain does not match is left as read.
+ * reads it as the level's name (`levelNameOf`). A level the chain does not match is left as read. An edit the owner
+ * ruled out (`R0004_REJECTED_BY_RULING`) is skipped: its report entry changes nothing and names the ruling.
  */
 export function applyR0004MapPatch(models: SceneNode[], stem: string, rootName = 'worldmodel'): R0004Report {
   const level = levelNameOf(stem);
   const match = r0004EditsFor(level);
   if (!match) return { level, id: null, applied: [] };
-  return { level, id: match.id, applied: applyR0004Ops(models, level, match.edits.ops, rootName) };
+  const ruledOut = (op: R0004Op): string | undefined =>
+    R0004_REJECTED_BY_RULING.find((r) => r.map === match.id && r.pc === op.pcs[0])?.ruling;
+  const kept = match.edits.ops.filter((op) => ruledOut(op) === undefined);
+  const done = applyR0004Ops(models, level, kept, rootName);
+  const applied = match.edits.ops.map((op): R0004Applied => {
+    const ruling = ruledOut(op);
+    return ruling !== undefined
+      ? { pcs: op.pcs, op: op.op, nodes: [], changed: 0, rejected: ruling, why: `not applied: the owner's ${ruling}` }
+      : done.shift()!;
+  });
+  return { level, id: match.id, applied };
 }
 
 /** A list of edits applied to a graph for the level named `level` (the map's own list, or a test's). */

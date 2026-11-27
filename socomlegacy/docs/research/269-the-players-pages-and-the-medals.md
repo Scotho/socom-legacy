@@ -162,7 +162,8 @@ PROFILE-PRIVACY is SVC-15's (research 268 §1.5 item 4).
 1. **The add's lookup** (`IGNORE_NAME_LOOKUP_PLACEHOLDER`): FindPlayer where the console sends AccountGetID. Horizon's
    AccountGetID finds any account of the name (desktop@be557831:server/horizon-server/Server.Medius/Medius/MLS.cs:468-498,
    `GetAccountByName`); ours finds only a player in a briefing room or a game (`WHISPER_REACH_READING`), so a player
-   off line, or on the menus, is MP_PLAYER_NOT_FOUND here. The page's own #376 names both cases ("does not exist or is
+   off line, or on the menus, is MP_PLAYER_NOT_FOUND here (*since LATER 1550, 2026-11-24, a player logged in on the
+   main menu is found; one off line still is not -- research 268, its last item*). The page's own #376 names both cases ("does not exist or is
    not currently logged in"), so Sony's behaviour is not known. ~~The services hold no AccountGetID; adding one is a
    server task (the brief kept SVC-17's and SVC-18's routes as they are).~~ *[2026-10-15, NU-14: was -- the services
    answer AccountGetID at `/lobby/account-id` (`accountGetId.ts`), a logged-in account of the name in a room or not
@@ -607,7 +608,8 @@ friends list 0x44fdc0 (pointers to the reply's 0xd0-byte rows) and the requests 
   `GetFriendInfo` on the list's focus), so the text is a whisper -- FindPlayer by the name, then ChatMessage type 1 to the
   account found, or MP_PLAYER_NOT_FOUND (`FUN_002f4a20` D:L194614-194619), which this page binds to its 74-byte literal.
   The path exists on the server (SVC-18's `/lobby/find-player`, `/lobby/chat`); its reach is SVC-18's
-  (`WHISPER_REACH_READING`: a friend in no briefing room or game is not found). No change was needed; the page test
+  (`WHISPER_REACH_READING`: a friend in no briefing room or game is not found; since LATER 1550 one logged in on the
+  main menu is). No change was needed; the page test
   holds the chain.
 - **INVITE TO GAME: none on the record** (§3.1). Nothing to build, and nothing drawn to park: the roadmap's word has
   no widget or command on `dlgFriendList`. A game invitation by a friend, if the original had one elsewhere, is not on
@@ -793,6 +795,37 @@ the menu's last answer left.
   `PLAYER_TIER_PARKED_READING` (research 165 §6) is narrowed to the rank refusal: the lists draw a medal now.
 - **The H189 case** stays the server's (`publishedMedal`; `OOP9_MEDAL_NAME_READING`, research 264 §6): the page draws
   the 4 it is told.
+- **A name too wide for its column** (LATER 1093; reading, pending review, 2026-11-15, the wm-swap lane seat; source
+  inspection, the disc's dialog through `tools/dump-dialogs.ts --dialog dlgGameLobby.rdr --tree`, and a measure in the
+  disc's face). *The draw*: the list cuts nothing at a column -- no clip, no wrap: `FUN_00373850` sets
+  the list's scissor `FUN_003b0fa0(0, y, DAT_004a44c4, y + YSIZE)` (D:L270012-270013) and `DAT_004a44c4` is 0x280
+  (D:L305276), so a cell too wide runs on over the next column and is cut only at the 640 frame (research 117's LISTBOX
+  scissor row; research 216's `ROUND_NAME_CUT_READING`, the same read for the round screens). Traced from
+  `FUN_00373850` through `FUN_0036ba80` (D:L265788) to the row's draw `FUN_0037a810` (D:L273691), which sets a place and
+  a colour only; no `FUN_003b0fa0` caller is on the plain text cell's path (`FUN_003794b0` is the wrapped cell's). A fit
+  to width is not ruled out by code: a column's `MAXWIDTH` defaults to 1000 at the loader and what reads it is not traced
+  (research 216 §5, `ROUND_NAME_CUT_READING`); no lobby column sets one, and 1000 is past any 31-byte name at 0.8. The port's
+  `widgets/listbox.ts`, cut at the frame, draws the same, and is not changed. *The layout*: `B_SEALLIST` at (146,232)
+  and `B_REDLIST` at (374,232), 256 x 170, `SCALE` 0.8, `LEFT_MARGIN` 30, the screen's `font_text_01`; no column holds a
+  width. On the frame the tag's pen is x 190, the name's 236, the medal 378-390; `SealListBox` ends at 394,
+  `TerrListBox` opens at 400 and the Terrorists' ready dot stands at 403. The row (`FUN_002c5010` D:L166107-166141) is
+  the name at +0xe as a plain string cell (`FUN_00333610`, D:L166121 / D:L166139) in column 60 and the tag a keyed cell
+  through `"[%s]"` (S:0x3f2a70, read in the ELF) in column 14, apart. *The limits*: the name is `PLAYERNAMEVAR` (`FUN_002c5450` D:L166268-166277, into a 32-byte
+  field, through `"%s"` S:0x3f2a68), typed on `CREATEPLAYERNAME` at 14 characters / 31 bytes (research 119 R119.4); the tag is
+  `Clan_Description` cut into the 16 bytes at +0x2e (D:L166280-166291), typed at 3 characters (research 272, the clan
+  tag's keyboard). *The measure* (`measureText`, `font_text_01` at 0.8, over `test/golden/fontsRdr.json`; a measure of
+  the face, not a picture): 14 x `W` or `M` is 140 px, so the widest lettered name ends at 376, short of the medal; 14 x
+  `&` is 154 px, ending at 390: the console's own name can cover its own medal (378-390) and stays inside the box --
+  `&` is on `CREATEPLAYERNAME` (an English layout: the 68 printable ASCII keys that are neither a space nor lower case,
+  research 119 §2; a USB keyboard types the rest), and the name's only filter, `NoDQuote`, turns `"` into `'`; `[WWW]` is
+  42 px and `[&&&]` 45, ending at 232 and 235, short of the name's pen. A name typed on the console never reaches the
+  other list. *The port*: a seat carries its account's name, up to 31 bytes
+  (research 132 R132.4), where the persona's is cut at 14 (card `persona.ts` `PERSONA_NAME_MAX`); WM-51's picture's
+  30-character name (`viewer/e2e/swapMarkPicture.spec.ts` on `agent/wm-swap`, its `LONG`) measures 216 px and covers the Terrorists' dot. The
+  difference is the name's length, not the draw. Whether an account of 15 to 31 bytes made off the console could reach
+  a console's lobby is unread (`LONG_ACCOUNT_PS2_LOBBY_READING`, §4.7); there it would run on the same way. Whether the
+  port cuts a seat's shown name at 14 is a playtest preference the original does not settle (the owner's, LATER 1093;
+  recorded, not applied).
 
 ### 4.5 The star on a ladder under 12
 
@@ -814,6 +847,7 @@ rows' mode 0 page are tested so (`medalOfMerit.test.ts`); no code changed.
 | name | value | what it stands in for | what would settle it | status |
 |---|---|---|---|---|
 | `LOBBY_MEDAL_TOLD_READING` (ui `screens/gameLobbyCommands.ts`) | `'each seat\'s medal from the last SEAT-TOLD event; 0 (null.tif) for a seat it names not'` | the game lobby's lists' medal column. The original has two writers: the player states' published +0x42 (`FUN_002c5010` D:L166121, D:L166141; `FUN_002c5360` D:L166200-166205) and the lobby server's reply's own `FUN_002eaee0` of each record's position (`FUN_002f7020` D:L196436, D:L196448); the port draws the first's value as the server tells it (W18.R7). Which the console shows last between rounds, and what a state not yet published holds (0 here), are unread (§4.4); one concrete case: the second writer applies no `oop9` override (D:L196407 / 196420 / 196436 / 196448), so a pre-round lobby drawn by it shows `oop9`'s computed medal where the port draws 4 | ONL-32's transcript of a game lobby with ranked players across a round; a capture of the lists with a medal other than the star | reading |
+| `LONG_ACCOUNT_PS2_LOBBY_READING` | -- | whether an account name of 15 to 31 bytes, made off the console, could reach a console's game lobby (where it would run into the other list, as the port's does) (§4.4, LATER 1093) | the account create path's own limit on the original's server; a capture with such an account | *note only* |
 
 `PLAYER_TIER_PARKED_READING` is research 165 §6's row, narrowed there (2026-10-12) to the rank refusal. The names this
 section leans on are listed where they live: `SEAT_TOLD_BETWEEN_ROUNDS_READING`, `SEAT_TOLD_PLAYERS_ONLY_READING` and

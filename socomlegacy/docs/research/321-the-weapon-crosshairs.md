@@ -258,11 +258,13 @@ to the range; up by `TargetDilateUponMovement` a game frame toward it, down by `
 `ReticuleKnockReturn` a second; none scoped. The HUD halves the size in third person (D:L69730-69735) and draws the
 whole reticle at the knock's offset (D:L70421-70424). The port runs it continuously (`accuracy.ts`, MISSION R8: the
 owner's ruling of 2026-10-04, research 208 section 9) -- a known deviation, not this row's.
+- **The round's cone is sampled BEFORE the frame's reticle tick (SWAPFIRE-CONE-ORDER, 2026-11-22; reading, two readers, pending review):** the controller's update caches it into body+0x5dc in the pre-tick pass, the kit's tick runs in the post-tick pass, the shot reads the cache -- r0001 `FUN_005bd100` from `FUN_00594cf0` D:L453666, `FUN_00592260` D:L451547-451575 (ATLAS's Codex read, `agent/spc-atlas` `docs/atlas/readings/nade-swap-mechanism-r0001-codex.md`); r0004 read again from the ELF: 0x5c3cb0 (kit+0x84c at 0x5c3dcc, body+0x5dc at 0x5c4094) from 0x59a6e0 at 0x59bef0, controller slot +0xc from body slot +0x14 0x557080 at 0x5572bc, pass 1.0 (0x1ec5a4 -> 0x2a0a10); 0x5c9b40 from the kit tick 0x5c7ce0 at 0x5c7d54, body slot +0x20 0x555800 at 0x555b90, pass 6.0 (0x1ec6cc -> 0x2a06a0). The page: `Accuracy.sampleCone` in `gunFrame` before `update`, the round's `roundCone` (`swapFireConeOrder.test.ts`).
+  - *Its review's folds (2026-11-22).* **The mounted round** is the same path (the review's F2: the r0004 reader is 0x597a90, the controller's slot +0x74, called at 0x5c6124 / 0x5c6140 in the kit's fire 0x5c5550 from the kit tick at 0x5c7e68 / 0x5c816c, after 0x5c7d54 -- the review's re-read): `MatchFirearm.turretCone` returns `roundCone` too, on the sample `gunFrame` takes after naming the turret's record (`matchFirearm.test.ts`, "SWAPFIRE-CONE-ORDER F2"). **A pull's pellets share one sample** (F4): the bloom between them writes the kit's size, the draw reads the cache and nothing rewrites it inside the pull (`swapFireConeOrder.test.ts`, "a pull's pellets share one cone"); this reverses LATER 934's page reading (SHOTGUN-PELLET-CONE, "the bloom sits between the pellets"), whose effect was wrong. **The sample is the PAGE frame's, not the game frame's** (F1): `Accuracy.update` is one continuous tick of the page's `dt` (MISSION R8), so the sample is one page frame back where the original's cache is one game frame (525/15734 s) back; of the 1.668 px game-frame gap of a 50 px/s settle (NADESWAP-PC2's 5.980 - 4.311) left: ~0.83 px at a 60 Hz page (about half), ~1.32 px at 144 Hz (a faster page is FARTHER from the original: one page frame back recovers 50 px/s x the page's frame, 0.347 px at 144 Hz), none at 29.97 Hz, and below that rate the page overshoots; a rate-independent sample (the state one `TICK` back) is a LATER row for the controller. **The sample holds the size and the offsets only** (F5): the round reads the live view state, magnification and depth, which the original caches with them in the 1.0 pass (0x5c3db8, 0x5c3e34) -- different only on the frame the view crosses 4, each frame of a magnification ramp, and a second scoped round in one frame after the first dropped the scope.
 
 ### 3.2 A swap carries the size (new here)
 
 The kit's `+0x84c` is written only by the tick (D:L477295-477297, D:L477356-477368) and the round (D:L477797-477804): a
-grep of every `+ 0x84c)` store in the decompilation finds no other writer on a kit: the other hits -- D:L35770, D:L37450,
+grep of every `+ 0x84c)` store in the decompilation finds no other writer on a kit but the kit initialiser (CORRECTED 2026-11-22, SWAP-FIRE, `agent-mail/planning/mega-2026-11-21/pilot/kill/keyjob-swapfire-i-swap-path.md` s6, reading pending review, r0004 decoded: r4 `0x5cf8a0` writes it at `0x5cfa30`; R321.3 unaffected): the other hits -- D:L35770, D:L37450,
 D:L267135, D:L520356, D:L520365, D:L520379, D:L521050, D:L534613, D:L537804 -- are stores on other objects, none in a
 kit function (the review, F5; was: "(the hits at D:L35770 and D:L37450 are other objects')"). So a swap does not reset it: the new weapon's first tick lifts it to the new `TargetMin` if under,
 and it moves to the new target at the new rates -- a Mark 23 at 30 taken over to the M4A1 SD (max 26) closes at 50 a
@@ -359,7 +361,11 @@ review).** The fire gate after the slot change, read at the source:
   rifle's trigger (D:L453478-453541; research 326 R326.2).
 - **The return plays nothing.** The swap to the grenade takes the item branch -- the body's 0.3 s snapshot cross-fade,
   the hand's class `+0xf79` not written (`FUN_005a64c0` D:L461867-461869, D:L461889-461920) -- so back on the rifle
-  `+0xf79` is still 1 and `FUN_005c50b0` sets no swap-pending bit (D:L479006-479010): no clip, no overlay, so neither
+  `+0xf79` is still 1 and `FUN_005c50b0` sets no swap-pending bit (D:L479006-479010; CORRECTED 2026-11-22: an r0001
+  read of a function r0004 changes -- at r0004 it holds for an old hand grenade or charge (`0x5cc888` leaves on a
+  non-zero old class) and FAILS for an old item of class 0 (gear `0xbe`, the Detonator; armour `0xc9`): r0004 sets
+  the pending bit and clears bit 5; the cost to the first round is UNREAD, a named `GEAR_RETURN_PENDING_READING`
+  when built (SWAP-FIRE P2); `agent-mail/planning/mega-2026-11-21/pilot/kill/keyjob-swapfire-i-swap-path.md` s6, reading pending review): no clip, no overlay, so neither
   `FUN_005a7980`'s pending-bit test nor its swap-clip tests (D:L462473-462507) refuse the round.
 - **So the first round waits on the raise alone.** The rifle's times come back with the slot; the trigger's press (or
   the countdown, if the rifle fired within its 5 s: D:L453571-453584) asks up from the cleared envelope (D:L494258-494265);
@@ -392,7 +398,9 @@ assumed the rifle's times; under the grenade's zero times (above) the release's 
 (`FUN_00286d90(0, 0, 0)`, D:L494264-494265) and nothing shows -- the same outcome R326.2 drew ("nothing shows"), now
 by the times rather than the clip.
 
-The slot's last grenade (LATER 715; the review of 5cebecc98, F3): the original brings the firearm back at the launch
+The slot's last grenade (LATER 715; the review of 5cebecc98, F3): WITHDRAWN 2026-11-22 (SWAP-FIRE, `agent-mail/planning/mega-2026-11-21/pilot/kill/keyjob-swapfire-i-swap-path.md` s6, reading pending review): the call below sits inside "if the return slot >= 0" (D:L477135; r4 `0x5c9884`), which a
+selected hand grenade's throw never has (research 361 s2 agrees), so the original does NOT bring the firearm back at
+the launch by this path. Was: "the original brings the firearm back at the launch
 (`FUN_005c4b10` from the kit tick, D:L477135-477136), and with it the rifle's raise times; the page's item stays up
 until the throw clip ends (`grenade.ts` `finishThrow`), so its zero times hold through the clip's tail and the rifle's
 rise and first round after the last grenade start at the clip's end. Before this fix the page held the rifle's times
@@ -645,11 +653,13 @@ wire field, a room change or a HUD change.
    (`match/src/extraction.ts` `ExtractionAuthority`), so on ESCORT no VIP was drawn and no page named one. From that
    date `ExtractionAuthority.of` admits game type 3, and ESCORT's `VIP1`–`VIP3` are the same welcome list (research
    175 §2.1, research 334). The reticle rule above is unchanged.
-5. **The records' life** (AD-3's review F2 and its re-check, 2026-10-16; the merge controller's conditions: a clear only
-   where the original's own is read; a seat's record dropped only as cited or labelled). The records are the observing
-   body's list (`+0xd0`). `FUN_002a0450` makes one, zeroed, on every actor for each actor that enters the world
-   (D:L145796-145806 -> `FUN_002a0200` D:L145639-145661) and removes it from every actor when one leaves
-   (D:L145818-145824 -> `FUN_002a0310` D:L145669-145708). **The observing body's rebuild empties its list**:
+5. **The records' life** (AD-3's review F2 and its re-check, 2026-10-16; the merge controller's conditions: a clear
+   only where the original's own is read; a seat's record dropped only as cited or labelled). The records are the
+   observing body's list (`+0xd0`). `FUN_002a0450` makes one on every actor for each actor that enters the world
+   (D:L145796-145806 -> `CTargetList::AddTarget` `FUN_002a0200` D:L145639-145661: from a zeroed temporary, but `+0x1c`
+   -- the rate the perception tick keeps -- is written neither by the temporary nor by the target's displacement
+   written after it, so its value before the tick first keeps it is not read) and removes it from every actor when one
+   leaves (D:L145818-145824 -> `FUN_002a0310` D:L145669-145708). **The observing body's rebuild empties its list**:
    `FUN_00599b60` (`CZSealBody_ReCreate`, research 212 section on the menu's ReCreate, `212-the-r2-menu-drawn.md`:493;
    research 179's "the round start / respawn rebuilds", `179-c1-match-server.md`:503) runs the body's destructor in place
    (D:L455659: vtable +8, `FUN_0029ed30` -- `FUN_002a0f70(body, 0)` D:L144943, `FUN_0029ff60(body+0xd0)` D:L144952 freeing
@@ -713,6 +723,12 @@ wire field, a room change or a HUD change.
    `FUN_002be150` D:L162310-162312). *(2026-11-09, ENEMY-RAISE COMPARE: the 5.0 s lower, the rise a frame after the count, the mark at
    acc >= 1.0 with no hysteresis and the class-'y' override are **proven** for offline M51 slot 5 by capture, s7.7's
    comparison; the count runs a frame behind a threshold mark there, one frame ahead in the port.)*
+   *(2026-11-25, LATER 1595 FIRST-PERSON-RAISE; reading, pending review: `aiming`, the scope term beside the count, is
+   IsZoomed and not IsUsingBinocs -- `FUN_005be6c0` state >= 4 (D:L475078-475090), `FUN_005b90f0` state 4
+   (D:L471991-471997), so a scope zoom, state 5 on -- read twice (atlas-parity's non-author binocular second read, claim 3;
+   seat-shots at the source). `matchFirearm.ts` now feeds `zoom.view() === 'scope'`; it fed the walk's head view, true in
+   plain first person, where r0004 holds the rifle down (FP-NEARPOINT-r0004: +0xf74 2 at 1x). LATER 1583's d4/d8
+   (PAGE-NEARPOINT-PAIRED-PC5) are its rendered BEFORE.)*
 8. **The sight query's two points and its hits** (SIGHT-POINTS, LATER 793, 2026-11-09; from dot (Codex)'s reading,
    `agent-mail/evidence/r0004-gameplay-review/enemy-visibility-cone-20261109/REPORT.md`, SHA256
    8b1f34e1b32ca0e009e069785bd7cab29b39cd4d4b820391a99d51cbf0b9c0fc, re-read at the source by a reader who did not write
@@ -1342,6 +1358,145 @@ WITH FINDINGS (high), folded at a156a0e08; nothing here is promoted.
 
 **For the reviewer** (the scope's section 4): re-read at the source D:L453088-453092, D:L482090-482132 (with D:L482112) and
 D:L453568-453601; the gate D:L453067-453070 and D:L454091-454095; and, for ER-2, the wire D:L161978 and D:L162310-162312.
+
+### 7.8 Readings (SWAP-FIRE P1's build: the grenade's launch runs the round's reticle step)
+
+Filed 2026-11-22 by SWAP-FIRE P1 (`agent/swapfire-p1` off `agent/next` 0a0c7fcb1b; `packages/viewer/src/accuracy.ts`
+`Accuracy.launch`, `matchThrow.ts`'s `'throw'`), from seat-kill's key job SWAP-FIRE (i) sections 4.2 and 7 "P1"
+(`agent-mail/planning/mega-2026-11-21/pilot/kill/keyjob-swapfire-i-swap-path.md`); **reading, pending review**. A hand
+grenade's launch is not a quiet frame (section 3.4 had it as one): the launch tick counts the pull +1 (r4 `0x5c93c8`; r0001
+D:L477025) and calls the round function (r4 `0x5cc9d0`, r0001 `FUN_005c5340`), which adds 0.35 to the exertion (r4
+`0x5cd5c8-0x5cd5d4`; D:L479407) and ends in the round's reticle step on the grenade's own record (r4 `0x5cdbb4-0x5cdbc4`
+-> `0x5ca830`, r0001 `FUN_005c3360` D:L477714-477808; D:L479541-479543): the knock by the record's `KnockCount` rule clamped
+to its `ReticuleKnockMax`, and the size to clamp(size + `TargetDilateUponFire` x (1 + burst), the record's own `TargetMin`,
+`TargetMax`) (r4 `0x5ca8e8`, `0x5ca8f4`; stored `0x5caba0`, `0x5cabb4`), not the tick's category range 0 to 0. The values,
+off the disc's `zweapon.rdr` through `KitTable.itemReticles` for every item of the four classes
+(`itemReticleTable.devdisc.test.ts`; reading): `TargetDilateUponFire` 13, `TargetMin` 2, `TargetMax` 6, `ReticuleKnock` 13
+standing and 9 crouched and prone, `ReticuleKnockMax` 70; `KnockCount` 3 and `KnockEntryStrength` 1 are stated by no item
+record, so they are the stance constructor's (`FUN_003c59c0`). So the launch lifts the size to 6 whatever stood, and with the
+pull's count at 1 or 2 at the launch (the fire function's own count stores are unread, key job section 8) no knock is added.
+The grenade's tick then closes it at 60 a second -- 0 again within 3 game frames while it stays up; a return inside those
+frames hands the rifle the remainder (`bloomSwap.test.ts` "SWAP-FIRE P1"). Unit-tested against this transcription; no
+capture: **settles it (proven)** a capture of `actor+0xe2c` through a throw (the Mk141 up, 0.5 s for 0, the throw): one
+frame at 2 to 6 at the launch, then 2.002 a frame down.
+
+| name | stands for | value in the code | the evidence that settles it |
+|---|---|---|---|
+| `ITEM_LAUNCH_BURST_SCALAR_READING` | the burst's accuracy scalar the launch's step takes for an item: the step reads the slope at weapon `+0x278` (`FUN_003c62b0`) off the item's record; no item record of the four classes states `AccBurstCnt_Min/Max` or `AccScalar_Min/Max` (`itemReticleTable.devdisc.test.ts`), and the port's reader takes an absent key as 0 (`weaponRecord`'s `accuracyBurst`). Moot on the disc: 13 already passes `TargetMax` 6 for any scalar of -0.53 or more | `0` (`Accuracy.launch`) | the slope's default in the item class's constructor, read |
+
+### 7.9 Readings and placeholders (B-77's build)
+
+Filed 2026-11-22 by B-77 (`agent/reticle-filter` off `agent/next` 3b938ffec5; `packages/viewer/src/reticle.ts`,
+`hudBitmaps.ts`): the reticle's bitmaps are sampled as their own texture records say, half a texel off as the GS samples
+them. The sprite's draw `FUN_003643b0` (r0004 0x381c90, matched by word comparison with r0001) chains the texture object's
+`+0x30` bind packet (D:L261666) and writes only ST, RGBAQ and XYZ2 after it (D:L261673-261674): no TEX1 of its own. Every
+`HUD2_TXR` reticle record's packet names TEX1 `0x60` (MMAG and MMIN linear, no mipmaps) and CLAMP 0 (REPEAT both ways):
+read on MP2 and MP6's fixtures; every MP map by `reticleFilter.devdisc.test.ts`, which reads the raw TEX1_1 (0x14) and
+CLAMP_1 (0x08) words and holds both present (TEX1 0x60 whole, CLAMP 0): the repository's reader cannot tell an absent
+TEX1 or CLAMP from a present one (`@s2u/gs` `decodeGsState` answers bilinear and REPEAT for absent words and keeps no
+mark), so the port cannot fall back for one; the dev-disc file has not yet run on a disc host (skipped at B-77 and at its
+review fold, no `SOCOM_DISC`/`SOCOM_PC_ROOT` in the run's environment). The ring's corner is `(int)(centre - w * 0.5)`
+in PS2 pixels (`FUN_00216770` D:L70420-70430), its XYZ2 has no +0.5 (D:L261689-261700) and its ST is set (0, 0, 1, 1)
+(`FUN_00364830` called at D:L69661), which stores T **negated** (D:L261812-261814; r0004 0x382110): S runs 0..1, T
+0..-1, so the draw depends on WMT = REPEAT -- independent support for the record's CLAMP 0 as the one drawn. Pixel i
+samples texel coordinate i: a 2x2 dot shows as a 3x3 mark of 1 / 0.5 / 0.25 (`reticleFilter.test.ts`). The port shifts
+the ring's UVs by half a PS2 pixel in frame units (`gsSampleShift`, `./hud`'s `GS_SAMPLE_OFFSET` arithmetic) and
+truncates its corner in PS2 pixels before the presentation scale. Reading, pending review. Supersedes research 260
+section 5's and research 341's "the reticle is nearest".
+
+**Per part** (the review's F2, folded 2026-11-22; corrected by the re-review's findings 1-5, 2026-11-22). The GS
+samples every pixel at its corner (no +0.5) whatever the primitive, and interpolates ST to that point; so **every part
+drawn linear samples half a texel off**, and the port corrects every one by half a PS2 pixel. The draw class decides
+only whether a part's **corner is truncated to a whole PS2 pixel**: the sprite class (constructor `FUN_00364c50`,
+vtable 0x406e80, draw `FUN_003643b0`; r0004 0x381c90) holds its corner as ints, so yes; the quad class (constructor
+`FUN_00359640`, vtable 0x406c30 -- the quad container's, whose draw `FUN_00359520` calls the draw of the two triangles it
+holds at `+0x40` and `+0x110`) draws each triangle by `FUN_00360ca0` (r0004 0x37e530; the triangle's own table, r0004
+0x433620) with XYZ2 = position x16, sub-pixel, no +0.5 (D:L259685-259693), so no. The second two-vertex draw
+`FUN_00360380` is r0004 0x37dc10; no reticle part is of its class. The three r0001 functions that chain a texture's
+`+0x30` bind packet -- D:L261666 (the sprite), `FUN_00360380` D:L259349, `FUN_00360ca0` D:L259660 -- write no TEX1, so
+the record's filter and wrap hold for every class (reading). The quad class's ST setter `FUN_00361000` stores T
+**negated** for the triangles too (D:L259763-259774), so the quad parts' 0.01..0.99 windows (scope, sight, binoculars)
+also run 0..-1 in T under WMT = REPEAT. The negation does not turn the correction: the half pixel is a screen-space fact
+(the picture half a row down, as in x); what it makes live is the REPEAT wrap at the first row. Each part's class is read off the HUD's constructor `FUN_00218de0`
+(D:L71205-71229; r0004 0x218de0): sprites `FUN_00364c50` at `+0x70` (D:L71210) and `+0x1f0` (D:L71213), quads
+`FUN_00359640` (through `FUN_00181f40`, size 0x1f0) at `+0x270`/`+0x650` (D:L71214-71215), `+0xa30` (D:L71216),
+`+0x11f0` (D:L71217), `+0x19b0` (D:L71218), `+0x2930` (D:L71219), `+0x3180`/`+0x3940` (D:L71221-71222). The correction
+takes one of two forms: the **UV form** (`gsSampleShift`, the plane's UVs moved by the screen's (-half, -half)) is exact
+where the corner is whole; the **position form** (`gsMove`, the quad moved +half on both axes, UVs untouched) is exact
+for any corner, and is used where the port's corner can be fractional. A frame-edge mask (the scope's tube) takes the UV
+form whatever its lay: moved, its coverage would not stay on the PS2 grid, and at a frame scale s > 1 its edge would sit
+0.5 s frame pixels inside the black bar's (delta review 3's finding 1). The UV form is off by at most
+one edge pixel when a corner's fraction is at or under a half. Both forms key on the record's filter (`recordLinear`),
+never the texture's live one, so the test room's sampling experiment (an adaptation) moves no part in either form.
+
+| part | class | filter/wrap from record | sample correction | corner truncated | source |
+|---|---|---|---|---|---|
+| ring (`hud+0x70`, the fixed bitmap) | sprite | yes | yes, UV form | yes, in the port too (`reticleLayout`) | constructor D:L71210; `FUN_00364680` corner, `FUN_00364830` ST (D:L69661), draw `FUN_003643b0` |
+| accuracy pip (`hud+0x1f0`) | sprite | yes | yes, position form | yes, in the port too (`pipCentre`: the `(int)` of centre + offset - half the bitmap, `FUN_00364770` D:L261801-261802 from the call at D:L69761-69763, as the ring's; r0004 0x2153a8-0x215410 into 0x382050) | constructor D:L71213 |
+| arms (cross, `+0x2930..+0x2f00`) | quad | yes | yes, position form | no (floats: centre +- spread) | constructor D:L71219; `FUN_00359490` over `FUN_00360fc0` (section 2.1) |
+| corners (sets 2, 3) | quad | yes | yes, position form | no | the same members, D:L69799-69823 (section 2.2) |
+| set 3's sight (`+0xa30` x4) | quad | yes | yes, position form | no | constructor D:L71216; `FUN_00359140` UVs, D:L69645-69652 |
+| throw meter (`+0x270`, `+0x650`) | quad | yes | yes, position form | no | constructor D:L71214-71215; `FUN_003591d0` D:L254975-254983 |
+| binoculars (`+0xa30` x4) | quad | yes | yes, UV form (frame-edge lays) | no | constructor D:L71216; `FUN_00359140` UVs (`ChangeReticule` type 7) |
+| threat marks (`+0x19b0` x8) | quad | yes | yes, position form (each vertex) | no | constructor D:L71218; `FUN_00359260` D:L254987-255003 (section 2.6) |
+| goggles (`nvg_part`, `+0x3180` x4, `+0x3940` x4) | quad | yes | yes, UV form (frame-edge lays) | no | constructor D:L71221-71222; shown by the flag at `+0x4100` (D:L69351-69366); which of the two sets holds `nvg_part` not read |
+| scope's glass (`ret_scope_02`, `+0xa30` x4) | quad | yes (bilinear, research 341; handed none, linear as before); with a record its wrap is now REPEAT where it was clamp -- its 0.01..0.99 window keeps every sample more than half a texel inside, so nothing drawn changes (an observation) | yes, UV form (frame-edge lays) | no | constructor D:L71216; `FUN_00359590` D:L69473-69498, `FUN_00359140` D:L69500-69507 |
+| scope's tube (`ret_scope_01`, `+0x11f0` x4) | quad (constructor D:L71217) | yes | yes, UV form, as the glass (the same quads and 0.01-0.99 window) -- a frame-edge mask, so its coverage stays unmoved and meets the black bar at any scale (delta review 3's finding 1) | no | constructor D:L71217; its lay not read |
+
+| name | stands for | value in the code | the evidence that settles it |
+|---|---|---|---|
+| `RETICLE_BIND_PACKET_READING` | which bind packet the reticle sprite's draw chains: `FUN_003643b0` takes the `+0x30` quadword of the object at `texture + 0xc` (D:L261666); what writes `+0x30`, and whether the load patches it after reading the record, is not read (in the record as stored `+0x30` would lie inside the pixels, so the object is built at run time: a real open link); the ring's negated T is one independent sign the drawn CLAMP is the record's | `"the record's own packet"`: each bitmap's `ReticleSampler` off `parseTextureRecord(...).gs` | read the texture object's load (the writer of `+0x30`), or a GS trace of the reticle's draw (TEX1_1 and CLAMP_1 as drawn) |
+| `RETICLE_PART_CLASS_READING` | what the draw class decides: only whether a part's corner is truncated to a whole PS2 pixel (sprite: yes; quad: no); never whether the half-texel sample correction applies -- the GS samples at the pixel's corner for every primitive, so every part drawn linear is corrected (the per-part table above); the classes are read off `FUN_00218de0` (D:L71205-71229) | `'the class decides corner truncation only'`: every linear part corrected by half a PS2 pixel (UV or position form, per the table), the ring's and the pip's corners truncated; the scope's tube by the UV form | a GS trace of the HUD's draws (XYZ2 and ST per vertex) beside a frame would make it proven; the GS's corner sampling is the hardware's documented rule, not measured here |
+| `RETICLE_CORNER_TRUNCATION_READING` | whether the ring's and the pip's corners are truncated to whole PS2 pixels: the read says the original does (`FUN_00216770` D:L70428-70430; `FUN_00364770` D:L261801-261802). Held for v0.4.30 after Craig's playtest (2026-11-22, a release blocker: truncated, the 16x16 pip flipped one PS2 pixel, 2.4 frame px at 1080p, while standing still). Its root (2026-11-22, `reticleAimAtRest.test.ts`, a unit harness over the real walk path, 300 still frames): the page's camera and aim point ride the body's idle posed root together (`WalkMode.setPosedRoot`; the original's camera does, `FUN_0029ae50`), a rigid move that leaves the aim's place on the frame unchanged in exact arithmetic, but the per-frame projection (`matchFirearm` `aimPoint` less `screenShift`) rounds it an ulp off (head view: ny 0.5 / 0.49999999999999994 frame to frame, nx 0.4999999999999998 at rest; third person at a yaw: 320.00000000000017 PS2 px). The original's centre is no projection: `(320 + kit+0x18 + kit+0x20, 224 + kit+0x1c + kit+0x24)` (`FUN_00216770` D:L70421-70424, section 2), exact at rest -- so the wobble is port-only. Fixed at its root (AIM-AT-REST, the fresh review's F1-F3, 2026-11-22): `+0x20/+0x24` are the knock's offsets (research 84 s4) and `+0x18/+0x1c` reCOM's `m_retposx/y` (research 84), zeroed each pass while the body lives by `FUN_005aa6e0` (D:L464320-464321; r0004 0x5b0be4), the one body-relative writer found (a writer through a bare kit pointer is unread) -- so "exact at rest" is a reading resting on that zeroing. Where the page's drawn camera is the game's (`WalkMode.aimCentred`: the head view; third person while `PlayerCamera.view().slid` is false) the page hands the reticle the frame's exact centre, no projection (`hudAim`), and the truncation acts on the original's own sum `320 + offset - half`. Where the drawn camera is displaced (H309's pull-backs and near clearance, the jump's overhead cap) the round's line is projected and added AFTER the truncation, unrounded (`aimTerm`, `RETICLE_DISPLACED_CAMERA_AIM_ADAPTATION`, a browser adaptation: the original has no displaced drawn camera; the round's line or the frame's centre is the owner's choice, default the round's line as v0.4.29 shipped), so a real slide (~0.49 PS2 px per unit) never steps the mark a whole PS2 pixel. `reticleAimAtRest.test.ts` drives the walk, `aimReticle` and the reticle's render: still in the open, crouched and prone (constant over 300 frames), a marginal roof in the near rectangle and a jump under a roof (no frame-to-frame step of a frame pixel), at 640x448 and 1920x1080. The 1/256-pixel grid of the first root fix (`HUD_CENTRE_GRID_ADAPTATION`) is removed: it stepped the pip a whole PS2 pixel on a slide over ~0.004 units (the review's F1) | `true` (RE-APPLIED on the root fix; reading, pending review) | a capture of the original's centre mark at rest (never steps) and under a slowly moving aim (steps a whole PS2 pixel) |
+| `ARM_WRAP_S_READING` | whether the cross's arms wrap in S as drawn (N-10, 2026-11-24; reading, pending review): `'clamp'`, T kept at the record's REPEAT (the arms' T runs 0..-1, `FUN_00361000` D:L259763-259774, ST from D:L255143-255144). The arm bitmap's dark outline is its last column (`ret_rifle_02` column 31); under the record's WMS REPEAT the quad's S = 0 edge blended it in -- a thin dark line about 30 PS2 pixels beside each arm, one per corner. A rendered run of the page measured them (N10-CORNERS-PC2, HD off, light wall: mean 4-10 levels, darkest 8-19 below the wall); the original draws none in the same strips (N10-REF-PC2, PCSX2 1x and 3x, Vulkan and Software: means below zero, single pixels in its 0-14 noise) -- a capture comparison, unscored. The fix's review (PASS WITH FINDINGS, medium): the page turns each arm's quad where the original mirrors its corners (`FUN_00358cc0`/`d50`/`e20`), so only the down arm's strip (and the right arm's at 3x) is where the original's own S = 0 edge lies -- the 'no wrap' evidence rests on those; the other reading the evidence allows is point sampling as drawn (no bleed either), told apart on the stills already taken by a 1x Software cross-section of a vertical arm and by the horizontal arms' S = 1 row (full strength = clamp). The pistol's (set 0) lines showed on WebGL2 and went with the fix; set 9 uncaptured; sets 2 (corners; `ret_shotgun_02` has 2 inked edge texels) and 3 (sight) keep the record's wrap -- a still of the 870 owed. Rendered afters at the same wall: N10-AFTER-PC2 (WebGPU) and N10-AFTER-WEBGL2-PC4, the four strips at the original's level | `'clamp'` (the cross sets 0, 1, 9) | a GS trace of the arms' draw: the drawn packet's CLAMP_1, TEX1 and the ST, beside a frame (it also settles RETICLE_BIND_PACKET_READING); meanwhile the two still checks above |
+
+### 7.10 Readings (B-01 D1's build: an empty hand grenade selected freezes the countdown)
+
+Filed 2026-11-24 by B-01 D1 (`agent/b01-d1` off `agent/next` 2c6233d624; `packages/viewer/src/weaponRaise.ts`
+`RaiseInput.grenadeSelected`, `matchThrow.ts`'s raise feed), from seat-kill's read
+(`agent-mail/planning/mega-2026-11-21/pilot/kill/keyjob-swapfire-ii-ready.md` s6.2 D1) and two non-author second reads,
+both AGREE (atlas-parity, `pilot/kill/second-read-b01-d1-atlas.md`; seat-shots, `pilot/shots/b01-d1-second-read.md`).
+**The class test: reading, reviewed (two readers); the empty-slot premise (`EMPTY_SLOT_KEEPS_ITEM_READING`): reading, pending review; the countdown's frozen state observed by IQ-169 (below).** r0004's controller update (`CSealCtrl::PreTick`, 0x59a6e0)
+tests the hand's CLASS alone in its idle branch: `CZKit::GetCurItemIDType` (0x5cf750) reads the selected slot's item
+pointer (`kit+0x824`, `kit+0xe4[slot]`) and its id's class, no count (D4:L522772-522784), compared with 0x79 at
+0x59bbac-0x59bbc4; with it set and the trigger idle, 0x59be00-0x59be0c sets the rifle-down request's value (the request itself is
+the call at 0x59bee4) and jumps (to 0x59bee0) over both the
+countdown's decrement (0x59be20-0x59be84) and its re-seed (0x59be88-0x59bed8): `ctrl+0x234` frozen whatever the count.
+The edge-2 wind-up needs the class AND a round left (`CZKit::CurItemHasAmmo` 0x5c46b0 at 0x59bc40-0x59bc50). r0001's twin
+agrees (0x596104-0x59611c through `FUN_005c8040` D:L480684-480696; 0x596358-0x596364; 0x596198-0x5961a8 with
+`FUN_005bdb00` D:L474541-474549). The countdown's 5.0 s is the constructor's `ctrl+0x22c` 5.0 + `ctrl+0x230` 0
+(r0004 0x59e1dc, 0x59e210-0x59e214; r0001 D:L454808-454809). The re-arm that always comes before an empty slot is the
+wind-up PRESS's (0x59bbf0-0x59bc44); the let-go edge re-arms only on a gated throw (the edge 3 while the throw gate
+refuses) -- the press's re-seed is read; that the let-go re-arms ONLY on a refused throw rests on routing not traced
+(PARTLY, patches-contrib's second read 2026-11-24). An empty manual slot stays selected (section 2 of research 361). The one
+remover of the slot's item found in r0001 in `FUN_00545ee0` (D:L412006) is the turret RELEASE's (D:L411941-412032, reached on
+the selection's 0x100000 and from the knock `FUN_0057e770`; research 215), which needs a mounted body, so not on the throw
+path (patches-contrib's second read; its gate line corrected by the fresh review, 2026-11-25); r0004's removers are unread.
+
+The port fed `grenade` as "the class with a round left" (`matchThrow.ts` `setItemRaise`), so with the slot empty the
+idle branch ran the countdown down. **Observed** (IQ-169, B01-SWAP-PC2 (a capture of the original and a page run on one script, unscored);
+PC 2, the same kit on both sides): in leg A (the emptied grenade selected 6 s) the original's
+`ctrl+0x234` holds 5.0 and the emptied slot keeps its item pointer, while the page's raise countdown ran down 5 -> 0 --
+the departure, seen live. D1 corrects the raise countdown's STATE to r0004's. The first round after a grenade ->
+rifle return (the rifle under the grenade, no swap clip) was **not measured**: IQ-169's legs swapped pistol -> rifle
+(the script cycled slots 0 -> 1 -> 4 -> 0, the Mark 23 the hand's firearm under the grenade) through the full 37-frame
+swap clip with R1 held from the press, where a 2-frame raise difference cannot show (the swap-timing read,
+`agent-mail/planning/mega-2026-11-21/pilot/kill/keyjob-b01-swap-timing.md` item 10), so those legs are no evidence for or
+against D1's first round. The S+2 of the unit tests (`WeaponRaise` alone: the rifle up two game frames after the
+return, where the unfixed port stayed down 5 s on, or read 1.0 on S or S+3 by parity inside the 5 s, seat-shots'
+addition 2) is a reading (two readers), not cited to IQ-169; a D1-specific capture leg is owed for it.
+
+**Open departure, not D1's (named, not fixed here):** after a swap clip the original fires 4 game frames after the clip
+ends, the port on the frame it ends; mechanism unread (the swap-timing read, item 10). A LATER row is owed for
+seat-merge to number and file.
+
+Fixed: two fields, the class (`grenadeSelected`, the idle branch) and the class with a round left
+(`grenade`, the edge-2 wind-up). Unit-tested (`weaponRaise.test.ts` "B-01 D1", `throwAgain.test.ts` "B-01 D1"). The
+last-grenade reading (`THROW_LAST_GRENADE_RAISE_READING`) now names the firearm's return as where its countdown runs.
+
+| name | stands for | value in the code | the evidence that settles it |
+|---|---|---|---|
+| `EMPTY_SLOT_KEEPS_ITEM_READING` | that the emptied slot keeps its item pointer (`kit+0xe4[slot]`) and stays selected (`kit+0x824`) after the last throw, which D1 rests on: an r0001 store-and-caller search (seat-shots, not exhaustive) found the item array written only by the kit's add (`FUN_005bc410`), its compactor (`FUN_005b9a00`, run from the removers `FUN_005b9bb0` and `FUN_005ba040`, whose callers are actor functions, not the launch `FUN_005c1970`) and its whole-kit clear (`FUN_005c8190`); `FUN_00545ee0` (the turret release, research 215) not read whole -- its remover at D:L412006 needs a mounted body; none of it re-read at r0004. **A capture observation, not a code reading** (IQ-169, B01-SWAP-PC2 (a capture of the original and a page run on one script, unscored); PC 2, r0004 offline, M51 with the Mk141 as the hand grenade, class 0x79): its check run saw slot 4's item 123 at the same pointer through the 6 s of idle with 0 left and `ctrl+0x234` at 5.0 on every frame; its leg A confirms the pointer kept and the countdown held at 5.0 | `'the empty slot keeps its item'`: `grenadeSelected` fed from the hand's class whatever the count | observed (IQ-169, above), its record unscored: the record scored (`kit+0x824`, `kit+0xe4[slot]` and `ctrl+0x234` per frame through a last grenade's throw and 6 s of idle; the countdown constant, falling would refute D1); at the code, `FUN_00545ee0` and the removers read whole at r0004 |
 
 ## 8. Against earlier notes (history kept; those notes are not edited by this row)
 

@@ -1,5 +1,5 @@
 /**
- * The paint tools' modes (the owner, 2026-11-16: "We have 3 modes. Select(default), Paint, Sample. Depending on the mode
+ * The paint tools' modes (the Forge's owner (crispy, OT.R112), 2026-11-16: "We have 3 modes. Select(default), Paint, Sample. Depending on the mode
  * it highlights the mode button in the toolbar ... bring back the apply button, it applies [what is active] on the
  * current selection ... Pressing esc on any of these tools brings back to select ... Sample ... we can quickly toggle to
  * that mode by pressing shift+click (when in paint mode)"; a browser adaptation, FG.R2): one row for every paintable
@@ -63,7 +63,7 @@ export class PaintToolBar {
   }
 
   /**
-   * A tool of the caller's own as a tab beside these (Geometry mode's Block; the owner, 2026-11-17: "it should be Tool
+   * A tool of the caller's own as a tab beside these (Geometry mode's Block; the Forge's owner (crispy, OT.R112), 2026-11-17: "it should be Tool
    * Select | Block"), after `after`'s tab; `key` its name for `show` and `setShown`.
    */
   addTab(key: string, label: string, title: string, after: string, onClick: () => void): HTMLButtonElement {
@@ -75,7 +75,7 @@ export class PaintToolBar {
     b.textContent = label;
     b.title = title;
     b.addEventListener('click', () => { onClick(); b.blur(); });
-    // After Apply (the owner, 2026-11-17: "in collision layer mode, move the apply button to the left of the create
+    // After Apply (the Forge's owner (crispy, OT.R112), 2026-11-17: "in collision layer mode, move the apply button to the left of the create
     // button ... consistent with the texture layer"): a tab group of its own past Apply, so Apply stays with the modes it applies.
     if (after === 'apply') {
       if (!this.tailList) {

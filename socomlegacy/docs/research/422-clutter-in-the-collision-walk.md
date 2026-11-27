@@ -35,7 +35,7 @@
 5. **The port draws clutter and builds no collision from it** (P; section 5): on five of the 22 maps, 404 placed
    instances in 42 models (403 in r0004) hold polygons that would stop a body, a round or a blast's lines, and the port's hull holds
    none of them. On Blizzard: 145 fir instances in 10 models.
-6. **One-sided or two-sided is unread for clutter as for the world** (D; section 2.5): the polygon test is VU0
+6. **One-sided or two-sided for clutter: inferred one-sided, as the world is now read** (D; section 2.5, amended; research 85 s5.1 reads the world's query as mode 0x20; was: "unread for clutter as for the world"): the polygon test is VU0
    microcode with no body in the decompilation; clutter and world polygons go through the same call with the same
    set-up, so the port applies its existing per-query facing to clutter unchanged.
 
@@ -144,7 +144,13 @@ grid at all (a direct model-against-model test).
   `vcallms 0x70` (`FUN_002dd130`, D:L180767-180779) and set up by `FUN_002dd210` (D:L180783-180797); it has no body in
   the decompilation (VU0 microcode), so **whether a clutter polygon is met from one side or both is unread**, as for the
   world's. Clutter and world polygons go through the same call and set-up (clutter nodes keep the constructor's
-  `+0x80`, bit 1 clear, D:L215827-215828; inferred).
+  `+0x80`, bit 1 clear, D:L215827-215828; inferred). LATER 1057's builder citations (research 382 s8: the level
+  reader's nodes, all built through `FUN_00316e30`) do not cover clutter nodes or r0004's nodes, so clutter's `+0x80`
+  stays inferred; r0004's "not traced" here is superseded by research 383 §3 (r0004's added nodes are built by r4
+  0x3343d0, which is `FUN_00316e30`, bit 1 cleared; its `+0x80` census writes none of them on MP72 or MP83; research 85
+  §5.1, 2026-11-25). Supporting, not settling: the clutter loader `FUN_002d5060` looks its model
+  up by name (D:L176113) through `FUN_0031fd10` -> `FUN_00320f10` (D:L221087; D:L221750-221773) in the list at
+  0x45c3c0, the same lookup `FUN_00310da0` makes for a type-2 node's prototype (D:L212344).
 - A hit stores the polygon (`+0xc`) and its node (`+0x1c`), carried back to the world frame by `vcallms 0x80`
   (D:L175330-175370), the same code for clutter as for the world; a type-2 record keeps the first hit per node in
   polygon order (`+0x80` bit 0 read at D:L175276, used at D:L175372), and the consumer picks the nearest (`FUN_002d4cc0`, D:L175907-175960). The
@@ -314,7 +320,7 @@ Named differences, not built:
 2. **Non-affine records** (CLT.R1): a record whose params the port does not read as an affine matrix would be neither
    drawn nor collided, where the original reads the same 0x60 bytes for every record (`FUN_002d94b0`). A guard only:
    no record on the disc's 22 maps is non-affine (cc3; section 5), so it drops nothing.
-3. **Facing**: unread for clutter as for the world (section 2.5); the port's per-query facing applies.
+3. **Facing**: inferred one-sided for clutter, as the world is read (section 2.5, amended; research 85 s5.1); the port keeps grenade flights two-sided on clutter as a labelled departure pending a capture (`GRENADE_INSTANCE_NODE_SIDES_READING`), and its per-query facing applies otherwise.
 4. **An instance whose origin is off the grid**: the original files none (`FUN_002d55c0` D:L176288-176291:
    `FUN_002d9490`'s position, then `FUN_002d5b50` == 0 skips it); the port appends every affine instance, and its grid
    clamps one into the edge cells. Whether any of the 22 maps holds one is unread (the probe did not test it); a census

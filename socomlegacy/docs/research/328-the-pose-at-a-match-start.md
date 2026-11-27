@@ -63,9 +63,9 @@ page on the same spawn."
 | R328.1 | **The original rebuilds every body at a round's start, alive or dead, its own and the others' copies alike.** The round's reload runs `FUN_00598b90(actor, 0)` over every actor not marked `+0xfd1` (`FUN_00223680` D:L75920-75931), which online always calls `FUN_00599b60(actor, 0)` (D:L455070, D:L455158), the teardown and the initializer: `(*vtable+8)(actor, -1)` (D:L455659), `FUN_00553ea0` (D:L455663) -- a new animation stack (`FUN_0028edd0`, D:L419420) whose state word is set to 0, stand (`FUN_0028dfb0(stack, 0)`, D:L419566) | the room makes a new mover (`room.ts` `spawn`, `newSim`, L2727-2744); **the page keeps the body's `Play` and `Animator` across the spawn**, its own (`matchMount.ts:382`, `main.ts:391`) and the others' (`remotePlayers.ts`, kept by id) | §1.1, §1.2 |
 | R328.2 | **The rebuilt body's first clip is `Stand`, with no blend from the last pose.** The initializer's set selection `FUN_0058c600(actor, 0)` (D:L419723) clears the stack's record at `+0x74` (`FUN_0028d940`, D:L447983, D:L134994-135017), pops every play (`FUN_0058a5e0(actor, 0, 1)`, D:L447984), pushes type 1 -- `Stand`, the set's `seal_stand` -- in state 0 (`FUN_00588bc0(actor, 1, 0, 0, 0)`, D:L447989), writes the stance request 0 (`+0x374`, D:L447992) and snapshots the stack (`FUN_0028e3e0`, D:L447993); then hands the top's nodes to `FUN_00577df0` and snapshots again (D:L448128-448133). **No blend runs**: the push sets the blend timer (actor `+0x178` / `+0x17c`, the stack's `+8` / `+0xc`) to the clip's `BlendTime` (D:L446292 -> D:L135218-135220), which `FUN_00576860` counts down (D:L436621-436635), and `FUN_0058c600` zeroes both words (D:L448130-448131); the 0.4 s second timer `+0x10d0` is zeroed by the initializer (D:L419725). *Was (d943bd428): "clears the stack's blend (`FUN_0028d940` ...) ... Any blend that runs is from `Stand` to `Stand`" -- the review's F1: `FUN_0028d940` clears the record at `+0x74`, not the timer.* No transition clip (no `seal_getupforward01`, no reversed `seal_stand2crouch` or `seal_stand2prone`) is pushed. The first frame's pose is `SPAWN_FIRST_POSE_READING` (§6) | the page's first frame after the spawn asks `idle:stand` of an animator still on the last pose, and `Animator.start` freezes the pose on screen and **cross-fades it into `seal_stand` over its `BlendTime`, 0.5 s, eased** (`animator.ts:745-775`, L986; the golden's row: `seal_stand` looped, playback 6, `BlendTime` 0.5) | §1.3, §2 |
 | R328.3 | **Which "stand-up" the owner sees: no clip at all -- the port's spawn cross-fade.** A body that died in the round lies on its death clip's last key (`death_stand_*`, `death_crouch_*`, `death_prone_chest01`; `remotePlayers.ts` `deathPose`) until the spawn; at the spawn it is placed at its new slot and eased from that lying pose into `seal_stand` over 0.5 s: the body rises from the floor to standing at the spawn point, its root (`skel_root`) with it, and the own camera, which stands on the posed root (`walk.ts` `cameraTick` L1642-1647, `follow` L1690), rises with it in third person and first person. A body that ended crouched or prone eases from `seal_crouch` or `seal_prone` up to `seal_stand` the same way; a body that ended in the pistol's hand eases from the pistol's versions too (`Animator.setWeapon`, L838-846). Most visible on the dead: in classic every round ends with one side all dead | the original shows `seal_stand` from the first frame, the own body fading in from alpha 0 at 4 a second (D:L455690-455695) | §2 |
-| R328.4 | **Nothing carries over from the end screen in the original**: no stance (the state word and the stance request are 0, D:L419566, D:L447992), no death pose, no dance, no clip on the stack, no blend (D:L447983) | **the stance and the death pose carry over as a 0.5 s blend** (above); **no victory dance carries over**: the room refuses the offer in the round-end interval (`room.ts:1225`, `phase === 'over'`) and the room's spawn stops one (`stopVictory`, L2728); a dance cut by the spawn blends out over the same 0.5 s | §1.5, §4 |
+| R328.4 | **Nothing carries over from the end screen in the original**: no stance (the state word and the stance request are 0, D:L419566, D:L447992 -- *superseded at the spawn by §9 (R4P-R3, 2026-11-24): the rebuild then writes the request 1, crouch, D:L455673; was: "the stance request 0" as the spawn's last word; the port does not follow it, OT.R156*), no death pose, no dance, no clip on the stack, no blend (D:L447983) | **the stance and the death pose carry over as a 0.5 s blend** (above); **no victory dance carries over**: the room refuses the offer in the round-end interval (`room.ts:1225`, `phase === 'over'`) and the room's spawn stops one (`stopVictory`, L2728); a dance cut by the spawn blends out over the same 0.5 s | §1.5, §4 |
 | R328.5 | **A round's start, a match's start and a respawn are one rebuild in the original**: the round's reload (`FUN_00598b90(p, 0)`, D:L75931), the next match after GAME COMPLETE (the same reload) and a respawn (`FUN_00598b90(actor, 1)`, research 91 §4.2) all run `FUN_00599b60` (D:L455158; the record pick differs, D:L455229-455241) | the room: one `spawn` for all three (`startRound`, L5302-5335; `respawn`). The page: the carry-over shows at **every spawn inside one mounted match** -- a classic match's rounds 2 on, a respawn game's every respawn and its next match (the room goes straight on, `room.ts:5010-5011`) -- and **not** at a classic game's next match from its lobby (ONL-20b returns the room to its lobby, L5010; the next launch mounts a fresh match, `frontEnd.ts` -> `mountMatch`, whose new `Play` draws its first play with no blend) | §3 |
-| R328.6 | **The room already agrees**: a fresh mover stood on its floor with no action, no hold, no overlay, no dance, the ground idle, the stance stand (`Walker.place`, `mover.ts:2495-2516`; `newSim`, `room.ts:1985-1991`), every seat spawned with it at a round's start (`startRound`) -- what the snapshots send for a fresh seat is a standing idle body | no room change; pinned (T1) | §4.1 |
+| R328.6 | **The room already agrees** (*the stance clause: R4P-R3 (§9) made the room ask crouch at every spawn, `runSpawnFrame`; reverted on agent/next by 6de549133c under OT.R156, so the stance stand with no request holds again in the port*): a fresh mover stood on its floor with no action, no hold, no overlay, no dance, the ground idle, the stance stand (`Walker.place`, `mover.ts:2495-2516`; `newSim`, `room.ts:1985-1991`), every seat spawned with it at a round's start (`startRound`) -- what the snapshots send for a fresh seat is a standing idle body | no room change; pinned (T1) | §4.1 |
 | R328.7 | **Another console's copy is placed, not slid**: the copy is rebuilt and placed at its record by the same `FUN_00598b90` on each console (D:L455070-455081 takes the owner's kit for a copy; the placement follows the rebuild, D:L455245-455324) | the others' feet are interpolated between the two snapshots around the view tick (`client.ts` `bodies`, L751-770), across the spawn too: for up to one snapshot interval (1/30 s) a respawned body is drawn on the line from where it lay or stood to its spawn point | §4.3 |
 
 ## 1. The original at a round's spawn
@@ -301,6 +301,7 @@ mover is made), the others' at the first snapshot that draws their spawn.
 | name | where it would go | status |
 |---|---|---|
 | `SPAWN_FIRST_POSE_READING` (*note only*; built as the reset, no constant -- was: "candidate, B1") | viewer `play.ts` (`Play.respawn`, whose doc names it; `walk.ts` `spawns`), `remotePlayers.ts` (B2) | `'stand at once'`: built 2026-10-15 (NU-12 B1, B2) as the reset itself, no value standing in; the rebuilt body's first frame is `seal_stand` with no blend (the stack new, D:L419420; `Stand` pushed in state 0, D:L447989; the push's blend timer `+0x178` / `+0x17c` zeroed, D:L448130-448131, the second timer `+0x10d0` zeroed, D:L419725; `FUN_00576860` blends only while `+0x178` is above 0, D:L436621-436635) -- a direct reading; *was: "its blend cleared, D:L447983 ... the one unread step is that `FUN_00577df0` -> `FUN_005777d0` evaluates the stack into the nodes ... (else the push's 0.5 s blend would start from the new model's bind pose ...)"* (the review's F1); proven by capture NU12-1 |
+| `SPAWN_CROUCH_UPDATE_READING` (*note only*: a named reading of the original, not in the port's code, OT.R156) | none (was: viewer `spawnCrouch.ts`, `runSpawnFrame`, R4P-R3; reverted on agent/next by 6de549133c) | *note only* -- named, unused (OT.R156: the port spawns standing). The original's value `'first'` (reading, pending review; §9); R4P-R3 built it 2026-11-24 and the build was reverted. The reading: the spawn's crouch request is taken in the first update after the placement, R4P-R3's seed frame -- a whole game frame (`Walker.runSeedFrame`: two or three 60 Hz ticks of the clip's root, applied at the frame's end), where PC2 shows one 1/60 s step on the first placed row (the fresh review's F4) -- the rebuild's store precedes every update (r0004 0x59f858; `FUN_00599b60` D:L455673) and the request is asked in the actor's update (r0004 0x557f20; `FUN_00552d60` D:L418865) -- in one arm only, skipped at posture 8, a `+0x1061` flag, online with `+0xfcf` (dead-to-alive) set (D:L418511-418513) or the top play's `+0x2b` at 8 (D:L418607-418609); `+0xfcf` a possible cause of MP64's one standing update (inferred), `'first'` still holds (the second read, §9.3); MP64's round start and SPAWNDRIFT-PC2's round restarts agree (unscored); MP64's respawn shows one update standing first (`'second'`). Settles: a scored r0004 capture with `+0x374` and `+0x534` per update (§9.4) |
 | `REMOTE_RESPAWN_REBUILD_READING` (was: "*note only*; candidate, B2") | viewer `remotePlayers.ts` (`RemotePlayers.frame`: B2's case (a), beside the seat's `spawn`) | `'rebuilt'`: built 2026-10-15 (NU-12 B2; reading, pending review): the page rebuilds the copy's animation (`Play.respawn`) and stops its binoculars at its seat's `spawn`, and at a dead-to-alive change where none is counted; another console rebuilds a copy at its owner's respawn mid-match: a player record's state field (`FUN_002be150` D:L162349-162350) -> `FUN_00544210` (D:L410551-410563) sets `+0xfcf` on a dead (2 or 3) to alive (1) change when the controller's `+0x34` answers true -> `FUN_00547350` (D:L412722-412726) -> `FUN_00598b90(copy, 1)`; the round's reload is read for every actor on every console (D:L75920-75931, D:L455072-455081). The one inference: `+0x34`'s meaning (the copy's controller), and `FUN_00547350` as the actor's per-frame update reached through the vtable; *was: "the respawn's network path is not [read]; built as the round's until read"* (the review's F2); settles: `+0x34` read, or capture NU12-2 |
 
 Found by the build's review (2026-10-15), one line each:
@@ -335,3 +336,127 @@ The original running, 60 fps video, two consoles, third person on both:
   D:L448124-448133), §1.1 (the reload's loop over every actor and the online gate, D:L75920-75931, D:L455070-455158),
   and §2's claim that nothing on the page's spawn path resets the animator (`netPage.ts:1398-1406`, `matchNet.ts:182`,
   `remotePlayers.ts:717-806`, `animator.ts:745-775`).
+
+## 9. The spawn crouch (R4P-R3; LATER 1402 / ATLAS L205; 2026-11-24)
+
+**DIVERGENCE (OT.R156, the owner, 2026-11-25).** The port places a spawned body standing and does not play the spawn's
+crouch: an intentional divergence, the owner's rule, never "as the original does". This section records the original;
+the port's code does not implement it (R4P-R3, which built it, is reverted on agent/next by 6de549133c, with its test
+folds). `SPAWN_CROUCH_UPDATE_READING` stays a named reading of the original (§6, *note only*), not in the port's code.
+Where this section says "the port" does something with the crouch, it is R4P-R3's build, historical: R4P-R3 did it;
+reverted.
+
+- Status: **reading, pending review.** Built on a fresh non-author read for seat-walls (Fable, key job 1402, 2026-11-24,
+  "spawn drift", agent-mail `planning/mega-2026-11-21/pilot/kill/keyjob-1402-spawndrift.md`; read-only, itself a second
+  read of ATLAS's) -- one reader of the store, two with ATLAS's. This note's author wrote none of it; the build cites it
+  and adds no reading of its own. Nothing here is proven: no capture in it is scored by the harness.
+- Second read (patches-contrib, non-author, 2026-11-24; agent-mail
+  `planning/mega-2026-11-21/pilot/movement/r4pr3-spawn.second-read.md`). UPHELD: the unconditional store of `+0x374` = 1
+  after the constructor's 0 (r0001 D:L419436 then D:L455673; r0004 constructor store 0x5592b8, rebuild store 0x59f858 /
+  D4:L496691, the 1 set at 0x59f844 and stored in a delay slot); the same reach in both builds (the round's reload calls
+  the rebuild, D:L455158 / D4:L496177, gated only on online; the rebuild and its direct callees write `+0x374` no
+  more, one level deep); the clip pick of §9.1 (row 18, then motion 2 if v^2 > 400, 0x14 if > 100, else 0x11;
+  D:L442491-442513, r0004 0x586e48-0x586f30). CORRECTED: deep water (§9.4). PARTLY: "asked every update" (§9.3),
+  "always the 0x11 band" (§9.1), the refusal list (§9.4) -- each folded where it stands.
+
+### 9.1 The reading
+
+| what | source | level |
+|---|---|---|
+| the respawn rebuild writes the stance request `+0x374` = 1 (crouch), unconditionally, after the constructor's 0 | r0004 0x59f660, the store at 0x59f858 (the constructor 0x5591c0 writes 0 at 0x5592b8 first); r0001 `FUN_00599b60` D:L455673, the constructor's 0 `FUN_00553ea0` D:L419436 (called at D:L455663) | reading, pending review |
+| the request, on a still standing body, starts motion 0x11 `seal_stand2crouch` forward (state 1); the squared 3D velocity (`+0x2c..+0x34`) over 400 picks motion 2, over 100 motion 0x14 | r0004 0x557f20 (reads `+0x374` at 0x557f2c / 0x557f40; r0001 `FUN_00552d60` D:L418865) -> its gate 0x558080 (r0001 `FUN_00552ec0` D:L418914) -> 0x586f90 (called at 0x557fb8; "may crouch" true) -> 0x586d80 (called at 0x5871e8) = r0001 `FUN_005817d0` D:L442479, the stand -> crouch pick: row 18 pushed (0x586e48), over 400 motion 2 (0x586e54-0x586e94), over 100 motion 0x14 (0x586ec8-0x586ef0), else 0x11 forward at 0x586f24 (0x586f20-0x586f30); r0001 the same three bands, D:L442497-442513. *Was (50a3e60215): "-> 0x587210 ... 0x11 at 0x5872c8; motion 2 on a moving one" -- the fresh review's F1: 0x587210 (r0001 `FUN_00581c10` D:L442605) is the crouch -> stand pick, the arm 0x586f90 takes when it may NOT crouch.* A placed body is still at its first update (`Walker.reset` zeroes the velocity; R4P-R3 took the request in the seed frame, run still -- reverted), so the spawn takes the 0x11 band -- "always" is inferred: it holds only with zero velocity at placement, which is unread for the original (§9.4, TeleportTo; the second read's PARTLY, 2026-11-24); the other two bands would matter only to a request taken on a moving body -- the port's no-clip rule above `STANCE_MOVING` is older than this task, a LATER row of its own | reading, pending review (the consumer path re-read at r0004 by the fresh reviewer, 2026-11-24) |
+| the ~1.7 u spawn drift is that clip's root motion, in the facing frame; the body stays crouched with no input | SPAWNDRIFT-PC2 (13 placements, four maps) and the MP64 spawn record (`docs/atlas/captures/mp64-spawn-r0004.md`): net 1.63-1.72 u, +0.60 s, the clip's step series; posture 1 to the end of every window (up to 42.4 s) | observation of the original, **unscored** |
+| `seal_stand2crouch`: 27 keys, playback 0.65, one-shot; root net (-1.195, +1.270) x/z, 1.744 | `MOTION_P.ZAR` / `motion.rdr` through `clipsFromPack` (the read's own run; ATLAS's `docs/atlas/readings/root-motion-settle-and-turn.md` counts the same) | reading (the disc through the readers) |
+
+So R328.4's "the stance request 0" is the constructor's word, and the rebuild's last word is crouch: a spawned body is
+**placed standing with crouch requested**; R4P-R3 played the port's own transition (`ACTION_CLIPS.standToCrouch`, travel
+(-1.2, 1.27)) from the placement (reverted, OT.R156). A body spawned already crouched would rest 1.7 u wrong (the read's §5).
+
+### 9.2 What R4P-R3 built (historical: reverted on agent/next by 6de549133c, OT.R156)
+
+*Kept as the record of the reverted build; none of it is in the port's code. The present tense below is R4P-R3's.*
+
+- viewer `src/spawnCrouch.ts`: `runSpawnFrame(w)` stands the body (the constructor's state word 0, r0001 `FUN_00553ea0`
+  -> D:L419566; r0004 0x5591c0 -- a walker re-seeded crouched or prone keeps its stance word through `Walker.reset`, so
+  the dev teleport's room body is stood here as a new walker is: the fold's F3b), writes the request through the stance
+  request path (`Walker.requestStance('crouch')`, `actor+0x374`) and runs the seed frame (`Walker.runSeedFrame`), in the
+  order `SPAWN_CROUCH_UPDATE_READING` names. `mover.ts` is not changed: its `retryStance` already asks a pending request
+  each tick and `applyStance` already refuses the transition clip to a body moving over `STANCE_MOVING` (an older port
+  rule than this task; the original's bands are 0x586d80's, §9.1).
+- `Room.spawn` (match `room.ts`): every spawn path -- a record's seed, an explicit placement (the rule spawner's
+  respawns, `rebuildWaiting`), a round's start, a respawn, a seat back from a hold -- ends on `runSpawnFrame` (the
+  rebuild's store is unconditional); an explicit placement is not seeded, so its request is taken on the body's first
+  tick (held by `spawnPageRoomAgree`, "the walls' P1", and `respawnSpawn`'s explicit-placement case). `WalkMode.respawn`
+  (viewer `walk.ts`): the seeded re-run and the adopted body alike, the frame run AFTER the moves are on the body
+  (`attachMoves`), as the room's (`Room.newSim` attaches its Traversal before `spawn`): the fold's F3c, so a crouch the
+  water turns to stand (`stanceFor`, over 8.5 deep) plays no clip on either side. The dev teleport (viewer `main.ts`)
+  seeds the room's body the same way, so the page and the room carry one body.
+- A resume (OT.R59, a labelled adaptation; `WalkMode.resume`): the fold's F3a. A seat back alive from a hold
+  (NET-RES.R11 b) is told `spawn` and then `resume` in one room step, while the room's body plays the spawn's
+  Stand -> Crouch from its seed frame; the page's respawn re-ran that frame to the same point and posture, so the resume
+  KEEPS that body, clip and all (was: re-placed with no clip, 1.7 u from the room's until the reconciliation). Any other
+  resume -- a reload's (a page with no body), a takeover inside the window -- stands the room's told posture at once, as
+  before: a clip running on the room's body there is not carried (the resume event carries no action; named, not built).
+- Not changed: the free walk's `stand` (no match spawn; the page's own drop), the bots' controller (the room's spawn is
+  every seat's, the bots' included; every placement captured so far is the local player's), the dead-at-load entry
+  (`enterDeadAtLoad`: a `place`, no spawn, no frame and no request -- a dead actor runs no update).
+- Not read -- the waiting room (the fresh review's F6): `rebuildWaiting` (a port ruling, 2026-10-01, not the original's
+  code) rebuilds a living waiting body through `Room.spawn` at each ARMORY change, so the body re-asks the crouch and
+  travels the clip's 1.7 u each time. Whether the original rebuilds a waiting body at an ARMORY close through 0x59f660
+  (and so re-asks the stance) is not in the read: named here, built as the spawn's until read. Bots: a bot wanting
+  stand presses it on its first command, its stance word goes to stand with no new clip and the running clip still
+  holds it about 0.6 s and 1.7 u (a bot's clip is not cut by the stick) -- every bot leaves its spawn 0.6 s later than
+  before; both are what the reading gives, for the owner's Log.
+
+### 9.3 The starting update -- `SPAWN_CROUCH_UPDATE_READING` = `'first'`
+
+The records disagree by up to one update (the read's §3.4): MP64's round start has posture 1 and action 17 in the first
+update; PC2's round restarts show the first placed row already a 1/60 s step into the clip, posture 1; MP64's respawn
+holds one update standing (posture 0, action 1) before 17. **Chosen: `'first'`** -- the code's order (the store is in
+the rebuild, before any update, and `FUN_00552d60` asks the request in the actor's update) and two of the three records.
+"Every update" is partly so (the second read, 2026-11-24; reading, pending review): the request is asked in one arm of
+the update only -- skipped at posture 8, with a `+0x1061` flag set, or online with `+0xfcf` set (D:L418511-418513), and
+when the top play's `+0x2b` is 8 (D:L418607-418609); r0004 the same, on its online byte. `+0xfcf` is the dead-to-alive
+flag (§6, `REMOTE_RESPAWN_REBUILD_READING`), a possible cause of the one standing update MP64's respawn record shows
+(inferred; where it is cleared is not traced). None of this overturns `'first'` (the second read's word); the respawn's
+lag stays the named alternative. The respawn record's lag may be its own placement order (the update's
+gate on a state byte, not read); until scored it is `'second'`, one constant away. It moves which frame the body first moves on, not where it rests. R4P-R3's "first update"
+was its seed frame (reverted), a whole game frame of two or three 60 Hz ticks whose root lands at the frame's end -- so the spawn
+told carries 0.05-0.3 u of the clip's root off the record, where PC2's first placed row shows one 1/60 s step.
+
+### 9.4 What would settle it, and what is not read
+
+- Proven needs one scored capture of r0004 with, per update, the actor's xz, yaw, `+0x174`, `+0x374` and `+0x534` across a
+  round start, a respawn after a death and a round restart on a dry map (to settle the original's reading; the port spawns standing, OT.R156). Two more
+  rows: a respawn with the stick held (0x586d80's velocity bands, §9.1) and a bot's or a remote player's spawn.
+- The refusals of 0x558080 from posture 0 (the fresh reviewer's r0004 re-read, 2026-11-24; reading, pending review):
+  a top play neither looped (flag 0x40) nor a transition (0x5580a0-0x5580bc), refused but in posture 3; 0x57f0f0 true;
+  posture 7; action 25 on (0x55827c); the obstacle test 0x552410 (0x5582b0-0x558330); a non-remote controller with "may
+  crouch" false (0x558390-0x5583a0). No stick test and no airborne test on the path. *Added by the second read
+  (patches-contrib, 2026-11-24; reading, pending review):* in r0004 the obstacle test does not only refuse -- if 0x552410
+  fires while the `+0x1160` timer is 0, the request is OVERWRITTEN with the current posture, dropping the crouch
+  (0x558338-0x558364, D4:L457707-457714); r0001 only refuses and keeps it (D:L418964-418967). Whether the test can fire
+  at a spawn is unread.
+- Deep water (*corrected* by the second read, 2026-11-24; reading, pending review). In water over 8.5 deep, 0x558080
+  online DROPS the crouch: 0x45d481 is r0004's is-online byte (the twin of r0001's `DAT_0045a0c1`), and online r0004
+  resets `+0x374` to the current posture and returns 1 when that posture is 0 or 2, standing or prone
+  (0x5583a8-0x5583d8, D4:L457721-457727); a crouched body keeps its request. The request is KEPT (0x558080 returns 0 at
+  0x5583e0, `+0x374` stays 1, taken once the water is 8.5 or less) only offline in r0004, and in r0001 online and
+  offline alike (D:L418973-418974). So a spawn standing in water over 8.5 deep drops the crouch online, as R4P-R3's
+  build did (reverted, OT.R156; the port now asks no crouch at a spawn): `Traversal.stanceFor` (viewer `traversal.ts:1696-1702`) turns the crouch to stand and `Walker.retryStance`
+  (`mover.ts:3443-3444`) drops a request equal to the posture. The port has no offline branch -- every match in it is
+  online (`SOLO_IS_NETWORK_READING`) -- so r0004's offline keep has no counterpart to differ from. *Was: "the original
+  KEEPS the local SEAL's request ... the port drops it: a difference older than this task" -- withdrawn; it read
+  0x45d481 as something other than the online byte.*
+- Not read: the bodies of 0x57f0f0 and 0x552410; 0x5874d0; the push 0x58e160; the animation step 0x57f580 (r0001
+  `FUN_0057a330`); what calls the rebuild at a round start against a respawn; whether TeleportTo zeroes the velocity
+  (the port's `reset` does).
+- (Historical, R4P-R3; reverted under OT.R156, the owner's playtest.) The change was large and visible (the first 0.6 s of every life: the eye, the hit volumes, the accuracy state, the
+  first snapshot crouched); it rests on unscored captures and a store read by two readers.
+- Tests (historical: R4P-R3's, reverted with it by 6de549133c): viewer `test/spawnCrouch.test.ts`, `test/spawnPageRoomAgree.test.ts` ("R4P-R3 fold": F3a, F3b, F3c, an explicit
+  placement, and the cell-seeded SEAL start 0 of the tracked fixtures MP2 / MP6 / MP71 / MP72 -- a dev-fixture test of
+  the port, no capture scored); match `test/respawnSpawn.test.ts` ("R4P-R3"; the record picks re-pinned to the `seed`,
+  the placement, since the told `at` now carries the seed frame's root), `test/netcode.test.ts` (its page model); central
+  `test/roomSpawnPose.test.ts` (the pins re-said), `test/roomResume.test.ts` (the resumed posture crouch: nothing pressed
+  since the spawn). Fixtures that spawn and then `place` a body state their stance (`roomDamage`, `hitPoseRoom`,
+  `roomStillClipStance`): `Walker.reset` keeps the stance word.

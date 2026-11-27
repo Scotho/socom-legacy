@@ -202,12 +202,31 @@ const goodFolder = (top = 'SOCOM2'): SourceRequest & { kind: 'dir' } => ({ kind:
 const turn = (): Promise<void> => new Promise((r) => { setTimeout(r, 0); });
 
 describe('/testroom opens a folder only after the page\'s one check (DA-3 review F1; DA-4 review F-a, F-b, F-d)', () => {
-  it('an image is asked of the worker at once, as before', () => {
+  it('LATER 954: an image is checked first, as a folder is (DA.R8) -- the older disc forgotten at once, asked only once its check resolves', async () => {
     const t = opener();
     const iso = new File([], 'SOCOM II.iso');
     t.open(iso);
+    expect(t.log).toEqual(['chosen', 'status reading the disc image SOCOM II.iso ...', 'state reading the disc image SOCOM II.iso ...', 'forget']);
+    expect(t.checks.map((c) => c.disc)).toEqual([{ kind: 'iso', file: iso }]);
+    expect(t.asked).toEqual([]);
+    t.checks[0]!.ok();
+    await turn();
     expect(t.asked).toEqual([{ kind: 'iso', file: iso }]);
-    expect(t.log).toEqual(['chosen', 'status reading the disc image SOCOM II.iso ...', 'state reading the disc image SOCOM II.iso ...', 'ask']);
+  });
+
+  it("LATER 954: another game's image is refused in the identity's words, its mark taken back; nothing is asked", async () => {
+    const t = opener();
+    t.open(new File([], 'OTHER.iso'));
+    t.checks[0]!.no(new Error('this disc boots SLES_999.99, not SCUS_972.75'));
+    await turn();
+    expect(t.asked).toEqual([]);
+    expect(t.log.slice(-2)).toEqual(['refused', 'failed failed while reading the disc image OTHER.iso: this disc boots SLES_999.99, not SCUS_972.75']);
+  });
+
+  it('LATER 322 unchanged: the copy kept in this browser is asked at once (checked at its extraction, DX-3)', () => {
+    const t = opener();
+    t.open({ kind: 'stored' } as never);
+    expect(t.asked).toEqual([{ kind: 'stored' }]);
     expect(t.checks).toEqual([]);
   });
 
@@ -240,6 +259,7 @@ describe('/testroom opens a folder only after the page\'s one check (DA-3 review
     t.open(iso);
     t.checks[0]!.ok();
     t.checks[1]!.no(new Error('late'));
+    t.checks[2]!.ok();                                                                       // LATER 954: the image is checked too
     await turn();
     expect(t.asked).toEqual([{ kind: 'iso', file: iso }]);
     expect(t.log.filter((l) => l.startsWith('failed') || l === 'refused')).toEqual([]);

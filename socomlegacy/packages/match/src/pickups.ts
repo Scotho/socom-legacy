@@ -1,9 +1,11 @@
-import { EMPTY_ITEM, FULL_SLOT, itemClass, slotKindOf, type KitTable, type Loadout, type WeaponRecord } from '@s2u/scene';
+import { EMPTY_ITEM, FULL_SLOT, ITEM, itemClass, slotKindOf, type KitTable, type Loadout, type WeaponRecord } from '@s2u/scene';
 import { firearmSlotPresent, kitRecords, type FirearmSlot } from '../../viewer/src/loadout';
 import { magazinesCarried, MagazineRing } from '../../viewer/src/magazines';
-import { rocketRoundOf } from '../../viewer/src/equipment';
+import { rocketRoundOf, throwableOf, type EquipmentSlots } from '../../viewer/src/equipment';
 import type { BundleEntryWire, DropWire } from '../../viewer/src/net/protocol';
-import { launcherClaimSlots, launcherRoundOf, PICKUP_LAUNCHER_ROUNDS_READING, type PickupKitSlot } from '../../viewer/src/net/pickupRules';
+import {
+  launcherClaimSlots, launcherRoundOf, PICKUP_SPENT_EXEMPT_IDS_READING, pickupKitOf, PICKUP_LAUNCHER_ROUNDS_READING, type PickupKitSlot,
+} from '../../viewer/src/net/pickupRules';
 
 /**
  * PF-34 (ruling PF.R54; web research 234 s1-s4, 194 s2): the world inventory's pure half -- what a classic death lays, a
@@ -41,12 +43,18 @@ export const DROP_CONTENTS_READING = 'weapons + one bundle of the ten entries, c
  */
 export const LAUNCHER_DROP_READING = 'with its round' as const;
 /**
- * Which slots' rings fill the bundle: the port's two firearm rings. `FUN_005ba040` walks every kit slot with a record
- * (`+0xe4`) and an ammo item (`+0x15c`), and excludes the classes `FUN_003d1d10`/`FUN_003d1ce0` name and the LAW HEAT
- * (`cVar3 != -0x47`); whether a grenade launcher's rounds (the port's `KitRounds`) join it is not read. Settles: a read
- * of those predicates, or capture B's pickup object. [placeholder]
+ * Which slots' rings fill the bundle (R142, LATER 1088; reading, pending review, of the builder): `FUN_005ba040`
+ * (D:L472580-472626) walks every kit slot with a record (D:L472582), an ammo item at `+0x15c` (D:L472609) and a round in
+ * its ring (D:L472610-472622), and leaves out the MISSILE class 0xb9-0xbd alone (D:L472623; `FUN_003d1a60` D:L324243,
+ * D:L324347: the LAW HEAT and the RPG round alike); `FUN_003d1d10` / `FUN_003d1ce0` exclude no slot, they only null the
+ * record of a firearm's entry (D:L472585-472589). So a grenade or a charge slot with rounds joins the bundle with its
+ * record (the entry's `item`). The port bundles its two firearm rings and its throwable and charge rings
+ * (`EquipmentSlots`) whose record names an ammunition (the port's `+0x15c`: the record's first `AMMO_TYPES`). Still
+ * unread: which records carry an ammo item (a non-empty `AMMO_TYPES`) -- so the grenade launchers' rounds (171-183, the
+ * port's `KitRounds`) are not bundled. Was (to R142): 'the two firearm rings'. Settles: a dev-disc assertion over the
+ * `ZWEAPON` records' `ammoId`. [placeholder]
  */
-export const BUNDLE_SLOTS_PLACEHOLDER = 'the two firearm rings' as const;
+export const BUNDLE_SLOTS_PLACEHOLDER = 'the firearm rings and the throwable and charge rings' as const;
 /**
  * A weapon claim goes to the slot of the weapon's own family: `FUN_0059f0c0` D:L458178-458190 resolves the destination
  * from the record's category (`FUN_005b8820` of `+0x7c`, `FUN_005b8630`) -- the port's `slotKindOf`: a primary class to
@@ -83,8 +91,8 @@ export const PICKUP_MAGAZINE_CAP_READING = 'NumMags, 2X doubled, at most 10' as 
  * -- in slot order, what is left flowing on to the next such slot. Any side's: a 552's 5.56 x 45mm feeds an M4A1. The
  * port's records keep one ammunition each (`AMMO_TYPES`' first NAME, `@s2u/scene` `weaponRecord`); every record on the
  * dev disc lists at most one (72 one, 14 none: a byte read of `RUN/ZWEAPON.ZAR`, 2026-11-13), so the first is exact. An
- * entry that carries a record (the equipment's: grenades, charges, launcher rounds) is not a firearm's and is left for
- * its own task. Was (to 2026-11-13): the same record id only. [reading]
+ * entry that carries a record (the equipment's: grenades, charges) is not a firearm's: `takeEquipment`
+ * (`PICKUP_EQUIPMENT_TAKE_READING`, R142). Was (to 2026-11-13): the same record id only. [reading]
  */
 export const PICKUP_AMMO_MATCH_READING = 'by ammunition, every slot in order' as const;
 /**
@@ -102,14 +110,93 @@ export const PICKUP_AMMO_MATCH_READING = 'by ammunition, every slot in order' as
  */
 export const PICKUP_POUR_READING = 'topped up under the cap, the loaded one skipped from 2 magazines' as const;
 /**
- * What of a walked-over bundle stays after the pour: the port leaves the remainder on the ground, offline and online alike.
- * Owed: `FUN_005bb000` returns it through `param_4`; offline its caller writes it back (`FUN_003cfe40` D:L473554-473555),
- * online the owner's grant clears each granted entry whole (`FUN_0059dfb0`, `FUN_003cfc40` D:L457702) -- the remainder is
- * lost there, which reverses a test research 194 asked for ("do not implement ... full-mag transfer to fill those gaps",
- * 194 L78): the owner's to rule with that task. Was (to 2026-11-13): the whole transfer's placeholder ('whole entries into
- * free slots', then 'empty magazines under the cap, filled from the sum'). Settles: that task, or capture B. [placeholder]
+ * What of a walked-over bundle's FIREARM entry stays after the pour: the port leaves the remainder on the ground, offline
+ * and online alike. Owed: `FUN_005bb000` returns it through `param_4`; offline its caller writes it back (`FUN_003cfe40`
+ * D:L473554-473555), online the owner's grant clears each granted entry whole (`FUN_0059dfb0`, `FUN_003cfc40` D:L457702)
+ * -- the remainder is lost there, which reverses a test research 194 asked for ("do not implement ... full-mag transfer
+ * to fill those gaps", 194 L78): the owner's to rule with that task. An EQUIPMENT entry follows the grant since R142
+ * (`PICKUP_EQUIPMENT_TAKE_READING`: cleared whole; the review F4 of the slot-cost read). Was (to 2026-11-13): the whole
+ * transfer's placeholder ('whole entries into free slots', then 'empty magazines under the cap, filled from the sum').
+ * Settles: that task, or capture B. [placeholder]
  */
 export const AMMO_TRANSFER_PLACEHOLDER = 'the remainder stays on the ground' as const;
+/**
+ * R142 (LATER 1088; the reads R142-bundle-read and R142-slotcost-read of 2026-11-15 and that read's fresh review, which
+ * wins where they differ): how a walked-over bundle's EQUIPMENT entry (one carrying a record: a grenade, a charge) is
+ * taken. A body's bundle in a networked match takes the ask and grant path (the review F4: the owner branch,
+ * `FUN_005bb990` D:L473553, never applies to a living taker of a body's bundle):
+ * - the ask, each entry against the taker's kit as it stands, no pour between (`FUN_005bb990` D:L473590-473605 ->
+ *   `FUN_005ba770` D:L472842-473007): the same-item slot (below) has room (`FUN_005ba5b0` D:L472779-472837) -- with a
+ *   same-item slot and no room, refused, no other slot sought (D:L473003 -> D:L472830) -- else the slot search (below),
+ *   with its SlotCost test, finds one;
+ * - the grant (`FUN_0059e830` D:L457886-457933 -> `FUN_0059e580` D:L457845-457846): every entry whose item and
+ *   ammunition match an asked one and whose count is above zero, at most as many as were asked, in entry order
+ *   (`FUN_0059dfb0` D:L457694-457797);
+ * - the take, each granted entry in turn on the kit as the earlier ones left it (`FUN_0059dfb0` -> `FUN_005bb000`
+ *   D:L473191-473353): the same-item slot -- every slot below the kit's count holding the item, the first with a round,
+ *   else the last (D:L473212-473238) -- gets the pour, full or not; with none, the first of slots 2-4 that is past the
+ *   count (answering the COUNT, the review F1: `FUN_005bae60` D:L473106-473107, inlined D:L473244-473245), or spent and
+ *   holding no item of `PICKUP_SPENT_EXEMPT_IDS_READING`'s ten (D:L473246-473276), or holding EQUIP_NONE (D:L473278-473279);
+ *   a SlotCost 2 item needs a second such slot (`PICKUP_SLOTCOST_SECOND_SLOT_PLACEHOLDER`); none, nothing taken
+ *   (D:L473284, D:L473341). The found slot gets the record (`FUN_005bc410` D:L473823-473842) and the pour
+ *   (`FUN_005ba3d0`: the item's own `NumMags` x `Ammo_Capacity`, at most ten magazines, never doubled for a grenade or a
+ *   charge -- the 2X doubles classes 0x04, 0x1f, 0x33, 0x51, 0x5b, 0x65 only, D:L472725-472741); no model is attached
+ *   (`FUN_005c72c0` with the tag "grenade" instances nothing, the review F2);
+ * - then the entry is cleared WHOLE, whatever fitted (`FUN_003cfc40` D:L323024-323047, e.g. D:L457701-457702; but see
+ *   `PICKUP_CLEAR_INDEX_GUARD_PLACEHOLDER`: the original's clear has an index guard the port does not copy); an entry
+ *   not granted stays; the bundle goes when no entry is left (`FUN_00541bb0` D:L409125-409131).
+ * The missile gate (D:L473193-473210) is not built: the builder never bundles that class (`BUNDLE_SLOTS_PLACEHOLDER`).
+ * The rig's three walks of 2026-11-15 agree (capture, pending review: `bundleEquipment.test.ts`). [reading]
+ */
+export const PICKUP_EQUIPMENT_TAKE_READING = 'the same item first, else a spent unprotected slot 2-4; the granted entry cleared whole' as const;
+/**
+ * R142 (the build's fresh review, finding 1): the clear above is not unconditional as decompiled. The getter
+ * `FUN_003cfd70` (D:L323073-323102) and the clearer `FUN_003cfc40` (D:L323024-323047) act only when the entry's index
+ * is at most the number of the list's entries with a non-zero count; `FUN_0059dfb0` gets, pours and clears the granted
+ * entries in index order (D:L457700-457797, the caller's zeros set before each get, e.g. D:L457726-457728) and compacts
+ * the list only after the loop (`FUN_00541bb0` D:L457800, D:L409125-409131). So each clear lowers that number, and with
+ * three or more granted entries a later index can fail the guard: its take is handed zeros (nothing poured) and it is
+ * not cleared. The port clears every granted entry (`takeEquipment`, `WorldDrops.walk`). The case: a body with dry
+ * firearms and three equipment rings, M67, HE, AN-M8, and a taker with a part-spent M67 and one free slot -- all three
+ * asked and granted; the port tops up the M67, installs the HE and deletes the AN-M8; the original as decompiled
+ * leaves the AN-M8 on the ground (index 2 against one entry left with a count). Not built: the original's firearm
+ * entries share the list and the grant, which the port keeps out of it (`AMMO_TRANSFER_PLACEHOLDER`), so the guard's
+ * count cannot be reproduced faithfully before that ruling. Settles: the `AMMO_TRANSFER_PLACEHOLDER` ruling, then a rig
+ * sample of the case. [placeholder]
+ */
+export const PICKUP_CLEAR_INDEX_GUARD_PLACEHOLDER = 'every granted entry cleared' as const;
+/**
+ * R142: a SlotCost 2 entry (the record's `SlotCost`, `+0x27c`: the loader's `FUN_003c5960` D:L322610-322614, read by
+ * `FUN_003c5970` D:L317036; the port's arsenal `slotCost`) needs a second slot 2-4 by the same three tests
+ * (`FUN_005bb000` D:L473286-473340), and with none nothing is taken (D:L473337-473338). Unread: whether the second may
+ * be the first -- the taker's guard compares against -1 (D:L473293), the ask's skips the first slot (D:L472952), and by
+ * the review F1 a kit with fewer than four slots gets the count back from both searches (the review F5). The port
+ * follows the ask (another slot) and writes nothing into the second (`FUN_005bc410` writes its own slot only,
+ * D:L473823-473842). Of the port's bundled items none is SlotCost 2 (the Satchel is no throwable or charge ring).
+ * Settles: the instructions at 0x5bb338-0x5bb4c8 against 0x5ba9f8-0x5bab88, or a rig take of a Satchel bundle with one
+ * and with two free slots. [placeholder]
+ */
+export const PICKUP_SLOTCOST_SECOND_SLOT_PLACEHOLDER = 'a second slot 2-4 other than the first, left as it is' as const;
+/**
+ * R142: what is left of the slot search's strict "count < slot" test (D:L473245, D:L472904) after the review F1 (past
+ * the count answers the count): a kit of count 4 whose slot 4 is neither spent-and-unprotected nor EQUIP_NONE finds no
+ * slot (index 5 is never tried), and whether the original's empty slots hold 0xff records. The port's kit has five
+ * slots, `EMPTY_ITEM` the 0xff record in each empty one (research 94's EQUIP_NONE), so its count is the loadout's length
+ * and the search runs as decompiled. Settles: the disassembly at 0x5bb2xx, or a rig take by a kit with an empty slot.
+ * [placeholder]
+ */
+export const PICKUP_EQUIPMENT_SLOT_PLACEHOLDER = 'the five-slot kit, EQUIP_NONE a record' as const;
+/**
+ * R142, re-filed by R4P-219 (reading; its r0004 cites re-read and CONFIRMED by atlas-parity, a non-author, 2026-11-24): r0004's loaded-magazine skip (`PICKUP_POUR_READING`) applies to an
+ * equipment slot's ring as to a firearm's. r0004's pour `FUN_005c0c20` D4:L514322-514323 and its ask `FUN_005c0e40`
+ * D4:L514401-514403 (r0001's `FUN_005ba3d0` D:L472718-472773, `FUN_005ba5b0` D:L472779-472837) both pass over the slot's
+ * current magazine (`+0x684`) when the record's own `NumMags` (`FUN_003f4a50`, D4:L350989-350993) is 2 or more, with no
+ * class test: every slot takes it. That `+0x684` is the slot's current-magazine word for every slot is inferred from its
+ * slot-generic index. No throwable or charge record the port reads has `NumMags` 2, so no take reaches it today.
+ */
+export const PICKUP_EQUIPMENT_POUR_READING = "as a firearm's: the loaded one skipped from 2 magazines" as const;
+// R142: the line a take posts (`FUN_005bb000` D:L473356-473375) is the page's, posted from the room's `kit` -- the room
+// posts nothing; the page's line and its open questions are viewer `src/pickupLine.ts` (PICKUP-LINE).
 /**
  * Where a drop lies: at the feet it fell from, with the body's yaw -- the original's settling and rotation of the
  * replicated node (`FUN_0059ec60`, `FUN_0059e9e0`) are not read. Settles: capture B's death drop. [placeholder]
@@ -143,6 +230,8 @@ export interface DroppingBody {
   yaw: number;
   /** The kit table, for `firearmsCarried`; absent or null, a slot's presence alone (the baked records' fallback). */
   table?: KitTable | null;
+  /** R142: the throwable and charge rings (`EquipmentSlots`), bundled and cleared; absent, none (`BUNDLE_SLOTS_PLACEHOLDER`). */
+  equipmentSlots?: EquipmentSlots;
 }
 
 /**
@@ -170,10 +259,42 @@ function takeRing(record: WeaponRecord, ring: MagazineRing, carried: boolean): B
 }
 
 /**
- * A classic death's drops (DROP_CONTENTS_READING; DROP_PLACEMENT_PLACEHOLDER): the bundle of every firearm ring's entries
- * first (none when the body is dry: `FUN_005ba040` adds a slot only with a round in it), then the primary's and the
- * secondary's weapon (an empty slot drops nothing), then the launcher with its round present (LAUNCHER_DROP_READING).
- * The rings given are cleared: the body keeps no round.
+ * R142 (`BUNDLE_SLOTS_PLACEHOLDER`; `FUN_005ba040` D:L472580-472626): each throwable or charge ring of the body as a bundle
+ * entry, in slot order -- its record's ammunition (the port's ammo item at `+0x15c`, D:L472609), the record as the
+ * entry's `item`, the ring's sum (D:L472601-472606) -- for a ring holding a round (D:L472610-472622) of an item outside
+ * the MISSILE class (D:L472623). Each ring is cleared, bundled or not: the body keeps no round.
+ * R4P-223 (reading; its r0004 cites re-read and CONFIRMED by atlas-parity, a non-author, 2026-11-24): r0004's builder FillAmmoPickupInstance `FUN_005c07c0` D4:L514110-514193 clears every
+ * ring entry of an item 0x97 (C4, 151) before the sum and the positive-entry test, so the stash add is never called for
+ * C4, whatever its record; r0001's `FUN_005ba040` D:L472580-472631 sums and adds it. Other charges (the claymore, the
+ * satchel, the PMN) keep their path.
+ * LATENT (R4P-103; reading, reviewed: agent/spc-atlas 6299392aed, merged 44b0cc3fef; first filed 2cfcb2723f): r0004's
+ * take 0x5c1b30 (r0001 `FUN_005bb000`) changed its launcher test as the offer gate did -- on a type-9 (bundle) list
+ * only, an entry of category 0xb9, every rocket round (ids 185-189, the RPG round included), is taken only by a kit
+ * holding a class-0x91 launcher. So an M203 or GP-30 carrier gets a rocket round only as the round that comes with a
+ * picked-up LAW or RPG-7, never from a bundle. Latent: no bundle the port builds carries 0xb9-0xbd
+ * (`takeEquipmentRings`, D:L472623), so nothing here tests it; a bundle that ever carries a rocket round must refuse
+ * it to a kit without a launcher.
+ */
+function takeEquipmentRings(body: DroppingBody): BundleEntryWire[] {
+  const slots = body.equipmentSlots;
+  if (!slots) return [];
+  const out: BundleEntryWire[] = [];
+  for (const slot of slots.state().map((s) => s.slot).sort((a, b) => a - b)) {
+    const item = body.loadout[slot]!;
+    const count = slots.take(slot);                              // drained first, C4 included (D4:L514110-514193)
+    if (item === ITEM.C4) continue;                              // R4P-223: r0004 never adds C4 to the stash
+    const ammo = throwableOf(body.table ?? null, item)?.ammo ?? '';
+    if (count > 0 && ammo !== '' && itemClass(item) !== 'rocketRound') out.push({ ammo, item, count });
+  }
+  return out;
+}
+
+/**
+ * A classic death's drops (DROP_CONTENTS_READING; DROP_PLACEMENT_PLACEHOLDER): the bundle of every firearm ring's entries,
+ * then (R142, `BUNDLE_SLOTS_PLACEHOLDER`) every throwable and charge ring's with its record, in slot order, first (none
+ * when the body is dry: `FUN_005ba040` adds a slot only with a round in it), then the primary's and the secondary's
+ * weapon (an empty slot drops nothing), then the launcher with its round present (LAUNCHER_DROP_READING). The rings given
+ * are cleared: the body keeps no round.
  */
 export function dropsOf(body: DroppingBody): DropSpec[] {
   const at: V3 = [body.feet[0], body.feet[1], body.feet[2]];
@@ -182,6 +303,7 @@ export function dropsOf(body: DroppingBody): DropSpec[] {
   // A slot with no firearm (`firearmsCarried`) bundles nothing; its ring is cleared all the same -- the body keeps no round.
   const carried = firearmsCarried(body.loadout, body.table);
   const entries = ([0, 1] as const).map((s) => takeRing(body.records[s], body.mags[s], carried[s])).filter((e): e is BundleEntryWire => e !== null);
+  entries.push(...takeEquipmentRings(body));
   if (entries.length) out.push(lay({ kind: 'ammo', entries }));
   for (const s of [0, 1] as const) {
     const item = body.loadout[s];
@@ -254,20 +376,21 @@ export function claimWeapon(drop: DropSpec | DropWire, taker: TakingBody, table:
 }
 
 /**
- * NU-5 L1 (web research 323 R323.5, §1.6; `PICKUP_LAUNCHER_READING`): a rocket launcher claimed (`FUN_0059f0c0`
- * D:L458238-458292) -- refused `'family'` unless the taker's kit carries no launcher-list item and has a slot 2-4 free or
- * replaceable (`FUN_005bac30` D:L473023-473084) and, in the port's five slots, an empty one for the round
- * (`launcherClaimSlots`, `PICKUP_LAUNCHER_ROUND_SLOT_PLACEHOLDER`). The launcher into `FUN_005bae60`'s slot (its old
- * item overwritten by `FUN_005bc410`, nothing laid: no exchange, D:L458187-458190 runs only with a launcher in the kit,
- * which a kit offered one never carries); its round (0xb9, 0xba for 146) beside it with one round
- * (`PICKUP_LAUNCHER_ROUNDS_READING`, `FUN_005ba3d0(kit, slot, 1)` D:L458291). The firearms are untouched.
+ * NU-5 L1; R4P-103 (`PICKUP_LAUNCHER_READING`; r0004: the reading agent/spc-atlas dcd314b4bd, the captures Q-103 / Q103B
+ * a1e119affd and Q103C dcd314b4bd): a rocket launcher claimed (`FUN_005a4b70` D4:L499171) -- refused `'family'` unless
+ * the taker's kit holds no launcher (145-150) and has a slot 2-4 empty or spent (`FUN_005c1760` D4:L514677). The launcher
+ * into the first such slot (`FUN_005c1990(kit, -1)` D4:L499279), its old item overwritten (`FUN_005c2fc0`): nothing
+ * displaced is saved or laid, and no exchange; its round (0xb9, 0xba for 146) APPENDED at the kit's record count with one
+ * round (`PICKUP_LAUNCHER_ROUND_SLOT_READING`, `PICKUP_LAUNCHER_ROUNDS_READING`, D4:L499303-499309) -- a five-record kit
+ * grows to six (Q103B: 185 at index 5). The firearms are untouched.
  */
 function claimLauncher(item: number, taker: TakingBody): Claimed | { refused: 'family' } {
   const at = taker.kit ? launcherClaimSlots(taker.kit) : null;
   if (!at) return { refused: 'family' };
-  const loadout = [...taker.loadout] as unknown as Loadout;
-  (loadout as unknown as number[])[at.launcher] = item;
-  (loadout as unknown as number[])[at.round] = launcherRoundOf(item);
+  const kit: number[] = [...taker.loadout];
+  kit[at.launcher] = item;
+  kit[at.round] = launcherRoundOf(item);                      // at the record count: the kit grows by one record
+  const loadout = kit as unknown as Loadout;
   return {
     loadout, slot: null, records: taker.records, ring: null, replaced: [],
     launcher: { slot: at.launcher, round: at.round, rounds: PICKUP_LAUNCHER_ROUNDS_READING },
@@ -336,4 +459,120 @@ export function transferAmmo(
     if (left > 0) residual.push({ ammo: entry.ammo, count: left });
   }
   return { moved, filled, added, residual };
+}
+
+/** What `takeEquipment` reads and changes of the taker: his live kit, his throwable and charge rings, his rounds' rings. */
+export interface EquipmentTaker {
+  loadout: Loadout;
+  /** Changed in place: the pours, the installs (`EquipmentSlots.pour`, `.install`). */
+  equipmentSlots: EquipmentSlots;
+  /** A launcher round's rounds at `slot` (`KitRounds.held`), for the slot search's "spent" test. */
+  roundsAt(slot: number): number;
+}
+
+/** A bundle entry the equipment take is for: one carrying a record that is not EQUIP_NONE (`FUN_005bb000` D:L473175). */
+const isEquipmentEntry = (e: BundleEntryWire): e is BundleEntryWire & { item: number } => e.item !== undefined && e.item !== EMPTY_ITEM;
+
+/**
+ * The slot search of `PICKUP_EQUIPMENT_TAKE_READING` over slots 2-4 (`FUN_005bb000` D:L473239-473285, the ask's
+ * D:L472898-472943; `FUN_005bae60` D:L473101-473152): past the kit's count, the COUNT (the review F1); below it, a slot
+ * whose ring holds no round and whose item is not one of `PICKUP_SPENT_EXEMPT_IDS_READING`'s ten, or one holding EQUIP_NONE;
+ * a slot equal to the count is passed over (`PICKUP_EQUIPMENT_SLOT_PLACEHOLDER`). `exclude`, the SlotCost search's first
+ * slot (`PICKUP_SLOTCOST_SECOND_SLOT_PLACEHOLDER`). Null for none.
+ */
+function equipmentSlotFor(kit: readonly PickupKitSlot[], exclude: number | null = null): number | null {
+  const count = kit.length;
+  for (let s = 2; s <= 4; s++) {
+    if (s > count) return count;
+    if (s === count || s === exclude) continue;
+    const { item, rounds } = kit[s]!;
+    if (!(rounds > 0) && !PICKUP_SPENT_EXEMPT_IDS_READING.includes(item)) return s;
+    if (item === EMPTY_ITEM) return s;
+  }
+  return null;
+}
+
+/**
+ * The same-item slot (`FUN_005bb000` D:L473212-473238; the ask's D:L472872-472897): of the slots below the kit's count
+ * holding `item`, the first whose ring holds a round, else the last; null for none.
+ */
+function sameItemSlot(kit: readonly PickupKitSlot[], item: number): number | null {
+  let last: number | null = null;
+  for (let s = 0; s < kit.length; s++) {
+    if (kit[s]!.item !== item) continue;
+    if (kit[s]!.rounds > 0) return s;
+    last = s;
+  }
+  return last;
+}
+
+/**
+ * R142 (`PICKUP_EQUIPMENT_TAKE_READING`): a living taker over a bundle -- its equipment entries asked against his kit as it
+ * stands, granted, each granted one poured (into its same-item slot, or a slot found and given the record) and cleared
+ * whole. Returns the taker's kit after (a new array only when an item was installed), which entries were granted (the
+ * caller removes them: what did not fit is lost, `FUN_003cfc40`), and the slots installed. The firearm entries are not
+ * this function's (`transferAmmo`). Each item's cap is its own `NumMags` (the arsenal's, else the throwable record's),
+ * at most ten, never doubled (`FUN_005ba3d0` D:L472718-472746); the capacity, the ring's (the record's `Ammo_Capacity`).
+ */
+export function takeEquipment(
+  bundle: readonly BundleEntryWire[], taker: EquipmentTaker, table: KitTable | null,
+): { loadout: Loadout; granted: boolean[]; installed: number[] } {
+  const slots = taker.equipmentSlots;
+  let loadout = taker.loadout;
+  const kitNow = (): PickupKitSlot[] => pickupKitOf(loadout as readonly number[], table, taker.roundsAt, {}, slots.state());
+  const capOf = (item: number): number => magazinesCarried(table?.arsenal.items.get(item)?.mags ?? throwableOf(table, item)?.mags ?? 0);
+  const slotCostOf = (item: number): number => table?.arsenal.items.get(item)?.slotCost ?? 1;
+  /** Where an entry of `item` would go: its same-item slot, or a found slot (with its SlotCost second), or null. */
+  const placeOf = (kit: readonly PickupKitSlot[], item: number): { slot: number; install: boolean } | null => {
+    const same = sameItemSlot(kit, item);
+    if (same !== null) return { slot: same, install: false };
+    const first = equipmentSlotFor(kit);
+    if (first === null) return null;
+    if (slotCostOf(item) === 2 && equipmentSlotFor(kit, first) === null) return null;   // D:L473286-473340
+    return { slot: first, install: true };
+  };
+  // The ask: every entry against the kit as it stands (`FUN_005bb990` D:L473590-473605 -> `FUN_005ba770`).
+  // PICKUP_EQUIPMENT_POUR_READING (R4P-219): the ask passes over the loaded magazine as the take does, the record's own
+  // NumMags 2 or more (r0004 `FUN_005c0e40` D4:L514401-514403; r0001 `FUN_005ba5b0` D:L472779-472837 counts it).
+  const skipLoaded = (item: number): boolean => (throwableOf(table, item)?.mags ?? 0) >= 2;
+  const kit0 = kitNow();
+  const asked = bundle.filter((e) => {
+    if (!isEquipmentEntry(e) || !(e.count > 0)) return false;
+    const at = placeOf(kit0, e.item);
+    return at !== null && (at.install || slots.room(at.slot, capOf(e.item), skipLoaded(e.item)));   // a full same-item slot: refused (D:L472830)
+  });
+  // The grant (`FUN_0059e580` D:L457845-457846; at most as many as asked, `FUN_0059dfb0` D:L457694-457797).
+  let grants = 0;
+  const granted = bundle.map((e) => {
+    if (!isEquipmentEntry(e) || !(e.count > 0) || grants >= asked.length) return false;
+    if (!asked.some((a) => a.item === e.item && a.ammo === e.ammo)) return false;
+    grants++;
+    return true;
+  });
+  // The take: each granted entry on the kit as the earlier ones left it (`FUN_005bb000` D:L473191-473353).
+  // LATENT (R4P-103; reading, reviewed: agent/spc-atlas 6299392aed, merged 44b0cc3fef; first filed 2cfcb2723f): r0004's
+  // take 0x5c1b30 (r0001 `FUN_005bb000`) changed its launcher test as the offer gate did -- on a type-9 (bundle) list
+  // only, an entry of category 0xb9, every rocket round (ids 185-189, the RPG round included), is taken only by a kit
+  // holding a class-0x91 launcher. So an M203 or GP-30 carrier gets a rocket round only as the round that comes with a
+  // picked-up LAW or RPG-7, never from a bundle. Latent: no bundle the port builds carries 0xb9-0xbd
+  // (`takeEquipmentRings`, D:L472623), so nothing here tests it; a bundle that ever carries a rocket round must refuse
+  // it to a kit without a launcher.
+  const installed: number[] = [];
+  bundle.forEach((e, k) => {
+    if (!granted[k] || !isEquipmentEntry(e)) return;
+    const at = placeOf(kitNow(), e.item);
+    // Cleared all the same, whatever its index (PICKUP_CLEAR_INDEX_GUARD_PLACEHOLDER: the guard not built).
+    if (at === null) return;                                     // nothing taken (D:L473284, D:L473341)
+    const record = throwableOf(table, e.item);
+    if (at.install) {
+      if (!record || !slots.install(at.slot, { name: record.name, capacity: record.capacity, mags: record.mags })) return;
+      const next = [...loadout];
+      next[at.slot] = e.item;                                    // `FUN_005bc410` D:L473823-473829: at the count, the kit grows
+      loadout = next as unknown as Loadout;
+      installed.push(at.slot);
+    }
+    // PICKUP_EQUIPMENT_POUR_READING: r0004's skip as a firearm's -- the record's own NumMags 2 or more (D4:L514322-514323).
+    slots.pour(at.slot, e.count, capOf(e.item), skipLoaded(e.item));
+  });
+  return { loadout, granted, installed };
 }

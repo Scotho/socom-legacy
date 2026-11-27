@@ -76,9 +76,11 @@ describe('research 230: movement gaps', () => {
             jumping.sim.apply({ ...cmd, seq: i + 3, buttons: 0, forward: 1, stance: 2 });
         jumpStance = jumping.walker.stance;
     });
-    // FUN_0057e1b0 D:L440799-440804 -> FUN_0057f150.
+    // FUN_0057e1b0 D:L440799-440804 -> FUN_0057f150; r0004: the jump 0x583490 asks the ray 0x584670 at 0x583530, its fourth
+    // gate, before the stance and the speed (pilot key job B-20, reading pending review): the standing and the running jump.
+    // B-20's capture of r0004 (Shadow PC 1): a standing jump under Frostfire's tunnel roof refused 6 of 6.
     for (const speed of [0, 40])
-        it.fails(`refuses jump at speed ${speed} with a solid hit in the posed-head ray`, () => expect(roofResults.get(speed)).toBe(false));
+        it(`refuses jump at speed ${speed} with a solid hit in the posed-head ray`, () => expect(roofResults.get(speed)).toBe(false));
     // FUN_005483d0 D:L413588-413593, scalar confirmed at ELF 0x548ae0-0x548b40: remove inward carry persistently.
     // SEGMENT-BODY: built in `resolveSegments` (the carried velocity loses its part into the face, D:L413588-413594): a gap closed.
     it('keeps the inward carry removed after contact ends', () => {
@@ -192,9 +194,19 @@ describe('research 230 §3.4: the camera-class cast of the headroom and jump ray
         expect(c.walker.headroom()).toBe(true);
         expect(j.walker.jumpClear()).toBe(true);
     });
-    it('the jump itself is unchanged until D13\'s capture (PTW.R1): a solid roof still lets it start', () => {
-        const s = flat([at(25)]);
-        expect(s.walker.jumpClear()).toBe(false);
-        expect(s.walker.jump()).toBe(true);
+    it('the jump asks the ray (r0004 0x583530; B-20): a solid roof inside it refuses, one above it or a type-1 nearest lets it start', () => {
+        for (const vx of [0, 40]) {
+            const under = flat([at(25)]);
+            under.walker.state.vx = vx;
+            expect(under.walker.jumpClear()).toBe(false);
+            expect(under.walker.jump(), `speed ${vx}: roof at 25`).toBe(false);
+            expect(under.walker.action, `speed ${vx}: nothing started`).toBeNull();
+            const over = flat([at(40)]);                                  // over head + 21 (38.394): the ray meets nothing
+            over.walker.state.vx = vx;
+            expect(over.walker.jump(), `speed ${vx}: roof at 40`).toBe(true);
+            const typeOne = flat([at(22, { cameratype: 1 }), at(25)]);    // the nearest hit is type 1: clear
+            typeOne.walker.state.vx = vx;
+            expect(typeOne.walker.jump(), `speed ${vx}: type 1 nearest`).toBe(true);
+        }
     });
 });

@@ -1,6 +1,6 @@
 import {
   EMPTY_ITEM, itemClass, menuValves, pick as pickItem, selectable, slotKind, slotLocked,
-  type Arsenal, type ItemClass, type Loadout, type Pick, type Side, type SlotKind,
+  type Arsenal, type ItemClass, type Loadout, type Pick, type Remembered, type Side, type SlotKind,
 } from '@s2u/scene';
 
 /**
@@ -86,6 +86,11 @@ export interface MenuState {
   loadout: Loadout;
   /** The confirmed picks since the menu opened, in order (what the server replays: `applyPicks`). */
   picks: readonly Pick[];
+  /**
+   * R4P-221: what a launcher primary displaced, kept across confirms and opens until it leaves (scene `pick`'s
+   * `remembered`, the kit's `+0x1530`/`+0x1531`); absent for nothing remembered (a closed menu over a fresh kit).
+   */
+  remembered?: Remembered;
 }
 
 /** The closed menu over a kit. */
@@ -223,8 +228,8 @@ export function step(ctx: MenuContext, s: MenuState, input: MenuInput, open = tr
         // S4: confirm only what the list offers (the middle card may be the slot's own, unlisted item: no change).
         if (s.item === s.loadout[s.slot] || !listable(ctx, s, s.category, s.item)) return { state: { ...s, screen: 'list' }, event: null };
         const choice: Pick = { slot: s.slot, id: s.item };
-        const loadout = pickItem(ctx.arsenal, ctx.valves, ctx.side, s.loadout, s.slot, s.item).loadout;
-        return { state: { ...s, screen: 'list', loadout, picks: [...s.picks, choice] }, event: { kind: 'confirmed', loadout, pick: choice } };
+        const { loadout, remembered } = pickItem(ctx.arsenal, ctx.valves, ctx.side, s.loadout, s.slot, s.item, s.remembered);
+        return { state: { ...s, screen: 'list', loadout, picks: [...s.picks, choice], remembered }, event: { kind: 'confirmed', loadout, pick: choice } };
       }
       return { state: s, event: null };
     }

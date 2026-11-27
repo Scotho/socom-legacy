@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { resetStreamerCache, setStreamerMode } from '../../src/streamerMode';
+import { heldInviteAddress, releaseInviteAddress } from '../../src/inviteAddressHold';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { READ_SET_VERSION, SOCOM2_US_BOOT, type AssetSource } from '@s2u/archive';
 import { inviteOf, type InviteLink, type LobbyService } from '@s2u/ui';
@@ -512,5 +514,51 @@ describe('part B: the invite channel', SLOW, () => {
     expect(await ask(r)).toBe('busy');                                          // the hard rule: never a login over its session
     expect(r.bus.log.map((m) => m.type)).toEqual(['ping', 'held']);            // 'asking': never offered
     expect(r.mount).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * STREAMER-P1 slice 1b (a browser adaptation, `../../src/inviteAddressHold`): while Streamer mode's details are Hidden the
+ * launcher bares the address at once and holds the invite; its START and a taken invite carry it to the front end as
+ * before, the address never showing it.
+ */
+describe('STREAMER-P1 1b: the launcher with the address bared', () => {
+  beforeEach(() => { localStorage.clear(); resetStreamerCache(); releaseInviteAddress(); setStreamerMode(true); });
+  afterEach(() => { localStorage.clear(); resetStreamerCache(); releaseInviteAddress(); });
+  const mountedSearch = (r: Rig): string => (r.mount.mock.calls[0] as unknown as [string])[0];
+  const ask = (r: Rig): Promise<unknown> => handOff(LINK, { open: r.bus.open, id: 'asker', wait: () => settle() });
+
+  it('an invite address: bare at once; the auto-START hands the invite to the front end, the address at its mount bare', async () => {
+    const r = await rig({ state: 'whole', kept: record() });
+    expect(r.ctl.S.start).not.toBe('idle');                                     // the invite still STARTs by itself
+    await settle(400);
+    expect(r.mount).toHaveBeenCalledTimes(1);
+    expect(r.at[0]).toEqual({ path: '/main/online', search: '' });             // the address: no invite
+    expect(inviteOf(mountedSearch(r))).toEqual(LINK);                           // the front end: the invite
+    page = null;
+  });
+
+  it('a taken invite: the address never carries it; the front end does', async () => {
+    const r = await rig({ address: '/?menuflow=x', state: 'whole', kept: record(), signedIn: true });
+    vi.spyOn(window, 'focus').mockImplementation(() => {});
+    expect(await ask(r)).toBe('taken');
+    await settle(400);
+    expect(r.mount).toHaveBeenCalledTimes(1);
+    expect(r.at[0]).toEqual({ path: '/main/online', search: '?menuflow=x' });
+    expect(inviteOf(mountedSearch(r))).toEqual(LINK);
+    page = null;
+  });
+});
+
+describe('STREAMER-P1 1b: turned on while the launcher shows an invite address', () => {
+  afterEach(() => { localStorage.clear(); resetStreamerCache(); releaseInviteAddress(); });
+  it('Off: the address keeps the invite (as before); turned on, it is bared at once and the invite still held', async () => {
+    localStorage.clear(); resetStreamerCache(); releaseInviteAddress();
+    await rig({ state: 'none' });                                               // no disc: no START, the invite waits
+    expect(window.location.search).toBe(INVITE_Q);
+    setStreamerMode(true);
+    expect(window.location.search).toBe('');
+    expect(window.location.pathname).toBe('/main/online');
+    expect(inviteOf(heldInviteAddress()!.search)).toEqual(LINK);
   });
 });

@@ -5,7 +5,7 @@ import { stepThrowPower, THROW_PARAMS, THROW_POWER_RISE } from '@s2u/scene';
  * frame trace and changes nothing in the game.
  *
  * Why: the game counts a held throw's power in each frame's REAL seconds (`../src/grenade.ts` `GrenadeHand.update`,
- * PAR-34, research 252 / ACT.R8), `power += (1 - power) * THROW_POWER_RISE * dt` in substeps of at most
+ * PAR-34, research 252 / ACT.R8), the chase toward 1 at `THROW_POWER_RISE` a second in substeps of at most
  * `THROW_POWER_STEP_MAX_S` (`@s2u/scene` `stepThrowPower`, `FUN_00594cf0`, research 85 s1). How long a spec's "short"
  * hold lasts is the host's: on a slow renderer the round trip that sees the target and lets go can hold the button as
  * long as a "full" hold (RC1 on SwiftShader: 0.9029 short against 0.8779 full). So the spec checks each throw's power
@@ -19,8 +19,10 @@ import { stepThrowPower, THROW_PARAMS, THROW_POWER_RISE } from '@s2u/scene';
  * `now_i - now_(i-1)` real seconds; a run of consecutive raising frames `i..j` telescopes to `now_j - now_(i-1)`, which
  * lies in `[t_(j-1) - t_(i-1), t_j - t_(i-2)]` (unbounded above without a sample `i-2`). Summed over the runs (a hold
  * is one run): the counted hold's low and high bounds -- one frame's slack at each end, wider on a slow host.
- * Over a time `s` from power `p0` at pressure 1, with substeps of at most 0.1 s, the power lies between the continuous
- * curve `1 - (1 - p0) e^(-3 s)` (the smallest steps) and 0.1 s steps (the largest; `log(1 - 3d)` is concave). The thrown
+ * Over a time `s` from power `p0` at pressure 1 the power is `1 - (1 - p0) (1 - 3 G)^(s / G)` at any substep (G the
+ * game frame; LATER 1027: the chase's exact per-second law, so the step no longer matters), which lies between the
+ * continuous curve `1 - (1 - p0) e^(-3 s)` (kept as the lower bound: below the law, `-log(1 - 3G) / G` = 3.161 > 3) and
+ * the stepped power (now the law itself). The thrown
  * power must lie between the low bound's continuous power and the high bound's stepped power; `POWER_EPSILON` is the
  * only slack, float rounding. A substep is also no longer than its frame (`real / n` with `n >= 1`), and frame `i`
  * lasted at most `t_i - t_(i-2)`: the upper curve steps at `stepCapS`, the least of 0.1 s and the longest raising frame

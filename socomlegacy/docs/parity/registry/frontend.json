@@ -673,7 +673,7 @@
    "source": "disc RUN/READERC.ZAR fonts.rdr",
    "note": "docs/research/111-ui-text.md",
    "tests": [
-    {"file":"packages/ui/test/textFaces.parity.test.ts","name":"two faces, font_titlebar_01 and font_text_01: 166 and 184 glyphs (185 records: code 96 twice is one glyph)","data":"none"},
+    {"file":"packages/ui/test/textFaces.parity.test.ts","name":"two faces, font_titlebar_01 and font_text_01: 167 and 185 glyphs (166 and 185 records, code 96 twice one glyph; each face's Code record of C also makes r0004's 0xb2)","data":"none"},
     {"file":"packages/ui/test/textFaces.parity.test.ts","name":"the face fields: shadows (3,3) 0.65 and (1,1) 0.75; opacity 0.7, scale 1, xspacing 0, no glow texture, no Korean table","data":"none"},
     {"file":"packages/ui/test/textFaces.parity.test.ts","name":"18 glyphs of font_text_01 carry a colour (150,150,150) on its second atlas, and draw with no shadow","data":"none"},
     {"file":"packages/ui/test/textFaces.parity.test.ts","name":"the pinned tree is parseRdr of RUN/READERC.ZAR's fonts.rdr, whole","data":"disc"},

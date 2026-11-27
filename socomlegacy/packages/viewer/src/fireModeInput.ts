@@ -31,13 +31,19 @@
 
 /**
  * The double tap's window, seconds: the marker a first press sets (`FUN_002d9ff0` D:L179177, the literal 0x3e800000).
- * [reading]
+ * [reading] A capture of r0004 under DEFAULT (Q218C-PC2, R4P-218; carried from atlas 22d47ddf74's read) shows a double tap
+ * stepping the mode once and single presses .5 s apart stepping nothing; it did not measure the .25 s window, and it puts
+ * the step on the frame AFTER the second press, where this port steps on the second press's own frame
+ * (`fireModeInput.test.ts`) -- one frame apart, or a different frame count; open (research 254 section 6).
  */
 export const FIRE_MODE_DOUBLE_TAP_S_READING = 0.25;
 
 /**
  * The held repeat, seconds: `FUN_00594b70`'s bound on the held time (D:L452983, `DAT_00650670`; the ELF's word at
- * 0x650670 is 0x3ecccccd, .4000000059604645). [reading]
+ * 0x650670 is 0x3ecccccd, .4000000059604645). [reading] A capture of r0004 under DEFAULT (Q218C-PC2, R4P-218;
+ * carried) puts a hold's step ~13-14 game frames after the button goes down (~.45 s); this port's own test steps at frame
+ * index 12 (~.40 s after the press frame) -- one to two frames apart, or a different frame count; open (research 254
+ * section 6). ALTERNATE unmeasured.
  */
 export const FIRE_MODE_HOLD_REPEAT_S_READING = 0.4000000059604645;
 

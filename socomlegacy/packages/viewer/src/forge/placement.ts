@@ -29,7 +29,7 @@ export const GRID_STEP_LADDER = [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 5, 10, 25, 50, 
 export const TURN_STEP_LADDER = [1, 5, 15, 30, 45, 90, 180] as const;
 
 /**
- * A step held to its ladder (the owner, 2026-11-15: "I don't want a user to snap to like 7"): the ladder's nearest step
+ * A step held to its ladder (the Forge's owner (crispy, OT.R112), 2026-11-15: "I don't want a user to snap to like 7"): the ladder's nearest step
  * to `v`; anything that is not a number stays the fallback.
  */
 export function onLadder(v: number, ladder: readonly number[], fallback: number): number {

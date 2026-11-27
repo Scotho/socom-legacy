@@ -1,5 +1,5 @@
 /**
- * Edit > Preferences: the shortcut editor (the owner, 2026-11-20: "a shortcut editor in the preferences ... fully
+ * Edit > Preferences: the shortcut editor (the Forge's owner (crispy, OT.R112), 2026-11-20: "a shortcut editor in the preferences ... fully
  * customize what shortcuts they can use for each command ... a warning if they are overriding another shortcut or
  * conflicts with another shortcut ... a single button that resets the shortcuts to our default settings ... a per
  * command reset button. If the reset conflicts with another command, ask the user if they are sure"; "if they try to

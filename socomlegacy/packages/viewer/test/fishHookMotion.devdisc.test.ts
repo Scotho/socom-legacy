@@ -152,8 +152,11 @@ describe.skipIf(!DISC)(`DF-9: Fish Hook's boats and shoreline${SKIP}`, () => {
     const motion = map.meta!.motion!;
     expect([...motion.scrolled].sort()).toEqual(['water', 'water_wash', 'water_wash1', 'water_wash2', 'water_wash3', 'water_wash4', 'water_wash5'].map((n) => `worldmodel/${n}`));
     const id = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-    expect([...motion.frames.keys()].sort()).toEqual(['water_node', ...[1, 2, 3, 4, 5, 6].map((n) => `water_node${n}`)].map((n) => `worldmodel/${n}`));
-    for (const f of motion.frames.values()) { expect(Array.from(f.own)).toEqual(id); expect(Array.from(f.world)).toEqual(id); }
+    const nodes = ['water_node', ...[1, 2, 3, 4, 5, 6].map((n) => `water_node${n}`)].map((n) => `worldmodel/${n}`);
+    // LATER 951 (research 436): the sky `translate_sky` holds at the camera is framed too, and listed as translated.
+    expect([...motion.frames.keys()].sort()).toEqual([...nodes, 'worldmodel/skydome'].sort());
+    expect(motion.translated).toEqual(['worldmodel/skydome']);
+    for (const n of nodes) { const f = motion.frames.get(n)!; expect(Array.from(f.own)).toEqual(id); expect(Array.from(f.world)).toEqual(id); }
   });
 
   it("the port now: the nine run on the page's world; the seven nodes stroke and each wash's offset follows its node; no boat polygon moves", async () => {

@@ -186,6 +186,32 @@ describe('the chat layout: message mode and Action2 (FUN_00399150, FUN_00399280,
     expect(r.events[0]).toEqual([SKB_EVENTS.APPLY, 'hi']);
   });
 
+  it('r0004 SkbTakeText (L358): $~ in the text and the recipient stored and sent as $-', () => {
+    const r = opened(chat);
+    walkTo(r, fnKey(SKB_FN.MsgPlayer));
+    // $ ~ $ ~ on the recipient (focused first); a $ ~ b on the main edit.
+    typeUsb(r, [usb(0x21, true), usb(0x35, true), usb(0x21, true), usb(0x35, true)]);
+    press(r, 'SELECT');
+    typeUsb(r, [usb(0x04), usb(0x21, true), usb(0x35, true), usb(0x05)]);
+    expect([r.kb.text, r.kb.recipient]).toEqual(['a$~b', '$~$~']);
+    press(r, 'CIRCLE');
+    expect(r.vars.find('CHATTEXT')?.value).toEqual({ type: 'string', value: 'a$-b' });
+    expect(r.vars.find('MsgPlayer_Recipient')?.value).toEqual({ type: 'string', value: '$-$-' });
+    expect(r.events[0]).toEqual([SKB_EVENTS.APPLY, 'a$-b']);
+  });
+
+  it('r0004 SkbTakeText (r4 0x3ba2f0-0x3ba348): a CHATTEXT keyboard also stores the edited text as CHATMESSAGE; another variable does not', () => {
+    const r = opened(chat);
+    typeUsb(r, [usb(0x04), usb(0x21, true), usb(0x35, true), usb(0x05)]);
+    press(r, 'CIRCLE');
+    expect(r.vars.find('CHATTEXT')?.value).toEqual({ type: 'string', value: 'a$-b' });
+    expect(r.vars.find('CHATMESSAGE')?.value).toEqual({ type: 'string', value: 'a$-b' });
+    const o = opened();
+    typeUsb(o, [usb(0x04)]);
+    press(o, 'CIRCLE');
+    expect(o.vars.find('CHATMESSAGE')).toBeUndefined();
+  });
+
   it('Action2: ENTER posts ON_SKB_APPLY2', () => {
     const r = opened(chat);
     walkTo(r, fnKey(SKB_FN.Action2));

@@ -74,8 +74,17 @@ function fakeExtract(): { runs: Run[]; extract: (r: DiscRequest, h: ExtractHooks
 }
 
 let page: ConsolePage | null = null;
+/**
+ * LATER 1091 (a test's hygiene): the adapters each `rig` builds, let go after its case as the page's own adapters are
+ * (`../../../src/console/adapters` `liveAdapters`'s dispose: the disc's and the options'). The page's `dispose` leaves its
+ * adapters to their owner, and they are this file's: kept, each case's disc and options adapters stayed subscribed to the
+ * document's disc changes (`liveDisc` `onDiscChange`, `liveOptions` `offDisc`), and their `notify` redraws the CURRENT
+ * `page` -- so F5, the fifteenth case, had its every pick drawn once more per earlier case (F5's pick 539 ms in the
+ * file against 57 ms alone, its next settle 2328 against 539, on a loaded host).
+ */
+const owned: { dispose(): void }[] = [];
 beforeEach(() => { publishDisc(document, { state: 'empty', filename: null }); publishDiscImage(document, null); mountShell(document); });
-afterEach(() => { page?.dispose(); page = null; vi.restoreAllMocks(); });
+afterEach(() => { page?.dispose(); page = null; for (const a of owned.splice(0)) a.dispose(); vi.restoreAllMocks(); });
 
 interface Rig { disc: LiveDisc; ctl: ConsolePage['ctl']; records: ReturnType<typeof memoryRecords>; runs: Run[]; mount: ReturnType<typeof vi.fn>; env: ExtractEnv; click: ReturnType<typeof vi.spyOn> }
 
@@ -94,6 +103,7 @@ async function rig(o: { state?: ExtractionState; kept?: DiscExtractRecord | null
   const session = { signOut: async () => {}, end: () => {} } as unknown as ModernSession;
   const launch = liveLaunch(document, { session, mount: mount as never, sheets: [], loadSheet: async () => {}, overlay: async () => ({ mountPageOverlay: () => {} }), ...(disc.start ? { start: disc.start } : {}) });
   const options = liveOptions(notify, { signedIn: () => false, kept: { info: () => disc.kept(), forget: () => disc.forgetKept() }, store: undefined });
+  owned.push(disc, options);
   const A: Adapters = { ...sampleAdapters(), data: 'live', states: undefined, disc, launch, options };
   page = bootConsole(document, window, A, { keymap: true });
   await disc.loaded();
@@ -310,6 +320,14 @@ describe('already whole, a disc chosen anyway', () => {
   });
 });
 
+/**
+ * LATER 1091: F5's limit, set from its measurement once the earlier cases' adapters are let go (`owned`, above). Its own
+ * cost is its settles -- 90 chained `setTimeout(0)` hops and one 400 ms wait; 30 hops read 430-470 ms on this host -- so
+ * it reads 2191 and 3071 ms alone, 1998 and 1749 ms in its file (5010-5028 ms, timed out, before `owned`), all on a
+ * loaded Windows host; about three times the worst of them, as the file's other long cases carry 10 s.
+ */
+const F5_TIMEOUT_MS = 10_000;
+
 /** DX-3's fresh review (PASS WITH FINDINGS), folded: one case per finding the seat owns here. */
 describe('DX-3\'s review, folded (the console adapter)', () => {
   it('F1: A kept whole, B picked, its run stopped, Continue from the disc: START hands on B, not the kept A', async () => {
@@ -361,7 +379,7 @@ describe('DX-3\'s review, folded (the console adapter)', () => {
     const [, source] = r.mount.mock.calls[0] as unknown as [string, SourceRequest];
     expect(source).toEqual({ kind: 'stored', identity: ID });
     page = null;
-  });
+  }, F5_TIMEOUT_MS);
 });
 
 describe('Options: "Delete the kept disc", behind the console\'s confirm', () => {

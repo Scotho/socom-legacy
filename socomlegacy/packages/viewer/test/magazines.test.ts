@@ -170,6 +170,9 @@ describe('the counts stay whole (conservation, the box, the swaps)', () => {
     fire.update(GAME_FRAME_DT + 1e-6);
     expect(fire.state().magazine).toEqual({ rounds: 0, capacity: 12, spare: 1, reloading: false });
     expect(fire.pull()).toBeNull();                              // `FUN_005c0fd0` D:L476616-476622: FUN_005c2a90 at once
+    fire.update(GAME_FRAME_DT);                                  // the first read (pad 1): nothing
+    expect(fire.state().magazine).toEqual({ rounds: 0, capacity: 12, spare: 1, reloading: false });
+    fire.update(GAME_FRAME_DT);                                  // the second (pad 2): the dry branch's pressed path
     fire.release();
     expect(fire.state().magazine).toEqual({ rounds: 12, capacity: 12, spare: 1, reloading: true });
     fire.update(RELOAD_SECONDS_PLACEHOLDER);
@@ -185,10 +188,25 @@ describe('the counts stay whole (conservation, the box, the swaps)', () => {
     expect(fire.state().magazine).toEqual({ rounds: 0, capacity: 12, spare: 0, reloading: false });
     expect(fire.reload()).toBe(false);
     fire.pull();
+    fire.update(GAME_FRAME_DT); fire.update(GAME_FRAME_DT);      // the press's second read
     expect(events.at(-1)).toBe('dry');
     fire.release();
     fire.update(1);
     expect(fire.state().magazine).toEqual({ rounds: 0, capacity: 12, spare: 0, reloading: false });
+  });
+
+  // LATER 1155 (b), a PIN of today's behaviour, not a RED (product track, a test only): gameplayAudioFollowup's "spent"
+  // check (`rounds === 0 && spare === 0 && !reloading`) read the kit spent one magazine early, because MAGS is the
+  // magazines with rounds LESS ONE (`FUN_00237760`; `MagazineRing.shownMags`): with the next-to-last magazine dry and the
+  // last one full, all three hold for the step before a reload starts. A spent check counts rounds, never these three.
+  it('LATER 1155 (b): the next-to-last magazine dry and the last full reads rounds 0, MAGS 0, no reload -- and the kit is not spent', () => {
+    const fire = gun(HELD_SIDEARM);
+    for (let m = 0; m < 2; m++) { fireN(fire, 12); if (m < 1) expect(reload(fire)).toBe(true); fire.update(3); }
+    expect(fire.state().magazine).toEqual({ rounds: 0, capacity: 12, spare: 0, reloading: false });   // the trap's three
+    fire.pull();                                                 // the dry pull: the last magazine goes in (as at empty, above)
+    fire.update(GAME_FRAME_DT); fire.update(GAME_FRAME_DT);
+    fire.release();
+    expect(fire.state().magazine).toEqual({ rounds: 12, capacity: 12, spare: 0, reloading: true });
   });
 
   it('a swap mid-reload: the new magazine stays in (taken at the start), each weapon keeps its own ring', () => {

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { resetStreamerCache, saveStreamerRow, setSocialLookup, setStreamerMode } from '../src/streamerMode';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GAME_LOBBY_COMMAND_ROWS, talkerBarText, TALKER_BAR_FREE, uiCommandRowByName, UiCommandHost, UiVarManager, VALVE_TYPE, ValveStore, type GameLobbySeat, type GameLobbyView, type ZAnimUiCommand } from '@s2u/ui';
 import { pinnedMatchSocket } from '../src/connectHost';
@@ -41,9 +42,20 @@ class FakeContext {
   state = 'running'; currentTime = 0; readonly destination = {};
   readonly audioWorklet = { addModule: async (): Promise<void> => {} };
   createMediaStreamSource() { return { connect: () => undefined, disconnect: () => undefined }; }
+  /** TALK-CUE-PCM: the buffers made on this context -- a cue is a 2-channel buffer at 8 kHz. */
+  readonly buffers: { channels: number; rate: number; data: Float32Array[] }[] = [];
+  createGain() { return { gain: { value: 1 }, connect: () => undefined, disconnect: () => undefined }; }
+  createBuffer(channels: number, length: number, rate: number) {
+    const data = Array.from({ length: channels }, () => new Float32Array(length));
+    this.buffers.push({ channels, rate, data });
+    return { getChannelData: (c: number) => data[c] ?? data[0]! };
+  }
+  createBufferSource() { return { buffer: null, connect: () => undefined, disconnect: () => undefined, start: () => undefined }; }
   async resume(): Promise<void> {}
   async close(): Promise<void> {}
 }
+/** TALK-CUE-PCM: a synthetic 2,000-byte table (byte i = i mod 256) -- no byte of the game's table in this file. */
+const SYNTHETIC_TABLE = Uint8Array.from({ length: 2000 }, (_, i) => i & 0xff);
 /** The page's sources the headset reads (`../src/voice/headset`): a window, a document, a pad list. */
 function env() {
   const win = new EventTarget();
@@ -70,7 +82,7 @@ function rig(o: { firstView?: Partial<GameLobbyView>; armoryRadioOff?: boolean }
   const sentOn: number[] = [];
   let socks = 0;
   const handOffs: GameLobbyHandOff[] = [];
-  const cues: string[] = [];
+  const ctxs: FakeContext[] = [];
   const track = { stopped: 0, stop() { track.stopped++; } };
   let mics = 0, t = 0;
   const e = env();
@@ -88,11 +100,12 @@ function rig(o: { firstView?: Partial<GameLobbyView>; armoryRadioOff?: boolean }
     socket: () => { const n = ++socks; sock = { binaryType: '', readyState: 1, send: (d: string) => { sent.push(d); sentOn.push(n); }, close: () => {}, onopen: null, onclose: null, onmessage: null, onerror: null } as unknown as WebSocketLike; return sock; },
     matchStart: (h) => { handOffs.push(h); },
     voice: {
-      talkCue: (name) => { cues.push(name); },
+      talkCueTable: SYNTHETIC_TABLE,
+      talkCueTail: 0x21,                                           // a synthetic tail
       microphone: async () => { mics++; log.push('getGameMicrophone'); return { getTracks: () => [track] } as unknown as MediaStream; },
       headset: (line) => mountHeadset({ line: (text) => { log.push(text); line(text); }, win: e.win, doc: e.doc, pads: e.source, page }),
       microphoneOn: () => true, webCodecs: WC, permission: async () => 'granted',
-      audioContext: () => new FakeContext() as never,
+      audioContext: () => { const c = new FakeContext(); ctxs.push(c); return c as never; },
       workletNode: () => ({ port: { onmessage: null }, connect: () => undefined, disconnect: () => undefined }) as never,
       workletUrl: async () => '/voice-capture.js',
       clock: () => t * 1000,
@@ -129,7 +142,9 @@ function rig(o: { firstView?: Partial<GameLobbyView>; armoryRadioOff?: boolean }
   return {
     g, host, uiVars, valves, row, frames, floor, bar, canTalk, voiceSent, list, server, handOffs, track, mics: () => mics, closeWith,
     sockets: () => socks, radioOn, reopen,
-    now: () => t, setTicket: (v: string | null) => { ticket = v; }, e, log, cues,
+    now: () => t, setTicket: (v: string | null) => { ticket = v; }, e, log,
+    /** TALK-CUE-PCM: the cues played -- a grant opens with table[0] (0), a reversed cue with the synthetic tail (0x21). */
+    get cues(): ('grant' | 'reversed')[] { return ctxs.flatMap((c) => c.buffers).filter((b) => b.channels === 2 && b.rate === 8000).map((b) => (b.data[0]![0] === 0 ? 'grant' : 'reversed')); },
   };
 }
 
@@ -142,12 +157,12 @@ async function press(r: ReturnType<typeof rig>): Promise<void> {
 }
 
 describe('ONL-16b: the talker bar (CheckForcedLaunch, FUN_0027cbf0 D:L125660-125680)', () => {
-  it('plays the selected local mic cue once on a lobby grant, never for a busy floor or after leaving', async () => {
+  it('plays the talk cue of the original once on a lobby grant and reversed on the release, never for a busy floor or after leaving (TALK-CUE-PCM)', async () => {
     const r = rig(); await press(r);
     r.floor(1); r.frames(3); expect(r.cues).toEqual([]);
-    r.floor(SELF); r.floor(SELF); r.frames(3); expect(r.cues).toEqual(['.TCM_SELECT']);
-    r.row('VCButton', '0T'); r.frames(); r.floor(null); expect(r.cues).toHaveLength(1);
-    r.g.voice!.release(); r.floor(SELF); expect(r.cues).toHaveLength(1);
+    r.floor(SELF); r.floor(SELF); r.frames(3); expect(r.cues).toEqual(['grant']);
+    r.row('VCButton', '0T'); r.frames(); r.floor(null); expect(r.cues, 'the release from the granted talk: reversed (TALK-CUE-PCM)').toEqual(['grant', 'reversed']);
+    r.g.voice!.release(); r.floor(SELF); expect(r.cues).toEqual(['grant', 'reversed']);
   });
   it('RED 1: "#C<80 40 20>[clan] #C<80 80 80>name" with a clan, the name alone without, a single space when the floor is free -- and never the listener\'s own name', () => {
     // S:0x3ef310, its bytes as the ELF holds them: 23 43 80 40 20 5b 25 73 5d 20 23 43 80 80 80 25 73 -- `#C` and three
@@ -391,7 +406,7 @@ describe("LOBBY_ARMORY_VOICE_ADAPTATION (the owner, 2026-11-06): the lobby's voi
     expect(r.voiceSent()).toEqual([{ type: 'voiceTalk', on: true }]);
     r.floor(SELF);
     r.frames(2);
-    expect(r.cues).toEqual(['.TCM_SELECT']);
+    expect(r.cues).toEqual(['grant']);
     r.e.key('keyup', 'KeyR');
     r.frames();
     expect(r.voiceSent()).toEqual([{ type: 'voiceTalk', on: true }, { type: 'voiceTalk', on: false }]);
@@ -645,5 +660,94 @@ describe('V-E2E (sprint 20): the lobby\'s voice client read through GameLobbyVoi
     expect(r.g.voice!.state()).toMatchObject({ holder: 1, talking: true, sent: 0 }); // pressing on a busy floor
     r.g.voice!.release();
     expect(r.g.voice!.state()).toBeNull();                                           // let go: no client
+  });
+});
+
+/**
+ * STREAMER-P1 slice 2 (a browser adaptation, `../src/streamerMode`): the game lobby mounts its voice as `place: 'lobby'`,
+ * so Streamer mode's My voice = Matches only (its preset) keeps the lobby's microphone closed: no press opens it, none
+ * sends voiceTalk. With the mode Off, the lobby talks as before (the tests above).
+ */
+describe('STREAMER-P1: the game lobby is a lobby for Streamer mode', () => {
+  // node: the page's settings (`pageSettings`, the page's localStorage) over a memory store for this case
+  const data = new Map<string, string>();
+  const g = globalThis as unknown as { localStorage?: unknown };
+  const had = g.localStorage;
+  afterEach(() => { data.clear(); resetStreamerCache(); g.localStorage = had; });
+  it('My voice = Matches only: a lobby press opens no microphone and sends no voiceTalk', async () => {
+    g.localStorage = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k, v); }, removeItem: (k: string) => { data.delete(k); } };
+    resetStreamerCache();
+    setStreamerMode(true);
+    const r = rig();
+    await press(r);
+    expect([r.mics(), r.voiceSent()]).toEqual([0, []]);
+    saveStreamerRow('myVoice', 'everywhere');
+    r.row('VCButton', '0T'); r.frames();
+    await press(r);
+    expect(r.mics()).toBe(1);
+    expect(r.voiceSent()).toEqual([{ type: 'voiceTalk', on: true }]);
+  });
+});
+
+/** STREAMER-P1 slice 3: the lobby voice's speaker by its seat's name, for the social set; the lists asked once at the mount. */
+describe('STREAMER-P1 3: the lobby voice asks the social set by the speaker\'s seat name', () => {
+  const data = new Map<string, string>();
+  const g = globalThis as unknown as { localStorage?: unknown };
+  const had = g.localStorage;
+  afterEach(() => { setSocialLookup(null); data.clear(); resetStreamerCache(); g.localStorage = had; });
+  it('the socket names a seat by its room id from the last game lobby view; none for an unknown id', () => {
+    const r = rig();
+    const s = SEATS[0]!;
+    expect(r.g.socket!.seatName(s.id)).toBe(s.name);
+    expect(r.g.socket!.seatName(9999)).toBeNull();
+  });
+  it('the review’s F1: with Streamer mode Off (the default) the mount asks nothing -- the game’s own requests untouched', async () => {
+    const ensure = vi.fn();
+    setSocialLookup(() => false, ensure);
+    const r = rig();
+    await press(r);
+    expect(ensure).not.toHaveBeenCalled();
+  });
+  it('the mount asks the lists once (ensureLoaded) and gives the voice a friendOrClan over the seat names', async () => {
+    const ensure = vi.fn();
+    g.localStorage = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k, v); }, removeItem: (k: string) => { data.delete(k); } };
+    resetStreamerCache();
+    setStreamerMode(true);                                                           // the preset: friends & clan choices in force
+    const asked: unknown[] = [];
+    setSocialLookup((who) => { asked.push(who); return who.name === SEATS[0]!.name; }, ensure);
+    const r = rig();
+    await press(r);                                                                  // the voice mounts on the first frame
+    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(r.g.voice!.friendOrClan(SEATS[0]!.id)).toBe(true);
+    expect(r.g.voice!.friendOrClan(9999)).toBe(false);
+    expect(asked).toContainEqual({ name: SEATS[0]!.name });
+  });
+});
+
+describe('STREAMER-P1 (IQ-229 F2): a refused speaker draws no talker indicator in the lobby (the controller\'s ruling (a))', () => {
+  const data = new Map<string, string>();
+  const g = globalThis as unknown as { localStorage?: unknown };
+  const had = g.localStorage;
+  afterEach(() => { setSocialLookup(null); data.clear(); resetStreamerCache(); g.localStorage = had; });
+  it('under the preset (lobby: friends & clan only) a stranger holding the floor names no talker; a friend and the page itself do', async () => {
+    g.localStorage = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k, v); }, removeItem: (k: string) => { data.delete(k); } };
+    resetStreamerCache();
+    const r = rig();
+    await press(r);
+    r.floor(3);
+    expect(r.g.voice!.holder()).toBe(3);                                             // Off: as before
+    setStreamerMode(true);
+    setSocialLookup((who) => who.name === 'host', null);                            // seat 1 a friend, seat 3 a stranger
+    r.floor(3);
+    expect(r.g.voice!.holder()).toBeNull();
+    r.row('CheckForcedLaunch');
+    expect(r.bar()).toBe(' ');                                                       // the bar as if the floor were free
+    r.floor(1);
+    expect(r.g.voice!.holder()).toBe(1);
+    r.floor(SELF);
+    expect(r.g.voice!.holder()).toBe(SELF);
+    saveStreamerRow('voiceIn', 'everyone');
+    r.floor(3);
+    expect(r.g.voice!.holder()).toBe(3);
   });
 });

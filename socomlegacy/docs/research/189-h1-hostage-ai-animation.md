@@ -50,7 +50,7 @@ Where the SOCOM II code uses the same numbers in the same way, the name is grade
 | 13 | Animation set / clips | RESOLVED | PROVEN | "No_weapon anim set": `civ_stand/stand2crouch/crouch/walk/jog/run/walk_bw/rstep/lstep/step`, plus GLOBAL (deaths, flinches). All are in `RUN/MOTION_P.ZAR`; durations and `motion.rdr` rules are in the clip table. |
 | 14 | Idle / captive pose | RESOLVED | STRONG | No tied-hands pose online. Spawn: CAiSHostage sub-state 3 says RESTRAINED and **stands**, then **crouches** (`civ_crouch`) after 2 s. The mission's `Hostage_start` "Cower" sequence sets the "No_weapon anim set" and **crouch** too. The "Restrained anim set" is used only by RESTRAIN (single-player). |
 | 15 | Rescued hostage killable? | UNRESOLVED | -- | MP rescue sets body `+0x105c` bit 3 (`FUN_005594b0`). That bit gates the body tick `FUN_00580360` (D:L441923) and three other readers. The damage path's test was not found. Owed evidence is listed below. |
-| 16 | `HOSTAGE_ORDER_RANGE_SQUARED$2655`, `hostage_ignore$2777` | RESOLVED | PROVEN | These are **SOCOM 1 demo statics** (demo 0x475fb0 = 10000.0 in `CSealCtrlAi::OnCommand`; 0x475d90 = an event mask in `UpdateEventMask`). They are not r0004 data. The SOCOM II equivalents are the 20-cell test (#3) and `DAT_0066b170` in `FUN_00572d70`, which **is zeroed online** (all AI event masks are 0 in MP). |
+| 16 | `HOSTAGE_ORDER_RANGE_SQUARED$2655`, `hostage_ignore$2777` | RESOLVED | PROVEN | These are **SOCOM 1 demo statics** (demo 0x475fb0 = 10000.0 in `CSealCtrlAi::OnCommand`; 0x475d90 = an event mask in `UpdateEventMask`). They are not r0004 data. The SOCOM II equivalents are the 20-cell test (#3) and `DAT_0066b170` in `FUN_00572d70`, which **is zeroed online** (all AI event masks are 0 in MP). *Corrected 2026-11-18 (LATER 1170, research 445):* true of the AI **event** mask only -- the danger scan (`FUN_0056de10` -> `FUN_005cba20` -> `FUN_005cb870`) runs outside it, and a hostage runs (0x1b `CAiSGrenade`) from a frag or C4 it notices within the item's blast radius. |
 | 17 | reCOM | RESOLVED | -- | Enums only (`zai.h` AI_STATE/FT_COMMAND/FIRETEAM). `CAiSHostage` is an empty class and there is no follow or hostage logic. reCOM's SEAL_STANCE is off by one against the demo DWARF. |
 | 18 | Captures / beta | RESOLVED (negative) | -- | There is no RDRAM dump on any hostage map (25 dumps: Frostfire, menus, spawn). The beta extract has no `RUN/` maps; its ELF has `CAiSHostage`/`CAiSFollow` RTTI (vt 0x672f50 / 0x672e40). |
 
@@ -162,7 +162,7 @@ The edges in detail:
 | ai_params accuracy 0, courage 0, stealth 0, visual_range -1, visual_sens 0, fov 45, aware_decay -0.5 | sensors | same | PROVEN |
 | SEAL_STANCE STAND 0 / CROUCH 1 / PRONE 2 | stance values | demo DWARF (`demo_enums.py STANCE_PRONE`); consistent with `FUN_005fc910` (body `+0x174` 0/1/2) | STRONG |
 | -1 delay → 0.25 + U(0,0.95) s | SetStance default delay | `FUN_00563100` D:L427285 | PROVEN |
-| online AI event mask = 0 | hostages react to no AI events online | `FUN_00572d70` (= `UpdateEventMask`, named) | PROVEN |
+| online AI event mask = 0 | hostages react to no AI events online (*Corrected 2026-11-18 (LATER 1170, research 445):* true of the AI **event** mask only -- the danger scan (`FUN_0056de10` -> `FUN_005cba20` -> `FUN_005cb870`) runs outside it, and a hostage runs (0x1b `CAiSGrenade`) from a frag or C4 it notices within the item's blast radius.) | `FUN_00572d70` (= `UpdateEventMask`, named) | PROVEN |
 | demo `HOSTAGE_ORDER_RANGE_SQUARED$2655` = 10000.0; `hostage_ignore$2777` = mask(0,1,2,3,4,6,12,13) | SOCOM 1 only | `demo_gprefs.py` (`out/demo_hostage_statics.txt`) | PROVEN (as SOCOM 1) |
 
 ## 3. The order path (question 1)
@@ -316,7 +316,7 @@ The full lists are in `scratch/H1/out/motion_p_clips.txt` and `scratch/H1/motion
 
 ## 12. Sourced but not implemented (multiplayer-relevant)
 
-- Online, every AI's event mask is 0 (`FUN_00572d70`), so hostages do not react to gunfire or explosions as AI events.
+- Online, every AI's event mask is 0 (`FUN_00572d70`), so hostages do not react to gunfire or explosions as AI events. *Corrected 2026-11-18 (LATER 1170, research 445):* true of the AI **event** mask only -- the danger scan (`FUN_0056de10` -> `FUN_005cba20` -> `FUN_005cb870`) runs outside it, and a hostage runs (0x1b `CAiSGrenade`) from a frag or C4 it notices within the item's blast radius.
 - Host migration rebuilds a remote hostage's AI from `(stateId | leaderId<<8)`: 0x11 re-pushes Rescued; 9 re-issues FOLLOW to the leader (`FUN_0056f210`, D:L432722-432790). Lead for H3/M2.
 - `ai::STATE` / `ai::SIGNAL` / `ai::STANCE` / `ai::SETANIMSET` are the zAnim commands with ids 0x21d / 0x21a / 0x21c / 0x219 (`zanim_regs.txt`). The mission scripts drive NPCs through them.
 

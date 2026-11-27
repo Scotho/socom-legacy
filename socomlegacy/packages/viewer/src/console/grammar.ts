@@ -1,14 +1,16 @@
 import { selectXboxGraphics } from '../graphicsBackend';
+import { ownNameShown } from '../streamerMode';
 import { cueFor, cueSnap, type CueSnap, type UiCue } from './sounds';
 import { CROUCH_BIND, type BindingEvent, type PadBinding } from '../padBinding';
 import { TOUCHPAD_CROUCH_TOAST, applyPressureDefault } from '../controllerInput';
 import { MOBILE_LAYOUT_ROW } from '../mobileLayout';
+import { MODS_LINK_ROW } from './texturePackSetting';
 import { STANCE_MODE_WORDS, controllerStanceMode, defaultController, setControllerStanceMode } from '../startupSettings';
 import { extractPress } from './render/extract';
 import { senderButtons } from './render/discShare';
 import { SEND_LINK_COPIED, SEND_TITLE, SENDER_TITLE, SHARE_CODE_BAD, SHARE_TITLE } from '../discShareWords';
 import { hostBusy } from '../discShareView';
-import { DEAD_VALUES, PAD_DEAD_ZONE_LABEL, REMAP_FINISH_TOAST, REMAP_STANCE_ROW, extraAddedWords, remapActionOfRow, remapActionRow, remapBindOfRow, remapDeadRow, remapExtraAt, remapLock, remapRowAcrossModes, remapRowCount, rowOfPhysical, secondsLeft } from './render/remap';
+import { DEAD_VALUES, PAD_DEAD_ZONE_LABEL, REMAP_FINISH_TOAST, REMAP_STANCE_ROW, TEACH_BUSY_WORDS, TEACH_FIRST_WORDS, conflictOffer, extraAddedWords, remapActionOfRow, remapActionRow, remapBindOfRow, remapDeadRow, remapExtraAt, remapLock, remapRowAcrossModes, remapRowCount, rowOfPhysical, secondsLeft } from './render/remap';
 import { PAD_EXTRA_ACTIONS } from '../padExtras';
 import {
   CATS, DISC_SOURCES, HOME_CATEGORY, INSTALL_APP_ROW, KEPT_DISC_ROW, SHARE_SEND_ROW, LOADOUT_SAVE_ROW, OVERLAY_LOCK_WORDS, PERSONA_DELETE_ROW, PERSONA_EDIT_ROWS, PERSONA_GENDER_ROW, PERSONA_NEW_CREATE_ROW,
@@ -27,7 +29,7 @@ import { editorRows, fieldMeta, normalizeProfile, personaItems, recordRows } fro
 import { customItems, forgetFocus, lobbyGameItems, lobbyRoomItems, normalizeLobbies } from './render/lobbies';
 import type { LauncherNav, LauncherSnap } from './history';
 import { settleLoadoutDeepLink } from './routes';
-import { openDiscord, openGithub } from './discord';
+import { isCommunityAct, openDiscord, openGithub } from './discord';
 import { copyLauncherAddress, installCopyOffered } from '../pwa/install';
 
 /**
@@ -48,6 +50,13 @@ export const NEW_TAB_POINTER_WORDS = 'Open it with the pointer or a key: a brows
  * says how on the legend's line. Where it cannot, Cross is the Copy launcher address (`copyLauncherAddress`).
  */
 export const INSTALL_POINTER_WORDS = 'Install with the pointer: a browser installs an app only for a click or a tap';
+/**
+ * DS3-PRESSURE (a) (product track; a browser adaptation, OT.R28 -- nothing of the game): WebHID's `requestDevice` opens its
+ * device chooser only for a user activation, and a gamepad press is none -- Chrome refuses it and the row's toast showed
+ * the raw error. A pad's Cross on "Connect USB pressure controller" says how on the legend's line, as LR-25's disc chooser
+ * (`POINTER_CHOOSER_WORDS`) and RB-5's rows do; a click, a tap and a key connect (`gesture`).
+ */
+export const PRESSURE_CONNECT_POINTER_WORDS = 'Choose Connect with the mouse or a key: a browser opens its device chooser only for a click, a tap or a key';
 export const MODS_CHOOSER_POINTER_WORDS = 'Choose a pack with the pointer, or drop it on this screen: a browser opens its chooser only for a click, a tap or a key';
 /** RB-5: the toast Square's first press on a MODS pack says; the second removes it (the legend's Square is "Remove"). */
 export const modsRemoveAsk = (name: string): string => `Remove ${name}? Press Remove again to remove it.`;
@@ -100,12 +109,23 @@ export interface PagedList { at: number; count: number; set(i: number): void }
  * lines, Custom matches, and (RB-5) the Server screen's and the MODS screen's rows. A browser adaptation with no original
  * (OT.R28).
  */
+/**
+ * The owner, 2026-11-19 (in coreA's seat): "remove github and discord from the selection for controller". Home's rows the
+ * pad walks: those before the first community link (Discord, GitHub: `COMMUNITY_ACTS`), which the pointer alone reaches.
+ * The arrow keys are the pad's presses here (the keymap), so they follow this rule; Tab and the mouse still reach both
+ * links. A browser adaptation.
+ */
+export function padRows(items: readonly { act: string }[]): number {
+  const first = items.findIndex((x) => isCommunityAct(x.act));
+  return first > 0 ? first : items.length;
+}
+
 export function pageList(S: ConsoleState, A: Adapters): PagedList | null {
   if (S.overlay) return null;
   const list = (at: number, count: number, set: (i: number) => void): PagedList | null => (count > 1 ? { at, count, set } : null);
   switch (S.screen) {
     case 'home': return S.src.open || S.thm.open || S.chk.open ? null   // LR-36: the launch check holds the pad
-      : list(S.item[S.cat] ?? 0, homeItems(CATS[S.cat]!.id, S, A).length, (i) => { S.item[S.cat] = i; });
+      : ((n) => list(Math.min(S.item[S.cat] ?? 0, n - 1), n, (i) => { S.item[S.cat] = i; }))(padRows(homeItems(CATS[S.cat]!.id, S, A)));
     case 'replays': return list(S.rp.row, replayRows(A).length, (i) => { S.rp.row = i; });
     case 'options': return S.opt.zone !== 'rows' ? null : list(S.opt.row, optRowsNow(S, A).length, (i) => { S.opt.row = i; });
     case 'remap': {
@@ -143,7 +163,8 @@ export const SIGN_IN_TEXT_MAX = 24;
  */
 export const AGREEMENT_SCROLL_STEP = 24;
 /** A sign-in's toast: "Signed in as <name>", and the agreement's line when it was accepted earlier (AGREEMENT-ONCE). */
-const signedInWords = (name: string, accepted?: string): string => `Signed in as ${name}${accepted ? `. ${accepted}` : ''}`;
+/** The sign-in's toast; STREAMER-P1 (a browser adaptation): the name reads YOU while Streamer mode's details are Hidden. */
+export const signedInWords = (name: string, accepted?: string): string => `Signed in as ${ownNameShown(name)}${accepted ? `. ${accepted}` : ''}`;
 /** The Search query's cap: a lobby name is shorter (the original's game name field). */
 export const SEARCH_TEXT_MAX = 64;
 
@@ -161,6 +182,12 @@ export function oskStep(k: { kr: number; kc: number }, b: Button): void {
 /** CX-20: the presses that move the focus on a screen (the D-pad and the L1 / R1 shoulders), which the move cue follows. */
 const MOVES: readonly Button[] = ['up', 'down', 'left', 'right', 'l1', 'r1'];
 export const TOAST_MS = 2600;
+/**
+ * BAN_TOAST_MS_ADAPTATION (OPS-Q1; a browser adaptation, the console's quick sign-in has no original): how long a banned
+ * quick sign-in's words stay as the toast (the main controller's ruling, 2026-11-15; the owner's to change). The next
+ * toast replaces it as any toast is replaced; no press dismisses it.
+ */
+export const BAN_TOAST_MS_ADAPTATION = 20_000;
 export const LEGEND_ERROR_MS = 3600;
 /** START arms for the design's `dur-signature`, then the launch screen. */
 export const ARMING_MS = 360;
@@ -509,10 +536,10 @@ export class ConsoleController {
 
   /* ---------- actions ---------- */
 
-  toast(t: string): void {
+  toast(t: string, ms: number = TOAST_MS): void {
     this.S.toast = t;
     clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => { this.S.toast = ''; this.render(); }, TOAST_MS);
+    this.toastTimer = setTimeout(() => { this.S.toast = ''; this.render(); }, ms);
   }
 
   legendError(t: string): void {
@@ -601,6 +628,8 @@ export class ConsoleController {
       else { S.overlay = null; this.toast(signedInWords(this.A.session.persona(), r.accepted)); }
       return;
     }
+    // OPS-Q1 (BAN_TOAST_MS_ADAPTATION): a banned account is offered no password: no dialog, its words the toast.
+    if (r.banned) { this.toast(r.error, BAN_TOAST_MS_ADAPTATION); return; }
     this.openSignIn();
     const i = cardNames(this.A).indexOf(r.persona);
     if (i >= 0) S.si.persona = i; else { S.si.persona = this.another(); S.si.name = r.persona; }
@@ -1140,6 +1169,7 @@ export class ConsoleController {
     if (row.needsSignIn && !this.A.session.signedIn()) { this.openSignIn(); return; }
     if (row.locked) { if (this.S.mode === 'overlay') this.legendError(row.locked); return; }
     if (row.id === MOBILE_LAYOUT_ROW) { this.host.editMobileLayout?.(); return; }
+    if (row.id === MODS_LINK_ROW) { this.doAct('mods'); this.render(); return; }   // WM-PACKS-SETTING: the launcher's own open of MODS
     // LR-13 (LR.R16 (2)): Appearance's "Theme & background" pushes its panel, on its first pick.
     if (row.id === THEME_PANEL_ROW && this.A.options.panel?.('theme')) { this.S.opt.panel = 'theme'; this.S.opt.row = 0; this.cue('confirm'); return; }   // LR-37 (2): a push
     // CX-14: the Button mapping row pushes the console's own mapping screen (the options adapter's action otherwise).
@@ -1431,13 +1461,14 @@ export class ConsoleController {
     const t = m.teachState(now);
     const key = [m.raw?.id ?? '', m.standard(), m.usable(), m.listening(), m.released(), secondsLeft(m), q ? q.refused ?? '?' : '', JSON.stringify(m.input.config),
       t ? `${t.step}:${t.waiting}:${Math.round(t.progress * 20)}` : '', m.holding(), Math.round(m.holdProgress(now) * 20), m.down().join(','),
-      m.extraModifier(), JSON.stringify(m.extraList())].join('|');   // h59U9CLb: the extras' listen and list
+      m.extraModifier(), JSON.stringify(m.extraList()), m.pressureStatus()].join('|');   // h59U9CLb: the extras' listen and list
     if (key !== this.rmKey) { this.rmKey = key; this.render(); }
   }
 
   /**
    * The machine's events in the console's parts: a conflict opens the Confirm (Cancel focused, as every console Confirm
-   * starts on its safe answer -- OT.R60's one design; the setup page's view focuses Swap); a binding taken
+   * starts on its safe answer -- OT.R60's one design; the setup page's view focuses Swap -- but for a button the menus
+   * need, WM-9 below); a binding taken
    * or a listen ended closes it; a binding taken, a cancel and Restore defaults are said on the toast in the setup page's
    * view's words; a timeout and a pad lost are failures, said on the legend's warn line (errors are not toasts).
    */
@@ -1456,7 +1487,11 @@ export class ConsoleController {
       else if (e.why === 'timeout') { this.S.rm.teachDeclined = true; this.legendError('Nothing received from this controller. Use the mouse or touch, or teach it later in Settings · Controller.'); }
       else if (e.why === 'disconnected') this.legendError('Controller disconnected. Connect it and try again.');
     } else if (e.kind === 'conflict') {
-      S.overlay = 'confirm'; S.confirmKind = 'conflict'; S.confirmRow = 2;   // Cancel
+      // WM-9, a labelled departure from OT.R60 for those conflicts only (a browser adaptation; the controller's product-track
+      // call): on a rebind that conflicts with a button the menus need (START, Cross, Circle, the d-pad), the dialog opens
+      // with SWAP focused, the lead line says why, and Replace is shown unavailable there; everywhere else OT.R60's
+      // Cancel-first focus stands unchanged (`conflictOffer`: Cancel too where the action has no button to give).
+      S.overlay = 'confirm'; S.confirmKind = 'conflict'; S.confirmRow = conflictOffer(m)?.first ?? 2;
     } else if (e.kind === 'refused') {
       this.host.announce(e.words);
     } else if (e.kind === 'bound' || e.kind === 'end') {
@@ -1487,21 +1522,38 @@ export class ConsoleController {
     // (no lock: it closes with no controller too).
     const extra = remapExtraAt(m, r);
     if (extra === 'teach') { this.S.rm.teachDeclined = false; m.teach(); return; }
-    if (extra === 'pressureConnect') { void m.connectPressure().then((ok) => { if (ok) this.toast('USB pressure connected. Press Triangle once to identify its mapping.'); }).catch((e: unknown) => this.toast(e instanceof Error ? e.message : 'Controller connection failed.')); return; }
+    // DS3-PRESSURE (a): a pad's press is no user gesture -- the chooser is not asked for, the legend says how.
+    if (extra === 'pressureConnect' && !this.gesture()) { this.legendError(PRESSURE_CONNECT_POINTER_WORDS); return; }
+    if (extra === 'pressureConnect') { void m.connectPressure().then((ok) => { if (ok) this.toast('USB pressure connected. Press Triangle lightly to check it.'); }).catch((e: unknown) => this.toast(e instanceof Error ? e.message : 'Controller connection failed.')); return; }
     if (extra === 'finish') { this.closeRemap(); this.toast(REMAP_FINISH_TOAST); return; }
     // h59U9CLb (a browser adaptation): Extra binds opens and folds; an Add row listens for its extra; a kept one is removed.
     if (extra === 'extras') { m.extrasOpen = !m.extrasOpen; return; }
     if (extra === 'addDouble' || extra === 'addCombo') {
-      if (lock) { this.legendError(lock.line); return; }
+      if (lock) { this.lockedListen(m, lock.line); return; }
       const kind = extra === 'addDouble' ? 'double' : 'combo';
-      m.listenExtra(kind, m.addAction[kind]);
+      if (!m.listenExtra(kind, m.addAction[kind])) this.legendError(TEACH_BUSY_WORDS);   // WM-9: said, never dropped
       return;
     }
     if (extra?.startsWith('bind:')) { m.removeExtra(Number(extra.slice(5))); this.toast('Extra bind removed.'); return; }
     // PP-5: the Stance mode is the browser's, not the pad's -- no lock.
     if (r === REMAP_STANCE_ROW) { this.stanceModeStep(controllerStanceMode() === 'pop' ? 1 : -1); return; }
-    if (lock) { this.legendError(lock.line); return; }
-    m.listen(remapBindOfRow(r) ?? remapActionOfRow(r));
+    if (lock) { this.lockedListen(m, lock.line); return; }
+    // WM-9: the machine refuses only while the pass runs (the lock above caught the rest); said, never dropped.
+    if (!m.listen(remapBindOfRow(r) ?? remapActionOfRow(r))) this.legendError(TEACH_BUSY_WORDS);
+  }
+
+  /**
+   * WM-9 (a browser adaptation, the product track): a binding asked of a locked pad. A pad of another layout not yet
+   * taught begins its pass, as Cross does on it (LATER 380's lock), said in words; no pad says its own lock line.
+   */
+  private lockedListen(m: PadBinding, line: string): void {
+    if (m.raw && m.teachable() && !m.usable()) {
+      if (m.teachState()) { this.legendError(TEACH_BUSY_WORDS); return; }
+      this.S.rm.teachDeclined = false;
+      if (m.teach()) this.toast(TEACH_FIRST_WORDS);          // the review's F-WM9-3: said only when the pass began
+      return;
+    }
+    this.legendError(line);
   }
 
   /**
@@ -1591,14 +1643,25 @@ export class ConsoleController {
     } else if (b === 'circle') this.closeRemap();
   }
 
-  /** The conflict's Confirm: Up / Down (Left / Right) between Swap, Replace and Cancel; Cross answers; Circle is Cancel. */
+  /**
+   * The conflict's Confirm: Up / Down (Left / Right) between Swap, Replace and Cancel; Cross answers; Circle is Cancel.
+   * WM-9: an answer shown unavailable (`conflictOffer`) is passed over, and Cross on one (its click) answers nothing -- the
+   * focus back on the first answer.
+   */
   private pressConflict(b: Button): void {
     const S = this.S;
     const m = this.binding();
-    if (b === 'up' || b === 'left') S.confirmRow = Math.max(0, S.confirmRow - 1);
-    else if (b === 'down' || b === 'right') S.confirmRow = Math.min(2, S.confirmRow + 1);
-    else if (b === 'cross') m?.answer((['swap', 'replace', 'cancel'] as const)[S.confirmRow] ?? 'cancel');
-    else if (b === 'circle') m?.answer('cancel');
+    const offer = m ? conflictOffer(m) : null;
+    const ok = (r: number): boolean => offer?.available[r] ?? true;
+    if (b === 'up' || b === 'left' || b === 'down' || b === 'right') {
+      const d = b === 'up' || b === 'left' ? -1 : 1;
+      let r = S.confirmRow + d;
+      while (r >= 0 && r <= 2 && !ok(r)) r += d;
+      if (r >= 0 && r <= 2) S.confirmRow = r;
+    } else if (b === 'cross') {
+      if (ok(S.confirmRow)) m?.answer((['swap', 'replace', 'cancel'] as const)[S.confirmRow] ?? 'cancel');
+      else S.confirmRow = offer?.first ?? 2;
+    } else if (b === 'circle') m?.answer('cancel');
     if (!m?.question()) S.overlay = null;                // answered, or the machine gone; a refused Replace keeps it
   }
 
@@ -2195,7 +2258,7 @@ export class ConsoleController {
       else if (b === 'cross') {
         A.session.agreement?.accept();
         S.overlay = null;
-        this.toast('Signed in as ' + A.session.persona());
+        this.toast(signedInWords(A.session.persona()));
       }
       this.render();
       return;
@@ -2306,8 +2369,11 @@ export class ConsoleController {
       else if (b === 'right') S.cat = Math.min(CATS.length - 1, S.cat + 1);
       else if (b === 'l1') S.cat = Math.max(0, S.cat - 1);
       else if (b === 'r1') S.cat = Math.min(CATS.length - 1, S.cat + 1);
-      else if (b === 'up') S.item[S.cat] = Math.max(0, it - 1);
-      else if (b === 'down') S.item[S.cat] = Math.min(items.length - 1, it + 1);
+      // The owner, 2026-11-19: "remove github and discord from the selection for controller" -- the pad walks only the
+      // rows before the community links (`padRows`): Down stops at the last of them; from a link the pointer focused, Up
+      // goes back to that last row (never onto the other link) and Down keeps the place.
+      else if (b === 'up') S.item[S.cat] = it >= padRows(items) ? padRows(items) - 1 : Math.max(0, it - 1);
+      else if (b === 'down') S.item[S.cat] = Math.max(it, Math.min(padRows(items) - 1, it + 1));
       else if (b === 'cross') this.doAct(items[it]?.act);
       else if (b === 'square' && items[it]?.source) this.toggleSource();
       // LR-23: on the launcher page the disc's source is the legend chip's cog; Square on Play opens it (the legend names it).
@@ -2673,6 +2739,8 @@ export class ConsoleController {
       // LATER 380: a button clicked on the drawing focuses the row it drives (the action's, then a bind's).
       const m = this.binding();
       if (!m || S.overlay || this.remapListening() || m.teachState()) return false;
+      // WM-9: on a pad of another layout not yet taught no row is drawn to focus; the click begins its pass, said.
+      if (m.raw && m.teachable() && !m.usable()) { this.lockedListen(m, ''); this.render(); return true; }
       const row = rowOfPhysical(m, Number(d.p));
       if (row < 0) return false;
       S.rm.row = row; this.render(); return true;

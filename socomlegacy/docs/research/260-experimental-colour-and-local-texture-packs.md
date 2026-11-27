@@ -155,7 +155,7 @@ reticle spread/aim/size, text layout or menu transitions. The match page's own H
 | Integer nearest | Fit uniformly scaled bitmap content at the largest whole multiple inside its original layout box; keep its centre and mesh transforms. Untextured fills and stretched quads retain their full geometry. | Point-sample sprite/glyphs and fit the whole 640x448 menu frame at a whole physical-pixel multiple, centred in the window. |
 | Nearest + sharpening | Same-sized CPU RGB unsharp bitmap followed by point sampling. | The same RGB treatment before point-sampling menu sprite/glyphs. |
 
-The original reticle already uses nearest sampling, while the original HUD uses linear sampling;
+The original reticle samples linear as its records say (B-77, research 321 s7.9), as the HUD does;
 OFF restores each layer's own original sampler, not one common filter. Sharpen amount is 0..1,
 initially 0.5, and affects only the sharpening choice. It uses a four-neighbour alpha-weighted RGB
 unsharp mask, keeps alpha unchanged and ignores hidden RGB from transparent neighbours. One result
@@ -229,7 +229,7 @@ panel state; it does not prove the cause of the owner's broad report that contro
 Useful comparisons are labelled beside the controls: warmth/tint and tonal balance -1 versus +1;
 bloom channels 0 versus 2 with Soft bloom, positive strength and bright extracted pixels; UI RGB
 sharpness 0 versus 1 on textured colour detail. Neutral defaults intentionally change no colour.
-The original reticle is already nearest; an alpha-edged uniform-RGB icon cannot change under RGB-only
+The original reticle is linear (B-77, research 321 s7.9); an alpha-edged uniform-RGB icon cannot change under RGB-only
 sharpening. At 1920x1080 physical pixels all menu integer steps yield 2x. HUD/reticle changes need a
 visible in-game HUD; menu changes need a newly opened generated preview link, not the HTML settings
 panel or an already-open menu tab. A pack checkbox loads a previously generated pack; it does not

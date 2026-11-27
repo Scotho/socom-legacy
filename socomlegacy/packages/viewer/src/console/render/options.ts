@@ -1,6 +1,7 @@
 import { esc, ico, shoulder } from '../icons';
 import { isToggleRow, optCategories, optRowsNow, optTabs, type Adapters, type ConsoleState, type OptRow } from '../state';
 import { screenHead } from './head';
+import { askTexturePacks, TEXTURE_PACK_ROW, texturePackChoiceSizes } from '../texturePackSetting';
 import { rowHtml, type Row } from './rows';
 
 /**
@@ -62,6 +63,8 @@ export function optRowKind(row: OptRow, v: number, lock: string | null): Row {
     const n = (i: number): number => Number(nums[i]![1]);
     return { kind: 'slider', ...base, value: n(Math.max(0, Math.min(values.length - 1, v))), min: n(0), max: n(values.length - 1), step: n(1) - n(0), unit: nums[0]![2] ?? '' };
   }
+  // WM-PACKS-SETTING (a browser adaptation, `../texturePackSetting`): Texture pack's one short line under its label.
+  if (row.id === TEXTURE_PACK_ROW && row.hint) return { kind: 'select', ...base, value: word, hint: row.hint };
   return { kind: 'select', ...base, value: word };
 }
 
@@ -74,6 +77,12 @@ function optRowHtml(row: OptRow, i: number, catId: string, focused: boolean, v: 
   if (kind.kind === 'toggle') html = html.replace('<span class="cx-r__pill" aria-hidden="true">', `<span class="cx-r__pill" aria-hidden="true" data-act="optstep" data-i="${i}" data-d="${kind.on ? -1 : 1}">`);
   if (kind.kind === 'select' && !lock) {
     html = html.replace('<span class="cx-r__step" data-d="-1" aria-hidden="true">', mark(-1)).replace('<span class="cx-r__step" data-d="1" aria-hidden="true">', mark(1));
+  }
+  // INTAKE 56 (WM-PACKS-SETTING, a browser adaptation): Texture pack's chosen pack shows its size quietly beside its name.
+  const size = kind.kind === 'select' && !lock && row.id === TEXTURE_PACK_ROW ? texturePackChoiceSizes()[v] ?? null : null;
+  if (size) {
+    html = html.replace(/ aria-label="([^"]*)"/, ` aria-label="$1, ${esc(size)}"`)
+      .replace(/<span class="cx-r__choice">([^<]*)<\/span>/, `<span class="cx-r__choice"><span class="cx-r__name">$1</span><span class="cx-r__size">${esc(size)}</span></span>`);
   }
   if (kind.kind === 'slider') html = html.replace('<span class="cx-r__ctl">', `<span class="cx-r__ctl">${step(-1, '‹')}`).replace(/<\/span><\/div>$/, `${step(1, '›')}</span></div>`);
   const changed = !lock && row.def !== undefined && v !== row.def && (kind.kind === 'toggle' || kind.kind === 'slider' || kind.kind === 'select');   // review-lr-5 F2: remap's marker
@@ -133,6 +142,7 @@ export function optionsHtml(s: ConsoleState, a: Adapters): string {
     const p = a.options.panel?.(s.opt.panel);
     if (p) return panelHtml(s, a, optRowsNow(s, a), p.id, c.label, p.label, flip);
   }
+  if (c.rows.some((row) => row.id === TEXTURE_PACK_ROW)) askTexturePacks();   // WM-PACKS-SETTING: MODS' list read once, as its screen asks it
   const r = c.rows[s.opt.row] ?? c.rows[0];
   const signedIn = a.session.signedIn();
   const lockWord = (row: OptRow): string | null => (row.needsSignIn && !signedIn ? 'Sign in to change' : row.locked ?? null);

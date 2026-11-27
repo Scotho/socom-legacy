@@ -234,7 +234,11 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`HIT-ALLOC pin: the Animator's output
     // appended after the clips the pin was taken on; the pin drives the clips it was taken on, so the Animator's outputs
     // over them stay bit for bit (the Fire set's own pose is FL-1's `match/test/hitPoseFireLayer.test.ts`).
     const pinned = new Set([...PLAY_CLIPS, ...TRAVERSAL_CLIPS]);
-    const motion = { ...seal!.motion!, clips: seal!.motion!.clips.filter((c) => pinned.has(c.name)) };
+    // LATER 1188: the hostage's four flashbang cower clips (`guard_*flashbang_cower*`, in GLOBAL since 1188) are not the
+    // SEAL's and were not in the set this pin was taken on; ten clips a segment, so four more would regroup every later
+    // segment (43, not 42) while no clip's output moves -- the A/B, 2026-11-19: with them left out the 42 segments equal
+    // `GOLDEN` bit for bit. Their own playback is `hostageCowerPage.test.ts`'s.
+    const motion = { ...seal!.motion!, clips: seal!.motion!.clips.filter((c) => pinned.has(c.name) && !/flashbang_cower/.test(c.name)) };
     expect(motion.clips.length).toBeGreaterThan(100);
     const segs = script(motion.clips);
     const run = drive(motion, seal!.skeleton, segs);

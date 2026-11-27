@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CLAYMORE, DEFAULT_RIFLE, HELD_SIDEARM, M67, arsenalOf, segmentHits, type CollisionOwner, type EffectProgram, type Grid, type GridParams, type Loadout,
+  CLAYMORE, DEFAULT_RIFLE, HELD_SIDEARM, M67, SOILS, arsenalOf, segmentHits, type CollisionOwner, type EffectProgram, type Grid, type GridParams, type Loadout,
   type SpawnSlot, type ThrowableRecord, type WeaponRecord, type WorldPoly,
 } from '@s2u/scene';
 import {
@@ -28,7 +28,7 @@ type V3 = [number, number, number];
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
 };
 const ROOT = 'worldmodel/access1', REAL = `${ROOT}=access1`, GOOD = `${REAL}/good_parts`, DI = `${GOOD}/di_good`;
 const LEFT = `${REAL}/whats_left`, BAD = `${REAL}/bad_parts`, ACTION = `${REAL}/access_action1`;
@@ -58,17 +58,33 @@ const CAMWALL = 'worldmodel/camwall';
  * the whole 18 (was z 302 and the kerb at z 316).
  */
 const KERB = 'worldmodel/kerb';
-function barrierMap(opts: { kerb?: boolean; shield?: number; kerbMaterial?: number; thick?: number; top?: number; switch?: boolean; camera?: { back: number; ceiling: number } } = {}): SimMap {
-  const kerb: WorldPoly = { ...FLOOR, path: KERB, ditype: 2, material: opts.kerbMaterial ?? FLOOR.material, points: Float32Array.from([-40, 0, 324, 40, 0, 324, 40, 10, 324, -40, 10, 324]) };
+/** C4-GLASS: the pane `barrierMap({ pane })` stands in front of the barrier. */
+const PANE_Z = 'worldmodel/pane';
+function barrierMap(opts: { kerb?: boolean; shield?: number; kerbMaterial?: number; thick?: number; top?: number; switch?: boolean; camera?: { back: number; ceiling: number }; pane?: number; paneDitype?: number; paneTop?: number; switchMaterial?: number } = {}): SimMap {
+  // LATER 1087 (b): the kerb FACES the blast (its normal -z, toward the charge and the grenade at z 318). Was wound with
+  // its normal +z, so the blast met it from behind; the scene line is one-sided since 1087 (the original's hull batch,
+  // research 430 s3.1), and a face met from behind blocks nothing -- A/B at the same head: the old winding blocked
+  // two-sided (the M67 refused, DI intact) and passed one-sided (the M67 opened it). Turned so these tests keep
+  // testing what they test (the material loop, C4's bit, the reach gate), not the side.
+  const kerb: WorldPoly = { ...FLOOR, path: KERB, ditype: 2, material: opts.kerbMaterial ?? FLOOR.material, points: Float32Array.from([-40, 10, 324, 40, 10, 324, 40, 0, 324, -40, 0, 324]) };
   // LATER 121: `thick`, the barrier's far face `thick` behind its near one (z 330 + thick), the same node; `top`, both faces
   // that high and a top face between them; `switch`, `SWITCH`'s body.
   const h = opts.top ?? 24, far = opts.thick ? 330 + opts.thick : 0;
-  const polys = [FLOOR, wallZ(DI, 330, -40, 40, h), ...(opts.thick && opts.top ? [topZ(DI, 330, far, -40, 40, h)] : []), ...(opts.thick ? [wallZ(DI, far, -40, 40, h)] : []),
+  // GRENADE-ONE-SIDED: the barrier's near face wound facing -z (x1 < x0), toward the charges and the rounds fired from
+  // z < 330; the projectile's flight meets a face from its front only (GRENADE_FLIGHT_ONE_SIDED_READING).
+  const polys = [FLOOR, wallZ(DI, 330, 40, -40, h), ...(opts.thick && opts.top ? [topZ(DI, 330, far, -40, 40, h)] : []), ...(opts.thick ? [wallZ(DI, far, -40, 40, h)] : []),
     wallZ(BASEDI, -330, -40, 40), ...(opts.kerb ? [kerb] : []),
-    ...(opts.switch ? [wallZ(SWITCH, -94, -10, 10, 18), topZ(SWITCH, -100, -94, -10, 10, 18), wallZ(SWITCH, -100, -10, 10, 18)] : []),
+    // C4-GLASS (research 440): `pane`, a full-height pane of that material byte across z 324 (x -40..40), between a
+    // planter at z 316 and the barrier: its own node, in front of the barrier's face.
+    // C4-GLASS cure A: `paneDitype` (1: a ground face with no side bit) and `paneTop` (its height; 24 unless given).
+    ...(opts.pane !== undefined ? [{ ...wallZ(PANE_Z, 324, -40, 40, opts.paneTop ?? 24), material: opts.pane, ditype: opts.paneDitype ?? 2 }] : []),
+    // C4-GLASS: `switchMaterial`, the switch body's faces of that material byte (an `ACTION` volume, which the aim looks through).
+    ...(opts.switch ? [wallZ(SWITCH, -94, -10, 10, 18), topZ(SWITCH, -100, -94, -10, 10, 18), wallZ(SWITCH, -100, -10, 10, 18)]
+      .map((q) => (opts.switchMaterial !== undefined ? { ...q, material: opts.switchMaterial } : q)) : []),
     // LATER 305: `camera`, a wall across z `back` behind a SEAL at the switch (x -10..10, 60 high), which pulls its camera
     // in, and a ceiling at `ceiling` from 2 in front of it, which pushes the pulled-in eye down (the pass's up probe).
-    ...(opts.camera ? [wallZ(CAMWALL, opts.camera.back, -10, 10, 60), topZ(CAMWALL, opts.camera.back - 2, opts.camera.back, -10, 10, opts.camera.ceiling)] : [])];
+    // LATER 1057: the wall wound facing -z, the SEAL's side (x1 < x0), as the one-sided pass meets a face only from its front.
+    ...(opts.camera ? [wallZ(CAMWALL, opts.camera.back, 10, -10, 60), topZ(CAMWALL, opts.camera.back - 2, opts.camera.back, -10, 10, opts.camera.ceiling)] : [])];
   const owners: CollisionOwner[] = [];
   polys.forEach((q, i) => {
     const last = owners.at(-1);
@@ -80,7 +96,7 @@ function barrierMap(opts: { kerb?: boolean; shield?: number; kerbMaterial?: numb
     side, index, position: [x, 0, z], onFloor: true, step: side === 0 ? 2 : 6, facing: side === 0 ? [1, 0] : [-1, 0], loc: { map: 0, x: 0, z: 0 },
   });
   const slots = [0, 1, 2, 3].flatMap((i) => [slot(0, i, -600, -200 + i * 50), slot(1, i, 600, -200 + i * 50)]);
-  const paths = ['worldmodel/floor', ROOT, REAL, GOOD, DI, BAD, LEFT, ACTION, BASE, `${BASE}/healthy`, BASEDI, ...(opts.switch ? [SWITCH] : []), ...(opts.camera ? [CAMWALL] : [])];
+  const paths = ['worldmodel/floor', ROOT, REAL, GOOD, DI, BAD, LEFT, ACTION, BASE, `${BASE}/healthy`, BASEDI, ...(opts.switch ? [SWITCH] : []), ...(opts.camera ? [CAMWALL] : []), ...(opts.pane !== undefined ? [PANE_Z] : [])];
   const instances = paths.map((path, id) => ({ id, path, node: path.split(/[/=]/).pop()!, modelName: 'worldmodel', root: path }));
   const destroy: EffectProgram = {
     name: 'destroy_access1', root: 1, flags: 0x22, nodes: ['NA', 'access1', 'good_parts', 'di_good', 'whats_left', 'bad_parts'],
@@ -288,19 +304,21 @@ describe('the access barriers in the room (SUP-03)', () => {
     expect(s.room.player(2)!.grenades.C4, 'planted on an open command').toBe(3);
   });
 
+  // LATER 1139: the plants in this block stand 2 u nearer (z 318, was 316) so each far-face point stays inside the hip gate
+  // (19.9 u) and each refusal is still the line's ('c4 missed'), not the reach's.
   // LATER 121 (`c4Line`): the named point is where the line from the head first meets the barrier. A forged page naming
   // the far face of a barrier 6 thick (past the slack) is refused -- since #321 the point is the blast's centre, which it
   // would have moved through the barrier; the honest near face is planted.
   it("LATER 121: C4 named on a thick barrier's far face is refused 'c4 missed', the charge kept; on its near face it is planted", () => {
     const s = setup(NO_C4, SEAL_C4, [600, 0, 0], [0, 0, 300], barrierMap({ thick: 6 }));
-    s.place(2, [0, 0, 316]);
+    s.place(2, [0, 0, 318]);
     s.run(0.5);
     s.room.takeDrops();
-    s.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: DI, point: [0, 12, 336] });
+    s.plant(2, [0, 0.1, 320], [0, 0, 1], 0, { path: DI, point: [0, 12, 336] });
     expect(s.room.takeDrops()).toEqual({ 'throw: c4 missed': 1 });
     expect(s.room.player(2)!.grenades.C4).toBe(4);
     expect(s.a.of('grenade').filter((g) => g.kind === 'C4')).toHaveLength(0);
-    s.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: DI, point: [0, 12, 330] });
+    s.plant(2, [0, 0.1, 320], [0, 0, 1], 0, { path: DI, point: [0, 12, 330] });
     expect(s.room.player(2)!.grenades.C4).toBe(3);
     expect(s.a.of('grenade').filter((g) => g.kind === 'C4')).toHaveLength(1);
   });
@@ -310,7 +328,7 @@ describe('the access barriers in the room (SUP-03)', () => {
   // The room judges it along the camera's eye at the ask's command (`orderOrigin(p, ev.seq)`) as well as the head's.
   it("LATER 121 (F1): C4 on a barrier's top face, the camera's first hit over its near edge, is planted; its far face is still refused", () => {
     const s = setup(NO_C4, SEAL_C4, [600, 0, 0], [0, 0, 300], barrierMap({ thick: 6, top: 18 }));
-    s.place(2, [0, 0, 316]);
+    s.place(2, [0, 0, 318]);
     s.room.player(2)!.sim.walker.state.yaw = 180;                                        // facing +z, the barrier
     s.drive(2, 0.5);
     // LATER 139: each point named at the pitch whose camera ray passes through it -- an honest page's look.
@@ -318,11 +336,11 @@ describe('the access barriers in the room (SUP-03)', () => {
     s.room.takeDrops();
     aimAt([0, 6, 336]);
     s.room.takeDrops();
-    s.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: DI, point: [0, 6, 336] });
+    s.plant(2, [0, 0.1, 320], [0, 0, 1], 0, { path: DI, point: [0, 6, 336] });
     expect(s.room.takeDrops()).toEqual({ 'throw: c4 missed': 1 });
     aimAt([0, 18, 334]);
     s.room.takeDrops();
-    s.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: DI, point: [0, 18, 334] });
+    s.plant(2, [0, 0.1, 320], [0, 0, 1], 0, { path: DI, point: [0, 18, 334] });
     expect(s.room.takeDrops()).toBeNull();
     expect(s.room.player(2)!.grenades.C4).toBe(3);
   });
@@ -399,9 +417,9 @@ describe('the access barriers in the room (SUP-03)', () => {
    * the throw names the start's seq plus this, whatever the room ran (the narrow re-review's F-A); `jitter`: room ticks
    * with no command between the clip and the throw's arrival.
    */
-  const plantDrifted = (point: V3, startPitch: number, sendPitch: number, claymore = false, after = 0, more: { forge?: number; jitter?: number; lockBefore?: boolean } = {}) => {
+  const plantDrifted = (point: V3, startPitch: number, sendPitch: number, claymore = false, after = 0, more: { forge?: number; jitter?: number; lockBefore?: boolean; z?: number } = {}) => {
     const s = setup(NO_C4, claymore ? kit(62, 15, 121, 153, 151) : SEAL_C4, [600, 0, 0], [0, 0, 300], barrierMap({ thick: 6, top: 18 }));
-    s.place(2, [0, 0, 316]);
+    s.place(2, [0, 0, more.z ?? 318]);
     s.room.player(2)!.sim.walker.state.yaw = 180;                                        // facing +z, the barrier
     s.drive(2, 0.5, startPitch);
     s.room.takeDrops();
@@ -426,15 +444,15 @@ describe('the access barriers in the room (SUP-03)', () => {
     }
     s.room.takeDrops();
     for (let i = 0; i < (more.jitter ?? 0); i++) s.room.step();
-    if (more.forge === undefined) s.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: DI, point });
-    else s.room.text(2, { type: 'throw', seq: start.seq + more.forge, kind: 'C4', from: [0, 0.1, 318], velocity: [0, 0, 1], target: 0, surface: { path: DI, point } });
+    if (more.forge === undefined) s.plant(2, [0, 0.1, 320], [0, 0, 1], 0, { path: DI, point });
+    else s.room.text(2, { type: 'throw', seq: start.seq + more.forge, kind: 'C4', from: [0, 0.1, 320], velocity: [0, 0, 1], target: 0, surface: { path: DI, point } });
     return s;
   };
   // LATER 220 head 3's review F1: the honest plant reaches `decide` about 66 commands after its press, past the cone's
   // 64 -- the gate is judged when the placing's start command runs (`placeStart.gate`, banked there) and read at the
   // plant: a press read under the rifle's reload named on K - 1 is refused 'reload', the charge kept.
   it("LATER 220 (head 3's review F1): a C4 placing pressed under a reload named on the command before it is refused 'reload' at its plant, the charge kept", () => {
-    const w: V3 = [0, 0, 316], point: V3 = [0, 18, 334];
+    const w: V3 = [0, 0, 318], point: V3 = [0, 18, 334];
     // The plant sent once the reload's lock has ended (`after`): judged at the plant's end the lock is gone; at its press
     // it held.
     const s = plantDrifted(point, aimingPitch(w, 180, point), 15, false, 3, { lockBefore: true });
@@ -445,7 +463,7 @@ describe('the access barriers in the room (SUP-03)', () => {
   it("LATER 220 (head 3's review F1): the gate's verdict is banked on the placing's start while its command runs ('reload' under a lock on K - 1; null on an open one)", () => {
     for (const lock of [true, false]) {
       const s = setup(NO_C4, SEAL_C4, [600, 0, 0], [0, 0, 300], barrierMap({ thick: 6, top: 18 }));
-      s.place(2, [0, 0, 316]);
+      s.place(2, [0, 0, 318]);
       s.drive(2, 0.5);
       const p = s.room.player(2)!;
       if (lock) s.room.text(2, { type: 'reload', seq: p.sim.seq });
@@ -459,7 +477,7 @@ describe('the access barriers in the room (SUP-03)', () => {
   });
 
   it("LATER 144: a top-face plant aimed at -12 and pitched up to +15 during its clip is planted (the placing's start eye counts)", () => {
-    const w: V3 = [0, 0, 316], point: V3 = [0, 18, 334];
+    const w: V3 = [0, 0, 318], point: V3 = [0, 18, 334];
     const s = plantDrifted(point, aimingPitch(w, 180, point), 15);
     expect(s.room.takeDrops()).toBeNull();
     expect(s.room.player(2)!.grenades.C4).toBe(3);
@@ -468,15 +486,16 @@ describe('the access barriers in the room (SUP-03)', () => {
     // The look drifted down to -35 over the clip (about 20 deg/s, under the room's look-rate cap): at the send it runs
     // well under the top face (at +15 it still passes near it within the root's slack -- LATER 144's refusal there is the
     // eye under the near edge, not the look).
+    // LATER 1139: this one stands at z 316 (the others' 318): from there the drift to -35 still misses the point at the send.
     const w: V3 = [0, 0, 316], point: V3 = [0, 18, 334];
-    const d = plantDrifted(point, aimingPitch(w, 180, point), -35);
+    const d = plantDrifted(point, aimingPitch(w, 180, point), -35, false, 0, { z: 316 });
     const p = d.room.player(2)!;
     expect(coneOf(p).lookAt(p.sim.seq, point), 'the send\'s look at -35').toBe(false);
     expect(d.room.takeDrops()).toBeNull();
     expect(p.grenades.C4).toBe(3);
   });
   it("LATER 144 (pin): the far face, named after the same drift, is still refused 'c4 missed'", () => {
-    const w: V3 = [0, 0, 316], point: V3 = [0, 6, 336];
+    const w: V3 = [0, 0, 318], point: V3 = [0, 6, 336];
     const s = plantDrifted(point, aimingPitch(w, 180, point), 15);
     expect(s.room.takeDrops()).toEqual({ 'throw: c4 missed': 1 });
     expect(s.room.player(2)!.grenades.C4).toBe(4);
@@ -486,9 +505,9 @@ describe('the access barriers in the room (SUP-03)', () => {
   // a look held at +15 through the whole clip puts the eye at 15.2, under the near edge, from either moment.
   it("LATER 144 (re-review F1): the start eye is the camera's at the start command's own look, within ORDER_EYE_BOUND", () => {
     const s = setup(NO_C4, SEAL_C4, [600, 0, 0], [0, 0, 300], barrierMap({ thick: 6, top: 18 }));
-    s.place(2, [0, 0, 316]);
+    s.place(2, [0, 0, 318]);
     s.room.player(2)!.sim.walker.state.yaw = 180;
-    const pitch = aimingPitch([0, 0, 316], 180, [0, 18, 334]);
+    const pitch = aimingPitch([0, 0, 318], 180, [0, 18, 334]);
     s.drive(2, 0.5, pitch);
     const p = s.room.player(2)!;
     const start: Command = { seq: p.sim.seq + 1, forward: 0, right: 0, yaw: p.sim.walker.state.yaw, pitch, turn: 0, buttons: holdBits(C4_PLANT_CLIP), stance: 0, weapon: 0 };
@@ -512,7 +531,7 @@ describe('the access barriers in the room (SUP-03)', () => {
   });
 
   it("LATER 144 (re-review F2): a throw past the start's clip gets no start eye -- the drifted plant sent 0.5 s late is refused", () => {
-    const w: V3 = [0, 0, 316], point: V3 = [0, 18, 334];
+    const w: V3 = [0, 0, 318], point: V3 = [0, 18, 334];
     const s = plantDrifted(point, aimingPitch(w, 180, point), 15, false, 0.5);
     expect(s.room.takeDrops()).toEqual({ 'throw: c4 missed': 1 });
     expect(s.room.player(2)!.grenades.C4).toBe(4);
@@ -524,13 +543,13 @@ describe('the access barriers in the room (SUP-03)', () => {
   // (FIRE_ARRIVAL_JITTER_TICKS) before `placeCharge`'s start-eye test. *Was* 'c4 missed' (judged at arrival, no start eye,
   // the line from the present head off the barrier). Either way refused, the charge kept (research 369 §3).
   it("LATER 144 (re-review F-A): a throw naming a seq inside the clip but arriving 5 s late is refused, the charge kept ('stale' since LATER 220; was 'c4 missed')", () => {
-    const w: V3 = [0, 0, 316], point: V3 = [0, 18, 334];
+    const w: V3 = [0, 0, 318], point: V3 = [0, 18, 334];
     const s = plantDrifted(point, aimingPitch(w, 180, point), 15, false, 5, { forge: Math.round(1.1 * TICK_HZ) });
     expect(s.room.takeDrops()).toEqual({ 'throw: stale': 1 });
     expect(s.room.player(2)!.grenades.C4).toBe(4);
   });
   it("LATER 144 (pin): the honest drifted plant whose throw arrives FIRE_ARRIVAL_JITTER_TICKS late is still planted", () => {
-    const w: V3 = [0, 0, 316], point: V3 = [0, 18, 334];
+    const w: V3 = [0, 0, 318], point: V3 = [0, 18, 334];
     const s = plantDrifted(point, aimingPitch(w, 180, point), 15, false, 0, { jitter: FIRE_ARRIVAL_JITTER_TICKS });
     expect(s.room.takeDrops()).toBeNull();
     expect(s.room.player(2)!.grenades.C4).toBe(3);
@@ -549,11 +568,11 @@ describe('the access barriers in the room (SUP-03)', () => {
     s.room.step();
     expect(placeStartOf(p)?.eye).toBeTruthy();                                               // an eye banked on the far side
     if (wait > 0) s.drive(2, wait);
-    s.place(2, [0, 0, 316]);
+    s.place(2, [0, 0, 318]);
     s.room.player(2)!.sim.walker.state.yaw = 180;                                        // on the near side
     s.drive(2, back);
     s.room.takeDrops();
-    s.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: DI, point: [0, 6, 336] });
+    s.plant(2, [0, 0.1, 320], [0, 0, 1], 0, { path: DI, point: [0, 6, 336] });
     return s;
   };
   it("LATER 144 (re-review F2): a start eye banked on the barrier's far side does not pass a far-face plant from the near side, past its clip", () => {
@@ -633,7 +652,7 @@ describe('the access barriers in the room (SUP-03)', () => {
   };
   it("LATER 122 (#398's review F1): a plant knocked mid-clip, its SEAL walked out of reach, is planted at the saved point by the 99 s fallback", () => {
     const { s, feet, point } = fallbackPlant();
-    expect(Math.hypot(point[0] - feet[0], point[2] - feet[2])).toBeGreaterThan(32);     // out of C4_REACH_READING by then
+    expect(Math.hypot(point[0] - feet[0], point[2] - feet[2])).toBeGreaterThan(32);     // out of the hip gate (19.9 u, LATER 1139) by then
     expect(s.room.takeDrops()).toBeNull();
     expect(s.room.player(2)!.grenades.C4).toBe(3);
     expect(s.b.of('placed').at(-1)).toMatchObject({ kind: 'C4', from: point });
@@ -929,5 +948,79 @@ describe('LATER 305: the page eye on a switch press is only ever added', () => {
     const pt = viewPoint(r.s.room.map.grid!, r.f, r.eye);
     expect(pt, 'the view line strikes the switch').not.toBeNull();
     expect(r.press(pt!, r.eye)).toEqual({ 'action: busy': 1 });
+  });
+});
+
+// C4-GLASS (the bugs intake's item 1; LATER 276; research 440): the original's C4 target is the aim's opaque record,
+// which looks through a pane, a fence or a net (`FUN_005aa6e0` D:L464145-464160), and its plant tests no line from the
+// head (`FUN_005be9a0` D:L475379-475453, `FUN_005c1970` D:L476905-476985). So the room takes a barrier planted on
+// through a looked-through pane, and walls it off behind a kept one. Material bytes: SOILS entry `i` is byte `i + 2`.
+describe('C4-GLASS: the room takes a plant through what the aim looks through (research 440)', () => {
+  const GLASS = 9, CHAINLINK_FENCE = 36, GLASS_THICK = 10;
+  /** The SEAL's feet `d` u in front of the barrier's face (z 330), the pane at z 324 between, unless `pane` is null. */
+  let lastDrops: Record<string, number> | null = null;
+  const plantThrough = (pane: number | null, d = 14, more: { paneDitype?: number; paneTop?: number } = {}): number => {
+    const s = setup(NO_C4, SEAL_C4, [600, 0, 0], [0, 0, 330 - d], pane === null ? barrierMap() : barrierMap({ pane, ...more }));
+    s.run(0.5);
+    s.room.takeDrops();
+    s.plant(2, [0, 0.1, 332 - d], [0, 0, 1], 0, { path: DI, point: [0, 12, 330] });
+    s.run(0.1);
+    lastDrops = s.room.takeDrops();
+    return s.room.player(2)!.grenades.C4 ?? -1;
+  };
+  it('the bytes name the materials research 440 reads', () => {
+    const name = (b: number): string => SOILS[b - 2]!.name;
+    expect([name(GLASS), name(CHAINLINK_FENCE), name(GLASS_THICK)]).toEqual(['GLASS', 'CHAINLINK_FENCE', 'GLASS_THICK']);
+  });
+  it('through a GLASS pane (0.99): planted (was refused, c4 walled)', () => { expect(plantThrough(GLASS)).toBe(3); });
+  it('through a CHAINLINK_FENCE (0.98): planted', () => { expect(plantThrough(CHAINLINK_FENCE)).toBe(3); });
+  it('behind a GLASS_THICK pane (0): refused, the charge kept (c4 walled)', () => { expect(plantThrough(GLASS_THICK)).toBe(4); });
+  // LATER 1139 (research 440 s8): one hip gate for every plant, through a face or not -- |point - hip|^2 < 396
+  // (FUN_005be9a0 D:L475400-475405; proven on r0004 by the capture agent-mail/evidence/later1139-c4reach, 2026-11-18). The
+  // same distances as the page's table (viewer/test/c4GlassPick.test.ts THROUGH_CASES); the gate's own table is
+  // roomC4HipReach.test.ts.
+  it.each([{ d: 19, kept: 3 }, { d: 21, kept: 4 }])('through a GLASS pane with the feet $d u off: C4 left $kept (21: c4 reach)', ({ d, kept }) => {
+    expect(plantThrough(GLASS, d)).toBe(kept);
+  });
+  it('with no pane at 21 u: refused c4 reach, the same gate (LATER 1139; was planted under C4_REACH_READING 32)', () => {
+    expect(plantThrough(null, 21)).toBe(4);
+    expect(lastDrops).toEqual({ 'throw: c4 reach': 1 });
+  });
+  it('through a CHAINLINK_FENCE at 21 u: refused (c4 reach)', () => { expect(plantThrough(CHAINLINK_FENCE, 21)).toBe(4); });
+  // The main controller's cure A: only the material rule marks a plant through. A ground face (no side bit) the head's
+  // line crosses is a wall exactly as before C4-GLASS ('c4 walled', c4Line's filter passes bit 18 only); one the line
+  // passes above is no matter. LATER 1139: staged at 15 u (was 25), inside the hip gate, so the line alone decides.
+  const STONE = SOILS.findIndex((m) => m.name === 'STONE') + 2;
+  it('cure A: a ground face (no side bit) the head line crosses at 15 u: refused c4 walled, as before C4-GLASS', () => {
+    expect(plantThrough(STONE, 15, { paneDitype: 1 })).toBe(4);
+    expect(lastDrops).toEqual({ 'throw: c4 walled': 1 });
+  });
+  it('cure A: an ordinary plant at 15 u over a ground face (2 high, under the head line): planted', () => {
+    expect(plantThrough(STONE, 15, { paneDitype: 1, paneTop: 2 })).toBe(3);
+  });
+});
+
+// C4-GLASS (the main controller's condition on the widening): the SWITCH press keeps today's line (`actionLine`), not
+// C4's opaque-record line (`c4Line`). A switch's named face is the action record's -- a hit the aim does NOT keep, on an
+// action node (`FUN_005aa6e0` D:L464171-464194) -- so an `ACTION` face (PENETRATION 1, no PICKUP: looked through by the
+// opaque rule) is still pressed. Red while the switch press calls `c4Line` with the opaque rule; green on `actionLine`.
+describe('C4-GLASS: a switch whose named face is ACTION is still pressed (the switch press unchanged)', () => {
+  const ACTION_BYTE = SOILS.findIndex((m) => m.name === 'ACTION') + 2;
+  it('the byte names ACTION, which the aim looks through', () => {
+    const m = SOILS[ACTION_BYTE - 2]!;
+    expect(m.name).toBe('ACTION');
+    expect(m.volumetric || m.liquid || (m.penetration >= 0.98 && !m.pickup)).toBe(true);
+  });
+  it("pressed on its near face: past the line ('busy': no program), as a STONE-faced switch is", () => {
+    const s = setup(NO_C4, SEAL_C4, [600, 0, 0], [0, 0, -84], barrierMap({ switch: true, switchMaterial: ACTION_BYTE }));
+    s.room.player(2)!.sim.walker.state.yaw = 0;                                          // facing -z, the switch
+    s.drive(2, 0.5);
+    const i = s.room.world.meta.actions.findIndex((x) => x.node === 'switch1');
+    const point: V3 = [0, 9, -94];
+    const w = s.room.player(2)!.sim.walker.state;
+    s.drive(2, 0.25, aimingPitch([w.x, w.y, w.z], w.yaw, point));
+    s.room.takeDrops();
+    s.room.text(2, { type: 'action', seq: s.room.player(2)!.sim.seq, action: i, surface: { path: SWITCH, point } });
+    expect(s.room.takeDrops()).toEqual({ 'action: busy': 1 });
   });
 });

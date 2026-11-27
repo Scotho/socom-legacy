@@ -1,5 +1,7 @@
 import type { CompassMark } from './hud';
 import type { ScoreRow, Team } from './net/protocol';
+import { hudTagText } from './hudFont';
+import { labelTag } from './clanTagOption';
 
 /**
  * MATCH-05 (web sprint 20, wave 4; research 170 §5.2, §3.1, C1, C9; note 227 §2): the round's three voice indicators,
@@ -19,7 +21,7 @@ import type { ScoreRow, Team } from './net/protocol';
  * The page knows only its own channel's floor entry (W20.R6): the room's `voiceFloor {channel, holder}`, kept by the
  * voice client (`./voice/voiceClient` `VoiceState`); and (AD-14) its own channel's member count, the room's
  * `voiceMembers`, kept by `./net/client` `NetClient.voiceMembers`. The HUD plays no sound on any of it; the talk grant's
- * cue is the voice client's (`VOICE_TALK_CUE_ADAPTATION`, research 170 §5.4; was `VOICE_TALK_SOUND_READING`, C9, retired).
+ * cue is the voice client's, the original's on the headset (TALK-CUE-PCM, research 170 §5.4; was `VOICE_TALK_SOUND_READING`, C9, retired).
  */
 
 /** RADIO OFF's channel (`FUN_0030e490`; `FUN_0030e540` D:L210691-210694: the radio is on while the channel is not 11). */
@@ -87,6 +89,15 @@ export function voiceIconStep(alpha: number, frames: number): number {
  * keep the vector's x and z, its y dropped). Types 1-13 pulse (`OBJECTIVE_MARK_PULSE_READING`).
  */
 export const VOICE_TALK_MARK_READING = { type: 9, bitmap: 'hud_talk.tif', rgb: [32, 62, 62], hideBeyond: 900, plane: 'xz' } as const;
+
+/**
+ * STREAMER-P1 (IQ-229 F2, the controller's ruling (a); a browser adaptation, display only): the voice state as the talker
+ * indicators read it -- its `shownHolder` (null for a speaker Streamer mode refuses) in the holder's place, so the HUD's
+ * name, busy icon, compass mark and the team tag's talk sprites name no refused speaker. A state without one: as given.
+ */
+export function shownVoice<T extends { holder: number | null; shownHolder?: number | null }>(v: T): T {
+  return v.shownHolder === undefined ? v : { ...v, holder: v.shownHolder };
+}
 
 /**
  * VOICE-LATE (B; research 226 §3.2): who the talker's indicators name -- the speaker whose voice the page is playing
@@ -202,7 +213,8 @@ export function aliveCounts(rows: readonly Pick<ScoreRow, 'team' | 'alive'>[]): 
  */
 export function speakerText(name: string | null, clan = ''): string | null {
   if (name === null) return null;
-  return clan ? `[${clan}] ${name}` : name;
+  const tag = labelTag(clan);   // PSR-5 (a browser adaptation, R4P.R11, `./clanTagOption`): '' when the option drops the tags
+  return tag ? `[${hudTagText(tag)}] ${name}` : name;   // LATER 1030 (c): the told bytes decoded (`./hudFont`)
 }
 
 /** What the element's tick reads: the room's floor entry and the page's own state. */

@@ -56,6 +56,15 @@ describe('the test room finds its host (replayWorldHost)', () => {
     (frame as unknown as Record<symbol, unknown>)[REPLAY_WORLD_KEY] = { ...fakeHost(), ready: 'soon' };
     expect(replayWorldHost({ frameElement: frame }, '?replayview')).toBeNull();
   });
+
+  it('E17: details is optional -- a host with it hands the named match\'s region and lobby name; one whose details is no function is no host', () => {
+    const frame = document.createElement('iframe');
+    const withDetails: ReplayWorldHost = { ...fakeHost(), details: () => ({ region: 'us-east', lobbyName: 'Night Ops' }) };
+    installReplayWorld(frame, withDetails);
+    expect(replayWorldHost({ frameElement: frame }, '?replayview')!.details?.()).toEqual({ region: 'us-east', lobbyName: 'Night Ops' });
+    (frame as unknown as Record<symbol, unknown>)[REPLAY_WORLD_KEY] = { ...fakeHost(), details: { region: 'us-east' } };
+    expect(replayWorldHost({ frameElement: frame }, '?replayview')).toBeNull();
+  });
 });
 
 describe("RV-7c-2: the world's deps hand the host the page's hooks (replayWorldDeps)", () => {

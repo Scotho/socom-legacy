@@ -127,10 +127,12 @@ describe('the menus read the pad through GamePad (`attachMenuInput`)', () => {
 });
 
 describe("the defaults are main's old pad, exactly", () => {
-  it('the default dead zone is the 0.15 adapter, and calibration is the identity there', () => {
-    expect(defaultController().deadZone).toBe(0.15);
+  it('the adapter is 0.15 and calibration is the identity there; the default dead zone is 5 percent (WM-PAD-DEADZONE), a pure guard', () => {
+    expect(defaultController().deadZone).toBe(0.05);
     expect(PAD_DEAD_ZONE).toBe(0.15);
-    expect(calibrateStick(0.1, -0.12, defaultController().deadZone)).toEqual([0.1, -0.12]);
+    expect(calibrateStick(0.1, -0.12, PAD_DEAD_ZONE)).toEqual([0.1, -0.12]);
+    expect(calibrateStick(0.1, -0.12, defaultController().deadZone)).toEqual([0.1, -0.12]);   // past the guard: the pad's own pair
+    expect(calibrateStick(0.03, -0.03, defaultController().deadZone)).toEqual([0, 0]);        // inside it: nothing
   });
   it('nothing customised: every one of the 16 buttons and both sticks pass through unchanged', () => {
     const p = pad(0); const g = new GamePad(); const src = source([p]);

@@ -1,3 +1,5 @@
+import { uiVarMasked } from '../text/displayMask';
+import { onUiVarDisplayChange, uiVarShownText } from '../text/displayText';
 import type { DialogDesign, DialogRecord, DialogWidget } from '../dialog';
 import type { UiDrawItem } from '../compositor/drawList';
 import { findNode, stepImagePulse, type UiNode, type UiScreen } from '../compositor/scene';
@@ -39,6 +41,8 @@ import { SliderWidget } from './slider';
  */
 
 export interface WidgetOptions {
+  /** The dialog's name (`dlgCreateClan.rdr`), told to the page's display rule (STREAMER-P1, `../text/displayText`); absent: null. */
+  dialog?: string | null;
   face?: (name: string) => TextFace | null;
   captions?: CaptionSource | null;
   uiVars?: UiVarManager;
@@ -92,7 +96,11 @@ export class WidgetSet {
   /** +0x14 bit 7 of the elements whose widget keeps none (a type no widget is made of; PROGRESSBAR, COUNTER), once written. */
   private readonly bits = new Map<DialogWidget, boolean>();
 
-  private constructor(readonly ctx: WidgetContext) {}
+  private constructor(readonly ctx: WidgetContext, private readonly dialog: string | null = null) {}
+  /** STREAMER-P1: each followed TEXT's or WRAPPEDTEXT's draw from its var, re-run when the page's display rule changes. */
+  private readonly redraws: (() => void)[] = [];
+  /** STREAMER-P1: the page's display rule or mask changed -- the text widgets drawn again from their vars' values. */
+  redrawTexts(): void { for (const f of this.redraws) f(); }
 
   static build(design: DialogDesign, screen: UiScreen, o: WidgetOptions = {}): WidgetSet {
     const ctx: WidgetContext = {
@@ -100,7 +108,9 @@ export class WidgetSet {
       locText: o.locText ?? (() => null), name: o.name ?? (() => null), hasTexture: o.hasTexture ?? (() => true),
       animation: o.animation,
     };
-    const set = new WidgetSet(ctx);
+    const set = new WidgetSet(ctx, o.dialog ?? null);
+    for (const r of LIVE_SETS) if (!r.deref()) LIVE_SETS.delete(r);   // the sets gone, pruned at each build too (the glance's F3)
+    LIVE_SETS.add(new WeakRef(set));
     for (const r of design.controls) set.add(r.name, r.widget, screen);
     for (const r of design.objects) set.add(r.name, r.widget, screen);
     return set;
@@ -134,8 +144,17 @@ export class WidgetSet {
       case 'PROGRESSBAR': return this.register(name, spec, new ProgressBarWidget(name, spec, ctx));
       case 'COUNTER': return this.register(name, spec, new CounterWidget(name, spec, ctx));
       case 'TEXT': case 'SECURETEXT': case 'IMAGE': case 'WRAPPEDTEXT': {
-        const node = findNode(screen.root, name);
-        if (node && !this.plain.has(name)) { this.plain.set(name, { node, widget: spec }); this.follow(node, spec); }
+        // LATER 1546: each item is set up on its OWN node (`FUN_003792f0` D:L273072-273077, per item), so every item of a
+        // repeated name follows its own UIVAR (the PLAYER INFO page's WRAPPEDTEXT `bar_title`; dlgExitState's two
+        // `PercentCntr`). `plain`, the commands' by-name target, is the item whose node the node search reaches
+        // (`findNode`, FUN_00315d00: a shallower node before a deeper one), not the first record made.
+        const reached = findNode(screen.root, name);
+        const own = screen.nodeOf?.get(spec);
+        const node = own ?? reached;
+        if (!node) return null;
+        if (node === reached && !this.plain.has(name)) this.plain.set(name, { node, widget: spec });
+        if (!own && this.plain.get(name)?.widget !== spec) return null;   // no node map: a repeat would share the first's node
+        this.follow(node, spec);
         return null;
       }
       case 'TELETYPE': {
@@ -161,22 +180,28 @@ export class WidgetSet {
     const v = vars.add(u.name, uiVarValueOfSpec(u.value), u.longevity);
     // The set-up attaches the item and tells it at once (`FUN_003792f0` D:L273072-273077: `FUN_00385df0`, then the
     // attachment's vtable +0xc with the var), so a var set before the build -- the main's `VERSION_STRING` -- shows.
+    // STREAMER-P1: the page's answer for this widget (its words or none, masked or not) as last drawn, so a change of the
+    // rule redraws only the widgets whose drawing it changes -- never one it does not name (a script's caption kept).
+    const answer = (): string => `${uiVarShownText(u.name, node.name, '\u0000', this.dialog)}\u0001${uiVarMasked(u.name) ? 1 : 0}`;
+    let drawn = answer();
     const listener = (x: UiVariable): void => {
+      drawn = answer();
       const c = node.content;
       if (c?.kind === 'wrapped' && spec.type === 'WRAPPEDTEXT') {
         const s = printUiVar(x.value, VAR_PRINT_BYTES);
-        if (s !== null) this.rewrap(c, captionBytes(formatSetterCut(s), this.ctx.captions));
+        if (s !== null) this.rewrap(c, captionBytes(uiVarShownText(u.name, node.name, formatSetterCut(s), this.dialog), this.ctx.captions));   // STREAMER-P1: or the page's words
       } else if (c?.kind === 'text' && (spec.type === 'TEXT' || spec.type === 'SECURETEXT')) {
         const s = printUiVar(x.value, VAR_PRINT_BYTES);
         if (s === null) return;
-        const codes = textCodes(this.ctx, formatSetterCut(s));
-        c.text.codes = spec.type === 'SECURETEXT' ? secureCodes(codes) : codes;
+        const codes = textCodes(this.ctx, uiVarShownText(u.name, node.name, formatSetterCut(s), this.dialog));   // STREAMER-P1: or the page's words
+        c.text.codes = spec.type === 'SECURETEXT' || uiVarMasked(u.name) ? secureCodes(codes) : codes;   // STREAMER-P1: or the page's mask
       } else if (c?.kind === 'sprite' && spec.type === 'IMAGE' && x.value.type === 'string' && x.value.value !== c.sprite.texture) {
         if (this.ctx.hasTexture(x.value.value)) c.sprite.texture = x.value.value;
       }
     };
     vars.attach(v, listener);
     listener(v);
+    if (spec.type === 'TEXT' || spec.type === 'SECURETEXT' || spec.type === 'WRAPPEDTEXT') this.redraws.push(() => { if (answer() !== drawn) listener(v); });
   }
 
   get(name: string): Widget | undefined { return this.byName.get(name); }
@@ -296,3 +321,16 @@ export class WidgetSet {
 
 /** A record's widget, when this set makes one of its type. */
 export const isWidgetRecord = (r: DialogRecord): boolean => (WIDGET_TYPES as readonly string[]).includes(r.widget.type);
+
+/**
+ * STREAMER-P1 (a browser adaptation): the widget sets built, held weakly, redrawn when the page's display rule or mask
+ * changes (`../text/displayText` `uiVarDisplayChanged`) -- only their text widgets' draw; no var listener of a list, a
+ * button or a script runs again, and no value changes.
+ */
+const LIVE_SETS = new Set<WeakRef<WidgetSet>>();
+onUiVarDisplayChange(() => {
+  for (const r of [...LIVE_SETS]) {
+    const set = r.deref();
+    if (set) set.redrawTexts(); else LIVE_SETS.delete(r);
+  }
+});

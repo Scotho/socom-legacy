@@ -67,14 +67,15 @@ describe('the command frame (M3)', () => {
 
 describe('the snapshot frame (M3; protocol 11, NET-WIRE)', () => {
   const facing = { yaw: 123.456, pitch: -7.25 };
-  it('round-trips the own state exactly (float32, its facing too) and every body to its steps, 55 bytes a body (protocol 16; 52 from 11)', () => {
+  it('round-trips the own state exactly (float32, its facing too) and every body to its steps, 56 bytes a body (protocol 17; 55 from 16, 52 from 11)', () => {
     for (let trial = 0; trial < 50; trial++) {
       const bodies = Array.from({ length: 15 }, (_, i) => body(i + 1));
       const own = { ack: trial * 7, x: between(-4000, 4000), y: between(0, 500), z: between(-4000, 4000), vx: 1.5, vy: -3.25, vz: 0, facing };
       const bytes = encodeSnapshot({ tick: 1000 + trial, own, bodies });
       // Protocol 11: the frame type, the tick, the sections, the feet's origin (3 x i16); the own state with its facing;
-      // 55 bytes a body (the feet i16, the flags u32; protocol 16's view tail, 3); the door count; no environment (none named).
-      expect(bytes.byteLength).toBe(1 + 4 + 1 + 6 + 36 + 1 + 55 * 15 + 1);
+      // 56 bytes a body (the feet i16, the flags u32; protocol 16's view tail, 3; protocol 17's hand, 1); the door count; no
+      // environment (none named).
+      expect(bytes.byteLength).toBe(1 + 4 + 1 + 6 + 36 + 1 + 56 * 15 + 1);
       const back = decodeSnapshot(bytes);
       expect(back.tick).toBe(1000 + trial);
       expect(back.own!.ack).toBe(own.ack);
@@ -97,20 +98,21 @@ describe('the snapshot frame (M3; protocol 11, NET-WIRE)', () => {
 
   // Protocol 11 (NET-WIRE, research 224): 6 bytes of header more (the feet's origin), 8 of own state more (its facing), 4 a
   // body fewer (the feet 12 -> 6, the flags 2 -> 4); the environment only when the room names it (its revision changed).
-  // Protocol 10 measured 884 / 890 / 890 here; protocol 11 to 15 830 / 836 / 844; protocol 16 (WIRE-16) adds 3 a body, 45.
+  // Protocol 10 measured 884 / 890 / 890 here; protocol 11 to 15 830 / 836 / 844; protocol 16 (WIRE-16) adds 3 a body, 45
+  // (875 / 881 / 889); protocol 17 (WM-DATA-17) 1 a body more, 15.
   it("the budget re-measured: 15 bodies, Frostfire's three doors, the environment only when named", () => {
     const bodies = Array.from({ length: 15 }, (_, i) => ({ ...body(i + 1), weapon: [54, 15, 62, 57, 255][i % 5]!, slot: i % 2 }));
     const own = { ack: 1, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, facing: { yaw: 0, pitch: 0 } };
     const doors = [{ valve: 0, phase: 255 }, { valve: 1, phase: 0 }, { valve: 0, phase: 9 }];
-    expect(encodeSnapshot({ tick: 1, own, bodies }).byteLength).toBe(875);
-    expect(encodeSnapshot({ tick: 1, own, bodies, doors }).byteLength).toBe(881);
-    expect(encodeSnapshot({ tick: 1, own, bodies, doors, env: { revision: 41, epoch: 3, states: [] } }).byteLength).toBe(889);
+    expect(encodeSnapshot({ tick: 1, own, bodies }).byteLength).toBe(890);
+    expect(encodeSnapshot({ tick: 1, own, bodies, doors }).byteLength).toBe(896);
+    expect(encodeSnapshot({ tick: 1, own, bodies, doors, env: { revision: 41, epoch: 3, states: [] } }).byteLength).toBe(904);
     const back = decodeSnapshot(encodeSnapshot({ tick: 1, own, bodies }));
     expect(back.bodies.map((b) => [b.weapon, b.slot])).toEqual(bodies.map((b) => [b.weapon, b.slot]));
     // bodyOf / snapshotOf: the server's held item and slot to the wire and back to the animator's extras.
     const sim = snapshotOf(back.bodies[2]!);
     expect([sim.weapon, sim.item]).toEqual([0, 62]);
-    expect(PROTOCOL_VERSION).toBe(16);                           // WIRE-16's bump (PV.R4: the player's view's bytes); 15 PROTO-15's, 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
+    expect(PROTOCOL_VERSION).toBe(19);                           // LATER 1141's bump (the round's `at`, research 441); 18 LATER 1147's; 17 WM-DATA-17's bump (WM.R11: the body's hand byte); 16 WIRE-16's (PV.R4: the player's view's bytes); 15 PROTO-15's, 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
   });
 
   it('a spectator\'s snapshot has no own state (and no environment unless one is named)', () => {
@@ -131,7 +133,7 @@ describe('the snapshot frame (M3; protocol 11, NET-WIRE)', () => {
   });
 
   it('protocol 11: the environment rides only a snapshot that names it (the room sends it when its revision changed), after the doors', () => {
-    expect(PROTOCOL_VERSION).toBe(16);                           // WIRE-16's bump (PV.R4: the player's view's bytes); 15 PROTO-15's, 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
+    expect(PROTOCOL_VERSION).toBe(19);                           // LATER 1141's bump (the round's `at`, research 441); 18 LATER 1147's; 17 WM-DATA-17's bump (WM.R11: the body's hand byte); 16 WIRE-16's (PV.R4: the player's view's bytes); 15 PROTO-15's, 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
     const doors = [{ valve: 1, phase: 255 }, { valve: 0, phase: 7 }];
     const env = { revision: 70_000, epoch: 3, states: [{ id: 2, active: true }, { id: 513, active: false }] };
     const bare = encodeSnapshot({ tick: 5, own: null, bodies: [body(1)], doors });
@@ -224,7 +226,7 @@ describe('a body from the mover and back (M3/M5)', () => {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
   const floor: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]),
+    points: Float32Array.from([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]),
   };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
 
@@ -328,7 +330,7 @@ describe('a body from the mover and back (M3/M5)', () => {
   // Blend carries, the type and its reverse (`FUN_00588bc0` D:L446408-446416). Appended after `proneCover`, as PF.R38's:
   // no codec field, width or byte changes and no protocol bump; an older page indexes past its table and draws no action.
   it("PAR-84: appends rifleToLauncher (code 21) and pistolToLauncher (22) after proneCover; both round-trip, reversed or not, and the frame's other fields keep their bytes (protocol 11 kept)", () => {
-    expect(PROTOCOL_VERSION).toBe(16);                           // WIRE-16's bump (PV.R4: the player's view's bytes); 15 PROTO-15's, 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
+    expect(PROTOCOL_VERSION).toBe(19);                           // LATER 1141's bump (the round's `at`, research 441); 18 LATER 1147's; 17 WM-DATA-17's bump (WM.R11: the body's hand byte); 16 WIRE-16's (PV.R4: the player's view's bytes); 15 PROTO-15's, 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
     expect(ACTION_CODES.slice(0, 20)).toEqual([
       'jump', 'launch', 'fall', 'land', 'landHard', 'standToCrouch', 'crouchToProne', 'standToProne',
       'hit', 'hitStomach', 'landDeath', 'getUp', 'swapStand', 'swapCrouch', 'swapProne',
@@ -364,7 +366,7 @@ describe('a body from the mover and back (M3/M5)', () => {
   // no Push Blend: another page drops it, `remoteBodyAction`) and `swapRifleClaim` (every console, `FUN_0059f0c0`
   // D:L458199-458206). Appended after `pistolToLauncher`, as PF.R38's and PAR-84's: protocol 11 kept, no byte moves.
   it("NU-5: appends swapRifleExchange (code 23) and swapRifleClaim (24) after pistolToLauncher; every earlier code keeps its index; both round-trip in the action field (protocol 11 kept)", () => {
-    expect(PROTOCOL_VERSION).toBe(16);                           // WIRE-16's bump (PV.R4: the player's view's bytes); 15 PROTO-15's, 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
+    expect(PROTOCOL_VERSION).toBe(19);                           // LATER 1141's bump (the round's `at`, research 441); 18 LATER 1147's; 17 WM-DATA-17's bump (WM.R11: the body's hand byte); 16 WIRE-16's (PV.R4: the player's view's bytes); 15 PROTO-15's, 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
     expect(ACTION_CODES.slice(0, 22)).toEqual([
       'jump', 'launch', 'fall', 'land', 'landHard', 'standToCrouch', 'crouchToProne', 'standToProne',
       'hit', 'hitStomach', 'landDeath', 'getUp', 'swapStand', 'swapCrouch', 'swapProne',
@@ -372,7 +374,9 @@ describe('a body from the mover and back (M3/M5)', () => {
     ]);
     expect(ACTION_CODES.indexOf('swapRifleExchange' as MoverActionName) + 1).toBe(23);
     expect(ACTION_CODES.indexOf('swapRifleClaim' as MoverActionName) + 1).toBe(24);
-    expect(ACTION_CODES).toHaveLength(24);
+    // LATER 1188: the cower codes appended at 25-28, every earlier byte where it was.
+    expect(ACTION_CODES.slice(24)).toEqual(['cowerStand', 'cowerStand2', 'cowerCrouch', 'cowerCrouch2']);
+    expect(ACTION_CODES).toHaveLength(28);
     const w = new Walker(buildGrid(params, [], [], [floor], owners));
     w.place(0, 20, 0);
     w.tick({ forward: 0, right: 0, boost: false });
@@ -381,7 +385,7 @@ describe('a body from the mover and back (M3/M5)', () => {
       const s = { ...still, action: { name, serial: 7, t: 0.3, seconds: 1.0645, reversed: false } };
       const frame = decodeSnapshot(encodeSnapshot({ tick: 40, own: null, bodies: [bodyOf(3, s, { alive: true, weapon: 0, aiming: false, trigger: false, boost: false })] }));
       const b = frame.bodies[0]!, back = snapshotOf(b);
-      expect(b.action, name).toBe(ACTION_CODES.length - (name === 'swapRifleClaim' ? 0 : 1));   // the field holds the table's length
+      expect(b.action, name).toBe(name === 'swapRifleClaim' ? 24 : 23);   // the field holds its byte (LATER 1188: no longer the table's last)
       expect(back.action?.name, name).toBe(name);
       expect(back.action?.serial).toBe(7);
       expect(back.action?.t).toBeCloseTo(0.3, 2);
@@ -428,7 +432,7 @@ describe('a body from the mover and back (M3/M5)', () => {
  */
 describe('ER-2: protocol 14 -- the command\'s raise bit and BodyFlag.Raised', () => {
   it('RED 13: protocol 14; the command\'s bit 7 round-trips beside the weapon, and a 13 command (bit 7 clear) reads as not raised', () => {
-    expect(PROTOCOL_VERSION).toBe(16);                           // WIRE-16's bump (PV.R4: the view's bytes after the stance byte); 15 PROTO-15's (the frames 14's); 14 ER-2's (the raise bit), 13 PLANT-AIM's, 12 SEP-POP's
+    expect(PROTOCOL_VERSION).toBe(19);                           // LATER 1141's bump (the round's `at`, research 441); 18 LATER 1147's; 17 WM-DATA-17's bump (the body's hand byte; the command unchanged); 16 WIRE-16's (PV.R4: the view's bytes after the stance byte); 15 PROTO-15's (the frames 14's); 14 ER-2's (the raise bit), 13 PLANT-AIM's, 12 SEP-POP's
     for (const weapon of [0, 1]) for (const raised of [false, true]) {
       const cmd: Command = { seq: 3, forward: 0, right: 0, yaw: 0, pitch: 0, turn: 0, buttons: Button.Trigger, stance: 2, weapon, separate: true, raised };
       const bytes = encodeCommands({ viewTick: 1, commands: [cmd] });

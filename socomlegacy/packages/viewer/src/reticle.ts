@@ -1,13 +1,15 @@
 import {
-  BufferGeometry, Color, DataTexture, DoubleSide, Float32BufferAttribute, LinearFilter, Mesh, MeshBasicMaterial, NearestFilter,
-  OrthographicCamera, PlaneGeometry, RGBAFormat, Scene, UnsignedByteType, Vector2, type BufferAttribute, type Camera, type Texture,
+  AddEquation, BufferGeometry, ClampToEdgeWrapping, CustomBlending, DstColorFactor, OneFactor, Color, DataTexture, DoubleSide, Float32BufferAttribute, LinearFilter, Mesh, MeshBasicMaterial,
+  NearestFilter, OrthographicCamera, PlaneGeometry, RepeatWrapping, RGBAFormat, Scene, UnsignedByteType, Vector2, type BufferAttribute,
+  type Camera, type Texture,
 } from 'three';
 import type { Rgba } from '@s2u/gs';
-import { HUD_COLOURS, taggedName } from './hud';
+import { GAME_FRAME_DT } from '@s2u/scene';
+import { GS_SAMPLE_OFFSET, HUD_COLOURS, taggedName } from './hudLayout';
 import { FONT_TEXT_01, layoutText } from './hudFont';
 import { UiTextureExperiment } from './experimentalUiTextures';
 import type { UiSamplingSettings } from './experimentalUiSampling';
-import type { ReticleBitmaps } from './hudBitmaps';
+import { RETICLE_TEXTURES, type ReticleBitmaps, type ReticleSampler } from './hudBitmaps';
 import { plainBotText } from './botPresentation';
 import {hdTextures} from './hdTexturePack';
 import type { ThreatQuad, ThreatValues } from './threatMarks';
@@ -979,9 +981,18 @@ export function reticleLayout(
   const shape = reticleShape(set);
   // The ring (`hud+0x70`) at its own size on the centre (D:L69654-69662, D:L70425-70431); set 3 hides it (D:L69604)
   // and shows its sight instead, at the frame's centre (`sightQuads`).
+  // B-77: its corner whole PS2 pixels, `(int)(centre - w * 0.5)` toward zero (`FUN_00216770` D:L70428-70430 into
+  // `FUN_00364680`), taken on the PS2 frame (640 wide about the frame's centre) before the presentation scale `s`.
+  // The centre straight from `aim` and `offset` (the review's F6): a round trip through frame pixels could land a whole
+  // corner an ulp under it and truncate a pixel low.
+  // AIM-AT-REST: the original's centre `320 + offset` truncated as the original's; the displaced drawn camera's term
+  // (`aimTerm`, RETICLE_DISPLACED_CAMERA_AIM_ADAPTATION; exactly 0 at the frame's centre) added after it, unrounded.
+  const [tx, ty] = aimTerm(frame, aim);
+  const rx = frame.width / 2 + (cornerTrunc(320 + offset[0] - fixed * 0.5) + tx + fixed * 0.5 - 320) * s;
+  const ry = frame.height / 2 + (cornerTrunc(224 + offset[1] - fixedH * 0.5) + ty + fixedH * 0.5 - 224) * s;
   const quads: Quad[] = shape === 'launcher'
     ? sightQuads(s, frame.width / 2, frame.height / 2, fixed, fixedH)
-    : [{ part: 'fixed', x: cx, y: cy, width: fixed * s, height: fixedH * s, turns: 0 }];
+    : [{ part: 'fixed', x: rx, y: ry, width: fixed * s, height: fixedH * s, turns: 0 }];
   if (shape === 'cross') quads.push(...crossArms(s, cx, cy, size, arm));
   else quads.push(...cornerQuads(s, cx, cy, size, arm, bitmaps.armH ?? arm, shape === 'launcher' ? LAUNCHER_CORNER_SCALE : 1));
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -1251,16 +1262,272 @@ export interface HudRenderer {
   getDrawingBufferSize(target: Vector2): Vector2;
 }
 
-function texture(rgba: Rgba, rowsReversed = false): DataTexture {
+/**
+ * B-77: a reticle bitmap's sampling where its record's bind packet holds no GS state (`./hudBitmaps`' `samplers` names
+ * none): the port's former point sampling and clamp, kept. Not the original's -- every reticle record on the disc names
+ * its own (`reticleFilter.devdisc.test.ts`) -- only what a bitmap handed without one is drawn with (the font, a test's
+ * bitmaps). A packet with SOME state but no TEX1_1 or no CLAMP_1 does not reach this: `@s2u/gs`'s `decodeGsState` answers
+ * bilinear for an absent TEX1 and REPEAT for an absent CLAMP and keeps no mark of which it read, so the port cannot tell
+ * them from present ones; the dev-disc test holds both words present on every reticle record instead (the review's F1).
+ */
+export const RETICLE_SAMPLER_WITHOUT_RECORD: ReticleSampler = { linear: false, wrapS: 'clamp', wrapT: 'clamp' };
+
+/**
+ * RETICLE_BIND_PACKET_READING (research 321 section 7.9, B-77): which bind packet the sprite's draw chains. `FUN_003643b0`
+ * (D:L261666) chains the `+0x30` quadword of the object at `texture + 0xc` (the object whose first halfwords are the
+ * width and height `FUN_00364680` reads) and writes only ST, RGBAQ and XYZ2 after it (D:L261673-261674), so the filter
+ * and the wrap are that packet's. What writes `+0x30`, and whether the load patches it after reading the record, is not
+ * read -- a real open link: in the record as stored `+0x30` would lie inside the pixels, so the object is built at run
+ * time. The port takes the record's own packet as the one drawn (`ReticleSampler`); the ring's negated T (`gsSampleShift`)
+ * is one independent sign that the drawn CLAMP is the record's REPEAT. Settled by a read of the texture object's load, or
+ * a GS trace of the reticle's draw.
+ */
+export const RETICLE_BIND_PACKET_READING = "the record's own packet" as const;
+
+/**
+ * ARM_WRAP_S_READING (N-10, 2026-11-24; reading, pending review): the cross's arms are sampled with S CLAMPED, T as the
+ * record says (REPEAT).
+ * - The arm bitmap's dark outline is its last texel column (`ret_rifle_02` column 31). With the record's WMS = REPEAT
+ *   (RETICLE_BIND_PACKET_READING), the quad's S = 0 edge blended it in: a thin dark line about 30 PS2 pixels beside each
+ *   arm, one per corner, pinwheel-wise.
+ * - A rendered run of the page measured those lines (N10-CORNERS-PC2: mean 4-10 levels, darkest 8-19 below a light
+ *   wall). The original in the same strips on the same wall draws none (N10-REF-PC2: PCSX2 1x and 3x, Vulkan and
+ *   Software; means below zero, single pixels in its 0-14 noise). A capture comparison, unscored.
+ * - So the drawn packet does not wrap the arms in S. T must still wrap: the arms' T runs 0..-1 (`FUN_00361000`
+ *   D:L259763-259774, ST from D:L255143-255144), which under a clamp would draw row 0 alone.
+ * - What the drawn packet's CLAMP_1 holds is not read (the runtime object at `texture + 0xc`, `+0x30`). Settled by a GS
+ *   trace of the arms' draw (CLAMP_1, TEX1 and ST beside a frame).
+ * - The fix's review (F1): the page TURNS each arm's quad (`crossArms`), where the original MIRRORS its corners
+ *   (`FUN_00358cc0` / `d50` / `e20`). So only the down arm's strip (and the right arm's at 3x) is where the original's
+ *   own S = 0 edge lies; the evidence that the original does not wrap rests on those. The page's arms also sit half a
+ *   PS2 pixel off `FUN_00215250`'s `cx + 1` (`ARM_CORE`, `crossArms`): both are a separate task (LATER).
+ * - (F2) The other reading the same evidence allows: the drawn packet POINT-samples (with REPEAT, it bleeds nothing
+ *   either). Told apart on the stills already taken: a 1x Software cross-section of a vertical arm (three crisp pixels =
+ *   point; blended = linear), and the horizontal arms' S = 1 row at full strength (clamp) or half (repeat) (F3).
+ * - (F4) Which sets: the cross (sets 0, 1, 9). The pistol's (set 0) lines showed on WebGL2 and went with this fix;
+ *   set 9 is uncaptured. The shotgun's corners (set 2, `ret_shotgun_02` has 2 inked edge texels) and set 3's sight keep
+ *   the record's wrap: a still of the 870 is owed.
+ */
+export const ARM_WRAP_S_READING = 'clamp' as const;
+
+/** The sets whose floating bitmap is laid as the cross's arms (every set but 2's corners and 3's sight, `reticleShape`). */
+function crossArmsSet(type: number): boolean { return type !== 2 && type !== 3; }
+
+/** ARM_WRAP_S_READING applied to an arm bitmap's texture: S clamped, T kept. */
+function armWrap(t: DataTexture): DataTexture {
+  if (t.wrapS !== ClampToEdgeWrapping) { t.wrapS = ClampToEdgeWrapping; t.needsUpdate = true; }
+  return t;
+}
+
+/**
+ * RETICLE_PART_CLASS_READING (research 321 section 7.9, the re-review's findings 1-5): what a reticle part's draw class
+ * decides. The GS samples every pixel at its corner (no +0.5) whatever the primitive, so EVERY part drawn linear samples
+ * half a texel off and is corrected by half a PS2 pixel (`gsSampleShift`, the UV form, where the corner is whole;
+ * `gsMove`, the position form, where the port's corner can be fractional). The class decides only whether the corner is
+ * TRUNCATED to a whole PS2 pixel: the sprite class (constructor `FUN_00364c50`, vtable 0x406e80, draw `FUN_003643b0`,
+ * corners ints) yes; the quad class (constructor `FUN_00359640`, vtable 0x406c30 -- the quad container's, whose two
+ * triangles are drawn by `FUN_00360ca0`, r0004 0x37e530, x16 sub-pixel, D:L259685-259693) no. Classes read off the HUD's
+ * constructor `FUN_00218de0` (D:L71205-71229; r0004 0x218de0): the ring (D:L71210) and the pip (D:L71213) sprites; the
+ * meter, sight/binoculars/scope glass, scope tube, threat marks, arms and goggles quads (D:L71214-71222). The ring's corner
+ * and the pip's are truncated (`FUN_00216770` D:L70428-70430; `FUN_00364770` D:L261801-261802, `pipCentre`). The scope's
+ * tube (`ret_scope_01`, a frame-edge mask) takes the UV form, as the glass: moved, it would leave a column uncovered beside
+ * the black bar at a frame scale over 1 (delta review 3's finding 1). The triangles' T stored
+ * negated (`FUN_00361000` D:L259763-259774) does not turn the correction: the half pixel is a screen-space fact (the picture
+ * half a row down, as in x); what it makes live is the REPEAT wrap at the first row. Both forms key on the record's filter
+ * (`recordLinear`), never the test room's live one. Settled to proven by a GS trace of the HUD's draws (XYZ2 and ST per
+ * vertex) beside a frame.
+ */
+export const RETICLE_PART_CLASS_READING = 'the class decides corner truncation only' as const;
+
+/**
+ * The reticle's centre on the PS2's 640x448 frame from the aim (0..1) and the knock `offset` (PS2 pixels): the ring's
+ * own arithmetic in `reticleLayout` (the review's F6: straight from the aim, no round trip through frame pixels).
+ */
+export function ps2Centre(frame: { width: number; height: number }, aim: [number, number], offset: [number, number]): [number, number] {
+  const [tx, ty] = aimTerm(frame, aim);
+  return [320 + offset[0] + tx, 224 + offset[1] + ty];
+}
+
+/**
+ * The aim's offset from the frame's centre, PS2 pixels: the port's own term of the centre, which the original has not
+ * (its centre is `320 + kit+0x18 + kit+0x20`, `FUN_00216770` D:L70421-70424). Exactly 0 at the frame's centre, which the
+ * page hands whenever its drawn camera is the game's (`hudAim`); else the displaced camera's term
+ * (`RETICLE_DISPLACED_CAMERA_AIM_ADAPTATION`).
+ */
+export function aimTerm(frame: { width: number; height: number }, aim: readonly [number, number]): [number, number] {
+  const s = frame.height / PS2_HEIGHT;
+  return [((aim[0] - 0.5) * frame.width) / s, ((aim[1] - 0.5) * frame.height) / s];
+}
+
+/** How the page places the reticle where its drawn camera is displaced off the game's (`RETICLE_DISPLACED_CAMERA_AIM_ADAPTATION`). */
+export type DisplacedCameraAim = 'the round\'s line' | 'the frame\'s centre';
+
+/**
+ * RETICLE_DISPLACED_CAMERA_AIM_ADAPTATION (AIM-AT-REST, the fresh review's F1-F2, 2026-11-22; research 321 s7.9; a
+ * browser adaptation, no original): where the page's DRAWN camera is displaced off the game's -- H309's body-side
+ * pull-backs and near clearance (`./playerCamera` `draw`, `NEAR_CLEARANCE_ADAPTATION`), the jump's overhead cap
+ * (`JUMP_OVERHEAD_CAMERA_ADAPTATION`) -- the frame's centre is no longer on the round's line. The original has no
+ * displaced drawn camera: its HUD's centre is `320 + kit+0x18 + kit+0x20` (`FUN_00216770` D:L70421-70424), the frame's
+ * centre plus the knock, always. So which the player sees there is the owner's choice: `'the round\'s line'` (the
+ * default, as v0.4.29 shipped) -- the game's aim point projected through the drawn camera (`matchFirearm` `aimReticle`)
+ * and added to the ring's and the pip's corners AFTER the original's truncation of `320 + offset - half` (`aimTerm`),
+ * unrounded, so a real slide (about 0.49 PS2 pixel per unit of slide) moves the mark smoothly and never steps it a whole
+ * PS2 pixel, and the term falls to 0 continuously as the slide ends; `'the frame\'s centre'` -- the original's HUD, the
+ * mark on the frame's centre (off the round's line by the slide). Where the drawn camera is the game's, the aim is the
+ * frame's exact centre either way (`WalkMode.aimCentred`). The owner's path and the spectated subject's both take it
+ * (`matchFirearm` `hudAim`); the ONE path it does not bind is the Xbox prototype (`./xboxPrototype/walkingRuntime`
+ * ~:454 sets the reticle's aim from the raw projection), left as it is because that fork is frozen (its gap list names
+ * it; no whole-PS2-pixel step there per the re-review). [adaptation; the owner's choice]
+ */
+export const RETICLE_DISPLACED_CAMERA_AIM_ADAPTATION: DisplacedCameraAim = 'the round\'s line';
+
+/**
+ * The aim the page hands the reticle (`Reticle.setAimPoint`, `matchFirearm` `aimReticle`): the frame's exact centre
+ * (0.5, 0.5) when the drawn camera is the game's (`centred`, `WalkMode.aimCentred`) -- the original's centre, no
+ * projection -- else by `RETICLE_DISPLACED_CAMERA_AIM_ADAPTATION`: the projected aim point less the screen's shift
+ * (`projected`), or the frame's centre.
+ */
+export function hudAim(centred: boolean, projected: readonly [number, number]): [number, number] {
+  return centred || RETICLE_DISPLACED_CAMERA_AIM_ADAPTATION === 'the frame\'s centre' ? [0.5, 0.5] : [projected[0], projected[1]];
+}
+
+/**
+ * B-77 (the delta review's finding 3): the pip's centre in frame pixels. Its setter `FUN_00364770` stores the corner as
+ * two ints (D:L261801-261802), toward zero, from the call at D:L69761-69763: the reticle's centre (`hud+0x44ac/+0x44b0`)
+ * plus the pip's offset minus half the bitmap -- the same `(int)` of corner = centre + offset - half the bitmap that the
+ * ring's corner takes (`reticleLayout`). `centre` and `offset` in PS2 pixels, `size` the bitmap's; scaled by the frame's
+ * height about its centre after the truncation, never truncated in frame pixels. Reading, pending review.
+ * `term` (AIM-AT-REST): the displaced drawn camera's term (`aimTerm`, RETICLE_DISPLACED_CAMERA_AIM_ADAPTATION), PS2
+ * pixels, added after the truncation as the ring's is; `centre` is then the original's own, `320 + offset`.
+ */
+export function pipCentre(
+  frame: { width: number; height: number }, centre: [number, number], offset: [number, number], size: [number, number],
+  term: readonly [number, number] = [0, 0],
+): [number, number] {
+  const s = frame.height / PS2_HEIGHT;
+  return [
+    frame.width / 2 + (cornerTrunc(centre[0] + offset[0] - size[0] / 2) + term[0] + size[0] / 2 - 320) * s,
+    frame.height / 2 + (cornerTrunc(centre[1] + offset[1] - size[1] / 2) + term[1] + size[1] / 2 - 224) * s,
+  ];
+}
+
+/**
+ * RETICLE_CORNER_TRUNCATION_READING (Craig's playtest, 2026-11-22, a release blocker; research 321 s7.9): whether the
+ * ring's and the pip's corners are truncated to whole PS2 pixels. The read says the original does (`FUN_00216770`
+ * D:L70428-70430; `FUN_00364770` D:L261801-261802), but the port's aim is a fresh 3D projection each frame
+ * (`matchFirearm` `aimPoint`) with a float wobble far under a pixel, and the pip (16x16) rests with its corner exactly
+ * on a whole pixel: truncated, the centre mark flipped one PS2 pixel (2.4 frame pixels at 1080p) back and forth while
+ * standing still ("jitters completely still"); held (false) for v0.4.30. RE-APPLIED (true) on its root fix
+ * (AIM-AT-REST): the wobble was the projection's rounding of a camera and an aim point riding the body's idle posed root
+ * together, an ulp, while the original's centre is no projection: `(320 + kit+0x18 + kit+0x20, 224 + kit+0x1c +
+ * kit+0x24)` (`FUN_00216770` D:L70421-70424), `+0x20/+0x24` the knock's offsets (research 84 s4, `offset` here) and
+ * `+0x18/+0x1c` reCOM's `m_retposx/y` (research 84), zeroed each pass while the body lives by `FUN_005aa6e0`
+ * (D:L464320-464321; r0004 0x5b0be4) -- the one body-relative writer found; a writer through a bare kit pointer is
+ * unread. So "exact at rest" is a reading resting on that zeroing. The page now hands the frame's exact centre where its
+ * drawn camera is the game's (`hudAim`, `WalkMode.aimCentred`): no projection, and the truncation acts on the original's
+ * own sum `320 + offset - half` alone. Where the drawn camera is displaced, the projected term
+ * (`RETICLE_DISPLACED_CAMERA_AIM_ADAPTATION`, `aimTerm`) is added after the truncation, unrounded, so a real slide is
+ * never stepped a whole PS2 pixel (`reticleAimAtRest.test.ts`). The owner's ruling: release-blocking
+ * (FROM-CONTROLLER-Q 2026-11-22T15:01:40Z). Settled by a capture of the original's centre mark at rest and stepping
+ * under a moving aim (owed: research 101; the constant below is a reading, pending review).
+ * [reading, pending review]
+ */
+export const RETICLE_CORNER_TRUNCATION_READING = true;
+/** The ring's and the pip's corner: truncated toward zero when the reading is applied, else as it is. */
+const cornerTrunc = (v: number): number => (RETICLE_CORNER_TRUNCATION_READING ? Math.trunc(v) : v);
+
+/**
+ * Half a PS2 pixel in frame pixels on a frame `height` tall: the GS's corner sampling (`./hudLayout`'s
+ * `GS_SAMPLE_OFFSET`, the arithmetic of `./hud`'s `half`), so a pixel samples where the GS's does.
+ */
+export function gsHalf(height: number): number { return GS_SAMPLE_OFFSET * (height / PS2_HEIGHT); }
+
+/**
+ * B-77: the UV shift, in the unit plane's own UVs, that makes a quad of `width` x `height` frame pixels -- turned
+ * `turns` quarters clockwise and mirrored by `flipX`/`flipY` -- sample at each pixel's corner as the GS does: the
+ * screen's (-half, -half) taken into the quad's own axes (`./hud`'s `fill`, the same arithmetic). The ring's XYZ2 has
+ * no +0.5 (D:L261689-261700) and its ST is set (0, 0, 1, 1) (`FUN_00364830` called at D:L69661), which stores T negated
+ * (D:L261812-261814; r0004 0x382110): S runs 0..1, T 0..-1, so the draw depends on WMT = REPEAT (the record's CLAMP 0)
+ * and pixel i samples texel coordinate i: with bilinear sampling the mean of texels i - 1 and i, half a texel off
+ * (reading, pending review). The same holds for every primitive (RETICLE_PART_CLASS_READING): this, the UV form, is used
+ * where a part's corner is whole; `gsMove` where it can be fractional.
+ */
+export function gsSampleShift(q: { width: number; height: number; turns: number; flipX?: boolean; flipY?: boolean }, half: number): [number, number] {
+  const a = (q.turns * Math.PI) / 2, c = Math.cos(a), sn = Math.sin(a);
+  const lx = -half * c - half * sn, ly = half * sn - half * c;
+  const sx = q.flipX ? -q.width : q.width, sy = q.flipY ? -q.height : q.height;
+  return [sx ? lx / sx : 0, sy ? ly / sy : 0];
+}
+
+/**
+ * B-77: a reticle bitmap uploaded with its record's sampling (`ReticleSampler`; without one, RETICLE_SAMPLER_WITHOUT_RECORD).
+ * The sprite's draw `FUN_003643b0` writes no TEX1 of its own (D:L261673-261674): the filter is the record's (TEX1.MMAG;
+ * every reticle record also names MMIN linear, no mipmaps). Was: every reticle bitmap point-sampled.
+ */
+export function reticleTexture(rgba: Rgba, rowsReversed = false, sampler: ReticleSampler | null = null): DataTexture {
+  return texture(rgba, rowsReversed, sampler);
+}
+
+function texture(rgba: Rgba, rowsReversed = false, sampler: ReticleSampler | null = null): DataTexture {
   // Row 0 of the decode is the bitmap's top row; the HUD camera looks with y down, so it is uploaded unflipped.
   const t = new DataTexture(rgba.data, rgba.width, rgba.height, RGBAFormat, UnsignedByteType);
   hdTextures.register(t, rgba, rowsReversed);   // OT.R92 (HD-3): inert until the test room's HD pack is set
-  t.magFilter = NearestFilter;
-  t.minFilter = NearestFilter;
+  const sampling = sampler ?? RETICLE_SAMPLER_WITHOUT_RECORD;
+  t.magFilter = sampling.linear ? LinearFilter : NearestFilter;
+  t.minFilter = sampling.linear ? LinearFilter : NearestFilter;
+  t.wrapS = sampling.wrapS === 'repeat' ? RepeatWrapping : ClampToEdgeWrapping;
+  t.wrapT = sampling.wrapT === 'repeat' ? RepeatWrapping : ClampToEdgeWrapping;
   t.generateMipmaps = false;
   t.flipY = false;
   t.needsUpdate = true;
+  t.userData.gsLinear = sampling.linear;   // B-77: the record's (the original's) filter, which `gsMove` reads
   return t;
+}
+
+/** The unit plane's UVs (`PlaneGeometry(1, 1)`): corners (-, +) (+, +) (-, -) (+, -), +y down the screen here. */
+const PLANE_UV = [0, 1, 1, 1, 0, 0, 1, 0] as const;
+
+/**
+ * B-77: a sprite's plane UVs moved by `gsSampleShift` for its drawn scale and turn when its bitmap is linear by its record
+ * (`recordLinear`, the one key both forms take -- the delta review's finding 4: the test room's sampling experiment, which
+ * rewrites the live filter, moves no part in either form), the plain plane's otherwise (a point-sampled bitmap is not
+ * shifted: the GS's nearest texel at a texel's edge is the one the pixel centre already picks).
+ */
+function shiftUv(mesh: Mesh, half: number): void {
+  const uv = mesh.geometry.getAttribute('uv') as BufferAttribute | undefined;
+  if (!uv) return;
+  const turns = Math.round(mesh.rotation.z / (Math.PI / 2));
+  const [du, dv] = recordLinear(mesh)
+    ? gsSampleShift({ width: Math.abs(mesh.scale.x), height: Math.abs(mesh.scale.y), turns, flipX: mesh.scale.x < 0, flipY: mesh.scale.y < 0 }, half)
+    : [0, 0];
+  // Written only on a change (the review's F7; `./hud` guards its own write the same way).
+  let same = true;
+  for (let k = 0; k < 4 && same; k++) same = uv.getX(k) === Math.fround(PLANE_UV[k * 2]! + du) && uv.getY(k) === Math.fround(PLANE_UV[k * 2 + 1]! + dv);
+  if (same) return;
+  for (let k = 0; k < 4; k++) uv.setXY(k, PLANE_UV[k * 2]! + du, PLANE_UV[k * 2 + 1]! + dv);
+  uv.needsUpdate = true;
+}
+
+/**
+ * B-77: whether a mesh's bitmap is linear by its record (or the scope's linear without one) -- the original's sampling, not
+ * the test room's sampling experiment (an adaptation, which changes display sampling only and never moves a part).
+ */
+function recordLinear(mesh: Mesh): boolean {
+  return (mesh.material as MeshBasicMaterial).map?.userData.gsLinear === true;
+}
+
+/**
+ * B-77 (the re-review's finding 1): the position form of the GS's corner sampling -- a linear part's quad moved by `half`
+ * (half a PS2 pixel in frame pixels, `gsHalf`) down and right, its UVs the plain plane's. GL samples pixel p at p + 0.5; with
+ * the quad at [x0 + half, x1 + half) it covers p in [x0, x1) and samples s(p), as the GS covers ceil(x0)..ceil(x1) - 1 and
+ * samples s(i): exact for a fractional corner, where the UV form is off by an edge pixel when the fraction is at or under a
+ * half. Called after the frame's layout has set the position, so it moves it once a frame; a part point-sampled by its
+ * record is not moved (`recordLinear`).
+ */
+function gsMove(mesh: Mesh, half: number): void {
+  if (!recordLinear(mesh)) return;
+  mesh.position.x += half;
+  mesh.position.y += half;
 }
 
 /**
@@ -1315,6 +1582,93 @@ export function nightLayout(frame: { width: number; height: number }): {
   return { quads, bars };
 }
 
+/**
+ * R4P-246 NVG-GRAIN (research 84 s14.1; reading, pending review): night vision's grain, as `BitmapReticule_Init`
+ * (`FUN_002178c0`; r0004's twin at the same address, the same body relinked) lays it. Four `noise50.tif` quads
+ * (`hud+0x3940`, `+0x3b30`, `+0x3d20`, `+0x3f10`; `FUN_00359590` D:L71104-71111) tile x 5-635, y 75-373 of the 640x448
+ * frame in four 315x149 quarters meeting at (320, 224), each sampling 0.01-0.995 with the goggles' own four UV corner
+ * sets (`FUN_00359140` D:L71112-71119 against D:L71071-71078), shown at alpha 64 (D:L71097-71102; the HUD update re-sets
+ * it from `hud+0x4104` each frame, D:L70364-70369, which only D:L71267 writes: 64.0). `FUN_00354a90` (D:L71120; r0004
+ * 0x003720c0) hands the texture's register list to `FUN_00354a00` (D:L252534-252566; r0004 0x00372030, the same bytes),
+ * which rewrites its ALPHA_1 (0x42) from the record's 0x44 to 0x49: A = Cd, B = 0, C = As, D = Cd -- `Cd * As + Cd`, the
+ * view brightened by the grain's alpha, its colour never read.
+ */
+export const NVG_GRAIN = { uv: [0.01, 0.995] as const, quadAlpha: 64, alpha1: 0x49 } as const;
+
+/**
+ * `noise50.tif`'s CT32 palette's alphas (raw, 0..128) in lookup order -- the texel index's alpha, through the GS's CSM1
+ * order (`csm1ClutIndex`) -- off every map's `HUD2_PAL.ZED` at the record's TEX0.CBP (the same 256 on all 22; the RGB is
+ * white throughout; `nightGrain.test.ts`'s dev-disc pin). The refill writes indices, so this is what a texel's alpha is.
+ */
+export const NVG_GRAIN_ALPHA_RAMP: readonly number[] = [
+  46, 46, 47, 47, 47, 48, 48, 48, 49, 49, 49, 50, 50, 50, 51, 51, 51, 51, 52, 52, 52, 53, 53, 53, 54, 54, 54, 55, 55, 55, 56, 56,
+  56, 57, 57, 57, 58, 58, 58, 59, 59, 59, 60, 60, 60, 60, 61, 61, 61, 62, 62, 62, 63, 63, 63, 64, 64, 64, 65, 65, 65, 66, 66, 66,
+  67, 67, 67, 68, 68, 68, 69, 69, 69, 69, 70, 70, 70, 71, 71, 71, 72, 72, 72, 73, 73, 73, 74, 74, 74, 75, 75, 75, 76, 76, 76, 77,
+  77, 77, 78, 78, 78, 78, 79, 79, 79, 80, 80, 80, 81, 81, 81, 82, 82, 82, 83, 83, 83, 84, 84, 84, 85, 85, 85, 86, 86, 86, 87, 87,
+  87, 87, 88, 88, 88, 89, 89, 89, 90, 90, 90, 91, 91, 91, 92, 92, 92, 93, 93, 93, 94, 94, 94, 95, 95, 95, 96, 96, 96, 96, 97, 97,
+  97, 98, 98, 98, 99, 99, 99, 100, 100, 100, 101, 101, 101, 102, 102, 102, 103, 103, 103, 104, 104, 104, 105, 105, 105, 105, 106,
+  106, 106, 107, 107, 107, 108, 108, 108, 109, 109, 109, 110, 110, 110, 111, 111, 111, 112, 112, 112, 113, 113, 113, 114, 114, 114,
+  114, 115, 115, 115, 116, 116, 116, 117, 117, 117, 118, 118, 118, 119, 119, 119, 120, 120, 120, 121, 121, 121, 122, 122, 122, 123,
+  123, 123, 123, 124, 124, 124, 125, 125, 125, 126, 126, 126, 127, 127, 127, 128, 128,
+];
+
+/**
+ * The seed of the port's own `rand()` stream for the grain [reading]. The original's `FUN_00197740` is newlib's shared
+ * `rand()` (its state `_reent + 0xa8`), seeded by `FUN_00197728` from a clock (D:L249647, D:L249651) and drawn by every
+ * one of its 291 call sites, so its position at a given frame is not the port's; the port keeps a stream of its own,
+ * from newlib's initial state 1. The generator is ported exactly, the byte conversion but for the EE FPU's truncation
+ * (to confirm: about 5 draws in a million one index lower on the console); which bytes fall on a frame is not the original's. Not to be settled: a texel-for-texel match would need every other draw of the game's stream.
+ */
+export const NVG_GRAIN_RANDOM_READING = 1;
+
+/**
+ * newlib's `rand()` as `FUN_00197740` runs it (D:L14524-14537; r0004 the same bytes): the 64-bit state times
+ * 0x5851f42d4c957f2d (`FUN_0019eb18`, the 64-bit multiply, D:L19950-19962) plus 1, the result its high word's low 31
+ * bits. Kept in two 32-bit halves.
+ */
+export class NightGrainRandom {
+  private hi = 0;
+  private lo: number;
+  constructor(seed: number) { this.lo = seed >>> 0; }
+  next(): number {
+    const MH = 0x5851f42d, ML = 0x4c957f2d;
+    const lo = this.lo, hi = this.hi;
+    // lo * ML's full 64 bits, by 16-bit halves (every partial product below 2^32, every sum below 2^53).
+    const a0 = lo & 0xffff, a1 = lo >>> 16, b0 = ML & 0xffff, b1 = ML >>> 16;
+    const p00 = a0 * b0, p01 = a0 * b1, p10 = a1 * b0, p11 = a1 * b1;
+    const mid = (p00 >>> 16) + (p01 & 0xffff) + (p10 & 0xffff);
+    const loOut = ((mid & 0xffff) * 0x10000 + (p00 & 0xffff)) >>> 0;
+    const carry = p11 + Math.floor(p01 / 0x10000) + Math.floor(p10 / 0x10000) + Math.floor(mid / 0x10000);
+    let hiOut = (carry + Math.imul(hi, ML) + Math.imul(lo, MH)) >>> 0;
+    const next = (loOut + 1) >>> 0;
+    if (next === 0) hiOut = (hiOut + 1) >>> 0;
+    this.lo = next; this.hi = hiOut;
+    return hiOut & 0x7fffffff;
+  }
+}
+
+/** A draw as the refill writes it: `(char)(int)((float)r * 4.656613e-10 * 255.0)` in single precision (D:L70380, D:L71131). */
+export function nightGrainByte(r: number): number {
+  return Math.trunc(Math.fround(Math.fround(Math.fround(r) * Math.fround(4.656613e-10)) * 255)) & 0xff;
+}
+
+/**
+ * The grain's four quads on a frame (`NVG_GRAIN`): the 640x448 frame scaled by the frame's height about its centre, as
+ * `nightLayout`'s goggles, each quad mirrored as the goggle quad of its quarter.
+ */
+export function nightGrainLayout(frame: { width: number; height: number }): {
+  quads: { x: number; y: number; width: number; height: number; flipX: boolean; flipY: boolean }[];
+} {
+  const s = frame.height / PS2_HEIGHT, left = frame.width / 2 - 320 * s;
+  const goggles = nightLayout(frame).quads;
+  const rects = [[5, 75, 320, 224], [320, 75, 635, 224], [5, 224, 320, 373], [320, 224, 635, 373]] as const;
+  const quads = rects.map(([x0, y0, x1, y1], i) => ({
+    x: left + ((x0 + x1) / 2) * s, y: ((y0 + y1) / 2) * s, width: (x1 - x0) * s, height: (y1 - y0) * s,
+    flipX: goggles[i]!.flipX, flipY: goggles[i]!.flipY,
+  }));
+  return { quads };
+}
+
 /** What the HUD pass draws over the world: the weapon's reticle, the scope (states 5-12), the binoculars (state 4). */
 export type ReticleMode = 'reticle' | 'scope' | 'binoculars';
 
@@ -1356,7 +1710,6 @@ export class Reticle {
   setExperimentalSampling(settings: UiSamplingSettings): void { this.sampling.set(settings); }
   private readonly scene = new Scene();
   private readonly camera = new OrthographicCamera(0, 1, 0, 1, -1, 1);
-  private readonly geometry = new PlaneGeometry(1, 1);
   private meshes: { part: Quad['part']; mesh: Mesh }[] = [];
   private scopeMeshes: Mesh[] = [];
   private bars: Mesh[] = [];
@@ -1380,6 +1733,8 @@ export class Reticle {
   private sizes: ReticleSizes = { fixed: FIXED, arm: ARM };
   private setTextures = new Map<string, DataTexture>();
   private sets: Record<string, Rgba> = {};
+  /** B-77: the served bitmaps' samplings by texture name (`ReticleBitmaps.samplers`). */
+  private samplers: Record<string, ReticleSampler> = {};
   private aim: [number, number] = [0.5, 0.5];
   private drawSize = 0;
   private offset: [number, number] = [0, 0];
@@ -1389,6 +1744,16 @@ export class Reticle {
   private tube = false;
   private night = false;
   private nightMeshes: Mesh[] = [];
+  /**
+   * R4P-246: the grain's four quads (`nightGrainLayout`), its texture's texels (refilled), its stream and the time of its
+   * last refill (`performance.now()`, ms; -Infinity before the first).
+   */
+  private grainMeshes: Mesh[] = [];
+  private grainTexture: DataTexture | null = null;
+  private readonly grainRandom = new NightGrainRandom(NVG_GRAIN_RANDOM_READING);
+  private grainAt = -Infinity;
+  /** R4P-246 (the review's F1): seconds toward the next game frame's refill, the remainder carried as `setPip` carries it. */
+  private grainClock = 0;
   private binocMeshes: Mesh[] = [];
   private colour: ReticleColour = 'rest';
   private on = false;
@@ -1440,8 +1805,11 @@ export class Reticle {
   setBitmaps(bitmaps: ReticleBitmaps | null | undefined, font: Rgba | null = null): void {
     this.clear();
     if (!bitmaps) return;
-    const make = (rgba: Rgba, tint: [number, number, number] | null): MeshBasicMaterial => {
-      const map = texture(rgba);
+    this.samplers = bitmaps.samplers ?? {};
+    // B-77: each bitmap sampled as its record says (`ReticleSampler`), by its name; `null` keeps the former nearest.
+    const sampler = (name: string | null): ReticleSampler | null => (name ? this.samplers[name] ?? null : null);
+    const make = (rgba: Rgba, tint: [number, number, number] | null, name: string | null): MeshBasicMaterial => {
+      const map = texture(rgba, false, sampler(name));
       this.textures.push(map);
       const material = new MeshBasicMaterial({
         map, transparent: true, depthTest: false, depthWrite: false, side: DoubleSide, fog: false, toneMapped: false,
@@ -1450,13 +1818,14 @@ export class Reticle {
       this.materials.push(material);
       return material;
     };
-    const fixed = make(bitmaps.fixed, null);
-    const floating = make(bitmaps.floating, reticleTint(this.colour));
+    const fixed = make(bitmaps.fixed, null, RETICLE_TEXTURES.fixed);
+    const floating = make(bitmaps.floating, reticleTint(this.colour), RETICLE_TEXTURES.floating);
+    armWrap(floating.map as DataTexture);   // the rifle's arms, set 1 (ARM_WRAP_S_READING)
     this.armMaterial = floating;
     this.fixedMaterial = fixed;
     this.sets = bitmaps.sets ?? {};
     if (bitmaps.accuracy) {
-      const pip = make(bitmaps.accuracy, null);
+      const pip = make(bitmaps.accuracy, null, RETICLE_TEXTURES.accuracy);
       pip.opacity = 0;
       this.pipMaterial = pip;
       this.pipSize = [bitmaps.accuracy.width, bitmaps.accuracy.height];
@@ -1470,7 +1839,7 @@ export class Reticle {
     // NU-3a C2: set 3's sight, `ret_rocket_01` four times, coloured with the arms (D:L70278-70283), at PS2 alpha 128.
     const rocket = bitmaps.sets?.[RETICLE_SETS[3]!.fixed];
     if (rocket) {
-      const sight = make(rocket, reticleTint(this.colour));
+      const sight = make(rocket, reticleTint(this.colour), RETICLE_SETS[3]!.fixed);
       sight.map!.offset.set(LAUNCHER_SIGHT_UV.u0, LAUNCHER_SIGHT_UV.v0);
       sight.map!.repeat.set(LAUNCHER_SIGHT_UV.u1 - LAUNCHER_SIGHT_UV.u0, LAUNCHER_SIGHT_UV.v1 - LAUNCHER_SIGHT_UV.v0);
       this.sightMaterial = sight;
@@ -1482,7 +1851,7 @@ export class Reticle {
     if (meterFrame && meterFill) {
       for (const [part, rgba] of [['fill', meterFill], ['frame', meterFrame]] as const) {
         const tint = meterTint(part);
-        const material = make(rgba, tint.rgb);
+        const material = make(rgba, tint.rgb, part === 'fill' ? 'ret_grenade_01.tif' : 'ret_grenade_02.tif');
         material.opacity = tint.opacity;
         this.meterMaps[part] = material.map!;
         for (const half of ['top', 'bottom'] as const) {
@@ -1498,12 +1867,16 @@ export class Reticle {
     for (const name of ['ret_scope_01.tif', 'ret_scope_02.tif']) {
       const rgba = bitmaps.sets?.[name];
       if (!rgba) continue;
-      const material = make(rgba, null);
+      // B-77: the scope takes its record's filter and wrap like every other part (the quad class, D:L71216-71217); handed no
+      // record, it keeps the linear filter it had (research 341). With a record its wrap is REPEAT where it was clamp: the
+      // 0.01-0.99 window keeps every sample over half a texel inside, so nothing drawn changes. The glass (`ret_scope_02`)
+      // and the tube (`ret_scope_01`, a frame-edge mask) take the UV form in `render` (RETICLE_PART_CLASS_READING).
+      const material = make(rgba, null, name);
       // Research 341: ChangeReticule FUN_00213e20 D:L69434-69510 samples 0.01-0.99 on both axes
       // (reading, pending original-source review). Both scope bind packets request bilinear, no mipmaps on all 22 maps.
       material.map!.offset.set(0.01, 0.01);
       material.map!.repeat.set(0.98, 0.98);
-      material.map!.minFilter = material.map!.magFilter = LinearFilter;
+      if (!sampler(name)) { material.map!.minFilter = material.map!.magFilter = LinearFilter; material.map!.userData.gsLinear = true; }
       for (let i = 0; i < 4; i++) {
         // LATER 164: the tube's quads (`hud+0x11f0..`) are in the HUD's second list, drawn after the first's ring
         // (`hud+0x70`) and before the third's arms (`hud+0x2930..`): `FUN_002151f0` D:L69697-69702 over the lists
@@ -1521,7 +1894,7 @@ export class Reticle {
     for (const name of BINOCULAR_BITMAPS) {
       const rgba = bitmaps.sets?.[name];
       if (!rgba) continue;
-      const material = make(rgba, null);
+      const material = make(rgba, null, name);
       material.map!.offset.set(BINOCULAR_UV.u0, BINOCULAR_UV.v0);
       material.map!.repeat.set(BINOCULAR_UV.u1 - BINOCULAR_UV.u0, BINOCULAR_UV.v1 - BINOCULAR_UV.v0);
       for (let i = 0; i < 2; i++) {
@@ -1533,14 +1906,52 @@ export class Reticle {
     // The night vision's goggles (`nvg_part.tif`), under the reticle.
     const nvg = bitmaps.sets?.['nvg_part.tif'];
     if (nvg) {
-      const material = make(nvg, null);
+      const material = make(nvg, null, 'nvg_part.tif');
       for (let i = 0; i < 4; i++) this.nightMeshes.push(this.addMesh(material, -1));
+    }
+    // R4P-246: the grain (`NVG_GRAIN`), `noise50.tif` four times over the goggles -- in their list (`hud+0x34`), appended
+    // after them (`FUN_001feae0` inserts before the list's end, D:L71092-71093 against D:L71028-71030), so drawn after them
+    // and before the arms. Its texture is its own, the refill's: 64x64 indices through the palette's alphas
+    // (`NVG_GRAIN_ALPHA_RAMP`), filled once at the init (D:L71121-71133) and once a game frame while the goggles are on.
+    const noise = bitmaps.sets?.['noise50.tif'];
+    if (nvg && noise) {
+      // Not through `texture()`: a dynamic texture no HD pack may stand in for (`hdTextures` is not told of it). Sampled
+      // as its record asks (TEX1 linear, CLAMP repeat on all 22 maps; the former point sampling without a record).
+      const data = new Uint8ClampedArray(noise.width * noise.height * 4);
+      const map = new DataTexture(data, noise.width, noise.height, RGBAFormat, UnsignedByteType);
+      const sampling = sampler('noise50.tif') ?? RETICLE_SAMPLER_WITHOUT_RECORD;
+      map.magFilter = map.minFilter = sampling.linear ? LinearFilter : NearestFilter;
+      map.wrapS = sampling.wrapS === 'repeat' ? RepeatWrapping : ClampToEdgeWrapping;
+      map.wrapT = sampling.wrapT === 'repeat' ? RepeatWrapping : ClampToEdgeWrapping;
+      map.generateMipmaps = false;
+      map.flipY = false;
+      map.userData.gsLinear = sampling.linear;   // B-77: `shiftUv` reads it
+      map.offset.set(NVG_GRAIN.uv[0], NVG_GRAIN.uv[0]);
+      map.repeat.set(NVG_GRAIN.uv[1] - NVG_GRAIN.uv[0], NVG_GRAIN.uv[1] - NVG_GRAIN.uv[0]);
+      this.textures.push(map);
+      this.grainTexture = map;
+      this.refillGrain();
+      // TFX MODULATE with TCC 1 (the record's TEX0): As = At * Av >> 7, Av the quad's alpha 64. The texels carry At in
+      // every channel and the colour carries Av / 128, so the shader emits As, and `Cs * Cd + Cd` (three's dst-colour,
+      // one) is the GS's `(Cd - 0) * As + Cd`.
+      const av = NVG_GRAIN.quadAlpha / 128;
+      const material = new MeshBasicMaterial({
+        map, transparent: true, depthTest: false, depthWrite: false, side: DoubleSide, fog: false, toneMapped: false,
+        color: new Color().setRGB(av, av, av),
+        blending: CustomBlending, blendEquation: AddEquation, blendSrc: DstColorFactor, blendDst: OneFactor,
+      });
+      this.materials.push(material);
+      for (let i = 0; i < 4; i++) {
+        const mesh = this.addMesh(material, -0.5);
+        mesh.userData.nightGrain = i;
+        this.grainMeshes.push(mesh);
+      }
     }
     // THREAT-MARKS: the eight `ret_threat` quads (HUD init `FUN_002178c0` D:L71008-71025: alpha 0, shown, the constructor's
     // RGB 128 -- no colour call: the red is the bitmap's), in the arms' list (`hud+0x4c`), each its own geometry and alpha.
     const threat = bitmaps.sets?.['ret_threat.tif'];
     if (threat) {
-      const map = texture(threat);
+      const map = texture(threat, false, sampler('ret_threat.tif'));
       this.textures.push(map);
       for (let i = 0; i < 8; i++) {
         const material = new MeshBasicMaterial({
@@ -1629,11 +2040,11 @@ export class Reticle {
     if (!fixed || !arm || !this.fixedMaterial || !this.armMaterial) return false;
     const tex = (name: string, rgba: Rgba): DataTexture => {
       let t = this.setTextures.get(name);
-      if (!t) { t = texture(rgba); this.setTextures.set(name, t); this.textures.push(t); }
+      if (!t) { t = texture(rgba, false, this.samplers[name] ?? null); this.setTextures.set(name, t); this.textures.push(t); }
       return t;
     };
     this.fixedMaterial.map = tex(names.fixed, fixed);
-    this.armMaterial.map = tex(names.floating, arm);
+    this.armMaterial.map = crossArmsSet(type) ? armWrap(tex(names.floating, arm)) : tex(names.floating, arm);
     this.fixedMaterial.needsUpdate = true;
     this.armMaterial.needsUpdate = true;
     this.sizes = { fixed: fixed.width, arm: arm.width, fixedH: fixed.height, armH: arm.height };   // as served (NU-3a)
@@ -1716,7 +2127,10 @@ export class Reticle {
       any = true;
       (mesh.material as MeshBasicMaterial).opacity = Math.min(1, alpha / THREAT_ALPHA_SCALE_READING);
       const pos = mesh.geometry.getAttribute('position') as BufferAttribute, uv = mesh.geometry.getAttribute('uv') as BufferAttribute;
-      vertices.forEach((v, k) => { pos.setXYZ(k, v.x, v.y, 0); uv.setXY(k, v.s, v.t); });
+      // B-77 (the re-review's finding 1): drawn linear, the quad moved half a PS2 pixel down and right -- the position form,
+      // exact for its fractional corners (RETICLE_PART_CLASS_READING); its STs as laid.
+      const d = recordLinear(mesh) ? gsHalf(this.frame.height) : 0;
+      vertices.forEach((v, k) => { pos.setXYZ(k, v.x + d, v.y + d, 0); uv.setXY(k, v.s, v.t); });
       pos.needsUpdate = true;
       uv.needsUpdate = true;
     });
@@ -1731,12 +2145,17 @@ export class Reticle {
 
   /**
    * WEAPON: one frame of the accuracy pip (`stepPip`): the blocked muzzle's hit as an offset from the reticle's centre
-   * (PS2 pixels, y down) or null, and whether the view is scoped. The fade runs at the game's 60 frames a second.
+   * (PS2 pixels, y down) or null, and whether the view is scoped. `stepPip` runs once a game frame (`FUN_00215250`,
+   * each frame of 525/15734 s, `GAME_FRAME_DT`), so a fade 128 -> 0 takes 4 game frames (133 ms) at any page rate
+   * (LATER 1027: it ran on a 1/60 clock, "the game's 60 frames a second", a figure the measured game frame retired, a
+   * 67 ms fade). Stepped once a game frame, the original's own shape, not R8's continuous per-second form: the +-32
+   * steps and set 3's second fade below are whole steps a continuous fade would not keep (research 437 s3; the
+   * treatment is the controller's choice, logged for the owner).
    */
-  setPip(offset: [number, number] | null, scoped: boolean, dt = 1 / 60): void {
+  setPip(offset: [number, number] | null, scoped: boolean, dt = GAME_FRAME_DT): void {
     this.pipClock += dt;
-    while (this.pipClock >= 1 / 60 - 1e-9) {
-      this.pipClock -= 1 / 60;
+    while (this.pipClock >= GAME_FRAME_DT - 1e-9) {
+      this.pipClock -= GAME_FRAME_DT;
       // Under set 4 the pip fades whatever the aim ray found (D:L70435-70445: the bit cleared at D:L70415-70417).
       this.pip = stepPip(this.pip, this.set === 4 ? null : offset, this.drawSize, scoped);
       // NU-3a C2 (research 321 D7): under set 3 `FUN_00215250` steps it (D:L70433) and the frame fades it 32 after
@@ -1974,8 +2393,10 @@ export class Reticle {
       const layout = reticleLayout(this.frame, this.aim, this.drawSize, this.offset, this.sizes, this.set);
       this.pipMesh.visible = !!p && this.pip.alpha > 0 && !binocs && !none;
       if (p) {
-        const s = layout.scale, centre = this.set === 4 ? this.meterCentre() : layout.centre;
-        this.pipMesh.position.set(centre[0] + p[0] * s, centre[1] + p[1] * s, 0);
+        const s = layout.scale;
+        const src = this.set === 4 ? meterCentreSource(GRENADE_METER_CENTRE_OWNER, this.laid, { aim: this.aim, offset: this.offset }) : { aim: this.aim, offset: this.offset };
+        const [x, y] = pipCentre(this.frame, [320 + src.offset[0], 224 + src.offset[1]], p, this.pipSize, aimTerm(this.frame, src.aim));
+        this.pipMesh.position.set(x, y, 0);
         this.pipMesh.scale.set(this.pipSize[0] * s, this.pipSize[1] * s, 1);
         this.pipMaterial.opacity = Math.min(1, this.pip.alpha / PIP_FULL);
       }
@@ -2014,17 +2435,67 @@ export class Reticle {
       mesh.position.set(q.x, q.y, 0);
       mesh.scale.set(q.flipX ? -q.width : q.width, q.flipY ? -q.height : q.height, 1);
     });
+    // R4P-246: the grain with the goggles (`ChangeReticule` D:L69351-69364), refilled once a game frame while they are on
+    // (`FUN_00216770` D:L70362-70385, the HUD update a game frame, `GAME_FRAME_DT`).
+    const grain = nightGrainLayout(this.frame);
+    this.grainMeshes.forEach((mesh, i) => {
+      const q = grain.quads[i]!;
+      mesh.visible = night;
+      mesh.position.set(q.x, q.y, 0);
+      mesh.scale.set(q.flipX ? -q.width : q.width, q.flipY ? -q.height : q.height, 1);
+    });
+    if (night && this.grainMeshes.length > 0) {
+      const now = performance.now();
+      if (this.grainAt === -Infinity) { this.refillGrain(); this.grainAt = now; this.grainClock = 0; }
+      else {
+        // Once a GAME frame at any page rate: the elapsed time accumulates and each whole GAME_FRAME_DT steps one refill
+        // (several due in one render -- a slow page -- draw one; the texels are random either way).
+        this.grainClock += (now - this.grainAt) / 1000;
+        this.grainAt = now;
+        let due = false;
+        while (this.grainClock >= GAME_FRAME_DT - 1e-9) { this.grainClock -= GAME_FRAME_DT; due = true; }
+        if (due) this.refillGrain();
+      }
+    }
     const bars = night ? nv.bars : binocs ? bl.bars : scope.bars;
     this.bars.forEach((mesh, i) => {
       const r = bars[i];
       mesh.visible = (scoped || night || binocs || tube) && !!r;
       if (r) { mesh.position.set(r.x + r.width / 2, r.y + r.height / 2, 0); mesh.scale.set(r.width, r.height, 1); }
     });
+    // B-77 (the re-review's findings 1-3): the GS samples every pixel at its corner whatever the primitive, so every part
+    // drawn linear is corrected by half a PS2 pixel (RETICLE_PART_CLASS_READING). The UV form (`shiftUv`) where the corner
+    // is whole -- the ring (truncated, FUN_00364680), the scope's glass `ret_scope_02` and tube `ret_scope_01` and the
+    // binoculars (frame-edge lays), the goggles; the position form (`gsMove`, exact for any corner) for the arms, the
+    // corners, set 3's sight, the meter and the pip (its corner truncated, `pipCentre`). The tube (`hud+0x11f0..`, the quad
+    // class by D:L71217) is a frame-edge mask: moved, its edge would leave a column between it and the black bar at a
+    // frame scale over 1, so it takes the UV form with the glass -- the same texels, its coverage unmoved (delta review 3's
+    // finding 1).
+    const half = gsHalf(this.frame.height);
+    for (const { part, mesh } of this.meshes) if (mesh.visible) { if (part === 'fixed') shiftUv(mesh, half); else gsMove(mesh, half); }
+    if (this.pipMesh?.visible) gsMove(this.pipMesh, half);
+    for (const { mesh } of this.meterMeshes) if (mesh.visible) gsMove(mesh, half);
+    for (const mesh of [...this.scopeMeshes, ...this.binocMeshes, ...this.nightMeshes, ...this.grainMeshes]) if (mesh.visible) shiftUv(mesh, half);
     this.renderTarget();
     this.sampling.fit([...this.meshes.map(({mesh}) => mesh), ...(this.pipMesh ? [this.pipMesh] : []), ...this.meterMeshes.map(({ mesh }) => mesh), ...this.threatMeshes]);
     const autoClear = renderer.autoClear;
     renderer.autoClear = false;
     try { renderer.render(this.scene, this.camera); } finally { renderer.autoClear = autoClear; }
+  }
+
+  /**
+   * R4P-246: one refill of the grain's texels (D:L70372-70385; at the init D:L71121-71133): each of the 64x64 a byte off
+   * newlib's `rand()` (`nightGrainByte`), read through the palette (`NVG_GRAIN_ALPHA_RAMP`, 0..128 as the decode's 0..255).
+   */
+  private refillGrain(): void {
+    const map = this.grainTexture;
+    if (!map) return;
+    const data = map.image.data as Uint8ClampedArray;
+    for (let i = 0; i < data.length; i += 4) {
+      const a = Math.min(255, Math.round((NVG_GRAIN_ALPHA_RAMP[nightGrainByte(this.grainRandom.next())]! * 255) / 128));
+      data[i] = a; data[i + 1] = a; data[i + 2] = a; data[i + 3] = a;
+    }
+    map.needsUpdate = true;
   }
 
   private add(part: Quad['part'], material: MeshBasicMaterial): void {
@@ -2034,7 +2505,8 @@ export class Reticle {
   }
 
   private addMesh(material: MeshBasicMaterial, order: number): Mesh {
-    const mesh = new Mesh(this.geometry, material);
+    // B-77: each its own plane, so its UVs can carry its own half-texel shift (`shiftUv`).
+    const mesh = new Mesh(new PlaneGeometry(1, 1), material);
     mesh.frustumCulled = false;
     mesh.renderOrder = order;
     mesh.visible = false;
@@ -2044,16 +2516,18 @@ export class Reticle {
 
   private clear(): void {
     this.sampling.clear();
-    for (const { mesh } of this.meshes) this.scene.remove(mesh);
-    for (const mesh of [...this.scopeMeshes, ...this.bars, ...this.nightMeshes, ...this.binocMeshes, ...this.meterMeshes.map((m) => m.mesh)]) this.scene.remove(mesh);
+    for (const { mesh } of this.meshes) { this.scene.remove(mesh); mesh.geometry.dispose(); }
+    for (const mesh of [...this.scopeMeshes, ...this.bars, ...this.nightMeshes, ...this.grainMeshes, ...this.binocMeshes, ...this.meterMeshes.map((m) => m.mesh)]) { this.scene.remove(mesh); mesh.geometry.dispose(); }
     for (const m of this.materials) m.dispose();
     for (const t of this.textures) t.dispose();
-    if (this.pipMesh) this.scene.remove(this.pipMesh);
+    if (this.pipMesh) { this.scene.remove(this.pipMesh); this.pipMesh.geometry.dispose(); }
     this.meshes = []; this.scopeMeshes = []; this.bars = []; this.nightMeshes = []; this.binocMeshes = []; this.materials = []; this.textures = [];
+    this.grainMeshes = []; this.grainTexture = null; this.grainAt = -Infinity; this.grainClock = 0;
     this.armMaterial = null;
     this.fixedMaterial = null;
     this.sightMaterial = null;
     this.setTextures.clear();
+    this.samplers = {};
     this.pipMesh = null; this.pipMaterial = null;
     this.pip = { alpha: 0, offset: null };
     this.meterMeshes = []; this.meterBitmap = null; this.meterMaps = {}; this.power = 0;

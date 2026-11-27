@@ -82,18 +82,20 @@ describe.skipIf(!present)(`the loadout editor on the fixture tree's maps${presen
 /**
  * MU2-4: the editor's missions on the disc's own mission table (`RUN/READERC.ZAR :: missionlist.rdr`, read by the
  * opened image's `readMissionList`, `../../createGameHost` `missionsFromReaderc`): CREATE GAME's rows, in the table's
- * order and by its names -- the release's eight as `createGameCommands.test.ts` (packages/ui) reads them off the disc,
- * VIGILANCE, FISH HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, DESERT GLORY, NIGHT STALKER, THE RUINS (V13-2, V13-3, DF-14) -- and
+ * order and by its names -- the release's eleven as `createGameCommands.test.ts` (packages/ui) reads them off the disc,
+ * VIGILANCE, SHADOW FALLS, FISH HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, ABANDONED, DESERT GLORY, NIGHT STALKER, THE RUINS
+ * RAT'S NEST joining after NIGHT STALKER (V13-2, V13-3, DF-14, B5, RN-1) -- and
  * a served offer's maps in the same order, Medley and Random out.
  */
 const TABLE_PRESENT = existsSync(resolve(FIXTURES, 'RUN/READERC.ZAR'));
 describe.skipIf(!TABLE_PRESENT)(`the loadout editor's missions on the fixture tree's missionlist.rdr${TABLE_PRESENT ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
-  it('the release\'s eight in CREATE GAME\'s order and names; a served offer in the table\'s order', async () => {
+  it('the release\'s eleven in CREATE GAME\'s order and names; a served offer in the table\'s order', async () => {
     const table = await readMissionList(new FsAssetSource(FIXTURES));
     expect(table.filter((m) => m.multiplayer)).toHaveLength(22);
     expect(missionRowsOf(table, null).map((r) => [r.mission, r.name])).toEqual([
-      ['MP51', 'Vigilance'], ['MP71', 'Fish Hook'], ['MP72', 'Crossroads'], ['MP1', 'Blizzard'], ['MP2', 'Frostfire'],
-      ['MP6', 'Desert Glory'], ['MP7', 'Night Stalker'], ['MP12', 'The Ruins'],
+      ['MP51', 'Vigilance'], ['MP64', 'Shadow Falls'], ['MP71', 'Fish Hook'], ['MP72', 'Crossroads'], ['MP1', 'Blizzard'],
+      ['MP2', 'Frostfire'], ['MP5', 'Abandoned'], ['MP6', 'Desert Glory'], ['MP7', 'Night Stalker'], ['MP8', "Rat's Nest"],
+      ['MP12', 'The Ruins'],
     ]);
     const every = table.filter((m) => m.multiplayer).map((m) => m.number);
     expect(missionRowsOf(table, [...every].reverse().concat([0xfe, 0xff])).map((r) => r.number)).toEqual(every);

@@ -50,7 +50,7 @@ export interface GeoObject {
   hullNode?: number;
   /**
    * A hull object's solid geometry object (its id): the collision Build makes from that object's faces (`o.solid`), edited
-   * as a node's is -- a custom map's floor and boxes, a native map's own primitives, copies and pieces (the owner,
+   * as a node's is -- a custom map's floor and boxes, a native map's own primitives, copies and pieces (the Forge's owner (crispy, OT.R112),
    * 2026-11-15: collision editing "doesn't seem to work in custom maps").
    */
   hullOf?: string;
@@ -58,7 +58,7 @@ export interface GeoObject {
   manual?: true;
   /**
    * The object's scale along its own axes (`basis`) as its scales have left it, 1 each when absent: what the Inspector
-   * shows and edits (the owner, 2026-11-15). The points carry it; this only says how much.
+   * shows and edits (the Forge's owner (crispy, OT.R112), 2026-11-15). The points carry it; this only says how much.
    */
   scale?: [number, number, number];
 }
@@ -134,7 +134,7 @@ export const GEOMETRY_OWNER_MODEL = 'forge.geometry';
 
 /**
  * The draws: each mesh once, in the order its first object stands (the world's first), a hidden object's faces left
- * out. The hull is `buildHull`'s, not rebuilt here (the owner, 2026-11-14: collision only on Build).
+ * out. The hull is `buildHull`'s, not rebuilt here (the Forge's owner (crispy, OT.R112), 2026-11-14: collision only on Build).
  */
 export function compileDraws(g: WorldGeometry, sources?: DrawSources, grid?: GridParams): LoadedMesh[] {
   const meshes: EditMesh[] = [];
@@ -187,7 +187,7 @@ export function mul4(a: readonly number[], b: readonly number[]): number[] {
 }
 
 /**
- * The hull Build makes (the owner, 2026-11-14: only on Build). The map's own layer, and on it:
+ * The hull Build makes (the Forge's owner (crispy, OT.R112), 2026-11-14: only on Build). The map's own layer, and on it:
  * - a node of the world moved whole: its owners' polygons carried by the move, each keeping the disc's surface words (a
  *   tilted owner's frame turned with it);
  * - a node reshaped: its owners' polygons taken out, and a hull from its faces (`hullOfMesh`) on its commonest surface
@@ -203,7 +203,8 @@ export function buildHull(g: WorldGeometry): GroundData | null {
 /** `buildHull`'s layer before it is packed: what collision editing starts from and adds its edits to (`./hullGeometry`). */
 export function buildHullMesh(g: WorldGeometry): CollisionMesh | null {
   if (!g.collision) return null;
-  const c: CollisionMesh = { grid: g.collision.grid, owners: g.collision.owners.map((o) => ({ ...o })), polys: [...g.collision.polys] };
+  // FLE-2 (ours): the spread keeps the layer's default soil (`CollisionMesh.defaultMaterial`) with its grid.
+  const c: CollisionMesh = { ...g.collision, owners: g.collision.owners.map((o) => ({ ...o })), polys: [...g.collision.polys] };
   for (const o of g.objects) {
     if (o.group === undefined || (!o.moved && !o.reshaped)) continue;
     const owners = new Set(ownersOf(g, o));
@@ -222,7 +223,7 @@ export function buildHullMesh(g: WorldGeometry): CollisionMesh | null {
     }
   }
   // Each Build starts from the read layer, so a solid object's hull is made anew, never found from the last one.
-  // Its faces floors facing up, walls else (`floorOrWall`; the owner, 2026-11-17: "wall collision for walls and floor for floors").
+  // Its faces floors facing up, walls else (`floorOrWall`; the Forge's owner (crispy, OT.R112), 2026-11-17: "wall collision for walls and floor for floors").
   for (const o of g.objects) if (o.solid) appendOwnedPolys(c, hullOfMesh(o.mesh, floorOrWall(o.solid), objectFaces(o)), { modelName: GEOMETRY_OWNER_MODEL, path: `forge/${o.id}`, first: 0, count: 0 });
   return c;
 }
@@ -246,7 +247,7 @@ const onSlab = (s: Slab, p: Vec3): boolean => Math.abs(dot(s.n, p) - s.d) <= NEA
 const near = (a: Slab, b: Slab): boolean => onSlab(a, b.c) || onSlab(b, a.c);
 
 /**
- * A reshaped node's hull at Build (the owner, 2026-11-15, after stairs walked jagged once their node was edited: "do 1"
+ * A reshaped node's hull at Build (the Forge's owner (crispy, OT.R112), 2026-11-15, after stairs walked jagged once their node was edited: "do 1"
  * -- keep the disc's hull where nothing changed). The disc's hull is authored apart from the draws (a staircase is one
  * ramp polygon over its drawn steps: MP51's wc01, 12 steps under one ramp; a node's own `di_` meshes), as a level editor's clip
  * brushes and Unreal's simple collision are, so a hull made from every drawn face walks the steps one ledge at a time.

@@ -1,3 +1,4 @@
+import { noteFrontRefusedWebgl2 } from './frontGpuVerdict';
 import type { Rgba } from '@s2u/gs';
 import type { MoviePicture, UiDrawItem } from '@s2u/ui';
 import { rasterizeUiDrawList, UiQuadRasterCache, type RasterOptions, type UiBitmap, type UiTextures } from './uiCompositorView';
@@ -837,6 +838,7 @@ export class UiGpuSurfacePresenter implements UiPresenter {
   /** L4: no GPU for this surface (the gate's reason); the context let go. */
   private unavailable(reason: UiGpuCapabilityReason): { ok: false; reason: UiGpuCapabilityReason } {
     this.refusedBy = reason;
+    if (reason === 'no-webgl2') noteFrontRefusedWebgl2();      // LATER 1265 (its pair review's F3): the page's record (`./frontGpuVerdict`)
     this.fallbackRow('L4', reason);
     if (this.backend) this.dropBackend(this.gl?.isContextLost() !== true);
     this.unlisten();

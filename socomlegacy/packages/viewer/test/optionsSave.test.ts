@@ -27,26 +27,26 @@ const deletesFailed = (n: number) => Array.from({ length: n }, () => `[mc] comma
 const KB = (bytes: number): number => (bytes + 0x3ff) >>> 10;
 
 describe('OPT-01: the page\'s options save against the reading (research 228 §3; W15.R2)', () => {
-  it('the rows the reading names -- IsMemcardSaveOK, then Ensure_MC_Dirs -- issue its 114 steps, Sync pair for pair and argument for argument', () => {
+  it('the rows the reading names -- IsMemcardSaveOK, then Ensure_MC_Dirs -- issue its 115 steps, Sync pair for pair and argument for argument', () => {
     const t = page();
     t.start();
     expect(t.answer('IsMemcardSaveOK')).toBe(true);
     ensureDirs(t);
     const read = optionsSaveOnAFreshCard();
-    expect(read).toHaveLength(114);
+    expect(read).toHaveLength(115);
     expect(t.pairs()).toEqual(pairsOf(read));
     expect(t.calls).toEqual(callsOf(read));
   });
 
-  it('"change an option, RETURN, YES" on a fresh card: save_and_leave\'s 124 steps hold the 114; the f0 files; free 8000 -> 5,007; nine NoEntry deletes; the save succeeds (W15.R1)', () => {
+  it('"change an option, RETURN, YES" on a fresh card: save_and_leave\'s 128 steps hold the 115; the f0 files; free 8000 -> 5,007; nine NoEntry deletes; the save succeeds (W15.R1)', () => {
     const t = page();
     expect(t.free()).toBe(8000);
     t.valves.set('VIBRATION_CONTROLLER', 0, VALVE_TYPE.PERSIST);   // the option changed
     t.start();
     expect(saveAndLeave(t)).toBe(false);                          // no overwrite prompt: the folder was not there
     const flow = optionsSaveAndLeaveOnAFreshCard();
-    expect(flow).toHaveLength(124);
-    expect(flow.slice(6, 6 + OPTIONS_SAVE_PROBE_STEPS).concat(flow.slice(11))).toEqual(optionsSaveOnAFreshCard());
+    expect(flow).toHaveLength(128);
+    expect(flow.slice(6, 6 + OPTIONS_SAVE_PROBE_STEPS).concat(flow.slice(14))).toEqual(optionsSaveOnAFreshCard());
     expect(t.pairs()).toEqual(pairsOf(flow));
     expect(t.calls).toEqual(callsOf(flow));
     expect(t.files()).toEqual(F0_FILES);
@@ -57,7 +57,7 @@ describe('OPT-01: the page\'s options save against the reading (research 228 §3
     expect((t.saveFile().data as Record<string, Record<string, number>>)[VALVE_MODULE]).toEqual({ VIBRATION_CONTROLLER: 0 });
   });
 
-  it('the second save (the twelve there): the 39 steps of the second list, the overwrite prompt shown, no FAILED line; the same files, 5,007 free again', () => {
+  it('the second save (the twelve there): the 44 steps of the second list, the overwrite prompt shown, no FAILED line; the same files, 5,007 free again', () => {
     const t = page();
     t.valves.set('VIBRATION_CONTROLLER', 0, VALVE_TYPE.PERSIST);
     t.start();
@@ -66,7 +66,7 @@ describe('OPT-01: the page\'s options save against the reading (research 228 §3
     t.start();
     expect(saveAndLeave(t)).toBe(true);
     const second = optionsSaveAndLeaveOnASavedCard();
-    expect(second).toHaveLength(39);
+    expect(second).toHaveLength(44);
     expect(t.pairs()).toEqual(pairsOf(second));
     expect(t.calls).toEqual(callsOf(second));
     expect(t.failed()).toEqual([]);
@@ -89,10 +89,14 @@ describe('OPT-01: the page\'s options save against the reading (research 228 §3
     const entries = 2 + Object.keys(before).length;
     expect(entries).toBe(13);
     expect(KB(scratch!)).toBe(2999 - (Object.values(before).reduce((a, b) => a + KB(b), 0) + (entries >> 1) + 1));
-    // The space rule after the save: 5,007 KB free, not below 3001, so the folder is not counted; true.
+    // The space rule after the save (r0004:0x0027c520): PATCHFILE.DAT found, APACHE00.ZDB not, PATCHFILE.DAT again (no
+    // delete, no 1 KB); then 5,007 KB free, not below 3001, so the folder is not counted; true.
     t.start();
     expect(t.answer('IsSpaceForSaveGameFile')).toBe(true);
-    expect(t.calls).toEqual([{ cmd: 'GetInfo', args: [0, 0] }]);
+    expect(t.calls).toEqual([
+      { cmd: 'GetDir', args: [0, 0, 'PATCHFILE.DAT', 1] }, { cmd: 'GetDir', args: [0, 0, 'APACHE00.ZDB', 1] },
+      { cmd: 'GetDir', args: [0, 0, 'PATCHFILE.DAT', 1] }, { cmd: 'GetInfo', args: [0, 0] },
+    ]);
   });
 
   it('the save file\'s data: the three modules, in the f0 card\'s order, each typed -- UI vars of longevity 3 without the password class, PERSIST valves, the personas', () => {

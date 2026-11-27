@@ -1,4 +1,4 @@
-import type { RdrNode } from '@s2u/archive';
+import { MAP_VARIANTS, mapVariant, variantName, type MapVariant, type RdrNode } from '@s2u/archive';
 import { DIALOG_EVENTS } from '../dialog';
 import type { UiCommandHandler, UiCommandHost } from '../uiCommands';
 import type { UiVarManager, UiVarValue } from '../uiVars';
@@ -103,19 +103,27 @@ export const PLAY_LIST_RANDOM = { number: 0xff, name: 'Random' } as const;
  * amended a second time by the owner's word of 2026-11-08, the DF plan's DF.R1, pending his confirmation at the merge,
  * H429) MP6 Desert Glory and MP71 Fish Hook, both EXTRACTION (`missionlist.rdr` TYPE 4, `FUN_002c9540` D:L168877-168906;
  * research 192 G2), classic only (DF.R2): left out with RESPAWN on by the same filter, and a respawn create on either
- * plays classic (`playedRules`, `FUN_002a7560` D:L149405-149431). In stem order (a set:
+ * plays classic (`playedRules`, `FUN_002a7560` D:L149405-149431); since the owner's B5 and S9 (2026-11-21: "New maps:
+ * ABANDONED and SHADOW FALLS only, each after a walk"; "an AGENT WALKS each in a real browser, FILMED ...; NO BOTS on them
+ * until he says") MP5 Abandoned and MP64 Shadow Falls, both SUPPRESSION (`missionlist.rdr` TYPE 5; research 192: SUPPRESSION
+ * 2, 5, 8, 51, 64, 81), so listed with RESPAWN on and off, and never in `BOT_MAPS` (`packages/match/src/botGates.ts`); since
+ * RN-1 (the owner, 2026-11-24, relayed by the main controller: "we're including rats nest in the rotation"; its filmed
+ * walk before the merge and no bots, the controller's ruling as B5's) MP8 Rat's Nest, SUPPRESSION (`missionlist.rdr` TYPE
+ * 5, the 18th of its 22 multiplayer records), listed with RESPAWN on and off, not in `BOT_MAPS`. In stem order (a set:
  * the rows are drawn in `missionlist.rdr`'s order, `availableMissionRows`). **The one source**: central's
  * `FIRST_RELEASE_MAPS` (`packages/central/src/lobby.ts`) is these numbers as `MP<n>` stems, not a second list. On every
  * host, the nightly included (OT.R58): a server's offer only narrows them (`CreateGameCommandsOptions.offered`).
  */
-export const FIRST_RELEASE_MAPS = [1, 2, 6, 7, 12, 51, 71, 72] as const;
+export const FIRST_RELEASE_MAPS = [1, 2, 5, 6, 7, 8, 12, 51, 64, 71, 72] as const;
 
 /**
  * PLAY_LIST_FIRST_RELEASE_READING (OT.R16; the owner's three-map list, 2026-10-07; OT.R45's fourth, 2026-10-12; V13-2's
- * fifth and V13-3's sixth, OT.R58 amended 2026-11-07; DF-14's seventh and eighth, OT.R58 amended 2026-11-08, DF.R1):
- * `GetAvailableMPMissions` lists only the maps the release offers -- Vigilance, Fish Hook, Crossroads, Blizzard,
- * Frostfire, Desert Glory, Night Stalker and The Ruins, in `missionlist.rdr`'s order (of its 22 multiplayer records MP51
- * is the 1st, MP71 the 7th, MP72 the 8th, MP1 the 13th, MP2 the 14th, MP6 the 16th, MP7 the 17th, MP12 the 22nd;
+ * fifth and V13-3's sixth, OT.R58 amended 2026-11-07; DF-14's seventh and eighth, OT.R58 amended 2026-11-08, DF.R1; the
+ * owner's B5's ninth and tenth, 2026-11-21; RN-1's eleventh, 2026-11-24):
+ * `GetAvailableMPMissions` lists only the maps the release offers -- Vigilance, Shadow Falls, Fish Hook, Crossroads,
+ * Blizzard, Frostfire, Abandoned, Desert Glory, Night Stalker, Rat's Nest and The Ruins, in `missionlist.rdr`'s order (of
+ * its 22 multiplayer records MP51 is the 1st, MP64 the 6th, MP71 the 7th, MP72 the 8th, MP1 the 13th, MP2 the 14th, MP5 the
+ * 15th, MP6 the 16th, MP7 the 17th, MP8 the 18th, MP12 the 22nd;
  * `createGameCommands.test.ts` reads them off the disc) -- and leaves every other row out at the source, as the
  * original's own `FUN_00274940` leaves out the maps a game cannot play (with respawn on, every mission not SUPPRESSION, D:L121528-121530; a mission whose archive is absent, D:L121535) rather
  * than disabling them: every row listed can be taken, and nothing the list binds is swallowed. Medley (0xfe) and Random
@@ -127,7 +135,7 @@ export const FIRST_RELEASE_MAPS = [1, 2, 6, 7, 12, 51, 71, 72] as const;
  * in a grey `COLOR`, on which SQUARE, TRIANGLE and RIGHT were swallowed (research 164 §3). A deviation from the
  * original's rows for the first release. [reading]
  */
-export const PLAY_LIST_FIRST_RELEASE_READING = 'only the offered maps listed (Vigilance, Fish Hook, Crossroads, Blizzard, Frostfire, Desert Glory, Night Stalker, The Ruins); the rest, Medley and Random included, left out at the source' as const;
+export const PLAY_LIST_FIRST_RELEASE_READING = 'only the offered maps listed (Vigilance, Shadow Falls, Fish Hook, Crossroads, Blizzard, Frostfire, Abandoned, Desert Glory, Night Stalker, Rat\'s Nest, The Ruins); the rest, Medley and Random included, left out at the source' as const;
 
 /**
  * PLAY_LIST_NO_MEDLEY_ROW_READING: the set's `add_a_mission` takes row 0 for Medley whenever respawn is off
@@ -201,16 +209,41 @@ function missionRow(number: number, name: string): UiVarValue {
  * of type SUPPRESSION when respawn is on (+0x14), whose archive is present (`FUN_002c94f0`). OT.R16 leaves out every
  * row not offered, Medley and Random among them (`PLAY_LIST_FIRST_RELEASE_READING`); `offered` by default
  * `FIRST_RELEASE_MAPS`.
+ *
+ * DAY-4 (DAY.R5, DAY.R7; `docs/plans/2026-11-23-day-mode.md`): right after a map's row, and so under that row's own
+ * filters, each of its variants' rows that `variantOffered` names (`variantRows`) -- a departure the owner ruled
+ * (NXS.R4), drawn in the original's row shape. Absent, none: a caller that lists maps, not CREATE GAME's rows (the
+ * loadout editor's `missionRowsOf`), is unchanged; `GetAvailableMPMissions` hands `acceptedVariant` or the all-maps word.
  */
-export function availableMissionRows(missions: readonly MissionRecord[], o: { respawn: boolean; present?: (n: number) => boolean; offered?: (n: number) => boolean }): UiVarValue[] {
+export function availableMissionRows(missions: readonly MissionRecord[], o: {
+  respawn: boolean; present?: (n: number) => boolean; offered?: (n: number) => boolean;
+  /** DAY.R7: a variant listed beside its map (`acceptedVariant`, or every one on the all-maps word); absent, none. */
+  variantOffered?: (n: number, v: MapVariant) => boolean;
+}): UiVarValue[] {
   const offered = o.offered ?? ((n: number) => (FIRST_RELEASE_MAPS as readonly number[]).includes(n));
   const out: UiVarValue[] = [];
   if (!o.respawn) for (const r of [PLAY_LIST_MEDLEY, PLAY_LIST_RANDOM]) if (offered(r.number)) out.push(missionRow(r.number, r.name));
   for (const m of missions) {
     if (!m.multiplayer || (o.respawn && m.type !== SUPPRESSION_TYPE) || !(o.present?.(m.number) ?? true) || !offered(m.number)) continue;
     out.push(missionRow(m.number, m.name));
+    out.push(...variantRows(m.number, o.variantOffered));                // DAY-4: kept apart from the filters above
   }
   return out;
+}
+
+/**
+ * DAY-4 (DAY.R5): a listed map's variant rows, in `MAP_VARIANTS`' order: each in the original's row shape
+ * (`missionRow`, `FUN_00274940` D:L121538-121547), its name `variantName` -- the map's name in the disc's caps and the
+ * table's word (`[5, 'ABANDONED (DAY)']`) -- for each variant `offered` names; none without it.
+ */
+function variantRows(number: number, offered?: (n: number, v: MapVariant) => boolean): UiVarValue[] {
+  if (!offered) return [];
+  return MAP_VARIANTS.filter((v) => v.level === number && offered(number, v.variant)).map((v) => missionRow(number, variantName(number, v.variant)!));
+}
+
+/** DAY.R7: a variant in the release's offer -- the table's `accepted` (DAY-R1: MP5 day); a pair off the table never. */
+export function acceptedVariant(number: number, variant: MapVariant): boolean {
+  return mapVariant(number, variant)?.accepted === true;
 }
 
 /** PLAYLISTVAR's map numbers (`accept_play_list`'s `GetContents`: each row [number, name]). */
@@ -222,6 +255,21 @@ export function playListNumbers(v: UiVarValue | undefined): number[] {
   });
 }
 
+/**
+ * DAY-4 (DAY.R5): PLAYLISTVAR's variant positions, 0-based -- the rows whose name is a variant's name for their own
+ * number (`variantName`, `MAP_VARIANTS`); the variant is read back from the selected row's name, so the row keeps the
+ * original's [number, name] shape and `playListNumbers` (GameStats' map bytes) is unchanged.
+ */
+export function playListVariants(v: UiVarValue | undefined): number[] {
+  if (!v || v.type !== 'array') return [];
+  return v.value.flatMap((row, i) => {
+    if (row.type !== 'array') return [];
+    const [n, name] = row.value;
+    if (n?.type !== 'int' || name?.type !== 'string') return [];
+    return MAP_VARIANTS.some((x) => x.level === n.value && variantName(n.value, x.variant) === name.value) ? [i] : [];
+  });
+}
+
 // ---- CREATE (ONL-13) ----
 
 /** CreateGame1's fields as `FUN_002edda0` fills them (D:L190525-190578): SVC-06's `CreateGameRequest`. */
@@ -229,6 +277,11 @@ export interface CreateGameRequest {
   applicationId: number; minPlayers: number; maxPlayers: number; gameLevel: number; gameName: string; gamePassword: string;
   spectatorPassword: string; playerSkillLevel: number; rulesSet: number; genericField1: number; genericField2: number;
   genericField3: number; gameHostType: number;
+  /**
+   * DAY-4 (DAY.R5): the play list's variant positions (`playListVariants`), 0-based; present only when non-empty. Not
+   * one of CreateGame1's fields: an additive field of our own create body (product track's wire, DAY.R1).
+   */
+  variants?: number[];
 }
 /** The 0x1e reply cbCreateGame reads (`FUN_002ee090`): the status +0x18, the world id +0x1c. */
 export interface CreateGameReply { status: number; mediusWorldId: number; /** LINK-1: the share id, when the server sent one. */ lobbyId?: string }
@@ -422,7 +475,8 @@ export class CreateGameCommands {
     // OT.R58: the four among the offer, unless the server's all-maps word (BAM.R4) lists its whole offer.
     const all = this.o.allMaps?.() === true;
     const offered = offer ? (n: number) => (all || (FIRST_RELEASE_MAPS as readonly number[]).includes(n)) && offer.includes(n) : undefined;
-    const rows = availableMissionRows(this.o.missions?.() ?? [], { respawn: this.valve('mp_allow_respawn') === 1, present: this.o.present, offered });
+    const variantOffered = offer && all ? () => true : acceptedVariant; // DAY.R7: the all-maps word (with an offer) lists every variant
+    const rows = availableMissionRows(this.o.missions?.() ?? [], { respawn: this.valve('mp_allow_respawn') === 1, present: this.o.present, offered, variantOffered });
     vars.set(vars.add(cmd.arg, null, 1), A(rows));
     return this.answer('GetAvailableMPMissions', cmd, true);
   };
@@ -477,7 +531,8 @@ export class CreateGameCommands {
     const valves = this.o.valves();
     valves.set('mp_persistent', 0, VALVE_TYPE.PERM);
     valves.set('mp_game_sort_order', CREATED_GAME_SORT_ORDER, VALVE_TYPE.PERM);
-    const req = this.request(gameName);
+    const variants = playListVariants(vars.find('PLAYLISTVAR')?.value);   // DAY-4 (DAY.R5): only when non-empty
+    const req = variants.length > 0 ? { ...this.request(gameName), variants } : this.request(gameName);
     const seq = ++this.seq;
     this.o.service?.createGame(req).then((r) => { if (seq === this.seq) this.reply(r, req); }, () => { /* never answered */ });
     return this.answer('CreateMPGame', cmd, true);

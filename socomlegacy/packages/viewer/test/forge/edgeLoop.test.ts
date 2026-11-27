@@ -4,7 +4,7 @@ import { box, plane, sphere, type PrimitiveOptions } from '../../src/forge/geome
 import { edgeLoop, edgeRing } from '../../src/forge/geometry/selection';
 
 /**
- * Loop and ring select (`src/forge/geometry/selection` `edgeLoop`, `edgeRing`; a browser adaptation, the owner
+ * Loop and ring select (`src/forge/geometry/selection` `edgeLoop`, `edgeRing`; a browser adaptation, the Forge's owner (crispy, OT.R112),
  * 2026-11-18): a loop carries straight on through points with an even number of edges -- a grid's four, a sphere's
  * pole -- (along a border, the border; where it cannot go on, round the face clicked); a ring steps across four-sided
  * faces to the opposite edge.
@@ -45,7 +45,7 @@ describe('edge loop and ring', () => {
     expect(edgeLoop(b, bf, vertical.a, vertical.b)).toHaveLength(4);
   });
 
-  it('loops a sphere\'s meridian the full circle, through both poles (the owner, 2026-11-18)', () => {
+  it('loops a sphere\'s meridian the full circle, through both poles (the Forge\'s owner (crispy, OT.R112), 2026-11-18)', () => {
     const s = sphere([0, 0, 0], 10, 12, 8, OPTS);
     const sf = liveFaces(s);
     const p = (v: number): number[] => [s.verts[v * 3]!, s.verts[v * 3 + 1]!, s.verts[v * 3 + 2]!];
@@ -55,7 +55,7 @@ describe('edge loop and ring', () => {
     for (const k of loop) for (const v of edgeOfKey(k)) expect(Math.abs(p(v)[2]!)).toBeLessThan(1e-6);
   });
 
-  it('loops a box edge round the face it was double-clicked on, where no loop goes on (the owner, 2026-11-18)', () => {
+  it('loops a box edge round the face it was double-clicked on, where no loop goes on (the Forge\'s owner (crispy, OT.R112), 2026-11-18)', () => {
     const b = box([0, 0, 0], [1, 1, 1], OPTS);
     const bf = liveFaces(b);
     const em = edgeMap(b, bf);

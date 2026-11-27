@@ -1,5 +1,6 @@
-import { GAME_FRAME_DT, SEAL_TUNING, type Grid, type WeaponRecord, type WeaponStance, type WeaponStanceName } from '@s2u/scene';
-import { Accuracy, lookRates, tangentPerPixel, type AccuracyInput, type AccuracySave, type Cone, type ItemReticle } from '../accuracy';
+import { GAME_FRAME_DT, SEAL_TUNING, segmentHit, surfaceMaterial, UNITS_PER_METRE, type Grid, type SurfaceMaterial, type WeaponRecord, type WeaponStance, type WeaponStanceName } from '@s2u/scene';
+import { Accuracy, depthRatio, lookRates, tangentPerPixel, type AccuracyInput, type AccuracySave, type Cone, type ItemReticle } from '../accuracy';
+import { aimHitKept, aimQueryAdmits } from './aimQuery';
 import {
   CAM_BACK, CAM_FAR, CAM_MARGIN, cameraPass, isPeekCameraSurface, LEAD_DOWN, LEAD_PROBE, localCamera, lookHeight, newPassState, proneEyeTerms, scopeEye, toWorld,
 } from '../cameraRig';
@@ -8,6 +9,7 @@ import { ACTION_SECONDS, isCameraClassSurface, rootY, SCOPED_STICK, type Stance 
 import type { PlayingMotion } from './fireCapability';
 import type { GateTop } from './actionGate';
 import { Button, TICK_HZ, type Command } from './protocol';
+import type { HitBody } from './hitVolumes';
 import { shortTurn, wrapYaw } from '../yaw';
 
 /**
@@ -33,6 +35,13 @@ import { shortTurn, wrapYaw } from '../yaw';
  *    anywhere inside the sway's limits (not the sway's point: `CONE_SWAY_BOX_ADAPTATION`).
  * 3. **The round goes where the eye aimed.** The round's segment passes through the eye's ray ahead of both (the page
  *    aims the muzzle at the point the eye's ray meets: `./fire` `tryFire`).
+ *
+ * LATER 1141 (protocol 19; research 441): a round that leaves a muzzle names its aim point `at` and its `aim` is the bare
+ * look. The cone is then the original's at the firepoint (`FUN_005aa6e0`, `FUN_00592260`: the round's `dir` about the line
+ * `from` -> `at`, the offsets x 1 / f, `FUN_005bd100`), f the depth ratio from the claim (`claimDepth`), which the room's
+ * kit also caps the climb by (`round`). What the room checks of `at` -- on the look within `AT_SLACK_ADAPTATION`, no
+ * farther than its own first hit along it, the look itself bare -- is a BROWSER ADAPTATION (our wire, our anti-cheat), in
+ * place of 2's aim cone and of 3 for such a round. A round without `at` (the eye's own) is judged by 1-3 as before.
  *
  * The tolerances, each named: the page draws between two ticks and its mouse look runs a frame ahead of the command
  * (so the look may be any blend of the ticks before, at and after the round's command); the page's bloom runs on its
@@ -99,11 +108,18 @@ export const JUMP_AIM_ROOT_BODIES_READING: 'crouched' | 'every' = 'crouched';
  * room's snapshot of the body, HIT-POSE's A = B), the page's own `Play` animator (`setPosedRoot`) -- for a crouched body
  * in the jump action, or whose posed root stands above the crouch root (`rootY('crouch')`; the crouch idles pose at or
  * under it: 5.5039, 5.0313, 4.7070, so a still crouch is today's). The root is the clips' own, so the eye rises only as
- * far as their root plus the slack (`seal_jump`'s 15.08 at most). Else null (the stance's measured root stands in);
- * `posed` null or not finite (no motion, no poser): null.
+ * far as their root plus the slack (`seal_jump`'s 15.08 at most). A PRONE body (LATER 661, 2026-11-18; reading, pending
+ * review) takes the posed root whatever it plays: `FUN_0029a950` (D:L142448-142487) reads the skeleton root's posed height
+ * (`FUN_002869d0` on the actor's root node) for every stance, so the crawl's 2.289 and the strafes' 1.602 / 1.863 stand
+ * the eye where the page's camera stands it (`WalkMode.setPosedRoot`), not on `PRONE_ROOT` 2.168 (up to 0.566 u off).
+ * Else null (the stance's measured root stands in); `posed` null or not finite (no motion, no poser): null.
  */
 export function aimRoot(moveRoot: number | null, body: { action: string | null; posture: Stance }, posed: () => number | null): number | null {
   if (moveRoot !== null) return moveRoot;
+  if (body.posture === 'prone') {                                // LATER 661: FUN_0029a950 stands the eye on the posed root
+    const r = posed();
+    return r !== null && Number.isFinite(r) ? r : null;
+  }
   const crouched = body.posture === 'crouch';
   if (!crouched && !(JUMP_AIM_ROOT_BODIES_READING === 'every' && body.action === 'jump')) return null;
   const r = posed();
@@ -213,6 +229,27 @@ const DEG = Math.PI / 180;
 export const CONE_SCOPE_LEVEL_READING = "the scope's least magnification: the command carries no level" as const;
 
 /**
+ * ROOM_SCOPED_ROUND_CAP_ADAPTATION (AS-34, the fresh review's F4; an adaptation, the room's trust -- the game has no
+ * server): the camera scale the room's cone caps a scoped command's round by. The page's `Accuracy.round` caps the knock at
+ * `ReticuleKnockMax` x the running magnification (`cam+0x474`, `FUN_005c3360` D:L477762-477795;
+ * `SCOPED_SECOND_ROUND_CAP_SCALE_READING`), at most the scope's level; the command carries the scope bit, not the level or
+ * the running factor (`CONE_SCOPE_LEVEL_READING`), so the room takes the weapon's greatest `ZoomMode` -- never under the
+ * page's cap on the dropping round, and its box spans the offset to 0, so the page's knock stays inside. Unscoped commands
+ * keep 1. The real bounds (the re-review's N2, N3): the round after the drop carries no Scope bit (scale 1) while the
+ * page's magnification still runs out (about 1.99 at the M4A1 SD's next round), so the room's cap can be the tighter
+ * there -- about 0.5 px on the SD standing, inside the cone's slack (other scoped automatics not computed); and a forged
+ * page that keeps the Scope bit set gets every round from the second at view 5 under the wide cap (the SD's offset toward
+ * -135, about -128 by 30 rounds, against -45), the first unscoped frame's box spanning that offset for one round. Scaling
+ * only the dropping round is the same rule (every scoped round from the second drops). Research 84 s11.
+ */
+export const ROOM_SCOPED_ROUND_CAP_ADAPTATION = "the scope's greatest magnification" as const;
+
+/** `ROOM_SCOPED_ROUND_CAP_ADAPTATION`: the knock's cap scale for a round the room runs at view `zoom` on `weapon`. */
+function roomRoundScale(weapon: WeaponRecord, zoom: number): number {
+  return zoom >= 5 ? Math.max(1, ...weapon.zoomModes.slice(1)) : 1;
+}
+
+/**
  * CONE_SWAY_BOX_ADAPTATION (P13, the online-parity sweep's AR-1; an adaptation -- the room's trust, no original: the game
  * has no server, research 91 §15): a scoped round's claim is checked against the whole box of the sway's limits, never the
  * sway's point. The page's scoped round leaves at the point (`FUN_005bd100` D:L474217-474226: radius 0, the offsets
@@ -233,6 +270,12 @@ export const CONE_SWAY_BOX_ADAPTATION = 'the scoped claim inside the full sway l
 export interface AimMover {
   feet: V3;
   velocity: V3;
+  /**
+   * AS-34 (`STANDING_JUMP_RISE_READING`): the standing jump's root rise (`Walker.carriedAir`'s `rise`, units a second),
+   * added to `velocity`'s y for the bloom's tick alone -- the frame's `velocity` (the reload's and the pickup's reads) stays
+   * the mover's. Absent: 0.
+   */
+  rise?: number;
   airborne: boolean;
   posture: Stance;
   /**
@@ -246,10 +289,22 @@ export interface AimMover {
   /** The peek value (`Traversal.peek`, -1 left .. 1 right). */
   peek: number;
   /**
+   * LATER 1178 (ii): the HELD lean (`Traversal.peeking`, -1, 0 or 1: the body's lean state, the original's state 3) --
+   * not `peek`, the camera's value easing after it. Absent: not leaning.
+   */
+  peeking?: number;
+  /**
    * PRONE-TILT-2 (2): the y of the body's saved floor normal after the command (`Walker.floorNormal`, `+0x1348`), the
    * prone eye's (`FUN_0029ae50` D:L142596; `../cameraRig` `proneEyeTerms`). Absent: flat, 1.
    */
   groundNormalY?: number;
+  /**
+   * LATER 597 (research 86 s6.1; reading, pending review): the posture word `+0x174` is 2 after the command
+   * (`Walker.aimProne`: prone and not in the dive, whose word is 6, r0001 `FUN_0057e540` D:L440898) -- `headPoint`'s eye
+   * takes the prone branch only then (`FUN_0029ae50` D:L142591). Not on the original's wire: each seat derives it from
+   * its own dive. Absent: `posture` alone, as before.
+   */
+  aimProne?: boolean;
   /** The firearm in hand (`MoverSim.weapon`: 0 the rifle, 1 the sidearm). */
   weapon: 0 | 1;
   /** The swap's clip plays after the command (`Walker.swapProgress() !== null`; the room's M-3 gate, review 3 B1). */
@@ -267,6 +322,12 @@ export interface AimMover {
    * body's for every other check. Absent: `posture` (and `stance` for the exertion).
    */
   coneStance?: Stance;
+  /**
+   * SWAPFIRE-CROUCH: the stance in use (`Walker.stanceInUse`, `FUN_0058a720(body, 1)`): the cone's row when not mounted
+   * -- stand while the crouched stop (action 0x11) plays forward. Absent: the posture. The eye and the exertion keep
+   * `posture` and `stance`.
+   */
+  stanceInUse?: Stance;
   /** LATER 107: the turret the body held after the command (`room.ts` `Player.mounted`), or null. Absent: none. */
   turret?: number | null;
   /** LATER 220: the walker's terms of the prompts' common gate after the command (`Walker.gateTop`). Absent: none. */
@@ -295,8 +356,12 @@ export interface AimFrame {
   posture: Stance;
   moveRoot: number | null;
   peek: number;
+  /** LATER 1178 (ii): the held lean at the command (`Traversal.peeking`); 0 when not given. */
+  peeking: number;
   /** PRONE-TILT-2 (2): the y of the body's saved floor normal after the command (`AimMover.groundNormalY`). Absent: 1. */
   groundNormalY?: number;
+  /** LATER 597: the posture word 2 after the command (`AimMover.aimProne`); false through the dive. Absent: `posture` alone. */
+  aimProne?: boolean;
   weapon: 0 | 1;
   /**
    * The swap's clip plays after the command (`AimMover.swapping`): a round or a reload at it is refused (M-3 of review
@@ -313,6 +378,8 @@ export interface AimFrame {
   fire: boolean;
   /** TURRET-CONE: the stance row the cone ran at this command (`AimMover.coneStance`, else the posture). Absent: the posture. */
   coneStance?: Stance;
+  /** SWAPFIRE-CROUCH: the stance in use at this command (`AimMover.stanceInUse`). Absent: the posture. */
+  stanceInUse?: Stance;
   /**
    * ROOM-HAND (LATER 652): the item the kit's tick ran on at this command (`ShotCone.setItem`), or null / absent for the
    * firearm: `coneBox`'s slack takes the item's knock return on its frames, as the tick did (`FUN_005c2670`, research 321 s3.4).
@@ -344,12 +411,107 @@ export interface AimFrame {
   rootSlack: number;
 }
 
-/** What a round claims: where its eye's ray left from and along what, and the round's own segment. */
-export interface ShotClaim { eye: readonly number[]; aim: readonly number[]; from: readonly number[]; dir: readonly number[] }
+/**
+ * What a round claims: where its eye's ray left from and along what, and the round's own segment. LATER 1141 (protocol
+ * 19): `at`, the aim point P1 on the eye's bare look the round's cone was rolled toward (`../fire`); absent, the eye's
+ * own round, judged as before 19.
+ */
+export interface ShotClaim { eye: readonly number[]; aim: readonly number[]; from: readonly number[]; dir: readonly number[]; at?: readonly number[] }
 
-export type ShotVerdict = null | 'stale' | 'eye' | 'cone' | 'bind';
+/** `'at'` (LATER 1141): the claim's aim point is off its look, behind the eye, or past the room's first hit along it. */
+export type ShotVerdict = null | 'stale' | 'eye' | 'cone' | 'bind' | 'at';
+
+/**
+ * LATER 1141 (protocol 19; a BROWSER ADAPTATION -- our wire and our anti-cheat, no original): units the claimed aim point
+ * `at` may stand off the claimed look's line, and short of the room's first kept hit along it, and still be the page's.
+ * Basis (research 441, "the room's checks"): the page puts `at` ON its look -- `eye + look x t`, t the eye ray's hit, a
+ * body's distance or its reach (`../fire` `ray`) -- and sends `eye`, `aim` and `at` as JSON doubles, so the two stand
+ * apart by rounding alone (~1e-12 at these sizes); the room's first hit is the page's own query (`aimQueryAdmits` 'eye'
+ * with `aimHitKept`, the map's materials) on the same hull, met at the same point to rounding. A twentieth of a unit
+ * is far above both and far below anything a moved aim point gains.
+ */
+export const AT_SLACK_ADAPTATION = 0.05;
+
+/**
+ * LATER 1141, the main controller's ruling on the review's F2 (a product-track call, logged for the owner; a BROWSER
+ * ADAPTATION -- our anti-cheat, no original): units a body's capsule (another player's or a targetable hostage's, as it
+ * stood at the round's rewound tick: `room.ts`, the full review's M1; the hit test's volumes, S-1 (a): `bodyPointDistance`) may stand from a claimed `at`
+ * that lies nearer than the room's own hull along the look, and still vouch for it as a body under the reticle. 12 u:
+ * the main controller's ruling on the full review's S1 (2026-11-18, logged for the owner; was 30 u, 65 u/s over the 400 ms
+ * rewind ceiling plus the slack, before the bodies were rewound). Basis (research 441 s7): the root's pose slack
+ * (`ROOT_POSE_SLACK_PLACEHOLDER`, 4) + about 1 u of the history's tick quantisation + about 7 u of drift for a view up to
+ * about 100 ms past the seat's rewind cap at the standing run's 65 u/s (W2.R2, the clips' `maxVelocity` 65); a seat lagging
+ * further already loses the rewind's fidelity. An `at` no body vouches for is clamped to the hull (`ShotCone.aimPoint`).
+ */
+export const AT_BODY_REACH_ADAPTATION = ROOT_POSE_SLACK_PLACEHOLDER + 1 + 7;
+
+/**
+ * LATER 1141, the re-review of F2 (finding 1; a browser adaptation): the nearest the page's eye ray can end with nothing
+ * on it -- its reach is `min(max(range, 600), MID + the view state's extension)` (`FUN_005aa6e0` D:L464097-464114,
+ * `../fire` `aimReach`, `cameraAimCap`), and the smallest MID on the disc is 550 (MP5, MP82; research 232 s8). The room has
+ * no map camera, so an `at` at or past this along the look -- or past the hull's hit, if that is nearer -- is the page's
+ * own reach and stands without a body (`ShotCone.aimPoint`); its f is then at least (550 - d_fire) / 550 (0.93 at the
+ * port's 39.4), so a forged `at` there widens nothing worth having.
+ */
+export const AT_OPEN_REACH_ADAPTATION = 550;
+
+/**
+ * A body the room knows for `at`'s check (`ShotCone.setBodies`): the hit test's own volumes, as the room builds them at the
+ * round's rewound tick (`room.ts`: the posed bone boxes, or the stance's set with its lean and tilt; the placeholder's
+ * capsules without a skeleton) -- the controller's ruling (a) on the delta re-review's S-1.
+ */
+export type AtBody = HitBody;
+
+/**
+ * The distance from a world point to a body's volumes (LATER 1141, S-1 (a)): to the nearest of its bone boxes -- the point
+ * taken into each bone's frame (`rayBoneBox`'s inverse: the body frame at the feet and yaw, then the bone's matrix undone),
+ * clamped to the box, and measured back in the body frame -- or, without a skeleton, to the nearest placeholder capsule's
+ * surface. 0 inside. An empty box (min = max on every axis: `skel_root`, `aimnodes`, the scuba `spinelo`), which the hit test
+ * can never enter (`hitVolumes.ts` `entry`), vouches for nothing (the delta re-read's finding 4).
+ */
+export function bodyPointDistance(p: readonly number[], body: HitBody): number {
+  if (body.caps) {
+    let best = Infinity;
+    for (const c of body.caps) best = Math.min(best, pointSegment(p, c.a, c.b) - c.r);
+    return Math.max(best, 0);
+  }
+  if (!body.boxes) return Infinity;
+  const r = (body.yaw * Math.PI) / 180, c = Math.cos(r), s = Math.sin(r);
+  const ex = p[0]! - body.feet[0]!, ez = p[2]! - body.feet[2]!;
+  const px = ex * c - ez * s, py = p[1]! - body.feet[1]!, pz = ex * s + ez * c;
+  let best = Infinity;
+  for (const b of body.boxes) {
+    const w = b.w, k = b.box;
+    if (k[0] === k[3] && k[1] === k[4] && k[2] === k[5]) continue;   // an empty box: never struck
+    const bx = px - w[12]!, by = py - w[13]!, bz = pz - w[14]!;
+    const a = w[0]!, bb = w[4]!, cc = w[8]!, dd = w[1]!, e = w[5]!, f = w[9]!, g = w[2]!, h = w[6]!, i = w[10]!;
+    const A = e * i - f * h, B = -(dd * i - f * g), C = dd * h - e * g;
+    const det = a * A + bb * B + cc * C;
+    if (det === 0) continue;
+    const D = -(bb * i - cc * h), E = a * i - cc * g, F = -(a * h - bb * g);
+    const G = bb * f - cc * e, H = -(a * f - cc * dd), I = a * e - bb * dd;
+    const inv = 1 / det;
+    const lx = (A * bx + D * by + G * bz) * inv, ly = (B * bx + E * by + H * bz) * inv, lz = (C * bx + F * by + I * bz) * inv;
+    const qx = Math.min(Math.max(lx, k[0]!), k[3]!), qy = Math.min(Math.max(ly, k[1]!), k[4]!), qz = Math.min(Math.max(lz, k[2]!), k[5]!);
+    const wx = a * qx + bb * qy + cc * qz, wy = dd * qx + e * qy + f * qz, wz = g * qx + h * qy + i * qz;
+    best = Math.min(best, Math.hypot(bx - wx, by - wy, bz - wz));
+  }
+  return best;
+}
+
+/**
+ * LATER 1141 (research 441; reading, pending review): the depth ratio f a claim's round was rolled with -- `depthRatio`
+ * from the claimed eye along its bare look, P1 the claimed `at`, P2 the round's `from` (the firepoint) -- the value the
+ * page's gun took (`../fire` `ray`) and the room's cone takes (`ShotCone.check`, `ShotCone.round`). Undefined for a claim
+ * without `at` (the eye's own round: f taken as 1); null where P1 = P2 (f not applied).
+ */
+export function claimDepth(claim: ShotClaim): number | null | undefined {
+  if (!claim.at) return undefined;
+  return depthRatio(v3(claim.eye), unit(claim.aim), v3(claim.at), v3(claim.from));
+}
 
 // ---- small vectors ----
+function v3(a: readonly number[]): V3 { return [a[0]!, a[1]!, a[2]!]; }
 const sub = (a: readonly number[], b: readonly number[]): V3 => [a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!];
 const add = (a: readonly number[], b: readonly number[]): V3 => [a[0]! + b[0]!, a[1]! + b[1]!, a[2]! + b[2]!];
 const scale = (a: readonly number[], k: number): V3 => [a[0]! * k, a[1]! * k, a[2]! * k];
@@ -517,7 +679,8 @@ interface ConeRun {
   scope: 'enter' | 'leave' | null;
   input: AccuracyInput;
   after: AccuracySave;
-  rounds: { weapon: WeaponRecord; zoom: number; stance: WeaponStanceName }[];
+  /** LATER 1141: each round's depth ratio (`claimDepth`), its climb's cap x f when bloomed again (`replay`). */
+  rounds: { weapon: WeaponRecord; zoom: number; stance: WeaponStanceName; depth?: number | null }[];
   /**
    * LATER 233: a round named on this command dropped the scope (`Accuracy.round`'s `dropZoom`: a pull's second round or
    * later in a scope, `FUN_005c5340` D:L479399-479404), so the Scope bit gone on the next command is that drop -- the set
@@ -542,6 +705,20 @@ export class ShotCone {
   private changed = { at: -Infinity, span: 0, ticks: 0 };
   /** LATER 305: the map's hull the room reproduces a claimed eye on (`aimFits`); null, the far-point rule alone. */
   private grid: Grid | null = null;
+  /** LATER 1141 (F2): the bodies that may vouch, the hit test's volumes at the round's rewound tick (`setBodies`), for `aimPoint`. */
+  private bodies: readonly AtBody[] = [];
+  /**
+   * LATER 1141: the map's default material for the aim point's hull test (`aimHitKept` over `surfaceMaterial`); null,
+   * every material kept. Held as the value, not a function: a cone is state two rooms on the same commands must hold
+   * equal (roomViewWire.test.ts's hostile-view test, PV.R4), and a closure made at each round is never equal to another.
+   */
+  private defaultMaterial: string | null = null;
+
+  /** The material lookup `aimHitKept` takes, from `defaultMaterial`. */
+  private materialOf(): ((material: number) => SurfaceMaterial) | null {
+    const d = this.defaultMaterial;
+    return d === null ? null : (m) => surfaceMaterial(m, d);
+  }
   /** ROOM-HAND (LATER 652): the item in the hand for the next command (`setItem`), null for the firearm. */
   private item: ItemReticle | null = null;
 
@@ -566,8 +743,14 @@ export class ShotCone {
    * that has moved since the claim was made (a door, #337's cranes) can only send that claim to the far-point rule: the
    * eye it reproduces is a real camera's on the hull as it stands, never one a page chose.
    */
-  setGrid(grid: Grid | null): void {
+  /** LATER 1141 (F2): the bodies that may vouch -- the hit test's volumes at the round's rewound tick (M1, S-1 (a)) -- for `aimPoint`. */
+  setBodies(bodies: readonly AtBody[]): void {
+    this.bodies = bodies;
+  }
+
+  setGrid(grid: Grid | null, defaultMaterial: string | null = null): void {
     this.grid = grid;
+    this.defaultMaterial = defaultMaterial;
   }
 
   /**
@@ -627,9 +810,10 @@ export class ShotCone {
       : { yawRate: 0, pitchRate: 0 };
     this.last = { yaw: cmd.yaw, pitch: cmd.pitch };
     const slow = scoped ? SCOPED_STICK : 1;
-    const row = m.coneStance ?? m.posture;                         // TURRET-CONE: mounted, the turret record's row
+    const row = m.coneStance ?? m.stanceInUse ?? m.posture;                         // TURRET-CONE: mounted, the turret record's row
     const input: AccuracyInput = {
-      stance: row, rawStance: m.coneStance ?? m.stance ?? m.posture, velocity: m.velocity, airborne: m.airborne, yawRate, pitchRate, zoomState: scoped ? 5 : 0,
+      stance: row, rawStance: m.coneStance ?? m.stance ?? m.posture, airborne: m.airborne, yawRate, pitchRate, zoomState: scoped ? 5 : 0,
+      velocity: m.rise ? [m.velocity[0], m.velocity[1] + m.rise, m.velocity[2]] : m.velocity,   // AS-34: the page's `airBloomFeed`
       sticks: {
         forward: cmd.forward * slow, right: cmd.right * slow,
         turn: yawRate / SEAL_TUNING.turnMaxRate, pitch: pitchStickOf(pitchRate, 1 / (m.lookScale ?? 1)),   // LATER 351, 476
@@ -644,8 +828,8 @@ export class ShotCone {
     const t = tangentPerPixel();
     const limit = this.weapon.stances[row];
     this.frames.push({
-      seq: cmd.seq, count, yaw: cmd.yaw, pitch: cmd.pitch, feet: [...m.feet], velocity: [...m.velocity], airborne: m.airborne, posture: m.posture,
-      moveRoot: m.moveRoot, peek: m.peek, groundNormalY: m.groundNormalY ?? 1, weapon: m.weapon, swapping: m.swapping ?? false, motion: m.motion ?? null, fire: m.fire ?? true, coneStance: row, item: this.item, turret: m.turret ?? null, gate: m.gate ?? null,
+      seq: cmd.seq, count, yaw: cmd.yaw, pitch: cmd.pitch, feet: [...m.feet], velocity: [...m.velocity], airborne: m.airborne, posture: m.posture, ...(m.stanceInUse !== undefined ? { stanceInUse: m.stanceInUse } : {}),
+      moveRoot: m.moveRoot, peek: m.peek, peeking: m.peeking ?? 0, groundNormalY: m.groundNormalY ?? 1, ...(m.aimProne !== undefined ? { aimProne: m.aimProne } : {}), weapon: m.weapon, swapping: m.swapping ?? false, motion: m.motion ?? null, fire: m.fire ?? true, coneStance: row, item: this.item, turret: m.turret ?? null, gate: m.gate ?? null,
       lens, scoped, binoculars: (b & Button.Binoculars) !== 0, cone: this.acc.cone(scoped ? 5 : 0, 1), sway: [limit.swayLimitX * t.x, limit.swayLimitY * t.y],
       rootSlack: ROOT_POSE_SLACK_PLACEHOLDER + (count - this.changed.at <= this.changed.ticks ? this.changed.span : 0),
     });
@@ -709,18 +893,19 @@ export class ShotCone {
    * ordinary round bloomed on the present kit, after the command since -- one tick off the page on every round. The
    * mount's, the release's and LATER 233's leave cases are all such rounds.
    */
-  round(seq: number): void {
+  round(seq: number, depth?: number | null): void {
     const f = this.frame(seq) ?? this.frames[this.frames.length - 1];
-    const zoom = f?.scoped ? 5 : 0, stance: WeaponStanceName = f?.coneStance ?? f?.posture ?? 'stand';
+    const zoom = f?.scoped ? 5 : 0, stance: WeaponStanceName = f?.coneStance ?? f?.stanceInUse ?? f?.posture ?? 'stand';
     const i = f ? this.runs.findIndex((r) => r.seq === f.seq) : -1, at = this.runs[i];
     const since = at !== undefined && i < this.runs.length - 1;       // LATER 248: a command run since the round's own
     if (at && since) {
-      at.rounds.push({ weapon: at.weapon, zoom, stance });
+      at.rounds.push({ weapon: at.weapon, zoom, stance, depth });
       this.replay(i);
       return;
     }
-    const out = this.acc.round(zoom, stance);
-    this.runs[this.runs.length - 1]?.rounds.push({ weapon: this.weapon, zoom, stance });
+    // LATER 1141: the climb's cap x f, f the round's depth ratio (`claimDepth`; `FUN_005c3360` D:L477762-477789).
+    const out = this.acc.round(zoom, stance, undefined, depth, roomRoundScale(this.weapon, zoom));   // AS-34 F4
+    this.runs[this.runs.length - 1]?.rounds.push({ weapon: this.weapon, zoom, stance, depth });
     if (out.dropZoom && at) at.dropped = true;                       // LATER 233: on the round's own command
     const last = this.frames[this.frames.length - 1];                // LATER 934: the pull's next ray's cone
     if (last) last.bloomed = this.acc.cone(last.scoped ? 5 : 0, 1);
@@ -754,7 +939,7 @@ export class ShotCone {
         if (f) f.cone = this.acc.cone(f.scoped ? 5 : 0, 1);
       }
       for (const b of r.rounds) {
-        const out = this.acc.round(b.zoom, b.stance, b.weapon);
+        const out = this.acc.round(b.zoom, b.stance, b.weapon, b.depth, roomRoundScale(b.weapon, b.zoom));   // AS-34 F4
         if (k === i && out.dropZoom) r.dropped = true;                                     // LATER 233
       }
       if (r.rounds.length > 0) {                                                           // LATER 934
@@ -781,9 +966,75 @@ export class ShotCone {
     // The page draws between the tick before and this one, and its look may run up to the next tick.
     const blend = this.frames.slice(Math.max(0, at - 1), at + 2);
     if (!this.eyeFits(blend, claim.eye)) return 'eye';
+    if (claim.at) {
+      // LATER 1141 (protocol 19; the checks a browser adaptation, the cone the original's): the aim point on the look
+      // and not past the hull; the look itself the bare one (the cone empty, the look's slack kept); the round's line
+      // inside the cone about the firepoint-to-aim line, its offsets x 1 / f (`FUN_005bd100`), rolled as `FUN_00592260`.
+      if (!this.atFits(claim.eye, claim.aim, claim.at)) return 'at';
+      if (!this.aimFits(blend, cur, claim, laterRay, true)) return 'cone';
+      // F2: the aim point the room takes -- the claim's where the hull or a live body stands there, else the hull's.
+      const at = this.aimPoint(claim.eye, claim.aim, claim.at);
+      const f = claimDepth({ ...claim, at });
+      const line = sub(at, claim.from);
+      const k = f === null ? 1 : 1 / (f ?? 1);
+      const coords = (): { ab: [number, number]; slack: number } | null => { const ab = coneCoords(line, claim.dir); return ab && { ab, slack: 0 }; };
+      return this.coneFits(blend, cur, coords, false, laterRay, k) ? null : 'cone';
+    }
     if (!this.aimFits(blend, cur, claim, laterRay)) return 'cone';
     if (!bound(claim)) return 'bind';
     return null;
+  }
+
+  /**
+   * LATER 1141: a claim's depth ratio, from the aim point the room takes (`aimPoint`), for the room's bloom of the round
+   * it takes (`round`) -- the same f `check` judges by.
+   */
+  depthOf(claim: ShotClaim): number | null | undefined {
+    const at = claim.at ? this.aimPoint(claim.eye, claim.aim, claim.at) : undefined;
+    return claimDepth(at ? { ...claim, at } : claim);
+  }
+
+  /**
+   * LATER 1141, the main controller's ruling on the review's F2 (a browser adaptation): the aim point the room takes for a
+   * claim's `at` (already on the look, `atFits`). Where the room's reference stands along the look -- its first kept hit,
+   * or with none the weapon's range, and never farther than `AT_OPEN_REACH_ADAPTATION` (the smallest page reach) -- an `at` nearer than it by more than
+   * `AT_SLACK_ADAPTATION` stands only where a body (`setBodies`) has a volume -- a bone box, or without a skeleton a
+   * capsule (`bodyPointDistance`) -- within `AT_BODY_REACH_ADAPTATION` of it: a body under the reticle. Otherwise the room clamps it to the hull's point: a forged `at` in open air (f small, the
+   * cone x 1 / f) buys nothing, while an honest small f -- a wall the hull sees, a body the room knows roughly -- stands.
+   */
+  aimPoint(eye: readonly number[], aim: readonly number[], at: readonly number[]): V3 {
+    const u = unit(aim), t = dot(sub(at, eye), u);
+    // The first kept hit, or with none the weapon's range; then no farther than the smallest page reach (below).
+    const reach = this.weapon.maximumRange * UNITS_PER_METRE;
+    let ref = reach;
+    if (this.grid) {
+      const of = this.materialOf();
+      const hit = segmentHit(this.grid, v3(eye), add(eye, scale(u, reach)), (p) => aimQueryAdmits(p, 'eye') && aimHitKept(p, of));
+      if (hit) ref = hit.t * reach;
+    }
+    // The re-review's F2-1: no nearer than the page's own reach can end (`AT_OPEN_REACH_ADAPTATION`): a capped page's
+    // `at` in open air, or short of a wall past its cap, is its eyeEnd, not a forgery.
+    ref = Math.min(ref, AT_OPEN_REACH_ADAPTATION);
+    if (!(t < ref - AT_SLACK_ADAPTATION)) return v3(at);
+    for (const b of this.bodies) if (bodyPointDistance(at, b) <= AT_BODY_REACH_ADAPTATION) return v3(at);
+    return add(eye, scale(u, ref));
+  }
+
+  /**
+   * LATER 1141 (a browser adaptation): whether the claimed aim point lies on the claimed look from the claimed eye --
+   * ahead of it, within `AT_SLACK_ADAPTATION` of the line -- and no farther along it than the room's first kept hit (the
+   * eye's query, `aimQueryAdmits` 'eye' and `aimHitKept`, as the page's `eyeStops`), less the slack. Nearer is allowed: a
+   * body under the reticle (the room's hull holds none). No hull: the line test alone.
+   */
+  private atFits(eye: readonly number[], aim: readonly number[], at: readonly number[]): boolean {
+    const u = unit(aim), w = sub(at, eye), t = dot(w, u);
+    if (!(t > 0)) return false;
+    if (len(sub(w, scale(u, t))) > AT_SLACK_ADAPTATION) return false;
+    const grid = this.grid;
+    if (!grid || !(t - AT_SLACK_ADAPTATION > 0)) return true;
+    const of = this.materialOf();
+    const hit = segmentHit(grid, v3(eye), add(eye, scale(u, t - AT_SLACK_ADAPTATION)), (p) => aimQueryAdmits(p, 'eye') && aimHitKept(p, of));
+    return !hit;
   }
 
   /**
@@ -800,6 +1051,13 @@ export class ShotCone {
   centring(seq: number, claim: ShotClaim): number | null {
     const f = this.frame(seq);
     if (!f || f.scoped) return null;
+    if (claim.at) {
+      // LATER 1141: a round rolled about the firepoint-to-aim line -- its tangents about that line, the cone's offsets x 1 / f.
+      const at = this.aimPoint(claim.eye, claim.aim, claim.at);
+      const d = claimDepth({ ...claim, at }), k = d === null ? 1 : 1 / (d ?? 1);
+      const ab = coneCoords(sub(at, claim.from), claim.dir);
+      return ab ? centringOf(ab, { offsetX: f.cone.offsetX * k, offsetY: f.cone.offsetY * k, radius: f.cone.radius }) : null;
+    }
     const c = this.coords(f, claim);
     return c ? centringOf(c.ab, f.cone) : null;
   }
@@ -967,10 +1225,10 @@ export class ShotCone {
    * A page in the pass's hold or regrow (its eye not yet where the walls put it) gets the floor's verdict; no hull, the
    * floor alone. A turret's round is not this: `checkLine` casts along the gun's line.
    */
-  private aimFits(blend: AimFrame[], cur: AimFrame, claim: ShotClaim, laterRay = false): boolean {
-    if (this.coneFits(blend, cur, (f) => this.coords(f, claim), false, laterRay)) return true;
+  private aimFits(blend: AimFrame[], cur: AimFrame, claim: ShotClaim, laterRay = false, bare = false): boolean {
+    if (this.coneFits(blend, cur, (f) => this.coords(f, claim), false, laterRay, 1, bare)) return true;
     if (!this.grid || blend.every((f) => f.lens)) return false;
-    const box = this.coneBox(cur, false, laterRay);
+    const box = this.coneBox(cur, false, laterRay, 1, bare);
     return viewLineFits(blend, claim.eye, claim.aim, [box.loX - box.slack, box.hiX + box.slack, box.loY - box.slack, box.hiY + box.slack], this.grid);
   }
 
@@ -979,8 +1237,8 @@ export class ShotCone {
    * frame's line (`coords`) must fall, for some blend of two neighbouring frames, inside the widest cone of the window
    * plus the slack and the line's own.
    */
-  private coneFits(blend: AimFrame[], cur: AimFrame, coords: (f: AimFrame) => { ab: [number, number]; slack: number } | null, unscoped = false, laterRay = false): boolean {
-    const { loX, hiX, loY, hiY, slack } = this.coneBox(cur, unscoped, laterRay);
+  private coneFits(blend: AimFrame[], cur: AimFrame, coords: (f: AimFrame) => { ab: [number, number]; slack: number } | null, unscoped = false, laterRay = false, k = 1, bare = false): boolean {
+    const { loX, hiX, loY, hiY, slack } = this.coneBox(cur, unscoped, laterRay, k, bare);
     // The look may be any blend of two neighbouring frames': the tangents move (near enough) straight between theirs.
     const pairs = blend.length === 1 ? [[blend[0]!, blend[0]!]] : blend.slice(1).map((b, i) => [blend[i]!, b]);
     for (const [a, b] of pairs) {
@@ -993,8 +1251,12 @@ export class ShotCone {
     return false;
   }
 
-  /** The widest cone of the window about `cur` (tangents) and the slack's tangent (`coneFits`, `aimFits`). */
-  private coneBox(cur: AimFrame, unscoped: boolean, laterRay = false): { loX: number; hiX: number; loY: number; hiY: number; slack: number } {
+  /**
+   * The widest cone of the window about `cur` (tangents) and the slack's tangent (`coneFits`, `aimFits`). LATER 1141: `k`
+   * scales the offsets and the sway (`FUN_005bd100`'s fVar9 = 1 / (scale x f): the frames hold scale 1), never the radius;
+   * `bare`, the cone of a bare look -- no offset and no radius, the slack alone.
+   */
+  private coneBox(cur: AimFrame, unscoped: boolean, laterRay = false, k = 1, bare = false): { loX: number; hiX: number; loY: number; hiY: number; slack: number } {
     // The cone the page may have had: every frame of the window, its offset (a zoom divides it toward 0) and radius.
     // `unscoped` (`checkLine`, TURRET-CONE's re-review R1): a scoped frame is skipped -- the rifle's, before the mount.
     let loX = 0, hiX = 0, loY = 0, hiY = 0, slackPx = CONE_SLACK_PX_PLACEHOLDER;
@@ -1002,17 +1264,18 @@ export class ShotCone {
       if (f.seq > cur.seq || f.seq < cur.seq - CONE_WINDOW_PLACEHOLDER) continue;
       if (unscoped && f.scoped) continue;
       // ROOM-HAND (LATER 652): an item frame's knock returned at the item's own rate (`setItem`): its slack is the item's.
-      slackPx = Math.max(slackPx, coneSlackPx((f.item ?? this.weapon).stances[f.coneStance ?? f.posture]));
+      slackPx = Math.max(slackPx, coneSlackPx((f.item ?? this.weapon).stances[f.coneStance ?? f.stanceInUse ?? f.posture]));
+      if (bare) continue;
       if (f.scoped) {
-        loX = Math.min(loX, -f.sway[0]); hiX = Math.max(hiX, f.sway[0]);
-        loY = Math.min(loY, -f.sway[1]); hiY = Math.max(hiY, f.sway[1]);
+        loX = Math.min(loX, -f.sway[0] * k); hiX = Math.max(hiX, f.sway[0] * k);
+        loY = Math.min(loY, -f.sway[1] * k); hiY = Math.max(hiY, f.sway[1] * k);
       } else {
         // SHOTGUN-PELLET-CONE (LATER 934): for a pull's later ray (`laterRay`), at the round's own command, the cone
         // the pull's rays already taken there bloomed too -- it leaves by it (`FUN_005be9a0` D:L475604 ->
         // `FUN_005c5340` -> `FUN_005c3360` D:L479542, between the pellets' draws). The first ray, and any other
         // round (a traded one judged on the last alive command's frame among them), takes the frame's cone alone.
         for (const c of laterRay && f.seq === cur.seq && f.bloomed ? [f.cone, f.bloomed] : [f.cone]) {
-          const { offsetX: x, offsetY: y, radius: r } = c;
+          const { radius: r } = c, x = c.offsetX * k, y = c.offsetY * k;
           loX = Math.min(loX, x - r); hiX = Math.max(hiX, x + r);
           loY = Math.min(loY, y - r); hiY = Math.max(hiY, y + r);
         }
@@ -1191,10 +1454,24 @@ function convexHull(pts: readonly (readonly [number, number])[]): (readonly [num
  * 4.9 ahead) on the move's root or the stance's, shifted across by the peek -- the page's view from the head (`./walk`
  * `follow`, which stands it on the posed root: `ROOT_POSE_SLACK_PLACEHOLDER` covers the difference), the eye the cone
  * checks a scoped round's against, and the point the room measures every start from (SVC-23b: `room.ts`
- * `START_REACH_PLACEHOLDER`, research 169 §7 measure 5 (b)).
+ * `START_REACH_PLACEHOLDER`, research 169 §7 measure 5 (b)). LATER 597: `aimProne` false (the dive's word 6) takes the
+ * standing branch on a prone body (`FUN_0029ae50` D:L142591); absent, the posture's.
  */
-export function headPoint(b: Pick<AimFrame, 'feet' | 'yaw' | 'posture' | 'moveRoot' | 'peek' | 'groundNormalY'>): V3 {
-  return toWorld(b.feet, b.yaw, scopeEye(b.posture, b.moveRoot ?? rootY(b.posture), b.peek, proneEyeTerms(b.groundNormalY ?? 1)));
+export function headPoint(b: Pick<AimFrame, 'feet' | 'yaw' | 'posture' | 'moveRoot' | 'peek' | 'groundNormalY' | 'aimProne'> & { pitch?: number }): V3 {
+  // LATER 597: prone with the word not 2 (the dive) -- the standing branch of the eye, on the same root.
+  const eyeStance = b.posture === 'prone' && b.aimProne === false ? 'stand' : b.posture;
+  // PRONE_EYE_LOOK: the aim pick leaves from the raised eye (r0004 0x29b14c, D:L142025-142028): the body's pitch; absent, level.
+  return toWorld(b.feet, b.yaw, scopeEye(eyeStance, b.moveRoot ?? rootY(b.posture), b.peek, proneEyeTerms(b.groundNormalY ?? 1, b.pitch ?? 0)));
+}
+
+/**
+ * LATER 1139 (research 440 s8.3; `./equipment` `C4_HIP_POINT_READING`): the hip C4's reach is measured from -- the
+ * original's `skel_root` (`body+0x208` = |aimed point - skel_root|^2, `FUN_00215c10`, research 202 s2.1) stood straight
+ * over the feet at the move's root, else the stance's root height, as `headPoint` stands it. The page (`../grenade`
+ * `c4Pick`) and the room (`room.ts` `placeCharge`) call this one function on the same body.
+ */
+export function hipPoint(b: Pick<AimFrame, 'feet' | 'yaw' | 'posture' | 'moveRoot'>): V3 {
+  return toWorld(b.feet, b.yaw, [0, b.moveRoot ?? rootY(b.posture), 0]);
 }
 
 /** A body as the camera reads it: its feet, its look (degrees), its stance and the move's root, its peek. */
@@ -1232,7 +1509,7 @@ export function faceToward(b: Omit<CameraBody, 'yaw' | 'pitch'>, point: readonly
  * A round down the cone's centre, as a page in the open sends it: the eye's ray from `cameraLook`, the round from
  * `from` (the muzzle) to the point `t` along that ray.
  */
-export function centreClaim(b: CameraBody, from: readonly number[], t: number): ShotClaim & { eye: V3; aim: V3; from: V3; dir: V3 } {
+export function centreClaim(b: CameraBody, from: readonly number[], t: number): { eye: V3; aim: V3; from: V3; dir: V3 } {
   const { eye, look } = cameraLook(b);
   const point = add(eye, scale(look, t));
   return { eye, aim: look, from: [from[0]!, from[1]!, from[2]!], dir: unit(sub(point, from)) };

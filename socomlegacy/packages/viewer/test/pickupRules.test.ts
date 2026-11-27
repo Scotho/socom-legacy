@@ -2,77 +2,77 @@ import { describe, expect, it } from 'vitest';
 import { CLAYMORE, EMPTY_ITEM, FULL_SLOT, ITEM, M67 as M67_RECORD, readKitTable, type KitTable } from '@s2u/scene';
 import { fixture } from '../../archive/test/fixtures';
 import {
-  LAUNCHER_SLOT_KEPT_READING, launcherClaimSlots, launcherListed, launcherOffered, launcherRoundOf, launcherSlotOf, PICKUP_LAUNCHER_READING,
-  PICKUP_LAUNCHER_ROUND_SLOT_PLACEHOLDER, PICKUP_LAUNCHER_ROUNDS_READING, pickupKitOf, type PickupKitSlot,
+  launcherClaimSlots, launcherOffered, launcherRoundOf, launcherSlotOf, PICKUP_LAUNCHER_READING, PICKUP_LAUNCHER_ROUND_SLOT_READING,
+  PICKUP_LAUNCHER_ROUNDS_READING, PICKUP_SPENT_EXEMPT_IDS_READING, pickupKitOf, type PickupKitSlot,
 } from '../src/net/pickupRules';
 
 /**
- * NU-5 L1 (web research 323 R323.5, §1.6, §7 L1; F1 of its review): the rocket launcher's predicate, one function the
- * room (`match/src/pickups.ts`) and the page (`../src/drops`) share -- `FUN_005bac30` (D:L473023-473084): no item of
- * `FUN_003c5d80`'s list (D:L317287-317299) in the kit, and a slot 2-4 free or replaceable by `FUN_005bae60`'s test
- * (D:L473101-473152). A transcription test: the decompilation re-read, nothing run against the original.
+ * R4P-103 (r0004; the reading `docs/atlas/readings/r4p-103-launcher-pickup-placement.md`, agent/spc-atlas dcd314b4bd
+ * (the Q103C re-filing; first filed ab07d4e025), reviewed; the captures Q-103 / Q103B a1e119affd and Q103C dcd314b4bd, the weapons register): a ground LAW or RPG-7 is
+ * placed by `FUN_005a4b70` -> `FUN_005c1990(kit, -1)` (D4:L499279) -- the first of slots 2-4 that is empty (255) or spent
+ * (every round counter <= 0, the id not one of `PICKUP_SPENT_EXEMPT_IDS_READING`'s ten) -- its round appended at the
+ * kit's record count with one round (D4:L499303-499309); offered by `FUN_005c1760` (D4:L514677) unless a launcher
+ * (145-150) is held or no slot qualifies. One function the room (`match/src/pickups.ts`) and the page (`../src/drops`)
+ * share. The kits below are the captures' (ids for slots 0-4; the counters as Q103C read them).
  */
 
 /** A five-slot kit: each slot's item and the rounds its ring holds (0 when absent). */
 const kit = (items: number[], rounds: number[] = []): PickupKitSlot[] => items.map((item, i) => ({ item, rounds: rounds[i] ?? 0 }));
-const M67 = 121, HE = 126, C4 = ITEM.C4, M4A1 = 54, MARK23 = 15;
+const M67 = 121, HE = 126, FLASH = 123, C4 = ITEM.C4, M4A1 = 54, M4A1_SD = 62, MARK23 = 15, MARK23_SD = 16;
 
-describe('NU-5 L1: the rocket launcher offered and claimable (research 323 §1.6, FUN_005bac30)', () => {
-  it("FUN_003c5d80's list: the M203 rifles 52 and 61, the OICW 63, the MGL 142, the M79 143 and every class-0x91 launcher (145-150); not the M203 item 141, a rifle, a pistol, a round", () => {
+describe('R4P-103: the launcher offer (FUN_005c1760 D4:L514677; Q-103)', () => {
+  it('offered to the M203 carrier 61 16 141 175 255 (Q-103) and to every grenade-launcher primary; refused to a kit holding a launcher 145-150 (Q-103: a LAW in hand) or with no slot 2-4 empty or spent', () => {
     expect(PICKUP_LAUNCHER_READING).toBe('claimable with one round, by a kit carrying no launcher');
-    for (const id of [ITEM.M16_203, ITEM.M4_203, ITEM.F2000, ITEM.MGL, ITEM.M79, ITEM.LAW, ITEM.RPG7, 147, 150]) expect(launcherListed(id), String(id)).toBe(true);
-    for (const id of [ITEM.M203, M4A1, MARK23, ITEM.LAW_HEAT, ITEM.RPG_ROUND, M67, EMPTY_ITEM, 144, 151]) expect(launcherListed(id), String(id)).toBe(false);
+    expect(launcherOffered(kit([ITEM.M4_203, MARK23_SD, ITEM.M203, ITEM.M203_FRAG, EMPTY_ITEM], [0, 0, 0, 6]))).toBe(true);
+    for (const p of [ITEM.M16_203, ITEM.M4_203, ITEM.F2000, ITEM.MGL, ITEM.M79]) {
+      expect(launcherOffered(kit([p, MARK23, M67, HE, EMPTY_ITEM], [0, 0, 3, 3])), String(p)).toBe(true);
+    }
+    for (const l of [ITEM.LAW, ITEM.RPG7, 147, 150]) {
+      expect(launcherOffered(kit([M4A1, MARK23, l, ITEM.LAW_HEAT, EMPTY_ITEM], [0, 0, 0, 1])), String(l)).toBe(false);
+    }
+    expect(launcherOffered(kit([M4A1, MARK23, M67, HE, C4], [0, 0, 3, 3, 4]))).toBe(false);      // no slot: every one holds rounds
+    expect(launcherOffered(kit([M4A1, MARK23, M67, HE, C4], [0, 0, 0, 3, 4]))).toBe(true);       // the M67s thrown: spent
   });
 
-  it("FUN_005bae60's slot: the first of 2-4 with an empty ring and an item outside the ten, or holding 0xff -- a spent grenade slot, an empty slot; never slot 0 or 1, never a slot with a round left, never one of the ten", () => {
-    expect([...LAUNCHER_SLOT_KEPT_READING].sort((a, b) => a - b)).toEqual([11, 141, 145, 146, 190, 193, 194, 195, 254, 255]);
-    expect(launcherSlotOf(kit([M4A1, MARK23, M67, HE, EMPTY_ITEM], [0, 0, 3, 3]))).toBe(4);       // the grenades left: the empty slot
-    expect(launcherSlotOf(kit([M4A1, MARK23, M67, HE, EMPTY_ITEM], [0, 0, 0, 3]))).toBe(2);       // the M67s thrown: their slot first
-    expect(launcherSlotOf(kit([M4A1, MARK23, M67, HE, C4], [0, 0, 3, 3, 4]))).toBeNull();         // every slot holding rounds
-    expect(launcherSlotOf(kit([M4A1, MARK23, M67, HE, C4], [0, 0, 3, 0, 4]))).toBe(3);
-    // The ten keep their slot even with an empty ring (the Detonator, the 2X, the Thermal Scope, a cost-2 item's FULL_SLOT).
-    expect(launcherSlotOf(kit([M4A1, MARK23, ITEM.DETONATOR, ITEM.DOUBLE_AMMO, ITEM.THERMAL]))).toBeNull();
-    expect(launcherSlotOf(kit([M4A1, MARK23, ITEM.DETONATOR, FULL_SLOT, EMPTY_ITEM]))).toBe(4);
-    // A round slot spent (an orphan LAW HEAT) is replaceable; with its round left it is not.
-    expect(launcherSlotOf(kit([M4A1, MARK23, ITEM.LAW_HEAT, ITEM.THERMAL, ITEM.DOUBLE_AMMO], [0, 0, 0]))).toBe(2);
-    expect(launcherSlotOf(kit([M4A1, MARK23, ITEM.LAW_HEAT, ITEM.THERMAL, ITEM.DOUBLE_AMMO], [0, 0, 1]))).toBeNull();
-  });
-
-  it('FUN_005bac30: offered to a kit with no launcher-list item and a slot; never to a kit carrying a LAW, an RPG-7, an M203 rifle, the MGL or the M79, a free slot or not; never to a kit with no slot', () => {
-    const free = (primary: number, eq: number[] = [M67, HE, EMPTY_ITEM]): PickupKitSlot[] => kit([primary, MARK23, ...eq], [0, 0, 3, 3]);
-    expect(launcherOffered(free(M4A1))).toBe(true);
-    for (const p of [ITEM.M16_203, ITEM.M4_203, ITEM.F2000, ITEM.MGL, ITEM.M79]) expect(launcherOffered(free(p)), String(p)).toBe(false);
-    expect(launcherOffered(free(M4A1, [ITEM.LAW, ITEM.LAW_HEAT, EMPTY_ITEM]))).toBe(false);       // a LAW carried, a slot free
-    expect(launcherOffered(free(M4A1, [ITEM.RPG7, ITEM.RPG_ROUND, EMPTY_ITEM]))).toBe(false);
-    expect(launcherOffered(kit([M4A1, MARK23, M67, HE, C4], [0, 0, 3, 3, 4]))).toBe(false);      // no slot
-    expect(launcherOffered(kit([M4A1, MARK23, M67, HE, C4], [0, 0, 0, 3, 4]))).toBe(true);       // the M67s thrown
-  });
-
-  it('the claimed launcher arrives with one round (FUN_005ba3d0(kit, slot, 1) D:L458291)', () => {
+  it('the claimed launcher arrives with one round (D4:L499303-499309)', () => {
     expect(PICKUP_LAUNCHER_ROUNDS_READING).toBe(1);
   });
 });
 
-/**
- * NU-5 L1, the port's five slots (`PICKUP_LAUNCHER_ROUND_SLOT_PLACEHOLDER`; the controller's decision (i)): the original
- * installs the round at the kit's count, a slot past the five (D:L458285-458289); the port puts it in the first other
- * empty slot 2-4 and, with none, neither offers nor takes the launcher. RED both ways.
- */
-describe('NU-5 L1: the launcher claim\'s two slots in a five-slot kit (PICKUP_LAUNCHER_ROUND_SLOT_PLACEHOLDER)', () => {
-  it('a slot for the launcher and another empty one for its round: claimable; the launcher\'s slot only: refused (null), though FUN_005bac30 answers', () => {
-    expect(PICKUP_LAUNCHER_ROUND_SLOT_PLACEHOLDER).toBe('the first empty slot 2-4; none: refused');
-    expect(launcherClaimSlots(kit([M4A1, MARK23, M67, EMPTY_ITEM, EMPTY_ITEM], [0, 0, 3]))).toEqual({ launcher: 3, round: 4 });
-    expect(launcherClaimSlots(kit([M4A1, MARK23, M67, EMPTY_ITEM, EMPTY_ITEM], [0, 0, 0]))).toEqual({ launcher: 2, round: 3 });
-    expect(launcherClaimSlots(kit([M4A1, MARK23, M67, HE, EMPTY_ITEM], [0, 0, 0, 3]))).toEqual({ launcher: 2, round: 4 });
-    // One place only: FUN_005bac30 answers (the original would add the round at slot 5), the port refuses.
-    const one = kit([M4A1, MARK23, M67, HE, EMPTY_ITEM], [0, 0, 3, 3]);
-    expect(launcherOffered(one)).toBe(true);
-    expect(launcherClaimSlots(one)).toBeNull();
-    const spent = kit([M4A1, MARK23, M67, HE, C4], [0, 0, 0, 3, 4]);
-    expect(launcherOffered(spent)).toBe(true);
-    expect(launcherClaimSlots(spent)).toBeNull();
-    // A kit FUN_005bac30 refuses stays refused.
-    expect(launcherClaimSlots(kit([ITEM.M4_203, MARK23, EMPTY_ITEM, EMPTY_ITEM, EMPTY_ITEM]))).toBeNull();
+describe("R4P-103: the launcher's slot -- the first of 2-4 empty or spent (FUN_005c1990 D4:L499279; Q103B, Q103C)", () => {
+  it("free at 2 -> 2; three free -> 2; only 4 free with 2 and 3 holding rounds -> 4 (Q103B; Q103C's control 62 16 123 123 255, counters 1 / 2)", () => {
+    expect(launcherSlotOf(kit([M4A1_SD, MARK23_SD, EMPTY_ITEM, FLASH, FLASH], [0, 0, 0, 1, 1]))).toBe(2);
+    expect(launcherSlotOf(kit([M4A1, MARK23, EMPTY_ITEM, EMPTY_ITEM, EMPTY_ITEM]))).toBe(2);
+    expect(launcherSlotOf(kit([M4A1_SD, MARK23_SD, FLASH, FLASH, EMPTY_ITEM], [0, 0, 1, 2]))).toBe(4);
+  });
+
+  it('a spent slot before an empty one is taken (Q103C): 62 16 123 123 255 with slot 3 spent -> 3; the carrier 61 16 141 175 255, the 203 FRAG spent -> 3; slot 2 spent, 3 empty -> 2', () => {
+    expect(launcherSlotOf(kit([M4A1_SD, MARK23_SD, FLASH, FLASH, EMPTY_ITEM], [0, 0, 1, 0]))).toBe(3);
+    expect(launcherSlotOf(kit([ITEM.M4_203, MARK23_SD, ITEM.M203, ITEM.M203_FRAG, EMPTY_ITEM], [0, 0, 0, 0]))).toBe(3);
+    expect(launcherSlotOf(kit([M4A1_SD, MARK23_SD, FLASH, EMPTY_ITEM, FLASH], [0, 0, 0, 0, 1]))).toBe(2);
+  });
+
+  it('the ten exempt ids are never taken spent (PICKUP_SPENT_EXEMPT_IDS_READING): the M203 item 141, the Detonator, the 2X, the Thermal Scope, FULL_SLOT 254', () => {
+    expect([...PICKUP_SPENT_EXEMPT_IDS_READING].sort((a, b) => a - b)).toEqual([11, 141, 145, 146, 190, 193, 194, 195, 254, 255]);
+    expect(launcherSlotOf(kit([M4A1, MARK23, ITEM.DETONATOR, ITEM.DOUBLE_AMMO, ITEM.THERMAL]))).toBeNull();
+    expect(launcherSlotOf(kit([M4A1, MARK23, ITEM.DETONATOR, FULL_SLOT, EMPTY_ITEM]))).toBe(4);
+    expect(launcherSlotOf(kit([ITEM.M4_203, MARK23, ITEM.M203, ITEM.M203_FRAG, EMPTY_ITEM], [0, 0, 0, 6]))).toBe(4);   // 141 kept, 175 live
+    // A round slot spent (an orphan LAW HEAT) is replaceable; with its round left it is not.
+    expect(launcherSlotOf(kit([M4A1, MARK23, ITEM.LAW_HEAT, ITEM.THERMAL, ITEM.DOUBLE_AMMO], [0, 0, 0]))).toBe(2);
+    expect(launcherSlotOf(kit([M4A1, MARK23, ITEM.LAW_HEAT, ITEM.THERMAL, ITEM.DOUBLE_AMMO], [0, 0, 1]))).toBeNull();
+  });
+});
+
+describe('R4P-103: the round appended at the record count (D4:L499303-499309; Q103B: 185 at index 5)', () => {
+  it('a five-record kit: the launcher in its slot, the round at index 5 -- one free slot suffices (Q-103); no slot: null', () => {
+    expect(PICKUP_LAUNCHER_ROUND_SLOT_READING).toBe("appended at the kit's record count");
+    expect(launcherClaimSlots(kit([M4A1_SD, MARK23_SD, FLASH, FLASH, EMPTY_ITEM], [0, 0, 1, 2]))).toEqual({ launcher: 4, round: 5 });
+    expect(launcherClaimSlots(kit([M4A1_SD, MARK23_SD, FLASH, FLASH, EMPTY_ITEM], [0, 0, 1, 0]))).toEqual({ launcher: 3, round: 5 });
+    expect(launcherClaimSlots(kit([M4A1_SD, MARK23_SD, EMPTY_ITEM, FLASH, FLASH], [0, 0, 0, 1, 1]))).toEqual({ launcher: 2, round: 5 });
+    expect(launcherClaimSlots(kit([M4A1, MARK23, EMPTY_ITEM, EMPTY_ITEM, EMPTY_ITEM]))).toEqual({ launcher: 2, round: 5 });
+    expect(launcherClaimSlots(kit([ITEM.M4_203, MARK23_SD, ITEM.M203, ITEM.M203_FRAG, EMPTY_ITEM], [0, 0, 0, 0]))).toEqual({ launcher: 3, round: 5 });
+    expect(launcherClaimSlots(kit([M4A1, MARK23, M67, HE, C4], [0, 0, 3, 3, 4]))).toBeNull();
+    expect(launcherClaimSlots(kit([M4A1, MARK23, ITEM.LAW, ITEM.LAW_HEAT, EMPTY_ITEM], [0, 0, 0, 1]))).toBeNull();
     expect([launcherRoundOf(ITEM.LAW), launcherRoundOf(ITEM.RPG7), launcherRoundOf(147)]).toEqual([ITEM.LAW_HEAT, ITEM.RPG_ROUND, ITEM.LAW_HEAT]);
   });
 
@@ -94,16 +94,16 @@ describe('NU-5 L1: the launcher claim\'s two slots in a five-slot kit (PICKUP_LA
  */
 const ZWEAPON = fixture('RUN/ZWEAPON.ZAR');
 describe.skipIf(ZWEAPON === null)('NU-5 review F1: a held Satchel reads as held, not as an empty slot', () => {
-  it("the kit [rifle, pistol, Satchel, FULL_SLOT, empty]: the Satchel's slot holds its one round (the disc's 1 x 1), so FUN_005bae60's slot is 4 -- and with no other empty slot for the round, the port refuses (PICKUP_LAUNCHER_ROUND_SLOT_PLACEHOLDER)", () => {
+  it("the kit [rifle, pistol, Satchel, FULL_SLOT, empty]: the Satchel's slot holds its one round (the disc's 1 x 1), so the launcher's slot is 4 and its round is appended at 5", () => {
     const table: KitTable = readKitTable(ZWEAPON!);
     const satchel = table.arsenal.items.get(ITEM.SATCHEL)!;
     expect([satchel.magazine, satchel.mags]).toEqual([1, 1]);
     const k = pickupKitOf([M4A1, MARK23, ITEM.SATCHEL, FULL_SLOT, EMPTY_ITEM], table, () => 0, {});
     expect(k[2]).toEqual({ item: ITEM.SATCHEL, rounds: 1 });
     expect(launcherSlotOf(k)).toBe(4);
-    expect(launcherClaimSlots(k)).toBeNull();
+    expect(launcherClaimSlots(k)).toEqual({ launcher: 4, round: 5 });
     // A Satchel kit with two empty slots: the launcher into the first of them, the Satchel kept.
-    expect(launcherClaimSlots(pickupKitOf([M4A1, MARK23, ITEM.SATCHEL, EMPTY_ITEM, EMPTY_ITEM], table, () => 0, {}))).toEqual({ launcher: 3, round: 4 });
+    expect(launcherClaimSlots(pickupKitOf([M4A1, MARK23, ITEM.SATCHEL, EMPTY_ITEM, EMPTY_ITEM], table, () => 0, {}))).toEqual({ launcher: 3, round: 5 });
     // A spent round slot still reads its ring (0), and C4 and the claymore their pouch's live count, as before.
     expect(pickupKitOf([M4A1, MARK23, ITEM.LAW_HEAT, ITEM.C4, ITEM.CLAYMORE], table, () => 0, { C4: 2 }).slice(2).map((x) => x.rounds)).toEqual([0, 2, 0]);
   });

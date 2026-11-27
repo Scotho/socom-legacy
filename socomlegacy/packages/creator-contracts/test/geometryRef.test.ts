@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { checkCreatorRecord, GEOMETRY_REF, layoutOfRecord, onlineLayoutRefusal, parseLayout, recordOfLayout, type Layout } from "../src/layout";
 
 /**
- * The layout's edited world geometry (`Layout.geometry`; the Forge geometry audit's bug 1, the owner, 2026-11-16: "Edits
+ * The layout's edited world geometry (`Layout.geometry`; the Forge geometry audit's bug 1, the Forge's owner (crispy, OT.R112), 2026-11-16: "Edits
  * aren't saved"; a browser adaptation, FG.R2): a reference to the edited meshes kept as an asset in this browser's store
  * -- `geometry:` and the content's SHA-256. Kept by the file and the v3 record; refused online (no other browser has it).
  */

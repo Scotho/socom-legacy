@@ -15,7 +15,7 @@ import { pressForgeMenu } from './helpers/editor';   // FC2-4: his editor's ways
 /**
  * R6 (the UI seat's palette seam to dot, 2026-10-25 17:23Z / 17:24Z; a browser adaptation, FG.R2 -- the game has no
  * editor): on the mounted Forge, (1) a panel reads the page's palette through `ForgePanelContext.palette` -- the rows
- * after the page's own search and All / Favourites filter, the favourites, the chosen row and the page's place mode, the
+ * after the page's own search and All / Favourites filter, the favourites, the chosen row (place mode retired, PR #5), the
  * archives, the Characters and the NPC tool, the loading and empty reasons -- the page owning every piece of it;
  * (2) the left dock's list scrolls within the dock (FUI-22: its one list, no panel host); (5) the Starters toolbar button is gone, the panel reached from
  * START > Panels; (6) the open Props screen redraws when a palette loads. The page is mounted as `forgeAgentPage.test.ts`
@@ -33,6 +33,9 @@ vi.mock('../../src/forge/archives', () => ({ Archives: class {
   clips = async () => null;
   list = async () => ({ entries: archiveEntries, problems: [] });
   load = archiveLoad;
+  census = async () => null;
+  props = async () => null;
+  scriptNames = async () => null;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
@@ -97,8 +100,10 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     if (!palette) return;
     await vi.waitFor(() => expect(palette.rows().map((r) => r.assetId)).toEqual(['MP2:barrel', 'MP2:crate']));
     expect(palette.rows()[0]).toEqual({ assetId: 'MP2:barrel', name: 'barrel', archive: 'MP2', group: null, placed: 1, favourite: false, chosen: false });
-    // FC2-4: his archive list begins with All, every map's props and objects (page.ts:13784, `PALETTE_ALL`).
-    expect(palette.archives()).toEqual([{ id: '*all', label: 'All · every map’s props and objects', chosen: false },
+    // FC2-4: his archive list begins with All, every map's, then Common, what the maps share (OT.R112; page.ts `PALETTE_ALL`,
+    // `PALETTE_COMMON`: "All, Common, then all the maps").
+    expect(palette.archives()).toEqual([{ id: '*all', label: 'All · every map', chosen: false },
+      { id: '*common', label: 'Common · shared by every map', chosen: false },
       { id: 'MP2', label: 'Frostfire · MP2', chosen: true }, { id: 'MP3', label: 'Other · MP3', chosen: false }]);
     expect(palette.state()).toEqual({ loading: false, emptyReason: null });
     expect(palette.filter()).toEqual({ query: '', favouritesOnly: false });
@@ -126,22 +131,25 @@ describe('R6: the page\'s palette seam, the left dock, the Starters route and th
     palette.setFavouritesOnly(false);
     palette.favourite('MP2:crate', false);
     expect(palette.rows().every((r) => !r.favourite)).toBe(true);
-    // choose: the toolbar list's path -- the page in Place, the row the chosen one in both lists
+    // choose: the toolbar list's path -- the row the chosen one in both lists. PR #5 (seat-forge, item A7): the Forge's
+    // owner (crispy, OT.R112) removed place mode -- a row's choice spawns its prop at the view's centre (`choosePaletteRow`
+    // -> `placePropAtCentre`), and no placing tool stays armed: the facade's tool is Select (page.ts, `tool: () => 'select'`).
     heard.mockClear();
     palette.choose('MP2:crate');
     expect(heard).toHaveBeenCalled();
     expect(palette.chosen()).toBe('MP2:crate');
     expect(palette.rows().find((r) => r.assetId === 'MP2:crate')!.chosen).toBe(true);
-    expect((api.read().view as { tool: string }).tool).toBe('place');
+    expect((api.read().view as { tool: string }).tool).toBe('select');
     expect(document.querySelector('[data-forge-panel="asset-browser"] ul.fx-assets > li.is-on .fx-asset-name')?.textContent).toBe('crate');
     // the characters: the base's player models, each side's in order, and the NPC tool
     expect(palette.characters()).toEqual([
       { id: 'terrorist:0', name: 'Terrorist 1 · terror_a', side: 'terrorist', group: 'Terrorists', type: 0, model: 'terror_a_model', chosen: false },
       { id: 'seal:0', name: 'SEAL 1 · seal_a', side: 'seal', group: 'SEALs', type: 0, model: 'seal_a_model', chosen: false },
     ]);
+    // PR #5 (item A7): a character's choice spawns its NPC at the view's centre (`chooseCharacterRow`); no NPC tool stays armed.
     palette.chooseCharacter('seal:0');
     expect(palette.characters().find((c) => c.id === 'seal:0')!.chosen).toBe(true);
-    expect((api.read().view as { tool: string }).tool).toBe('npc');
+    expect((api.read().view as { tool: string }).tool).toBe('select');
     // the page's empty reason
     palette.setQuery('nothing like it');
     expect(palette.rows()).toEqual([]);

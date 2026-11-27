@@ -1,5 +1,6 @@
 import { mapLabel } from '@s2u/archive/mapNames';
 import { ELIGIBLE_RANKS, type MissionRecord } from '@s2u/ui';
+import { GRAPHICS_RECOVERY_PARAM } from '../../graphicsLost';
 import { devMode, devSwitches } from '../../source';
 import {
   MU_CUSTOM_MATCHES_TIMEOUT_MS_ADAPTATION, customMatchAddress, customMatchMap, fetchCustomMatchSource, lobbyGameDetails,
@@ -204,6 +205,7 @@ export function liveCustomMatches(doc: Document, notify: () => void, deps: Custo
   const server = (): CustomMatchServer => ({
     devmode: devMode(deps.page.location.search), devtools: devSwitches(deps.page.location.search).tools,
     server: deps.base !== deps.page.location.origin ? deps.base : null,
+    graphicsrecovery: new URLSearchParams(deps.page.location.search).get(GRAPHICS_RECOVERY_PARAM),   // review F1: kept on JOIN
   });
   const rows = (): CustomRow[] => (list ?? []).map((m) => ({
     id: m.id, name: m.name, map: customMatchMap(m.base, deps.missions()), players: m.players, max: m.max, inMatch: m.inMatch, locked: m.locked,

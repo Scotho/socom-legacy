@@ -37,7 +37,7 @@ describe("a rebuilt node hull's surfaces", () => {
   });
 
   it("gives a floors-only node's unmatched wall wall words on its ground's material, not a floor's", () => {
-    // A terrain section has no walls of its own; an extrude's side there read "Floor" (the owner, 2026-11-17).
+    // A terrain section has no walls of its own; an extrude's side there read "Floor" (the Forge's owner (crispy, OT.R112), 2026-11-17).
     const terrain = surfaceMatcher([disc[0]!]);
     expect(terrain([[5, 0, 5], [5, 5, 5], [5, 5, 8]])).toEqual([2, 19, 0, 0, 0]);
   });

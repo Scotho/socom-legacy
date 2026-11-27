@@ -45,15 +45,15 @@ describe('home: the crossbar and the action list', () => {
     c.press('down');
     expect(S.item[HOME_CATEGORY]).toBe(1);
     for (let i = 0; i < 5; i++) c.press('down');
-    // Home has four since 2026-11-12: Play, Server status, Discord (LATER 291), GitHub (the owner); LR-37 (4)'s three before
-    // it, LR-13's four with Memory card before that
-    expect(S.item[HOME_CATEGORY]).toBe(3);
+    // Home has four since 2026-11-12: Play, Server status, Discord (LATER 291), GitHub (the owner); the pad walks the first
+    // two only (the owner, 2026-11-19: "remove github and discord from the selection for controller", `padRows`)
+    expect(S.item[HOME_CATEGORY]).toBe(1);
     c.press('left');
     expect(S.item[CATS.findIndex((x) => x.id === 'options')]).toBe(0);
     c.press('right');
-    expect(S.item[HOME_CATEGORY]).toBe(3);
+    expect(S.item[HOME_CATEGORY]).toBe(1);
     c.press('up');
-    expect(S.item[HOME_CATEGORY]).toBe(2);
+    expect(S.item[HOME_CATEGORY]).toBe(0);
   });
 
   it('Cross does the focused item\'s verb: Browse rooms pushes the rooms screen; an Options item opens its category', () => {
@@ -529,7 +529,8 @@ describe('CX-12: L2 / R2 page a list taller than its pane', () => {
     expect(homeItems(CATS[S.cat]!.id, S, A).length).toBeGreaterThanOrEqual(3);
     S.item[S.cat] = 0;
     c.press('r2');
-    expect(S.item[S.cat]).toBe(2);
+    // the page stops at the pad's last row, before Discord and GitHub (the owner, 2026-11-19; `padRows`)
+    expect(S.item[S.cat]).toBe(1);
     expect(S.cat).toBe(HOME_CATEGORY);
     c.press('l2');
     expect(S.item[S.cat]).toBe(0);

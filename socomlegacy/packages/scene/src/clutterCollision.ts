@@ -1,7 +1,7 @@
 import { flattenScene, worldDi } from './buildScene';
 import { isAffineRowVector, type ClutterInstance } from './clutter';
 import { worldCollision, type WorldPoly } from './collision';
-import { collisionOwners, uprightFrame, type CollisionOwner } from './grid';
+import { chopF32, collisionOwners, uprightFrame, walkChain, walksUnder, type CollisionOwner, type Footprint, type NodeBox } from './grid';
 import { multiply, transformPoint, type SceneNode } from './sceneGraph';
 
 /**
@@ -36,8 +36,26 @@ export function r0004DropsClutter(stem: string, modelName: string, matrix: Array
 
 /** One clutter model's realised collision, model space, walked once and composed per instance. */
 interface Prototype {
-  owners: { path: string; modelName: string; flags: number; world: Float32Array; polys: WorldPoly[] }[];
+  owners: { path: string; modelName: string; flags: number; world: Float32Array; polys: WorldPoly[]; nodes: NodeBox[] }[];
+  /** LATER 1094: the master root's `nparams` box, model space: what an instance is filed by (`clutterFiled`). */
+  rootBox: Float32Array;
 }
+
+/**
+ * LATER 1094 (research 430 s8; reading, pending review): the cells a clutter instance is filed in, as `FUN_002d55c0`
+ * (D:L176288-176344, research 422 s3) files it -- the master root's box (`+0x40`; for a root with bit 30 set the box of
+ * `FUN_00262550`, unread, and the root's own box taken here: `CLUTTER_FREE_ROOT_BOX_READING`), each corner times
+ * 1 / `scale_inverse` and plus the instance's translation, NOT turned by its rotation; the two corners ordered axis by axis.
+ */
+export function clutterFiled(rootBox: ArrayLike<number>, matrix: ArrayLike<number>, scaleInverse: number): Footprint {
+  const s = chopF32(1 / scaleInverse);
+  // In float32, chopped as the EE rounds (the second review's N-c).
+  const ax = chopF32(chopF32(rootBox[0]! * s) + matrix[12]!), az = chopF32(chopF32(rootBox[2]! * s) + matrix[14]!);
+  const bx = chopF32(chopF32(rootBox[3]! * s) + matrix[12]!), bz = chopF32(chopF32(rootBox[5]! * s) + matrix[14]!);
+  return { minX: Math.min(ax, bx), minZ: Math.min(az, bz), maxX: Math.max(ax, bx), maxZ: Math.max(az, bz) };
+}
+/** LATER 1094: a clutter root with flag bit 30 is filed by `FUN_00262550`'s box, unread; the port files it by its own box. */
+export const CLUTTER_FREE_ROOT_BOX_READING = 'the root\'s own nparams box' as const;
 
 /**
  * A clutter model realised as `placeCollision` and `collisionOwners` realise the worldmodel (`flattenScene` rooted at
@@ -53,7 +71,12 @@ function prototypeOf(models: SceneNode[], name: string): Prototype | null {
     return null;
   }
   const owners: Prototype['owners'] = [];
+  // LATER 1094: the walk starts at the master root (`FUN_002d3cf0` D:L175692-175703 hands the instance's model, `+100`),
+  // so every node from the root down is on an owner's chain (`collisionOwners`' pre-order rule).
+  const above: typeof flat = [];
   for (const f of flat) {
+    while (above.length > 0 && !walksUnder(f.path, above[above.length - 1]!.path)) above.pop();
+    above.push(f);
     const di = worldDi(f);
     if (di.length === 0) continue;
     const polys = di.map((poly): WorldPoly => {
@@ -67,10 +90,17 @@ function prototypeOf(models: SceneNode[], name: string): Prototype | null {
         cameratype: poly.cameratype, appflags: poly.appflags, inside: poly.inside, reverbZone: poly.reverbZone, points,
       };
     });
-    owners.push({ path: f.path, modelName: f.modelName, flags: f.flags, world: f.world, polys });
+    owners.push({ path: f.path, modelName: f.modelName, flags: f.flags, world: f.world, polys, nodes: walkChain(above) });
   }
-  return { owners };
+  return { owners, rootBox: flat[0]!.node.bbox };
 }
+
+/**
+ * The root of every clutter owner's path (`clutter/<model>#<record>`, CLT.R3), the placements' too (`clutter.ts`): what
+ * the grenade's flight reads as an instance's node (`projectile.ts` `projectileNodeSides`,
+ * GRENADE_INSTANCE_NODE_SIDES_READING).
+ */
+export const CLUTTER_PATH_ROOT = 'clutter/';
 
 /**
  * Every placed clutter instance's polygons in the world, each through its instance's matrix (`p' = p x node world x
@@ -94,8 +124,9 @@ export function clutterCollision(models: SceneNode[], instances: ClutterInstance
       prototypes.set(instance.modelName, proto);
     }
     if (proto === null) return;
-    const root = `clutter/${instance.modelName}#${record}`;
+    const root = `${CLUTTER_PATH_ROOT}${instance.modelName}#${record}`;
     const m = instance.matrix;
+    const filed = clutterFiled(proto.rootBox, m, instance.scaleInverse);
     for (const o of proto.owners) {
       const path = root + o.path.slice(instance.modelName.length);                    // CLT.R3: the path below the model root
       for (const p of o.polys) {
@@ -110,6 +141,8 @@ export function clutterCollision(models: SceneNode[], instances: ClutterInstance
       owners.push({
         modelName: o.modelName, path, first, count: o.polys.length, flags: o.flags,
         ...((o.flags & 1) === 0 ? { switchedOff: true as const } : {}), ...(uprightFrame(frame) ? {} : { frame }),
+        // LATER 1094: each node's frame through the instance's matrix (the walk pushes it, D:L175693-175697).
+        nodes: o.nodes.map((n) => ({ ...n, world: multiply(n.world, m) })), filed, filedByCover: true,
       });
       first += o.polys.length;
     }

@@ -1,6 +1,7 @@
 import { FONT_TEXT_01, layoutText, textWidth } from './hudFont';
+import { labelTag } from './clanTagOption';
 import type { HudQuad, HudTri } from './hud';
-import type { ScoreRowInfo } from './scoreboard';
+import { ASSISTS_NONE, type ScoreRowInfo } from './scoreboard';
 import type { MatchStats } from './net/protocol';
 import type { HudBitmaps } from './hudAssets';
 import type { Rgba } from '@s2u/gs';
@@ -97,6 +98,7 @@ export const ROUND_STRINGS = {
  * initialiser `FUN_003fe860` (0x3fe8b8-0x3fe924) fills from .data 0x3dc750/60/70, whose getters 0x226010 / 0x226000 /
  * 0x225ff0 read `lh +0x3c`, `lhu +0xc`, `lhu +0x12` of the round block (+0x5c8 / +0x598 / +0x59e) or the totals block
  * (+0x580 / +0x550 / +0x556); `FUN_00224210` prints them at 0x2245a8-0x2245dc (research 179 s10 s2, s13.7 V1 #8).
+ * WM-DATA draws four, ASSISTS after DEATHS (`ROUND_LIST_COLUMNS_ADAPTATION`, a browser adaptation); these stay the disc's.
  */
 export const ROUND_LIST_COLUMNS = ['score', 'kills', 'deaths'] as const;
 
@@ -453,9 +455,91 @@ export function yourStatsOf(row: { score: number; kills: number; deaths: number 
   };
 }
 
-const numbers = (r: { kills: number; deaths: number; score: number }): string[] => ROUND_LIST_COLUMNS.map((k) => String(r[k]));
-const HEADERS: Record<(typeof ROUND_LIST_COLUMNS)[number], string> = {
-  score: ROUND_STRINGS.score, kills: ROUND_STRINGS.kills, deaths: ROUND_STRINGS.deaths,
+/*
+ * WM-DATA, the post-round screens' look (lane MATCH-DATA; product track, a BROWSER ADAPTATION -- the original keeps no
+ * assists, research 155 §3). The owner's call 1, decided 2026-11-15 through the main controller 8f: "On the next round
+ * screen i think we can squeeze each column just a bit and add an assists in the same way", then "2. yeah the squeeze is
+ * acceptable. leave a bit of padding if you can, be smart with it". His labelled departure from the disc's widths: the
+ * three 100-wide number columns (x 315 / 420 / 525, `READERX_LAYOUT`, which stays the disc's transcription) become four
+ * of 70 with 10 between them over the same span, 315..625, in the order SCORE, KILLS, DEATHS, ASSISTS. The lists' rows,
+ * names and everything else on the screens stay where the dialogs put them.
+ */
+
+/**
+ * WM-DATA: the four columns' figures, left to right (the original's three, `ROUND_LIST_COLUMNS`, with ASSISTS after
+ * DEATHS -- K / D / A: the contributor's PR #940, ruled by the owner on 2026-11-25, MISSION OT.R161; it was after KILLS).
+ * The DEATHS header here is the disc's own string (2108, `ROUND_STRINGS.deaths`), not a divergence.
+ */
+export const ROUND_LIST_COLUMNS_ADAPTATION = ['score', 'kills', 'deaths', 'assists'] as const;
+type RoundColumn = (typeof ROUND_LIST_COLUMNS_ADAPTATION)[number];
+/** WM-DATA: the ASSISTS header -- no string of the game's (UIMPXLOC has none); in the other headers' place, scale and colour. */
+export const ROUND_ASSISTS_HEADER_ADAPTATION = 'ASSISTS';
+/**
+ * ROUND_COLUMNS_SQUEEZE_ADAPTATION (WM-DATA, the owner's squeeze): the four column backings' left `x0`, each `w` wide and
+ * `gap` apart -- 315, 395, 475, 555, the last ending at 625 where the disc's DEATHS backing ended; the 10 between them is
+ * the padding he asked for. Every string of a column keeps its offset from its backing's centre as the disc places it
+ * (`squeezedX`), the figures right-justified as the disc draws them -- PR #940's centring was not taken (the owner,
+ * 2026-11-25: the original's right-justified round screens kept); ASSISTS takes KILLS' offsets and DEATHS' backing
+ * opacities (KILLS' first four strips carry the dialog's missing OPACITY, the loader's 1, and are not copied).
+ */
+export const ROUND_COLUMNS_SQUEEZE_ADAPTATION = { x0: 315, w: 70, gap: 10 } as const;
+/** The disc's three backings: SCORE, KILLS, DEATHS at 315 / 420 / 525, 100 wide (`roundPanels`, `finalPanels`). */
+const DISC_COLUMN_X = [315, 420, 525] as const, DISC_COLUMN_W = 100;
+/** Which of the disc's three columns a squeezed column takes its offsets from. */
+const DISC_COLUMN_OF: Record<RoundColumn, 0 | 1 | 2> = { score: 0, kills: 1, assists: 1, deaths: 2 };
+/** WM-DATA: a squeezed column's backing left edge. */
+export function squeezedColumnX(c: RoundColumn): number {
+  const Q = ROUND_COLUMNS_SQUEEZE_ADAPTATION;
+  return Q.x0 + ROUND_LIST_COLUMNS_ADAPTATION.indexOf(c) * (Q.w + Q.gap);
+}
+/**
+ * WM-DATA: where a string the disc puts at `x` in its column `disc` (0..2) goes in the squeezed column `c` -- the same
+ * offset from the backing's centre.
+ */
+export function squeezedX(x: number, disc: 0 | 1 | 2, c: RoundColumn): number {
+  return squeezedColumnX(c) + ROUND_COLUMNS_SQUEEZE_ADAPTATION.w / 2 + (x - (DISC_COLUMN_X[disc] + DISC_COLUMN_W / 2));
+}
+/** WM-DATA: a list's four x for its three disc positions (`xs`, one per disc column), in `ROUND_LIST_COLUMNS_ADAPTATION`'s order. */
+function squeezed(xs: readonly [number, number, number]): number[] {
+  return ROUND_LIST_COLUMNS_ADAPTATION.map((c) => squeezedX(xs[DISC_COLUMN_OF[c]], DISC_COLUMN_OF[c], c));
+}
+/**
+ * WM-DATA: the screen's panels with the squeeze -- each of the disc's column backings (a panel named `Score_` / `Kills_` /
+ * `Deaths_` over x 315 / 420 / 525, 100 wide) moved to its squeezed column at 70 wide, and DEATHS' set copied as
+ * `Assists_`'s; every other panel as the disc has it.
+ */
+export function squeezedPanels(panels: readonly RoundPanel[]): RoundPanel[] {
+  const W = ROUND_COLUMNS_SQUEEZE_ADAPTATION.w;
+  const of = (p: RoundPanel): RoundColumn | null => {
+    const m = /^(Score|Kills|Deaths)_/.exec(p.name);
+    if (!m || p.w !== DISC_COLUMN_W) return null;
+    const c = m[1]!.toLowerCase() as RoundColumn;
+    return p.x === DISC_COLUMN_X[DISC_COLUMN_OF[c]] ? c : null;
+  };
+  const out: RoundPanel[] = [];
+  for (const p of panels) {
+    const c = of(p);
+    if (!c) { out.push(p); continue; }
+    out.push({ ...p, x: squeezedColumnX(c), w: W });
+  }
+  for (const p of panels) {
+    if (of(p) === 'deaths') out.push({ ...p, name: p.name.replace(/^Deaths_/, 'Assists_'), x: squeezedColumnX('assists'), w: W });
+  }
+  return out;
+}
+/** WM-DATA: a row's assists cell -- `field`'s number, or `ASSISTS_NONE` (a dash, never 0) where the row carries none. */
+function assistsCell(r: Pick<Row, 'assists' | 'roundAssists'>, field: 'assists' | 'roundAssists'): string {
+  const n = r[field];
+  return n === undefined ? ASSISTS_NONE : String(n);
+}
+/** WM-DATA: a row's four cells in the squeezed order, its assists from `field`. */
+function cells(r: Row, field: 'assists' | 'roundAssists'): string[] {
+  return ROUND_LIST_COLUMNS_ADAPTATION.map((k) => (k === 'assists' ? assistsCell(r, field) : String(r[k])));
+}
+
+/** The four columns' headers: the dialogs' three strings and WM-DATA's ASSISTS. */
+const HEADERS: Record<(typeof ROUND_LIST_COLUMNS_ADAPTATION)[number], string> = {
+  score: ROUND_STRINGS.score, kills: ROUND_STRINGS.kills, assists: ROUND_ASSISTS_HEADER_ADAPTATION, deaths: ROUND_STRINGS.deaths,
 };
 
 /** The screen's strings, in the 640x448 frame. */
@@ -465,7 +549,13 @@ function screenTexts(screen: RoundScreen): RoundText[] {
   const put = (role: RoundTextRole, text: string, x: number, y: number, scale: number, rgba: Rgba4, align: RoundText['align'] = 'left'): void => {
     if (text.trim()) texts.push({ text, x, y, scale, align, rgba, role });
   };
-  const sum = (rows: readonly Row[]) => rows.reduce((a, r) => ({ kills: a.kills + r.kills, deaths: a.deaths + r.deaths, score: a.score + r.score }), { kills: 0, deaths: 0, score: 0 });
+  // WM-DATA: a side's assists summed over the rows that carry them; none carried, the total's `assists` absent (a dash).
+  const sum = (rows: readonly Row[]): Row => {
+    const t = rows.reduce((a, r) => ({ kills: a.kills + r.kills, deaths: a.deaths + r.deaths, score: a.score + r.score }), { kills: 0, deaths: 0, score: 0 });
+    const carried = rows.filter((r) => r.assists !== undefined);
+    return { ...t, id: -1, name: '', team: 'seal', alive: true, self: false,
+      ...(carried.length ? { assists: carried.reduce((a, r) => a + r.assists!, 0) } : {}) };
+  };
 
   if (screen.kind !== 'gameComplete') {
     const L = READERX_LAYOUT[screen.kind], C = READERX_LAYOUT.lists;
@@ -478,14 +568,17 @@ function screenTexts(screen: RoundScreen): RoundText[] {
       // `CallRoundATie`: a draw (99 or a time-out) DRAW on both; else WINNER / LOSER (91 s18 s2.4; 179 s10 s11).
       const word = screen.winner === null ? S.draw : screen.winner === t.team ? S.winner : S.loser;
       put('result', word, t.result[0], t.result[1], L.resultScale, K.gold);
-      C.headers.forEach((x, i) => put('header', HEADERS[ROUND_LIST_COLUMNS[i]!], x, t.headerY, C.headerScale, K.white, 'centre'));
+      // WM-DATA (ROUND_COLUMNS_SQUEEZE_ADAPTATION): the four headers and figures in the squeezed columns.
+      const headX = squeezed(C.headers), numX = squeezed([0, 1, 2].map((i) => t.list.x + t.list.columns[i]!) as [number, number, number]);
+      ROUND_LIST_COLUMNS_ADAPTATION.forEach((c, i) => put('header', HEADERS[c], headX[i]!, t.headerY, C.headerScale, K.white, 'centre'));
       sortRows(screen.rows.filter((r) => r.team === t.team)).slice(0, Math.min(C.max, shown)).forEach((r, k) => {
         const y = t.list.y + C.spacing * k;
         // The local row's name and clan gold (`FUN_002b3580`, D:L76322-76324), its numbers the list's white.
         const own = r.self ? K.gold : K.white;
         put('row', r.name, t.list.x + C.name, y, C.scale, own);
-        if (r.clan) put('row', `[${r.clan}]`, t.list.x + C.clan, y, C.scale, own);
-        numbers(r).forEach((n, i) => put('row', n, t.list.x + t.list.columns[i]!, y, C.scale, K.white, 'right'));
+        if (r.clan) put('row', `[${FONT_TEXT_01.tagText(r.clan)}]`, t.list.x + C.clan, y, C.scale, own);
+        // The round block's figures; WM-DATA: its assists `roundAssists` (ScoreRow's, protocol 17), a dash where absent.
+        cells(r, 'roundAssists').forEach((n, i) => put('row', n, numX[i]!, y, C.scale, K.white, 'right'));
       });
     }
     return texts;
@@ -494,15 +587,17 @@ function screenTexts(screen: RoundScreen): RoundText[] {
   // GAME COMPLETE: the totals, the MVP, YOUR STATS, the round counters, TIME PLAYED, the lobby line.
   const G = READERX_LAYOUT.gameComplete;
   put('title', S.gameComplete, G.title.x, G.title.y, G.title.scale, K.gold);
-  G.headers.x.forEach((x, i) => put('header', HEADERS[ROUND_LIST_COLUMNS[i]!], x, G.headers.y, G.headers.scale, K.gold, 'centre'));
-  const cols = G.lists.columns.map((c) => G.lists.x + c);
+  // WM-DATA (ROUND_COLUMNS_SQUEEZE_ADAPTATION): the four headers and columns squeezed; the match's assists (`assists`).
+  const headX = squeezed(G.headers.x);
+  ROUND_LIST_COLUMNS_ADAPTATION.forEach((c, i) => put('header', HEADERS[c], headX[i]!, G.headers.y, G.headers.scale, K.gold, 'centre'));
+  const cols = squeezed(G.lists.columns.map((c) => G.lists.x + c) as [number, number, number]);
   // `CallRoundATie`: `mp_score00 > mp_score08` SEALs WINNER, the reverse Terrorists, equal " " on both (91 s18 s3).
   const winner = screen.wins.seal > screen.wins.terrorist ? 'seal' : screen.wins.terrorist > screen.wins.seal ? 'terrorist' : null;
   for (const t of G.totals) {
     put('totalsLabel', t.caption, t.at[0], t.at[1], G.labelScale, K.white);
     if (winner === t.team) put('result', S.winner, t.at[0] + t.resultDx, t.at[1], G.labelScale, K.gold);
     // `FUN_00225bc0` (D:L76935+): each column summed over the side.
-    numbers(sum(screen.rows.filter((r) => r.team === t.team))).forEach((n, i) => put('totals', n, cols[i]!, t.at[1], G.lists.scale, K.white, 'right'));
+    cells(sum(screen.rows.filter((r) => r.team === t.team)), 'assists').forEach((n, i) => put('totals', n, cols[i]!, t.at[1], G.lists.scale, K.white, 'right'));
   }
 
   const M = G.mvp;
@@ -510,8 +605,10 @@ function screenTexts(screen: RoundScreen): RoundText[] {
   const best = screen.mvp === undefined ? pickMvp(screen.rows) : screen.mvp === null ? null : screen.rows.find((r) => r.name === screen.mvp) ?? null;
   const mvpName = screen.mvp === undefined ? best?.name ?? null : screen.mvp;
   if (mvpName) {
-    put('mvp', best?.clan ? `[${best.clan}] ${mvpName}` : mvpName, M.caption[0], M.caption[1] + M.nameDy, M.nameScale, K.white);
-    if (best) numbers(best).forEach((n, i) => put('mvp', n, cols[i]!, G.lists.mvpY, G.lists.scale, K.white, 'right'));
+    // PSR-5 (a browser adaptation; the owner's word via the controller, 2026-11-23): the clan-tag option's one rule reaches the caption
+    const mvpTag = best?.clan ? labelTag(best.clan) : '';
+    put('mvp', mvpTag ? `[${FONT_TEXT_01.tagText(mvpTag)}] ${mvpName}` : mvpName, M.caption[0], M.caption[1] + M.nameDy, M.nameScale, K.white);
+    if (best) cells(best, 'assists').forEach((n, i) => put('mvp', n, cols[i]!, G.lists.mvpY, G.lists.scale, K.white, 'right'));
   }
 
   const Y = G.yourStats;
@@ -553,7 +650,8 @@ export function roundScreenLayout(
   sizes: Record<string, { width: number; height: number }> = {},
 ): { quads: HudQuad[]; tris: HudTri[]; texts: RoundText[]; panels: RoundPanel[] } {
   const texts = screenTexts(screen);
-  const panels: RoundPanel[] = [...(screen.kind === 'gameComplete' ? READERX_LAYOUT.gameComplete.panels : READERX_LAYOUT[screen.kind].panels)];
+  // WM-DATA (ROUND_COLUMNS_SQUEEZE_ADAPTATION): the disc's panels with the four columns squeezed in.
+  const panels = squeezedPanels(screen.kind === 'gameComplete' ? READERX_LAYOUT.gameComplete.panels : READERX_LAYOUT[screen.kind].panels);
   const { s, x0: fx, y0: fy } = roundScreenFrame(frame.width, frame.height);
   const X = (x: number): number => fx + x * s, Y = (y: number): number => fy + y * s;
   const quads: HudQuad[] = [];

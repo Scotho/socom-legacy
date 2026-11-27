@@ -6,7 +6,7 @@ import { plane, type PrimitiveOptions } from '../../src/forge/geometry/primitive
 import { edgeLoop, edgeRing } from '../../src/forge/geometry/selection';
 
 /**
- * The edge cases the every-tool test found (the owner, 2026-11-18: "try all the possible edge cases ... must not be
+ * The edge cases the every-tool test found (the Forge's owner (crispy, OT.R112), 2026-11-18: "try all the possible edge cases ... must not be
  * buggy"): Create's shapes each one closed solid, and the tools on them never leaving a broken mesh.
  */
 

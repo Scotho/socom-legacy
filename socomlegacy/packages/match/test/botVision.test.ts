@@ -15,7 +15,7 @@ import type { NavigationData } from '../src/bots/navigation';
 function scene(wall: boolean, humanAt: [number, number, number] = [50, 0, 0], platform = 0) {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 300, cellsX: 4, cellsZ: 4, originX: -600, originZ: -600 };
   const floor: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25,
-    ptcount: 4, cameratype: 0, points: Float32Array.from([-600, 0, -600, 600, 0, -600, 600, 0, 600, -600, 0, 600]) };
+    ptcount: 4, cameratype: 0, points: Float32Array.from([-600, 0, 600, 600, 0, 600, 600, 0, -600, -600, 0, -600]) };
   // A full-height wall across x 250, between the human (x 50) and the bot (x 450).
   const polys = wall ? [floor, { ...floor, path: 'worldmodel/wall', ditype: 2, points: Float32Array.from([250, 0, -600, 250, 120, -600, 250, 120, 600, 250, 0, 600]) }] : [floor];
   // A ledge `platform` units up under the human (its floor), for the camera's vertical half-angle; its near edge 6 units

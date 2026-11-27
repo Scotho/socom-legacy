@@ -252,11 +252,13 @@ const atOf = (m: readonly number[]): [number, number, number] => [m[12] ?? 0, m[
  * polygon total the budget reads (the pieces' own lengths when omitted). `discSpawns` is the map base's slots: with
  * no marker placed, the count is theirs (the server plays them); a marker on a floor they cannot walk to is said.
  * `baseExtraction.doors`: the base's own doors and gates (counted first against `DOOR_GATE_WIRE_SLOTS`); absent, none.
+ * `baseExtraction.baseBomb`: the layout plays Demolition on the base's own bomb (`./objectives` `usesBaseBomb`, the
+ * page's); a note says so. Absent, false.
  * Pure.
  */
 export function checkMap(
   layout: Layout, ground: GroundData, pieces: readonly CheckedPiece[], polyCount?: number, discSpawns?: readonly DiscSpawn[],
-  baseExtraction: { hostages: number; zones: number; safety?: boolean; ai?: AiMaps | null; doors?: number; bomb?: { start: boolean; seal: boolean; terrorist: boolean } } = { hostages: 0, zones: 0 },
+  baseExtraction: { hostages: number; zones: number; safety?: boolean; ai?: AiMaps | null; doors?: number; bomb?: { start: boolean; seal: boolean; terrorist: boolean }; baseBomb?: boolean } = { hostages: 0, zones: 0 },
 ): MapCheck {
   const grid = groundGrid(ground);
   const issues: MapIssue[] = [];
@@ -336,6 +338,11 @@ export function checkMap(
     if (!bomb?.start && !own?.start) issues.push({ kind: 'bomb-missing', text: 'Demolition has no bomb start: place one with the Bomb tool.', at: null });
     if (own ? !own.seal : !bomb?.sites.some((s) => s.team === 0)) issues.push({ kind: 'bomb-missing', text: 'Demolition has no SEAL site: place one with the Site SEAL tool.', at: null });
     if (own ? !own.terrorist : !bomb?.sites.some((s) => s.team === 1)) issues.push({ kind: 'bomb-missing', text: 'Demolition has no Terrorist site: place one with the Site Terrorist tool.', at: null });
+    // FN-5 (FG-51 as kept, FN.R4; a browser adaptation's words): not a problem, but the author is told the base's bomb
+    // plays and the sites placed here do not -- the page's `usesBaseBomb`, the rule Play applies.
+    if (baseExtraction.baseBomb && !bomb?.start) {
+      notes.push(`No bomb start placed: the map's own bomb and plant sites are used.${bomb?.sites.length ? ' The plant sites placed here are not used.' : ''}`);
+    }
   }
 
   // Extraction (game type 4) needs a hostage to lead out and a zone to lead it to: the base map's own (its escortees,

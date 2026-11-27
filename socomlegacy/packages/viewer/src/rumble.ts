@@ -191,6 +191,15 @@ function pulseActuator(h: { pulse: (value: number, duration: number) => Promise<
   };
 }
 
+/**
+ * B-73 (a browser adaptation): a pad is connected and none of the connected pads offers an actuator in either form --
+ * `padActuator`'s own quiet case, as a pure answer (the launcher's Vibration row says so in its note).
+ */
+export function padsOfferNoActuator(pads: ArrayLike<PadLike | null | undefined>): boolean {
+  const connected = Array.from(pads).filter((p): p is PadLike => !!p?.connected);
+  return connected.length > 0 && connected.every((p) => padRumbleForm(p) === null);
+}
+
 const unrumbled = new Set<string>();
 
 /**

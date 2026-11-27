@@ -313,7 +313,9 @@ describe.each(PAGES)('the part\'s handling of a welcome or promotion that says `
     const q = realPage(page, { armory: true });
     q.r.press('Right', 'Cross');
     q.say({ type: 'roundStart', round: 2, seconds: 300, epoch: 2 });
-    vi.runAllTimers();
+    // The pending timers once, not all: a real NetPage's client runs the stall meter's frame loop (lag read v4 s6), a
+    // requestAnimationFrame that books the next frame from each frame, so `runAllTimers` under the faked rAF never drains.
+    vi.runOnlyPendingTimers();
     expect(q.r.part.isOpen()).toBe(false);
     expect(q.r.log.filter((l) => l.startsWith('set'))).toEqual([]);
     if (page === 'front end') expect(q.cleared).toEqual(['clear']);

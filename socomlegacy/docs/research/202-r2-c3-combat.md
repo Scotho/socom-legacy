@@ -103,6 +103,9 @@ answer is wrong.
   - Test: aim hit at 19.8 u from the root → ready; at 20.0 u → not; aim at a non-plantable surface → never.
 - **Owed evidence**: a dump while aiming at a demolition target within 2 m. Expect `body+0x208` to equal the squared
   distance from `skel_root` to the hit, below 396.
+- **Ported** (2026-11-18, LATER 1139; research 440 s8): the gate measured on r0004 -- the prompt at `+0x208` <= 395.68,
+  never at >= 396.23 (the capture `agent-mail/evidence/later1139-c4reach`) -- and ported as one hip gate on the page and
+  in the room, `C4_HIP_REACH_SQ` (396) from `hipPoint` (`C4_HIP_POINT_READING`).
 
 ### 2.2 Item 4–5: PLACE_CAST_LIFT_READING / PLACE_REST_LIFT_READING (`$PORT/packages/viewer/src/net/placing.ts:19`, `:25`)
 - **What they stand for**: the page's cast starts 1 above the hand, and the charge is set 0.1 above the surface found.
@@ -792,8 +795,11 @@ over the `TRUE_COLOR_SCALE` colour wash. Level 3 holds the glow to 8 s and clear
   - e90 = passes, e94 = colour, e98 = (FIX << 32) | ALPHA.
   - The draw is the same two-draw packet as §1. So "4-pass glow of a blurred half-res copy, scaled by measured
     brightness" is right.
-- **CAMERA.** The handler `FUN_00266320` writes cam +0xd0/+0xd4/+0xd8 from the command's +0x60/+0x6c/+0x78, over the
-  duration at +0x80.
+- **CAMERA.** The command ramps cam +0xd0/+0xd4/+0xd8 to its +0x60/+0x6c/+0x78 over the duration at +0x80. Its Begin
+  `FUN_00266320` samples the camera's colour as the start (+0x5c/+0x68/+0x74) and sets the rates (end - start) / +0x80;
+  with +4 bit 0x4000 set it instead installs the command's own start on the camera and keeps its rates
+  (D:L112722-112746); its Tick `FUN_00265f20` ramps by rate x dt and, once the duration has run, writes the endpoint
+  +0x60/+0x6c/+0x78 (D:L112563-112569).
   - The raw bytes give (0, 0, 0.01) over 0.001 s.
   - V7 checked independently that +0xd0..+0xd8 is the fog colour: the render setup multiplies it by 255 and writes it
     to GS register 0x3d, FOGCOL (`FUN_003b10c0(0x3d, ...)`, D:L236766-236774). Thermal fog is therefore black.

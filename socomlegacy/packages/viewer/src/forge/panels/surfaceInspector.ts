@@ -5,7 +5,7 @@ import type { SurfaceStateView } from '../geometry/editor';
 import { CLIMB_FLAGS, COLLISION_TYPES, type SurfaceChange } from '../geometry/hullGeometry';
 
 /**
- * Geometry mode's Surface section in the Inspector, on the Collision layer (the owner, 2026-11-20: "lets start with 1" --
+ * Geometry mode's Surface section in the Inspector, on the Collision layer (the Forge's owner (crispy, OT.R112), 2026-11-20: "lets start with 1" --
  * a level editor's face properties for the collision's own words; a browser adaptation, FG.R2). Each field is a word or
  * bit of the selected faces' surface (`../geometry/hullGeometry` `SurfaceFields`), shown where they share it and "mixed"
  * where they differ; setting one sets it on them all, one edit (one undo step), every other word kept:
@@ -13,9 +13,9 @@ import { CLIMB_FLAGS, COLLISION_TYPES, type SurfaceChange } from '../geometry/hu
  *   sound, the shots' marks and how far they go through.
  * - **Area**, Outdoor or Indoor (`m_inside`), and the **Reverb zone** (bit 27): read off the floor under the camera
  *   (`FUN_00295b00`, research 81 §9): which of the map's reverb lists, and which of its entries, is heard; the Area also
- *   the ambience's side (the owner, 2026-11-20: named for what they do, the Area a two-way switch).
+ *   the ambience's side (the Forge's owner (crispy, OT.R112), 2026-11-20: named for what they do, the Area a two-way switch).
  * - **Camera**, "Blocks the camera" (`m_cameratype` bit 1 clear): off, the camera's probes go through the faces.
- * The region (the zones drawn from the floor, `../../regionCull`) is kept on every face but not shown (the owner,
+ * The region (the zones drawn from the floor, `../../regionCull`) is kept on every face but not shown (the Forge's owner (crispy, OT.R112),
  * 2026-11-20: too complex for the editor's users).
  * A note says when some of the faces are not floors the camera stands over, whose Area and zone are never read.
  */
@@ -70,7 +70,7 @@ export function buildSurfaceInspector(doc: Document, hooks: SurfaceInspectorHook
     return Object.assign(i, { box: l });
   };
 
-  // Collision: the type (the owner, 2026-11-20: "add the collision type into the surface panel"), a climbable's flag as
+  // Collision: the type (the Forge's owner (crispy, OT.R112), 2026-11-20: "add the collision type into the surface panel"), a climbable's flag as
   // its own entry, as the Surface section's tabs and the Climbable tab's menu set them.
   const collision = select('Collision type');
   const collisionMixed = option(collision, MIXED, 'mixed');
@@ -98,7 +98,7 @@ export function buildSurfaceInspector(doc: Document, hooks: SurfaceInspectorHook
   });
   row('Material', material, 'What the faces are made of: the steps\' sound, the shots\' marks and how far they go through (0 the map\'s default surface)');
 
-  // Area: Outdoor or Indoor, two tabs (the owner, 2026-11-20: "a switch between indoor/outdoor"), neither lit while mixed.
+  // Area: Outdoor or Indoor, two tabs (the Forge's owner (crispy, OT.R112), 2026-11-20: "a switch between indoor/outdoor"), neither lit while mixed.
   const area = forgeEl(doc, 'div', 'fx-asset-tabs fx-surfprops-area');
   area.setAttribute('role', 'radiogroup');
   area.setAttribute('aria-label', 'Area');
@@ -128,7 +128,7 @@ export function buildSurfaceInspector(doc: Document, hooks: SurfaceInspectorHook
   blocks.addEventListener('change', () => { hooks.change({ cameraThrough: !blocks.checked }, blocks.checked ? 'Camera blocked' : 'Camera passes through'); blocks.blur(); });
   row('Camera', (blocks as HTMLInputElement & { box: HTMLElement }).box, 'On: the third-person camera stops at these faces and pulls in in front of them. Off: it passes through (foliage, nets, thin rails); players and shots still collide');
 
-  // The region (the visibility zones) is not shown (the owner, 2026-11-20: "remove the regions for now. maybe too complex
+  // The region (the visibility zones) is not shown (the Forge's owner (crispy, OT.R112), 2026-11-20: "remove the regions for now. maybe too complex
   // for our users"): every edit here keeps each face's own, and a new face takes its object's.
 
   const note = forgeEl(doc, 'p', 'fx-dim fx-setting-note fx-surfprops-note');

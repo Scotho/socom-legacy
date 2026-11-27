@@ -138,6 +138,8 @@ export interface CensusProp {
   facade?: number;
   /** The LOD band, or null: one placement of a LOD pair is listed once per entry. */
   lod?: unknown;
+  /** Research 439: the parts, each with its own band where its visual has one (`LoadedMesh.lod`). */
+  parts?: readonly { lod?: unknown }[];
 }
 
 /** A placement the shared check would refuse. */
@@ -195,7 +197,7 @@ export function censusOfProps(map: string, campaign: boolean, props: readonly Ce
       row.placements++;
       for (const k of c.classes) row.counts[k]++;
       if (p.facade) row.facadePlacements++;
-      if (p.lod !== null && p.lod !== undefined) row.lodPlacements++;
+      if ((p.lod !== null && p.lod !== undefined) || p.parts?.some((part) => part.lod !== undefined)) row.lodPlacements++;
       if (c.tiltDegrees !== null) row.maxTiltDegrees = Math.max(row.maxTiltDegrees, c.tiltDegrees);
       if (c.lengths.every(Number.isFinite)) {
         const lo = Math.min(...c.lengths), hi = Math.max(...c.lengths);

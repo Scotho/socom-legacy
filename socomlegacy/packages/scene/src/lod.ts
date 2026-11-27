@@ -131,12 +131,74 @@ export function lodOpacity(band: LodBand, rangeSq: number, last = false): number
 }
 
 /**
+ * The opacity at or below which a fading visual is not drawn [reading, pending review; research 439 s1]: `FUN_003374c0`
+ * draws a visual whose band left it under full opacity through the alpha pass only while that opacity is above
+ * `0.0078125` (D:L235437), and draws nothing otherwise (D:L235424-235437). The pipe's own overrides on that line
+ * (`+0x5f` bit 0, `+0x711`, `+0x714`) are not read; the world's walk is taken as having none set.
+ */
+export const LOD_FADE_FLOOR_READING = 1 / 128;
+
+/** Whether a band's opacity is drawn: above the fade floor (`LOD_FADE_FLOOR_READING`). */
+export function lodDrawn(opacity: number): boolean {
+  return opacity > LOD_FADE_FLOOR_READING;
+}
+
+/**
  * Whether a model in a band is drawn at a camera range (a plain distance, not squared): wherever
- * `lodOpacity` is above zero. Across a crossover both copies are drawn, one fading in as the other fades
- * out, as the engine draws them; it used to switch at the middle of each fade instead.
+ * `lodOpacity` is above the fade floor (`lodDrawn`). Across a crossover both copies are drawn, one fading in as the
+ * other fades out, as the engine draws them; it used to switch at the middle of each fade instead.
  */
 export function lodVisible(band: LodBand, range: number, last = false): boolean {
-  return lodOpacity(band, range * range, last) > 0;
+  return lodDrawn(lodOpacity(band, range * range, last));
+}
+
+/**
+ * Which band a visual is drawn in [reading, pending review; research 439 s1]: byte 5 of its `vparams` record, 1-based
+ * into the world root's `LOD_Object`. `FUN_003c3570` (D:L315511) copies the 24-byte record to the visual's start;
+ * `FUN_003374c0` reads the byte (D:L235400, D:L235459) and takes the band at `world+0x594 + (b - 1) * 0x20` while
+ * `b <= world+0x590` (D:L235463-235469), the table `FUN_003bb6b0` loads (D:L311135-311150; its caller passes
+ * `world+0x58c`, D:L217238). Byte 5 zero, or past the table, the visual is drawn with no band test. The game never reads
+ * `READERM.ZAR/lod.rdr` (no such string in the executable); on the multiplayer maps the file's bands agree with byte 5
+ * wherever it names a visual (research 439 s3), so `lodBands` stays a cross-check only.
+ */
+export const LOD_VISUAL_BAND_READING = 'vparams byte 5, 1-based into LOD_Object' as const;
+
+/**
+ * Where a banded visual's range is measured from [reading, pending review; research 439 s1]: `FUN_003374c0` hands
+ * `FUN_00290aa0` the translation row of the matrix stack's top (`PTR_DAT_003df338 + 0x30`, D:L235458) -- the drawn
+ * node's world origin -- not the visual's centroid, which only the detail gate uses (D:L235406-235408).
+ */
+export const LOD_BAND_ANCHOR_READING = "the drawn node's world origin" as const;
+
+/**
+ * The world root's `LOD_Object` key as bands (`LOD_VISUAL_BAND_READING`): 32-byte records of five floats -- the near
+ * fade's two ends squared, its inverse delta, the far fade's two ends squared -- then the far fade's inverse delta at
+ * +20 and the ramp bits at +24 (`scene/test/lod.test.ts`). Each band is kept in plain distances, the squares rooted;
+ * whether a fade ramps follows from its two ends, which on every map is where its bit is set (research 439 s3).
+ */
+export function parseLodObject(bytes: Uint8Array): LodBand[] {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const out: LodBand[] = [];
+  for (let o = 0; o + 32 <= bytes.byteLength; o += 32) {
+    const at = (k: number): number => Math.sqrt(Math.max(0, view.getFloat32(o + k * 4, true)));
+    out.push({ nearFade: [at(0), at(1)], farFade: [at(3), at(4)] });
+  }
+  return out;
+}
+
+/**
+ * How the original fades a node's visuals [reading, pending review; research 439 s1, a gap -- named, not built]:
+ * `FUN_003374c0` reads one opacity from the opacity stack's top before it walks the node's visuals (D:L235394), and
+ * `FUN_003b7b90` multiplies it in place for each banded visual inside a ramp (D:L308922, D:L308927) with nothing
+ * resetting it between visuals -- so a node's later visuals draw at the product (Blizzard's plug, two visuals in band 11,
+ * at 380 u: ~0.40 then ~0.16), an unbanded visual after them too, and the fade floor tests the product. The port fades
+ * each part at its own band's opacity (`./world`); outside the ramps the two agree.
+ */
+export const LOD_NODE_FADE_SHARED_READING = 'one opacity per node, scaled by each banded visual in turn' as const;
+
+/** A visual's band: `vparams` byte 5 into the table, 1-based; 0 or past the table is none (`LOD_VISUAL_BAND_READING`). */
+export function visualBand(table: readonly LodBand[], index: number): LodBand | null {
+  return index >= 1 && index <= table.length ? table[index - 1]! : null;
 }
 
 /**

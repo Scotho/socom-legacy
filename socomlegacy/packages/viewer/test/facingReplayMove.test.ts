@@ -28,7 +28,7 @@ import { MAX_PITCH_RATE, MAX_YAW_RATE } from '../src/look';
 
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
 const FLOOR: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) };
 const OWNERS: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
 const ground = () => packGround(PARAMS, [FLOOR], OWNERS);
 
@@ -311,6 +311,8 @@ describe("the live look gate is unchanged by the replay's fix (byte-equal to the
     gate.cover(3);
     step(ref.yaw + 9, 0);
     expect(gate.clamps).toBeGreaterThan(0);
-    expect(digest(out)).toBe('4b4d868c6b869b94f348d5113f191f1b03a1641537733d53f5cd3e97f652d1c7');
+    // R4P-208 re-pin (box-turnfix2v-2db958659): the gate's derived turn is per tick (tickTurn) and clamped to the view's
+    // maximum in law mode, by design, so its output digest moves; TURN_WORD_LINK_SCALE_READING (x 1.0) leaves it as boxed.
+    expect(digest(out)).toBe('beb52ed813e36101ee37801d4fb533896d9dabd6a7dba0b468d936d35116c713');
   });
 });

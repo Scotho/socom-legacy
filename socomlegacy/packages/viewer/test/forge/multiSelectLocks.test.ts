@@ -20,7 +20,9 @@ describe('FORGE multi-select: the lobby\'s locks kept (FG-47 F1, F2)', () => {
     // The re-review's L2: every write that opens or closes an inspector field keeps the lock in it, wherever it is.
     const writes = [...page.matchAll(/\b(fx|fy|fz|fyaw)\.disabled\s*=([^;]*);/g)];
     expect(writes.length).toBeGreaterThan(0);
-    for (const w of writes) expect(w[2], w[0]).toContain('editsLocked()');
+    // PR #5: the import's map-data branch writes `fyaw.disabled = true` (a spawn slot's or a door's yaw is never typed):
+    // a write that only closes the field opens nothing past the lock, so it keeps it too.
+    for (const w of writes) if (w[2]!.trim() !== 'true') expect(w[2], w[0]).toContain('editsLocked()');
   });
 
   it('F2: the tap-or-hold is set from crossHoldsIn with the lobby\'s window named', () => {

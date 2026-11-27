@@ -71,6 +71,9 @@ export const SEAL_ANIMS = {
   // (`FUN_0057e770` D:L441018-441020); `GLOBAL` maps it to `guard_prone_cover` (the Seal anim set includes `GLOBAL`).
   // Listed here, the page asks the pack for it with the plays' clips (`MOTION_CLIPS`, `./animator` `PLAY_CLIPS`).
   proneCover: 'guard_prone_cover',
+  // LATER 1188 (research 447 s9.3, s12): a hostage's flashbang cower, in GLOBAL (the hostage's set includes it).
+  cowerStand: 'guard_flashbang_cower', cowerStand2: 'guard_flashbang_cower2',
+  cowerCrouch: 'guard_crouch_flashbang_cower', cowerCrouch2: 'guard_crouch_flashbang_cower2',
   step: 'seal_step', crouchStep: 'seal_crouch_step',
   // The rifle <-> pistol swap (`FUN_005a64c0`, decomp 461850-462030): `Rifle -> Pistol` (0x35), `Crouch rifle -> Pistol`
   // (0x36), `Prone rifle -> Pistol` (0x37) and `Moving rifle -> Pistol` (the overlay over the locomotion); played

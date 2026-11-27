@@ -23,7 +23,7 @@
  * - the reload's clip and length (`./reloadClip`): the page's reload and the room's lock, one table (MJ-1);
  * - the camera's geometry (`./cameraRig`) and the server's accuracy cone over it (`./net/shotCone`, OWNER-3): the room
  *   refuses a round whose eye or aim the page's camera and cone could not have made;
- * - the fire modes' wait (`fireInterval`, `FUN_005c09f0`) the room rates rounds by, and the probe's lift
+ * - the fire modes' wait (`fireInterval`: r0004 0x5c76f0's `FireWait` x 1.2 in single, r0001 `FUN_005c09f0`) the room rates rounds by, and the probe's lift
  *   (`probeLiftOf('stand')` in `./mover`, the tick's floor pick from the feet + 11.48, LATER 785) a spawn is placed from.
  */
 export * from './mover';
@@ -55,7 +55,7 @@ export {
 } from './mapActions';
 export { alternateDisagreement, NODE_REF_SCOPE_READING, readMapMeta, under, type MapInitial, type MapInstance, type MapMeta } from './mapMeta';
 export {
-  bareMeta, forkGround, ROOM_SKIP_EFFECTS_READING, SHOT_GEOMETRY_LIVE_READING, WORLD_RESET_SAVED_READING, WorldState, type InstanceState, type WorldHooks,
+  bareMeta, forkGround, isForgeScriptValve, ROOM_SKIP_EFFECTS_READING, SHOT_GEOMETRY_LIVE_READING, WORLD_RESET_SAVED_READING, WorldState, type InstanceState, type WorldHooks,
 } from './worldState';
 export {
   C4_ACCEPT_DAMAGE_READING, destructiblesOf, placeRefs, SCENE_BLAST_REACH_PLACEHOLDER, SCENE_DEATH_AUTHORITY_READING, SCENE_INSTANCE_SCOPE_READING,

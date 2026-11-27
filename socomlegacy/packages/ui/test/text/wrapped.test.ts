@@ -41,6 +41,16 @@ describe('FUN_00379f70: the caption into line nodes', () => {
     const l = wrapLines(f, 'A#BA\nA', { ...spec, width: 100 });
     expect(l.map((x) => [codesText(x.codes), x.bold])).toEqual([['A#BA', false], ['A', true]]);
   });
+  // R4P-324 (web research 263 §3a): r0004 Censor leaves '#' + 0xb2 where '#C' was typed; the setter tests 0x23 then 0x43
+  // (r0004 0x398790/0x3987a0), so the code is not consumed and draws as text; '#B' (0x42) still toggles (0x398800-0x398820).
+  it('R4P-324: "#" + 0xb2 and three bytes is not a colour code: kept in the line as text, the colour unchanged; #B still toggles', () => {
+    const l = wrapLines(f, 'A#\xb2\x10\x20\x90A#BA\nA', { ...spec, width: 100 });
+    expect(l.map((x) => [x.bytes, x.color, x.bold])).toEqual([
+      [[0x41, 0x23, 0xb2, 0x10, 0x20, 0x90, 0x41, 0x23, 0x42, 0x41], [128, 128, 128], false],
+      [[0x41], [128, 128, 128], true],
+    ]);
+    expect(l[0]!.codes.slice(0, 3)).toEqual([0x41, 0x23, 0xb2]);
+  });
 });
 
 describe('FUN_003794b0: where the lines stand', () => {

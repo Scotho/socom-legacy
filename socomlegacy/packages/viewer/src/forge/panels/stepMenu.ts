@@ -1,7 +1,7 @@
 import { forgeEl } from '../shell/panel';
 
 /**
- * The script steps' one menu (the owner, 2026-11-13: "make this dropdown the same one as the one when we press the +
+ * The script steps' one menu (the Forge's owner (crispy, OT.R112), 2026-11-13: "make this dropdown the same one as the one when we press the +
  * button in the node editor. Everywhere where we see that popup should show the new one"; a browser adaptation, FG.R2):
  * the node editor's + menu, the Step row's list (Inspector and node) and the Inspector's Add a step. Each step its
  * engine word in its family's colour and its words, a family at a time, a line between; then the row's own actions

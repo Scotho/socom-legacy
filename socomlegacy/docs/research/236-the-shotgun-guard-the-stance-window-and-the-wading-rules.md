@@ -3,7 +3,7 @@
 - Date: 2026-10-06 (web sprint 30). PF-37, three small rows under one task (ruling PF.R57; PF.R58: it lands without
   the parked PF-23): the shotgun's hit guard kept on the victim and reset once a victim update (§1); the server's
   stance-change tolerance per transition, 37 / 51 / 57 ticks (§2); the rocket launcher's take-up refused wading deeper
-  than 8.5, and the water's stance fallbacks already built given their citations (§3).
+  than 8.5 (but for the set `DAT_0044d408`, §3), and the water's stance fallbacks already built given their citations (§3).
 - Status: **reading, pending review.** Every value below is a read of the decompilation (`D:L<n>` of
   `socom2_game.elf.decomp.c` r0001), re-read at the decomp by this task's implementer, or disc data through a read
   formula; nothing here is a capture. Research 194 and 181 grade these STRONG or source-plus-retail-instruction; under
@@ -40,17 +40,28 @@
    transition's tail (the honest-rounds test), so the per-transition bounds stand; the fallback to one bound of 57 was
    not needed.
 3. **The rocket launcher is not taken up wading deeper than 8.5 units**, page and room (`FUN_005857e0`, the crouch
-   entry's test). The water's stance fallbacks (2 / 8.5 / 1.5) were built (research 86 s5.2); they now cite their lines.
+   entry's test) -- unless the body's anim set is `DAT_0044d408`, for which both tests pass at any depth (D:L444340,
+   D:L442539; s3) *(corrected 2026-11-24, NC-3 r26)*. The water's stance fallbacks (2 / 8.5 / 1.5) were built (research 86 s5.2); they now cite their lines.
 
 ## 1. The shotgun guard
 
 **The consumer** (`FUN_005abbc0` D:L464701-464737, re-read): offline (`DAT_0045a0c1` 0), or online for a projectile whose `+4` byte has bit 2 set,
-`cVar2 = FUN_003d1e10(ammo)` (the ammo's class); when the hit projectile is not the remembered `+0x1048` (or its class
-is neither 0xab nor 'y'), a class-'Q' hit is applied only when `+0x1048` is 0 or its own class is not 'Q'
+`cVar2 = FUN_003d1e10(*(projectile + 0xc))` -- the class of the projectile's weapon, its `+0xc`; the ammo at `+0x10`
+is read separately, for the damage (D:L464699, D:L464702, D:L464766-464767) *(corrected 2026-11-24, NC-3 r2; was "(ammo), the
+ammo's class")*. The repeat skip is the caller's: `FUN_005ab850` returns before the call whenever the projectile is
+the remembered `+0x1048`, whatever its class (D:L464597-464599, the call D:L464617), and itself remembers a detonated
+projectile with explosion damage first (`CZProjectile::WasDetonated`, `CZAmmo::GetExplosionDamage`, D:L464600-464603), which then reaches the consumer when
+`CZAmmo::GetExplosionRadius` (`FUN_003d4500`, another field) is 0 or less (D:L464615-464617);
+the consumer's own test then skips a remembered projectile only of class 0xab (171) or 'y' (121) (D:L464701)
+*(corrected 2026-11-24, NC-3 r3)*. When it passes, a class-'Q' hit is applied only when `+0x1048` is 0 or its own class is not 'Q'
 (L464703-464705); then the pellets (`FUN_005a1620` the count, `FUN_003c7600` each, the part by `DAT_006508e0`'s table,
 `FUN_005a5830` the hit; online `FUN_005a5a80(param_1, 3, projectile)` L464735) and `*(iVar9 + 0x1048) = param_2` (L464737):
-the applied one is remembered. A skipped one is not. The other classes take their own branches (L464740+) and
-remember too, but never skip (`SHOTGUN_GUARD_SCOPE_READING`, 'class Q only').
+the applied one is remembered. A skipped one is not. The other classes take their own branches by the hit
+location (L464740+), and only two remember the projectile: location 0 (`+0x308`/`+0x30c`, D:L464740-464743) and
+location 3 (`+0x310`/`+0x2fc`/`+0x304`, D:L464753-464757); locations 2, 1, 5 and 4 store nothing (D:L464745-464752,
+D:L464759-464765) *(corrected 2026-11-24, NC-3 r8; was "remember too")*. None of them is skipped by the Q rule
+(`SHOTGUN_GUARD_SCOPE_READING`, 'class Q only'); a repeat of the remembered projectile, of any class, is the caller's
+skip (above, NC-3 r3).
 
 **The reset** (`FUN_00550ef0` D:L418081-418083, re-read: `if (piVar14[0x412] != 0) piVar14[0x412] = 0;`, the word index
 0x412 x 4 = 0x1048): after the `+0x105c & 0x40` gate (L418074: the update returns before it when the bit is clear --
@@ -127,7 +138,8 @@ was not taken.
 `!(bit 7 of +0x105e) || +0xf88 <= 8.5`. The crouch entry `FUN_00581990` (D:L442524-442560) opens on the same test.
 `FUN_005b52b0` (D:L469852-469902) writes `+0xf88` = the water surface less the feet and bit 7 in water (181 s2.6). A
 SEAL's set always has both crouch clips (181: `animset.txt` lines 1243/1263). So the slot gate (`FUN_005bdc30`) refuses
-the rocket launcher wading deeper than 8.5 units (0.85 m).
+the rocket launcher wading deeper than 8.5 units (0.85 m), for a body whose set is not `DAT_0044d408` (D:L444340;
+the depth test applies only past the set's two clips, D:L444353-444355) *(corrected 2026-11-24, NC-3 r26)*.
 
 The port: `LAUNCHER_BODY_READING` re-valued from `true` ("not read", research 94 L1549) to `{ maxWadingDepth: 8.5 }`;
 `slotSelectable` reads `ctx.wadingDepth?.()` (absent: 0); the room's `raiseLauncher` refuses a raise deeper than it as
@@ -138,10 +150,12 @@ inventory's line reads the same depth since wave 4 (s4).
 
 **The built fallbacks** (research 86 s5.2, issue #22; 181 s8's C2 lead), no code change:
 
-- `FUN_00581990` (D:L442524-442560): the crouch entry refused wading deeper than 8.5 -- the SEAL stands
+- `FUN_00581990` (D:L442524-442560): the crouch entry refused wading deeper than 8.5 -- the SEAL stands (not for the set
+  `DAT_0044d408`, which passes at any depth, D:L442539; NC-3 r26)
   (`WATER_CROUCH = 8.5`, `traversal.ts`);
 - `FUN_00581660` (D:L442436-442470): the prone entry taken only at `+0xf88 <= 2.0` or out of the water; deeper, it
   sets `+0x374 = 1` and calls the crouch entry (L442470-442474) -- prone over 2 deep crouches, over 8.5 stands
+  (not for the set `DAT_0044d408`, which crouches at any depth, D:L442539; NC-3 r26)
   (`WATER_PRONE = 2`). **Its caller, transcribed** (`FUN_00552d60` D:L418877-418900): the requested stance `+0x374`
   is 2 -> `FUN_00581660` (or the dive `FUN_0057e540` when `FUN_00584b00` allows it), then `FUN_00581ed0(param_1, 2)`;
   1 -> `FUN_00581990`, then `FUN_00581ed0(param_1, 1)`. So `FUN_00581660` is the prone entry and research 86 s5.2's
@@ -185,12 +199,12 @@ A behaviour test of the R2 list in water (`matchThrow.ts` `inventoryKit`) is sti
 | name | where | status |
 |---|---|---|
 | `SHOTGUN_GUARD_WINDOW_READING` | server `shotgunGuard.ts` (`room.ts` `bulletHit`) | `'victim update (one game frame)'`: a second class-Q volley on a victim inside `SHOTGUN_GUARD_TICKS` (2 room ticks = one game frame) of the last that landed is a `'guard'` miss; the original clears `+0x1048` once a victim update (`FUN_00550ef0` D:L418081-418083) and skips a Q hit while it holds a Q (`FUN_005abbc0` D:L464701-464737). Owed: 194 A09's capture (s6) |
-| `SHOTGUN_GUARD_SCOPE_READING` | server `shotgunGuard.ts` | `'class Q only'`: the 12-gauge's volley (`pelletsOf > 1`) alone is skipped; the compare's other branches (L464740+) apply their hit and only remember -- the port's bullets are untouched |
+| `SHOTGUN_GUARD_SCOPE_READING` | server `shotgunGuard.ts` | `'class Q only'`: the 12-gauge's volley (`pelletsOf > 1`) alone is skipped; the compare's other branches (L464740+) apply their hit, and only locations 0 and 3 remember it (s1, NC-3 r8) -- the port's bullets are untouched |
 | `SHOTGUN_HIT_GUARD_RESET_READING` | *note only* (research 94 L1534) | resolved 2026-10-06 (PF-37): the reset site is `CZSealBody`'s update `FUN_00550ef0` D:L418081-418083 (retail 0x550f9c), after the `+0x105c & 0x40` gate; the constructor `FUN_00553ea0` L419774 (194 s7 A09); the interval is `SHOTGUN_GUARD_WINDOW_READING`'s |
 | `STANCE_CHANGE_TICKS_PLACEHOLDER` | *note only* (was viewer `net/shotCone.ts`) | retired 2026-10-06 (PF-37): `stanceChangeTicks(from, to)`, the transition's clip in ticks -- 37 / 51 / 57 (179 L695-710; s2) |
 | `STANCE_REVERSE_TICKS_READING` | viewer `net/shotCone.ts` | `'same as forward'`: getting up takes the same ticks as going down (the same clip reversed, `ACTION_SECONDS`); the reversed play's speed is a mover reading |
-| `LAUNCHER_BODY_READING` | viewer `equipment.ts` (`room.ts` `raiseLauncher`) | re-valued 2026-10-06 (PF-37) from `true` to `{ maxWadingDepth: 8.5 }`: `FUN_005857e0` D:L444332-444360, `+0xf88 <= 8.5` with bit 7 of `+0x105e` (181 s2.6) |
-| `WATER_STANCE_READING` | *note only* (viewer `traversal.ts`, a comment) | the built water fallbacks: prone to 2 deep, crouched to 8.5, the crawl to 1.5 (`WATER_PRONE`, `WATER_CROUCH`, `WATER_CRAWL`; `FUN_00581660` D:L442436-442470, `FUN_00581990` D:L442524-442560, `FUN_00583500`; 181 s8, 86 s5.2); `FUN_00581660`'s caller `FUN_00552d60` D:L418877-418900 confirms it is the prone entry (s3) |
+| `LAUNCHER_BODY_READING` | viewer `equipment.ts` (`room.ts` `raiseLauncher`) | re-valued 2026-10-06 (PF-37) from `true` to `{ maxWadingDepth: 8.5 }`: `FUN_005857e0` D:L444332-444360, `+0xf88 <= 8.5` with bit 7 of `+0x105e` (181 s2.6); any depth when `+0x528` is `DAT_0044d408` (D:L444340; NC-3 r26) |
+| `WATER_STANCE_READING` | *note only* (viewer `traversal.ts`, a comment) | the built water fallbacks: prone to 2 deep, crouched to 8.5 (any depth for the set `DAT_0044d408`, D:L442539; NC-3 r26), the crawl to 1.5 (`WATER_PRONE`, `WATER_CROUCH`, `WATER_CRAWL`; `FUN_00581660` D:L442436-442470, `FUN_00581990` D:L442524-442560, `FUN_00583500`; 181 s8, 86 s5.2); `FUN_00581660`'s caller `FUN_00552d60` D:L418877-418900 confirms it is the prone entry (s3) |
 
 ## 6. Owed
 

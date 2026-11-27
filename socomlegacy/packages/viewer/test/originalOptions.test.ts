@@ -507,8 +507,8 @@ describe.skipIf(!HAVE_DISC)('OPTIONS on the dev disc, over a front-end session (
       for (const n of chain) { x += a * n.x; y += d * n.y; a *= n.scale[0]!; d *= n.scale[1]!; }
       return [x + 8, y + 8];
     };
-    // The build checks the page's box (`selectVideoPicture`); its onCheck hands the same picture back, which the page's
-    // keeper ignores (`./picture` `pictureKeeper`).
+    // The build checks the page's box (`selectVideoPicture`); OptionsCommands consumes the same-picture
+    // initialization echo before calling the page's explicit graphics-profile setter.
     expect(chosen.every((p) => p === 'modern'), chosen.join()).toBe(true);
     chosen.length = 0;
     const mode = s.opener.valves.find('video_mode')?.value;

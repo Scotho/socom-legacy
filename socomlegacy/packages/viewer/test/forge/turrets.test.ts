@@ -115,16 +115,18 @@ describe.skipIf(!ISO || !existsSync(ISO))('placed turrets on the disc (SOCOM_ISO
     }
   }, 120_000);
 
-  it("each Crossroads turret's root owns three hull polygons (its *MG_turret), copied into the joined hull at the placed turret's transform", async () => {
+  it("each Crossroads turret's root owns its hull owners (its *MG_turret's base, the library model's root and its gun: LATER 1003), copied into the joined hull at the placed turret's transform", async () => {
     const { IsoAssetSource } = await import('@s2u/archive');
     const { fsBlob } = await import('../../../../tools/fmv-spike');
     const { loadMap } = await import('../../src/loadMap');
     const map = await loadMap(new IsoAssetSource(fsBlob(ISO!)), 'RUN/MP72.ZDB');
     const templates = turretTemplates(map, 'MP72');
-    // Measured off the disc (FP-1b, the review's F2): MP72's hull, read by `loadMap`, has one owner under each turret root.
+    // Measured off the disc (FP-1b, the review's F2; LATER 1003): MP72's hull, read by `loadMap` with the libraries joined
+    // (`hullModels`), has three owners under each turret root -- the instance node's own 3 base polygons, the library model's
+    // root's 3 (the original keeps both copies: `FUN_00313d60` dedups by pointer only) and the gun's METAL_THICK parts.
     expect(templates.map((t) => [t.name, t.owners.map((o) => [o.owner.path, o.polys.length])])).toEqual([
-      ['mp72_turret02', [['worldmodel/mp72_turret02/LMG_turret', 3]]],
-      ['mp72_turret01', [['worldmodel/mp72_turret01/RMG_turret', 3]]],
+      ['mp72_turret02', [['worldmodel/mp72_turret02/LMG_turret', 3], ['worldmodel/mp72_turret02/LMG_turret=LMG_turret', 3], ['worldmodel/mp72_turret02/LMG_turret=LMG_turret/turret/gun', 13]]],
+      ['mp72_turret01', [['worldmodel/mp72_turret01/RMG_turret', 3], ['worldmodel/mp72_turret01/RMG_turret=RMG_turret', 3], ['worldmodel/mp72_turret01/RMG_turret=RMG_turret/turret/gun', 11]]],
     ]);
     const before = groundPolygons(map.ground!);
     for (const t of templates) {
@@ -133,10 +135,14 @@ describe.skipIf(!ISO || !existsSync(ISO))('placed turrets on the disc (SOCOM_ISO
       const at: [number, number, number] = [p.origin[0] + 100, p.origin[1], p.origin[2] + 50];
       const { map: joined } = withPlacedTurrets(map, [{ source: 'MP72', name: t.name, at, yaw: p.facing * Math.PI / 180 }], () => t);
       const owners = joined.ground!.owners.slice(map.ground!.owners.length);
-      const leaf = t.owners[0]!.owner.path.slice(p.root.length);
-      expect(owners.map((o) => [o.path, o.first, o.count]), t.name).toEqual([[`worldmodel/forge_turret_1${leaf}`, before.length, 3]]);
+      let first = before.length;
+      expect(owners.map((o) => [o.path, o.first, o.count]), t.name).toEqual(t.owners.map((o) => {
+        const row = [`worldmodel/forge_turret_1${o.owner.path.slice(p.root.length)}`, first, o.polys.length];
+        first += o.polys.length;
+        return row;
+      }));
       const copied = groundPolygons(joined.ground!).slice(before.length);
-      t.owners[0]!.polys.forEach((poly, k) => {
+      t.owners.flatMap((o) => o.polys).forEach((poly, k) => {
         const got = copied[k]!.points;
         for (let i = 0; i < poly.points.length; i += 3) {
           expect(got[i]!, t.name).toBeCloseTo(poly.points[i]! + 100, 2);

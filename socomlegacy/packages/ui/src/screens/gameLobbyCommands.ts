@@ -1,16 +1,19 @@
 import { DIALOG_EVENTS } from '../dialog';
+import { chatShows } from '../text/chatFilter';
+import { ownNameDrawn } from '../text/ownNameDisplay';
 import type { UiCommandHandler, UiCommandHost } from '../uiCommands';
-import type { UiVarEntry, UiVarManager, UiVarValue } from '../uiVars';
+import { UIVAR_LONGEVITY, type UiVarEntry, type UiVarManager, type UiVarValue } from '../uiVars';
 import { VALVE_TYPE, type ValveStore } from '../valves';
 import { SKB_RECIPIENT_VALVE } from '../keyboard/softKeyboard';
 import type { ZAnimUiCommand } from '../zanimRuntime';
 import {
-  appendGameLobbyChat, CHAT_KIND, GAME_LOBBY_CHAT_VAR, gameLobbyChatLine, lobbyPanelLine, runChatCommand, WHISPER_USAGE_TEXT, type LobbyTextChat,
+  appendGameLobbyChat, noteHiddenGameLobbyChat, CHAT_KIND, censorHashC, GAME_LOBBY_CHAT_VAR, gameLobbyChatLine, lobbyPanelLine, runChatCommand, WHISPER_USAGE_TEXT, type LobbyTextChat,
 } from './briefingRoomChat';
 import { clanFieldAdmits } from './autoplayCommands';
 import { drawnGameName, gameStatsD, MEDIUS_LOBBY_NAME_VAR, type GameListEntry } from './briefingRoomCommands';
 import { clanField, type CreatedGame } from './createGameCommands';
 import type { LobbyClient } from './lobbyClient';
+import { SWAP_MARK_DOT_SHIFT, swapMarkCells } from './swapMark';
 
 /**
  * The GAME LOBBY to the launch (`dlgGameLobby.rdr`, ONL-16a; web research 165, on research 159, 162, 157 §6, 169): the
@@ -80,6 +83,21 @@ export type GameLobbyCommandName = (typeof GAME_LOBBY_COMMAND_ROWS)[number]['nam
 export const LOBBY_STATE_JOIN_GAME = 0x0f;
 export const LOBBY_STATE_IN_GAME = 0x11;
 const LOBBY_STATE_LOGGED_IN = 0x0b;
+/**
+ * AS-17 / L98 (reading (r0004), pending review): the menu-input pause r0004's `ConnectToGameServer` asks on a valid
+ * create (PLAYLISTVAR a non-empty array), seconds -- an instruction immediate, not a data word: `lui v0,0x3f40` at r4
+ * 0x27f7c8 and `mtc1 v0,f12` at r4 0x27f7d0, into `FUN_001f3bb0` (jal at r4 0x27f7d4; D4:L133677-133686, D4:L59335-59344).
+ * It pauses only `CGameMenu::HandlePad` (r4 0x386910): `CGameMenu::Tick` (`FUN_003836a0` D4:L284427-284434) counts +0x900
+ * down by the frame time and skips the pad handler until it reaches 0; fades and the rest of the update run on. The unit
+ * (seconds) is inferred, the frame clock not traced. As r0001 already does, the countdown freezes while a menu switch is
+ * pending and the fade stands at 128 (the second read's statement). Read from the image, not measured running (a capture
+ * of r0004's create settles it).
+ */
+export const CREATE_GAME_INPUT_PAUSE_S_READING = 0.75;
+/** The animation whose `ConnectToGameServer` tests the play list (r4 0x41a728, strcmp at r4 0x27f75c). */
+const CREATE_GAME_ANIM = 'create_game';
+/** The play list variable (r4 0x41a738). */
+const PLAYLIST_VAR = 'PLAYLISTVAR';
 /** CREATE GAME's state (`FUN_002f83b0` D:L197383: a name no record holds), ONL-13's. */
 export const LOBBY_STATE_CREATE_GAME = 0x0d;
 /** GAMENAMEVAR (lobby +0xc4), which the lobby's `gamename_val` draws. */
@@ -384,6 +402,52 @@ export const LATE_SEAT_MATCH_ENDING_OWNER = 'OT.R122: a late seat at the game\'s
 export const MATCH_ENDING_READY_LINE = 'Match ending -- READY opens when the lobby returns.' as const;
 
 /**
+ * LOBBY_AFTER_MATCH_FREE_OWNER (OT.R129: the owner's ruling, 2026-11-14, seat redotcom-8f, `socomlegacy/docs/MISSION.md`; a
+ * departure from the original on his word, not the original's behaviour). His words: "There should be no restrictions
+ * whatsoever when a match comes back to the lobby screen. All players should be able to ready up, switch teams, or change
+ * things in the armory."; and "lauhnch countdown and team lock in clan games should stay". From the match's return to
+ * the same game's lobby (`matchReturned`) until the next launch (`start`), the page lays aside the waits the disc's lobby
+ * runs then -- each still the original's, and still run in a lobby no match has come back to:
+ * - a joiner's 10 s READY (`ClientDAReadyButton`, P:L7831-7856, from `SetupNormalJoiner` under `ComeFromBriefing` 0,
+ *   `COME_FROM_BRIEFING_AFTER_MATCH_READING`) and the 10 s ARMORY (`ArmButtonClock`, P:L6999-7046): stopped once they
+ *   have started (`CycleReadyButton` once it has run its first tick), their counts cleared, `WsCount` and
+ *   `NoReadyButton` 0 as `ArmButtonClock`'s end leaves them (./lobbyRecovery);
+ * - READY's 5 s (`CycleReadyButton`'s WAIT 5, P:L7390-7425, and `ReadyToLoad`'s own, `REPEAT_MS`) and the 5 s READY /
+ *   ARMORY hold after a switch (`CountButtonFiveST`, P:L7048-7074): stopped the same way;
+ * - SWITCH TEAMS' 5 s (`switch_teams_anim`'s WAIT 5, P:L7588-7629, and `SwitchSides`' own): the animation is not stopped
+ *   but its WAIT is passed once the room has answered the switch (`rearm`), so the disc's own end runs at once -- the kit
+ *   re-armed for the side `player_team` now holds (the stored profile or the side's default type), then `FromBriefing`,
+ *   then SWITCH TEAMS enabled (P:L7603-7628); until that answer the switch's controls stay as the disc leaves them (a
+ *   round trip, not 5 s). A launch heard first still runs that end before the match is handed on (`start`);
+ * - a lobby seat that hears the room's abandon (`abandoned`, a late seat waiting in the lobby) is in the same game's
+ *   lobby again, so the waits go for it too (the controller's reading of the ruling: an abandon is a return);
+ * - the host's READY and START gate is the room's (`readyIn` 0 after a return, match `LOBBY_AFTER_MATCH_FREE_OWNER`).
+ * `ComeFromBriefing` stays 0 (the trap: it also takes `Enable_SM_Launch` into `SwapClanSides`), so the clan swap after a
+ * game runs as before; on an "Alternate teams" host's page (affiliation 4) the waits stand through `SwapClanSides`'
+ * window (its index 1, then `mp_locked_game` 1 until FINISH), so the host stays in the lobby until its swap is asked. Kept:
+ * the launch countdown's lock (`CountDown`), the clan games' team lock (`IsSwitchTeamsOK`), the ARMORY closed while the
+ * seat is READY (`goto_eq_mp_set_return_valve`'s gate, not a wait), READY held while the game ends (OT.R122).
+ *
+ * LOBBY-READY-DELAY (OT.R129 amended, the owner's words of 2026-11-23 relayed in the controller's seat: "not too long ago,
+ * we removed the restrictions on buttons in the lobby between matches in the first x seconds. however, im noticing when
+ * one readies up, they are still faced with a long delay before they are able to. whatever that delay si can go"): the
+ * same freedom for a page that enters the returned lobby afresh -- a reload, a rejoin, every page after a map rotation's
+ * 4021 close (`hold` sets `afterMatch` false): the room's view says the lobby is a returned one (`returned`, match
+ * `PreMatchView.returned`) and the page sets `afterMatch` on it (`gameLobby`), so `releaseAfterMatch` lays the waits aside
+ * as above; `ComeFromBriefing` untouched, and an "Alternate teams" host's swap window kept by `swapWindow` as after
+ * `matchReturned`. The room takes READY and SWITCH TEAMS in the rotation's loading gap (match `LOBBY_AFTER_MATCH_FREE_OWNER`).
+ * `matchReturned` writes `mp_x_sec_clock` 11, `return_to_gamelobby`'s, so a countdown-launched game's return is not held
+ * by `CountDown`'s lock. The first entry from the BRIEFING ROOM keeps the original's waits.
+ *
+ * #350 (the owner's ruling of 2026-11-23 in the controller's seat, on "The READY button will be available in 30
+ * seconds": "Hide it there"): no host page in the returned lobby shows #350, keyed on the return (the controller's
+ * reading of the same date: a migrated host included) -- `seenPopup` at the return (`matchReturned`) and on a fresh page's
+ * first returned view writes `SeenPopup` 1, or, heard after the popup is up, ends it through its own `HostValve`; the
+ * first entry from the briefing room keeps #350 as the original shows it.
+ */
+export const LOBBY_AFTER_MATCH_FREE_OWNER = 'OT.R129: from a match\'s return until the next launch, the lobby\'s waits laid aside on the page; the countdown lock and the clan team lock stay' as const;
+
+/**
  * EIGHTY_READY_SERVER_ADAPTATION: the master raises MP_EIGHTY_READY (`FUN_002c40c0` D:L165503-165507), which its
  * `launch_10sec_anim` answers with `ForceMPLaunch`, the countdown. The server is the master here (SVC-07a's `PreMatch`
  * starts that countdown itself), so no page raises the event: the countdown reaches every seat in `gameLobby`. The
@@ -555,6 +619,17 @@ export function talkerBarText(name: string, clan: string | null): string {
  */
 export const GAME_LOBBY_CLAN_TAG_COLOR = [128, 64, 32] as const;
 
+/**
+ * LOBBY_NAME_CUT_14_ADAPTATION (the owner, INTAKE 92, 2026-11-16: "Cut at 14"; LATER 1093; a browser adaptation, product
+ * track): the game lobby's three lists draw at most this many characters of a seat's name. The original draws the name
+ * whole and its list cuts a cell only at the frame (the LISTBOX's scissor, `FUN_00373850` D:L270012-270013; research 117's
+ * widget table), but its own name keyboard gave 14 characters (`CREATEPLAYERNAME`, research 119 R119.4), which measure at
+ * most 154 px in the list's face at 0.8 and stay short of the other side's list (a measure of the face, not a frame:
+ * research 269 §4.4 as LATER 1093's reading files it); the port's seats carry account names up to 31 bytes. Display only (the seat's and the account's names
+ * stay whole); cut on code points, never inside a character; the clan tag keeps its own cell.
+ */
+export const LOBBY_NAME_CUT_14_ADAPTATION = 14;
+
 // ---- the service, the socket, the bridge's messages ----
 
 export interface JoinGameQuery { mediusWorldId: number; joinType: number; gamePassword: string }
@@ -606,9 +681,17 @@ export type LobbySide = 'seal' | 'terrorist';
 export type BotSetting = 'off' | 'fill' | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export interface BotSettings { seal: BotSetting; terrorist: BotSetting }
 /** One seat of the bridge's `gameLobby` (`net/protocol.ts`, research 159 §4). */
-export interface GameLobbySeat { id: number; name: string; team: LobbySide | null; ready: boolean; host: boolean; readyIn: number; bot?: boolean }
-/** The bridge's `gameLobby` message. */
-export interface GameLobbyView { seats: readonly GameLobbySeat[]; countdown: number | null; launched: boolean; refused?: string; botSettings?: BotSettings; nextMap?: string }
+export interface GameLobbySeat {
+  id: number; name: string; team: LobbySide | null; ready: boolean; host: boolean; readyIn: number; bot?: boolean;
+  /** WM.R21 (match `SWAP_QUEUE_OWNER`): the seat's SWITCH TEAMS ask stands -- the server's word, the mark's only source (`./swapMark`). */
+  queued?: boolean;
+}
+/**
+ * The bridge's `gameLobby` message. `returned`: LOBBY-READY-DELAY (OT.R129, `LOBBY_AFTER_MATCH_FREE_OWNER`) -- the lobby is one
+ * a match came back to and has not launched since (match `PreMatchView.returned`), so a page entering it fresh lays its
+ * waits aside (`gameLobby`); absent otherwise.
+ */
+export interface GameLobbyView { seats: readonly GameLobbySeat[]; countdown: number | null; launched: boolean; refused?: string; botSettings?: BotSettings; nextMap?: string; returned?: true }
 
 /**
  * A game the lobby is entered for -- `enterGameLobby`'s argument: the record a listed game's join found (the briefing
@@ -685,6 +768,11 @@ export interface GameLobbyCommandsOptions {
    * player setting or a lobby option.
    */
   allBotGames?: () => boolean;
+  /**
+   * AS-17 / L98: `FUN_001f3bb0` over g_menuState (r4 0x434eb8 = r0001 0x408538): the menu shell's input-suspend timer
+   * (`MenuShell.suspendInput`, G+0x900), as the `SuspendMenuInput` row writes it; absent, nothing is suspended.
+   */
+  suspendMenuInput?: (seconds: number) => void;
   /** The page's clock, ms (`FUN_0030d540` / `FUN_0030d550`); absent, `performance.now`. */
   now?: () => number;
   log?: (name: GameLobbyCommandName, arg: string, answer: boolean) => void;
@@ -715,6 +803,22 @@ export interface LobbyControlRecovery {
   armory?: boolean;
   /** OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`): the help line written (`MATCH_ENDING_READY_LINE`, or '' to clear it); absent, untouched. */
   line?: string;
+  /**
+   * OT.R129 (`LOBBY_AFTER_MATCH_FREE_OWNER`): the lobby's waits found running stopped and the named controls written --
+   * only when one was found and no `switch_teams_anim` awaits the room's answer; else nothing written, false.
+   */
+  release?: boolean;
+  /**
+   * OT.R129: `switch_teams_anim`'s WAIT passed so the disc's own end runs (the kit re-armed for the side the room gave, then
+   * `FromBriefing`); nothing else written. False while the animation has not reached its WAIT.
+   */
+  rearm?: boolean;
+  /**
+   * WM.R21 (`SWAP_MARK_ADAPTATION`'s ruling): with `rearm`, a queued move that landed after the switch's press -- a
+   * `switch_teams_anim` still alive is left to its own end (it reads the side now held); none alive, its end alone is run
+   * (./lobbyRecovery), no `SwitchSides`. False while it cannot run (another dialog built).
+   */
+  late?: boolean;
 }
 
 const sideTeam = (t: LobbySide | null): number => (t === null ? PLAYER_TEAM.spectator : PLAYER_TEAM[t]);
@@ -751,6 +855,21 @@ export class GameLobbyCommands {
   private ending = false;
   /** OT.R122: the held READY drawn (its line written) on the dialog, so the release draws it open again once. */
   private readyHoldDrawn = false;
+  /** OT.R129 (`LOBBY_AFTER_MATCH_FREE_OWNER`): a match came back to this lobby (`matchReturned`) and none has started since. */
+  private afterMatch = false;
+  /** OT.R129: `ClanGameSwapSides(FINISH)` ran since the return -- an "Alternate teams" host's waits stand until it. */
+  private swapFinished = false;
+  /** OT.R129: the room answered this seat's SWITCH TEAMS after a return: `switch_teams_anim`'s WAIT to be passed (its end owed). */
+  private rearmPending = false;
+  /** OT.R129: a SWITCH TEAMS sent after a return, its answer (the side moved, or a refusal) not yet heard. */
+  private switchAsked = false;
+  /** WM.R21: this seat's queued move landed (its last view `queued`, this one on the other side): the switch's end owed. */
+  private lateRearm = false;
+  /**
+   * OT.R129: `ClanGameSwapSides(START)` answered 1 since the return -- only then does `mp_locked_game` 1 mark this host's
+   * swap window (a lock an earlier swap left standing, its `SwapClanSides` cut short by the ARMORY, marks nothing).
+   */
+  private swapStarted = false;
   private started = false;
   /**
    * Whether a view's `launched` may start a hand-off: true from the lobby's entry; false from a match's return
@@ -889,7 +1008,11 @@ export class GameLobbyCommands {
   enterGameLobby(game: GameLobbyEntry & { securityLevel?: number }, opts: { created?: boolean } = {}): void {
     const d = gameStatsD(game.gameStats);
     this.setValve('mp_game_sort_order', d[6]!);
-    if (opts.created !== true) this.setValve('MaxPlayersValve', game.maxPlayers & 0xffff);
+    // AS-17 / L72 (reading (r0004), pending review): r0004's JoinGame (`r0004:0x00315640` -> r4 0x316450, D4:L218354 on;
+    // r4 0x3164a8-0x3164e8) writes the total +0x24 less the spectator slots +0x19e ('D'[4]), 16 bits; r0001 copied the total.
+    // Not JoinGame's alone: r0004's random join (`FUN_00316220` D4:L218325) writes every valve through r4 0x316450 too --
+    // the port's `randomGameFound` still follows r0001 (`RANDOM_JOIN_SETTINGS_READING`; research 165, AS-17's second read).
+    if (opts.created !== true) this.setValve('MaxPlayersValve', ((game.maxPlayers & 0xffff) - d[4]!) & 0xffff);
     this.setValve('MaxSpectatorsValve', d[4]!);
     this.setValve('mp_friendly_fire', game.rulesSet & 1);
     this.setValve('mp_allow_respawn', (game.rulesSet >> 1) & 1);
@@ -931,6 +1054,8 @@ export class GameLobbyCommands {
     this.readyAt = null; this.countdownAt = null;
     this.recovery = null;
     this.ending = false; this.readyHoldDrawn = false;                   // OT.R122: a new game held ends nothing
+    this.afterMatch = false; this.swapFinished = false; this.rearmPending = false; this.lateRearm = false;   // OT.R129: a new game's lobby keeps its waits
+    this.switchAsked = false; this.swapStarted = false;
     this.told = new Map(); this.clans = new Map();
     this.drawBotSettings();
   }
@@ -1053,6 +1178,19 @@ export class GameLobbyCommands {
 
   /** `FUN_0027e4c0` (D:L126454-126477): the game's socket opened (`GAME_JOIN_NO_DME_ADAPTATION`); 0 when it cannot be (#425). */
   ConnectToGameServer: UiCommandHandler = (cmd) => {
+    // AS-17 / L98 (reading (r0004), pending review): r0004's twin `r0004:0x0027f740` (D4:L133677-133686; r4 0x27f744-0x27f7dc)
+    // opens on a prologue: under "create_game" (strcmp, case-sensitive), PLAYLISTVAR (`CUIVarManager::Add`, longevity 1)
+    // not a non-empty array (zrdr type 4, its +2 count) rejoins the room (`FUN_002e3730` D:L184739-184754) and answers 0;
+    // else `FUN_001f3bb0` (D4:L59335-59344) suspends menu input for `CREATE_GAME_INPUT_PAUSE_S_READING`, then r0001's body.
+    if (cmd.anim === CREATE_GAME_ANIM) {
+      const list = this.o.uiVars.add(PLAYLIST_VAR, null, UIVAR_LONGEVITY.TEMPORARY).value;
+      if (list.type !== 'array' || list.value.length === 0) {
+        const lobby = this.o.lobby;
+        if (lobby?.up && (this.o.roomWorldId?.() ?? -1) >= 0) lobby.queueState(LOBBY_STATE_LOGGED_IN);
+        return this.answer('ConnectToGameServer', cmd, false);
+      }
+      this.o.suspendMenuInput?.(CREATE_GAME_INPUT_PAUSE_S_READING);
+    }
     this.o.uiVars.set(this.o.uiVars.add(GAME_LOBBY_CHAT_VAR, null, 2), { type: 'array', value: [] });   // D:L126462 -> FUN_002a76d0 D:L149534-149539
     this.connected = false; this.seatId = null; this.opened = false; this.versionAbortHeld = false;
     const socket = this.o.socket, id = this.worldId;
@@ -1093,6 +1231,11 @@ export class GameLobbyCommands {
   };
 
   private leave(): void {
+    // R4P-232 / L379 (reading, pending review): the r0004 twin of FUN_0027e420 (0x0027f660, D4:L133648-133654) acquires
+    // GoneToArmory as a TEMP valve (type 2, r4 0x0027f6b4: never promoted, so a relaunch still drops it) and writes 0,
+    // running its watchers when it was non-zero (the store's write does, on a change), before the teardown.
+    const valves = this.o.valves();
+    if (valves.acquire('GoneToArmory', VALVE_TYPE.TEMP).value !== 0) valves.set('GoneToArmory', 0, VALVE_TYPE.TEMP);
     const had = this.worldId >= 0;
     this.o.socket?.close();
     this.connected = false; this.seatId = null; this.inLobby = false; this.view = null; this.told = new Map(); this.clans = new Map();
@@ -1189,11 +1332,13 @@ export class GameLobbyCommands {
       const team = this.valve('player_team');
       if (team === PLAYER_TEAM.seal || team === PLAYER_TEAM.terrorist) this.setValve('player_team', team === PLAYER_TEAM.seal ? PLAYER_TEAM.terrorist : PLAYER_TEAM.seal);
       if (this.connected) this.o.socket?.send('clanSwap');
+      this.swapFinished = true;                                         // OT.R129: the host's waits may go now
       return this.answer('ClanGameSwapSides', cmd, true);
     }
     if (arg !== 'start') return this.answer('ClanGameSwapSides', cmd, true);
     if (this.affiliation !== 4) return this.answer('ClanGameSwapSides', cmd, false);
     this.setValve('mp_locked_game', 1);
+    this.swapStarted = true;                                            // OT.R129: this return's swap window
     return this.answer('ClanGameSwapSides', cmd, true);
   };
   /** 0x2772c0: the game object, and the master byte or the host's connection (0x437ce8, 0x45a0c0, 0x441470): the seat held. */
@@ -1257,8 +1402,83 @@ export class GameLobbyCommands {
     this.clocks();
     this.holdReady();                                     // OT.R122: before the recovery, which decides READY once let go
     this.recoverControls();
+    this.releaseAfterMatch();                             // OT.R129: after it, so its controls stand last
+    this.rearmLate();                                     // WM.R21: a queued move that landed after switch_teams_anim's end, re-armed once it can be
     return this.answer('CheckForcedLaunch', cmd, true);
   };
+
+  /**
+   * OT.R129 (`LOBBY_AFTER_MATCH_FREE_OWNER`; ./lobbyRecovery): in the lobby a match returned to, each pass stops the waits
+   * the disc's scripts have started and writes the controls as their ends would -- READY open (the host's while the
+   * room's gate is out, `readyIn`), SWITCH TEAMS open unless READY or a clan lock (`IsSwitchTeamsOK`), the ARMORY open
+   * unless READY -- and runs the switch's tail it owes. Nothing under the countdown, for a late seat, while READY is held
+   * for the game's end (OT.R122), while the exit prompt stands, or on an "Alternate teams" host's page in its swap's window.
+   */
+  private releaseAfterMatch(): void {
+    const recover = this.o.recoverLobby, own = this.own(), view = this.view;
+    if (!this.afterMatch || !recover || !own || !view || !this.connected || this.started) return;
+    if (view.launched || view.countdown !== null || this.countdownAt !== null || this.lateJoiner || this.ending) return;
+    if (this.valve('MayBeExiting') !== 0 || this.valve('NoExitState') !== 0) return;
+    this.rearm();
+    if (this.swapWindow(own.host)) return;
+    const ready = this.valve('mp_minor_game_state') === MINOR_READY, player = own.team !== null;
+    const gated = own.host && this.readyAt !== null && this.now() < this.readyAt;
+    recover({
+      reset: false, restartEntryTimers: false, host: own.host, release: true,
+      ...(gated ? {} : { ready: true }),
+      switchTeams: player && !ready && switchTeamsOk(this.affiliation),
+      armory: player && !ready,
+    });
+  }
+
+  /**
+   * OT.R129: the switch's end owed -- `switch_teams_anim`'s WAIT passed so the disc's own end runs (./lobbyRecovery's
+   * `rearm`); kept owed while the animation has not reached its WAIT. The WM-2 review's item 1: was `FromBriefing` alone,
+   * which re-arms nothing once `IDFromBriefing` is 1 (a character committed in the ARMORY).
+   */
+  private rearm(): void {
+    if (this.rearmPending && this.o.recoverLobby?.({ reset: false, restartEntryTimers: false, host: this.own()?.host ?? false, rearm: true })) this.rearmPending = false;
+    if (!this.rearmPending) this.rearmLate();
+  }
+
+  /**
+   * WM.R21 (match `SWAP_QUEUE_OWNER`): a queued move that landed later -- `switch_teams_anim`'s end run on the page, the kit
+   * re-armed for the side now held, as its end does (P:L7603-7628), with no second `switchTeams` (./lobbyRecovery,
+   * `late`); asked again on the next view, on each lobby pass (`CheckForcedLaunch`) and at the launch (`start`) while it
+   * cannot run (the ARMORY built). Not while the launch countdown runs (the view's `countdown`, the room's, which the
+   * page's `mp_x_sec_clock` counts): `CountDown` stops `switch_teams_anim` and locks SWITCH TEAMS (./lobbyRecovery's
+   * reset list), and the end's own re-enable (P:L7624-7627) would open it under the lock; owed until the countdown is
+   * called off, or until the launch.
+   */
+  private rearmLate(): void {
+    if (!this.lateRearm || (this.view !== null && !this.view.launched && this.view.countdown !== null)) return;
+    // and not before a scheduled reset has run (a call-off's, a late seat's, a held READY's): it stops switch_teams_anim
+    if (this.recovery?.reset) return;
+    if (this.o.recoverLobby?.({ reset: false, restartEntryTimers: false, host: this.own()?.host ?? false, rearm: true, late: true })) this.lateRearm = false;
+  }
+
+  /**
+   * WM.R21: the launch with the switch's end still owed (the recovery could not run it -- the seat on the ARMORY): the
+   * end's no-record branch written at once for the side now held (P:L7610-7618: `UiCharSet` 15 and `MpCharSet` 1 for
+   * `player_team` 0, 240 and 5 for 8; `ChangeCharacterType`'s own row is the ARMORY's), so the lobby's valves name the new
+   * side's type, not the old one's. An adaptation of the ruling's page: the record branch (`CharacterProfile`,
+   * `EquipCharacterProfileSeal/Merc`, P:L7603-7609) is an animation and is not run here -- the match's kit itself comes
+   * from the side's own record or default (the page's choice is forgotten at a side change, viewer `gameLobbyHost.ts`).
+   */
+  private lateDefaultType(): void {
+    if (!this.lateRearm) return;
+    const team = this.valve('player_team');
+    if (team === PLAYER_TEAM.seal) { this.setValve('UiCharSet', 15); this.setValve('MpCharSet', 1); }
+    else if (team === PLAYER_TEAM.terrorist) { this.setValve('UiCharSet', 240); this.setValve('MpCharSet', 5); }
+  }
+
+  /**
+   * OT.R129: an "Alternate teams" host's page while its swap is due or under way -- `ClanSwapSidesIndex` 1 (before
+   * `SwapClanSides` runs), then `mp_locked_game` 1 (START) until FINISH: its waits stand, so it asks the swap from the lobby.
+   */
+  private swapWindow(host: boolean): boolean {
+    return this.affiliation === 4 && host && !this.swapFinished && (this.valve('ClanSwapSidesIndex') === 1 || (this.swapStarted && this.valve('mp_locked_game') === 1));
+  }
 
   /**
    * OT.R122 (`LATE_SEAT_MATCH_ENDING_OWNER`; an adaptation): while the game ends, the native READY drawn disabled on each
@@ -1370,7 +1590,7 @@ export class GameLobbyCommands {
         this.setValve('mp_minor_game_state', this.valve('mp_minor_game_state') === MINOR_READY ? MINOR_NOT_READY : MINOR_READY);
         this.o.socket?.send('lobbyReady');
       }
-      this.nextReady = now + REPEAT_MS;
+      this.nextReady = this.afterMatch ? -Infinity : now + REPEAT_MS;   // OT.R129: no 5 s after a return
     }
     return this.answer('ReadyToLoad', cmd, true);
   };
@@ -1381,7 +1601,8 @@ export class GameLobbyCommands {
     const now = this.now();
     if (now > this.nextSwitch && this.connected) {
       this.o.socket?.send('switchTeams');
-      this.nextSwitch = now + REPEAT_MS;
+      this.nextSwitch = this.afterMatch ? -Infinity : now + REPEAT_MS;   // OT.R129: no 5 s after a return
+      if (this.afterMatch) this.switchAsked = true;                     // OT.R129: its answer passes the switch's WAIT
     }
     return this.answer('SwitchSides', cmd, true);
   };
@@ -1437,6 +1658,7 @@ export class GameLobbyCommands {
    */
   gameLobby(view: GameLobbyView): void {
     const first = this.view === null;
+    const wasQueued = this.own()?.queued === true;                     // WM.R21: the last view's ask, the server's word
     const cancelled = this.view?.countdown != null && !this.view.launched && view.countdown === null && !view.launched;
     const lateEnded = this.lateJoiner && !view.launched;
     // LOBBY-START (EIGHTY_READY_HOST_PAGE_READING): a countdown new to a standing lobby
@@ -1445,6 +1667,16 @@ export class GameLobbyCommands {
     const heldEnded = this.ending && !view.launched;
     if (heldEnded) this.ending = false;
     this.view = view;
+    // LOBBY-READY-DELAY (OT.R129 amended, `LOBBY_AFTER_MATCH_FREE_OWNER`): a page that enters the returned lobby fresh (a
+    // reload, a rejoin, every page after a rotation's 4021: `hold` set `afterMatch` false) lays its waits aside as
+    // `matchReturned` does, on the room's word (`returned`); not while a match of this page's runs (`started`: its own
+    // `matchReturned` does it). `ComeFromBriefing` untouched (the trap), and an "Alternate teams" host's swap window kept
+    // by `releaseAfterMatch`'s `swapWindow`, as after `matchReturned`. OT.R129 "Hide it there": no #350 either
+    // (`seenPopup`), as on a host page that played the match.
+    if (view.returned === true && !view.launched && !this.afterMatch && !this.started) {
+      this.afterMatch = true;
+      this.seenPopup();
+    }
     // LOBBY-ONE-BEHIND: the room's next map, the lobby standing; a launched view never moves the mission (the review's F2:
     // the match starts below on the map the room plays, not the rotation's next).
     if (!view.launched) this.moveMission(view.nextMap);
@@ -1464,9 +1696,24 @@ export class GameLobbyCommands {
       // the same call (`FUN_002badd0` D:L160270-160281 -> `FUN_002c4290` -> `FUN_002baea0` D:L160302-160320, its own
       // slot handled at once), so its side lands while dlgGameLobby.rdr is current, never on the ARMORY; here the
       // room's answer is a round trip, which a host's fast CROSS on the focused ARMORY button would beat.
+      // WM.R21 (match `SWAP_QUEUE_OWNER`, a departure on the owner's word): the seat's OWN queued move (its last view
+      // `queued`) landing on the ARMORY is not shown the error; every other move as research 379 §3 has it.
       const moved = this.seatSide !== null && own.team !== null && own.team !== this.seatSide && !own.host;
-      if (moved && switchTeamsOk(this.affiliation) && this.o.dialog?.() === TEAM_SWITCH_ERROR_DIALOG) this.post('MP_MEDIUS_ERROR', TEAM_SWITCH_ERROR_TEXT);
+      if (moved && !wasQueued && switchTeamsOk(this.affiliation) && this.o.dialog?.() === TEAM_SWITCH_ERROR_DIALOG) this.post('MP_MEDIUS_ERROR', TEAM_SWITCH_ERROR_TEXT);
+      // WM.R21: that queued move landed with no SWITCH TEAMS of this page awaiting its answer -- the switch's end owed
+      // (`rearmLate`); a press awaiting its answer after a return takes the OT.R129 path below.
+      const queuedMove = wasQueued && this.seatSide !== null && own.team !== null && own.team !== this.seatSide;
+      if (queuedMove && !(this.afterMatch && this.switchAsked)) this.lateRearm = true;
+      // OT.R129 (`LOBBY_AFTER_MATCH_FREE_OWNER`): the room's answer to this seat's SWITCH TEAMS after a return -- the side
+      // moved, or a refusal -- lets `switch_teams_anim`'s end run now (its WAIT passed: `rearm`), with `player_team` as told
+      if (this.afterMatch && this.switchAsked && (view.refused !== undefined || (this.seatSide !== null && own.team !== this.seatSide))) {
+        this.switchAsked = false;
+        this.rearmPending = true;
+      }
       this.seatSide = own.team;
+      // WM.R21: not on a view that schedules the reset recovery below (a call-off, a late seat's or a held READY's end) --
+      // its reset stops switch_teams_anim (./lobbyRecovery), so the late end runs from CheckForcedLaunch after it
+      if (!(cancelled || lateEnded || heldEnded)) this.rearmLate();
     }
     this.countdownAt = view.countdown === null ? null : now + view.countdown * 1000;
     const sides = view.seats.some((s) => s.team === 'seal') && view.seats.some((s) => s.team === 'terrorist');
@@ -1490,6 +1737,28 @@ export class GameLobbyCommands {
       this.recovery = { reset: true, interruptedEntry: cancelled, switchTeams: true, ready: true, armory: true };
     }
     if (view.launched && !this.lateJoiner && this.relaunchable) this.start();
+  }
+
+  /**
+   * OT.R129 "Hide it there" (the owner's ruling of 2026-11-23 in the controller's seat; `LOBBY_AFTER_MATCH_FREE_OWNER`):
+   * called at the return (`matchReturned`, every page that played) and on a fresh page's first returned view, keyed on the
+   * return (the controller's reading, 2026-11-23: a joiner that is host after a migration included). The page holds
+   * `SeenPopup` 1, as a host page that played the match holds it from its first
+   * entry's #350 (`Enable_SM_Launch` writes it at the popup's end and nothing on the page clears it until the next join's
+   * `join_game_main`, tools/test/onlineDialogs.pinned.json:4563, :7155), so `Enable_SM_Launch`'s session-master branch
+   * (`IF ComeFromBriefing == 0` / `IF SeenPopup == 0`, :7145-7160) raises no #350. `ComeFromBriefing` untouched (the trap:
+   * `SwapClanSides`). The room's first view follows its `welcome` on the socket, and the screen's ONSTART comes only
+   * after the welcome lets `CheckJoinMP` and `JoinGameServer` through and `SWITCHMENU(dlgGameLobby.rdr)` builds the
+   * screen, so the view is normally heard first and the valve read already 1; heard later, with #350 already up
+   * (`SeenPopup` still 0, the script waiting `WHILE HostValve == 0` on its own valve, :7150-7154), `HostValve` 1 ends
+   * that wait, and the script's own tail runs (`SeenPopup` 1, `KillPopup`, the fade):
+   * the popup closes as a dismissal closes it. Written at TEMP, as the script parse makes an unknown name (no promotion).
+   */
+  private seenPopup(): void {
+    const v = this.o.valves();
+    if ((v.find('SeenPopup')?.value ?? 0) !== 0) return;
+    v.set('SeenPopup', 1, VALVE_TYPE.TEMP);
+    if (v.find('HostValve')?.value === 0) v.set('HostValve', 1, VALVE_TYPE.TEMP);
   }
 
   /**
@@ -1526,14 +1795,32 @@ export class GameLobbyCommands {
    */
   roundOver(matchOver: boolean): void { if (matchOver && this.view?.launched !== false) this.ending = true; }
 
-  /** OT.R122: the room's `abandoned` heard in the lobby -- the game's end it held READY for is over; READY let go. */
-  abandoned(): void { this.ending = false; }
+  /**
+   * OT.R122: the room's `abandoned` heard in the lobby -- the game's end it held READY for is over; READY let go. OT.R129
+   * (`LOBBY_AFTER_MATCH_FREE_OWNER`; the WM-2 review's item 2): a seat in the lobby of the launched game (a late seat
+   * waiting, a seat whose READY was held) is in the same game's lobby again when the room abandons its match, so its waits
+   * go as after a full game's return. A page in the match leaves for `dlgNetAbandoned.rdr` (viewer `lobbyMatch.ts`).
+   */
+  abandoned(): void {
+    this.ending = false;
+    if (this.inLobby && !this.started && this.view?.launched === true) {
+      this.afterMatch = true; this.swapFinished = false; this.swapStarted = false; this.rearmPending = false; this.switchAsked = false; this.lateRearm = false;
+    }
+  }
 
   /**
    * The match's end back into the same game's lobby (`return_to_gamelobby`: `mp_x_sec_clock` 11, `CloseAndSwitch
    * dlgGameLobby.rdr`; research 179 §6.18, web research 166 §4): the launch undone -- the major state the lobby's, the
    * seat in the lobby again, a later launch free to start (`started` was set at the launch and reset only at a lobby's
    * entry, so a second match in the same lobby could not start, research 166 §4) -- the game and its seat kept.
+   * LOBBY-READY-DELAY (the brief's item 3; reading, pending review): `mp_x_sec_clock` 11 written, as
+   * `return_to_gamelobby` sets it (P:L14644-14649; research 309 §2.1, research 179 :565 and :2070) -- was not written. On
+   * the console `return_to_gamelobby` is the session master's (`watch_for_switch_to_client` -> `call_gamelobby`, research
+   * 179 :565, :2070; research 309 R309.1), and a joiner's `check_loop` already writes 11 itself at the launch
+   * (`IF NOT ( IsSessionMaster(NA) )`, tools/test/onlineDialogs.pinned.json:7122-7124): so the hole was the HOST page's --
+   * after a launch by the 80% countdown its clock stood where `CountDown` left it (under 11), and `CountDown`'s lock could
+   * close READY, SWITCH TEAMS and the ARMORY in the returned lobby. The page writes it on every seat's return, as this
+   * return already stands for every console's (a joiner's 11 stands already: the write changes nothing there).
    */
   matchReturned(): void {
     // ONL-20b (research 309 §2.1, §3): GAME COMPLETE's ExitOnStart (P:L14601-14637), which every console runs and the
@@ -1551,11 +1838,21 @@ export class GameLobbyCommands {
     this.setValve('late_joiner', 0);
     this.inLobby = true;
     this.setValve('mp_major_game_state', MAJOR_LOBBY);
+    this.setValve('mp_x_sec_clock', 11);                                 // LOBBY-READY-DELAY (3): return_to_gamelobby's (P:L14644-14649)
+    // OT.R129 (LOBBY_AFTER_MATCH_FREE_OWNER): the waits laid aside until the next launch; ComeFromBriefing above untouched
+    this.afterMatch = true; this.swapFinished = false; this.rearmPending = false; this.lateRearm = false;
+    // OT.R129 "Hide it there", keyed on the return (the controller's ruling of 2026-11-23): no #350 in the returned lobby
+    // whoever is host -- a first-entry joiner that never saw it (SeenPopup 0) and is host after a migration included
+    this.seenPopup();
+    this.switchAsked = false; this.swapStarted = false;
   }
 
   private start(): void {
     if (this.started || !this.entry) return;
     this.started = true;
+    this.rearm();                                                        // OT.R129: a switch's end owed runs before the hand-off
+    this.lateDefaultType();                                              // WM.R21: one still owed (the ARMORY), its type written
+    this.afterMatch = false; this.rearmPending = false; this.switchAsked = false; this.lateRearm = false;   // OT.R129 ends at the launch
     this.setValve('mp_major_game_state', MAJOR_LAUNCHED);
     this.o.matchStart?.({ mediusWorldId: this.entry.mediusWorldId, gameName: this.entry.gameName, mission: this.mission, lateJoiner: this.lateJoiner });
   }
@@ -1637,14 +1934,19 @@ export class GameLobbyCommands {
    * TEAM/ALL key) is non-zero, a team's (D:L160079-160102) -- goes with the line (`team`; the server takes the side from
    * the seat) and the own line is drawn in its form, "(Team)" for a team's: the receiver passes its own scope's test.
    * The original sends and draws the filter's reply text (`FUN_002f4df0` -> `FUN_002f4ea0` hands +0x15 on,
-   * D:L194765-194778); the page sends and draws the raw text at once, the same while `CHAT_FILTER_PLACEHOLDER` only cuts
-   * -- a real filter would show the sender its raw line here. (The briefing room's own line is the unfiltered text in
-   * the original too, `FUN_002f4ba0` D:L194707.)
+   * D:L194765-194778). R4P-324: r0004's line (0x002bc460) tail-jumps to `Censor` (0x00311fc0, at 0x2bc474), whose copy
+   * takes `#` and 0xb2 for every typed `#C` (`CENSOR_HASH_C_READING`); its callback 0x002bc480 builds the packet from
+   * that FILTERED text (0x2bc544), sends it (0x2bc57c) and hands the same packet to the local handler 0x002bc5e0
+   * (0x2bc59c), so the seat's own line is the filtered text too -- unlike the briefing room's, which keeps the typed
+   * text (`CHAT_OWN_LINE_AT_SEND_ADAPTATION`). The page sends and draws `censorHashC` of the text at once: no filter
+   * reply comes (`CHAT_FILTER_PLACEHOLDER`, Sony's words unread). Only the typed text is rewritten, never the panel's
+   * own colour prefix (`gameLobbyChatLine`).
    */
   private gameLine(text: string): void {
     const team = (this.o.valves().find(SKB_RECIPIENT_VALVE)?.value ?? 0) !== 0;   // `FUN_00351ef0(0x3f26e8)`, its +4 short
-    if (this.connected) this.o.socket?.chat?.(text, team);
-    this.chatLine({ sender: this.seatId ?? -1, name: this.own()?.name ?? '', text, team });
+    const filtered = censorHashC(text);                                            // CENSOR_HASH_C_READING (0x2bc544)
+    if (this.connected) this.o.socket?.chat?.(filtered, team);
+    this.chatLine({ sender: this.seatId ?? -1, name: this.own()?.name ?? '', text: filtered, team });
   }
 
   /**
@@ -1657,7 +1959,14 @@ export class GameLobbyCommands {
    */
   chatLine(line: GameLobbyChatLine): void {
     if (line.text === '') return;
-    appendGameLobbyChat(this.o.uiVars, gameLobbyChatLine(line.name === '' ? null : line.name, line.text, line.team === true));
+    // STREAMER-P1 (a browser adaptation, `../text/chatFilter`): another seat's line the page's filter refuses is counted
+    // on the panel's one count line; this seat's own line (sent here with its seat id) is never asked.
+    // (Before a seat is welcomed the own line is sent as -1, so the same expression marks it own; the review's F4.)
+    const own = line.sender === (this.seatId ?? -1);
+    if (!own && !chatShows('lobby', { name: line.name })) { noteHiddenGameLobbyChat(this.o.uiVars); return; }
+    // IQ-183 (a browser adaptation, `../text/ownNameDisplay`): the own line's name as the page draws it.
+    const name = line.name === '' ? null : own ? ownNameDrawn(line.name) : line.name;
+    appendGameLobbyChat(this.o.uiVars, gameLobbyChatLine(name, line.text, line.team === true));
   }
 
   /**
@@ -1677,9 +1986,15 @@ export class GameLobbyCommands {
     const clan = (tag: string): UiVarValue => label(tag ? `[${tag}]` : '', GAME_LOBBY_CLAN_TAG_COLOR);
     // In the lobby a bot's name is drawn as any seat's (H316; the gold initial is gameplay's, BNI.R1); its separate BOT
     // cell keeps the header's gold (FBA.R9).
-    const name = (s: GameLobbySeat): UiVarValue => str(s.name);
+    // IQ-183 (a browser adaptation, `../text/ownNameDisplay`): the own seat's name as the page draws it.
+    const drawn = (s: GameLobbySeat): string => (this.seatId !== null && s.id === this.seatId ? ownNameDrawn(s.name) : s.name);
+    const name = (s: GameLobbySeat): UiVarValue => str(Array.from(drawn(s)).slice(0, LOBBY_NAME_CUT_14_ADAPTATION).join(''));   // LOBBY_NAME_CUT_14_ADAPTATION
+    // WM.R21 (`./swapMark`, `SWAP_MARK_ADAPTATION`): a seat the server names `queued` -- its dot index shifted past the
+    // disc's three (drawn blank on the marked design, the same dot on the disc's own) and its two mark cells after the
+    // disc's four, so a design without the mark's columns draws the row as before; any other row the disc's four alone.
+    const dot = (s: GameLobbySeat): number => (s.ready ? DOT_READY : DOT_NOT_READY) + (s.queued === true ? SWAP_MARK_DOT_SHIFT : 0);
     const side = (t: LobbySide): UiVarValue[] => seats.filter((s) => s.team === t)
-      .map((s) => ({ type: 'array', value: [name(s), int(this.told.get(s.id) ?? 0), int(s.ready ? DOT_READY : DOT_NOT_READY), s.bot ? label('BOT', this.botLabelColors.get(t)) : clan(this.clans.get(s.id) ?? '')] }));
+      .map((s) => ({ type: 'array', value: [name(s), int(this.told.get(s.id) ?? 0), int(dot(s)), s.bot ? label('BOT', this.botLabelColors.get(t)) : clan(this.clans.get(s.id) ?? ''), ...swapMarkCells(s.queued === true).map(int)] }));
     this.setVar(SEAL_LIST_VAR, { type: 'array', value: side('seal') });
     this.setVar(TERRORIST_LIST_VAR, { type: 'array', value: side('terrorist') });
     this.setVar(SPECTATOR_LIST_VAR, { type: 'array', value: seats.filter((s) => s.team === null).map((s) => ({ type: 'array', value: [name(s)] })) });

@@ -1,3 +1,4 @@
+import { addressOf } from './inviteAddressHold';
 import { lobbyInviteOf } from '@s2u/ui';
 import { routeSegmentsOfPath } from './menuRoutes';
 
@@ -83,7 +84,8 @@ export function mountLobbyLiveLink(doc: Document, lobbyId: string, deps: LobbyLi
 
   const anchor = (): HTMLAnchorElement | null => doc.querySelector<HTMLAnchorElement>('a.project-live-link');
   const gameHasPage = (): boolean => doc.body?.classList.contains(LOBBY_LIVE_GAME_BODY_CLASS_ADAPTATION) === true;
-  const stillHere = (): boolean => !gameHasPage() && lobbyIdOfPath(win.location.pathname, base) === lobbyId;
+  // STREAMER-P1 1b (`./inviteAddressHold`): the lobby link Streamer mode held while it bared the address still counts.
+  const stillHere = (): boolean => !gameHasPage() && lobbyIdOfPath(addressOf(win.location).pathname, base) === lobbyId;
 
   const onPop = (): void => { if (!stillHere()) stop(); };
   const onVisible = (): void => { if (!stopped && paused && !doc.hidden) { paused = false; void read(); } };

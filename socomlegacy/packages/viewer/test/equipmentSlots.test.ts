@@ -168,6 +168,70 @@ describe('shared equipment slot rings', () => {
     expect(p.magazine(3)?.rounds).toBe(2);
   });
 
+  it("R142: take sums and clears a slot's ten entries (FUN_005ba040 D:L472600-472626), keeping its hand index; 0 for a slot with no ring", () => {
+    const p = new EquipmentSlots([{ slot: 2, record: { name: 'M67', capacity: 3, mags: 2 } }]);
+    const s = p.state(); s[0]!.rounds[0] = 1; s[0]!.rounds[1] = 3; s[0]!.current = 1;
+    expect(p.restore(s)).toBe(true);
+    expect(p.take(2)).toBe(4);
+    expect(p.state()).toEqual([{ slot: 2, kind: 'M67', rounds: new Array<number>(10).fill(0), current: 1 }]);
+    expect(p.take(2)).toBe(0);
+    expect(p.take(3)).toBe(0);
+    expect(p.totals()).toEqual({ M67: 0 });
+  });
+
+  it("R142: room answers whether any of the slot's first `cap` entries is below Ammo_Capacity (FUN_005ba5b0 D:L472779-472837); none past the cap counts", () => {
+    const p = pouch();
+    expect(p.room(2, 1)).toBe(false);                      // full 3/3
+    p.spend('M67', 2);
+    expect(p.room(2, 1)).toBe(true);                       // 2/3
+    expect(p.room(2, 0)).toBe(false);                      // no magazine under the cap
+    expect(p.room(3, 2)).toBe(true);                       // its second entry (past the ring's one magazine) is empty
+    expect(p.room(1, 1)).toBe(false);                      // no ring
+  });
+
+  it("R4P-219: room with skipLoaded passes over the magazine in the hand, as pour does -- r0004's ask FUN_005c0e40 D4:L514401-514403 beside r0001's FUN_005ba5b0 D:L472779-472837 (reading, pending review)", () => {
+    const two = new EquipmentSlots([{ slot: 2, record: { name: 'Two', capacity: 1, mags: 2 } }]);
+    const s = two.state(); s[0]!.rounds[0] = 0; s[0]!.rounds[1] = 1; s[0]!.current = 0;
+    expect(two.restore(s)).toBe(true);
+    expect(two.room(2, 2, true)).toBe(false);              // the only room is the magazine in the hand
+    expect(two.room(2, 2, false)).toBe(true);              // r0001's ask counts it
+    const t = two.state(); t[0]!.rounds[0] = 1; t[0]!.rounds[1] = 0; t[0]!.current = 0;
+    expect(two.restore(t)).toBe(true);
+    expect(two.room(2, 2, true)).toBe(true);               // room past the hand's magazine
+    expect(two.room(2, 2, false)).toBe(true);
+  });
+
+  it('R142: pour tops up the entries under the cap in order and zeroes the rest (FUN_005ba3d0 D:L472718-472773), returns what did not fit; skipLoaded passes over the magazine in the hand; null for a slot with no ring', () => {
+    const p = pouch();
+    for (let n = 0; n < 2; n++) p.spend('M67', 2);       // M67 1/3
+    expect(p.pour(2, 3, 1)).toBe(1);
+    expect(p.magazine(2)?.rounds).toBe(3);
+    expect(p.pour(2, 3, 1)).toBe(3);                       // full: everything left
+    expect(p.pour(1, 3, 1)).toBeNull();
+    const two = new EquipmentSlots([{ slot: 2, record: { name: 'Two', capacity: 3, mags: 2 } }]);
+    const s = two.state(); s[0]!.rounds[0] = 0; s[0]!.rounds[1] = 1; s[0]!.current = 0;
+    expect(two.restore(s)).toBe(true);
+    expect(two.pour(2, 5, 2, true)).toBe(3);               // the one in the hand (0) skipped: slot 1 takes 2
+    expect(two.state()[0]!.rounds.slice(0, 3)).toEqual([0, 3, 0]);
+    expect(two.pour(2, 5, 2)).toBe(2);                     // without the skip slot 0 takes 3
+    expect(two.state()[0]!.rounds.slice(0, 3)).toEqual([3, 3, 0]);
+    expect(two.pour(2, 0, 1)).toBe(0);                     // a cap of one: slot 1 zeroed
+    expect(two.state()[0]!.rounds.slice(0, 3)).toEqual([3, 0, 0]);
+  });
+
+  it("R142: install gives a slot 2-4 a new record with an empty ring, hand index 0 (FUN_005bc410 D:L473823-473842), the rings kept in kit order; refused outside 2-4", () => {
+    const p = new EquipmentSlots([{ slot: 4, record: { name: 'M67', capacity: 3, mags: 1 } }]);
+    expect(p.install(3, { name: 'HE', capacity: 3, mags: 1 })).toBe(true);
+    expect(p.state().map((s) => [s.slot, s.kind, s.rounds[0], s.current])).toEqual([[3, 'HE', 0, 0], [4, 'M67', 3, 0]]);
+    expect(p.pour(3, 3, 1)).toBe(0);
+    expect(p.totals()).toEqual({ HE: 3, M67: 3 });
+    expect(p.install(4, { name: 'HE', capacity: 3, mags: 1 })).toBe(true);   // what the slot held is gone
+    expect(p.state().map((s) => [s.slot, s.kind, s.rounds[0]])).toEqual([[3, 'HE', 3], [4, 'HE', 0]]);
+    expect(p.install(1, { name: 'HE', capacity: 3, mags: 1 })).toBe(false);
+    expect(p.install(5, { name: 'HE', capacity: 3, mags: 1 })).toBe(false);
+    expect(p.state()).toHaveLength(2);
+  });
+
   const data = fixture('RUN/ZWEAPON.ZAR');
   it.skipIf(!data)('reads each hand throwable/charge capacity and magazine count through the disc reader', () => {
     const table = readKitTable(data!);

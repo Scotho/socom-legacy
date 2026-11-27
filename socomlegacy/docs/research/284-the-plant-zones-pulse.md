@@ -49,8 +49,10 @@ for as long as the bomb stays picked up. A drop turns it off. Nothing tests the 
   blend (`gs.blend` `additive`: `(Cs - 0) * As + Cd`). It is a soft colour added onto the floor.
 - **The alpha pass.** `vparams` bit 0 is set and bit 8 is clear, so the visual is drawn in the engine's alpha pass
   (`visualInAlphaPass`, `@s2u/scene` `sceneGraph.ts`). A node whose opacity is under 1 goes there anyway:
-  `FUN_003374c0` reads the opacity stack's top (D:L235394), draws in the walk only at 1.0 or above (D:L235424), and
-  above 1/128 hands the visual to the alpha list (`FUN_003371b0`, D:L235437-235438).
+  `FUN_003374c0` reads the opacity stack's top (D:L235394) and draws in the walk when the node's `+0x5f` bit 0 is
+  set, or the pipe's `+0x714` or `+0x711` byte, or the opacity is 1.0 or above for a visual not of bit 0 set with bit 8
+  clear (D:L235422-235425); otherwise, above 1/128, it hands the visual to the alpha list (`FUN_003371b0`,
+  D:L235437-235438) *(corrected 2026-11-24, NC-3 r2; was "only at 1.0 or above"; draw order only)*.
 
 **One outline a tent, one colour each.** No base holds a second outline, a second mesh or a second texture for its
 marking. The colour does not change with the state: red is the Terrorist base's, green the SEALs' (the coordinator's
@@ -136,7 +138,11 @@ state change:
 
 `FUN_002c1c30` runs on the host from `FUN_002c20c0` (D:L164081-164082). On every other console it runs from the
 replicated bomb object's state (`FUN_002c23b0`, D:L164156-164158). So every console's `objectives` sees the same
-`mp_bomb` and `bomb_owner`.
+`mp_bomb`. `bomb_owner` is written by each console itself, from the replicated carrier index (`FUN_002c2450`,
+D:L164188-164192; looked up by `FUN_002bd4d0`, D:L163920-163958): 2 when `FUN_002c30b0` finds the body's persona on the Terrorist side, else 1; 0 when no body
+answers the index, except in states 3-5, which keep it (D:L163978-163997). It is the same everywhere but when a
+console finds no body for the index (0) or no persona for the body (`FUN_002c30b0` false, so 1; D:L164662-164705)
+*(corrected 2026-11-24, NC-3 r28; was "the same `mp_bomb` and `bomb_owner`"; rare)*.
 
 **So, the switch and its condition:**
 - **On:** the bomb's state becomes 2 (picked up). `bomb_owner` 1 (a SEAL carries) starts `pulse_terrorist`: the red
@@ -148,7 +154,8 @@ replicated bomb object's state (`FUN_002c23b0`, D:L164156-164158). So every cons
   3. The outline keeps pulsing through the plant, the fuse and the result, until the round's reset (above). XR-08's
   base destruction does not touch it (§2).
 - **Who sees it:** every player, both teams and a spectator alike. No branch tests `player_team`, the script runs on
-  every console, and its valves are replicated. The satchel's carrier is not singled out.
+  every console, and its valves' inputs (the bomb's state and carrier) are replicated, each console writing the
+  valves itself (above; NC-3 r28). The satchel's carrier is not singled out.
 
 ## 4. The plant itself
 

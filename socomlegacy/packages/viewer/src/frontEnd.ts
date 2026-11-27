@@ -1,6 +1,13 @@
+import { gateMatchEntry } from './matchEntryGate';   // LATER 1265 part 2: a page with no WebGL2 asked at its match start
+import { frontEndSocialSet, registerSocialSet } from './socialSet';
+import { pageLightweightMatch } from './lightweightMatchOptIn';
 import { mountMenuSampling, parseMenuSampling, type UiSamplingSettings } from './experimentalUiSampling';
+import { netEndingPopupText, withNetEndingLine } from './net/netEnding';
 import { FrameGuard } from './frameGuard';
 import { pageCloseReport } from './net/closeReport';
+import { netEndReporter } from './net/netEndDiag';
+import { loadDiagReporter } from './net/loadDiag';
+import { pageClientErrorBeacon } from './clientErrorBeacon';
 import { Zar, parseRdr, readZarMembers, type AssetSource } from '@s2u/archive';
 import { assetSourceFor } from './discSource';
 import { BlackPictureSource, type BlackPicture, type MovieFrame, type MoviePictureSource } from '@s2u/fmv';
@@ -8,12 +15,13 @@ import type { Rgba } from '@s2u/gs';
 import { FONTS_RDR, parseAnimSets } from '@s2u/scene';
 import {
   DialogPartsHost, DnasCommands, FRONT_END_PARAM, FrontEndMachine, LoaderScreens, MenuInput, MovieCommands, MovieLayer, ONMPEGEND, Opener, PopupSlot,
-  SoftKeyboardFrontEnd, UiClock, UiCommandHost, UiVarManager, dialogLookup, isVideoPictureDesign, selectVideoPicture, videoPictureLookup, type VideoPicture, loaderTextures, readLoaderImages, readTextFaces, widgetPad,
+  SoftKeyboardFrontEnd, UiClock, UiCommandHost, UiVarManager, clanBandAlignLookup, dialogLookup, isVideoPictureDesign, selectVideoPicture, videoPictureLookup, type VideoPicture, loaderTextures, readLoaderImages, readTextFaces, widgetPad,
   UNIVERSE_QUERY, UniverseCommands, UniverseList, type UniverseReply, type UniverseService, UsagePolicyCommands, type UsagePolicyService,
   type CaptionSource, type DialogDesign, type Launch, type MoviePicture, type OpenerEvent, type PadButtonName, type RawImage, type RawName,
   type TextFace, type UiDrawItem, type UiSoundCues, type WidgetPad, type ZAnimRtSet, type LobbyClient, type LobbyService, lobbyEventInto,
   mountCreateGame, type MissionRecord, NO_PAD, OnlineFiltersCommands, OptionGlobals, OptionsCommands, initSystemTuners, seedNumMultiMissions, type ValveEntry,
-  type RoundQueueLine, lobbyBotsGate, syncLobbyBots, withLobbyBots, type MenuInputSource, recoverLobbyControls, setComposeScreenProbe,
+  type RoundQueueLine, lobbyBotsGate, syncLobbyBots, withLobbyBots, withSwapMark, type MenuInputSource, recoverLobbyControls, setComposeScreenProbe,
+  GAME_LOBBY, SEAT_QUEUE_LOAD_ANIMATION, SEAT_QUEUE_SYNC_NONE, seatQueueClaim, seatQueueGate, seatQueueView, syncSeatQueue, uiCommandFold, withSeatQueueButton, type SeatQueueSync,
 } from '@s2u/ui';
 import { devToolsEnabled } from './devTools';
 import { UI_PERF_WINDOW_HOOK, uiPerfRequest } from './uiPerfRequest';
@@ -22,6 +30,7 @@ import { DIALOG_VOLUME_DEFAULT, MUSIC_VOLUME_DEFAULT } from '@s2u/sound';
 import { GameAudio, WebAudioOut, type TunerVars } from './audio';
 import { screenOriginKeeper } from './screenOrigin';
 import { pagePicture } from './picture';
+import { pageShape } from './shape';
 import { hdTextures } from './hdTexturePack';
 import { collectOnHint, pageHintFlags, pageTextureChoice, parseTextureChoice } from './packs/pagePacks';
 import { videoSettingsDialogLookup } from './videoSettings';   // CPS-4b: VIDEO OPTIONS' browser rows (the lookup below)
@@ -60,7 +69,7 @@ import { matchLoaderSlot, releasesMatchOnReturn, type MatchLoaderSlot } from './
 import { readGraphicsBackend } from './graphicsBackend';
 import { pageDeviceClass, pageRendererProbe } from './deviceClass';
 import { LobbyPrepareTrigger, lobbyPrepareAllowed, type LobbyPreparePorts } from './lobbyPrepare';
-import { menuRasterWanted, movieWorkerSleeps, xboxMemoryMeasures } from './frontEndSleep';
+import { menuRasterWanted, movieWorkerSleeps, xboxMemoryMeasures, menuTextureLifetime } from './frontEndSleep';
 import type { MatchAudio } from './matchSound';
 import { LoadingPanel } from './loadingPanel';
 import { loadingHold } from './loadingHold';
@@ -70,6 +79,7 @@ import type { ServerEvent } from './net/protocol';
 import { CreateGameOfferRead, fetchCreateGameService, offerWithRooms, missionsFromReaderc, sessionCreateGame, type CreateGameTransport } from './createGameHost';
 import { attachMenuInput } from './menuInput';
 import { connectMenuRoutes } from './menuRoutes';
+import { historyTrapOf } from './historyTrap';
 import { LOBBY_LINK_DIRECT_HOLD_SECONDS_ADAPTATION } from './lobbyLinkDirect';
 import { showLobbyLinkCover } from './lobbyLinkCover';
 import { MoviePlayerHost } from './moviePlayerHost';
@@ -95,6 +105,7 @@ import type { NativeOptionsState } from './nativeOptionsHost';
 import { brightnessOfVars, frameCanvas, setBrightness } from './brightness';
 import { connectNativeOptions } from './nativeOptionsContext';
 import { pageCard, tabSettings } from './pageStore';
+import { createDayPictures, createGameFocusVariant, dayPictureTextures, type DayPictures } from './variants/dayPictures';
 
 /**
  * The page's front-end entry (PLAT-10; W9.R4; web research 115): `@s2u/ui`'s front end -- the menu state on its start
@@ -248,7 +259,7 @@ export async function readFrontEndDisc(source: AssetSource): Promise<FrontEndDis
   try { loader = await readLoaderImages(source); } catch (e) { missing.push(`RUN/RAW: ${why(e)}`); }
   let globalValves: ValveEntry[] | undefined;
   try { globalValves = await readGlobalValves(source); } catch (e) { missing.push(`global_valves.rdr: ${why(e)}`); }
-  return { dialog: videoSettingsDialogLookup(videoPictureLookup(dialogLookup(archives))), sets, faces, captions: await pageCaptions(source, missing), loader, missing, ...(globalValves ? { globalValves } : {}) };   // ONL-01: PLAT-04's tables from the tree (`./frontEndAssets`); none: captions drawn as written
+  return { dialog: (await import('./settingsAdvanced')).settingsAdvancedFrontEndLookup(videoSettingsDialogLookup(clanBandAlignLookup(videoPictureLookup(dialogLookup(archives))))), sets, faces, captions: await pageCaptions(source, missing), loader, missing, ...(globalValves ? { globalValves } : {}) };   // ONL-01: PLAT-04's tables from the tree (`./frontEndAssets`); none: captions drawn as written
 }
 
 export interface FrontEndSessionOptions<P = BlackPicture> {
@@ -284,6 +295,11 @@ export interface FrontEndSessionOptions<P = BlackPicture> {
   startDialog?: string | null;
   /** The bitmaps by name (none by default: `@s2u/ui`'s textures placeholder). */
   textures?: UiTextures;
+  /**
+   * DAY-PIC-OVERRIDE (`./variants/dayPictures`, a browser adaptation, display only): the Day maps' pictures, drawn for
+   * CREATE GAME's `mp5MissPic.tif` / `mp8MissPic.tif` while its focused row is a Day row. Absent: the disc's always.
+   */
+  dayPictures?: DayPictures;
   /** Each dialog built, its design (FE-SWEEP: the page reads the lazy banks its `LIBRARIES` name, `PageUiTextures.need`). */
   dialogBuilt?: (design: DialogDesign) => void;
   /**
@@ -434,6 +450,32 @@ export class FrontEndSession<P = BlackPicture> {
   readonly sayToast: OperatorToast | null = typeof document !== 'undefined' && document.defaultView ? operatorToast(document, gamepadCross(document.defaultView), sayMemory) : null;
   /** OA-3: the game handed off to the match (`GameLobbyMatchStart.mediusWorldId`, the mounted match's `handOff`), or null. */
   private matchGame: number | null = null;
+  /** SEAT_QUEUE_BUTTON_ADAPTATION (`@s2u/ui` `syncSeatQueue`): the queue's focus line last written on the strip, and its light on the button. */
+  private seatQueueSync: SeatQueueSync = SEAT_QUEUE_SYNC_NONE;
+  /**
+   * LATER 1265 part 2 (`./matchEntryGate`): the match start's no-WebGL2 confirm; its leave is the ABORT return
+   * (`LobbyMatch.leaveLoading`), never `stop()`. Its own method, so the lobby wiring's calls stay one object each.
+   */
+  private gateMatchEntry(): void {
+    void gateMatchEntry(globalThis.document, {
+      leave: () => { this.match.leaveLoading(); },
+      active: () => this.match.phase === 'loading' || this.match.phase === 'match',
+    });
+  }
+  /**
+   * SEAT_QUEUE_BUTTON_ADAPTATION (`@s2u/ui` `seatQueue`), once a frame and at each build: the spectator's queue button
+   * drawn from the room's word, and a seat seated by its claim in the lobby loaded -- the screen's own READY
+   * (`ready_anim`, the late seat's hand-off) run once the GAME LOBBY is up with no popup over it.
+   */
+  private seatQueueFrame(): void {
+    const socket = this.gameLobby?.socket ?? null, sh = this.machine?.shell(), dialog = sh?.currentName ?? null;
+    this.seatQueueSync = syncSeatQueue({
+      view: seatQueueView(socket?.seatQueue() ?? null), uiVars: this.uiVars, dialog, parts: this.parts.current,
+      focused: this.input.ring()?.focused?.name ?? null, was: this.seatQueueSync, launched: socket?.launched() ?? false,
+    });
+    const lobby = dialog !== null && uiCommandFold(dialog) === uiCommandFold(GAME_LOBBY) && !(sh?.popups?.shown(sh.screen ?? null) ?? false);
+    if (lobby && socket?.takeSeatLoad()) this.parts.current?.widgetHost.animation(SEAT_QUEUE_LOAD_ANIMATION, null);
+  }
   /** ONL-24: FRIENDS' rows, the client's friends list and requests, the pushes' poll (`./friendListHost`, research 269 §3). */
   readonly friends: ReturnType<typeof connectFriendList>;
   /** ONL-16a: a listed game's join and the GAME LOBBY over the game socket (`./gameLobbyHost`, research 165 §4). */
@@ -477,7 +519,10 @@ export class FrontEndSession<P = BlackPicture> {
     // sounds are silent -- the shared screen plays its scripts' (the same disc scripts) and its steps'.
     const voiced = (): boolean => !(this.lobbyArmory?.owns(this.machine.shell()?.currentName ?? null) ?? false);
     this.parts = new DialogPartsHost({
-      popupObject: () => this.machine.queue.popupObject, face, captions: o.disc.captions, uiVars: this.uiVars,
+      // LATER 359b, NET-RES-3 (an intended divergence under OT.R77): #365's text names the seat's ending while one is set.
+      popupObject: () => this.machine.queue.popupObject, face, captions: withNetEndingLine(o.disc.captions), uiVars: this.uiVars,
+      // LATER 359b, NET-RES-3 (the second divergence): the match's errno-32 popup ('You') names the ending while one is set.
+      nameText: (name) => netEndingPopupText(name, this.machine.shell()?.currentName ?? null),
       // research 122 §6: the widgets' and the popup's code cues.
       sound: sounds ? (n) => { if (!voiced()) return; if (n === '.METAL') sounds.popup(); else if (n === 'TELETYPE') sounds.teletype(); else sounds.selection(); } : undefined,
     });
@@ -497,7 +542,9 @@ export class FrontEndSession<P = BlackPicture> {
     const art = o.disc.art?.textures ?? null, banks = o.textures ?? null;
     const own: UiTextures = (name) => art?.(name) ?? banks?.(name) ?? null;
     const loader = loaderTextures(o.disc.loader);
-    this.textures = (name) => loader(name) ?? own(name);
+    const plain: UiTextures = (name) => loader(name) ?? own(name);
+    // DAY-PIC-OVERRIDE (a browser adaptation): CREATE GAME's focused Day row draws its Day picture under the night's name.
+    this.textures = o.dayPictures ? dayPictureTextures(plain, () => createGameFocusVariant(this.parts.current?.widgets), o.dayPictures) : plain;
     this.moviePicture = o.moviePicture;
     // PLAT-21's host over PLAT-14's layer (the player is its only writer); event 3 to the dialog built now; after a
     // pushed movie, the menu state's ON_STATE_POP and its two frames.
@@ -533,7 +580,7 @@ export class FrontEndSession<P = BlackPicture> {
       // `CValve_Open` at the game's start (FUN_00351d40, the call D:L152619): `global_valves.rdr` whole, before any screen
       // makes a valve -- the registry's order, and so the card's `CValveSaveManager` module's, is the table's (OPT-02b).
       valves: bootValves(o.disc.globalValves ?? []),
-      dialog: withBriefingRoomPing(withLobbyBots(withInviteButton(o.disc.dialog, () => this.opener?.valves), () => this.gameLobby?.commands.botsOffered() ?? false)), sets: o.disc.sets, host: this.host,   // INVITE_BUTTON_ADAPTATION; MLS-PING browser table; FBA-2's native team bot controls, H314/H315's games only
+      dialog: withSwapMark(withBriefingRoomPing(withLobbyBots(withSeatQueueButton(withInviteButton(o.disc.dialog, () => this.opener?.valves)), () => this.gameLobby?.commands.botsOffered() ?? false))), sets: o.disc.sets, host: this.host,   // INVITE_BUTTON_ADAPTATION; MLS-PING browser table; FBA-2's native team bot controls, H314/H315's games only; WM.R21's swap mark (SWAP_MARK_ADAPTATION)
       build: { face, captions: o.disc.captions, movie: this.layer, model: o.disc.art?.model },
       movie: {
         service: this.movie, frame: (dt) => this.movie.frame(dt, null),
@@ -545,6 +592,7 @@ export class FrontEndSession<P = BlackPicture> {
       built: (b) => {
         this.parts.built(b);
         syncLobbyBots(this.gameLobby.commands, this.parts.current);
+        this.seatQueueFrame();                                          // SEAT_QUEUE_BUTTON_ADAPTATION: the built lobby's button
         this.gameLobby.commands.dialogBuilt(this.machine.shell()?.currentName ?? null);   // VERSION_ABORT_HELD_ADAPTATION
         // OT.R79: VIDEO's strip at the page's picture before its first tick checks the box (`selectVideoPicture`).
         if (o.picture && this.parts.current && isVideoPictureDesign(b.design)) selectVideoPicture(this.parts.current.widgets, o.picture.get());
@@ -591,14 +639,16 @@ export class FrontEndSession<P = BlackPicture> {
       sessionLost: (t) => { this.lobby?.sessionLost(t); }, inputString: (cmd) => this.machine.shell()?.inputString(cmd.anim) ?? null,
       event: lobbyEventInto(() => this.machine, this.parts), lobby: this.connect?.lobby ?? null, friendState: (name) => this.friends.commands.onlineStateByName(name),   // ONL-24: PLAYER INFO's FRIEND origin
       roomState: (name) => this.briefing.commands.roomPlayerState(name), clan: this.world.commands.clan });   // SVC-15: PLAYER INFO's BRIEFING origin, the room's player list; ONL-30: CLAN RANKING's clan (LobbyClan)
-    connectManageRoster(this.host, { uiVars: this.uiVars, clan: this.world.commands.clan, service: o.manageRoster, ticket: () => this.lobby?.ticket() ?? null, sessionLost: (t) => { this.lobby?.sessionLost(t); }, event: lobbyEventInto(() => this.machine, this.parts), inputString: (cmd) => this.machine.shell()?.inputString(cmd.anim) ?? null, lobby: this.connect?.lobby ?? null, clanMessages, ladderTotal: () => ladder.state().myTotal, ladderPosition: () => ladder.state().myPosition });   // ONL-27 (research 272)
+    const manageRoster = connectManageRoster(this.host, { uiVars: this.uiVars, clan: this.world.commands.clan, service: o.manageRoster, ticket: () => this.lobby?.ticket() ?? null, sessionLost: (t) => { this.lobby?.sessionLost(t); }, event: lobbyEventInto(() => this.machine, this.parts), inputString: (cmd) => this.machine.shell()?.inputString(cmd.anim) ?? null, lobby: this.connect?.lobby ?? null, clanMessages, ladderTotal: () => ladder.state().myTotal, ladderPosition: () => ladder.state().myPosition });   // ONL-27 (research 272)
+    // STREAMER-P1 slice 3 (a browser adaptation, `./socialSet`): this session's friends and clan mates, Streamer mode's lookup.
+    registerSocialSet(frontEndSocialSet({ friends: this.friends.commands, roster: manageRoster.roster, clan: this.world.commands.clan, ticket: () => this.lobby?.ticket() ?? null }));
     this.gameLobby = connectGameLobby(this.host, { uiVars: this.uiVars, valves: () => this.opener.valves, lobby: this.connect?.lobby ?? null,   // ONL-16a (research 165 §4)
       recoverLobby: (state) => recoverLobbyControls(this.parts.current, this.machine.shell()?.currentName, state),
-      voice: { talkCue: (name, volume) => { sounds?.play(name, { volume, pan: -1, pitchMod: 0 }, 'zanim'); } },
       games: () => this.briefing.commands.gamesHeld(), roomWorldId: () => this.briefing.commands.roomWorldId(), inputString: (cmd) => this.machine.shell()?.inputString(cmd.anim) ?? null,
       event: lobbyEventInto(() => this.machine, this.parts), switchMenu: (d) => { this.machine.queue.switchMenu(d); }, service: o.gameLobby, pinned: o.matchSocket, socket: o.gameSocket,
       dialog: () => this.machine.shell()?.currentName ?? null,                                                     // R4B-08: r0004's Team Switch Error (research 379 §3)
-      matchStart: (h) => { this.matchGame = h.mediusWorldId; o.matchStart?.(h); this.lobbyPrepare.handedOff(); this.match.start(h); }, randomGame: () => { if (!this.invite.searchArmed()) this.briefing.autoplay.start(); },   // INVITE_JOIN_ADAPTATION
+      suspendMenuInput: (s) => { this.machine.menu.shell?.suspendInput(s); },                                     // AS-17 / L98: r0004's create pause, G+0x900
+      matchStart: (h) => { this.matchGame = h.mediusWorldId; o.matchStart?.(h); this.lobbyPrepare.handedOff(); this.match.start(h); this.gateMatchEntry(); }, randomGame: () => { if (!this.invite.searchArmed()) this.briefing.autoplay.start(); },   // INVITE_JOIN_ADAPTATION
       joinRefused: (s, w) => this.invite.refused(s, w),                                                                 // INVITE_REFUSAL_ADAPTATION
       chat: this.briefing.chat, clanId: () => this.world.commands.clan.clanId,   // ONL-18: the hand-off, never an open client unheard; ONL-15: AUTOPLAY; ONL-23: SendChatText's whisper (research 266 §1); CLAN-ID-WIRE: ClanGameClosed's FUN_002e9940 (research 272 §3)
       system: (text, severity) => { this.briefing.chat.systemMessage(text, severity); },   // SA-43c Part 2: the game socket's system message, routed as the lobby's (FUN_0030dce0)
@@ -615,6 +665,12 @@ export class FrontEndSession<P = BlackPicture> {
         this.input.activate(name);
         return true;
       },
+    }));
+    // SEAT_QUEUE_BUTTON_ADAPTATION (`@s2u/ui` `seatQueue`): a spectator's SWITCH TEAMS, the room's seat queue
+    this.host.setBindingGate('seat-queue', seatQueueGate({
+      view: () => seatQueueView(this.gameLobby.socket?.seatQueue() ?? null),
+      press: () => { const socket = this.gameLobby.socket, on = seatQueueClaim(socket?.seatQueue() ?? null); if (socket && on !== null) socket.seatClaim(on); },
+      node: (cmd) => this.parts.current?.nodeCommand(cmd),
     }));
     this.invite = connectInvite(this.host, { mount: o.invite ?? null, briefing: this.briefing, world: this.world, gameLobby: this.gameLobby, match: () => this.match,
       lobby: () => this.lobby, machine: () => this.machine, parts: this.parts, universes: this.universes, uiVars: this.uiVars, valves: () => this.opener.valves,
@@ -639,7 +695,9 @@ export class FrontEndSession<P = BlackPicture> {
     const closeReport = import.meta.env.DEV ? pageCloseReport() : null;
     this.match = new LobbyMatch({   // ONL-18 (research 166 §5)
       ...(closeReport ? { closeReport } : {}),
-      screen: { show: (m) => { lm?.leave?.(); lm?.screen?.show(m); }, hide: () => { lm?.screen?.hide(); } },
+      netEnd: netEndReporter((m) => { pageClientErrorBeacon().reportDiag('netend', m); }),   // LATER 62: the field's netend diagnostic (release builds too)
+      loadDiag: loadDiagReporter((m) => { pageClientErrorBeacon().reportDiag('loaddiag', m); }),   // LATER 753: a late seat's slow load
+      screen: { show: (m, v) => { lm?.leave?.(); lm?.screen?.show(m, v); }, hide: () => { lm?.screen?.hide(); } },
       load: lm?.load ?? (() => Promise.resolve()),
       ...(lm?.prepare ? { prepare: lm.prepare } : {}),   // IP3 (`LOAD_REPORT_AT_PREPARED_READING`): absent, the load alone
       ...(lm?.unprepare ? { unprepare: lm.unprepare } : {}),   // IP3 (the review's F1, F4): the prepared match dropped
@@ -757,7 +815,7 @@ export class FrontEndSession<P = BlackPicture> {
   /** The ticks due at `now` (ms; the page's animation-frame time), each one frame of the front end. Answers how many ran. */
   advance(now: number): number {
     this.frameNow = now;
-    return this.clock.advance(now, (_tick, dt) => { this.connect?.frame(); this.world.frame(); if (this.connect && this.connect.lobby.ticket() === null) this.sessionGone(); this.gameLobby.frame(); syncLobbyBots(this.gameLobby.commands, this.parts.current); this.invite.frame(); this.briefing.frame(); this.friends.frame(); this.match.frame(); this.lobbyPrepareFrame(); this.menuFrame(dt); this.settleReturn(); });   // ONL-16a: the game socket's closes   // ONL-07: the lobby's step, once a frame (FUN_002dfe50)
+    return this.clock.advance(now, (_tick, dt) => { this.connect?.frame(); this.world.frame(); if (this.connect && this.connect.lobby.ticket() === null) this.sessionGone(); this.gameLobby.frame(); syncLobbyBots(this.gameLobby.commands, this.parts.current); this.seatQueueFrame(); this.invite.frame(); this.briefing.frame(); this.friends.frame(); this.match.frame(); this.lobbyPrepareFrame(); this.menuFrame(dt); this.settleReturn(); });   // ONL-16a: the game socket's closes   // ONL-07: the lobby's step, once a frame (FUN_002dfe50)
   }
 
   /**
@@ -1034,7 +1092,7 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
    * session now and the reloaded page's login is never -997 for their `SESSION_SILENT_MS_READING`. A browser
    * adaptation.
    */
-  let lobbyCover: { hide(): void } | null = null;               // OT.R121: a lobby link's cover while its login path runs behind it
+  let lobbyCover: ReturnType<typeof showLobbyLinkCover> | null = null;   // OT.R121: a lobby link's cover while its login path runs behind it
   let screenOriginStop: (() => void) | null = null;            // SCREEN POSITION's resize listener, set once the keeper is made
   const pictureOff: (() => void)[] = [];                        // HD-4: the page's picture keeper outlives a mount; its observers do not
   const onPageHide = (e: PageTransitionEvent): void => { if (!e.persisted) mount.stop(); };
@@ -1080,10 +1138,19 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
   // the page's picture (VIDEO MODE, followed by the mount), the window, the match's own audio on the menus' context
   // (`frontEndMatchSound`; nothing plays before the attach hands it the map's sound), and the seat's side: the game
   // lobby's own client's team (`GameSocketHost.link`), the client the hand-off hands on.
+  // LIGHTWEIGHT-MATCH (a browser adaptation for the Xbox class, no original; `./xboxPrototype/matchLoader`): on the Xbox
+  // class or pick, a page whose engine is the lightweight one (`?lightweightmatch=1` / `=0`, else the saved choice -- Home's
+  // "Match engine" row, `s2u.viewer.lightweightMatch` '1' / '0' -- else the class's default, off today) mounts the
+  // lightweight match on the loader's decoded mission instead of the production scene; everything else is this page's.
+  // LW-DEFAULT (LATER 1277): the one page decision the lean audio reads too (`./audio` `leanXboxAudio`), through the page's
+  // storage door. Read here, once a loader; the module is fetched only then, so a page on the standard engine loads none of it.
+  // XBOX-INTEGRATE (importRejections): a module that will not load (a navigation's abort, a lost chunk) leaves the page's own loader.
+  const lightweightMatch = (): boolean => pageLightweightMatch(win?.location.search);
   const matchLoader = (): Promise<MatchLoader> => (matchLoading ??= matchLoaderSlot(() => import('./matchMount').then((m) => m.matchLoader(from, undefined, {
-    picture, ...(win ? { win: win as unknown as MatchWindow } : {}),
+    picture, ...(win ? { win: win as unknown as MatchWindow } : {}), shape,
     audio: () => matchSound.audio(), side: () => session_?.gameLobby.socket?.link()?.team ?? null,
-  })))).get();
+  })).then((inner) => (lightweightMatch() ? import('./xboxPrototype/matchLoader').then((x) => x.lightweightMatchLoader(inner, doc))
+    .catch((e: unknown) => { console.warn('front end: lightweight match', why(e)); return inner; }) : inner)))).get();
   const assets = opts.assets ?? assetSourceFor(source);   // FE-ISO: the image, a picked folder (DA-3) or the served tree
   const invite = win ? pageInvite(search, win, { dev: devBuild() }) : null;                                // INVITE_LINK_ADAPTATION
   const handedOff = (h: InviteHanded): null => { running = false; if (frameId) win?.cancelAnimationFrame(frameId); closeSession(); mount.movies?.stop(); mount.music?.stop(); say(endHandOff(invite, h)); return null; };   // the address kept unless taken (review 7)
@@ -1096,9 +1163,11 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
   const out = opts.audio ? null : new WebAudioOut(null, { releaseLoopSamples: xboxMemoryMeasures });   // VS-10 F1: the Xbox class's loop release too; read at the first loop let go, never at start (VS-12)
   // OT.R79: VIDEO MODE's MODERN / PS2 / EXPERIMENTAL, this browser's; HD-4: the page's one keeper, Home's Display "Video" row's too
   const picture = pagePicture();
+  const shape = pageShape();   // VIDEO-SHAPE (a browser adaptation): the page's one shape keeper, Home's Display "Shape" row's too
   const screenOrigin = screenOriginKeeper(doc, win ?? null);   // SCREEN POSITION (SCREEN_ORIGIN_ADAPTATION): the card's origin on the canvases
   screenOriginStop = () => screenOrigin.stop();
   pictureOff.push(picture.observe(() => { screenOrigin.layLater(); }));         // OT.R79: the match's box changes with the picture; the origin re-laid on it
+  pictureOff.push(shape.observe(() => { screenOrigin.layLater(); }));           // VIDEO-SHAPE: and with the shape (Modern's 4:3 box)
   // GM-12b (a browser adaptation; `./uiGpuFront`): `#front-end-gpu` beside this canvas, made when the GPU switch asks
   // `front` of the GPU (since the flip, GM.R18, every page but `?uiGpu=off` and the storage kill). The same box, BRIGHTNESS
   // (`frameCanvas`, in `FrontEndGpu`), SCREEN POSITION and the page's keys and taps; its surface imported after the
@@ -1222,11 +1291,20 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
     // quad cache), so the caches go again when it hides at the match's first frame. The in-match Options overlay's draws
     // refill it too; that refill (within the cache's 32 MiB) waits for the next match's `leave`.
     const loadingHide = loadingHold(() => { loadingPanel?.hide(); hdMenus?.releaseQuadCache(); releasePageQuadCache(); });
-    const matchScreen = pageLobbyMatchScreen({ cover: () => { loadingHide.show(); panel().cover(); }, show: (s) => panel().show(s), hide: () => { loadingHide.hide(); } }, assets);
+    const dayPictures = createDayPictures();                                         // DAY-PIC-OVERRIDE: CREATE GAME's and the load's Day pictures
+    const matchScreen = pageLobbyMatchScreen({ cover: () => { loadingHide.show(); panel().cover(); }, show: (s) => panel().show(s), hide: () => { loadingHide.hide(); } }, assets, dayPictures);
     const menuHold = matchMenuHold(() => session_);
     const banks = pageUiTextures(assets);                                          // ONL-01: the banks from the tree (`./frontEndAssets`)
+    // Xbox browser adaptation: menu pixels are reproducible from the retained banks.
+    // End the prefetch before dropping its images so a late worker reply cannot refill them.
+    const menuTextures = menuTextureLifetime({
+      active: () => running, enabled: xboxMemoryMeasures,
+      stop: () => { texturePrefetchStop?.(); texturePrefetchStop = null; },
+      release: () => { disc.art?.releaseDecoded?.(); banks.releaseDecoded?.(); },
+      start: () => { if (win) texturePrefetchStop = startPageUiTexturePrefetch(win, chainUiTexturePrefetch(disc.art, banks), gpuFront ? seedUiGpuTextureKey : undefined); },
+    });
     const s = new FrontEndSession<MovieFrame>({
-      disc, startDialog: entry.startDialog, sounds: ui.cues ?? undefined, textures: banks.textures,
+      disc, startDialog: entry.startDialog, sounds: ui.cues ?? undefined, textures: banks.textures, dayPictures,
       controllerConfigs,                                                                                              // OPT-14: the page's own front end binds the pad's configs
       startMenuPage: START_MENU_PAGE,                                                                                 // R4B-02: and the START menu's VOICE MODULATION (r0004's store)
       screenOrigin: (x, y) => { screenOrigin.set(x, y); },                                                             // SCREEN POSITION: the drawn frame moved (`./screenOrigin`)
@@ -1262,12 +1340,12 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
         // mounted on the lobby's client -- `./matchMount` loaded only now, so the front end's bundle stays free of it
         // and of `./main` (OT.R12). A loader that will not come leaves the archive's read as the load.
         // IP3 (`./loadMarks`, a measurement instrument): the load's phases marked.
-        load: (mission) => { markLoad('load-start'); return matchLoader().then((l) => l.load(mission), () => matchScreen.load(mission)).then((a) => { markLoad('decode-done'); return a; }); },
+        load: (mission, variant) => { markLoad('load-start'); return matchLoader().then((l) => l.load(mission, variant), () => matchScreen.load(mission)).then((a) => { markLoad('decode-done'); return a; }); },
         // IP3 (`LOAD_REPORT_AT_PREPARED_READING`, research 166 §3): the match made ready to draw (canvas, renderer, world,
         // compile, its frames to the mount's first-frame gate: the mount's own stage 1) before the load is reported; a
         // loader that will not come settles it at once.
         // IP3 lobby prepare (`./loadMarks` `markLobbyPrepared`): whether it found the game lobby's prepared match.
-        prepare: (mission) => matchLoader().then((l) => { markLobbyPrepared(l.holds(mission) !== null); return l.prepare(mission); }, () => undefined),
+        prepare: (mission, variant) => matchLoader().then((l) => { markLobbyPrepared(l.holds(mission, variant) !== null); return l.prepare(mission, variant); }, () => undefined),
         // IP3 lobby prepare (`./lobbyPrepare` `LOBBY_PREPARE_ADAPTATION`, a browser adaptation, the owner's word 2026-11-02):
         // the game lobby's mission prepared while the player waits there (guarded: off under the Xbox preset, on a small
         // device, at `?lobbyprepare=0`), so the hand-off's load and prepare above find it; let go when the game is left or
@@ -1312,7 +1390,7 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
           void settings?.preload(); // Browser adaptation: warm kept Options assets before the match mounts.
           // PAR-3: the round screens' bitmaps from the lobby's ARMORY read of the same mission (`armoryRead`, one decode).
           return matchSound.start((audio) => {
-            const mounted = l.mount(doc.body, { ...m, ...(win ? { win } : {}), ...(audio ? { audio } : {}), taunts, messages, options, picture, armory: armoryRead(m.handOff.mission), gameChat, systemMessage, externalWhispers: whispers, textLine, startMenuOptions, settings, gameVars: { uiVar: (n) => { const v = session_?.uiVars.find(n)?.value; return v?.type === 'string' ? v.value : null; }, valve: (n) => session_?.opener.valves.find(n)?.value ?? null }, firstFrame: () => { loadingHide.firstFrame(); } });
+            const mounted = l.mount(doc.body, { ...m, ...(win ? { win } : {}), ...(audio ? { audio } : {}), taunts, messages, options, picture, shape, armory: armoryRead(m.handOff.mission), gameChat, systemMessage, externalWhispers: whispers, textLine, startMenuOptions, settings, gameVars: { uiVar: (n) => { const v = session_?.uiVars.find(n)?.value; return v?.type === 'string' ? v.value : null; }, valve: (n) => session_?.opener.valves.find(n)?.value ?? null }, firstFrame: () => { loadingHide.firstFrame(); } });
             loadingHide.mounted();   // #635 review F2: the fallback's clock from the canvas's mount
             markLoad('mounted');   // IP3 (`./loadMarks`)
             roundLine = (line) => { mounted.lobbyLine(line); };
@@ -1327,10 +1405,10 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
         // `./frontEndSleep` (a browser adaptation): the menus' raster skipped while the match is up under every preset
         // (H397 / C14; PR #631 began it under the Xbox preset) and, under the Xbox preset or the Xbox class (VS-10 F1), the
         // movie worker ended when no movie is open.
-        leave: () => { hdMenus?.releaseQuadCache(); releasePageQuadCache(); matchSound.leave(); canvas.hidden = true; screenOrigin.layLater(); menuHold.leave(); uiGpuFront?.release(); gpuFront?.commit(); matchUp = true; matchGraphics = readGraphicsBackend(); if (movieWorkerSleeps(matchGraphics)) movies?.sleep(); else movies?.sound.keep.clear(); },   // GM-32 review F1: the kept movie sound let go for the match
+        leave: () => { hdMenus?.releaseQuadCache(); releasePageQuadCache(); menuTextures.leave(); matchSound.leave(); canvas.hidden = true; screenOrigin.layLater(); menuHold.leave(); uiGpuFront?.release(); gpuFront?.commit(); matchUp = true; matchGraphics = readGraphicsBackend(); if (movieWorkerSleeps(matchGraphics)) movies?.sleep(); else movies?.sound.keep.clear(); },   // GM-32 review F1: the kept movie sound let go for the match
         settled: (r) => { matchSound.settled(r); },
         // PR #631 (`./matchLoaderSlot`): under the Xbox preset the match's worker and decoded mission let go at the return.
-        returned: () => { roundLine = null; if (releasesMatchOnReturn(readGraphicsBackend()) || pageDeviceClass() === 'xbox') matchLoading?.release(); matchSound.returned(); canvas.hidden = false; screenOrigin.layLater(); menuHold.returned(); uiGpuFront?.returned(); matchUp = false; loadingHide.release(); },
+        returned: () => { roundLine = null; if (releasesMatchOnReturn(readGraphicsBackend()) || pageDeviceClass() === 'xbox') matchLoading?.release(); matchSound.returned(); canvas.hidden = false; screenOrigin.layLater(); menuHold.returned(); uiGpuFront?.returned(); matchUp = false; loadingHide.release(); menuTextures.returned(); },
       },
       onLaunch: (l) => console.info('front end: LoadExecPS2', l.elf, l.argv),
       onEvent: (e) => { events.push(e); console.info('front end:', e); },
@@ -1342,11 +1420,12 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
     soundMode();
     s.options.observe(soundMode);
     if (missions.length) seedNumMultiMissions(s.opener.valves, missions);   // ONL-15: a read before the session (a deep link need not launch)
-    const router = connectMenuRoutes(s.machine, { win, alive: () => canvas.isConnected });     // OT.R10: the path mirrors the menu flow
+    const router = connectMenuRoutes(s.machine, { win, alive: () => canvas.isConnected, ...historyTrapOf(doc, s) });     // OT.R10: the path mirrors the menu flow; ROUTE-GUARD: Back cannot leave a game (HISTORY_TRAP_IN_GAME_ADAPTATION)
     if (router.plan.stack.length) s.opener.skipLoader();                                     // a deep link lands past the boot
     if (disc.missing.length) console.warn('front end: not read', disc.missing);
     if (ui.missing.length) console.warn('front end: no sound', ui.missing.join('; '));
     (win as unknown as Record<string, unknown>)[FRONT_END_WINDOW_HOOK] = { session: s, movies, press: (n: PadButtonName) => s.press(n), events, music } satisfies FrontEndWindowHook;
+    void import('./settingsAdvanced').then((m) => { m.settingsAdvancedFrontEnd(doc, s); }).catch((e: unknown) => { console.warn('front end: no ADVANCED entry', e); });   // WM-6A (a browser adaptation): s.host's ADVANCED gate -> the launcher at the tab; the lookup above draws it while offered
     if (uiPerf.ring && perfLib) {
       // GM-02: the ring, the session's render probe, composeScreen's probe, and the page's hook for `e2e/uiGpuPerf.spec.ts`.
       const { UiPerfProbe, dialogSwitches, summarizeUiPerf } = perfLib;
@@ -1366,9 +1445,9 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
     mount.status = `front end on ${router.plan.stack.length ? s.machine.menu.startDialog : 'the opener (the loader screens, then dlgIntroScreen.rdr)'}`;
     menuInput?.connect(s.input);                                   // PLAT-11: the keys, pad and taps are the menus'
     if (s.invite.covering()) lobbyCover = showLobbyLinkCover(doc);   // OT.R121: the login path behind the cover, to the GAME LOBBY or a reveal
-    // PLAT-17: UiParams.rdr, the physical typing -- in a release build too, but only while the soft keyboard's text entry
-    // is open (the original takes a USB keyboard there; research 301 §6): no gameplay key (OT.R29, `keyboardGate.test.ts`).
-    keys = connectSoftKeyboard(s.keyboard, win, () => readUiParams(assets), true);
+    // PLAT-17: UiParams.rdr, the physical typing -- in a release build too: while the soft keyboard's text entry is open
+    // (research 301 §6) and, with none up, Enter alone on a screen binding USBKBD_ENTER: no gameplay key (OT.R29, `keyboardGate.test.ts`).
+    keys = connectSoftKeyboard(s.keyboard, win, () => readUiParams(assets), true, menuInput?.page);   // WM-ENTER-CHAT: step 6's Enter (ENTER_OPENS_CHAT_ADAPTATION)
     // FRAME-LOOP-GUARD (LATER 859, `./frameGuard`; a browser adaptation): the menus' body is `step`, run through the
     // guard, so a throw inside a tick costs that tick, not the menus.
     const step = (now: number): boolean => {
@@ -1380,6 +1459,7 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
       // The session advances every tick (the lobby and the match tick through it); the raster rests under a match (H397 / C14).
       perf?.begin(now);                                              // GM-02: the instrument's frame (null on every player's page)
       const ticks = s.advance(now);
+      lobbyCover?.stage(s.machine.shell()?.currentName ?? null, webOut);   // WM-37: the load-in's stage, the output held silent (`./loadIn`)
       if (lobbyCover && !s.invite.covering()) { lobbyCover.hide(); lobbyCover = null; }   // OT.R121: the reveal
       perf?.advanced(ticks);
       const gpu = gpuFront?.drawsOn(chosen.scale) ?? false;          // GM-12b: the front end's GPU surface draws this scale (never at L4 or L3: review F3)
@@ -1407,7 +1487,7 @@ export function mountFrontEnd(search: string, source: SourceRequest | null, doc:
     // bank's textures decoded ahead of the dialogs in the page's decode worker -- keyed for the GPU surface's texture
     // cache where the page has one -- so a cold dialog's first frame finds them; the lookup never waits on it.
     // GM-32: the menus' art first (`./menuArt` `MENU_ART_PREFETCH_ADAPTATION`; the lookup asks it before the banks), then the banks.
-    if (win) texturePrefetchStop = startPageUiTexturePrefetch(win, chainUiTexturePrefetch(disc.art, banks), gpuFront ? seedUiGpuTextureKey : undefined);
+    menuTextures.start();
     return s;
   }, (e) => { say(`the front end would not read: ${why(e)}`); return null; });
   mount.session = session;

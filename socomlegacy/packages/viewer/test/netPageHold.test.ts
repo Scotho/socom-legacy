@@ -7,6 +7,7 @@ import { GAME_SOCKET_CLOSED_DIALOG_READING, LINK_SILENCE_MS_ADAPTATION, NetPage,
 import { NetClient, type NetWalk, type WebSocketLike } from '../src/net/client';
 import { gameSeatProvider, pinnedGameDoor, pinnedMatchSocket, type GameSeatProvider, type GameTokenReply, type Reseat } from '../src/connectHost';
 import { SEAT_HOLD_MS_ADAPTATION, type ServerEvent } from '../src/net/protocol';
+import { NET_ENDING_TEXTS_ADAPTATION, clearNetEnding, netEndingLine } from '../src/net/netEnding';
 import type { RemotePlayers } from '../src/remotePlayers';
 import type { WalkMode } from '../src/walk';
 
@@ -206,9 +207,9 @@ describe('LATER 574: frames that run while the page\'s tasks wait do not give up
     const p = page({ pinned: door(), token: TOKEN, reseat: s.p });
     p.last().onopen?.({} as Event);
     p.server(welcome);
-    for (let i = 0; i < 9; i++) { p.block(1_000); p.frame(); p.tasks(); }   // 9 s: still open
+    for (let i = 0; i < 3; i++) { p.block(1_000); p.frame(); p.tasks(); }   // 3 s: still open (LATER 359: the 4 s bound)
     expect(p.sockets[0]!.closed).toBe(false);
-    for (let i = 0; i < 2; i++) { p.block(1_000); p.frame(); p.tasks(); }   // given up by 11 s (review F2: the 9 + 2 split pins the bound)
+    for (let i = 0; i < 2; i++) { p.block(1_000); p.frame(); p.tasks(); }   // given up by 5 s (review F2: the 3 + 2 split pins the bound)
     expect(p.sockets[0]!.closed).toBe(true);
   });
 });
@@ -225,6 +226,8 @@ describe("NET-RES-2d: the retries run through the room's hold, then end the seat
     expect(asked).toBeGreaterThan(10);
     for (let t = 0; t < 40_000; t += 5_000) { p.run(5_000); await settle(); }
     expect(p.ended).toEqual([GAME_SOCKET_CLOSED_DIALOG_READING]);
+    expect(netEndingLine()).toBe(NET_ENDING_TEXTS_ADAPTATION.lost);   // LATER 359b, NET-RES-3: #365 names the resume running out
+    clearNetEnding();
     const at = s.asks();
     p.run(60_000);
     await settle();
@@ -247,7 +250,7 @@ describe('NET-RES-2f: a re-tokened reconnect refused `no seat in that game` (the
     p.last().onopen?.({} as Event);
     p.server({ type: 'refused', reason: 'no seat in that game' } as ServerEvent);
     p.last().onclose?.({ code: 4003, reason: 'no seat in that game' } as CloseEvent);
-    for (let i = 0; i < 6; i++) { p.run(1_000); await settle(); }
+    for (let i = 0; i < 2; i++) { p.run(1_000); await settle(); }   // LATER 359a: the 1.5 s step, inside the next socket's 3 s wait
     expect(s.asks()).toBe(2);
     p.last().onopen?.({} as Event);
     p.server({ type: 'refused', reason: 'no seat in that game' } as ServerEvent);

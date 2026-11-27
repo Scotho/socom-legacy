@@ -24,7 +24,7 @@ const quad = (path: string, ditype: number, points: number[]): WorldPoly => ({
   modelName: 'worldmodel', path, region: 0, ditype, material: 25, ptcount: points.length / 3, cameratype: 0, points: Float32Array.from(points),
 });
 const POLYS: WorldPoly[] = [
-  quad('worldmodel/floor', 3, [-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  quad('worldmodel/floor', 3, [-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
   quad(SLAB, 2, [0, 0, 0, 4, 0, 0, 4, 40, 0, 0, 40, 0]),
   quad(PANE, 2, [4, 0, 0, 24, 0, 0, 24, 40, 0, 4, 40, 0]),
   quad(PANE_B, 2, [4, 0, 100, 24, 0, 100, 24, 40, 100, 4, 40, 100]),

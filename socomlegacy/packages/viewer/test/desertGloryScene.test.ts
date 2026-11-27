@@ -156,6 +156,8 @@ describe(`DF-6: Desert Glory's scene, on its fixture${SKIP}`, () => {
     expect(world.runProgram(tire.program, ctx)).not.toBeNull();
   }, 120_000);
 
+  // LATER 951 (research 436): since then the page's world runs `translate_sky` at the camera (`WorldHooks.translate`,
+  // `test/skyFollow.test.ts`); with no camera given and no translate hook, as here, the sky still stands where placed.
   it.skipIf(!PRESENT)("(4) a placed node's translate / rotate / fromTo draws nothing (SCENE_NODE_TRANSFORM_PLACEHOLDER): the sky, the bugs, the bees, the camera jiggle", async () => {
     expect(SCENE_NODE_TRANSFORM_PLACEHOLDER).toBe('drawsNothing');
     const s = await roomOn(FIXTURES, 'MP6');
@@ -165,7 +167,9 @@ describe(`DF-6: Desert Glory's scene, on its fixture${SKIP}`, () => {
       .map((p) => p.name))].sort();
     expect(moving).toEqual(['bee1', 'bee2', 'bee3', 'bee4', 'bee5', 'bug1', 'bug2', 'bug3', 'bug4', 'bug5', 'bug6', 'bug7', 'bug8', 'camera_jiggle', 'testexplode', 'translate_sky']);
     // The page's world runs the autostarts (the sky, the bugs, the bees, the jiggle): none of the moved nodes is drawn
-    // anywhere else or hidden, nothing reaches a hook for them -- the world has no per-node transform to give.
+    // anywhere else or hidden, nothing reaches a hook for them -- the world has no per-node transform to give. LATER 1246:
+    // except `camera_jiggle`'s `camera_effects`, which the page's world now turns and hands to the camera (`cameraEffects.ts`,
+    // `test/cameraJiggle.test.ts`) -- a turn of the view, not a drawn node, so this list (the programs that move a node) keeps it.
     const touched: string[] = [];
     const page = new WorldState(s.map.meta!, s.map.ground!, groundGrid(s.map.ground!), {
       visible: (p) => touched.push(p), opacity: (p) => touched.push(p),
@@ -190,7 +194,9 @@ describe(`DF-6: Desert Glory's scene, on its fixture${SKIP}`, () => {
       expect([cmd, v.getUint32(4, true), c.bytes[8], v.getInt16(0xc, true)]).toEqual([26, 0, 1, 0]);
     }
     const decoded = door.sequences.flatMap((q) => q.commands.filter((c) => c.set === 2).map((c) => decodeEffectOp(c, door.names)));
-    expect(decoded.filter((o) => o.op === 'other').map((o) => (o as Extract<EffectOp, { op: 'other' }>).name)).toEqual(['ai::MOVE', 'ai::EVENT', 'ai::SIGNAL', 'ai::MOVE', 'ai::SIGNAL']);
+    // LATER 1206: the MOVEs decode (`aiMove`); the EVENT and the SIGNALs stay named by the namespace.
+    expect(decoded.filter((o) => o.op === 'aiMove').length).toBe(2);
+    expect(decoded.filter((o) => o.op === 'other').map((o) => (o as Extract<EffectOp, { op: 'other' }>).name)).toEqual(['ai::EVENT', 'ai::SIGNAL', 'ai::SIGNAL']);
   });
 });
 

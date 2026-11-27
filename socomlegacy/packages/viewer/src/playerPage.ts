@@ -52,12 +52,16 @@ export interface PlayerCareer {
  * the match's `assists` are counts (central's STATS_ASSISTS_TRACKED_ADAPTATION; absent from an older central, read as not).
  */
 export interface PlayerMatchRow {
-  match: { id: string; map: string | null; mapName: string | null; mode: string | null; startedAt: number; endedAt: number | null; counted: boolean; assistsTracked?: boolean };
+  match: {
+    id: string; map: string | null; mapName: string | null; mode: string | null; startedAt: number; endedAt: number | null; counted: boolean; assistsTracked?: boolean;
+    /** DAY-VARIANT-STATS: the match's variant (`day`), absent for a plain match; DAY-STILLS-2 asks its still. */
+    variant?: string;
+  };
   player: { kills: number; deaths: number; score: number; roundsWon: number; roundsLost: number; assists?: number };
 }
 interface MatchesAnswer { matches: PlayerMatchRow[]; next?: string }
 interface WeaponsAnswer { weapons: { weapon: string; kills: number }[] }
-interface MapsAnswer { maps: { map: string; mapName: string | null; matches: number }[] }
+interface MapsAnswer { maps: { map: string; variant?: string; mapName: string | null; matches: number }[] }
 
 /** The base with one trailing slash. */
 const withSlash = (base: string): string => (base.endsWith('/') ? base : `${base}/`);
@@ -81,8 +85,13 @@ export function playerMatchesUrl(name: string, before: string | null): string {
 
 const int = (v: number): string => Math.round(v).toLocaleString('en-US');
 const pct = (v: number): string => `${v}%`;
-/** A map code's still (`/api/maps/<STEM>/still.png`, LCM-9), or null. */
-const stillOf = (map: string | null): string | null => (map !== null && /^MP\d{1,2}$/.test(map) ? `/api/maps/${map}/still.png` : null);
+/**
+ * A map code's still (`/api/maps/<STEM>/still.png`, LCM-9), or null. DAY-STILLS-2 (a browser adaptation: the original has
+ * no Day maps): a variant asks `/api/maps/<STEM>/<variant>/still.png` (central falls back to the night still for a variant
+ * with none); a word off the route's form is left out of the path.
+ */
+const stillOf = (map: string | null, variant?: string | null): string | null => (map !== null && /^MP\d{1,2}$/.test(map)
+  ? `/api/maps/${map}${variant && /^[a-z]{1,16}$/.test(variant) ? `/${variant}` : ''}/still.png` : null);
 const crumbsFor = (last: string): Crumb[] => [{ label: 'Home', href: BASE() }, { label: 'Leaderboard', href: `${BASE()}leaderboard` }, { label: last }];
 
 /**
@@ -96,7 +105,7 @@ function matchRowOf(r: PlayerMatchRow): HTMLElement {
   a.href = `${MATCH_HREF_PREFIX_ADAPTATION}${encodeURIComponent(m.id)}`;
   const thumb = element('span', 'project-match-row-thumb');
   thumb.setAttribute('aria-hidden', 'true');
-  const still = stillOf(m.map);
+  const still = stillOf(m.map, m.variant);   // DAY-STILLS-2: the row's variant's still
   if (still) thumb.style.setProperty('--project-match-row-still', `url("${still}")`);   // site.css draws it: no inline background
   const map = m.mapName ?? m.map ?? 'Unknown map';
   const when = easternTime(m.startedAt, 'date-time');
@@ -244,7 +253,7 @@ export function mountPlayerPage(doc: Document, win: Window, name: string | null,
       const rows = a.maps.filter((m) => m.matches > 0).sort((x, y) => y.matches - x.matches || (x.map < y.map ? -1 : 1));
       settle(playedBody, rows.length === 0 ? element('p', 'project-none', 'No maps played yet.')
         : barList(rows.slice(0, PLAYER_PAGE_BARS_MAX_ADAPTATION).map((m) => ({ label: m.mapName ?? m.map, n: m.matches, text: int(m.matches) }))));
-      const still = stillOf(rows[0]?.map ?? null);
+      const still = stillOf(rows[0]?.map ?? null, rows[0]?.variant);   // DAY-STILLS-2: the most-played entry's variant
       if (still && !hero.querySelector('img.project-hero-still')) {
         const img = element('img', 'project-hero-still');
         img.src = still;

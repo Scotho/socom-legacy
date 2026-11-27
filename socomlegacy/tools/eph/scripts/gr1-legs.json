@@ -1,0 +1,206 @@
+{
+ "_what": "GR-1 (research 326 s7, the GRENADE-RETHROW capture), r0004 M51 slot 5, the M67 taken up through R2's inventory (gr1.ts --menu). Times are guest-clock seconds from the leg's start; the rows give the real edges. 'discover': one throw, the kit diffed (the count's live check). 'base': R1 held 0.5 s and let go; about 1.0 s after the let-go R1 pressed and held through the next wind-up, let go about 0.5 s after it starts. 'primary': base with L1 (SwapWeapon1, the primary) tapped in the re-armed wind-up, R1 still held. 'pending': one press while pending (before the hand opens). 'after': one press after the hand opened. 'last': two throws, the second the slot's last (when the slot holds two), pressed while pending and held through its pop, then L1.",
+ "legs": [
+  {
+   "name": "discover",
+   "seconds": 7,
+   "events": [
+    [
+     0.5,
+     "down",
+     "r1"
+    ],
+    [
+     1.0,
+     "up",
+     "r1"
+    ]
+   ]
+  },
+  {
+   "name": "base",
+   "seconds": 9,
+   "events": [
+    [
+     0.5,
+     "down",
+     "r1"
+    ],
+    [
+     1.0,
+     "up",
+     "r1"
+    ],
+    [
+     2.0,
+     "down",
+     "r1"
+    ],
+    [
+     4.0,
+     "up",
+     "r1"
+    ]
+   ]
+  },
+  {
+   "name": "primary",
+   "seconds": 9,
+   "events": [
+    [
+     0.5,
+     "down",
+     "r1"
+    ],
+    [
+     1.0,
+     "up",
+     "r1"
+    ],
+    [
+     2.0,
+     "down",
+     "r1"
+    ],
+    [
+     3.3,
+     "tap",
+     "l1",
+     150
+    ],
+    [
+     5.0,
+     "up",
+     "r1"
+    ]
+   ]
+  },
+  {
+   "name": "pending",
+   "seconds": 8,
+   "events": [
+    [
+     0.5,
+     "down",
+     "r1"
+    ],
+    [
+     1.0,
+     "up",
+     "r1"
+    ],
+    [
+     1.15,
+     "tap",
+     "r1",
+     120
+    ]
+   ]
+  },
+  {
+   "name": "after",
+   "seconds": 8,
+   "events": [
+    [
+     0.5,
+     "down",
+     "r1"
+    ],
+    [
+     1.0,
+     "up",
+     "r1"
+    ],
+    [
+     1.9,
+     "tap",
+     "r1",
+     120
+    ]
+   ]
+  },
+  {
+   "name": "last",
+   "seconds": 26,
+   "events": [
+    [
+     0.5,
+     "down",
+     "r1"
+    ],
+    [
+     1.0,
+     "up",
+     "r1"
+    ],
+    [
+     3.5,
+     "down",
+     "r1"
+    ],
+    [
+     4.0,
+     "up",
+     "r1"
+    ],
+    [
+     6.5,
+     "down",
+     "r1"
+    ],
+    [
+     7.0,
+     "up",
+     "r1"
+    ],
+    [
+     9.5,
+     "down",
+     "r1"
+    ],
+    [
+     10.0,
+     "up",
+     "r1"
+    ],
+    [
+     12.5,
+     "down",
+     "r1"
+    ],
+    [
+     13.0,
+     "up",
+     "r1"
+    ],
+    [
+     15.5,
+     "down",
+     "r1"
+    ],
+    [
+     16.0,
+     "up",
+     "r1"
+    ],
+    [
+     16.15,
+     "down",
+     "r1"
+    ],
+    [
+     19.0,
+     "tap",
+     "l1",
+     150
+    ],
+    [
+     20.5,
+     "up",
+     "r1"
+    ]
+   ]
+  }
+ ],
+ "_item": "MARK141 (class 0x79), M67 not in any rig state: the slot-5 loadout is M4A1 SD, MARK 23 SD, MARK141 x6 (99 accepted it for both readings; research 326 s3 puts the MARK141 in the M67s class). Count: kit+0x274 (found live: the only kit word that fell by 1 across one throw, 6 -> 5)."
+}

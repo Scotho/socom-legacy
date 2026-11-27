@@ -1,11 +1,13 @@
 import { EMPTY_ITEM, itemClass, type WeaponRecord } from '@s2u/scene';
-import { fullAutoDefault, pickupFireMode } from './accuracy';
+import { fastestFireMode, pickupFireMode } from './accuracy';
 import { rocketRoundOf } from './equipment';
 import { PICKUP_LAUNCHER_ROUNDS_READING } from './net/pickupRules';
 import type { HeldRound } from './firearms';
 import type { Firearm } from './kit';
 import type { FirearmSlot } from './loadout';
 import type { PickupClipName } from './mover';
+import type { EquipmentSlotState } from './equipmentSlots';
+import type { KitEquipmentWire } from './net/protocol';
 
 /**
  * PF-34 (ruling PF.R54; web research 234 s4, s6): the room's `kit` after a pickup, on the page -- one function the one
@@ -18,11 +20,12 @@ import type { PickupClipName } from './mover';
  *   exact (empty) ring (`Fire.takeWeapon`, `WEAPON_DROP_AMMO_READING`); every other ring is set through `Fire.setRing`
  *   -- after a walk-over only the slots the transfer `filled`, each taking the amount it poured (`added`) on top of the
  *   page's own count, so shots in flight are kept (the magazine in the hand's weapon among them for a one-magazine weapon).
- * - A slot a claim replaced: its fire mode the original's pickup mode when the record changed (`pickupFireMode`, research
- *   323 F1), the hand's mode re-read, the held model re-hung and the HUD shown (`renew`). The hand is kept
- *   (`PICKUP_HAND_READING`, was the placeholder).
- * - NU-5 L1 (web research 323 R323.5, §1.6): a rocket launcher claimed fills an equipment slot and its round another
- *   (`FUN_0059f0c0` D:L458238-458292); the room's `kit` names no firearm slot for it and writes no firearm ring, so the
+ * - A slot a claim replaced: its fire mode the weapon's fastest when the record changed (`fastestFireMode` over the
+ *   original's `pickupFireMode`, research 323 F1; OT.R100 as extended 2026-11-22), the hand's mode re-read, the held
+ *   model re-hung and the HUD shown (`renew`). The hand is kept (`PICKUP_HAND_READING`, was the placeholder).
+ * - NU-5 L1 (web research 323 R323.5, §1.6); R4P-103: a rocket launcher claimed fills an equipment slot and its round
+ *   is appended after the kit's last record (`FUN_005a4b70` D4:L499303-499309; the reading agent/spc-atlas dcd314b4bd;
+ *   Q103B a1e119affd: index 5), so the round is sought in every record from 2; the room's `kit` names no firearm slot for it and writes no firearm ring, so the
  *   page reads the equipment slot off the kit's own change -- `launcherTaken` with the launcher's slot, its round's and
  *   the round's count (`PICKUP_LAUNCHER_ROUNDS_READING`: the accept carries none, every console installs one) -- and
  *   renews the HUD (`FUN_005bc410`'s weapon panel bit, D:L473845; D:L458295-458296).
@@ -85,7 +88,8 @@ export function takeKit(
   const launcher = [2, 3, 4].find((s) => now[s] !== was[s] && itemClass(now[s]!) === 'rocketLauncher');
   if (launcher !== undefined) {
     const id = rocketRoundOf(now[launcher]!);
-    const round = [2, 3, 4].find((s) => s !== launcher && now[s] === id && was[s] !== id) ?? null;
+    let round: number | null = null;
+    for (let s = 2; s < now.length && round === null; s++) if (s !== launcher && now[s] === id && was[s] !== id) round = s;
     d.launcherTaken?.(launcher, round, PICKUP_LAUNCHER_ROUNDS_READING);
     d.renew();
     d.swapClip?.('swapRifleClaim');                       // D:L458199-458206: every console's, the taker's own too
@@ -96,11 +100,29 @@ export function takeKit(
   if (was[slot] !== EMPTY_ITEM) d.swapClip?.('swapRifleExchange');
   // Research 323 F1: the slot setter zeroes the taken weapon's mode; the hand's slot is stepped up to its highest mode,
   // another at the swap to it once (`pickupFireMode`). The hand is the selected firearm (`kitItem`), and none while an
-  // item or a launcher is up (the selection an equipment slot: both firearm slots step at the swap). OT.R100's adaptation
-  // (`DEFAULT_FIRE_MODE_FULL_AUTO_ADAPTATION`, `fullAutoDefault`) puts a weapon with automatic on it.
+  // item or a launcher is up (the selection an equipment slot: both firearm slots step at the swap). OT.R100 as extended
+  // 2026-11-22 (`PICKUP_FASTEST_FIRE_MODE_ADAPTATION`, `fastestFireMode`) puts every weapon on its fastest mode: an M16A2
+  // taken with the pistol out comes up on burst, where the original's swap step left it on single.
   const selected = FIREARM[slot] === d.hand() && (d.inHand?.() ?? true);
   if (recs[slot].id !== before[slot].id) {
-    d.modes[FIREARM[slot]] = fullAutoDefault(recs[slot], pickupFireMode(recs[slot], slot === 0 ? d.heldRounds() : [], selected));
+    d.modes[FIREARM[slot]] = fastestFireMode(recs[slot], pickupFireMode(recs[slot], slot === 0 ? d.heldRounds() : [], selected));
   }
   d.renew();
 }
+
+/** OT.R59 (RECONNECT-GHOST): a resume's pouch by name and launcher held, as the room holds them (no refill); LATER 1129: its kept Detonator. */
+export interface ResumedKit {
+  pouch: Readonly<Record<string, number>>; equipmentSlots?: readonly EquipmentSlotState[]; held: number | null; weapon?: 0 | 1; detonator?: true;
+}
+
+/**
+ * LATER 1129 (R142 head B): a `kit`'s equipment take -- the slots it wrote and the kept Detonator -- handed with the kit
+ * to the throwables (`FirearmHands.equipmentTaken`, `GrenadeThrower.takeRoomEquipment`); `taken` tells it from a resume.
+ */
+export interface TakenEquipment { taken: true; equipment: readonly KitEquipmentWire[]; detonator?: true }
+
+/** The kit message's extras beside the rings: a resume's, or a take's equipment. */
+export type KitExtras = ResumedKit | TakenEquipment;
+
+/** LATER 1129: whether the extras are a take's equipment (else a resume's). */
+export const isTakenEquipment = (x: KitExtras | undefined): x is TakenEquipment => x !== undefined && 'taken' in x;

@@ -291,11 +291,29 @@ export interface ViewerHook {
    */
   ephFrame(): EphFrame | null;
   /**
+   * R4P-208 re-score 2, a browser adaptation: the local walker for the EPH harness's per-tick log of `turn` and
+   * `turnMemory_` (`tools/eph/run.ts` PAGE_ROW_EXPRESSION). Null unless the page was opened with `?devmode`. Read only:
+   * the harness never writes it.
+   */
+  ephWalker(): object | null;
+  /**
    * PK-3, a browser adaptation (`./ephPause`): the parity pack's Pause -- `true` holds the page's frame (the walk's tick,
    * the input, the draw), anything else resumes it with its clock re-based; answers the paused state after the call.
    * A no-op answering false unless the page was opened with `?devmode`.
    */
   ephPause(on: boolean): boolean;
+  /**
+   * ROUND-CHAT (V21.R15a, RC-4's picture; a test instrument, no original): posts a round chat line onto the test room's
+   * HUD exactly as a relayed `chat` with `round` would (`./matchMessages` `roundChatPost`), the option taken as ON.
+   * A no-op answering false unless the page was opened with `?devmode`.
+   */
+  roundChatPreview(ev: { sender: number; name: string; text: string; team?: true; round: { side: 'seal' | 'terrorist' | null; dead: boolean } }): boolean;
+  /**
+   * ROUND-CHAT's look sheet for the owner (a test instrument, no original): the message window cleared and these lines
+   * posted through the HUD's own text path and the disc's font -- each line's pieces in their colours on the GS's 0..128
+   * scale, an icon by the name of a bitmap the HUD holds (`action_dead_zone.tif`, `round_chat_eye` ...). Devmode only.
+   */
+  roundChatPreviewLines(lines: { segments: { text: string; rgb: [number, number, number] }[]; icon?: string }[]): boolean;
   /** DOORS (`./doorPage`): each door's node and state, the door under the reticle, the last action on one. */
   doors(): ReturnType<DoorPage['stats']>;
   /**
@@ -462,6 +480,11 @@ export interface ViewerHook {
    */
   effects(): EffectStats;
   /**
+   * LATER 1198 (a browser adaptation, devmode only): reseeds the effects' random and particles from `seed` and resets the
+   * live particles, so a stepped harness renders the same drops each run; false (and nothing done) without `?devmode`.
+   */
+  reseedEffects?(seed: number): boolean;
+  /**
    * EFFECTS: plays an animation of the map's zAnim archives (`bullet_hit_stone`, `frag_grenade_stone`, `muzzle_m4` ...)
    * at `at`, or 30 units ahead of the camera: as an impact (the point, the normal up) or as a muzzle effect (a node
    * whose barrel runs to the camera's right, the flash seen from the side); false when the map has none of that name.
@@ -555,6 +578,13 @@ export interface ViewerHook {
    * page camera's layers and in its frustum -- their count and ids, of the drawn. The same gate as `frameHash`.
    */
   bodiesInView?(): BodiesInView;
+  /**
+   * HITBOX-TRACE (product track, a dev instrument; `./hitboxTrace`): the page's trace -- each drawn remote body's aim
+   * volumes a frame (`side: 'page'`, the playout tick it is drawn at) and the offers, with where the aim's line meets the
+   * hostage's drawn body -- oldest first, its ring (`HITBOX_TRACE_PAGE_LIMIT`) cleared. Null unless the page
+   * was opened with `?devmode&hitboxtrace` on a development build. Joined with the room's by `tools/hitboxTrace.ts`.
+   */
+  hitboxTrace?(): Record<string, unknown>[] | null;
   /**
    * cps-frame-hash-4 (product track, a test-only instrument; `./frameDiag`): one of the frame identity gate's diagnosis
    * variants switched on (the previous put back first), or every one put back (`null`); the variant set, or null when it

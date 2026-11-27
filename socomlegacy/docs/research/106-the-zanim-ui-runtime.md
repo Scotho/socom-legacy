@@ -49,8 +49,9 @@ command's, +0x18 LOOP's clock.
   without a call; an instance whose tick reports it finished is dropped.
 - **An instance's tick** (`FUN_00270220` D:L118623-118662): a paused instance does nothing. Its execution guard
   (+0x14) must finish in one 1.0-s step (`FUN_0026d870` D:L117101-117127), else nothing runs this frame. A just-started
-  instance is set up (`FUN_0026ae20` D:L115457-115509: its clock zeroed, every sequence of activation 1 started, the
-  others idle). Then its sequences are stepped in file order while it is neither done nor paused, each judged running
+  instance is set up (`FUN_0026ae20` D:L115457-115509: its clock zeroed, a sequence whose state byte +5 is 0 skipped
+  first, then every sequence of activation 1 started and the others left waiting). Then its sequences are stepped in
+  file order while it is neither done nor paused, each judged running
   or not right after its own step (D:L118642-118646) -- so a sequence started behind the walk does not keep the
   instance alive. Its clock advances by the frame; with no sequence running it ends (`FUN_0026ff20(5)`, D:L118651-118654:
   the cleanup sequence +0x16, once).
@@ -110,7 +111,7 @@ sequences, 26,418 commands; EXTZANIM 95 / 2 / 61 / 88 / 691; MPZANIM 95 / 4 / 13
 | 10 | RANDOM_WEIGHT (token only) | 7 / 0 / 0 | `FUN_0025dcf0` D:L107783-107792 | rand x 4.656613e-10 (2^-31 as an f32) <= the f32 at +4 |
 | 11 | FAIL | 16 / 0 / 0 | 0x25dce0 | never done (`return 0`); false as a token. All 16 are the guards' (§5) |
 | 14 | LOOP | 56 / 6 / 13 | `FUN_0025ede0` D:L108458-108472 | count +1, clock += dt + the consumed time; flag 1: done when the count equals +8 (-1 never: all 75 are `1, -1`); flag 2: done when 0 <= +8 <= the clock; else the sequence restarts next frame |
-| 15 | WAIT | 576 / 29 / 60 | 0x25ec50 (`FUN_0025ed50` D:L108436-108448) | flag 8: not done while dt + the base <= +8 (the base the command's consumed time; flag 2 the sequence's, 4 the instance's clock), else done with the rest of dt passed on; flag 0x10 counts ticks against +8 (+0xc with 8); flag 0x20 draws +8 at random. **All 665 carry flags 9** |
+| 15 | WAIT | 576 / 29 / 60 | 0x25ec50 (`FUN_0025ed50` D:L108436-108448) | flag 8: not done while dt + the base <= +8 (the base the command's consumed time; flag 2 the sequence's, 4 the instance's clock), else done with the rest of dt passed on; flag 0x10 counts ticks against +8 (+0xc with 8); flag 0x20 draws +8 at random. **All 665 carry flags 9** The effects' shared runner takes the same form since LATER 1426 (research 89 §1.1). |
 | 17 | OBJECT_ACTIVE_STATE | 4,420 / 94 / 159 | `FUN_00263aa0` D:L111360-111369 | +6 the node shown (+4 == 1) or hidden |
 | 22 | OBJECT_MOTION_FROM_TO | 1,068 / 0 / 0 | `FUN_0025f9b0` D:L108905-109030 (`FUN_0025fe70` D:L109092-109340) | below |
 | 25 | OBJECT_OPACITY_FROM_TO | 247 / 23 / 18 | `FUN_0025f880` D:L108814-108831 (`FUN_0025f960` D:L108842-108845) | begin: opacity = +8; tick: done when +0x14 < dt + consumed -- opacity = +0xc and the rest of dt passed on -- else opacity += +0x10 x dt |
@@ -277,7 +278,7 @@ Research 95 §1.4 and `viewer/src/uiScript.ts` are not edited here (the ARMORY's
 | name | stands for | searched / reading | status |
 |---|---|---|---|
 | `CALL_SET_SEARCH_READING` (`packages/ui/src/zanimRuntime.ts`) | the set a called name is looked up in first | `FUN_0026a250` (D:L115027-115032) takes `(ctx+0x34 - base) / 0x34`, not traced; the caller's set, then the others in load order | reading |
-| `QUAT_PRODUCT_READING` (`packages/ui/src/zanimRuntime.ts`) | `FUN_003070c0`'s product | the vector part as the decompilation shows (D:L206157-206161); w = to.w from.w - to.from, the decompilation subtracting an uninitialised word besides (D:L206162-206163) | reading |
+| `QUAT_PRODUCT_READING` (`packages/ui/src/zanimRuntime.ts`) | `FUN_003070c0`'s product | the vector part as the decompilation shows (D:L206157-206161); w = to.w from.w - to.from, the Hamilton product exactly: the export loses a VU0 scratch lane, so the word it seems to subtract besides is the second scale's w1 w2 (D:L206150-206163; research 185 §6.1) | reading |
 | `NODE_NAME_MATCH_READING` (`packages/ui/src/zanimRuntime.ts`) | a `Node_Ref_List` name to the dialog's node | the node spelled exactly, no folding (`FUN_00315d00` D:L215255-215290, `strcmp`); not traced: the parent index, the menus at +0x6ba0, the global 0x45c3c0 list's `strcasecmp` search (`FUN_00320f10`); 2026-11-02, was case-insensitive first-wins, which drew PLAYER RANKING's five medals at once (research 269 §4.2) | reading, pending review |
 | `DIALOG_NODE_STATE_READING` (`packages/ui/src/zanimRuntime.ts`) | a node before any script | (XPOS, YPOS, 0), the record's OPACITY, active, scale 1, no rotation; where `CGameMenu_LoadFromDesign` (D:L263400) stores them not read | reading |
 | `NODE_ACTIVE_FLAG_READING` (`packages/ui/src/zanimRuntime.ts`) | NODE_ACTIVE's +0x5c bit 0 and OBJECT_ACTIVE_STATE's vtable +0x38 | taken as one `active` flag; the vtable's body not read | reading |

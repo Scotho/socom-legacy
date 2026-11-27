@@ -111,9 +111,11 @@ the member (`rdr_find.ts` -> `readerc_valves.out`: `RUN/READERC.ZAR global_valve
 `global_valves.out`), dumped the scripts that name them (`ui_dlgMPBriefingRoom/LANBriefingRoom/GameLobby.rdr.compact`).
 
 **Answer -- `mp_game_sort_order` (STRONG: the code is unambiguous; the name agrees).**
-- The game list is sorted before it is shown: `FUN_002e2ce0` (D:L184407) calls `FUN_002e4530` -> an introsort
-  `FUN_002e4a90`/`FUN_002e5760` (D:L185566-185778, D:L185942-186009) with the comparator "record `+0x1a0` ascending,
-  ties by the game name `+0x4c` with `FUN_00198b80` (case-insensitive compare)".
+- The game list is sorted before it is shown: `FUN_002e2ce0` (D:L184407) calls `FUN_002e4530` -> a quicksort
+  `FUN_002e4a90`/`FUN_002e5760` (2-20 entries go to the selection sort `FUN_002e5d90`; a larger range is partitioned,
+  recursing on the shorter side, with no depth counter or heap fallback -- D:L185593-185598, D:L185747-185773)
+  (D:L185566-185778, D:L185942-186009) with the comparator "record `+0x1a0` ascending, ties by the game name `+0x4c`
+  with `FUN_00198b80` (case-insensitive compare)".
 - Record `+0x1a0` is GameStats byte 6: the join path copies `+0x19e`, `+0x19f`, `+0x1a0` into `MaxSpectatorsValve`,
   `EQlimit`, `mp_game_sort_order` (`FUN_002f83b0` D:L197180-197260), matching M1's 'D' layout [4], [5], [6]
   (`FUN_002f7c40` D:L196728-196736).
@@ -488,7 +490,7 @@ Every script and output is in `scratch/V5/`; its `README.md` lists them.
   - The scripts were read through C1/R2-MN's decoder; I re-read its output, not the binary.
 - **Sort order (CONFIRMED)** — see the table.
   - The comparator is "ascending by byte, then name". Its second scan uses `!(a[j] < pivot)` rather than
-    `pivot < a[j]`; that is still an ascending introsort.
+    `pivot < a[j]`; that is still an ascending sort.
 - **Radio rows (CONFIRMED).** All 26 labels were resolved from the ELF (`v5.py s`); the tree is as R2-MN tabulates.
 - **C4 blocks (CONFIRMED data).**
   - `animhealth_raw.py` (raw bytes, no zanim decoder) finds:

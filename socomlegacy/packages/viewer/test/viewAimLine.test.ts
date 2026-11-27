@@ -18,7 +18,7 @@ import { packGround, WalkMode } from '../src/walk';
 function quad(points: number[], ditype: number, path: string): WorldPoly {
   return { modelName: 'worldmodel', path, region: 0, ditype, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from(points) };
 }
-const floor = quad([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200], 3, 'worldmodel/floor');
+const floor = quad([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200], 3, 'worldmodel/floor');
 /** A vertical wall across z at `x`, z0..z1, y0..y1. */
 const wallX = (x: number, z0: number, z1: number, y0 = 0, y1 = 60): WorldPoly => quad([x, y0, z0, x, y0, z1, x, y1, z1, x, y1, z0], 2, 'worldmodel/wallx');
 

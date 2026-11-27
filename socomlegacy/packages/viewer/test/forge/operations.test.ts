@@ -148,6 +148,9 @@ vi.mock('../../src/forge/archives', () => ({ Archives: class {
   clips = async () => null;
   list = async () => ({ entries: [], problems: [] });
   load = archiveLoad;
+  census = async () => null;
+  props = async () => null;
+  scriptNames = async () => null;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
@@ -232,7 +235,7 @@ describe('FUI-6 on the mounted Forge: one registry under the agent and the perso
     expect(api.read().layout!.spawns).toHaveLength(2);
   }, 90_000);
 
-  it('R3-A (9): a person\'s place (the Spawn A tool and a click) and move (the inspector\'s field) give the plan\'s layouts, as the agent\'s do', async () => {
+  it('R3-A (9): a person\'s place (the Spawn A tool\'s key, spawning at once) and move (the inspector\'s field) give the plan\'s layouts, as the agent\'s do', async () => {
     const api = await mount();
     await api.execute('spawn.place', { team: 'B', at: [10, 0, 10] }, api.read().revision);
     // The place: the tool by its key, a click at the viewport's centre.
@@ -240,14 +243,14 @@ describe('FUI-6 on the mounted Forge: one registry under the agent and the perso
     input.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 100, right: 200, bottom: 100, x: 0, y: 0, toJSON: () => ({}) });
     // jsdom has no pointer capture; the gizmo's own pointerdown (three's TransformControls) asks for it.
     Object.assign(input, { setPointerCapture: () => undefined, releasePointerCapture: () => undefined, hasPointerCapture: () => false });
-    // OT.R112: Spawn A's key is FORGE_TOOL_ORDER's (the Overhaul's number keys, `forgeToolKeyLabel`), 1 now, not 3.
+    // OT.R112: Spawn A's key is his shortcut table's (`forgeToolKeyLabel`, read, not pinned); since PR #5 (place mode removed,
+    // page.ts `spawnAtCentre`) the tool's key spawns at the view's centre at once, no click on the world.
     const spawnKey = forgeToolKeyLabel('spawnA')!;
-    expect(spawnKey).toBe('1');
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: `Digit${spawnKey}`, key: spawnKey, bubbles: true }));
+    expect(spawnKey).toMatch(/^\d$/);
     const before = api.read();
-    input.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 100, clientY: 50, bubbles: true }));
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: `Digit${spawnKey}`, key: spawnKey, bubbles: true }));
+    await vi.waitFor(() => expect(api.read().layout!.spawns).toHaveLength(2));
     const after = api.read();
-    expect(after.layout!.spawns).toHaveLength(2);
     const [team, x, y, z, yaw] = after.layout!.spawns[1]!;            // a record's spawn row: team, place, yaw
     expect(team).toBe('A');
     expect(placed(after.layout)).toEqual(planned(before, 'spawn.place', { team: 'A', at: [x, y, z], yaw }));

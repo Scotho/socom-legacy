@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { holdInviteAddress, releaseInviteAddress } from '../src/inviteAddressHold';
+import { resetStreamerCache, setStreamerMode } from '../src/streamerMode';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -229,6 +231,30 @@ describe('LCM-18d: the launcher\'s entry loads none of the match page', () => {
   });
 
   it('lobbyLiveLink.ts imports only the route parse: no match page, no site shell, no site data', () => {
-    expect(imports(read('src/lobbyLiveLink.ts')).sort()).toEqual(['./menuRoutes', '@s2u/ui'].sort());
+    // STREAMER-P1 1b: and the held invite address (`./inviteAddressHold` -> `./streamerMode`, both already in the launcher's
+    // entry through `console/main.ts`): no page of the site either.
+    expect(imports(read('src/lobbyLiveLink.ts')).sort()).toEqual(['./inviteAddressHold', './menuRoutes', '@s2u/ui'].sort());
+    expect(imports(read('src/inviteAddressHold.ts')).sort()).toEqual(['./menuRoutes', './streamerMode', '@s2u/ui'].sort());
+    expect(imports(read('src/console/main.ts'))).toContain('../streamerMode');
+  });
+});
+
+/**
+ * STREAMER-P1 1b (the review's F1; `../src/inviteAddressHold`): while Streamer mode holds a lobby link and the address is
+ * bared to the invite route, the link still lives -- it reads the held address, as every reader of the invite does.
+ */
+describe('STREAMER-P1 1b: the link with the address bared', () => {
+  afterEach(() => { localStorage.clear(); resetStreamerCache(); releaseInviteAddress(); });
+  it('held lobby link, address main/online: the read draws the link (it would have stopped on the bare address)', async () => {
+    window.history.replaceState(null, '', '/online/lobby/publicLobby1');
+    setStreamerMode(true);
+    expect(holdInviteAddress(window, '/')).toBe(true);
+    expect(window.location.pathname).toBe('/main/online');
+    const t = timers();
+    const live = { lobbies: [{ id: 'publicLobby1', matchId: '41-3-5' }] };
+    const link = mountLobbyLiveLink(document, 'publicLobby1', { fetch: async () => answer(live), setTimer: t.setTimer, clearTimer: t.clearTimer });
+    await tick(); await tick();
+    expect(document.querySelector('a.project-live-link')?.getAttribute('href')).toBe('/match/41-3-5');
+    link.stop();
   });
 });

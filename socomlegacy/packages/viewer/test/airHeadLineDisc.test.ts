@@ -43,18 +43,23 @@ const STILL = { forward: 0, right: 0, boost: false }, FORWARD = { forward: 1, ri
 const LINE = ['centre', 'head', 'side'] as const;
 const f = (v: number): string => v.toFixed(2);
 
-interface Run { through: boolean; plane: number; text: string; first: { line: number; y: number; feet: number; head: number; path: string } | null }
+interface Run { through: boolean; jumped: boolean; plane: number; text: string; first: { line: number; y: number; feet: number; head: number; path: string } | null }
 
 /**
- * A running jump at the window along x (`dir` +1: from outside, x rising; -1 from inside), the harness of
- * `m51DitchBlock.disc.test.ts`: a `Walker` with a `Traversal` driver on the map's grid, placed 60 from the window's
+ * A running jump at the window along x (`dir` +1: from inside the building, x rising, out through the window; -1 from outside, the open ground east of it), the harness of
+ * `m51DitchBlock.disc.test.ts`: a `Walker` with a `Traversal` driver on the map's grid, placed 60.5 from the window's
  * middle on the floor (y 0), faced along x, the stick held forward, `jump()` on the first tick the feet are within
  * `press` of the window's middle plane (x 1234.5). THROUGH: the feet end 5 past that plane (3 past the frame).
  */
 function jumpAt(map: SimMap, dir: 1 | -1, press: number): Run {
   const w = new Walker(map.grid);
   w.driver = new Traversal(map.grid, groundPolygons(map.ground));
-  expect(w.place(WINDOW.x - dir * 60, WINDOW.sill, WINDOW.z)).toBe(true);
+  // 60.5 out (60 before LATER 1164). Since LATER 1148 the body moves once a game frame, so its take-off points from a
+  // run lie on a lattice one frame's move apart (2.167 at the run) whose phase is set by the start; the window passes
+  // in a band about 0.5 wide, so the start decides whether a press near 44 lands in it. LATER 1164's ramp lead moved
+  // the lattice: from 60 no press passes, from 56.5, 57.5, 58.5, 59.5, 60.5, 61-64 the presses near 43.5-44 do, both
+  // ways (scanned 2026-11-18). The original moves once a frame too, so its pass also depends on where the run starts.
+  expect(w.place(WINDOW.x - dir * 60.5, WINDOW.sill, WINDOW.z)).toBe(true);
   w.state.yaw = dir > 0 ? -90 : 90;                              // forward is (-sin, -cos)
   w.stance = 'stand';
   for (let i = 0; i < 30; i++) w.tick(STILL);
@@ -81,10 +86,10 @@ function jumpAt(map: SimMap, dir: 1 | -1, press: number): Run {
     ? `the first wall met after the press: the ${LINE[first.line]} line at y ${f(first.y)} with the feet at ${f(first.feet)} and the airborne head line`
       + ` ${f(first.head)} over the feet, on ${first.path}`
     : 'no wall met after the press';
-  const text = `${dir > 0 ? 'from outside (+x)' : 'from inside (-x)'}, pressed at ${press}${pressed < 0 ? ' (NO JUMP)' : ''}: ended ${f(end)} from the`
+  const text = `${dir > 0 ? 'from inside (+x)' : 'from outside (-x)'}, pressed at ${press}${pressed < 0 ? ' (NO JUMP)' : ''}: ended ${f(end)} from the`
     + ` window's plane (nearest ${f(nearest)}), floor ${f(floor)}; ${met}; the opening y ${WINDOW.sill}..${WINDOW.lintel}`
     + ` (${WINDOW.lintel - WINDOW.sill} tall), the walls' clear band y ${WINDOW.clear[0]}..${WINDOW.clear[1]}`;
-  return { through, plane: end, text, first };
+  return { through, jumped: pressed >= 0, plane: end, text, first };
 }
 
 describe.skipIf(!HAVE_MP6)(`a running jump through Desert Glory's SEAL-building window${HAVE_MP6 ? '' : ' (SOCOM_DISC with RUN/MP6.ZDB absent: skipped)'}`, () => {
@@ -94,20 +99,36 @@ describe.skipIf(!HAVE_MP6)(`a running jump through Desert Glory's SEAL-building 
   // The take-off 43.2 out (the press at 44: the tick the feet come within it): the arc reaches the wall on its way down,
   // the feet 6.29 over the floor in the launch's key 6.7 (`AIR_POSED_HEAD_READING.launch` 16.319, the line 18.32): the
   // low line 12.79 and the head line 24.61 both inside the band; the body steps onto the sill at 11.5 and drops inside.
-  it('pressed 44 out, the running jump passes the window both ways (the airborne head line at the launch\'s posed head + 2)', async () => {
+  it('pressed 44 out from outside (-x), the running jump passes the window (the airborne head line at the posed head of the launch + 2)', async () => {
     const map = await mp6();
-    for (const dir of [1, -1] as const) {
-      const run = jumpAt(map, dir, 44);
-      expect(run.through, run.text).toBe(true);
+    const run = jumpAt(map, -1, 44);
+    expect(run.through, run.text).toBe(true);
+  }, 120_000);
+
+  // B-20 (the controller's ruling 2026-11-22, (A), a reading pending review): the run from INSIDE (+x) starts on the
+  // building's first floor (`worldmodel/building_wc2/fl1_floor`, x 1160-1232 at z 1768) under its ceiling
+  // (`fl1_cieling`, 35 over the floor, cameratype 0, material ASPHALT), which the jump's head ray meets (r0004 0x584670,
+  // asked at 0x583530; every filter condition re-read at r0004: the B-20 window delta review). It is met for ANY head
+  // node over 14 over the feet (the ray's foot is the head + 1, its top the head + 21) -- the port's idle 17.394, the
+  // launch's 16.319, the run's 15.4-15.76 all are -- so a jump pressed anywhere on that floor is refused, and the window
+  // cannot be jumped out of. This PINS THE PORT'S READING: if the original jumps from x < 1232.5, these cases are wrong,
+  // the inside leg returns to 43.5 and 44 passing, and the head's height or the ray's reading re-opens (research 230
+  // s7). The capture that decides it: seat-shadow's row 133, DG-WINDOW-JUMP-PC3 (r0004, from the building side).
+  it('pressed 44 or 28 out from inside (+x), under the first floor ceiling, the jump is refused by the head ray', async () => {
+    const map = await mp6();
+    for (const press of [44, 28]) {
+      const run = jumpAt(map, 1, press);
+      expect(run.jumped, run.text).toBe(false);
+      expect(run.through, run.text).toBe(false);
     }
   }, 120_000);
 
   // The control: pressed 28 out the body reaches the wall near the arc's top, the feet 10.55 over the floor -- the head
   // line (the launch's posed head + 2 or the idle head's 19.394 alike) over 24.75, inside the wall above the lintel:
   // a lintel lower than the posed head still stops the body, and the head line is what stops it.
-  it('pressed 28 out the body reaches the wall near the arc\'s top: the wall over the lintel stops its head line', async () => {
+  it('pressed 28 out from outside the body reaches the wall near the arc\'s top: the wall over the lintel stops its head line', async () => {
     const map = await mp6();
-    for (const dir of [1, -1] as const) {
+    for (const dir of [-1] as const) {
       const run = jumpAt(map, dir, 28);
       expect(run.through, run.text).toBe(false);
       expect(run.first, run.text).not.toBeNull();
@@ -117,7 +138,7 @@ describe.skipIf(!HAVE_MP6)(`a running jump through Desert Glory's SEAL-building 
     }
   }, 120_000);
 
-  // Review F1, on the disc: off the window's sill (y 11.5) into the room (floor 0), the body walks or crawls off the edge
+  // Review F1, on the disc: off the window's sill (y 11.5) out onto the ground east of it (y 0), the body walks or crawls off the edge
   // and `fall` pushes the action. Standing, the line is the fall's posed head + 2; crouched and prone the idle head's.
   it('off the sill: standing the fall\'s posed head; crouched 12.138 and prone 5.637 as before', async () => {
     const map = await mp6();
@@ -127,7 +148,7 @@ describe.skipIf(!HAVE_MP6)(`a running jump through Desert Glory's SEAL-building 
       w.driver = new Traversal(map.grid, groundPolygons(map.ground));
       expect(w.place(WINDOW.x, WINDOW.sill + 1, WINDOW.z)).toBe(true);
       expect(w.state.y, stance).toBeCloseTo(WINDOW.sill, 1);                   // on the sill
-      w.state.yaw = -90;                                                       // facing +x, into the room
+      w.state.yaw = -90;                                                       // facing +x, out of the building
       w.stance = stance;
       for (let i = 0; i < 30; i++) w.tick(STILL);
       const lines = new Set<string>();
@@ -153,13 +174,18 @@ describe.skipIf(!HAVE_MP6)(`a running jump through Desert Glory's SEAL-building 
   // ahead of the body, meets the wall over the lintel on the next tick (feet 7.26) before the body is past the face, so
   // those stop 5.7 short; only the take-off whose arc reaches the wall falling with the feet at 6.29 passes. The idle
   // head passed none of these (the RED, 4ba2d77db5; the probe's sweep 6 to 44).
-  it('of the presses 8 to 54 in half units, exactly 43.5 and 44 pass, both ways', async () => {
+  it('of the presses 8 to 54 in half units, exactly 43.5 and 44 pass from outside; from inside, under the first floor ceiling, no jump starts', async () => {
     const map = await mp6();
-    for (const dir of [1, -1] as const) {
-      const passed: number[] = [];
-      for (let press = 8; press <= 54; press += 0.5) if (jumpAt(map, dir, press).through) passed.push(press);
-      expect(passed, `${dir > 0 ? 'from outside' : 'from inside'}`).toEqual([43.5, 44]);
+    const passed: number[] = [];
+    for (let press = 8; press <= 54; press += 0.5) if (jumpAt(map, -1, press).through) passed.push(press);
+    expect(passed, 'from outside').toEqual([43.5, 44]);
+    const jumpedInside: number[] = [];
+    for (let press = 8; press <= 54; press += 0.5) {
+      const run = jumpAt(map, 1, press);
+      expect(run.through, run.text).toBe(false);
+      if (run.jumped) jumpedInside.push(press);
     }
+    expect(jumpedInside, 'from inside (B-20: the head ray meets the first floor ceiling)').toEqual([]);
   }, 300_000);
 });
 

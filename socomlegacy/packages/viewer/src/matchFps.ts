@@ -1,7 +1,7 @@
 /**
  * cq41E0VR, SHOW FPS: **a browser adaptation** (product track; the controller 5d's call, option (a), logged for the owner).
  * The original has no frame-rate readout: this is a read-only counter in the match's top-right corner, toggled from the
- * START menu's SHOW FPS row (`./startMenu` `StartMenuAdaptations`), off by default. It reads the frame time the match
+ * native VIDEO OPTIONS' SHOW FPS (since WM-LAUNCHER, WM.R7, no longer a START menu row), off by default. It reads the frame time the match
  * already smooths for its pixel ratio (`./matchViewport` `AdaptiveRatio.smoothedMs`) and is redrawn on that part's
  * 200 ms tick, as `/testroom`'s counter is (`./ui` `setFps`). It sets no frame rate and changes nothing the game does.
  * The choice is kept on the page's settings path (`./pageStore` `pageSettings`, `FPS_SHOWN_KEY`), best-effort.

@@ -1,5 +1,5 @@
 /**
- * The edited geometry's assets in this browser (the Forge geometry audit's bug 1, the owner, 2026-11-16: "Edits aren't
+ * The edited geometry's assets in this browser (the Forge geometry audit's bug 1, the Forge's owner (crispy, OT.R112), 2026-11-16: "Edits aren't
  * saved"; a browser adaptation, FG.R2): each a `./geometry/geometryFile` file, gzipped, named by the SHA-256 of its
  * bytes (`Layout.geometry`'s `geometry:<hex>`, `@s2u/creator-contracts` `GEOMETRY_REF`) -- so the same edits are one
  * asset however many saves name them, and an asset never changes once written. The layouts (the autosave, the named
@@ -7,6 +7,7 @@
  *
  * IndexedDB, its own database (the layouts' store is `./saves`'): a geometry is megabytes, a layout's record is not.
  */
+import { pageIndexedDb } from '../pageStore';
 const DB_NAME = 's2u-forge-geometry';
 const STORE = 'geometry';
 /** An asset written this recently is never swept: another tab may be about to name it in a save. */
@@ -17,8 +18,9 @@ interface Row { id: string; bytes: ArrayBuffer; at: number }
 let opening: Promise<IDBDatabase> | null = null;
 function db(): Promise<IDBDatabase> {
   opening ??= new Promise<IDBDatabase>((resolve, reject) => {
-    if (typeof indexedDB === 'undefined') { reject(new Error('this browser has no IndexedDB')); return; }
-    const req = indexedDB.open(DB_NAME, 1);
+    const idb = pageIndexedDb();
+    if (!idb) { reject(new Error('this browser has no IndexedDB')); return; }
+    const req = idb.open(DB_NAME, 1);
     req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE, { keyPath: 'id' }); };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error('the geometry store would not open'));

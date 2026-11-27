@@ -6,7 +6,7 @@ import { FORGE_SCRIPT_SELF_START_FLAGS, scriptPrograms, type ScriptResolve } fro
 import { lentScriptAssets } from '../../src/forge/scriptAssets';
 
 /**
- * The one script (the owner, 2026-11-13: "one script format ... a fully generic scripting way of doing things that is
+ * The one script (the Forge's owner (crispy, OT.R112), 2026-11-13: "one script format ... a fully generic scripting way of doing things that is
  * unified"): an effect object's steps are a switch's and a trigger's -- the game's own program commands one to one, SOUND,
  * CALL, WAIT with its random range, LOOP, WHILE / END_WHILE, IF / ELSEIF on RANDOM_WEIGHT or a flag -- made a
  * self-starting program at the object, and its `~` sounds the emitters, as every ambient program's.
@@ -77,9 +77,11 @@ describe('the one script on an effect object', () => {
     const fire = prog([{ name: 'a', activation: 1, ops: [{ op: 'sound', sound: '~FIRE_SM', node: 1, volume: 3 }, { op: 'pauseAnimation', anim: 'NA' }] },
       { name: 'b', activation: 1, ops: [{ op: 'particles', source: {} as never }] }]);
     expect(scriptOfProgram(fire, 'MP6')).toEqual({ whole: true, steps: [{ do: 'sound', name: '~FIRE_SM', from: 'MP6', volume: 3 }] });
-    // A call among its sounds: not those commands alone -- its loops only.
+    // A call among its sounds: what only draws (`scriptOfProgram`'s DRAWS, "a call, a light") is left out and the script
+    // partial -- its sounds kept, `whole` false. FC2 (ours, 4eb6d277cb): the PR #5 import's test had gone back to "its
+    // loops only", the value before his DRAWS rule, which the code keeps (seat-forge, item A7).
     const called = prog([{ name: 'a', activation: 1, ops: [{ op: 'sound', sound: '~HUM', node: 1, volume: 1 }, { op: 'call', anim: 'x' }, { op: 'sound', sound: '.ZAP', node: 1, volume: 1 }] }]);
-    expect(scriptOfProgram(called, 'MP73')).toEqual({ whole: false, steps: [{ do: 'sound', name: '~HUM', from: 'MP73' }] });
+    expect(scriptOfProgram(called, 'MP73')).toEqual({ whole: false, steps: [{ do: 'sound', name: '~HUM', from: 'MP73' }, { do: 'sound', name: '.ZAP', from: 'MP73' }] });
   });
 
   it("an older file's audio script reads into the one script", () => {

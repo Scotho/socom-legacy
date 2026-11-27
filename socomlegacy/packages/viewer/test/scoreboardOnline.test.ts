@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CLAN_TAG_OVERRUN_READING, DETAILS_UNKNOWN, gameDetailLines, LAN_GAME_LINE, NO_CLAN, SCORE_LAYOUT, scoreboardLayout,
+  CLAN_TAG_OVERRUN_READING, DETAILS_UNKNOWN, gameDetailLines, LAN_GAME_LINE, NO_CLAN, pingBarsPlace, SCORE_LAYOUT, scoreboardLayout,
   servedRoomDetails, sessionGameDetails, SPECTATOR_ORDER_READING, SPECTATOR_RGB_READING, type GameDetails, type ScoreRowInfo,
 } from '../src/scoreboard';
 import { layoutText, textWidth } from '../src/hudFont';
@@ -97,9 +97,28 @@ describe('the two matches\' sources of the lines', () => {
       expect(servedRoomDetails(server, 'FROSTFIRE')).toEqual({ comeFromLan: false, lobby: n.room, game: n.game });
     }
   });
+
+  // E17 (B-83; an adaptation): a replay's board names the server and the game its central entry carries (the named
+  // match's region and lobby name), in place of the stand-ins; each stand-in only where the entry carries none
+  it('E17: a replay\'s named match -- its region over LOCAL, its lobby name over the map; either absent, its stand-in', () => {
+    expect(servedRoomDetails(null, 'CROSSROADS', { region: 'us-east', lobbyName: 'Night Ops' })).toEqual({ comeFromLan: false, lobby: 'us-east', game: 'Night Ops' });
+    expect(servedRoomDetails(null, 'CROSSROADS', { region: 'us-east', lobbyName: null })).toEqual({ comeFromLan: false, lobby: 'us-east', game: 'CROSSROADS' });
+    expect(servedRoomDetails(null, 'CROSSROADS', { region: null, lobbyName: 'Night Ops' })).toEqual({ comeFromLan: false, lobby: ARMORY_SERVER_NAME_READING, game: 'Night Ops' });
+    expect(servedRoomDetails('Craig', 'CROSSROADS', { region: null, lobbyName: null })).toEqual({ comeFromLan: false, lobby: 'Craig', game: 'CROSSROADS' });
+    for (const none of [null, undefined]) expect(servedRoomDetails(null, 'CROSSROADS', none)).toEqual({ comeFromLan: false, lobby: ARMORY_SERVER_NAME_READING, game: 'CROSSROADS' });
+    // the frame's other realm hands it: anything not a non-empty string is none
+    const odd = { region: 7, lobbyName: '' } as unknown as { region: string | null; lobbyName: string | null };
+    expect(servedRoomDetails(null, 'CROSSROADS', odd)).toEqual({ comeFromLan: false, lobby: ARMORY_SERVER_NAME_READING, game: 'CROSSROADS' });
+  });
 });
 
+/**
+ * The tag's text, colour and dimming are the original's; its pen on a board with the room's rows is WM-DATA's (a browser
+ * adaptation, capture 1F's place, `pingBarsPlace`): after the row's ping bars (176.4 on the board OPS-S1 widened), not the
+ * original's 163; the name after the widest typeable tag and the satchel's slot (241.4), not 223.
+ */
 describe('the rows\' "[clan]" (FUN_0022a290 D:L79042-79058)', () => {
+  const TAG_X = pingBarsPlace().tagX, NAME_X = pingBarsPlace().nameX;
   const row = (id: number, over: Partial<ScoreRowInfo> = {}): ScoreRowInfo =>
     ({ id, name: `P${id}`, team: 'seal', kills: 0, deaths: 0, score: 10 - id, alive: true, self: false, ...over });
   const base = (i: number): number => SCORE_LAYOUT.teams[0]!.y + 38 + 16.8 * i;
@@ -108,23 +127,24 @@ describe('the rows\' "[clan]" (FUN_0022a290 D:L79042-79058)', () => {
   it('authored bots keep a gold first letter in their actual name; human names and clans retain native colors', () => {
     const bot = row(1, { name: 'Jester', bot: true });
     const { quads } = scoreboardLayout(PS2, { ...info, rows: [bot] }, SIZES);
-    const shown = drawn(quads, 'Jester', 223, base(0));
+    const shown = drawn(quads, 'Jester', NAME_X, base(0));
     expect(shown.length).toBe(6);
     expect(shown.slice(0, 1).map((quad) => quad.rgba)).toEqual(Array(1).fill([91 / 128, 72 / 128, 36 / 128, 110 / 128]));
     expect(shown.slice(1).every((quad) => quad.rgba[0] === 115 / 128 && quad.rgba[1] === 115 / 128 && quad.rgba[2] === 115 / 128)).toBe(true);
     expect(bot.name).toBe('Jester');
     expect(bot.clan).toBeUndefined();
     const human = scoreboardLayout(PS2, { ...info, rows: [row(1, { name: 'BOT Jester', clan: 'NSW' })] }, SIZES).quads;
-    expect(drawn(human, 'BOT Jester', 223, base(0)).every((quad) => quad.rgba[0] === 115 / 128)).toBe(true);
-    expect(drawn(human, '[NSW]', 163, base(0)).map((quad) => quad.rgba)).toEqual(Array(5).fill(clanRgba()));
+    expect(drawn(human, 'BOT Jester', NAME_X, base(0)).every((quad) => quad.rgba[0] === 115 / 128)).toBe(true);
+    expect(drawn(human, '[NSW]', TAG_X, base(0)).map((quad) => quad.rgba)).toEqual(Array(5).fill(clanRgba()));
   });
 
-  it('a clan: "[" tag "]" (S:0x3e57a0, S:0x3e57a8) at x 163 in (128, 64, 32), alpha 110; the name still at 223', () => {
+  it('a clan: "[" tag "]" (S:0x3e57a0, S:0x3e57a8) in (128, 64, 32), alpha 110, after the bars (WM-DATA, OPS-S1: 176.4, not 163); the name after the widest tag and the satchel slot (241.4)', () => {
+    expect(TAG_X).toBeCloseTo(176.4, 6);
     const { quads } = scoreboardLayout(PS2, { ...info, rows: [row(1, { clan: 'NSW' })] }, SIZES);
-    const tag = drawn(quads, '[NSW]', 163, base(0));
+    const tag = drawn(quads, '[NSW]', TAG_X, base(0));
     expect(tag.length).toBe(5);
     for (const q of tag) expect(q.rgba).toEqual(clanRgba());
-    expect(drawn(quads, 'P1', 223, base(0)).length).toBeGreaterThan(0);
+    expect(drawn(quads, 'P1', NAME_X, base(0)).length).toBeGreaterThan(0);
   });
 
   it('no clan, or an empty tag: the buffer\'s single space (`_DAT_003dc980`) -- nothing drawn left of the name', () => {
@@ -132,49 +152,51 @@ describe('the rows\' "[clan]" (FUN_0022a290 D:L79042-79058)', () => {
     for (const r of [row(1), row(1, { clan: '' })]) {
       const { quads } = scoreboardLayout(PS2, { ...info, rows: [r] }, SIZES);
       expect(glyphsOn(quads, base(0), 223)).toHaveLength(0);
-      expect(drawn(quads, 'P1', 223, base(0)).length).toBeGreaterThan(0);
+      expect(drawn(quads, 'P1', NAME_X, base(0)).length).toBeGreaterThan(0);
     }
   });
 
   it('the local player\'s clan keeps its colour (only the name\'s blue turns 12); a dead row\'s clan x 0.6', () => {
     const { quads } = scoreboardLayout(PS2, { ...info, rows: [row(1, { clan: 'A', self: true }), row(2, { clan: 'B', alive: false })] }, SIZES);
-    for (const q of drawn(quads, '[A]', 163, base(0))) expect(q.rgba).toEqual(clanRgba());
-    expect(drawn(quads, 'P1', 223, base(0)).every((q) => q.rgba[2] === 12 / 128)).toBe(true);
-    const dead = drawn(quads, '[B]', 163, base(1));
+    for (const q of drawn(quads, '[A]', TAG_X, base(0))) expect(q.rgba).toEqual(clanRgba());
+    expect(drawn(quads, 'P1', NAME_X, base(0)).every((q) => q.rgba[2] === 12 / 128)).toBe(true);
+    const dead = drawn(quads, '[B]', TAG_X, base(1));
     expect(dead.length).toBe(3);
     for (const q of dead) clanRgba(0.6).forEach((c, k) => expect(q.rgba[k]).toBeCloseTo(c, 6));
   });
 
   it('the tag is not cut (only the details and the spectators are): a long one runs on under the name', () => {
     const { quads } = scoreboardLayout(PS2, { ...info, rows: [row(1, { clan: 'ABCDEFGHIJKLM' })] }, SIZES);
-    expect(drawn(quads, '[ABCDEFGHIJKLM]', 163, base(0)).length).toBe(15);
+    expect(drawn(quads, '[ABCDEFGHIJKLM]', TAG_X, base(0)).length).toBe(15);
   });
 
   it('a tag past the 16-byte buffer (14 or 15 characters): drawn whole, CLAN_TAG_OVERRUN_READING', () => {
     expect(CLAN_TAG_OVERRUN_READING).toBe('the whole tag, uncut');
     const { quads } = scoreboardLayout(PS2, { ...info, rows: [row(1, { clan: 'ABCDEFGHIJKLMNO' })] }, SIZES);
-    expect(drawn(quads, '[ABCDEFGHIJKLMNO]', 163, base(0)).length).toBe(17);
+    expect(drawn(quads, '[ABCDEFGHIJKLMNO]', TAG_X, base(0)).length).toBe(17);
   });
 });
 
 describe('the spectators (FUN_0022cc10 D:L80025-80062)', () => {
+  /** OPS-S1: a board with the room's rows (here `rows: []`) is widened, its left column `grow` (9) left of the original's 24. */
+  const SX = 24 - pingBarsPlace().grow;
   it('in the room\'s order, at most 8, each cut to 118 with "-"', () => {
     const names = ['Zed', 'Alpha', 'AVeryLongSpectatorNameHere', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8'];
     const { quads } = scoreboardLayout(PS2, { ...info, rows: [], spectators: names, details: ONLINE }, SIZES);
-    expect(drawn(quads, 'Zed', 24, 270).length).toBeGreaterThan(0);
-    expect(drawn(quads, 'Alpha', 24, 270 + 16.8).length).toBeGreaterThan(0);
+    expect(drawn(quads, 'Zed', SX, 270).length).toBeGreaterThan(0);
+    expect(drawn(quads, 'Alpha', SX, 270 + 16.8).length).toBeGreaterThan(0);
     let cut = names[2]!;
     while (textWidth(`${cut}-`, 0.8) > 118) cut = cut.slice(0, -1);
-    expect(drawn(quads, `${cut}-`, 24, 270 + 16.8 * 2).length).toBeGreaterThan(0);
-    expect(drawn(quads, 'S7', 24, 270 + 16.8 * 7).length).toBeGreaterThan(0);
-    expect(drawn(quads, 'S8', 24, 270 + 16.8 * 8)).toHaveLength(0);
+    expect(drawn(quads, `${cut}-`, SX, 270 + 16.8 * 2).length).toBeGreaterThan(0);
+    expect(drawn(quads, 'S7', SX, 270 + 16.8 * 7).length).toBeGreaterThan(0);
+    expect(drawn(quads, 'S8', SX, 270 + 16.8 * 8)).toHaveLength(0);
     expect(SPECTATOR_ORDER_READING).toMatch(/queue head first, then the watchers in join order/);
   });
 
   it('in SPECTATOR_RGB_READING (115, 115, 115) at alpha 110: the slots\' own colour is unread', () => {
     expect([...SPECTATOR_RGB_READING]).toEqual([115, 115, 115]);
     const { quads } = scoreboardLayout(PS2, { ...info, rows: [], spectators: ['Zed'] }, SIZES);
-    const zed = drawn(quads, 'Zed', 24, 270);
+    const zed = drawn(quads, 'Zed', SX, 270);
     expect(zed.length).toBe(3);
     for (const q of zed) expect(q.rgba).toEqual([115 / 128, 115 / 128, 115 / 128, 110 / 128]);
   });
@@ -191,6 +213,7 @@ describe('no rank, medal or rating on the board (research 155 §3, R155.11)', ()
     const a = scoreboardLayout(PS2, { ...info, rows, spectators: ['S'], details: ONLINE }, sizes);
     const b = scoreboardLayout(PS2, { ...info, rows: told, spectators: ['S'], details: ONLINE }, sizes);
     expect(b).toEqual(a);
-    expect(new Set(a.quads.map((q) => q.texture))).toEqual(new Set(['newweapnbkrnd.tif', 'font_text_01.tif']));
+    // WM-DATA's ping bars are the HUD's white texel; no medal bitmap is drawn.
+    expect(new Set(a.quads.map((q) => q.texture))).toEqual(new Set(['newweapnbkrnd.tif', 'font_text_01.tif', 'white']));
   });
 });

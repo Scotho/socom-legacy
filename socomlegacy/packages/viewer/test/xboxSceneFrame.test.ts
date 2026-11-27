@@ -1,0 +1,30 @@
+import { expect, it } from 'vitest';
+import { Matrix4, PerspectiveCamera, Vector3 } from 'three';
+import { actorsOf, bodyModel, sceneFrame } from '../src/xboxPrototype/sceneFrame';
+import type { LoadedBody } from '../src/body';
+import type { prototypePose } from '../src/xboxPrototype/model';
+
+it('hands the same camera and borrowed pose arrays to either renderer without allocating a scene graph', () => {
+  const camera = new PerspectiveCamera();
+  const pose = { palette: new Float32Array(48 * 16), skeleton: { local: [new Float32Array(16)], world: [new Float32Array(16)] } } as unknown as ReturnType<typeof prototypePose>;
+  const body = { at: { position: [1, 2, 3], yaw: Math.PI / 2 } } as LoadedBody;
+  const frame = sceneFrame(camera, body, pose, [0, 0, 0]);
+  expect(frame.camera).toBe(camera); expect(frame.body.palette).toBe(pose.palette);
+  expect(frame.body.local).toBe(pose.skeleton.local); expect(frame.body.world).toBe(pose.skeleton.world);
+  expect(bodyModel(frame.body, new Matrix4()).equals(new Matrix4().makeRotationY(Math.PI / 2).setPosition(1, 2, 3))).toBe(true);
+  frame.body.position = [4, 5, 6]; frame.body.yawRadians = 0;
+  expect(new Vector3().setFromMatrixPosition(bodyModel(frame.body, new Matrix4())).toArray()).toEqual([4, 5, 6]);
+  expect(body.at!.position).toEqual([1, 2, 3]);
+  const remote = { ...frame.body, id: 2, modelIndex: 1, position: [7, 8, 9] as const };
+  frame.others = [remote];
+  expect(actorsOf(frame, 2)).toEqual([frame.body, remote]);
+  frame.body.visible = false;
+  expect(actorsOf(frame, 2)).toEqual([remote]);
+  frame.body.visible = true;
+  frame.others = [{ ...remote, id: frame.body.id }];
+  expect(() => actorsOf(frame, 2)).toThrow('Duplicate');
+  frame.others = [{ ...remote, modelIndex: 2 }];
+  expect(() => actorsOf(frame, 2)).toThrow('model');
+  frame.others = Array.from({ length: 16 }, (_, i) => ({ ...remote, id: i + 1 }));
+  expect(() => actorsOf(frame, 2)).toThrow('limit');
+});

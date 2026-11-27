@@ -35,6 +35,14 @@ describe('the bomb\'s shared rules (XR-05; research 214)', () => {
     expect(pickupReach(bomb, [100, 30, 100])).toBe(false);
     expect(pickupReach(bomb, [112, 26, 100])).toBe(false);                 // 12² + 16² = 400, the 16 upward
     expect(pickupReach(bomb, [112, -5.9, 100])).toBe(true);                // 12² + 15.9², the 15.9 downward
+    // AS-26 L15 (FUN_005aa110 D:L463803-463824; reading, pending review): with the stance given, measured in 3D from the
+    // fire point -- the feet plus +0x14b0, the stance's PLANT_PICK_FIREPOINT_READING turned by the yaw -- still under 400.
+    const fp = plantReachFrom([100, 10, 100], 0, 'stand');
+    expect(pickupReach([fp[0], fp[1], fp[2] - 19.99], [100, 10, 100], 0, 'stand')).toBe(true);
+    expect(pickupReach([fp[0], fp[1] - 20.01, fp[2]], [100, 10, 100], 0, 'stand')).toBe(false);
+    expect(pickupReach([100, 2, 100], [100, 10, 100])).toBe(true);                  // 8 under the feet: in reach from the feet
+    expect(pickupReach([100, 2, 100], [100, 10, 100], 0, 'stand')).toBe(false);     // 20.7 under the fire point: not
+    expect(pickupReach([100, 10, 100], [100, 10, 100], 0, 'prone')).toBe(true);
     expect(defuseReach(bomb, [114.99, 10, 100])).toBe(true);
     expect(defuseReach(bomb, [115, 10, 100])).toBe(false);
     expect(defuseReach(bomb, [100, 29.99, 100])).toBe(true);

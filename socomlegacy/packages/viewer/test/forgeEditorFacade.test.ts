@@ -178,3 +178,60 @@ describe('AX-13: the point the player last clicked (lastPoint) and forge.focus',
     expect(api.focus?.()).toBeNull();
   });
 });
+
+/**
+ * Browser adaptation (product track; an agent instrument): the base map's named points an agent can frame -- the bomb
+ * start and MPBOMB sites as before, and now each spawn slot, hostage start and extraction zone, named as the test room
+ * names its destinations (`../src/main.ts` the agent map's destinations: `spawn <side>:<index>`).
+ */
+describe('camera.objective and the catalogue name every objective point of the base map', () => {
+  const slot = (side: 0 | 1, index: number, position: [number, number, number]) => ({ side, index, position, onFloor: true, step: 0 });
+  const zoneMap = {
+    bombStart: [1, 0, 1] as [number, number, number],
+    actions: [{ type: 'MPBOMB', node: 'bomb_a', at: [2, 0, 2], team: 0 }, { type: 'DOOR', node: 'door1', at: [9, 9, 9], team: 0 }],
+    slots: [slot(0, 0, [10, 0, 10]), slot(1, 0, [-10, 0, -10]), slot(1, 1, [-12, 0, -10])],
+    escortees: [{ name: 'hostage_1', at: [5, 1, 5] }],
+    // The smallest sub-map `extractionPoints` reads (`@s2u/scene` `zoneCentre`): a 2x2 kind-1 zone at cell (0, 0),
+    // its centre cell (1, 1) the only one stored (row 1 spans x 1..2, cell 0), whose word's height bits (9..18) say 5 of 1024 over a 0..1024
+    // span -- y 5; the centre is min + 1.5 cells of 10 on x and z.
+    ai: { maps: [{ min: [0, 0, 0], max: [100, 1024, 100], cellSize: [10, 10],
+      rows: [{ x0: 0, x1: 0, first: 0 }, { x0: 1, x1: 2, first: 0 }], cells: Uint32Array.of(5 << 9),
+      zones: [{ name: 'Safety', corner: { map: 0, x: 0, z: 0 }, width: 2, height: 2, kind: 1 }] }] },
+  };
+  const withMap = (map: unknown) => rig({ baseMap: (() => map) as unknown as ForgeAgentEditor['baseMap'] });
+
+  it('the catalogue lists them: kind, name, team and where, the spawns by side and index', () => {
+    const r = withMap(zoneMap);
+    const points = (r.facade.snapshot().catalogue as { objectivePoints: unknown[] }).objectivePoints;
+    expect(points).toEqual([
+      { name: 'bomb start', kind: 'bombStart', team: null, at: [1, 0, 1] },
+      { name: 'bomb_a', kind: 'bombsite', team: 0, at: [2, 0, 2] },
+      { name: 'spawn 0:0', kind: 'spawn', team: 0, at: [10, 0, 10] },
+      { name: 'spawn 1:0', kind: 'spawn', team: 1, at: [-10, 0, -10] },
+      { name: 'spawn 1:1', kind: 'spawn', team: 1, at: [-12, 0, -10] },
+      { name: 'hostage_1', kind: 'hostage', team: null, at: [5, 1, 5] },
+      { name: 'extraction 0', kind: 'extraction', team: null, at: [15, 5, 15] },
+    ]);
+  });
+
+  it('camera.objective frames a spawn slot by its name, exactly, among names that share a prefix', async () => {
+    const r = withMap(zoneMap);
+    const answer = (await r.facade.prepare('camera.objective', { name: 'spawn 1:0' }, guard)).commit();
+    expect(r.editor.lookAtPoint).toHaveBeenCalledWith([-10, 0, -10]);
+    expect(answer).toEqual({ objective: 'spawn 1:0', at: [-10, 0, -10] });
+  });
+
+  it('a map with no named point refuses NOT_FOUND saying so, never an empty "Choose one of"', async () => {
+    const r = withMap({ actions: [], slots: [], ai: null });
+    const e = await refusal(r.facade.prepare('camera.objective', { name: 'anything' }, guard));
+    expect(e.code).toBe('NOT_FOUND');
+    expect(e.message).toBe('This base map has no named objective points');
+  });
+
+  it('an unknown name lists the names to choose from', async () => {
+    const r = withMap(zoneMap);
+    const e = await refusal(r.facade.prepare('camera.objective', { name: 'nope' }, guard));
+    expect(e.code).toBe('NOT_FOUND');
+    expect(e.message).toBe('Choose one of: bomb start, bomb_a, spawn 0:0, spawn 1:0, spawn 1:1, hostage_1, extraction 0');
+  });
+});

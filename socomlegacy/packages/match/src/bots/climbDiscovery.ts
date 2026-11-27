@@ -71,13 +71,14 @@ export class BotClimbDiscovery {
   if(!this.active&&this.cursor<this.queue.length){
    const job=this.queue[this.cursor++]!;
    if(!this.walk(nodes[job.node]!.at,job.entry))return;
-   const walker=new Walker(this.map.grid),moves=new Traversal(this.map.grid,groundPolygons(this.map.ground));
+   const walker=new Walker(this.map.grid),moves=new Traversal(this.map.grid,groundPolygons(this.map.ground));walker.idleFrame=false; // IDLE-FRAME's BOT ADAPTATION (LATER 1053)
    moves.setClips(this.clips.clips,this.clips.table);walker.actionRoots=this.clips.roots;
    walker.weaponLineCast=WEAPON_LINE_BOTS_READING==='cast'; // SEGMENT-BODY part 4: a bot's body casts no weapon line
    if(!walker.place(...job.entry))return;
    const yaw=Math.atan2(job.face.nx,job.face.nz)*180/Math.PI;walker.state.yaw=yaw;
    const link:BotClimbLink={entry:[walker.state.x,walker.state.y,walker.state.z],exit:job.exit,yaw,path:job.face.poly.path,kind:'low'};
-   this.active={node:job.node,sim:new MoverSim(walker,moves),drive:new BotClimbDrive(link,0,this.walk),link,tick:0,engaged:false};
+   const sim=new MoverSim(walker,moves);sim.ai=true; // IDLE-FRAME's BOT ADAPTATION: the planner's own stick, no pad (`Walker.idleFrame`)
+   this.active={node:job.node,sim,drive:new BotClimbDrive(link,0,this.walk),link,tick:0,engaged:false};
   }
   const active=this.active;if(!active)return;
   for(let i=0;i<Math.max(0,Math.floor(budget));i++){

@@ -23,17 +23,47 @@ test.use({ storageState: { cookies: [], origins: [] } });
 
 type Box = { x: number; y: number; width: number; height: number };
 
-/** The docks' boxes: the Assets group (the old left dock), the Object group (the right column's top) and the Inspector's. */
-async function boxes(page: Page): Promise<{ top: Box; tools: Box; left: Box; right: Box; inspector: Box; inner: number; status: number }> {
-  await expect(dockOf(page, 'assets')).toBeVisible({ timeout: 30_000 });
-  await page.waitForTimeout(200);
-  const b = async (l: ReturnType<Page['locator']>): Promise<Box> => (await l.boundingBox())!;
+type Boxes = { top: Box; tools: Box; left: Box; right: Box; inspector: Box; inner: number; status: number };
+
+/** One reading of every box, or null while any of them has none (not laid out, or its element just redrawn). */
+async function readBoxes(page: Page): Promise<Boxes | null> {
+  const b = (l: ReturnType<Page['locator']>): Promise<Box | null> => l.boundingBox();
+  const top = await b(page.locator('header.fx-top')), tools = await b(page.locator('nav.fx-tools-row'));
+  const left = await b(dockOf(page, 'assets')), right = await b(dockOf(page, 'object')), inspector = await b(dockOf(page, 'inspector'));
+  if (!top || !tools || !left || !right || !inspector) return null;
   return {
-    top: await b(page.locator('header.fx-top')), tools: await b(page.locator('nav.fx-tools-row')),
-    left: await b(dockOf(page, 'assets')), right: await b(dockOf(page, 'object')), inspector: await b(dockOf(page, 'inspector')),
+    top, tools, left, right, inspector,
     inner: await page.evaluate(() => innerHeight),
     status: await page.evaluate(() => parseFloat(getComputedStyle(document.body).getPropertyValue('--fx-status')) || 26),
   };
+}
+
+/** Two animation frames of the page's own, so its frame loop has run once between two readings. */
+const nextFrames = (page: Page): Promise<void> =>
+  page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+
+/**
+ * The docks' boxes: the Assets group (the old left dock), the Object group (the right column's top) and the Inspector's.
+ * LATER 1045 (the gate hygiene sweep; a test of a browser adaptation): measured once the layout has settled, not after a
+ * fixed 200 ms. The dock shell draws its groups anew on the docks' show (`../src/forge/shell/dockShell.ts` `refresh` ->
+ * `render`, whose `canvas.replaceChildren()` puts new `.fx-dg-group` elements in) and again on its next frame (`frame`:
+ * `maximized()` flipped against `lastMaximized` -> `render`), so a box read across that frame was null -- the element
+ * the locator had found replaced before its box was taken (each render is one synchronous pass: no frame is painted
+ * without the docks). The wait is on the page's state: every box present and the same across a frame of its own.
+ */
+async function boxes(page: Page): Promise<Boxes> {
+  await expect(dockOf(page, 'assets')).toBeVisible({ timeout: 30_000 });
+  const settled: { boxes: Boxes | null } = { boxes: null };
+  await expect.poll(async () => {
+    const before = await readBoxes(page);
+    if (!before) return false;
+    await nextFrames(page);
+    const after = await readBoxes(page);
+    if (!after || JSON.stringify(after) !== JSON.stringify(before)) return false;
+    settled.boxes = after;
+    return true;
+  }, { message: 'the toolbar, its tools row and the three docks laid out, unchanged across a frame', timeout: 30_000 }).toBe(true);
+  return settled.boxes!;
 }
 
 /** His editor's touch Menu: on the page (the overlay's, on a touch device) and hidden while editing (`forge.css`). */

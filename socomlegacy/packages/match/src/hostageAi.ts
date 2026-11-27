@@ -16,16 +16,22 @@
  *   (D:L505822-505828) -- research 189 s1, s2, s14.4;
  * - `CAiSFollow` (9) with the shared follower in `hostageFollow.ts` (research 334), `CAiSRescued` (0x11)
  *   with its online sub-state 2 and fade (`FUN_005594b0` D:L422293-422324, `FUN_00559070` D:L422191-422212), `CAiSHold`
- *   (2) as the replay's one-frame state (`HOLD_STATE_TICK_PLACEHOLDER`).
+ *   (2) as the replay's one-frame state (`HOLD_STATE_TICK_READING`, LATER 1187).
  *
  * The states' ids stay the original's numbers (0x17, 9, 0x11, 2: the factory `FUN_005f6550` D:L505850-506230), never
  * an enum of the port's.
  */
 
+import { HOSTAGE_FLEE_END_PLACEHOLDER, HOSTAGE_FLEE_POSTURE_READING } from './hostageDanger';
+
 type V3 = [number, number, number];
 
-/** The four states a hostage's stack holds online: CAiSHostage, CAiSFollow, CAiSRescued, CAiSHold (189 s14.3; 199 s1). */
-export type HostageStateId = 0x17 | 9 | 0x11 | 2;
+/**
+ * The states a hostage's stack holds online: CAiSHostage, CAiSFollow, CAiSRescued, CAiSHold (189 s14.3; 199 s1), and LATER
+ * 1170's 0x1b CAiSGrenade, the flight from a frag or C4 its danger scan pushes (research 445 s3-s5), and LATER
+ * 1185's 0x13 CAiSShotAt, the shot reaction its hit counter pushes (research 447 s2.2).
+ */
+export type HostageStateId = 0x17 | 9 | 0x11 | 2 | 0x1b | 0x13 | 0x1c;
 
 /** The escortee unit (`FUN_005ef2f0(0x11)`; the spawn joins it, D:L434915-434918; research 189 s1). */
 export const ESCORTEE_UNIT = 0x11;
@@ -60,7 +66,79 @@ export const CUE_HELPME = 0x49;
  */
 export const AI_STACK_MASKS_READING: Readonly<Record<HostageStateId, number>> = {
   [0x17]: 0x190f4bc0, [9]: 0x1ffffdfe, [0x11]: 0x190c48c6, [2]: 0x3ffffffa,
+  // LATER 1170 (research 445 s4): 0x1b `FUN_005f7470` case 0x1b (D:L506563-506564) -- no 9, no 2 while it runs.
+  [0x1b]: 0x310468c2,
+  // LATER 1185 (research 447 s2.2): 0x13 CAiSShotAt, `FUN_005f7470` case 0x13 (D:L506540-506541).
+  [0x13]: 0x31040800,
+  // LATER 1188 (research 447 s12): 0x1c, the cower, `FUN_005f7470` case 0x1c (D:L506566-506567).
+  [0x1c]: 0x21042000,
 };
+
+/**
+ * LATER 1188 (research 447 s12; reading, pending review): the cower test `FUN_00571b10` (D:L434002-434172; machine code
+ * 0x571c14-0x571d8c) for a flashbang (cause 0): within `near` (ELF 0x650008), or within `behind` (0x650010) with the blast
+ * behind the body; `duration` the `+4` `FUN_005a5250` gives a Mark141 (max(old, 2.0)); `delay` 0x1c's OnSignal(0)
+ * wait, U(0, `delay`) s (`FUN_00605f90`).
+ */
+export const HOSTAGE_COWER_READING = { near: 70, behind: 100, duration: 2.0, delay: 0.75 } as const;
+
+/**
+ * LATER 1188 (research 447 s9.3, s12; reading, pending review): the cower clips by stance (`FUN_00571b10`
+ * D:L434093-434111): standing or crouched a coin between two (U <= 0.5 the first: which run-time global holds which clip
+ * is unread -- the rig saw anim 167 and 168 standing), prone one (`Prone cover`, 447 s9.3). Their `motion.rdr` playback
+ * and `MOTION_P.ZAR` keys (the viewer's `test/golden/motion-rdr.json`, the scene's `test/golden/character-motion.json`;
+ * `guard_prone_cover` as the viewer's `ACTION_CLIPS.proneCover`); a clip runs `playback x ((n - 1) / n)^2` seconds
+ * (`FUN_0028c4f0`, the viewer's `oneShotSeconds`): 4.94 / 4.56 standing, 4.92 / 4.53 crouched, 3.78 prone.
+ */
+export const HOSTAGE_COWER_CLIPS_READING = {
+  stand: ['guard_flashbang_cower', 'guard_flashbang_cower2'],
+  crouch: ['guard_crouch_flashbang_cower', 'guard_crouch_flashbang_cower2'],
+  prone: 'guard_prone_cover',
+  keys: {
+    guard_flashbang_cower: { playback: 5.2, frames: 40 }, guard_flashbang_cower2: { playback: 4.8, frames: 40 },
+    guard_crouch_flashbang_cower: { playback: 5.1, frames: 55 }, guard_crouch_flashbang_cower2: { playback: 4.7, frames: 55 },
+    guard_prone_cover: { playback: 4.3, frames: 16 },
+  },
+} as const;
+export type CowerClip = keyof (typeof HOSTAGE_COWER_CLIPS_READING)['keys'];
+/** A cower clip's run (`FUN_0028c4f0`: `playback x ((n - 1) / n)^2`). */
+export function cowerSeconds(clip: CowerClip): number {
+  const k = HOSTAGE_COWER_CLIPS_READING.keys[clip], a = (k.frames - 1) / k.frames;
+  return k.playback * a * a;
+}
+
+/**
+ * LATER 1188 (the review's F7): the cower test's point is the head node (actor `+0x308`, `FUN_005a3070`
+ * D:L460103-460150), whose height over the feet is unread. The room stands in the SEAL body's head eye height by stance
+ * (the viewer's `cameraRig.ts` `scopeEyeHeight`: 15.884 standing, 9.904 crouched; the hostage's body is the SEAL's actor).
+ * Nearby, not the same point: the rig read the controller's eye (`ctrl+0x90`) 17.46 over a standing hostage's feet.
+ * Settled by a rig read of `FUN_005a3070`'s point for a standing and a crouched hostage.
+ * The facing (SHOTS-1208 r117, research 445 s5.10; reading, pending review): `FUN_005a3070` (D:L460103-460148) returns
+ * the head LOOK direction -- the body CLook's current direction (`+0x11a0`, body space, stored by its tick `FUN_005ad920`
+ * at D:L465562 and by `FUN_005ad9d0` at D:L465599) carried through the rotation of `+0x28`, the BODY's scene node, not a head
+ * node -- so the body's facing composed with the head look's turn now. The room models no hostage head-look rotator (the
+ * watch records only its target, `HOSTAGE_WATCH_LOOK_PLACEHOLDER`), so `ExtractionAuthority.flashCower` still passes the
+ * bare body facing, which equals the original's only while the head looks straight ahead: a departure NOT folded, under
+ * this placeholder until the rotator is built (its rest direction is unread). Held at r0004 by the key job (0x5a8be0).
+ */
+export const HOSTAGE_COWER_HEAD_PLACEHOLDER = 'feet + scopeEyeHeight(posture)' as const;
+
+/**
+ * LATER 1188 (the review's F3): the cower's sound -- slot 0x48 of the actor's sound table (`FUN_0053b8f0(FUN_00599810(actor),
+ * 0x48)`, D:L434113-434114) into `+100` (D:L434163), played once on a 0.15 + U(0, 0.25) s timer (D:L513820-513851); whether
+ * it fires rests on `+0x70`'s start, unread. Not built.
+ */
+export const HOSTAGE_COWER_CUE_PLACEHOLDER = 'not built' as const;
+
+/**
+ * The cower test (`FUN_00571b10` D:L434055-434058, D:L434092): `head` the point, `facing` the world head look
+ * (`FUN_005a3070`; the room passes the body's, `HOSTAGE_COWER_HEAD_PLACEHOLDER`), `point` the burst's.
+ */
+export function cowerTest(head: V3, facing: V3, point: readonly number[]): boolean {
+  const off: V3 = [head[0] - point[0]!, head[1] - point[1]!, head[2] - point[2]!];
+  const d = Math.hypot(off[0], off[1], off[2]), f = off[0] * facing[0] + off[1] * facing[1] + off[2] * facing[2];
+  return d < HOSTAGE_COWER_READING.near || (d < HOSTAGE_COWER_READING.behind && f > 0);
+}
 
 /**
  * CAiSHostage's timers, seconds (the float operands of `FUN_00601910`'s `FUN_005f62c0` calls): sub-state 3 -> 2 after
@@ -101,9 +179,10 @@ export const HOSTAGE_WATCH_LOOK_PLACEHOLDER = 'unseen';
 export const HOSTAGE_CRIES_READING = 'never online';
 
 /**
- * The hostage reacts to no AI event online: `FUN_00572d70` (UpdateEventMask) zeroes every AI event mask in a match
- * (189 s2, #16): no gunfire, blast or death reaction, so no ShotAt (0x13) push. `onEvent` takes the room's events and
- * changes nothing. Reading.
+ * The hostage reacts to no AI **event** online: `FUN_00572d70` (UpdateEventMask) zeroes every AI event mask in a match
+ * (189 s2, #16): no gunfire, blast or death reaction through it, so no ShotAt (0x13) push. `onEvent` takes the room's
+ * events and changes nothing. Reading. (LATER 1170, research 445: the danger scan runs outside the mask -- a frag or C4
+ * the hostage notices pushes 0x1b; `HostageAi.flee`.)
  */
 export const HOSTAGE_EVENTS_READING = 'mask 0';
 
@@ -148,10 +227,37 @@ export const COWER_START_READING = 'not built';
 export const RESCUED_SIGNAL_READING = 'sub 2 at once';
 
 /**
- * `CAiSHold` (2, vt 0x669d30): its Tick is unread. In the hostage's life it lives one frame (199 s1's replay: HOLD on a
- * lone 0x11 replaces it by 2; the next post-tick replaces 2 by 0x11), so the port's 2 does nothing. Placeholder.
+ * LATER 1187 (research 447 s2.2; reading, pending review; was the HOLD tick's placeholder, unread): `CAiSHold`'s (2, vt 0x669d30)
+ * Tick `FUN_006060c0` (D:L513892-514090): sub-state 0 sets the AI mode IDLE; sub-state 7 sets up one look and may pick a
+ * stance after 2.5 s; with HOLD's online flags nothing ends it. In the hostage's life it lives one frame (199 s1's replay:
+ * HOLD on a lone 0x11 replaces it by 2; the next rescue's Replace takes it), so the port's 2 writes the mode and nothing
+ * else. Its signal 0's `FUN_0056dca0` and `FUN_005b3890` are unread.
  */
-export const HOLD_STATE_TICK_PLACEHOLDER = 'idle';
+export const HOLD_STATE_TICK_READING = 'AI mode idle';
+
+/**
+ * LATER 1185 (research 447 s2.2): the hit counter `+0x718` (`FUN_00572330` D:L434250-434403): for a hostage
+ * (`ctrl+0x26c == 4`) `hit` (`DAT_0064fdd8`, 2.5) a hit by a shooter that resolves to a kind-2 entity, the first hit in a
+ * frame only (the `+0x40c` stamp); the push above `push` (`DAT_0064fde8`, 1.5) in the controller update `FUN_0056fd00`
+ * (D:L433253-433287). Values from the disc's ELF. Reading.
+ */
+export const HOSTAGE_SHOT_COUNTER_READING = { hit: 2.5, push: 1.5 } as const;
+
+/**
+ * LATER 1185: the items `FUN_00572330` adds nothing for, by the projectile record's item id (`+0x7c`): the grenades 0x79-0x80
+ * (the switch at ~D:L434335-434349: M67, the smokes, Mark141, the chem light, HE and the rest of the hand grenades) and
+ * C4, the satchel and the claymore 0x97, 0x98, 0x99 (~D:L434352-434361). Reading.
+ */
+export const HOSTAGE_SHOT_EXCLUDED_READING: ReadonlySet<number> = new Set([0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e, 0x7f, 0x80, 0x97, 0x98, 0x99]);
+
+/** LATER 1185: the alert level (`FUN_00561110`: 2 at 0x13's entry, 3 at a refused push): its effects on a hostage beyond the startle gate are unread; kept, read by nothing. */
+export const HOSTAGE_ALERT_PLACEHOLDER = 'kept, read by nothing';
+
+/** LATER 1185: a refused push's remembered event, a 3 s head look at the shooter (`FUN_005fad00`, `FUN_005faae0`): the wire carries no head look (research 447 s9.4); not built. */
+export const HOSTAGE_SHOT_LOOK_PLACEHOLDER = 'not built';
+
+/** LATER 1185: the near-miss feed into the counter (controller slot `+0x44`, `FUN_005729f0` D:L434460-434570): its broadcaster (ELF 0x5a4f80) has no caller found; not built. */
+export const HOSTAGE_NEAR_MISS_PLACEHOLDER = 'not built';
 
 /** `CAiState::Signal`'s kinds (`FUN_005f6fa0` D:L506292-506388): 0 activate, 1 end, 2 suspend, 3 resume. */
 export type AiSignal = 0 | 1 | 2 | 3;
@@ -177,6 +283,19 @@ export interface AiState {
   owner: number;
   /** State 9's leader as HX-4a's `follow` gives it (the follow state's `+0x5d4` role); null otherwise. */
   leader: number | null;
+  /** LATER 1170: 0x1b's object (`+0x58`, `FUN_0055cca0` D:L423925-423927): the room's projectile id; null otherwise. */
+  danger?: number | null;
+  /** LATER 1170: 0x1b's end timer, seconds left once the object is gone (`HOSTAGE_FLEE_END_PLACEHOLDER`); null while it stands. */
+  ending?: number | null;
+  /** LATER 1224: 0x1b's move child 0x18 running (the room's run): while it runs, 0x1b's sub-state holds at 6. */
+  child?: boolean;
+  /**
+   * LATER 1188: 0x1c's fields -- `+4` the duration, `+0x60` the delay left, `+0x5c` the clip (null before the push sets
+   * it), its seconds left while it plays, and the wait flag (`+0x2c` bit 0).
+   */
+  cower?: { duration: number; delay: number; clip: CowerClip | null; left: number; wait: boolean };
+  /** LATER 1185: 0x13's saved stance (`+0x5a`, the body's `+0x278` at its entry, D:L515345), asked again at its exit. */
+  savedStance?: 0 | 1 | 2;
 }
 
 /** What `AiStack` asks of the body it belongs to. */
@@ -342,6 +461,11 @@ export interface HostageAiOptions {
   signal?: (state: AiState, signal: AiSignal) => void;
   /** Shared navigation/physical mover at the original game frame; absent only without map data. */
   follow?: (dt: number, leader: number) => { sub: number; goal: V3 | null; stance: 0 | 1 | 2 } | null;
+  /**
+   * LATER 1170: 0x1b's frame -- the room moves the hostage on its flight and answers whether the object is gone (its
+   * handle no longer matches: detonated or removed). Absent: the object never goes (a test without a room).
+   */
+  flee?: (dt: number, danger: number) => { gone: boolean; moving?: boolean; inside?: boolean };
 }
 
 /**
@@ -381,16 +505,33 @@ export class HostageAi {
   rescued = false;
   /** Follow's current goal, research 334; null when navigation is inactive or no map data exists. */
   goal: V3 | null = null;
+  /**
+   * LATER 1205: the state whose Tick ran in the last `step` (null when none ran: a dead hostage, an empty stack, or a top
+   * popped without a tick). Read by the room: 9 and 0x1b step the body themselves in their Tick, so the room's own
+   * physics is skipped by this, not by the state after the step -- the driver may have popped the ticked state already.
+   */
+  ticked: HostageStateId | null = null;
+  /** LATER 1185: the hit counter `+0x718` (`HOSTAGE_SHOT_COUNTER_READING`). */
+  shotCounter = 0;
+  /** LATER 1185: the alert level (`HOSTAGE_ALERT_PLACEHOLDER`). */
+  alert = 0;
+  /** LATER 1187: the AI mode CAiSHold's Tick writes (`HOLD_STATE_TICK_READING`); null before any. */
+  aiMode: 'idle' | null = null;
+  /** LATER 1185: the game frames stepped, and the frame of the last counted hit (the `+0x40c` stamp). */
+  private frames = 0;
+  private lastHitFrame = -1;
 
   private readonly random: () => number;
   private readonly listener: ((state: AiState, signal: AiSignal) => void) | undefined;
   private readonly moveFollow: HostageAiOptions['follow'];
+  private readonly moveFlee: HostageAiOptions['flee'];
 
   constructor(opts: HostageAiOptions) {
     this.id = opts.id;
     this.random = opts.random;
     this.listener = opts.signal;
     this.moveFollow = opts.follow;
+    this.moveFlee = opts.flee;
     this.stack = new AiStack({
       alive: () => this.alive,
       canPush: (top, id) => stateCanPush(top, id),
@@ -492,6 +633,94 @@ export class HostageAi {
     return true;
   }
 
+  /**
+   * LATER 1170 (research 445 s3.5): the danger scan's push -- refused unless the scan's gate admits 0x1b (`canFlee`,
+   * SHOTS-1208 r125), then a top 0x13 popped (`FUN_005f5cb0` -> `FUN_005f7990`, D:L482740), 0x1b pushed through the gate
+   * (`FUN_005f5c00`, D:L482741) and handed the object (`FUN_0055cca0`). Whether 0x1b was entered.
+   */
+  flee(danger: number): boolean {
+    // SHOTS-1208 r125 (research 445 s5.10; reading, pending review): the scan reaches this push only through
+    // `FUN_005f5cd0(ctrl, 0x1b, 0)` (D:L482954-482955), which tests bit 27 of +0x428, the AND of the stacked states'
+    // masks (`FUN_005f7470` D:L506410-506590; held at r0004 by the key job, 0x5fec50). 0x13's mask 0x31040800 lacks it
+    // (D:L506540), so while 0x13 stands the flight is refused and the pop below is never reached under it.
+    if (!this.canFlee) return false;
+    if (this.stack.top?.id === 0x13) this.stack.pop();
+    if (!this.stack.push(0x1b)) return false;
+    this.stack.top!.danger = danger;
+    this.stack.top!.ending = null;
+    return true;
+  }
+
+  /** LATER 1170: whether 0x1b is on the stack (`+0x42c` bit 27). */
+  get fleeing(): boolean {
+    return this.stack.has(0x1b);
+  }
+
+  /**
+   * SHOTS-1208 r125: the danger scan's gate, `FUN_005f5cd0(ctrl, 0x1b, 0)` (D:L482954-482955): the whole can-push test --
+   * the allowed-next mask's bit 27 (0x1b, 0x13 and 0x1c each clear it), the top not 0x1b, the top's veto.
+   */
+  get canFlee(): boolean {
+    return this.stack.canPush(0x1b);
+  }
+
+  /**
+   * LATER 1188 (`FUN_00571b10`'s flashbang branch, cause 0, D:L434092-434168): the room's cower test passed -- with 0x1c
+   * already on top the function returns before any draw (D:L434032-434043; the entry gate's other term, ctrl `+0x264`
+   * bit 1 or `DAT_0066b190`, is not built: research 445 s3 reads `+0x264` bit 1 clear on a hostage, so the gate is open); else the clip by stance (the coin drawn first, D:L434094-434096), a running
+   * 0x1b's live bit cleared (D:L434137-434150), 0x1c pushed through the gate with `+4` the duration and the wait flag
+   * (D:L434151-434168). Whether 0x1c was entered.
+   */
+  cower(duration: number = HOSTAGE_COWER_READING.duration): boolean {
+    if (this.stack.top?.id === 0x1c) return false;                // D:L434032-434043: no draw (the review's F4)
+    const first = this.random() <= 0.5;
+    const C = HOSTAGE_COWER_CLIPS_READING;
+    const clip: CowerClip = this.stance === 0 ? C.stand[first ? 0 : 1] : this.stance === 1 ? C.crouch[first ? 0 : 1] : C.prone;
+    const top = this.stack.top;
+    if (top?.id === 0x1b) top.live = false;                        // D:L434137-434150
+    if (!this.stack.push(0x1c)) return false;
+    this.cowerSerial = (this.cowerSerial + 1) & 0xff;
+    const st = this.stack.top!;
+    st.cower = { duration, delay: st.cower?.delay ?? 0, clip, left: 0, wait: true };
+    return true;
+  }
+
+  /** LATER 1188: counts each cower's start: the body's action serial, so the page sees a restart. */
+  cowerSerial = 0;
+
+  /** LATER 1188: the cower clip playing (0x1c's sub 2): its name, its time and its length, for the body's action. */
+  get cowerClip(): { name: CowerClip; t: number; seconds: number } | null {
+    const st = this.stack.top;
+    if (!st || st.id !== 0x1c || st.sub !== 2 || !st.cower?.clip) return null;
+    const seconds = cowerSeconds(st.cower.clip);
+    return { name: st.cower.clip, t: seconds - st.cower.left, seconds };
+  }
+
+  /**
+   * LATER 1185 (`FUN_00572330`, `HOSTAGE_SHOT_COUNTER_READING`): a round struck the hostage. `item` the round's item id,
+   * `shooter` where its shooter stands, null when it resolves to no kind-2 entity (a departed thrower): the counter takes
+   * `hit` on the first such hit in a game frame, none for an excluded item (`HOSTAGE_SHOT_EXCLUDED_READING`).
+   */
+  shotBy(item: number, shooter: V3 | null): void {
+    // The frame stamp `+0x40c` is written for ANY hit in a new frame (D:L434400), outside the shooter and item tests: an
+    // uncounted hit (no shooter, an excluded item) still spends the frame (the 1185 review's F3).
+    if (this.lastHitFrame === this.frames) return;
+    this.lastHitFrame = this.frames;
+    if (shooter === null || HOSTAGE_SHOT_EXCLUDED_READING.has(item)) return;
+    this.shotCounter += HOSTAGE_SHOT_COUNTER_READING.hit;
+  }
+
+  /**
+   * LATER 1185: the controller update's ShotAt push (`FUN_0056fd00` D:L433253-433287), each game frame AFTER the AI driver
+   * (the entity tick at priority 4.6 against the driver's pre-tick at 1.0, D:L50922, D:L50925):
+   * above `push` and 0x13 not on top, 0x13 pushed through the gate; refused, the alert 3 and the counter zeroed (the look
+   * stored is `HOSTAGE_SHOT_LOOK_PLACEHOLDER`).
+   */
+  controllerUpdate(): void {
+    if (!this.alive || !(this.shotCounter > HOSTAGE_SHOT_COUNTER_READING.push) || this.stack.top?.id === 0x13) return;
+    if (!this.stack.push(0x13)) { this.alert = 3; this.shotCounter = 0; }
+  }
+
   /** A room event near the hostage (a shot, a blast, a death): the event masks are 0 online, nothing changes. */
   onEvent(_kind: 'shot' | 'blast' | 'death', _at: V3): boolean {
     return false;                                                // HOSTAGE_EVENTS_READING
@@ -499,18 +728,27 @@ export class HostageAi {
 
   /**
    * One game frame (the driver `FUN_005f8030` D:L506872-506930, then the post-tick's stance countdown `FUN_0056f970`
-   * D:L432948-432953): a top whose `live` bit is clear is popped and nothing ticks; else the top's Tick runs and the
-   * stack's time and the state's time take dt after it. A dead hostage is not stepped.
+   * D:L432948-432953): a top whose `live` bit is clear is popped and nothing ticks; else the top's Tick runs, and its
+   * return -- every hostage Tick returns `!live`, stored at `+0x28` (research 447 s11) -- decides: done, the top is popped in the same
+   * call (`FUN_005f7c40`) with no time added, the state below not ticked until the next frame (LATER 1205, research 447
+   * s11); not done, the stack's time and the state's time take dt (D:L506919). A dead hostage is not stepped.
    */
   step(dt: number, world: HostageWorld): void {
+    this.ticked = null;
     if (!this.alive) return;
+    this.frames++;                                               // LATER 1185: the counter's frame stamp
     const top = this.stack.top;
     if (top) {
       if (!top.live) this.stack.pop();
       else {
+        this.ticked = top.id;
         this.tick(top, dt, world);
-        this.stack.time += dt;
-        top.time += dt;
+        if (!top.live) {
+          if (this.stack.top === top) this.stack.pop();
+        } else {
+          this.stack.time += dt;
+          top.time += dt;
+        }
       }
     }
     if (this.stance !== this.requestedStance) {
@@ -542,7 +780,84 @@ export class HostageAi {
       else this.setStance(-1, 0);
     }
     else if (st.id === 0x11) this.tickRescued(st, dt);
-    // 2: HOLD_STATE_TICK_PLACEHOLDER
+    else if (st.id === 0x1b) this.tickFlee(st, dt);
+    else if (st.id === 0x13) {
+      // LATER 1185: CAiSShotAt's Tick for a hostage (`FUN_006089f0`, ctrl+0x26c == 4): sub 0 -> the alert 2 -> sub 5, its
+      // live bit cleared the same tick (D:L515130-515133, D:L515277-515279): its Tick returns done and the driver pops it
+      // in that frame (LATER 1205), the state below ticking from the next.
+      if (st.sub === 0) { this.alert = 2; st.time = 0; st.sub = 5; }
+      if (st.sub === 5) st.live = false;
+    }
+    else if (st.id === 2 && st.sub === 0) this.aiMode = 'idle';   // LATER 1187: HOLD_STATE_TICK_READING
+    else if (st.id === 0x1c) this.tickCower(st, dt);
+  }
+
+  /**
+   * LATER 1188: 0x1c's Tick (`FUN_00605c60` D:L513770-513870): sub 0 waits out the delay, then (the same tick) starts the
+   * clip -- sub 2 while it plays, sub 3 at once with none; sub 3 ends it unless the wait flag holds it while the stack's
+   * time is under `+4`. The cue (`+100` on its `+0x68` / `+0x6c` timer) is `HOSTAGE_COWER_CUE_PLACEHOLDER`.
+   */
+  private tickCower(st: AiState, dt: number): void {
+    const c = st.cower ?? (st.cower = { duration: 0, delay: 0, clip: null, left: 0, wait: false });
+    let sub = st.sub;
+    if (sub === 3) st.live = c.wait ? this.stack.time < c.duration : false;
+    else if (sub === 2) { c.left -= dt; if (c.left <= 0) sub = 3; }
+    else if (sub === 0 && c.delay > 0) c.delay -= dt;
+    else {
+      if (c.clip) { c.left = cowerSeconds(c.clip); sub = 2; }
+      else { sub = 3; c.wait = true; }                            // no clip (`FUN_00571150` refused): the wait flag
+    }
+    if (sub !== st.sub) { st.sub = sub; st.time = 0; }
+  }
+
+  /**
+   * LATER 1170: `CAiSGrenade`'s Tick (`FUN_0055ac20`, research 445 s5) as built -- the run each frame (the room's, sub-state
+   * 3's move child folded in: `HOSTAGE_FLEE_MOVE_PLACEHOLDER`); not the move's arrival but the object gone ends it, after
+   * `HOSTAGE_FLEE_END_PLACEHOLDER` (D:L423024-423061): `live` cleared, the driver pops it in the same frame (LATER 1205),
+   * the state below resumes on the next.
+   */
+  private tickFlee(st: AiState, dt: number): void {
+    const moved: { gone: boolean; moving?: boolean; inside?: boolean } =
+      st.danger === null || st.danger === undefined ? { gone: true } : this.moveFlee?.(dt, st.danger) ?? { gone: false };
+    if (moved.gone && (st.ending === null || st.ending === undefined)) st.ending = HOSTAGE_FLEE_END_PLACEHOLDER;
+    if (st.ending !== null && st.ending !== undefined) {
+      // The object gone: the parent returns before its sub-state switch (D:L423027-423062).
+      st.ending -= dt;
+      if (st.ending <= 0) st.live = false;
+      return;
+    }
+    // LATER 1224 (research 445 s5; Q24c M1, M2): the sub-states. While the move child 0x18 runs the driver does not tick
+    // 0x1b (D:L506892-506913), so sub 6 holds; with none -- no cell, or the run over -- 6 picks 7 inside R or 8 outside
+    // (D:L423488-423494) and 7 / 8 ask prone / crouch (D:L423504-423517). The asks write `+0x279` and `+0x280` directly.
+    const P = HOSTAGE_FLEE_POSTURE_READING;
+    const ask = (): number => P.base + this.random() * P.spread;
+    const to = (sub: number): void => { if (sub !== st.sub) { st.sub = sub; st.time = 0; } };   // D:L423521-423523
+    switch (st.sub) {
+      case 0:
+        // Sub 0, with a prediction or none: a prone hostage (or one asked prone) is asked to stand (D:L423103-423107,
+        // D:L423116-423120); a hostage goes on to 3 (6 directly needs ctrl +0x264 bit 1, no hostage's). Sub 3 the same tick
+        // (the switch falls through, D:L423215-423219): 6 at once, the run its move child (`HOSTAGE_FLEE_MOVE_PLACEHOLDER`:
+        // the room's run), none when the search finds no cell (callout 0x35, not built).
+        if (this.stance === 2 || this.requestedStance === 2) { this.requestedStance = P.stand; this.stanceDelay = ask(); }
+        // Case 3's own ask, the same test (D:L423221-423225): a hostage still prone (`+0x278` 2) draws a second time in
+        // the same tick, and the second delay stands (the 1224 review's F2). The original's test reads `+0x279` too, but case 0
+        // has just written it (stand), so only the `+0x278` half can hold here (the box's tsc, TS2367: the request is 0 | 1).
+        if (this.stance === 2) { this.requestedStance = P.stand; this.stanceDelay = ask(); }
+        to(6);
+        st.child = moved.moving === true;
+        break;
+      case 6:
+        if (st.child && moved.moving === true) break;              // the child runs: no Tick of 0x1b this frame
+        st.child = false;
+        to(moved.inside === true ? 7 : 8);
+        break;
+      case 7:
+        if (this.requestedStance !== P.inside) { this.requestedStance = P.inside; this.stanceDelay = ask(); }
+        break;
+      case 8:
+        if (this.requestedStance !== P.outside) { this.requestedStance = P.outside; this.stanceDelay = ask(); }
+        break;
+    }
   }
 
   /** `FUN_005f62c0(delay, state, next)` (D:L505832-505851): 0 sets `next` now; else the timer runs. */
@@ -638,6 +953,18 @@ export class HostageAi {
   /** The stack's signals: the base's activation reset (signal 0) is `AiStack`'s; the per-state OnSignal here. */
   private onSignal(state: AiState, signal: AiSignal): void {
     if (state.id === 9 && (signal === 1 || signal === 2)) this.goal = null;
+    // LATER 1185 (`FUN_006093f0`): 0x13's entry saves the stance held (`+0x278` into the state's `+0x5a`, D:L515345); its
+    // exit asks that stance again after 0.25 + U(0, 0.25) s (`FUN_00563100`, D:L515338-515340) -- which overwrites a
+    // pending stance request (the 1185 review's F2) -- and zeroes the counter (D:L515342).
+    if (state.id === 0x13 && signal === 0) state.savedStance = this.stance;
+    // LATER 1188: 0x1c's OnSignal (`FUN_00605f90` D:L513864-513889): 0 the delay U(0, 0.75) s (the AI mode 2 and the
+    // look and stance calls it makes are not built); 2 and 3 (a suspend or a resume) end it.
+    if (state.id === 0x1c && signal === 0) state.cower = { duration: 0, delay: this.random() * HOSTAGE_COWER_READING.delay, clip: null, left: 0, wait: false };
+    if (state.id === 0x1c && (signal === 2 || signal === 3)) state.live = false;
+    if (state.id === 0x13 && signal === 1) {
+      this.setStance(0.25 + this.random() * 0.25, state.savedStance ?? this.stance);
+      this.shotCounter = 0;
+    }
     if (signal === 0) {
       // CAiState::Signal(0) (D:L506330-506357): OnSignal(4) first (D:L506353), then OnSignal(0) (D:L506385).
       // OnSignal(4): 0x17's (0x601f20) owner -1; 0x11's zeroes +0x58/+0x5c/+0x60 (D:L422317-422321): the port's -1.

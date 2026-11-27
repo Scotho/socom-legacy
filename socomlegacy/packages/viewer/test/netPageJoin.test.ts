@@ -24,7 +24,7 @@ function page(over: Partial<NetPageDeps> = {}) {
   let socket: WebSocketLike | null = null;
   const hud = new Hud();
   const posted: string[] = [];
-  hud.postMessage = ((text: string | readonly string[]) => { posted.push(Array.isArray(text) ? text.join('/') : String(text)); }) as typeof hud.postMessage;
+  hud.postMessage = ((text: string | readonly (string | { text: string })[]) => { posted.push(Array.isArray(text) ? text.map((l) => typeof l === 'string' ? l : l.text).join('/') : String(text)); }) as typeof hud.postMessage;
   const walk = {
     setNetTap: () => undefined, setLocked: () => undefined, respawn: () => true, nudge: () => undefined,
     setTrigger: () => undefined, setDeathPose: () => undefined, setDeathKiller: () => undefined, setMode: () => true,
@@ -156,6 +156,82 @@ describe('PF-28 integration fix: a rejoin does not double the page\'s own projec
     const fresh = rig();
     fresh.p.server(welcome(own([0, 500, 0], [0, 0, 0])));
     expect(fresh.g.stats().live.map((l) => l.pid)).toEqual([0, 1]);
+  });
+});
+
+/**
+ * LATER 931 (H4 of the mines investigation of 2026-11-12, Fix C; reading, pending review): after a page reload (a fresh
+ * page, none of its own held) the welcome's envelope names the seat's own claymore (the room re-points it to the seat,
+ * `Room.seat`); the page hydrates it as its OWN (not `remote`), so `claymoresDown()` counts it and the Detonator can be
+ * taken up and sets it off (`FUN_003cc1f0` D:L321194-321210, `FUN_005bdc30` D:L474637-474641). Another's stays another's.
+ */
+describe("LATER 931: a reloaded page's own claymore comes back as its own", () => {
+  const snap = { feet: [0, 50, 0], yaw: 0, pitch: 0, vx: 0, vz: 0, vy: 0, airborne: false, crouched: false, stance: 'stand', landing: null, jumps: 0 } as unknown as PlaySnapshot;
+  const claymore = (pid: number, owner: number, x: number) => ({ pid, owner, kind: 'Claymore', pos: [x, 50, 0] as [number, number, number], vel: [0, 0, -1] as [number, number, number], state: 'rest' as const, age: 90, fuse: 0, removal: 0, bounces: 0, dud: false });
+
+  it("RED: the seat's own claymore (owner = own id) hydrates as its own: claymoresDown() 1, the Detonator taken up and fired; another's is not counted", () => {
+    const g = new GrenadeThrower({ grid: () => null, snapshot: () => snap, view: () => 'third' });
+    const blasts: string[] = [];
+    g.on('explode', (e) => blasts.push(e.item));
+    const p = page({
+      remoteGrenade: (kind, from, velocity, owner, pid, phase) => g.launchRemote(kind, from, velocity, owner, pid === undefined ? undefined : { pid, ...phase }),
+      ownProjectiles: () => g.ownLive(),
+    });
+    p.server(welcome({ v: JOIN_STATE_VERSION, corpses: [], ghosts: [], projectiles: [claymore(4, 1, 10), claymore(5, 2, -10)] }));
+    expect(g.stats().live.map((l) => l.pid)).toEqual([4, 5]);
+    expect(g.claymoresDown()).toBe(1);                            // today: 0 (both hydrated remote)
+    expect(g.select('Detonator')).toBe(true);
+    g.pull();                                                     // the Detonator's fire: the page's own claymore goes off
+    for (let i = 0; i < 30; i++) g.update(1 / 60);
+    expect(blasts).toEqual(['Claymore']);
+  });
+
+  /**
+   * The fix after review B-F1: a new page handed a departed player's recycled id is welcomed with his charges as no
+   * one's -- the room names no live thrower for them (match `joinState` `JOIN_ORPHAN_OWNER`, -2: no page's id, pinned
+   * by match `joinState.test.ts` "LATER 931 F1"; `Room.joinWire` through `thrower`, DEPARTED_CHARGES_READING; held by
+   * match `roomEquipment.test.ts` "LATER 931 B-F1", and the two halves joined there by "LATER 931 B-F1 joined").
+   * The page compares the owner with its own id only, so they hydrate as another's: none counted, the Detonator refused,
+   * the four-claymore cap free. -2 is the room's value, restated here (the viewer imports nothing of the match package).
+   */
+  const ORPHAN = -2;
+
+  it("B-F1: a join under a recycled id -- the departed's four claymores sent as no one's -- counts none down and refuses the Detonator", () => {
+    const g = new GrenadeThrower({ grid: () => null, snapshot: () => snap, view: () => 'third' });
+    const p = page({
+      remoteGrenade: (kind, from, velocity, owner, pid, phase) => g.launchRemote(kind, from, velocity, owner, pid === undefined ? undefined : { pid, ...phase }),
+      ownProjectiles: () => g.ownLive(),
+    });
+    p.server(welcome({ v: JOIN_STATE_VERSION, corpses: [], ghosts: [], projectiles: [4, 5, 6, 7].map((pid) => claymore(pid, ORPHAN, pid * 4)) }));
+    expect(g.stats().live.map((l) => l.pid)).toEqual([4, 5, 6, 7]);   // drawn where they lie (the PMN's case: match roomEquipment)
+    expect(g.claymoresDown()).toBe(0);                            // not four: the page's cap is not spent by them
+    expect(g.ownLive()).toBe(false);
+    expect(g.select('Detonator')).toBe(false);
+  });
+
+  it("B-F1, the ownHeld skip: a page that holds its own projectile still hydrates an orphan's charge (no owner id to match its own)", () => {
+    const g = new GrenadeThrower({ grid: () => null, snapshot: () => snap, view: () => 'third' });
+    const p = page({
+      remoteGrenade: (kind, from, velocity, owner, pid, phase) => g.launchRemote(kind, from, velocity, owner, pid === undefined ? undefined : { pid, ...phase }),
+      ownProjectiles: () => g.ownLive(),
+    });
+    p.server(welcome());
+    g.select('M67');
+    expect(g.throwNow(1)).not.toBeNull();                         // the page's own frag in the air: ownHeld
+    g.update(0.1);
+    p.server(welcome({ v: JOIN_STATE_VERSION, corpses: [], ghosts: [], projectiles: [claymore(4, ORPHAN, 10)] }));
+    expect(g.stats().live.map((l) => l.pid)).toEqual([undefined, 4]);   // the orphan's claymore hydrated, not skipped
+    expect(g.claymoresDown()).toBe(0);
+  });
+
+  it('B-F4: the hydrate the page is told is its own always carries a state (applyJoinState gives every entry one), so own is never dropped to the event path', () => {
+    const seen: unknown[] = [];
+    const p = page({ remoteGrenade: (...a: unknown[]) => { seen.push(a[5]); } });
+    p.server(welcome({ v: JOIN_STATE_VERSION, corpses: [], ghosts: [], projectiles: [claymore(4, 1, 10), claymore(5, ORPHAN, -10)] }));
+    expect(seen).toEqual([
+      { state: 'rest', age: 90 / TICK_HZ, fuse: 0, removal: 0, bounces: 0, dud: false, own: true },
+      { state: 'rest', age: 90 / TICK_HZ, fuse: 0, removal: 0, bounces: 0, dud: false },
+    ]);
   });
 });
 

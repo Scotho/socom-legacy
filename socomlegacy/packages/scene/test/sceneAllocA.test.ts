@@ -128,7 +128,7 @@ function mixedWorld(seed: number) {
     // A layered owner (`modelGate`): active with a DI on layer 1, 2 or 3; undefined is every layer.
     flags.push(o % 5 === 1 ? (1 << 0) | (1 << 12) | ((1 + (o % 3)) << 13) : undefined);
   }
-  groups.push([quad([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200], 3)]);
+  groups.push([quad([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200], 3)]);
   return worldOf(groups, sweeps, flags);
 }
 
@@ -211,7 +211,8 @@ describe('PAGE-ALLOC-A item 4: segmentHits keeps its seen set, box and travel as
     let inner = 0;
     for (const [a, b] of segments(0x78, 60)) {
       const innerGot: SegmentHit[][] = [], innerWant: SegmentHit[][] = [];
-      const via = (cast: typeof segmentHits, into: SegmentHit[][]) => (p: WorldPoly): boolean => {
+      // The frozen base's signature: the narrower of the two (its `frontOnly` a boolean; WM-29 widened `segmentHits`' to SegmentSides).
+      const via = (cast: typeof segmentHitsBase, into: SegmentHit[][]) => (p: WorldPoly): boolean => {
         into.push(cast(grid, [a[0] + 5, a[1], a[2] - 5], [b[0] - 5, b[1], b[2] + 5], () => true));
         return p.ditype === 2;
       };

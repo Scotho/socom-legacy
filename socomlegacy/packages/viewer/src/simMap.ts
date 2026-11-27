@@ -7,8 +7,10 @@ import {
   aiCellCentre, applyR0004MapPatch, aiCellIndex, aiCellY, ARMORY_TYPES_PER_SIDE, characterModelNames, mapCollision, DEFAULT_GRID_PARAMS, namedPoint, parseAiMaps, parseCharacterTable,
   parseEscortees, parseGridParams, parseSceneGraph, parseWorldRoot, placeEscortees, placeSpawnSlots, readSkeleton, readTurrets, spawnsFor, teamCharacter, parseClutter,
   type AiMaps, type EscorteeStart, type CharacterTable, type GameType, type SceneNode, type TurretPlacement, type Grid, type MotionClip, type Skeleton, type SpawnSlot, type Spawns, type CharacterTeam,
+  hullModels,
 } from '@s2u/scene';
-import { actionRoots, ACTION_CLIPS, groundGrid, HOLD_CODES, packGround, type GroundData, type Stance } from './mover';
+import { actionRoots, ACTION_CLIPS, groundGrid, HOLD_CODES, packGround, PRONE_STRAFE_CLIPS, type GroundData, type Stance } from './mover';
+import { defaultMaterialByte } from './climb';
 import { CIV_ANIMS, SEAL_ANIMS } from './locomotion';
 import { clipsFromPack, motionTableFromArchive, MOTION_PACK_PATH, type MotionEntry } from './motionTable';
 import { leanClip, TRAVERSAL_CLIPS } from './traversal';
@@ -114,13 +116,33 @@ export const stemOf = (path: string): string => path.replace(/^.*\//, '').replac
  * Reads a map archive's hull and spawns. Throws when the scene graph or its collision will not read: no hull, no round.
  * With `kits` (`./loadout` `loadKitSource`: the server's `ZWEAPON.ZAR` and `READERC.ZAR`), the map's turrets too (MAP-10a).
  */
+/**
+ * FLE-2 (research 151 s9.1; the fall-leave-edge plan): the map's default soil -- `READERM.ZAR/<map>.rdr` `world_params`
+ * `DefaultMaterial` (`FUN_002ddc30` D:L181208), the soil a floor of material byte 0 takes -- as the hull material byte
+ * the offset lookup reads (`climb.ts` `defaultMaterialByte`); 0 when the map has none or it will not read. The same read
+ * as `floorSoilsCensus.devdisc.test.ts` (every map's default logged there: GRASS or SNOW on ten).
+ */
+export function mapDefaultMaterial(bytes: Uint8Array, toc: ZdbEntry[], stem: string): number {
+  try {
+    const zar = Zar.parse(zdbMember(bytes, toc, 'READERM.ZAR'));
+    const key = zar.root.children.find((k) => k.name.toLowerCase() === `${stem.toLowerCase()}.rdr`);
+    const root = key ? parseRdr(zar.data(key)) : undefined;
+    const top = Array.isArray(root) && Array.isArray(root[0]) ? root[0] : root;
+    const name = top === undefined ? undefined : rdrGet(rdrGet(top as RdrNode, 'world_params') as RdrNode, 'DefaultMaterial');
+    return defaultMaterialByte(typeof name === 'string' ? name : undefined);
+  } catch {
+    return 0;
+  }
+}
+
 export function simMapFromBytes(bytes: Uint8Array, path: string, kits: KitSource | null = null): SimMap {
   const notes: string[] = [];
   const toc = parseZdb(bytes);
   const stem = stemOf(path);
   const models = parseSceneGraph(Zar.parse(zdbMember(bytes, toc, `${stem}_GEO.ZED`)));
   applyR0004MapPatch(models, stem);   // R4B-09 (research 383): r0004's per-map collision, as the page's `place` does
-  const hulls = mapCollision(models, stem, () => parseClutter(Zar.parse(zdbMember(bytes, toc, 'CLUTTER.ZAR'))), WORLD_MODEL);
+  // LATER 1003: the hull's models with the archive's libraries joined (`hullModels`): a placed turret's gun, a ledge turret.
+  const hulls = mapCollision(hullModels(bytes, toc, stem, models, (line) => notes.push(line)), stem, () => parseClutter(Zar.parse(zdbMember(bytes, toc, 'CLUTTER.ZAR'))), WORLD_MODEL);
   // CLT-2 (research 422; CLT.R2): the worldmodel's hull, then CLUTTER.ZAR's instances' appended -- the page's own
   // (`./loadMap` `hull`, `mapCollision`), so the two hulls stay one. A CLUTTER.ZAR that will not read costs a note.
   const { polys, owners } = hulls;
@@ -143,6 +165,8 @@ export function simMapFromBytes(bytes: Uint8Array, path: string, kits: KitSource
   const cranesRead = readCranes(bytes, toc, models, owners, polys);   // marks the hooks' owners: before the pack
   notes.push(...cranesRead.diagnostics);
   const ground = packGround(params, polys, owners);
+  const soil = mapDefaultMaterial(bytes, toc, stem);              // FLE-2: byte 0's soil, the map's default
+  if (soil) ground.defaultMaterial = soil;
   const grid = groundGrid(ground);
   const name = missionName(bytes, toc, notes) ?? stem;
   const spawns = spawnsFor(name) ?? null;
@@ -263,6 +287,8 @@ export const SIM_CLIPS: readonly string[] = [
     ...TURRET_CLIPS,                                 // MAP-10b: the mount's steer reads its clip's root (`SeatSteer`)
     ...FLINCH_CLIPS,                                 // PAR-58: the room's flinch window ends at the clip's one-shot end (its keys)
     ...DOOR_CLIPS,                                   // #485: the door clip's window from its keys and motion.rdr row
+    ...PRONE_STRAFE_CLIPS,                           // B-26: the prone strafe's heading is its clip's root (`proneStrafeHeading`)
+    SEAL_ANIMS.step, SEAL_ANIMS.stand,               // R4P-301: the foot plant's leg (`./footPlant` `setTurnStepClips`)
   ]),
 ];
 
@@ -309,8 +335,9 @@ export interface SimSkeleton {
   /**
    * HIT-POSE (research 217 s3.6): the motion the room poses the body's live skeleton with (`./net/hitPose`: the clips a
    * page's copy plays, `HIT_POSE_CLIPS`, and `motion.rdr`'s table), one object a map, shared by its skeletons. Absent
-   * without `READERC.ZAR`'s table or `MOTION_P.ZAR` (a hostage's too: its body stays on its idles) -- the room then
-   * keeps the idle sets (`idles`, `leans`), and without a skeleton the placeholder capsules.
+   * without `READERC.ZAR`'s table or `MOTION_P.ZAR` -- the room then keeps the idle sets (`idles`, `leans`), and without
+   * a skeleton the placeholder capsules. LATER 831: a hostage's is its own (`ESCORTEE_MOTION_CLIPS`: the plays and the
+   * No_weapon set's clips), shared by the map's escortees.
    */
   motion?: HitMotion;
   notes: string[];
@@ -330,6 +357,12 @@ export const IDLE_CLIPS: Readonly<Record<Stance, string>> = { stand: SEAL_ANIMS.
  * the bind pose's (the AI never lays one down: 199 §9).
  */
 export const ESCORTEE_IDLE_CLIPS: Readonly<Record<Stance, string | null>> = { stand: CIV_ANIMS.stand, crouch: CIV_ANIMS.crouch, prone: null };
+/**
+ * LATER 831 (HIT-POSE for the hostages; research 237 s2.5): the clips a hostage's hit poser plays -- what a page's copy
+ * loads (`HIT_POSE_CLIPS`, the knocks and get-ups among them) and the No_weapon set's (`../locomotion` `CIV_ANIMS`, the
+ * set `RemotePlayers.addEscortee`'s `Play` takes, `CIV_ANIM_SET`): its idles, walk, jog, run and the stand-to-crouch.
+ */
+export const ESCORTEE_MOTION_CLIPS: readonly string[] = [...new Set([...HIT_POSE_CLIPS, ...Object.values(CIV_ANIMS)])];
 
 /** What the skeleton readers share for one map: its libraries, its type table and the idles, each read once. */
 interface SkeletonSource {
@@ -344,6 +377,12 @@ interface SkeletonSource {
   escorteeIdles: Record<Stance, MotionClip | null>;
   /** HIT-POSE: the players' motion (`SimSkeleton.motion`), null without the table or the pack. */
   motion: HitMotion | null;
+  /**
+   * LATER 831 (research 237 s2.5): the hostages' motion (`SimSkeleton.motion` of an escortee) -- `HIT_POSE_CLIPS` and the
+   * No_weapon set's clips (`ESCORTEE_MOTION_CLIPS`) with `motion.rdr`'s table, as a page's copy loads them; read only when
+   * the map lists escortees, null without them, the table or the pack.
+   */
+  escorteeMotion: HitMotion | null;
   /** The lines every skeleton of the map carries (a missing table, a missing idle). */
   notes: string[];
 }
@@ -379,7 +418,7 @@ function skeletonSource(bytes: Uint8Array, readerc: Uint8Array | null, motionPac
   const escorteeIdles: Record<Stance, MotionClip | null> = { stand: null, crouch: null, prone: null };
   const leans = noLeans();
   const escortees = chartype !== null && teamCharacter(chartype, 'escortees', 0) !== null;
-  let motion: HitMotion | null = null;
+  let motion: HitMotion | null = null, escorteeMotion: HitMotion | null = null;
   if (motionPack) {
     try {
       const civ = escortees ? Object.values(ESCORTEE_IDLE_CLIPS).filter((n): n is string => n !== null) : [];
@@ -389,8 +428,11 @@ function skeletonSource(bytes: Uint8Array, readerc: Uint8Array | null, motionPac
       if (readerc) {
         try { motionTable = motionTableFromArchive(readerc); } catch (e) { keep(`motion table: ${say(e)}`); }
       }
-      const clips = clipsFromPack(motionPack, [...new Set([...Object.values(IDLE_CLIPS), ...civ, ...leanNames, ...(motionTable ? HIT_POSE_CLIPS : [])])]);
+      // LATER 831: a hostage's too (`ESCORTEE_MOTION_CLIPS`), only where the map lists escortees
+      const posed = motionTable ? (escortees ? ESCORTEE_MOTION_CLIPS : HIT_POSE_CLIPS) : [];
+      const clips = clipsFromPack(motionPack, [...new Set([...Object.values(IDLE_CLIPS), ...civ, ...leanNames, ...posed])]);
       if (motionTable) motion = { clips: clips.filter((c) => HIT_POSE_CLIPS.includes(c.name)), table: motionTable };
+      if (motionTable && escortees) escorteeMotion = { clips: clips.filter((c) => ESCORTEE_MOTION_CLIPS.includes(c.name)), table: motionTable };
       for (const k of Object.keys(IDLE_CLIPS) as Stance[]) idles[k] = clips.find((c) => c.name === IDLE_CLIPS[k]) ?? null;
       for (const k of STANCES) leans[k] = { l: clips.find((c) => c.name === leanClip(k, -1)) ?? null, r: clips.find((c) => c.name === leanClip(k, 1)) ?? null };
       if (escortees) for (const k of Object.keys(ESCORTEE_IDLE_CLIPS) as Stance[]) escorteeIdles[k] = clips.find((c) => c.name === ESCORTEE_IDLE_CLIPS[k]) ?? null;
@@ -406,7 +448,7 @@ function skeletonSource(bytes: Uint8Array, readerc: Uint8Array | null, motionPac
     const name = ESCORTEE_IDLE_CLIPS[k];
     if (name !== null && !escorteeIdles[k]) note(`no ${name}: a hostage ${k}s in the bind pose`);
   }
-  return { geo, chartype, table, idles, leans, escorteeIdles, motion, notes };
+  return { geo, chartype, table, idles, leans, escorteeIdles, motion, escorteeMotion, notes };
 }
 
 /**
@@ -436,10 +478,12 @@ function typeSkeleton(src: SkeletonSource, team: CharacterTeam, index: number, n
     }
     models.set(model, skeleton);
   }
+  // LATER 831: a hostage's own motion (`escorteeMotion`, the No_weapon set's clips beside the plays)
+  const motion = team === 'escortees' ? src.escorteeMotion : src.motion;
   return {
     model, character, skeleton, idles: team === 'escortees' ? src.escorteeIdles : src.idles,
     leans: team === 'escortees' ? noLeans() : src.leans,
-    ...(team !== 'escortees' && src.motion ? { motion: src.motion } : {}), notes: [...src.notes],
+    ...(motion ? { motion } : {}), notes: [...src.notes],
   };
 }
 

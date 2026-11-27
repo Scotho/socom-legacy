@@ -254,7 +254,7 @@ describe("LATER 109: the release's reversed clip carries the body by its root's 
   it("a wall does not stop it: laid on the place with no collision, on the floor there (TURRET_STEER_WALLS_READING, widened to the reversed clip) -- where the walk's own move stops 3.5 off the same wall", () => {
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
     const floor: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
+      points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) };
     const wall: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/wall', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0,
       points: Float32Array.from([-20, 0, 2, 20, 0, 2, 20, 40, 2, -20, 40, 2]) };
     const owners: CollisionOwner[] = [
@@ -277,5 +277,43 @@ describe("LATER 109: the release's reversed clip carries the body by its root's 
     walked.place(0, 1, 10);
     walked.glide(0, -13);
     expect(walked.state.z, "the walk's own move stops off it, on its front").toBeGreaterThan(5.5);
+  });
+});
+
+/**
+ * LATER 1250 (research 313 s8.23; reading, pending review): `FUN_005b3340` turns the stored `refPt` by the shortest arc
+ * from `+0x9c` onto `+0x7c` in the body's frame (D:L468840-468844, D:L468892-468893) for the mount as for the climbs --
+ * but the mount's record stores at `+0x7c` the vector `0x3f6500` (the one `+0x9c` copies) through the gun's matrix (the
+ * turret's vfunc `+0xc`, D:L412268-412295) with its y cleared (`auStack_30[0] & 0xffffffff`, D:L412296: the low word x
+ * kept, y zeroed) and renormalised (`FUN_00309110`), then stored (D:L412305, `+0x9c` D:L412307). A level normal turns
+ * `refPt` about the vertical alone, by the gun's yaw: `seatTarget`'s `R(facing)` already, whatever the body's yaw or the
+ * gun's pitch -- no tilt for the mount, so `net/emplacement.ts` is unchanged. A pin (green before and after): the law
+ * computed apart from the port (Rodrigues' rotation, `+0x9c` the body's forward (0, 0, -1), CLIMB_STEER_TILT_READING).
+ */
+describe("LATER 1250: the mount's steer record is level -- the arc onto it is the gun's yaw, seatTarget's turn (FUN_005463c0 D:L412268-412307)", () => {
+  type W = [number, number, number];
+  const cross = (a: W, b: W): W => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const dot = (a: W, b: W): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const rodrigues = (a: W, b: W, v: W): W => {
+    const c = cross(a, b), s = Math.hypot(...c), co = dot(a, b);
+    if (s < 1e-15) return co > 0 ? [...v] : [-v[0], v[1], -v[2]];
+    const k: W = [c[0] / s, c[1] / s, c[2] / s], th = Math.atan2(s, co), kv = cross(k, v), kd = dot(k, v);
+    return [0, 1, 2].map((i) => v[i]! * Math.cos(th) + kv[i]! * Math.sin(th) + k[i]! * kd * (1 - Math.cos(th))) as W;
+  };
+  const yawTo = (v: W, deg: number): W => { const a = deg * DEG_R, c = Math.cos(a), s = Math.sin(a); return [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c]; };
+
+  it('for any gun yaw and pitch and any body yaw, the turned refPt through the body matrix is seatTarget less the origin', () => {
+    const ref: W = [-3.31, -2.526, 7.655];                                   // the mount clips' refPt (motion.rdr), negated or not: any v
+    for (const gun of [0, 37, 90, -120]) for (const pitch of [0, 12, -25]) for (const body of [0, 40, 170, -75]) {
+      const p = pitch * DEG_R;
+      const fwd: W = [0, 0, -1];                                            // +0x9c, the body's forward
+      const gunFwd: W = [-Math.sin(gun * DEG_R) * Math.cos(p), Math.sin(p), -Math.cos(gun * DEG_R) * Math.cos(p)];   // 0x3f6500 through the gun
+      const level = Math.hypot(gunFwd[0], gunFwd[2]);
+      const n7c: W = [gunFwd[0] / level, 0, gunFwd[2] / level];             // D:L412296: y cleared, renormalised
+      const nb = yawTo(n7c, -body);                                         // into the body's frame (D:L468840-468844)
+      const world = yawTo(rodrigues(fwd, nb, ref), body);                   // the arc, then the body matrix (D:L468892-468925)
+      const seat = seatTarget({ origin: [0, 0, 0], facing: gun }, ref, [0, 0, 0]);
+      for (let i = 0; i < 3; i++) expect(world[i]!, `gun ${gun} pitch ${pitch} body ${body} axis ${i}`).toBeCloseTo(seat[i]!, 9);
+    }
   });
 });

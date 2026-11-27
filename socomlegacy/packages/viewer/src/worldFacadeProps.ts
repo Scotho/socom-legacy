@@ -3,7 +3,8 @@
  * nodes on 7 maps -- are drawn as props since the draw walk turns them as it turns a prop's (`FUN_003389c0`
  * D:L236080-236081 -> `FUN_00317fc0`): `loadMap`'s `place` files them under the world model's own name. They are the
  * world's, not a prototype's: the forge offers, places and hides none (its server reads no `worldmodel` placement,
- * `archiveParts`), and the test room's texture sets count them as world draws. A module of its own, with no imports, so
+ * `archiveParts`), and the test room's texture sets count them as world draws. Research 439: so are its nodes with a banded
+ * visual (28 on 7 maps), drawn apart so each visual is shown in its band at its node's origin. A module of its own, with no imports, so
  * the match server's forge reads it as the page does.
  */
 export const WORLD_FACADE_MODEL = 'worldmodel';

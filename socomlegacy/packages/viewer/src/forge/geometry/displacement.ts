@@ -3,7 +3,7 @@ import {
 } from './editMesh';
 
 /**
- * Displacements (a browser adaptation, after Source's: the owner, 2026-11-14, "apply textures to faces, displacement").
+ * Displacements (a browser adaptation, after Source's: the Forge's owner (crispy, OT.R112), 2026-11-14, "apply textures to faces, displacement").
  * A four-cornered face becomes a grid of `2^power + 1` points a side, each lifted along the face's normal by its own
  * height; the compile (`./worldMesh`) draws the grid in the face's place. Corner 0 is the grid's (0, 0), corner 1 its
  * (n, 0), corner 2 (n, n), corner 3 (0, n), so the grid keeps the face's winding. Corner attributes (uv, colour,

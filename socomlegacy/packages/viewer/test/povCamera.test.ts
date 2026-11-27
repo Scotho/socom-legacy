@@ -25,11 +25,12 @@ import { lensOf, Zoom } from '../src/zoom';
 const poly = (path: string, ditype: number, points: number[]): WorldPoly => ({
   modelName: 'worldmodel', path, region: 0, ditype, material: 25, ptcount: 4, cameratype: 0, appflags: 0, points: Float32Array.from(points),
 });
-function world(): Grid {
-  const polys = [
-    poly('floor', 3, [-190, 0, -190, 190, 0, -190, 190, 0, 190, -190, 0, 190]),
-    poly('wallz', 2, [-190, 0, 32, 190, 0, 32, 190, 60, 32, -190, 60, 32]),        // z = 32: behind a body at the circle's top
-    poly('wallx', 2, [-26, 0, -190, -26, 0, 190, -26, 60, 190, -26, 60, -190]),    // x = -26: beside the circle's left edge
+function world(extra: WorldPoly[] = []): Grid {
+  const polys = [...extra,
+    poly('floor', 3, [-190, 0, 190, 190, 0, 190, 190, 0, -190, -190, 0, -190]),
+    // LATER 1057: both walls face the circle (-z, +x): the pass is one-sided on the hull, a face met only from its front.
+    poly('wallz', 2, [-190, 60, 32, 190, 60, 32, 190, 0, 32, -190, 0, 32]),        // z = 32: behind a body at the circle's top
+    poly('wallx', 2, [-26, 60, -190, -26, 60, 190, -26, 0, 190, -26, 0, -190]),    // x = -26: beside the circle's left edge
   ];
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
   return buildGrid(params, [], [], polys, polys.map((p, i) => ({ modelName: p.modelName, path: p.path, first: i, count: 1 })));
@@ -63,13 +64,14 @@ const source = (s: Script): PovSource => ({ at: (cmd) => s(cmd) });
  * the head's feet `tickFeet` (`mover.ts:4038-4041`) between the bodies after n-1 and n, the look the newest command's (n).
  */
 class Owner {
-  readonly cam = new PlayerCamera(GRID);
+  readonly cam: PlayerCamera;
   private peek = 0;
   private n: number;
   private prev: { b: PovBody; peek: number };
   private cur: { b: PovBody; peek: number };
 
-  constructor(private readonly script: Script, start: number, private readonly lookFrom: 'newest' | 'feet' = 'newest') {
+  constructor(private readonly script: Script, start: number, private readonly lookFrom: 'newest' | 'feet' = 'newest', grid: Grid = GRID) {
+    this.cam = new PlayerCamera(grid);
     this.n = start;
     const b = script(start)!;
     this.peek = b.peek;
@@ -95,20 +97,21 @@ class Owner {
       this.cur = { b, peek: this.peek };
     }
     const prev = this.prev.b, cur = this.cur.b;
-    const third = this.cam.view(a);
     const lerp = (p: readonly number[], q: readonly number[]): Vec3 => [p[0]! + (q[0]! - p[0]!) * a, p[1]! + (q[1]! - p[1]!) * a, p[2]! + (q[2]! - p[2]!) * a];
     const d = lerp(prev.drawn ?? [0, 0, 0], cur.drawn ?? [0, 0, 0]);
+    // walk.ts `follow`: the drawn camera comes lifted by `d` and rechecked there (`PlayerCamera.view`'s `lift`).
+    const third = this.cam.view(a, d);
     const moved = d[0] !== 0 || d[1] !== 0 || d[2] !== 0;
     const offset = scopeViewOffset(cur.view, cur.sway);
     if (cur.view === 0) {
-      const eye: Vec3 = [third.eye[0] + d[0], third.eye[1] + d[1], third.eye[2] + d[2]];
-      const target: Vec3 = [third.target[0] + d[0], third.target[1] + d[1], third.target[2] + d[2]];
+      const eye: Vec3 = [third.eye[0], third.eye[1], third.eye[2]];
+      const target: Vec3 = [third.target[0], third.target[1], third.target[2]];
       const dx = target[0] - eye[0], dy = target[1] - eye[1], dz = target[2] - eye[2];
       return { eye, target, yaw: (Math.atan2(-dx, -dz) * 180) / Math.PI, pitch: (Math.atan2(dy, Math.hypot(dx, dz)) * 180) / Math.PI, near: null, head: false, offset };
     }
     const look = this.lookFrom === 'newest' ? cur : prev;
     const yaw = (look.yaw * Math.PI) / 180, pitch = (look.pitch * Math.PI) / 180;
-    const local = scopeEye(cur.stance, cur.root, this.cur.peek, proneEyeTerms(cur.floorNormalY));
+    const local = scopeEye(cur.stance, cur.root, this.cur.peek, proneEyeTerms(cur.floorNormalY, look.pitch));   // the page's (walk.ts), PRONE_EYE_LOOK
     const headAt = (feet: Vec3): Vec3 => headEye(GRID, feet, toWorld(feet, look.yaw, local));
     const ahead: Vec3 = [-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
     const simFeet = lerp(prev.feet, cur.feet);
@@ -147,16 +150,16 @@ function unevenTimes(until: number): number[] {
   for (let k = 0; out[out.length - 1]! < until; k++) out.push(out[out.length - 1]! + steps[k % steps.length]!);
   return out;
 }
-function drive(s: Script, times: readonly number[]): Map<number, PovPose | null> {
-  const rig = new PovCamera({ grid: GRID });
+function drive(s: Script, times: readonly number[], grid: Grid = GRID): Map<number, PovPose | null> {
+  const rig = new PovCamera({ grid });
   const out = new Map<number, PovPose | null>();
   for (const t of times) out.set(t, rig.frame(source(s), t, ASPECT));
   return out;
 }
 /** Asserts the rig is the owner's at every time; returns the longest pass hold seen (the wall's history in play). */
-function equalsOwner(s: Script, times: readonly number[]): number {
-  const owner = new Owner(s, times[0]!);
-  const got = drive(s, times);
+function equalsOwner(s: Script, times: readonly number[], grid: Grid = GRID): number {
+  const owner = new Owner(s, times[0]!, 'newest', grid);
+  const got = drive(s, times, grid);
   let hold = 0;
   for (const t of times) { same(got.get(t)!, owner.at(t)); hold = Math.max(hold, owner.cam.hold()); }
   return hold;
@@ -249,6 +252,12 @@ describe('PV-5a: the views from the head', () => {
   });
   it('prone in a scope on a slope (floorNormalY 0.8), leaning: the prone eye\'s tilt', () => {
     equalsOwner(circle(scoped(5, (n) => ({ stance: 'prone', root: rootY('prone'), floorNormalY: 0.8, peek: n > 20 ? 1 : 0 }))), unevenTimes(120));
+  });
+  it('LATER 1401: a watched camera does NOT take JUMP_OVERHEAD_CAMERA_ADAPTATION -- under a roof the drawn jump height lifts the frame as on the owner page, with no cap', () => {
+    // research 90 s10.1 and JUMP_OVERHEAD_CAMERA_ADAPTATION's label: watched cameras keep the original's frame (no overhead cap).
+    const roofed = world([poly('roof', 3, [-190, 22, -190, 190, 22, -190, 190, 22, 190, -190, 22, 190])]);
+    const jump = (n: number): Partial<PovBody> => ({ drawn: [0, n > 10 && n < 40 ? 3 * Math.sin((n - 10) / 10) : 0, 0] });
+    equalsOwner(circle(jump), unevenTimes(60), roofed);
   });
   it('a jump\'s drawn height (MISSION R8): lifts the head\'s eye and the third-person view alike', () => {
     const jump = (view: number) => (n: number): Partial<PovBody> => ({ view, drawn: [0, n > 10 && n < 40 ? 3 * Math.sin((n - 10) / 10) : 0, 0] });

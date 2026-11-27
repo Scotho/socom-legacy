@@ -9,8 +9,8 @@ import { roundLineTakes } from '../roundLineKeys';
  * The headset UX (SVC-22b, web sprint 20; research 226 §5): what the page says and does around the microphone, as the
  * original did around its headset, for the voice client (`./voiceClient`) and the talk input (`./talkInput`, held by
  * the taunts part, `../matchTaunts`, which makes one of these for both matches). The shared voice client owns the
- * local talk grant's cue (`VOICE_TALK_CUE_ADAPTATION`, research 170 §5.4); a busy press and a release remain silent in
- * this port (the original's reversed release beep is `VOICE_TALK_PCM_PLACEHOLDER`'s, unread by the page).
+ * local talk cue (TALK-CUE-PCM, research 170 §5.4): the original's, forward on the grant and reversed when the granted
+ * talk ends; a busy press and a release while still asking stay silent.
  *
  * - **The notice** (`VOICE_MIC_NOTICE_PLACEHOLDER.ask`; research 170 §6.4, H87 VOICE-MIC-NOTICE): one line of the page's
  *   own, drawn once a page, just before the first `getGameMicrophone()` call (the voice client's first talk press,

@@ -156,3 +156,19 @@ describe("RB-10: the Forge's matches mount with the player's settings (PS-2)", (
     match.close();
   });
 });
+
+// The owner's word (via the main controller, 2026-11-25): "Leave the Forge out". The glance's F3: the Play mount's own
+// close lets the graphics notice's hold go (`../../src/graphicsLost` `holdGraphicsRecoveryNotice`), so a dropped release
+// there turns this red; the lobby match beside it.
+describe("GRAPHICS-RECOVERY: the Forge's mounts let the notice's hold go at their close (the glance's F3)", () => {
+  for (const [name, start] of [["Play's match", async () => play()], ["the lobby's match", async () => lobby()]] as const) {
+    it(`${name}: held while mounted, released at the close`, async () => {
+      const { graphicsRecoveryNoticeHeld, resetGraphicsRecordForTest } = await import('../../src/graphicsLost');
+      resetGraphicsRecordForTest();
+      const match = await start();
+      expect(graphicsRecoveryNoticeHeld()).toBe(true);
+      match.close();
+      expect(graphicsRecoveryNoticeHeld()).toBe(false);
+    });
+  }
+});

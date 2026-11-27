@@ -72,6 +72,8 @@ export interface ForgeLobbyOptions {
   makeArmory?(deps: ArmoryDeps): ArmoryLike;
   /** The page's clock, ms; absent, `performance.now`. */
   now?(): number;
+  /** FN-1a fix round 2: the lobby's EQlimit for its ARMORY (`ForgeLobbyArmoryOptions.eqLimit`); absent, 0. */
+  eqLimit?(): number;
 }
 
 const D_PAD = { up: PAD_BUTTON.Up, down: PAD_BUTTON.Down, left: PAD_BUTTON.Left, right: PAD_BUTTON.Right } as const;
@@ -110,6 +112,7 @@ export function mountForgeLobby(host: HTMLElement, deps: ForgeLobbyDeps, o: Forg
     closed: () => { if (!gone) show('lobby'); },
     paint: o.paint ?? null,
     ...(o.makeArmory ? { make: o.makeArmory } : {}),
+    ...(o.eqLimit ? { eqLimit: o.eqLimit } : {}),
   });
 
   const openArmory = (): void => {
@@ -189,6 +192,7 @@ export function mountForgeLobby(host: HTMLElement, deps: ForgeLobbyDeps, o: Forg
     line: (text) => { view.notice(text); },
     typing: () => view.typing(),
     inArmory: () => armory.isOpen(),
+    seatName: (id) => deps.lobby()?.seats.find((s) => s.id === id)?.name ?? null,   // STREAMER-P1: Voice from others' friends & clan
     ...(o.voice ? { deps: o.voice } : {}),
   });
 

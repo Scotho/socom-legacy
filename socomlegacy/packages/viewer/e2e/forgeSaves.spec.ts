@@ -54,8 +54,11 @@ const field = (page: Page, label: string) => page.locator(`.fx-fields input[data
 
 async function place(page: Page, team: 'A' | 'B', x: string, y: string, z: string, yaw: string): Promise<void> {
   // OT.R112: the placing tools are on their own row with their labels shown at every width (`./forgeBase` `placingTool`).
+  // PR #5: the button spawns at the view's centre and selects the spawn, with Select left as the tool
+  // (test/forge/spawnAtOnce.test.ts). No click on the view follows: one there is a Select click, which on empty ground
+  // would let the spawn go before its fields are written. The spawn's own fields are waited for instead.
   await placingTool(page, team === 'A' ? 'Spawn SEAL' : 'Spawn Terrorist').click();
-  await page.locator('.fx-input').click();
+  await expect(field(page, MARKER_FIELDS[0]!)).toBeVisible();
   const values = [x, y, z, yaw];
   for (let i = 0; i < values.length; i++) {
     await field(page, MARKER_FIELDS[i]!).fill(values[i]!);
@@ -99,6 +102,10 @@ test('a named save survives a reload, and a share link opens the same markers', 
 
   await openSaves(page);                                                // FC2-4 (EDITOR-MAP T4): File > Saves...
   await page.locator('.fx-saves-list li', { hasText: 'Yard' }).getByRole('button', { name: 'Open' }).click();
+  // PR #5 (his bug 1, `../src/forge/page.ts` `saveFirstOrStay`): an open over work not saved as it is asks first. Spawn A
+  // moved to 1 since Yard was saved, so it asks; the moved marker is let go, as this spec means it to be.
+  const saveFirst = page.locator('.fx-modal .fx-card').filter({ has: page.locator('h2', { hasText: /^Save this layout first\?$/ }) });
+  await saveFirst.getByRole('button', { name: /^Don.t save$/ }).click();
   await expect(page.locator('.fx-toast')).toHaveText('Opened Yard');
   expect(await marker(page, 'Spawn A')).toBe('100,0,200,0');
   expect(await marker(page, 'Spawn B')).toBe('-50,0,80,90');

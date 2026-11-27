@@ -279,18 +279,38 @@ test.describe('the dual sticks and the buttons, landscape', () => {
     // How long the page saw each press (its pointerdown to its pointerup): the 100 ms tap is the harness's, and on a
     // loaded host the lift reached the page late enough to be a hold -- prone, rightly (the 2026-10-01 run). The rule is
     // judged on the press the page saw: under 0.2 s a tap, from the hold's 0.4 s a hold (`STANCE_HOLD_S_PLACEHOLDER`).
+    // LATER 1059's evidence (run 8 at 7c6ac98f23): per press, its events' times and when each was dispatched, and the
+    // page's frame gaps from the press to two frames after the lift -- a long frame before the lift's dispatch is the
+    // stall path (`./src/stanceButton` `TOUCH_STALL_FRAME_S_ADAPTATION`). Printed per press; no assertion reads it.
     await page.evaluate(() => {
-      const w = window as unknown as { __pressMs: number[] };
-      w.__pressMs = [];
-      let at = 0;
-      document.addEventListener('pointerdown', (e) => { if ((e.target as Element).closest?.('#tw-triangle')) at = e.timeStamp; }, true);
-      document.addEventListener('pointerup', (e) => { if (at) { w.__pressMs.push(e.timeStamp - at); at = 0; } }, true);
+      const w = window as unknown as { __pressMs: number[]; __pressLog: string[] };
+      w.__pressMs = []; w.__pressLog = [];
+      let at = 0, atDispatch = 0, upTs = 0, upDispatch = 0, after = -1;
+      let frames: number[] = [], last = performance.now();
+      const frame = (t: number): void => {
+        if (at || after >= 0) frames.push(Math.round(t - last));
+        last = t;
+        if (after >= 0 && ++after > 2) {
+          w.__pressLog.push(JSON.stringify({ down: Math.round(at), downLate: Math.round(atDispatch - at), up: Math.round(upTs), upLate: Math.round(upDispatch - upTs), pressMs: Math.round(upTs - at), frames }));
+          at = 0; after = -1; frames = [];
+        }
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+      document.addEventListener('pointerdown', (e) => { if ((e.target as Element).closest?.('#tw-triangle')) { at = e.timeStamp; atDispatch = performance.now(); frames = []; } }, true);
+      document.addEventListener('pointerup', (e) => { if (at && after < 0) { w.__pressMs.push(e.timeStamp - at); upTs = e.timeStamp; upDispatch = performance.now(); after = 0; } }, true);
     });
+    const pressLog = async (): Promise<void> => {
+      const lines = await page.evaluate(() => (window as unknown as { __pressLog: string[] }).__pressLog.splice(0));
+      for (const l of lines) console.log(`LATER-1059 triangle press ${l}`);
+    };
     const pressed = async (): Promise<number> => page.evaluate(() => (window as unknown as { __pressMs: number[] }).__pressMs.at(-1) ?? NaN);
     const tapped = async (want: string): Promise<void> => {
       await fingers.tap(1, '#tw-triangle', 100);
       await expect.poll(async () => Number.isFinite(await pressed())).toBe(true);
       const ms = await pressed();
+      await page.waitForTimeout(150);                 // two frames after the lift, for the press's log line
+      await pressLog();
       if (ms < 200) await expect.poll(stance).toBe(want);
       else if (ms >= 400) await expect.poll(stance).toBe('prone');
       else await expect.poll(async () => [want, 'prone'].includes(await stance())).toBe(true);
@@ -317,8 +337,20 @@ test.describe('the dual sticks and the buttons, landscape', () => {
     await fingers.tap(1, '#tw-r2', 60);
     await expect.poll(item, { timeout: 5000 }).not.toBe(rifle);
     await page.waitForTimeout(1500);
-    await fingers.tap(1, '#tw-r2', 60);
+    // The reopen, again until the menu reads open: the open has the take's change gate (`./src/inventoryMenu`
+    // `canChange` = `./src/matchThrow` `kitChangeGate`: no kit swap under way, `FUN_005a8cb0`), and a prone body's
+    // first swap still plays 1.5 s after it began -- `swapProne` (playback 1.8 s, `./src/mover` ACTION_CLIPS) runs
+    // about 1.70 s to `swapPlayedOut`, `swapStand` about 1.24 s. Box run box-wm-move-touch-bd0250ed7 (2026-11-15):
+    // the nine reds of twenty were the nine runs whose Triangle press the page saw past 0.4 s (prone, rightly): the
+    // reopen refused, Down on a shut menu, the next R2 an open on the pistol. A tap is read 300 ms on, so a slow
+    // frame's open is not shut by a second R2.
+    const menuOpen = (): Promise<boolean> => page.evaluate(() => window.__viewer.inventory().open);
+    await expect.poll(async () => {
+      if (!(await menuOpen())) { await fingers.tap(1, '#tw-r2', 60); await page.waitForTimeout(300); }
+      return menuOpen();
+    }, { timeout: 5000 }).toBe(true);
     await fingers.tap(1, '#tw-down', 60);
+    await expect.poll(() => page.evaluate(() => window.__viewer.inventory().slot)).toBe(0);
     await fingers.tap(1, '#tw-r2', 60);
     await expect.poll(item, { timeout: 5000 }).toBe(rifle);
     await fingers.tap(1, '#tw-r3');

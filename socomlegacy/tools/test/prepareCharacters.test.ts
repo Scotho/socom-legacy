@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -11,10 +11,18 @@ import { prepareCharacters } from '../prepareCharacters';
  * fixtures' four maps (`test-fixtures/RUN/MP2.ZDB`, `MP6`, `MP71`, `MP72`) stand for a disc tree -- and read back by the
  * page's own `inventoryFor` as the ISO path would have read them. MP71 (Fish Hook) joined the fixtures with DF-2 (DF.R5,
  * `docs/plans/2026-11-08-desert-glory-fish-hook.md`; 4eb69a297); the tool prepares every `RUN/MP*.ZDB` the tree holds.
+ * The maps expected are the committed `RUN/MP<n>.ZDB` entries of the fixtures' `MANIFEST.json`, in numeric order (the
+ * tool's own), so a map joining the fixtures joins here: MP11 did with LATER 1230 (363db65df7), which had left the list
+ * pinned at four and the test red.
  */
 const FIXTURES = resolve(import.meta.dirname, '../../test-fixtures');
-const MAPS = ['MP2', 'MP6', 'MP71', 'MP72'];
-const HAVE = MAPS.every((m) => existsSync(join(FIXTURES, 'RUN', `${m}.ZDB`)));
+// The public export does not carry test-fixtures (LATER 1607): with no MANIFEST.json there is no map to expect and the
+// test skips, said, rather than throwing on import; a manifest present with no committed map runs (and fails) as before
+const MANIFEST_FILE = join(FIXTURES, 'MANIFEST.json');
+const MANIFEST = (existsSync(MANIFEST_FILE) ? JSON.parse(readFileSync(MANIFEST_FILE, 'utf8')) : { files: [] }) as { files: { path: string; tier?: string }[] };
+const MAPS = MANIFEST.files.filter((f) => f.tier === 'committed' && /^RUN\/MP\d+\.ZDB$/.test(f.path))
+  .map((f) => f.path.slice('RUN/'.length, -'.ZDB'.length)).sort((a, b) => Number(a.slice(2)) - Number(b.slice(2)));
+const HAVE = existsSync(MANIFEST_FILE) && MAPS.every((m) => existsSync(join(FIXTURES, 'RUN', `${m}.ZDB`)));
 const out = mkdtempSync(join(tmpdir(), 's2u-characters-'));
 afterAll(() => { rmSync(out, { recursive: true, force: true }); });
 

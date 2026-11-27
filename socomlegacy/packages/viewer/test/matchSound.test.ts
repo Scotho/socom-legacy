@@ -1,16 +1,31 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PerspectiveCamera } from 'three';
 import { HELD_RIFLE, SEAL_TUNING } from '@s2u/scene';
 import { GameAudio, type AudioOut } from '../src/audio';
 import type { FireEvent } from '../src/fire';
 import { PART_DEPS } from '../src/matchNet';
-import { GRENADE_WARNING_LINE_READING, mountSound, silentOut } from '../src/matchSound';
+import { AI_VOCAL_ENTRY_LIFETIME_READING, AI_VOCAL_HEARING_RANGE_READING, AI_VOCAL_QUEUE_AT_SCREENS_READING, AI_VOCAL_UNKNOWN_LENGTH_PLACEHOLDER, GRENADE_WARNING_LINE_READING, mountSound, silentOut } from '../src/matchSound';
 import { MESSAGE_SCALE, type BannerLine } from '../src/hud';
 import { RingingEars } from '../src/ringingEars';
 import type { SoundData } from '../src/soundData';
+
+/**
+ * The floor probe under a step (`WalkSounds`' `probeFloor`): two stand-in grids -- the scene's (`SCENE_GRID`, material 17)
+ * and the page's own walker's (`OWN_GRID`, material 9); any other grid is the real probe's.
+ */
+const { SCENE_GRID, OWN_GRID } = vi.hoisted(() => ({ SCENE_GRID: { stub: 'scene' }, OWN_GRID: { stub: 'own' } }));
+vi.mock('@s2u/scene', async (original) => {
+  const real = await original<typeof import('@s2u/scene')>();
+  return {
+    ...real,
+    probeFloor: (grid: unknown, x: number, y: number, z: number) =>
+      grid === SCENE_GRID ? { poly: { material: 17 } } : grid === OWN_GRID ? { poly: { material: 9 } }
+        : real.probeFloor(grid as never, x, y, z),
+  };
+});
 
 /**
  * MATCH-SOUND (web research 222 §7): the match's sound, written once (`./matchSound` `mountSound`) and mounted by both
@@ -43,6 +58,41 @@ describe('mountSound: the match\'s sound, once for both pages', () => {
     const s = mountSound(p);
     s.remoteStep(4, { at: [5, 6, 7], stance: 1, stick: 0.5 } as never, [5, 6, 7]);
     expect(step).toHaveBeenCalledWith(0, [5, 6, 7], { stance: 1, stick: 0.5 });   // no grid: material 0
+  });
+
+  // The step's sound is the material at the STEPPING actor's own floor (`FUN_005a39b0` D:L460385-460434, the actor's
+  // +0x20c; research 81 §4 "Which"; byte 0 the map's DefaultMaterial, §7): another body's step and the ladder's landing
+  // are probed on the scene's grid whoever listens -- a dead or spectating page (fly mode, no walker grid) too (the
+  // owner's report on v0.4.22, 2026-11-14: a teammate's steps heard on the map's DefaultMaterial).
+  const offBody = () => {
+    const p = parts();
+    return { ...p, walk: { ...p.walk, mode: () => 'fly' as const, drawnFeet: () => null, grid: () => null, gridOfGround: () => SCENE_GRID as never } };
+  };
+  it("a dead or spectating page: another player's step is the material of its own floor on the scene's grid, not 0", () => {
+    const p = offBody();
+    const step = vi.spyOn(p.audio, 'onFootstep');
+    mountSound(p).remoteStep(4, { at: [5, 6, 7], stance: 0, stick: 1 } as never, [5, 6, 7]);
+    expect(step).toHaveBeenCalledWith(17, [5, 6, 7], { stance: 0, stick: 1 });
+  });
+
+  it("a dead or spectating page: the ladder's landing is the material of its floor on the scene's grid, not 0", () => {
+    const p = offBody();
+    const land = vi.spyOn(p.audio, 'onLand');
+    mountSound(p).ladderLand(3, [5, 6, 7]);
+    expect(land).toHaveBeenCalledWith(3, 17, [5, 6, 7]);
+  });
+
+  it("a walking page: the walker's own grid still decides another's step and the ladder's landing (unchanged)", () => {
+    const p = parts();
+    const q = { ...p, walk: { ...p.walk, grid: () => OWN_GRID as never, gridOfGround: () => SCENE_GRID as never } };
+    const step = vi.spyOn(q.audio, 'onFootstep'), land = vi.spyOn(q.audio, 'onLand');
+    const s = mountSound(q);
+    s.remoteStep(4, { at: [5, 6, 7], stance: 0, stick: 1 } as never, [5, 6, 7]);
+    s.ladderLand(3, [5, 6, 7]);
+    expect(step).toHaveBeenCalledWith(9, [5, 6, 7], { stance: 0, stick: 1 });
+    expect(land).toHaveBeenCalledWith(3, 9, [5, 6, 7]);
+    s.playEvent({ kind: 'footfall', foot: 'right' } as never);          // the page's own step: its walker's grid
+    expect(step).toHaveBeenLastCalledWith(9, [1, 2, 3], { stance: 0, stick: 0 });
   });
 
   it('the firearm\'s sound: the rounds to the walk\'s sounds, the effects through soundFor, the goggles\' cues, another\'s report', () => {
@@ -97,11 +147,11 @@ describe('mountSound: the match\'s sound, once for both pages', () => {
     expect(ring).toHaveBeenCalledWith(2, 0.35);
     expect(deps.roundAudio).toBe(s.roundAudio);
     expect(deps.objective()).toBeNull();                                 // no map's cues yet
-    const play = vi.spyOn(p.audio, 'play');
-    deps.escorteeVoice(9, 'yes', null);                                  // HX-4a: no body to hear it at -- none
+    const play = vi.spyOn(p.audio, 'play'), stream = vi.spyOn(p.audio, 'playStream');
+    deps.escorteeVoice(9, 'yes', null, 'mp_fem1');                       // HX-4a: no body to hear it at -- none
+    deps.escorteeVoice(9, 'yes', [4, 5, 6], 'mp_fem1');                  // R4P-254: no map's data, no escortee names a YES: none
     expect(play).not.toHaveBeenCalled();
-    deps.escorteeVoice(9, 'yes', [4, 5, 6]);                             // the escortee's YES at its body (^CO_0343, research 239 s7.1)
-    expect(play).toHaveBeenCalledWith('^CO_0343', [4, 5, 6], 'voice');
+    expect(stream).not.toHaveBeenCalled();
     s.dispose();
     ring.mockRestore();
   });
@@ -301,5 +351,136 @@ describe("mountSound: the grenade warning's line (NU-7 W1, research 325 §4)", (
     s.setData(data);
     expect(s.grenadeWarning({ id: 0x79, owner: 7, from: [0, 0, 0] })).toBe('^PS_0094');
     expect(streams).toEqual(['^PS_0094']);
+  });
+});
+
+/**
+ * R4P-254 ESCORTEE-YES (atlas r0004 queue row 68): the escortee's YES is its PLACED character's own `CHRSND_YES` (0x37,
+ * OnCommand `FUN_0058fbe0` D:L450379, D:L450531, D:L450537) -- `^CO_0284` for MP82's `mp_vip1-3` -- through the global
+ * one-voice AI vocal queue (`FUN_003428f0` -> `FUN_0034ced0` appends; `FUN_0034c650` drops an entry out of hearing,
+ * `FUN_0034d0b0` -> `FUN_00342670`'s RANGE volume 0, and plays the next). No entry for the character: silent, the null
+ * handle's nothing (`FUN_0053b710` D:L405264-405266).
+ */
+describe('R4P-254: the escortee YES, its own group through the one-voice AI vocal queue', () => {
+  const voices = (character: string, yes: string | null) =>
+    ({ character, damage: null, death: null, quiet: null, yes, no: null });
+  const data = {
+    escorteeVoices: [voices('mp_vip1', '^CO_0284'), voices('mp_fem1', '^CO_0343'), voices('mp_quiet', null)],
+    tacticalGroups: [{ name: '^CO_0284', dynamic: 0.05, members: [{ name: '^*CO_0284A', weight: 0 }] }],
+    params: [['^*CO_0284A', { range: [40, 200] }]],
+  } as unknown as SoundData;
+  const ORIGIN = { matrixWorld: { elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] }, position: { x: 0, y: 0, z: 0 } };
+  /** A mounted sound on `data`, its clock `t` (ms), each voice `seconds` long, the listener at the origin. */
+  function rig(seconds = 2) {
+    const clock = { t: 1_000, up: false };
+    vi.spyOn(performance, 'now').mockImplementation(() => clock.t);
+    const p = { ...parts(), screenUp: () => clock.up };
+    vi.spyOn(p.audio, 'setData').mockImplementation(() => undefined);
+    vi.spyOn(p.audio, 'hasStream').mockReturnValue(true);
+    const stream = vi.spyOn(p.audio, 'playStream').mockReturnValue('played');
+    vi.spyOn(p.audio, 'stats').mockReturnValue({ recent: [{ seconds }] } as never);
+    const s = mountSound(p);
+    s.setData(data);
+    const frame = (ms: number) => { clock.t = ms; s.frame(ORIGIN); };
+    frame(1_000);
+    return { deps: s.netDeps(), stream, frame, clock, s };
+  }
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('MP82: a FOLLOW or HOLD YES for mp_vip1 requests its own ^CO_0284 at the body, not the fixed ^CO_0343', () => {
+    const { deps, stream, frame } = rig();
+    deps.escorteeVoice(240, 'yes', [10, 0, 0], 'mp_vip1');                // FOLLOW
+    expect(stream).toHaveBeenLastCalledWith('^CO_0284', [10, 0, 0]);
+    frame(3_100);
+    deps.escorteeVoice(240, 'yes', [10, 0, 0], 'mp_vip1');                // HOLD
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(stream).toHaveBeenLastCalledWith('^CO_0284', [10, 0, 0]);
+  });
+
+  it('a map whose escortee carries another group plays that group; an escortee naming no YES, or no character, is silent', () => {
+    const { deps, stream, frame } = rig();
+    deps.escorteeVoice(240, 'yes', [0, 0, 5], 'mp_fem1');
+    expect(stream).toHaveBeenLastCalledWith('^CO_0343', [0, 0, 5]);
+    frame(3_100);
+    deps.escorteeVoice(241, 'yes', [0, 0, 5], 'mp_quiet');
+    deps.escorteeVoice(242, 'yes', [0, 0, 5], null);
+    deps.escorteeVoice(243, 'yes', [0, 0, 5], 'mp_nobody');
+    frame(9_000);
+    expect(stream).toHaveBeenCalledTimes(1);
+  });
+
+  it('two AI voices requested together play one after the other: the second when the first ends', () => {
+    const { deps, stream, frame } = rig();
+    deps.escorteeVoice(240, 'yes', [10, 0, 0], 'mp_vip1');
+    deps.escorteeVoice(241, 'yes', [0, 0, 5], 'mp_fem1');
+    expect(stream).toHaveBeenCalledTimes(1);
+    frame(2_900);                                                         // the first's 2 s not over
+    expect(stream).toHaveBeenCalledTimes(1);
+    frame(3_000);                                                         // it ends: the next starts
+    expect(stream).toHaveBeenCalledTimes(2);
+    expect(stream).toHaveBeenLastCalledWith('^CO_0343', [0, 0, 5]);
+  });
+
+  // Review F2: a group's handle is the plain constructor's (FUN_00345620: 160-430, D:L243411-243425) -- the queue hears a
+  // group by 160-430; the member's own 40-200 is the play's falloff only (FUN_00342b20).
+  it('an entry out of hearing when its turn comes is dropped (a group handle 160-430, AI_VOCAL_HEARING_RANGE_READING), and the next plays', () => {
+    expect(AI_VOCAL_HEARING_RANGE_READING).toBe('a group: 160-430; a sound: its own RANGE');
+    const { deps, stream, frame } = rig();
+    deps.escorteeVoice(240, 'yes', [0, 0, 5], 'mp_fem1');                 // plays at once
+    deps.escorteeVoice(241, 'yes', [500, 0, 0], 'mp_vip1');               // beyond 430 at its turn: dropped
+    deps.escorteeVoice(242, 'yes', [250, 0, 0], 'mp_vip1');               // past the member's 200, within the group's 430: heard
+    frame(3_000);
+    expect(stream.mock.calls).toEqual([['^CO_0343', [0, 0, 5]], ['^CO_0284', [250, 0, 0]]]);
+  });
+
+  // Review F1: PlayAt hands the queue 3.0 s (D:L405300) at the entry's +4; the tick takes the frame's time off every
+  // waiting entry, clamped at 0 (FUN_0034c920 D:L247548-247555); FUN_0034c650 drops a head entry at 0 before hearing.
+  it('an entry that has waited 3.0 s (AI_VOCAL_ENTRY_LIFETIME_READING) is dropped unplayed; one that waited less plays', () => {
+    expect(AI_VOCAL_ENTRY_LIFETIME_READING).toBe(3);
+    const { deps, stream, frame } = rig(3.5);                             // each voice 3.5 s: the waiting ones outlive 3.0
+    deps.escorteeVoice(240, 'yes', [0, 0, 5], 'mp_fem1');                 // plays at once
+    deps.escorteeVoice(241, 'yes', [10, 0, 0], 'mp_vip1');
+    deps.escorteeVoice(242, 'yes', [0, 0, 5], 'mp_fem1');
+    frame(2_000); frame(4_000);                                           // 3.0 s waited by t = 4.0
+    frame(4_600);                                                         // the first voice over: both are spent
+    expect(stream).toHaveBeenCalledTimes(1);
+    const late = rig(2.5);
+    late.deps.escorteeVoice(240, 'yes', [0, 0, 5], 'mp_fem1');
+    late.deps.escorteeVoice(241, 'yes', [10, 0, 0], 'mp_vip1');
+    late.frame(2_000); late.frame(3_600);                                 // 2.6 s waited: still in its life
+    expect(late.stream).toHaveBeenCalledTimes(2);
+  });
+
+  // Review F4: a replay seek resets the round's audio (`./matchActions` `followSeek` -> `roundAudio.reset`): the queue
+  // is emptied with it, so the re-watched span's YES lines do not burst after a backward seek.
+  it('a replay seek (roundAudio.reset) empties the queue: no burst after a backward seek, and the next YES plays at once', () => {
+    const { deps, stream, frame, s } = rig(2);
+    deps.escorteeVoice(240, 'yes', [0, 0, 5], 'mp_fem1');
+    deps.escorteeVoice(241, 'yes', [0, 0, 5], 'mp_fem1');
+    deps.escorteeVoice(242, 'yes', [0, 0, 5], 'mp_fem1');
+    s.roundAudio.reset();                                                 // the seek's call
+    frame(500); frame(3_100); frame(6_000);
+    expect(stream).toHaveBeenCalledTimes(1);
+    deps.escorteeVoice(243, 'yes', [0, 0, 5], 'mp_fem1');
+    expect(stream).toHaveBeenCalledTimes(2);
+  });
+
+  it("the screens' first frame empties the queue (AI_VOCAL_QUEUE_AT_SCREENS_READING), and none is asked under them", () => {
+    expect(AI_VOCAL_QUEUE_AT_SCREENS_READING).toBe('emptied');
+    const { deps, stream, frame, clock } = rig();
+    deps.escorteeVoice(240, 'yes', [0, 0, 5], 'mp_fem1');
+    deps.escorteeVoice(241, 'yes', [0, 0, 5], 'mp_fem1');
+    clock.up = true; frame(1_500);
+    deps.escorteeVoice(242, 'yes', [0, 0, 5], 'mp_fem1');
+    clock.up = false; frame(3_100);
+    expect(stream).toHaveBeenCalledTimes(1);
+  });
+
+  it('a voice whose length the page cannot know ends at once (AI_VOCAL_UNKNOWN_LENGTH_PLACEHOLDER)', () => {
+    expect(AI_VOCAL_UNKNOWN_LENGTH_PLACEHOLDER).toBe(0);
+    const { deps, stream } = rig(0);
+    deps.escorteeVoice(240, 'yes', [0, 0, 5], 'mp_fem1');
+    deps.escorteeVoice(241, 'yes', [0, 0, 5], 'mp_fem1');
+    expect(stream).toHaveBeenCalledTimes(2);
   });
 });

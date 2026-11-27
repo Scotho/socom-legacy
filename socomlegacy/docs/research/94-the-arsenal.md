@@ -97,7 +97,7 @@ the `player_team` valve, A3).
 | per map per side | 22 maps: SEALs 28-35 items, Terrorists 27-37 (A4 table); Frostfire 29/28, Blizzard 34/30 (matches the prep) | `scope-out.md` |
 | kits | 176 types (22 maps x 8) resolved through `character.rdr`; **identical to research 91 section 14** (`cmp91.py`: 0 diffs). Kits are not checked against the valves: MP6 SEAL 4 and MP7 SEAL 2 spawn with the 226 (Terrorist-only on those maps); BREACH SEALs spawn with the locked C4 | A4 |
 | duplicates | in-game: 2X, thermal scope, PMN, claymore, LAW, RPG-7, LAW HEAT may sit in only one slot; grenades, C4, launcher rounds and the RPG round may repeat -- r0001's; r0004 adds C4 to the list (r4 0x2d2280), superseding it for the port (OT.R97; R4B-06, research 378 §2) | `FUN_0023c390` L87444-87466 |
-| SlotCost | 2 on LAW (145), RPG-7 (146), Satchel (152); default 1 (parser L322610-322614, record `+0x27c`). A cost-2 pick fills a second equipment slot with LAW HEAT 185 / RPG round 186 / FULL_SLOT 254 | `FUN_0023fef0` L89160-89200 |
+| SlotCost | 2 on LAW (145), RPG-7 (146), Satchel (152); default 1 (parser L322610-322614, record `+0x27c`). A cost-2 pick fills a second equipment slot with LAW HEAT 185 / RPG round 186 / FULL_SLOT 254: the LAST empty (0xff) slot of 2..4 other than the pick's, else the next (4 wraps to 2) -- ARSENAL-PARTNER 2026-11-23, reading (re-read by a fresh review; the port took the next always); r0004's twin at 0x240010, its walk 0x240064-0x2400c4 word-identical to r0001's. The ARMORY's own partner rule (`FUN_00282f20` via `FUN_00282eb0`) takes the FIRST empty slot instead: research 95's `ARMORY_RULES_READING` | `FUN_0023fef0` L89160-89200 (the walk D:L89167-89184) |
 | launcher side effects | an M203 rifle puts M203 (141, locked) in kit slot 2 and M203 FRAG (175) in slot 3; M79 -> GL FRAG (179) in slot 2; MGL -> M203 FRAG (175) in slot 2; F2000 -> F2000 FRAG (183) in slot 2; the displaced ids are kept in `+0x1530/+0x1531` and restored when the launcher goes | `FUN_0023fef0` L89200-89320; `FUN_0023eca0` L88610-89136 |
 | thermal scope | selectable only while a sniper rifle sits in another slot; dropping the sniper replaces it (in-game); armory: only with a sniper primary | L87400-87414; L88823-88840; `FUN_00280e90` L127740-127748 (A5) |
 | locked slots (armory) | `UIDoAllSelCharsHaveLockedEquip1/2/3` = `j FUN_002815d0` with 0/1/2 (kit slots 2/3/4); a slot is locked if it holds M203 141, LAW HEAT 185, FULL_SLOT 254, an RPG round with no second one, or an item whose valve has 16 or 32 | recomp `UIDoAllSelCharsHaveLockedEquip*_0x28103*.cpp`; L128000-128010 |
@@ -621,7 +621,7 @@ type. The seven `newweapnbkrnd.tif` loaders in the brief are all *other* HUD par
 
 | question | answer | source |
 |---|---|---|
-| Is `CInGameWeaponSel` the menu? | **No.** Vestigial in SOCOM II: vtable 0x405150 overrides only the dtor; its +0x34 tick is `FUN_001fe320` = `jr ra`; open state `+0x1128` is written only by ctor/Init (0) and UnInit (6, 7 inside `if (+0x1128 != 0)`); its textures `weapon_selection.tif`, `hud_weapon_selected_on.tif`, `reticuletex.tif`, `hud_arrow_off.tif` are absent from MP2's HUD libraries | vtable read from ELF 0x405150; `recomp/retail/output/FUN_001fe320_0x1fe320.cpp`; `FUN_00227960` L77704; `FUN_00227ad0` L77747; probe `b-tex.ts` |
+| Is `CInGameWeaponSel` the menu? | **No.** Vestigial in SOCOM II: vtable 0x405150 overrides only the dtor; its +0x34 is `C2D::SetTrans` `FUN_001fe320` = `jr ra`, the tick the next slot, `C2D::Tick` 0x1fe330, also an empty `jr ra` (the slot order from the matched source, not checked here); open state `+0x1128` is written only by ctor/Init (0) and UnInit (6, 7 inside `if (+0x1128 != 0)`); its textures `weapon_selection.tif`, `hud_weapon_selected_on.tif`, `reticuletex.tif`, `hud_arrow_off.tif` are absent from MP2's HUD libraries | vtable read from ELF 0x405150; `recomp/retail/output/FUN_001fe320_0x1fe320.cpp`; `FUN_00227960` L77704; `FUN_00227ad0` L77747; probe `b-tex.ts` |
 | What is the menu? | The block at `CHUD+0x38e0`: ctor `FUN_00241a90` L89842, Init `FUN_00240e60` L89585 (online only, called L57439), tick `FUN_00240600` L89343, state change `FUN_00240b90` L89503, UnInit `FUN_00240d50` L89553; sub-objects `SlotList` (vtbl 0x405e80), `SelectedSlot` (0x405d00, base `CWeaponSlot` 0x405e00), `CategorySlot` (0x405d80) | RTTI names read through vtable word 0 -> RTTI -> name (ELF) |
 | Its title | "WEAPON EXCHANGE" (0x3e6cb0) | `FUN_0023e030` L88293 |
 | When it opens | Online match, local player **not alive** (`+0xe1` bit 4 clear), camera on **himself** (`DAT_00415ff0+0xbc` == local), not a spectator (`FUN_002c2fa0()==0`), HUD mode `controller+0x221` < 2, a local pad (`DAT_0044f108`), press of `Inventory` | `FUN_001f7ff0` L56648-56661; `FUN_00240600` L89369-89374 |
@@ -895,7 +895,7 @@ The `.rodata` constants (0x3dcd80-0x3dcef0, floats in 8-byte slots):
 | `FUN_00205e00` | L62554 (0x3e3ea0) | the single-player tactical map / objectives screen ("TACTICAL MAP", "OBJECTIVES" at 0x3e3eb8/0x3e3ed8) |
 | `FUN_0021cd40` | L73047 | `CWeaponSel`, the alive R2 inventory (`CHUD+0x1a50`) |
 | `FUN_00221070` | L74780 | `CTeamNames` (research 87 §1.19, single player) |
-| `FUN_0022ac30` | L79198 | the scoreboard's GAME DETAILS panel (research 87) |
+| `FUN_0022ac30` | L79198 | `SetupSpectatorBox`: the scoreboard's SPECTATORS box and its 8 name slots (D:L79198-79218); the GAME DETAILS heading is `hudTurnOnScorePopup` `FUN_0022cc10`'s (D:L80013), its lines `hudTickScorePopup` `FUN_0022be20`'s |
 | `FUN_0022ae90` | L79243-79269 | the scoreboard's nine-slice (research 87) |
 | `FUN_0022cc10` | L80005 | the scoreboard builder on Select (research 87 L253, 91 L309) |
 | not in the brief | -- | `FUN_00237fc0` L85413 = the ammo box (research 87 §1.1); `FUN_002388a0` L85634 = `CHUD+0x17b70` (online) [inferred: the info box strip]; `FUN_002b6fc0` L158242 = the message windows; `FUN_00242bb0` L90396 = `CSpectatorInfo` |
@@ -1334,7 +1334,8 @@ equipment slot of the default kits -- no default kit on the 22 maps carries one 
 #### C4.2 Selecting the round: a fire mode
 
 `kit+0x6fc[slot]` is the slot's mode byte. `FUN_005c6600(kit, slot, mode)` (L479603-479660): if the slot holds a carrier
-(`FUN_003c5d80`: IDs 52, 61, 63, 142, 143, or class 145-150) and the mode is > 3, the slot **redirects** to the kit slot
+(`FUN_003c5d80`: five IDs, 52, 61, 63, 142, 143, else class 145, to which the item IDs 145-150 all map;
+D:L317287-317300, D:L324331-324354) and the mode is > 3, the slot **redirects** to the kit slot
 whose item ID equals the mode and still holds rounds. Everything that fires, reloads or draws the HUD goes through it
 (`FUN_005c3740`, `FUN_005c3780`, `FUN_005c6920`). The switch (`FUN_005c4600` L478555-478650): mode + 1; past
 `MaxFireMode` on a carrier `FUN_005c4480`/`FUN_005c3ee0` pick the next round ID the kit holds (0 when none -> wrap to
@@ -1472,8 +1473,8 @@ the gameplay seat to read again; nothing here changes it.
 - **Placing** (`FUN_005be9a0`, class -0x69, L475378-475470): the body's current action object (`body+0x3dc`) must expose
   an interface (`+0x94`) that accepts the kit (`vtable +0x10(kit+0x8a0)`) -- a **C4 target** (`C4_TARGET_READING`: which
   map objects -- the `c4` valve's 16 on MP61/62/73 suggests the Breach objectives); a ray from the head node
-  (`+0x2e8`) must land (`FUN_005aa6d0`), `body+0x208 < 396` and `+0xe84 == 0` (not moving) (`C4_REACH_READING`: what
-  `+0x208` measures). Then the action 0x3e plays, `kit+0x87c` = 99.0 driven by the action's callback (`LAB_005bfe40`,
+  (`+0x2e8`) must land (`FUN_005aa6d0`), `body+0x208 < 396` and `+0xe84 == 0` (not moving) (`+0x208` the squared distance
+  from `skel_root` to the aimed point: the 396 proven on r0004, ported as one hip gate, research 440 s8, LATER 1139). Then the action 0x3e plays, `kit+0x87c` = 99.0 driven by the action's callback (`LAB_005bfe40`,
   rate 0.45) -- `C4_PLANT_TIME_READING`. Otherwise the kit switches back to the previous slot.
 - **Setting** (`FUN_005c1970` D:L476979-476985): at the end the charge is put at the ray's point on the target
   (`FUN_005bc730(..., target, target)` attaches it to the target's frame, L473981-473987), refused on an
@@ -1565,6 +1566,30 @@ launcher's or its rocket's (class 0x91 / 0xb9, C0 row 16; ARMING-GREY 2026-10-17
   four, which `FUN_003b7170` treats as off; the starlight's has no `SCALE_COLOR`. `viewer/src/lensFx.ts` and
   `nightVision.ts` port the rows; the two other commands stay the reading. The `scope`/`thermal_scope` nodes are on the
   M82A1A, M40A1, M87ELR and both SR-25s (`stoner_sr25`), not on the Dragunov (`test/sights.test.ts`, MP2).
+- **The view's gate on r0004, the specification (R4P-110; reading, pending review, a non-author decode of r0004's
+  ELF by address, 2026-11-23).** The lens function is at the same address and asks its gate at the same call site
+  (0x1f0e90, no entity), now `0x547e50`; with no entity it answers 1 only when the kit holds 0xc3 (`0x5cfe00`, the
+  twin of `FUN_005c86f0`, 0x547e70) **and** the low byte of `0x5cf750(kit)` is 0x65, the sniper class (0x547e80-
+  0x547e90). `0x5cf750` is word for word r0001's `FUN_005c8040` (D:L480686-480696), the hand's class: the item at the
+  kit's hand slot (index `kit+0x824`, item `kit+0xe4+4*index`), its class through the table 0x3f3cb0 (ids 101-120
+  answer 0x65), an empty slot 0xfe. `kit+0x824`'s player-driven writer is the weapon switch, at the press (r0004
+  0x5cc314, the twin of r0001's write at 0x5c4cc4 in `FUN_005c4b10`, D:L478842): the lens follows the slot from the
+  switch's write, not the raise's end. r0004's other writers of it (the non-author review's store scan, 2026-11-23):
+  select-by-id 0x5d0130 (r0001 `FUN_005c8a20`; the remote copy's apply, the plant flows), the slot removal's reset to 0
+  (0x5c0550, 0x5c0bc0), the kit's reset (0x5cf9a4, to 0), and a compaction helper new in r0004 (0x5c0170, its store
+  0x5c0224; no r0001 twin found) that moves the index down with its item; a query (0x5cb0d4/0x5cb0f8) restores it. None
+  of them changes the lens in a state the review read (the raise of an item, a launcher or a turret goes to that item's
+  slot, and an emptied or removed hand slot leaves no scope state).
+  **r0001 differs**: its `FUN_005433c0` (0x5433d8-0x5433ec) is the kit alone, as the bullet above reads it. The turret
+  branch (an entity given) is the same in both. Proven on r0004 by Q110-PC2 (4/4, `agent/spc-atlas` fb3d463de1): the
+  M40A1 scoped at 6.0 and 12.0 thermal, the Mark 23 at the binoculars (9.0) normal -- an outcome both readings give;
+  the capture leg IQ-118 (a picked-up M4A1 scoped with 195 in the kit; r0004 as read predicts the normal lens) is
+  queued to settle the split. The port: `viewer/src/sights.ts` `thermalLensFitted(loadout, handItemId)` (`thermalFitted`
+  and `itemClass` of the hand slot's id 'sniper'), fed by `matchFirearm.ts`'s `handSlotItem` for the page's own view
+  and the subject's item in hand (`BodyState.hand`, else `weapon`) for a watched one (`povLens.ts` `thermal`);
+  `test/thermalSniper.test.ts`, and on the page's path (the lens drawn, through `handSlotItem`)
+  `test/thermalSniperPage.test.ts`. The node swap (`FUN_005b82e0`: the kit's first primary, `scopeNodeVisible` asks
+  the weapon passed) is not this change.
 - **2X** (194): C0 row 24. `magazinesCarried` in the viewer already models it (research 84 §18).
 - **Their slots are never taken up** (read in M7): the slot gate `FUN_005bdc30` (L474604-474660) refuses 0xc3 and 0xc2,
   so neither the number keys, R2 nor L1/L2 put either in the hand; both act from the kit (the node swap, the lens, the
@@ -1716,7 +1741,7 @@ IgnoreExplosionDI; `LAW HEAT Ammo` and `RPG Ammo` AccelerationFactor 98 (default
 | `EXPLODE_ON_IMPACT_READING` (*note only*) | the branch after the arming test in `FUN_003c8920` (impact detonation of rounds past 10 m) read line by line | L319462-319560 skimmed only |
 | `BACKBLAST_ORIGIN_READING` (in code: M2/M7) | whether the backblast spawns at the muzzle or the 9-u point `FUN_003d2d70` computes | L325560-325575 (the computed point is not in the call's arguments as decompiled); built as the muzzle (`backblastLaunch`) |
 | `C4_TARGET_READING` (was in code, M7: `viewer/src/equipment.ts` `c4Targets`; reading: `actions.rdr`'s type-less actions, at their `range` or the default 32 u -- see §C5.1's M7 note) | which map objects are C4 targets (`body+0x3dc` with a `+0x94` interface accepting the kit) | retired 2026-10-05 (web sprint 26 SUP-03): the target is the zAnim destructible whose block `FUN_002740e0` hangs on the node (MAP-06 decoded `Anim_Health`, research 209 s13), accepted by `FUN_002739b0` (`SceneHealth.c4TargetAt`); research 210 s8 |
-| `C4_REACH_READING` (in code since web sprint 26 SUP-03: `viewer/src/equipment.ts`; reading: the action object's default reach, 32 u along the ground, from the struck point on the page and in the room since PF-13) | what `body+0x208 < 396` measures in the C4 plant test | L475402-475404; research 202 s2.1 reads it as the squared distance from `skel_root` to the aimed point (19.9 u), owed a capture (research 206 A30); research 210 s8.1 |
+| `C4_REACH_READING` (retired 2026-11-18 by LATER 1139: `C4_HIP_REACH_SQ` 396 proven, `C4_HIP_POINT_READING`, research 440 s8; was in code since web sprint 26 SUP-03: `viewer/src/equipment.ts`; reading: the action object's default reach, 32 u along the ground, from the struck point on the page and in the room since PF-13) | what `body+0x208 < 396` measures in the C4 plant test | L475402-475404; research 202 s2.1 reads it as the squared distance from `skel_root` to the aimed point (19.9 u), owed a capture (research 206 A30); research 210 s8.1 |
 | `C4_PLANT_TIME_READING` (was in code, M7: `viewer/src/equipment.ts`; reading: the claymore's `placeSeconds`, 1.3 s) | how long the plant takes (`kit+0x87c` = 99.0 driven by the action callback `LAB_005bfe40`, rate 0.45) | retired 2026-10-05 (web sprint 26 PF-13): action 0x3e `Put on wall` puts the charge down at phase 0.45 of `seal_put_onwall` -- 0.45 x 2.5 x 41/42 = 1.098 s (`C4_PLANT_SECONDS`; research 181 s2.5, 210 s9) |
 | `C4_SURFACE_READING` (*note only*) | the sense of `FUN_00198f18(material, "INVISIBLE_DI")` in the C4 set-down (refuse on, or require) | resolved 2026-10-05 (web sprint 26 PF-13): refuse on the exact name, none required (`005c1970` D:L476975-476977, research 194 s7 A10; `C4_REFUSED_MATERIAL`, research 210 s9) |
 | `IGNORE_EXPLOSION_DI_READING` (in code since web sprint 30 PF-35: `scene/src/projectile.ts`; the room's `blast`, `sceneBlast`) | what projectile `+5 & 2` (C4's IgnoreExplosionDI) changes in the blast | resolved 2026-10-06 (web sprint 30 PF-35): set L320755-320756; read by two consumers, `FUN_005a0e70` D:L459192-459193 (the actor's queued ray, its veto skipped) and `FUN_003c80e0` D:L319096-319143 (the world target's material loop, skipped) -- research 194 s7 A11, research 235 s1-s2 |

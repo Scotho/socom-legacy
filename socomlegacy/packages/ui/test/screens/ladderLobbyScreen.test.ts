@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { setOwnNameDisplay } from '../../src/text/ownNameDisplay';
 import { DIALOG_EVENTS } from '../../src/dialog';
 import { UiCommandHost, UI_COMMAND_TABLE, uiCommandRowByName } from '../../src/uiCommands';
 import { UiVarManager, type UiVarValue } from '../../src/uiVars';
@@ -298,6 +299,34 @@ describe('GetPlayerInfo and PLAYER INFO (FUN_00279b50 -> FUN_002efe50, the page 
     arr(str('TOTAL # OF GAMES:'), str('12')), arr(str('ROUNDS WON:'), str('7')), arr(str('ROUNDS LOST:'), str('3')),
     arr(str(' '), str(' ')), arr(str(' '), str(' ')), arr(str(' '), str(' ')), arr(str('HOMETOWN:'), str('Norfolk')),
   ];
+
+  it('IQ-183 (a browser adaptation, ownNameDisplay): PLAYER INFO on the own account (case-blind) draws its name by the page’s rule in PLAYER_INFO_NAME_VAR, the tag kept; PLAYER_INFO_CHAT_NAME_VAR (the MESSAGE whisper’s recipient) keeps the name; another account unchanged', async () => {
+    const { b, r } = await opened({ connectStatus: 2, lobbyWorldId: 4, gameWorldId: -1, lobbyName: 'Alpha', gameName: '' });
+    await flush();
+    const stats = (await b.service.playerInfo({ accountId: 1016 })).stats;      // p16's record: tag SEAL
+    setOwnNameDisplay(() => 'YOU');
+    try {
+      r.c.playerInfoReply({ status: 0, accountName: 'SoComC', playerStatus: 0, stats }, PLAYER_INFO_ORIGIN.ladder);
+      expect([r.value(PLAYER_INFO_NAME_VAR), r.value(PLAYER_INFO_CHAT_NAME_VAR)]).toEqual([str('#C\x80\x40\x20[SEAL] #C\x53\x48\x24YOU'), str('SoComC')]);
+      r.c.playerInfoReply({ status: 0, accountName: 'p16', playerStatus: 0, stats }, PLAYER_INFO_ORIGIN.ladder);
+      expect([r.value(PLAYER_INFO_NAME_VAR), r.value(PLAYER_INFO_CHAT_NAME_VAR)]).toEqual([str('#C\x80\x40\x20[SEAL] #C\x53\x48\x24p16'), str('p16')]);
+      setOwnNameDisplay(null);
+      r.c.playerInfoReply({ status: 0, accountName: 'socomc', playerStatus: 0, stats }, PLAYER_INFO_ORIGIN.ladder);
+      expect(r.value(PLAYER_INFO_NAME_VAR)).toEqual(str('#C\x80\x40\x20[SEAL] #C\x53\x48\x24socomc'));
+    } finally { setOwnNameDisplay(null); }
+  });
+  it('IQ-183 (the widening review’s F1): with no session account, the own name is PLAYERNAMEVAR’s (myName’s fallback) -- PLAYER INFO on it still draws the rule’s text', async () => {
+    const b = board({ size: 30, me: 18, fields: { 16: FULL }, online: {} });
+    const stats = (await b.service.playerInfo({ accountId: 1016 })).stats;
+    const uiVars = new UiVarManager(), valves = new ValveStore();
+    const c = new LadderLobbyCommands({ uiVars, valves: () => valves, service: b.service, event: () => {}, accountName: () => null });
+    uiVars.set(uiVars.add('PLAYERNAMEVAR', null, 1), str('socomc'));
+    setOwnNameDisplay(() => 'YOU');
+    try {
+      c.playerInfoReply({ status: 0, accountName: 'SOCOMC', playerStatus: 0, stats }, PLAYER_INFO_ORIGIN.ladder);
+      expect([uiVars.find(PLAYER_INFO_NAME_VAR)?.value, uiVars.find(PLAYER_INFO_CHAT_NAME_VAR)?.value]).toEqual([str('#C\x80\x40\x20[SEAL] #C\x53\x48\x24YOU'), str('SOCOMC')]);
+    } finally { setOwnNameDisplay(null); }
+  });
 
   it('from the ladder: "Retrieving Player Info", the row\'s key asked as the account id (SVC-15, FUN_002efe50 D:L191699); the reply\'s three lists in V11\'s order with the row\'s position, its online state and TOTAL PLAYING TIME', async () => {
     const room: LadderOnlineState = { connectStatus: 2, lobbyWorldId: 4, gameWorldId: -1, lobbyName: 'Alpha', gameName: '' };

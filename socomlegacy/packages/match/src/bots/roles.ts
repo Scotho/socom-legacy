@@ -1,6 +1,7 @@
 import { GAME_FRAME_DT, itemClass, type WeaponRecord } from '@s2u/scene';
 import { fireFrames, roundsPerPull } from '../../../viewer/src/accuracy';
 import { TICK_HZ } from '../../../viewer/src/net/protocol';
+import { lockFrames } from '../../../viewer/src/net/fireGate';
 
 export type BotRole = 'support' | 'rusher' | 'marksman';
 /** OT.R81 (BTL.R3): the port's invention, no original value -- a bot decision, not an unknown of the game's. Authored optional CPU preferences, not recovered campaign AI or weapon parameters. */
@@ -64,7 +65,7 @@ export function chooseBotWeapon(primaryClass: string, current: 0 | 1, distance: 
 
 /**
  * OBF-19 (reading, pending review): the game frames a bot's round waits in `mode` -- the console's kit timer
- * (`../../../viewer/src/accuracy` `fireFrames`: `FireWait`, x 0.8 in burst and automatic, run down a game frame at a time
+ * (`../../../viewer/src/accuracy` `fireFrames`: `FireWait` x 1.2 in single (r0004 0x5c76f0; r0001 `FUN_005c09f0` unscaled), x 0.8 in burst and automatic, run down a game frame at a time
  * and clamped at 0, so a whole number of frames) plus the bolt's or the pump's `ReloadDelayAfterShot` in frames.
  * LATER 588 (c) (reading, pending review): the lock's timer `kit+0x820` runs down while non-zero and ends on the frame it
  * goes below 0, every frame of it skipping the fire branch (`bVar11 = false`, `FUN_005c0fd0` D:L476550-476562), and the
@@ -75,14 +76,8 @@ export function chooseBotWeapon(primaryClass: string, current: 0 | 1, distance: 
  * M16A2, F2000, SA-80 and Aug in burst or automatic: 12 against 9.99; `match/test/fireRateParity.test.ts`).
  */
 export function botFireFrames(record: WeaponRecord, mode: number): number {
-  const lock = record.reloadDelayAfterShot ?? 0;
-  let lockFrames = 0;
-  if (lock > 0) {
-    const f = Math.fround, dt = f(GAME_FRAME_DT);
-    let left = f(lock);
-    do { left = f(left - dt); lockFrames++; } while (!(left < 0));
-  }
-  return fireFrames(record.fireWait, mode) + lockFrames;   // LATER 588 (c): added (D:L476550-476562, D:L476643-476647)
+  // LATER 588 (c): added (D:L476550-476562, D:L476643-476647); the lock's float32 loop is `fireGate` `lockFrames` (LATER 1365)
+  return fireFrames(record.fireWait, mode) + lockFrames(record.reloadDelayAfterShot ?? 0);
 }
 
 /** Game frames as room ticks (fractional): `frames` x GAME_FRAME_DT x TICK_HZ (3 frames: 6.006 ticks). */

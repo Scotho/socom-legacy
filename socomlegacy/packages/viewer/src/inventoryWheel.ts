@@ -1,7 +1,7 @@
 import type { InventoryKit } from './inventoryMenu';
 
 /**
- * The mouse wheel on the kit (the owner, 2026-11-16: "use the scroll wheel to cycle between the inventory when it is both
+ * The mouse wheel on the kit (the Forge's owner (crispy, OT.R112), 2026-11-16: "use the scroll wheel to cycle between the inventory when it is both
  * closed and open"; a browser adaptation -- the original reads a pad, whose R2 menu steps on the d-pad): with the R2
  * inventory open, a notch steps its highlight (down the list for a wheel turned toward the player, as the d-pad's Down);
  * closed, a notch takes up the next slot the kit can take (`InventoryKit.takeable`), round the kit, as a PC shooter's

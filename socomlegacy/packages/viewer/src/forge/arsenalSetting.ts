@@ -18,8 +18,13 @@ import type { ArsenalPick, ArsenalSetting } from './layout';
  *   menu would refuse a pick on keeps its own kit, and the refusal is named.
  *
  * What reads the result: the page's room (`./match` `startForgeMatch`'s `kits`, the room's `typeKit` and its pick
- * replay), the lobby's ARMORY (`./match` `lobbyArmoryData`), and CREATE GAME's EQlimit over it (`../equipmentLimit`,
- * whose rewrite runs over the map's valves as `SetMPWeaponValves` runs over the mission's -- research 362).
+ * replay), the lobby's ARMORY (`./match` `lobbyArmoryData` / `lobbyArmoryOver`: since FN-1a's fix round 2 both the
+ * valves and each type's kit, by the roster's type index -- the kits the room's `typeKit` reads), and CREATE GAME's EQlimit
+ * over it (`../equipmentLimit`, whose rewrite runs over the map's valves as `SetMPWeaponValves` runs over the mission's --
+ * research 362; in the lobby's ARMORY the lobby's own EQlimit, `./lobby/lobbyArmory` `eqLimit`). FN-1a: the
+ * match server's Forge lobby room lays the layout's arsenal over its base's kits through `arsenalWith` too
+ * (`match/src/forgeSimMap.ts` `forgeRoomKits`, called by `MatchServer.makeForgeRoom`), so its kits are this page's
+ * (research 424).
  *
  * Not modelled: a kit that carries an item its side may not pick (the disc's MP61 / MP62 / MP73 SEALs' locked C4 at
  * `Enable_c4` 16; MP6 SEAL 4's Terrorist-only 226). The picks are the menu's, so they need the side's bit; the editor's

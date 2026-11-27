@@ -100,7 +100,11 @@ XR-05 / PF-14 own it). The page joins the seat's counters to its scoreboard row 
 
 | name | stands for | why a reading | status |
 |---|---|---|---|
-| `HIT_COUNT_READING` (`match/src/room.ts` `countShot`) | which event counts a shot (+0x54c, round +0x594) and a hit (+0x548, round +0x590) | 179 cites only the ratio's writer (D:L76064-76069), not the counters'. The controller's ruling PF.R20: a shot is one `fire` the room takes and resolves (a shotgun's shell once), a launched round once, a rocket once; a hit one whose ray met a living player's body the room did not refuse -- an enemy's, friendly fire being off (W3.R11), within reach -- once a shell, or a launched round's or rocket's direct hit on one, once a flight; a blast neither | open: the writers of round +0x590 / +0x594 (`FUN_005be9a0` / `FUN_005abbc0` neighbourhood), a static read |
+| `HIT_COUNT_READING` (`match/src/room.ts` `countShot`) | which event counts a shot (+0x54c, round +0x594) and a hit (+0x548, round +0x590) | 179 cites only the ratio's writer (D:L76064-76069), not the counters'. The controller's ruling PF.R20: a shot is one `fire` the room takes and resolves (a shotgun's shell once), a launched round once, a rocket once; a hit one whose ray met a living player's body the room did not refuse -- an enemy's, friendly fire being off (W3.R11), within reach -- once a shell, or a launched round's or rocket's direct hit on one, once a flight; a blast neither | writers traced 2026-11-24 (§9; reading, pending review): Hit `FUN_005458a0`, Shot `FUN_00544fc0`; the hit filtered by class (`HIT_STAT_CLASSES_READING`, built); the shot's own filter `SHOT_STAT_CLASSES_READING` held for the controller's ruling on PF.R20; still open: what refuses a same-side hit upstream of r0004 0x5ab5f0 |
+| `HIT_STAT_CLASSES_READING` (`scene/src/arsenal.ts` `countsHit`; `match/src/room.ts` `directHit`) | the item classes whose projectile counts no hit: the thrown items (121-140, 0x79) and the launched rounds (171-184, 0xab) | r0004 `0x3f2670` on the projectile's own record, before Hit and WasHit at 0x5ab858, 0x5a7c2c, 0x5a7774 (§9); a listing of r0004, one reader | reading, pending review (R4P-105); owed: a capture of an M203 direct hit's stats (YOUR STATS' hit percentage) |
+| `SHOT_STAT_CLASSES_READING` | the item classes whose release counts no shot: 0xab, 0xb9, 0x79, 0x97, 0xbe, 0xe6 | r0004 `0x3f4070` = `FUN_003d1e20` D:L324468-324485, before Shot in the fire function (§9) | *note only* -- not built: the port counts a launched round, a rocket and the MGL turret's round a shot (PF.R20), held for the controller's ruling |
+| `HIT_STATS_RECEIVER_READING` | whether a receiving console's count (0x5a7660: a shotgun's hit only) is the one a results screen or the stats upload reads | which console's block is read online is not traced (§9) | *note only* -- not built; owed: the readers of the round block online (`FUN_002be150`'s neighbourhood) |
+| `ROCKET_BLAST_HIT_READING` | whether a rocket's blast counts a hit | whether radius damage enters the part-hit path (`FUN_005abbc0` D:L464698-464765) that calls Hit is not read (§9) | *note only* -- not built: a blast counts no hit (PF.R20); owed: a read of the blast's damage path |
 | `HEADSHOT_COUNT_READING` (`match/src/room.ts` `kill`) | when +0x544 (round +0x58c) counts | a headshot is a head hit, part 0, death cause 3 (research 91 s1, L464739-464743), but the counter's writer was not traced; PF.R21: a kill whose fatal part is the head (a shotgun volley's last pellet names it, as the death clip does) | open: the writer of round +0x58c |
 | `FINAL_TITLE_READING` (`viewer/src/roundScreens.ts`) | which of FINAL ROUND's two `TitleBar` objects is drawn | the dialog holds the CONTROLS caption (75,50) 1.75 and a `font_titlebar_01` GAME COMPLETE at (15,45) 0.95; no script names either and the loader keeps both (203 s12); PF.R24: the first only | open: a FINAL ROUND capture (the owner's session S2, research 206 s4.4) |
 | `YOUR_STATS_ALIGN_READING` (`viewer/src/roundScreens.ts`) | where YOUR STATS' values stand | `YourTotals` has no COLUMNS; the values at the LISTBOX's pen, left-justified at x 250 (`packages/ui/src/widgets/listbox.ts`'s default) | open: a GAME COMPLETE capture |
@@ -214,3 +218,56 @@ the port's `score` already does (research 91 §8). Nothing in the code changes f
 round totals") asked whether SELECT should show the round alone. This section's sum is what the original draws, and
 the port already shows it. No change. The decision is
 [research 372](372-in-match-scoreboard-totals.md) (reading, pending review; a capture of round 2 would prove it).
+
+## 9. The hit counter's class filter (R4P-105, 2026-11-24)
+
+Status: **reading, pending review** -- source inspection of r0004's `socom2_game.elf` (an instruction listing, cited by
+address) and of the r0001 decompilation (`FUN_<addr>`, `D:L<n>`), by one reader (seat-kill's key job,
+`agent-mail/planning/mega-2026-11-21/pilot/kill/keyjob-r4p105-227-read.md` §1); no capture, nothing measured running.
+r0004 is the specification.
+
+- **The filter.** r0004 `0x3f2670(record)`, new in r0004 (r0001's three sites hold no such call): the class of the
+  record's item id (`+0x7c`, through `0x3f3cb0` = r0001 `FUN_003d1a60`, the ranges `scene/src/arsenal.ts`
+  `CLASS_RANGES` already transcribes) -- 0 for class 0x79 (121-140, the thrown items) and 0xab (171-184, the M203 / GL /
+  F2000 rounds), 1 for every other. Its argument is the projectile's own record (`projectile + 0xc`, 0x5a7c20,
+  0x5ab84c), not the shooter's held weapon or the damage kind. **The rockets (class 0xb9, 185-189) still count.**
+- **What it gates.** Hit (r0004 0x54a2c0 = r0001 `FUN_005458a0` D:L411722: block `+4` and, on a side-mask overlap, `+6`;
+  the ratio `+0x44`) and WasHit (0x549710 = `FUN_00544cf0` D:L411218: the victim's `+0x10`) at all three of their
+  call sites, each behind it: offline 0x5ab5f0 (= `FUN_005a5a80` D:L461550; the arm 0x5ab7d0, on the projectile's
+  first-hit bit, once a projectile), the shooter's console online 0x5a7b40 (= `FUN_005a1ff0` D:L459639; 0x5a7c08-0x5a7c50)
+  and a receiving console 0x5a7660 (= `FUN_005a1b80` D:L459488). The part's damage is applied after the gate,
+  unconditionally (0x5ab888-0x5ab8b4): **damage is unchanged.** r0001 counted every projectile's first body hit
+  (`FUN_005a1ff0` D:L459660-459665, `FUN_005a1b80` D:L459525-459528).
+- **The port (built).** `scene/src/arsenal.ts` `countsHit(id)` (the class not in `HIT_STAT_CLASSES_READING`), asked in
+  `match/src/room.ts` `directHit` -- the one path where a projectile's record meets a body and counts (`countShot(..,
+  flight)`); a bullet's and a shell's hit (`bulletHit`, `volleyHit`) are a firearm's, whose class always counts. Tests:
+  `scene/test/arsenal.test.ts` (the predicate over the ranges' edges), `central/test/roundStats.test.ts` "R4P-105" (an
+  M203 FRAG dud's direct hit no hit, its damage pinned as it was; a dropped M67's blast no hit; a LAW HEAT dud's direct
+  hit still a hit). `signals.hits` / `hitsByPart` follow `shotsHit` (the same call).
+- **What the player sees (corrected 2026-11-24 after a rendered check).** On this build the thrown items (M67, HE and
+  the rest of class 0x79) carry `impact: false` (`scene/src/projectile.ts`), so the room's `flyFrame` never casts them
+  against a body and `directHit` never meets one: a grenade's blast never counted a hit before R4P-105 either, and the
+  class-0x79 half of the filter changes nothing a player sees (it is kept to match r0004). The visible change is the
+  LAUNCHED rounds (class 0xab, 171-184: the M203 / GL / F2000 rounds), whose direct strikes counted a hit before and do
+  not now. Rendered browser run (PC 5, record R4P105-M203-PC5, agent/next 41fb6f975a, an online test room on MP2, the
+  room's own `shotsFired` / `shotsHit` read per round; a run of the PORT, not a capture of the original): M203 FRAG
+  (171) five direct strikes (two inside the 100 u arming, three at 130 u also bursting on the target), `shotsFired` +1
+  each, `shotsHit` +0 on all five; LAW HEAT (185) one direct strike `shotsHit` +1, burst-only rockets +0, each a shot;
+  the rifle control 2 of 2 hits counted.
+- **Departures left open, by name.**
+  - *Shots fired* (`SHOT_STAT_CLASSES_READING`, *note only*): Shot (0x5499e0 = `FUN_00544fc0` D:L411312, block `+8`)
+    has one caller, the fire function (r0004 0x5c60b4 in 0x5c5550 = r0001 `FUN_005be9a0` D:L475582-475584), behind
+    r0004 0x3f4070 (= `FUN_003d1e20` D:L324468-324485), which answers 0 for classes 0xab, 0xb9, 0x79, 0x97, 0xbe and 0xe6
+    in both builds. The port counts one shot for a launched round, a rocket and the MGL turret's round (`room.ts`
+    `launchRound`, `launchRocket`, `turretLaunch`; ruling PF.R20, made while the writers were untraced). **Not changed
+    here: held for the controller's ruling on PF.R20.** Until it, accuracy drops on every launched round and rocket.
+  - *Times hit*: the port keeps no victim's `+0x10` counter (no screen the port draws reads it); the WasHit half of the
+    gate has no port site.
+  - *A receiving console* (`HIT_STATS_RECEIVER_READING`, *note only*): 0x5a7660 looks the record up only for class 0x51
+    (a shotgun, 0x5a7734-0x5a7758), so a receiver counts only a shotgun's hit; which console's block the results screen
+    and the stats upload read online is not read. The room is one authority and counts once.
+  - *A rocket's blast* (`ROCKET_BLAST_HIT_READING`, *note only*): whether a blast's radius damage ever enters the
+    part-hit path that calls Hit (`FUN_005abbc0` D:L464698-464765) is not read; the port counts a blast no hit
+    (PF.R20), which for 121 and 171 agrees either way.
+  - *A same-side hit* stays under `HIT_COUNT_READING`: Hit itself tests neither side nor life (`+6` counts same-side
+    hits); what refuses a teammate's hit upstream of 0x5ab5f0 with friendly fire off is unread.

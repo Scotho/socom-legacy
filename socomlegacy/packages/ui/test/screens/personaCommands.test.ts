@@ -5,7 +5,7 @@ import { UiVarManager, UIVAR_LONGEVITY, type UiVarValue } from '../../src/uiVars
 import { VALVE_TYPE, ValveStore } from '../../src/valves';
 import type { ZAnimUiCommand } from '../../src/zanimRuntime';
 import {
-  ACCT_FIELD_BYTES, AcctDb, NEW_PERSONA_CAPTION, NEW_PERSONA_INDEX, PATCH_LEVEL, PERSONA_COMMAND_ROWS, PERSONA_LIST_ROWS, PersonaCommands,
+  ACCT_FIELD_BYTES, AcctDb, CENSOR_WRITE_AT_ONCE_ADAPTATION, NET_CENSOR_TEXT_PLACEHOLDER, NEW_PERSONA_CAPTION, NEW_PERSONA_INDEX, PATCH_LEVEL, PERSONA_COMMAND_ROWS, PERSONA_LIST_ROWS, PersonaCommands,
   patchWords, type PersonaCommandsOptions, type PersonaLobby,
 } from '../../src/screens/personaCommands';
 import { UniverseList, type UniverseEntry } from '../../src/screens/universeCommands';
@@ -402,6 +402,14 @@ describe('NetCensorText (FUN_002776e0)', () => {
     expect(asked).toHaveLength(1);
   });
 
+  it('R4P-324: the #C rewrite is written back at once, before any reply (CENSOR_WRITE_AT_ONCE_ADAPTATION; r0004 writes on the reply, 0x278754)', () => {
+    expect(CENSOR_WRITE_AT_ONCE_ADAPTATION).toBe('NetCensorText writes the #C rewrite back at once, the page having no filter reply');
+    const t = setup({ lobby: { censor: () => {} }, network: () => true });
+    t.uiVars.add('PLAYERHOMETOWN', { type: 'string', value: 'a#Cb' }, 1);
+    t.run(cmd('NetCensorText', 'PLAYERHOMETOWN'));
+    expect(t.uiVars.find('PLAYERHOMETOWN')!.value).toEqual({ type: 'string', value: 'a#²b' });
+  });
+
   it('`$1` (0x3eeb58), not INPUT_STRING, is replaced by the animation\'s input', () => {
     const asked: string[] = [];
     const t = setup({ lobby: { censor: (text) => { asked.push(text); } }, network: () => true });
@@ -409,6 +417,36 @@ describe('NetCensorText (FUN_002776e0)', () => {
     t.setInput('GAMENAMEVAR');
     t.run(cmd('NetCensorText', '$1'));
     expect(asked).toEqual(['g']);
+  });
+
+  /**
+   * R4P-324 (web research 263 §3a, 153 §8; `CENSOR_HASH_C_READING`): r0004's `UINetCensorText` (0x00278660) calls
+   * `Censor` (0x00311fc0, at 0x27871c), whose copy takes `#` + 0xb2 for every `#C`; the callback 0x00278740 writes the
+   * filter's reply into the same variable (0x278754). The rewrite is written back at once here (the page has no reply);
+   * Sony's filter stays `NET_CENSOR_TEXT_PLACEHOLDER`, asked through `lobby.censor` when one is supplied.
+   */
+  it('R4P-324: the variable rewritten, every #C to "#" + 0xb2, with no lobby.censor; #c and #B untouched', () => {
+    const t = setup({ network: () => true });
+    t.uiVars.add('PLAYERHOMETOWN', { type: 'string', value: '#Cabc town #c #B #C' }, 1);
+    expect(t.run(cmd('NetCensorText', 'PLAYERHOMETOWN'))).toBe(true);
+    expect(t.str('PLAYERHOMETOWN')).toBe('#\u00b2abc town #c #B #\u00b2');
+    expect(NET_CENSOR_TEXT_PLACEHOLDER).toBe('no word filter beyond the #C rewrite: Sony\'s server filter unread');
+  });
+
+  it('R4P-324: the gate stands -- off the network, or with the LAN lobby up, the variable stays as typed; lobby.censor is asked the rewritten text', () => {
+    const off = setup({ network: () => false });
+    off.uiVars.add('PLAYERHOMETOWN', { type: 'string', value: '#Cabc' }, 1);
+    off.run(cmd('NetCensorText', 'PLAYERHOMETOWN'));
+    expect(off.str('PLAYERHOMETOWN')).toBe('#Cabc');
+    const lan = setup({ lobby: { lanUp: () => true }, network: () => true });
+    lan.uiVars.add('PLAYERHOMETOWN', { type: 'string', value: '#Cabc' }, 1);
+    lan.run(cmd('NetCensorText', 'PLAYERHOMETOWN'));
+    expect(lan.str('PLAYERHOMETOWN')).toBe('#Cabc');
+    const asked: string[] = [];
+    const on = setup({ lobby: { censor: (text, v) => { asked.push(`${v.name}=${text}`); } }, network: () => true });
+    on.uiVars.add('PLAYERHOMETOWN', { type: 'string', value: '#Cabc' }, 1);
+    on.run(cmd('NetCensorText', 'PLAYERHOMETOWN'));
+    expect([asked, on.str('PLAYERHOMETOWN')]).toEqual([['PLAYERHOMETOWN=#\u00b2abc'], '#\u00b2abc']);
   });
 });
 

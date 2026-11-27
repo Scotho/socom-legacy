@@ -71,6 +71,8 @@ export class LinkLog {
   /** Every link since the page came up, and those a frame waited for. */
   total = 0;
   syncTotal = 0;
+  /** XBOX-CAUSE-B: when the last program was linked (this log's clock, ms), or null: none yet (`./matchDiag`'s `ll`). */
+  lastAt: number | null = null;
   /** Every texture upload, and the time they took. */
   textures = 0;
   textureMs = 0;
@@ -108,6 +110,7 @@ export class LinkLog {
   record(r: RenderObjectLike, sync: boolean, t = this.now(), ms = 0): void {
     this.total++;
     if (sync) this.syncTotal++;
+    this.lastAt = t;
     this.push({
       kind: 'link', t, ms, sync, object: describeObject(r.object), material: r.material?.name || r.material?.type || '?',
       target: describeTarget(r), pending: this.inFlight,

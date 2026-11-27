@@ -46,6 +46,8 @@ export interface MatchRenderer {
   };
   /** `ViewerRenderer.prepare`: objects compiled ahead of their first draw (research 90); absent, none warmed. */
   prepare?(objects: readonly Object3D[], scene: Scene, camera: Camera, options?: MatchPrepareOptions): Promise<void>;
+  /** `ViewerRenderer.compilesBusy` (XBOX-WARM, `./firstFrameHold`): `prepare`'s ordinary jobs waiting or in flight; absent, 0. */
+  compilesBusy?(): number;
   /**
    * `ViewerRenderer.warm`: the scene compiled whole, every program and bitmap ahead of its first draw (research 90 items
    * 16 and 19; LATER 253, the map's effects with it, `./matchWarm`); absent, none warmed.

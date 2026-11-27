@@ -46,15 +46,31 @@ export function skbRaise(cp: number, raise: boolean): number {
 }
 
 /**
- * SKB_BLANK_READING: `FUN_003996b0` (D:L291028-291074) calls a text blank when no character has bit 8 clear in the
- * ctype table at 0x1d08d1 -- C's white space, 0x09-0x0D and 0x20. The table has 256 entries and the test indexes it by
- * the whole code point: a character past U+00FF reads beyond it, unread; it is taken as not white space. [reading]
+ * SKB_BLANK_READING: r0004's `SkbTypedTextNotBlank` (D4:L315305-315317; atlas lead L357) calls a text blank when
+ * every character is the space 0x20: it compares the code with 0x20 directly, so a tab, LF, VT, FF or CR is text,
+ * and with no table read a code point past U+00FF is simply not a space. Supersedes r0001's `FUN_003996b0`
+ * (D:L291028-291074), which tested the ctype table's bit 8 at 0x1d08d1 (C's white space 0x09-0x0D and 0x20, D:L291061-291070)
+ * and read past the 256-entry table above U+00FF (research 184 §4.1: U+0160 and U+0178 blank there) -- moot in
+ * r0004, the spec (OT.R97). [reading, pending review; R4P-233, 2026-11-24]
  */
-export const SKB_BLANK_READING = 'white space 0x09-0x0D and 0x20; past U+00FF not white space' as const;
+export const SKB_BLANK_READING = 'r0004: the space 0x20 only; past U+00FF not a space' as const;
 
 export function skbBlank(codes: readonly number[]): boolean {
-  return codes.every((c) => c === 0x20 || (c >= 0x09 && c <= 0x0d));
+  // r4 0x3b9b9c masks the decoder's code with 0xffff before the compare; the original's decoder (FUN_003bf600) reads
+  // only 1-3-byte forms, so no code past U+FFFF reaches it. The port's codes are already 16-bit (`skbCodes`, as the
+  // encoder writes), so the mask here only mirrors that choice -- a port convention, not a reading of a 4-byte code.
+  return codes.every((c) => (c & 0xffff) === 0x20);
 }
+
+/**
+ * SKB_TAKE_EDIT_READING: r0004's `SkbTakeText` rewrites every `$~` to `$-` in the typed text and in the recipient
+ * (D4:L315622-315648, D4:L315676-315702) before it sets the UiVars and dispatches the edited text (D4:L315719); atlas
+ * lead L358. r0001's `FUN_00399d20` stored and sent them raw (D:L291369-291393). `$~` ends a drawn text
+ * (`central/src/lobby.ts`). [reading, pending review; R4P-233, 2026-11-24]
+ */
+export const SKB_TAKE_EDIT_READING = 'r0004: every $~ becomes $- in the text and the recipient' as const;
+
+export const skbTakeEdit = (s: string): string => s.replaceAll('$~', '$-');
 
 /**
  * SKB_FIT_READING: `FUN_0039a5b0` (D:L291706-291785) wraps the text at `UserStringWidth` x the font's scale
@@ -87,6 +103,6 @@ export function skbWrap(codes: readonly number[], width: number, maxLines: numbe
   return lines.length <= maxLines ? lines : null;
 }
 
-/** A text's code points (a JS string's; U+FFFF at most, as the encoder writes). */
+/** A text's code points (a JS string's; masked to U+FFFF, the port's choice: the original's decoder FUN_003bf600 reads 1-3-byte forms only). */
 export const skbCodes = (s: string): number[] => [...s].map((c) => c.codePointAt(0)! & 0xffff);
 export const skbString = (codes: readonly number[]): string => String.fromCharCode(...codes);

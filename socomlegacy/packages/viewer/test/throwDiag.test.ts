@@ -26,7 +26,7 @@ const snapOf = (over: Partial<PlaySnapshot> = {}): PlaySnapshot => ({
 /** A floor at y 50 and, when `wallZ` is given, a wall across z there (as `grenade.test.ts`'s PAR-20 D12 world). */
 function world(wallZ?: number): Grid {
   const poly = (points: number[], i: number, ditype = 3): WorldPoly => ({ modelName: 'worldmodel', path: `worldmodel/c${i}`, region: 0, ditype, material: 7, ptcount: 4, cameratype: 0, points: Float32Array.from(points) });
-  const polys = [poly([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000], 0)];
+  const polys = [poly([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000], 0)];
   if (wallZ !== undefined) polys.push(poly([0, 50, wallZ, 200, 50, wallZ, 200, 100, wallZ, 0, 100, wallZ], 1, 2));
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
   return buildGrid(params, [], [], polys, polys.map((p, i) => ({ modelName: 'worldmodel', path: `${p.path}${i}`, first: i, count: 1 })));
@@ -144,6 +144,48 @@ describe('THROW_DIAG_ADAPTATION: a throw taken records nothing, and reading chan
     const copy = r.g.diag();
     copy.lastRefusal = { reason: 'clear', at: 0 };                // a copy: the caller's writes reach nothing
     expect(r.g.diag().lastRefusal).toBeNull();
+  });
+});
+
+describe("THROW_DIAG_ADAPTATION (issue #858): a hand-open that ends with nothing thrown records why (`lastAbort`)", () => {
+  it("'handOpen': a wall put up between the request and the hand-open -- the item up, nothing spent, the cast recorded", () => {
+    const wall = world(190);
+    let grid: Grid | null = null;
+    const r = rig({ grid: () => grid });
+    const left = r.g.stats().left;
+    r.windUp(40);                                                  // the request clears (no hull) and the clip plays
+    expect(r.g.phase()).toBe('throwing');
+    expect(r.g.diag().lastAbort).toBeNull();
+    grid = wall;                                                   // the hand-open's cast now meets the wall
+    for (let i = 0; i < 120; i++) r.g.update(DT);
+    expect(r.thrown()).toBe(0);
+    expect(r.g.phase()).toBe('ready');
+    expect(r.g.stats().left).toBe(left);
+    expect(r.g.diag().lastRefusal).toBeNull();
+    const a = r.g.diag().lastAbort!;
+    expect(a).toMatchObject({ path: 'handOpen', item: 'M67', slot: null, stance: 'stand', releaseStance: 'stand', yaw: 0, pitch: 0, feet: [100, 50, 200] });
+    expect(a.at).toBeGreaterThan(41);
+    expect(a.power).toBeGreaterThan(0.15);
+    expect(a.aim).toHaveLength(3);
+    expect(a.cast!.from).toHaveLength(3);
+    expect(a.cast!.to).toHaveLength(3);
+    expect(a.cast!.hit).not.toBeNull();
+    expect(a.cast!.hit!.point[2]).toBeCloseTo(190, 3);
+    expect(a.cast!.hit!.path).toBe('worldmodel/c1');
+    expect(a.cast!.hit!.material).toBe(7);
+    expect(a.cast!.hit!.normal).toHaveLength(3);
+    expect(JSON.parse(JSON.stringify(r.g.diag()))).toEqual(r.g.diag());   // plain data: the spec's TRACE line prints it whole
+    const copy = r.g.diag();
+    copy.lastAbort!.cast!.from![0] = -1;                            // a copy: the caller's writes reach nothing
+    expect(r.g.diag().lastAbort!.cast!.from![0]).not.toBe(-1);
+  });
+
+  it('a hand-open that clears records nothing and throws as before', () => {
+    const r = rig({ grid: () => world() });
+    r.windUp(40);
+    for (let i = 0; i < 120; i++) r.g.update(DT);
+    expect(r.thrown()).toBe(1);
+    expect(r.g.diag().lastAbort).toBeNull();
   });
 });
 

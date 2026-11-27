@@ -364,3 +364,91 @@ All rendered desktop browser runs, one run each. They are not Xbox figures.
     from the mount and at the loss.
   - 2026-11-12: from `contextdiag` v2 (XBOX-790-LOADDIAG) the ring's times count from `load-start`, and `lt`, `s`, `sx`
     carry the load's stages; the fields are in [the GPU menus plan](../plans/2026-11-01-gpu-menus.md)'s XBOX-DIAG entry.
+
+## 8. v0.4.22's first hours on the console: what the release covers, and the open loss (shape 2)
+
+- Date: 2026-11-14T18:59Z. Seat redotcom-c4 (the Xbox lane), on the main controller's (67) order at the lane's close. Track:
+  **product** (a reading of field rows; nothing built). **This is the brief for the next patch's Xbox lane.**
+- Evidence kinds, kept apart:
+  - **field rows read** (central's own `client_errors` store, read-only by b0, saved whole):
+    `agent-mail/evidence/v0422-window/LIVE-SRAKMD-ROWS-1630-1730Z.jsonl.txt`. These are every live row on the console's
+    adapter, `ANGLE (Microsoft, SraKmd_arden (0x0000D000) Direct3D11 ...)`, from the v0.4.22 swap (16:29:56Z) to 18:50Z.
+    The page ids are replaced by page-0..page-7, and every row is class `xbox` (`m.cl` 1, `m.sk` 1, `m.ua` 0).
+  - **The temporary box's rows** (PR #790's head 2e5a484524 on its own central):
+    `agent-mail/evidence/xbox-790/tempbox-20261114T1850Z/client_errors.jsonl.txt`;
+  - **source inspection** for what the fields mean (`packages/viewer/src/matchDiag.ts`, `loadMarks.ts` `LOAD_PHASES`).
+  - The cause below is an **inference** from the rows. Nothing was measured on a console.
+
+**The one thing to hear.** v0.4.22's no-backend notice and its renderer retry (MATCH-RENDERER-RETRY,
+NO-BACKEND-NOTICE) cover a renderer **refused at creation** only: the black match. An **in-play loss** about 8-20 s
+into a match (shape 2) is untouched by them. It is the open Xbox problem.
+
+### (a) What the rows show (field rows read)
+
+- **The black match did not recur in this window.** Every console row reports a renderer: 14 of 14 `contextdiag`
+  and `inputdiag` rows say `bk: webgl2`, none `bk: null`. No `uigpufallback` row came from the console (17:30Z read,
+  section 1).
+  - This is consistent with LATER 983's software menus and the retry, but it is one window of a few hours, not the
+    measure (LATER 983).
+- **The losses.** There were 8 console pages and at least 10 matches. A match is counted by its own rows: a loss, a
+  45 s `inputdiag`, or a `perf` row whose elapsed time places it. A match that ended before 45 s with no loss sends no
+  row, so the count is a floor. **6 matches lost their WebGL context**, each with "WebGL: Unknown reason":
+  - VIGILANCE 3 of 3;
+  - FROSTFIRE 2 of 6;
+  - FISH HOOK 1 of 1.
+- **When.** Every loss is at load phase `loaded-sent`, 8.2-19.5 s after the match's start (`match_elapsed_ms`) and
+  2.5-11.8 s after the load's `first-frame` stage. The pre-mount warm (`renderer` to `warm-settled`) took 7.5-13.4 s.
+- **The match had barely drawn.** The input summary's game frames (`gf`, one per match frame from the mount) at the
+  loss read 3, 6, 7, 9, 11 and 13. A healthy console match's 45 s report reads 1,400-2,500.
+  - The ring agrees. It samples on a match frame at most every 2 s, yet holds 2-3 samples over 13-19 s, with gaps of
+    5-12 s between them.
+  - **The match ran at under one frame a second from its mount, and then the device was lost.**
+- **Not memory.** At the loss the JS heap was 11-12 MB, three's counted bytes 17-22 MB, and the drawing buffer at
+  most 960 x 540. `deviceMemory` was 2.
+- **What climbed just before.** In the last ring interval before 5 of the 6 losses, the counts jump:
+  - programs +12 to +20 (VIGILANCE 150 -> 162 and 147 -> 162; FROSTFIRE 100 -> 120; FISH HOOK 94 -> 114);
+  - or uniform buffers +500 to +1,300;
+  - or geometries +160 with textures +30 (FROSTFIRE).
+  - Resident uniform buffers are 5,000-7,100 throughout (LATER 922's uniform-group side).
+- **Room size.** The rows carry a seat count only in `perf` rows, so only some matches have one:
+  - 15 seats (page-1's VIGILANCE, the SUPPRESSION room with 12 bots): **1 lost of 1**;
+  - 2 seats: **0 lost of 2** live (FROSTFIRE), and **0 of 2** on the temporary box (VIGILANCE and FROSTFIRE at Chris's
+    branch's ordinary page, which runs 10 min each);
+  - size unknown: **5 lost of 6**.
+  - **The base rate that matters is losses per console match by room size.** It needs central's journal ("game placed",
+    people and bots at the match's start) joined to these rows by map and time: b0's read.
+
+### (b) The cause (an inference, not measured)
+
+The rows fit a **GPU timeout**:
+- frames seconds long right after the mount;
+- a burst of first-use shader compiles and buffer uploads (the bodies, the weapons and their effects arriving in a
+  full room) on top of thousands of uniform buffers;
+- then the driver resets the device ("Unknown reason").
+
+They do not fit memory exhaustion. The jump comes after the prepare's warm, so the warm does not cover what the room
+brings. Not shown:
+- the frame times themselves (the ring has none);
+- the console's own reset reason;
+- whether the room's size is the trigger. 2-seat rooms have not lost, but the full-room sample is one known match.
+
+### (c) Next, ranked (each with its cost and the row that would show it worked)
+
+1. **Serve Chris's lightweight renderer on the temporary box, and test it in a full room** (PR #790's own experiment).
+   - What it is: `npx vite build --config packages/viewer/vite.xbox.config.ts`, entry
+     `/xbox-renderer/index.html?mode=walk`. The ordinary `npm run build` excludes it, so his first rows on the box were
+     the ordinary page.
+   - Cost: a second build on the box and Chris's time. Nothing in the release changes.
+   - Worked if: matches in a 12+-seat room reach their 45 s report with 0 context losses, against v0.4.22's full-room
+     losses on the same console. 2-seat rooms prove nothing here: v0.4.22 does not lose in them either.
+2. **Spread first-use compiles and uploads on the Xbox class**, under a per-frame budget, and warm the players' and
+   weapons' programs in the prepare. A renderer adaptation (product track); the deferral LATER 938 already names is
+   one piece.
+   - Cost: a renderer change with a RED test of the budget. A first sight of a model may draw a frame late.
+   - Worked if: on the console, `contextdiag` losses per full-room match fall toward 0, the 45 s `inputdiag` `gf` rises,
+     and no loss row shows the +12-20 program jump.
+3. **LATER 922's uniform-group side**: fewer resident uniform buffers per drawn object.
+   - Cost: the largest. The retainers must first be named from a heap snapshot, with a RED count that returns to its
+     round-1 level.
+   - Worked if: resident uniform buffers at a console match's start fall well below the 5,000-7,000 seen here, with
+     losses per full-room match down.

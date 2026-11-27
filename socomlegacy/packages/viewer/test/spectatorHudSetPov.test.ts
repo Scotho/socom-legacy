@@ -4,7 +4,7 @@ import {
   type HudModel, type HudSpectatorView, type HudTiming, type SpectatorHudSource,
 } from '../src/hud';
 import {
-  HUD_FRAME_HEIGHT, POV_LINE_SPLIT_Y, povLineLit, readOf, spectatorHudFindings, type SpectatorHudRead, type SpectatorHudStep,
+  HELP_LINES_SPLIT_Y, HUD_FRAME_HEIGHT, POV_LINE_SPLIT_Y, povLineLit, readOf, spectatorHudFindings, type SpectatorHudRead, type SpectatorHudStep,
 } from '../e2e/spectatorHudSet';
 
 /**
@@ -15,7 +15,10 @@ import {
  * view's state (`pov`) and, where the page gives its frame, the help element's band in the HUD's own units, so the
  * original lines are judged on their clock and the view's line by itself. The existing specs (`spectatorHud.spec.ts`,
  * `spectatorHudMenu.spec.ts`) never turn the view on and give no frame: their judgement is shown unchanged below, on every
- * step and both clocks. `test/spectatorHudSet.test.ts` is untouched.
+ * step and both clocks. WM-PV-HINT (the owner's ruling of 2026-11-15, a browser adaptation): the line is now the
+ * block's bottom line (line 4's slot, baseline 434) and stays up in every state whatever the clock, the lines moved up
+ * above it; so the band splits twice -- the lines drawn while it reaches above `HELP_LINES_SPLIT_Y` (408.5), the line
+ * while it reaches below `POV_LINE_SPLIT_Y` (429.5).
  */
 
 const PS2 = { width: 640, height: 448 };
@@ -67,54 +70,55 @@ function drawn(view: HudSpectatorView, timing: HudTiming, frame = PS2, framed = 
 }
 
 describe("PV-9 item 4: the help clock's judgement reads the player's view's line by itself (e2e/spectatorHudSet.ts)", () => {
-  it("restates the HUD's own: the line's alpha above 0 exactly where `povLineLit` says, and the split between the line and the block", () => {
+  it("restates the HUD's own: the line drawn whatever the clock (`povLineLit`), and the two splits between the line and the block", () => {
     for (const pov of ['offered', 'shown', 'waiting'] as const) {
-      for (const clock of [0, 0.01, 0.5, 1]) expect(povLineLit(pov, clock), `${pov} at ${clock}`).toBe(povHelpAlpha(pov, clock) > 0);
+      for (const clock of [0, 0.01, 0.5, 1]) expect(povLineLit(pov, clock), `${pov} at ${clock}`).toBe(povHelpAlpha() > 0 && povHelpAlpha(0) > 0);
     }
     expect(HUD_FRAME_HEIGHT).toBe(448);
-    // The split lies between the view's line (baseline 326) and the help block's first line (baseline 380).
-    expect(POV_LINE_SPLIT_Y).toBe((POV_HELP_PLACE_ADAPTATION.y + SPECTATOR_HELP.y0) / 2);
+    // The line is the block's line 4 (baseline 434); the slot above it is baseline 416. A 0.9 glyph cell spans baseline
+    // - 16.5 to baseline + 4.5: the lines' split is between the two slots' tops, the line's between their bottoms.
+    const P = POV_HELP_PLACE_ADAPTATION, above = P.y - SPECTATOR_HELP.pitch;
+    expect(P.y).toBe(SPECTATOR_HELP.y0 + 3 * SPECTATOR_HELP.pitch);
+    expect(HELP_LINES_SPLIT_Y).toBe((above - 16.5 + P.y - 16.5) / 2);
+    expect(POV_LINE_SPLIT_Y).toBe((above + 4.5 + P.y + 4.5) / 2);
+    expect([HELP_LINES_SPLIT_Y, POV_LINE_SPLIT_Y]).toEqual([408.5, 429.5]);
   });
 
   it('reads the view\'s state and, with a frame, the help band in HUD units (any frame size); without a frame, no band', () => {
-    const r = drawn(VIEWS.follow('shown'), FADED);
+    const r = drawn(VIEWS.follow('shown'), LIT);
     expect(r.pov).toBe('shown');
     expect(r.helpBand).not.toBeNull();
-    expect(r.helpBand!.bottom).toBeLessThan(POV_LINE_SPLIT_Y);            // the view's line alone, past the clock
-    const wide = drawn(VIEWS.follow('shown'), FADED, WIDE);
+    expect(r.helpBand!.top).toBeLessThan(HELP_LINES_SPLIT_Y);             // the lines, moved up above it
+    expect(r.helpBand!.bottom).toBeGreaterThan(POV_LINE_SPLIT_Y);         // the view's line at the bottom
+    const wide = drawn(VIEWS.follow('shown'), LIT, WIDE);
     expect(wide.helpBand!.top).toBeCloseTo(r.helpBand!.top, 6);
-    const lit = drawn(VIEWS.follow('shown'), LIT);
-    expect(lit.helpBand!.top).toBeLessThan(POV_LINE_SPLIT_Y);
-    expect(lit.helpBand!.bottom).toBeGreaterThan(POV_LINE_SPLIT_Y);       // the lines below it too
-    expect(drawn(VIEWS.follow('shown'), FADED, PS2, false).helpBand).toBeNull();
+    const alone = drawn(VIEWS.follow('shown'), FADED);                   // past the clock: the view's line alone
+    expect(alone.helpBand!.top).toBeGreaterThan(HELP_LINES_SPLIT_Y);
+    expect(alone.helpBand!.bottom).toBeGreaterThan(POV_LINE_SPLIT_Y);
+    expect(drawn(VIEWS.follow('shown'), LIT, PS2, false).helpBand).toBeNull();
     expect(drawn(VIEWS.follow(null), LIT).pov).toBeNull();
   });
 
-  it("the existing specs' judgement is unchanged: no view state, or 'offered', with no frame, on every step's clock", () => {
+  it("a read with no view state (the existing specs': none turns the view on) is judged on the lines' clock alone, as before", () => {
     for (const path of ['follow', 'teammate'] as const) {
-      for (const t of [LIT, HALF, FADED]) {
-        for (const pov of [null, 'offered'] as const) {
-          const read = drawn(VIEWS[path](pov), t, PS2, false);
-          const before = { ...read, pov: null, helpBand: null };   // the read as it was: no state, no band
-          for (const help of ['clock', 'shown'] as const) {
-            const opts = { help, followed: followedOf(path) };
-            expect(spectatorHudFindings(read, STEP[path], opts), `${path} ${pov} ${t.help} ${help}`).toEqual(spectatorHudFindings(before, STEP[path], opts));
-            // and a stray 'help' drawn past the clock, or one missing, is found the same way
-            const extra = { ...read, drawn: [...read.drawn, 'help'] }, missing = { ...read, drawn: read.drawn.filter((e) => e !== 'help') };
-            expect(spectatorHudFindings(extra, STEP[path], opts)).toEqual(spectatorHudFindings({ ...extra, pov: null, helpBand: null }, STEP[path], opts));
-            expect(spectatorHudFindings(missing, STEP[path], opts)).toEqual(spectatorHudFindings({ ...missing, pov: null, helpBand: null }, STEP[path], opts));
-          }
-        }
+      for (const framed of [true, false]) {
+        const opts = { help: 'clock' as const, followed: followedOf(path) };
+        expect(spectatorHudFindings(drawn(VIEWS[path](null), LIT, PS2, framed), STEP[path], opts), `${path} lit`).toEqual([]);
+        expect(spectatorHudFindings(drawn(VIEWS[path](null), FADED, PS2, framed), STEP[path], opts), `${path} faded`).toEqual([]);
+        const late = drawn(VIEWS[path](null), FADED, PS2, framed), lit = drawn(VIEWS[path](null), LIT, PS2, framed);
+        expect(spectatorHudFindings({ ...late, drawn: [...late.drawn, 'help'] }, STEP[path], opts).join('\n')).toContain("'help' drawn past its clock");
+        expect(spectatorHudFindings({ ...lit, drawn: lit.drawn.filter((e) => e !== 'help') }, STEP[path], opts).join('\n')).toContain("'help' not drawn");
       }
     }
   });
 
-  it("the port's own draw passes on the clock in every state, with and without a frame: 'shown' and 'waiting' past the clock are the view's line, not a late line", () => {
+  it("the port's own draw passes on the clock in every state, with and without a frame: the line stays past the clock", () => {
     for (const path of ['follow', 'teammate'] as const) {
       for (const pov of ['offered', 'shown', 'waiting'] as const) {
         for (const t of [LIT, HALF, FADED]) {
           for (const framed of [true, false]) {
             const read = drawn(VIEWS[path](pov), t, PS2, framed);
+            expect(read.drawn, `${path} ${pov} ${t.help}`).toContain('help');
             expect(spectatorHudFindings(read, STEP[path], { help: 'clock', followed: followedOf(path) }), `${path} ${pov} ${t.help} framed ${framed}`).toEqual([]);
           }
         }
@@ -122,36 +126,23 @@ describe("PV-9 item 4: the help clock's judgement reads the player's view's line
     }
   });
 
-  it("'shown' past the clock: the original lines drawn too are a finding, and the view's line missing is one", () => {
-    const read = drawn(VIEWS.follow('shown'), FADED);
-    // The original lines drawn past their clock beside the view's line: the band reaches below the split.
-    const late = { ...read, helpBand: { top: read.helpBand!.top, bottom: 400 } };
-    expect(spectatorHudFindings(late, 'follow', { help: 'clock' }).join('\n')).toContain("'help' drawn past its clock");
-    // The view's line missing while 'shown': nothing drawn of 'help' at all.
-    const gone = drawn(VIEWS.follow('shown'), FADED, PS2, true, { commandMenu: true });   // the Chat menu hides the whole block
-    expect(gone.drawn).not.toContain('help');
-    expect(spectatorHudFindings({ ...gone, pov: 'shown' }, 'follow', { help: 'clock' }).join('\n')).toContain("the player's view's line");
-    // Without a frame the element as a whole is judged: drawn is right, missing is a finding.
-    expect(spectatorHudFindings({ ...read, helpBand: null }, 'follow', { help: 'clock' })).toEqual([]);
-    expect(spectatorHudFindings({ ...gone, pov: 'shown', helpBand: null }, 'follow', { help: 'clock' }).join('\n')).toContain("'help' not drawn");
-  });
-
-  it("'offered' rides the clock: its line drawn past it is a finding; lit, the view's line missing beside the lines is one", () => {
-    const faded = drawn(VIEWS.teammate('offered'), FADED);
-    expect(faded.drawn).not.toContain('help');
-    const stray = { ...faded, drawn: [...faded.drawn, 'help'], helpBand: { top: 300, bottom: 335 } };
-    expect(spectatorHudFindings(stray, 'teammate', { help: 'clock' }).join('\n')).toContain("the player's view's line ('offered') drawn");
-    const lit = drawn(VIEWS.teammate('offered'), LIT);
-    const linesOnly = { ...lit, helpBand: { top: 360, bottom: lit.helpBand!.bottom } };
-    expect(spectatorHudFindings(linesOnly, 'teammate', { help: 'clock' }).join('\n')).toContain("the player's view's line ('offered') not drawn");
-  });
-
-  it("'waiting' is drawn past the clock at its own alpha; 'help' asked 'shown' still asks the lines lit", () => {
-    const read = drawn(VIEWS.teammate('waiting'), FADED);
-    expect(read.drawn).toContain('help');
-    expect(spectatorHudFindings(read, 'teammate', { help: 'clock' })).toEqual([]);
-    expect(spectatorHudFindings(read, 'teammate', { help: 'shown' }).join('\n')).toContain("'help' faded");
-  });
+  for (const pov of ['offered', 'shown', 'waiting'] as const) {
+    it(`'${pov}': the lines drawn past the clock beside the line are a finding; the line missing, lit or faded, is one`, () => {
+      const faded = drawn(VIEWS.teammate(pov), FADED), lit = drawn(VIEWS.teammate(pov), LIT);
+      // The lines drawn past their clock beside the line: the band reaches above the lines' split.
+      const late = { ...faded, helpBand: { top: 345.5, bottom: faded.helpBand!.bottom } };
+      expect(spectatorHudFindings(late, 'teammate', { help: 'clock' }).join('\n')).toContain("'help' drawn past its clock");
+      // The line missing beside the lines: the band ends above the line's split.
+      const linesOnly = { ...lit, helpBand: { top: lit.helpBand!.top, bottom: 421.4 } };
+      expect(spectatorHudFindings(linesOnly, 'teammate', { help: 'clock' }).join('\n')).toContain(`the player's view's line ('${pov}') not drawn`);
+      // Nothing of 'help' at all (the Chat menu hides the whole block): with a frame or without, the line is missed.
+      const gone = drawn(VIEWS.teammate(pov), FADED, PS2, true, { commandMenu: true });
+      expect(gone.drawn).not.toContain('help');
+      expect(spectatorHudFindings({ ...gone, pov }, 'teammate', { help: 'clock' }).join('\n')).toContain(`the player's view's line ('${pov}') not drawn`);
+      // 'help' asked 'shown' still asks the lines lit.
+      expect(spectatorHudFindings(faded, 'teammate', { help: 'shown' }).join('\n')).toContain("'help' faded");
+    });
+  }
 });
 
 describe("PV-10b item 5: while the view is 'shown' the reticle drawn is the watched player's (PV-7b), judged by the view's state", () => {

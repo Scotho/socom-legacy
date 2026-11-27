@@ -25,7 +25,7 @@ type V3 = [number, number, number];
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
 };
 function map(): SimMap {
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
@@ -136,7 +136,22 @@ describe('PF-37: the shotgun guard is the victim\'s, once a victim update (resea
     expect(s.own(2).qHitAt).toBe(t0);
     expect(s.room.player(2)!.alive).toBe(true);
     // One tick later is still the same game frame: guarded.
-    s.tick([1, 4], 50);                                                          // the pump's FireWait (0.75 s) past
+    // FIREWAIT3 re-pin: was 50 ticks -- r0001's 0.75 s (45 ticks). r0004's GetFireDelay (0x5c76f0) scales the 870's FireWait
+    // by 1.2 in its one mode, 1 (research 84 s6; keyjob-firewait-classes-read s2 (2): no class branch): 0.9 s, 54 ticks (the
+    // room's gap 53, `fastestWait`), so 50 + 1 ticks sit inside it. The step is NOT the wait alone: the 870's ReloadAfterShot
+    // also arms the pump's one-frame lock (`kit + 0x820`, armed by the round's emission 0x5cc9d0; a frame with it non-zero
+    // skips the trigger and the wait's run-down, so its frame adds to the wait's -- classes review F1, F4): the next round
+    // leaves 27 + 1 = 28 game frames after the last, 56 ticks. 56 = r0004's wait (54 ticks) plus the pump's lock.
+    // FIREWAIT check F1 (the discriminating step): 48 ticks after the volley is past r0001's 0.75 s (45 ticks, `FUN_005c09f0`
+    // D:L476313-476341; with the pump's one-frame lock, 47) and inside r0004's 0.75 s x 1.2 = 0.9 s (54 ticks; 0x5c76f0
+    // mode 1, research 84 s6; the classes read s2 (2) and its review F1 / F4: 27 + 1 = 28 game frames, 56 ticks with the
+    // lock). Shooter 1's volley here is refused for its rate: the victim's second 'hurt' is not yet there. 48 + 1 + 7 = 56
+    // ticks keeps the step below where it was.
+    s.tick([1, 4], 48);
+    s.pull(1, target);
+    s.tick([1, 4]);
+    expect(s.c[1]!.of('hurt')).toHaveLength(1);
+    s.tick([1, 4], 7);                                                           // 56 in all: the 870's wait (0.75 s x 1.2) plus the pump's one-frame lock past
     s.pull(1, target);
     s.tick([1, 4]);
     s.pull(4, target);
@@ -144,7 +159,7 @@ describe('PF-37: the shotgun guard is the victim\'s, once a victim update (resea
     expect(s.c[1]!.of('hurt')).toHaveLength(2);
     expect(s.on(s.c[3]!, 2).map((e) => e.reason)).toEqual(['guard', 'guard']);
     // Two ticks later: the next frame's update has cleared the memory -- the volley lands (no permanent latch).
-    s.tick([1, 4], 50);
+    s.tick([1, 4], 56);                                                          // FIREWAIT3 re-pin: was 50 (r0001's 0.75 s); wait plus lock, as above
     s.pull(1, target);
     s.tick([1, 4]);
     s.tick([1, 4]);

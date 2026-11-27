@@ -99,6 +99,82 @@ export const PAGE_TILT_COLUMNS = [
   'rootQx', 'rootQy', 'rootQz', 'rootQw', 'rootUpX', 'rootUpY', 'rootUpZ', 'tiltNx', 'tiltNy', 'tiltNz', 'topClip', 'topPhase',
 ] as const;
 
+/**
+ * LATER 1165 (c): page.csv's feet columns beside x/y/z (viewer `ephFrame.ts`, restated): what x/y/z are (`feetFrom`:
+ * 'tick', the walker's own state at the row's tick; 'blended', a build with no state to read), the state the tick before
+ * (prev*), and the feet blended between the last two ticks at the read's moment (drawn*, what was on screen).
+ */
+export const PAGE_FEET_COLUMNS = ['feetFrom', 'prevX', 'prevY', 'prevZ', 'drawnX', 'drawnY', 'drawnZ'] as const;
+
+/** LATER 1165 (c): a page row's feet fields (absent in a run before it, whose x/y/z were the blended feet). */
+export interface PageTickFields {
+  readonly feetFrom?: 'tick' | 'blended' | null;
+  readonly prevX?: number | null;
+  readonly prevY?: number | null;
+  readonly prevZ?: number | null;
+  readonly drawnX?: number | null;
+  readonly drawnY?: number | null;
+  readonly drawnZ?: number | null;
+}
+
+/** One completed tick's own state: off a row read on it (`row`), or off the next row's tick-before (`prev`). */
+export interface PageTickRow { readonly tick: number; readonly x: number; readonly y: number; readonly z: number; readonly from: 'row' | 'prev' }
+
+/**
+ * LATER 1165 (c): the page side per tick -- one row per completed tick, in tick order, off the rows whose x/y/z are the
+ * tick's own state (`feetFrom: 'tick'`). A tick read on a row takes that row (the first such); a tick no row read on,
+ * the prev* of the row read on the tick after it (a frame that ran two ticks). `missing`: the ticks between the first
+ * and the last that neither gives (a frame that ran three or more); `filled`: how many came from prev*.
+ */
+export function pageTickSeries(rows: readonly (PageRow & PageTickFields)[]): { ticks: PageTickRow[]; missing: number[]; filled: number } {
+  const at = new Map<number, PageTickRow>();
+  for (const r of rows) {
+    if (r.feetFrom !== 'tick' || r.x == null || r.y == null || r.z == null) continue;
+    const had = at.get(r.tick);
+    if (!had || had.from === 'prev') at.set(r.tick, { tick: r.tick, x: r.x, y: r.y, z: r.z, from: 'row' });
+  }
+  for (const r of rows) {
+    if (r.feetFrom !== 'tick' || r.prevX == null || r.prevY == null || r.prevZ == null) continue;
+    if (!at.has(r.tick - 1)) at.set(r.tick - 1, { tick: r.tick - 1, x: r.prevX, y: r.prevY, z: r.prevZ, from: 'prev' });
+  }
+  const ticks = [...at.values()].sort((p, q) => p.tick - q.tick);
+  const missing: number[] = [];
+  for (let i = 1; i < ticks.length; i++) for (let t = ticks[i - 1]!.tick + 1; t < ticks[i]!.tick; t++) missing.push(t);
+  return { ticks, missing, filled: ticks.filter((t) => t.from === 'prev').length };
+}
+
+/**
+ * LATER 1165 (d): the walk tick a page event of script time `t` ms is due on, the run's first sampled tick `tick0`: the
+ * first tick at or past `t` on the page's clock, plus one -- the input is first read by the tick after the frame that
+ * took it (the hunt's M4), as the old per-event write landed at best.
+ */
+export function pageDueTick(t: number, tick0: number): number {
+  return tick0 + Math.ceil(t / (1000 / 60) - 1e-9) + 1;
+}
+
+/**
+ * LATER 1165 (d): each page event's scheduled and landed tick, off the page's firings (`at` = (landed - tick0) x the
+ * frame, `lateBy` = at - the write's time) -- for record.json, so the scorer can account for each tick late.
+ */
+export function pageScheduleOf(fired: readonly { readonly event: { readonly line: number }; readonly at: number; readonly lateBy: number }[], tick0: number, expected = fired.length): { events: { line: number; scheduledTick: number; landedTick: number; lateTicks: number }[]; onTick: number; late1: number; lateMore: number; unlanded: number } {
+  const events = fired.map((f) => {
+    const scheduledTick = pageDueTick(f.at - f.lateBy, tick0), landedTick = tick0 + Math.round(f.at / (1000 / 60));
+    return { line: f.event.line, scheduledTick, landedTick, lateTicks: landedTick - scheduledTick };
+  });
+  return {
+    events, onTick: events.filter((e) => e.lateTicks === 0).length, late1: events.filter((e) => e.lateTicks === 1).length,
+    lateMore: events.filter((e) => e.lateTicks > 1).length,
+    // Review F2: the scheduled firings (a write's lines) the page never logged as landed.
+    unlanded: Math.max(0, expected - events.length),
+  };
+}
+
+/** LATER 1165 (c): what a run's page.csv x/y/z hold, for record.json's `pageFeet` (null: no row with feet). */
+export function pageFeetOf(rows: readonly (PageRow & PageTickFields)[]): 'tick' | 'blended' | 'mixed' | null {
+  const kinds = new Set(rows.filter((r) => r.x != null).map((r) => (r.feetFrom === 'tick' ? 'tick' : 'blended')));
+  return kinds.size === 0 ? null : kinds.size > 1 ? 'mixed' : [...kinds][0]!;
+}
+
 /** One row per guest clock value, the first read of each, in clock order. */
 export function collapseFrames<R extends { t: number }>(rows: readonly R[]): R[] {
   const out: R[] = [];

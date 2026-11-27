@@ -1,8 +1,9 @@
 import { Vector4 } from 'three';
 import type { Node } from 'three/webgpu';
-import { float, renderGroup, select, uniform, vec4 } from 'three/tsl';
+import { float, renderGroup, select, uniform, vec3, vec4 } from 'three/tsl';
 import { lensRow, ROW_A, ROW_RGB, type LensColour } from './lensFx';
 import { washLit } from './trueColourScale';
+import { setParticleLens } from './particleTint';
 
 /**
  * The night vision's colour as the engine applies it (research 84 section 14; socomlegacy/docs/research/82, round 4),
@@ -82,8 +83,9 @@ function neutral(c: readonly number[] | null): boolean {
  * scope's `to_scope_lens_fx` sets exactly that. The world's graphs take row 0, the bodies' row 2.
  */
 export function setLensRows(colours: readonly (readonly number[] | null)[] | null): void {
-  if (!colours || colours.every(neutral)) { on.value = 0; current = null; return; }
+  if (!colours || colours.every(neutral)) { on.value = 0; current = null; setParticleLens(null); return; }
   current = [0, 1, 2, 3].map((i) => [...(colours[i] ?? NEUTRAL)] as LensColour);
+  setParticleLens(current);   // R4P-245: the particles' `FUN_003b59a0` takes the same rows (`./particleTint`)
   on.value = 1;
   const r0 = lensRow(current[0]!), r2 = lensRow(current[2]!);
   row.value.set(r0[0], r0[1], r0[2], r0[3] / UNITY);
@@ -117,4 +119,43 @@ export function nightLit(lit: Node<'vec4'>, heat: 0 | 2 = 0): Node<'vec4'> {
   const sum = lit.r.add(lit.g).add(lit.b).add(r.w);
   const tinted = vec4(r.xyz.mul(sum), lit.a);
   return washLit(select(on.greaterThan(float(0.5)), tinted, lit) as unknown as Node<'vec4'>);
+}
+
+/**
+ * Which row the light map's fold takes (`FUN_003b54e0` D:L307484-307489): the lit visual's type byte `+0x4` -- 1, a
+ * `CMesh` (the character's skinned mesh, research 78 s2.5), takes row 2 (`0x4b4c90`); any other visual row 0
+ * (`0x4b4c70`). The goggles set all four rows alike, so only a lens that sets them apart with the flag up tells them
+ * apart. [Q245-PC2 (research 89 s24, R4P-245) saw the flag down under a scope; this page's thermal lens raises it
+ * (`setLensRows`) -- a question older than this fold, its own LATER row.] Which receiver is a `CMesh`:
+ * `effectLights.ts` `LIGHT_MAP_RECEIVER_ROW_READING`.
+ */
+export const LIGHT_MAP_ROW = { mesh: 2, other: 0 } as const;
+
+/**
+ * An effect light's colour (`CLightMap` +0xd8..+0xe0, 0..255) as VuLightMap sends it (`FUN_003b54e0`, LATER 1544):
+ * while a lens is on (the flag `0x4b4a68`) the EE folds it through the draw's row -- r0001 0x3b568c-0x3b569c (= r0004
+ * 0x3d77dc-0x3d77ec), read from the bytes: `vmulax/vmadday/vmaddaz.xyz ACC, row, c`, `vmaddz.xyz c, row, row.z` --
+ *
+ *   `c'.xyz = row.rgb * (R + G + B + row.z)`
+ *
+ * the opacity (+0xd4, the quad's w) kept. Unlike command `0x5c`'s `row.w`, the constant term is the row's z (a lens's
+ * blue times 0.33: under a 255 colour sum, less than one unit). `colours`: the lens's four row colours, or null (off).
+ */
+export function lightMapColour(
+  rgb: readonly [number, number, number], colours: readonly (readonly number[])[] | null, heat: number,
+): [number, number, number] {
+  if (!colours || colours.every(neutral)) return [rgb[0], rgb[1], rgb[2]];
+  const r = lensRow(colours[heat] ?? NEUTRAL);
+  const sum = rgb[0] + rgb[1] + rgb[2] + r[2];
+  return [r[0] * sum, r[1] * sum, r[2] * sum];
+}
+
+/**
+ * `lightMapColour` on the GPU, for the effect lights' pass: `rgb` in units of 255 (the pass's `rgb / 255`), so the
+ * row's z term is divided by 255; row 2 (`nightHot`) for a `CMesh` (`heat` 2), row 0 (`nightRow`) otherwise.
+ */
+export function nightLightRgb(rgb: Node<'vec3'>, heat: 0 | 2 = 0): Node<'vec3'> {
+  const r = heat === 2 ? hot : row;
+  const sum = rgb.x.add(rgb.y).add(rgb.z).add(r.z.div(255));
+  return select(on.greaterThan(float(0.5)), vec3(r.xyz.mul(sum)), rgb) as unknown as Node<'vec3'>;
 }

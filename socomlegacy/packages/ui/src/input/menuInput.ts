@@ -53,12 +53,17 @@ export const MENU_TICK_RATE_READING = 30 as const;
  * MENU_TOUCH_READING (research 116 §11; the owner's default 1): the PS2 had no pointer. A tap or a click on a control
  * of the ring steps the focus to it as `ActivateButton` does (the focused control deactivated, the tapped one
  * activated, `SELECTION`), then CROSS is pressed for one frame; a tap on the focused control is CROSS alone; a tap off
- * every control is CROSS alone. **While the popup shows** the controls are not hit-tested: a tap on one of its buttons'
- * bodies (where its draw places them, `SlotPopup.buttonRects`; a button with no width is none) answers that button --
- * on the unfocused one the popup's own LEFT / RIGHT step (`Popup.step`, D:L268528-268541: the answer, the buttons'
- * states, `SELECTION`), then CROSS one frame; on the focused one CROSS alone -- and a tap off both is CROSS alone, the
- * popup's focused answer (the player's report of 2026-11-02: AskToOverwrite's NO is button 1 and focused, so a click
- * on YES answered NO; research 118: 36 of the 58 two-button records are NO-first). A tap on a disabled control is
+ * every control is LOST (B-21, the lobby lane's change of 2026-11-21, a matter of taste on the product track: it was
+ * CROSS on the focused control, so a PC player's first click in the game lobby -- the disc focuses SWITCH TEAMS on every
+ * arrival, P:L7226, P:L7280 -- switched sides, and a stray click on OPTIONS stepped the focused strip) -- but where the
+ * ring has no focused, enabled control (a "press X" screen, only a screen binding takes CROSS) it is CROSS alone, so a
+ * touch-only player is never stranded. **While the popup shows** the controls are not hit-tested: a tap on one of its
+ * buttons' bodies (where its draw places them, `SlotPopup.buttonRects`; a button with no width is none) answers that
+ * button -- on the unfocused one the popup's own LEFT / RIGHT step (`Popup.step`, D:L268528-268541: the answer, the
+ * buttons' states, `SELECTION`), then CROSS one frame; on the focused one CROSS alone (the player's report of
+ * 2026-11-02: AskToOverwrite's NO is button 1 and focused, so a click on YES answered NO; research 118: 36 of the 58
+ * two-button records are NO-first) -- and a tap off its buttons is lost (B-21), save on a popup with no button to hit,
+ * where it is CROSS alone, the popup's focused answer. A tap on a disabled control is
  * lost -- no step, no `SELECTION`, no CROSS -- as the pad cannot focus one (the ring steps past it, `FUN_003670d0`), and
  * a CROSS there would fall to the screen's binding (the disabled button takes no pad). The box is the control's body:
  * XSIZE x YSIZE from its node's place (centred on it with `HCENTERED`), a list's `IMAGE` size. Like a pad press, a tap
@@ -243,6 +248,7 @@ export class MenuInput {
       const rects = p instanceof SlotPopup ? p.buttonRects(shell.screen) : [null, null];
       const on = (k: 0 | 1): boolean => { const r = rects[k]; return !!r && x >= r[0] && x < r[2] && y >= r[1] && y < r[3]; };
       const slot = on(1) ? 2 : on(0) ? 1 : undefined;
+      if (slot === undefined && (rects[0] || rects[1])) return null;                    // B-21: off a popup's buttons, lost
       this.tapPending = slot === undefined ? { name: null } : { name: null, popupSlot: slot };
       return null;
     }
@@ -256,6 +262,7 @@ export class MenuInput {
     }
     const spec = name !== null && parts ? parts.widgets.specOf(name) : undefined;
     if (spec !== undefined && !parts!.widgets.enabled(spec)) return null;               // a disabled control: lost
+    if (name === null && this.ring()?.focused?.enabled()) return null;                   // B-21: off every control, lost
     this.tapPending = { name, box, position };
     return name;
   }

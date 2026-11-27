@@ -68,22 +68,32 @@ test('no disc: the first key unlocks, a move is silent, and no sound file is req
 const ISO = process.env.SOCOM_ISO ?? '';
 test('with the disc: a move plays HUDUI\'s own sound, rendered off the disc', async ({ page }) => {
   test.skip(!ISO || !existsSync(ISO), 'SOCOM_ISO absent');
-  test.setTimeout(420_000);                                         // the disc read, then its copy into storage (below)
+  test.setTimeout(480_000);                                         // the disc read, then its copy into storage (below)
   await stubAudio(page);
+  // LATER 910 / 1278: the disc copy's popover (`#overlay .cx-extract`), SEEN by an observer from the page's first script on,
+  // never sampled. The legend draws no disc mark while the popover is up, and the popover shows only after the dynamic
+  // import of the extraction, so waiting for the mark's "Disc ready" FIRST passed early only when a poll landed in that
+  // gap; when it missed, it resolved after the copy had ended and the popover's own wait then looked 30 s for a popover that
+  // had come and gone (red in seven browser shards from 2026-11-14 to 2026-11-20, green alone). The observer cannot miss it.
+  await page.addInitScript(() => {
+    const w = window as unknown as { __extractSeen: boolean };
+    w.__extractSeen = false;
+    const look = (): void => { if (document.querySelector('#overlay .cx-extract')) w.__extractSeen = true; };
+    new MutationObserver(look).observe(document, { childList: true, subtree: true });
+  });
   await page.goto('/');
   await page.setInputFiles('#disc-page-file', ISO);
-  // LR-23 (LR.R22): the Disc step is the legend's status chip; READY is its "Disc ready" (was LR-13's disc check of Play's panel).
-  await expect(page.locator('#legend .cx-mark[data-mark="disc"] .cx-mark__word')).toHaveText('Disc ready', { timeout: 120_000 });   // LR-24: the disc mark (was: the chip)
   // The disc's own copy (DX-3): this profile is fresh, so the image read starts its copy into this browser's storage, and
-  // its popover shows once the extraction is imported -- before or after "Disc ready", so it is waited for, never sampled
-  // once (that sample was this case's race). A player lets it run: it ends EXTRACTED, closes itself, and the disc is ready
-  // from storage. Its Close is not pressed: the head's × is Circle, Cancel while it runs (EXTRACTION PAUSED, the popover
-  // stays), and the paused popover's Close by IX.R4 exits without the disc, so no sound could come off it
-  // (`test/console/adapters/discExtract.test.ts`, "clicked: the head's Close while it runs pauses it").
+  // its popover shows once the extraction is imported -- before or after the legend's "Disc ready" (LR-23, LR.R22: the Disc
+  // step is the legend's status chip; LR-24: its mark). The wait covers the disc's cold read and the import in a full shard
+  // (`workflow/tools/e2e_durations.json` records 134.8 s for this whole file, both cases). A player lets the copy run: it ends EXTRACTED, closes itself, and
+  // the disc is ready from storage. Its Close is not pressed: the head's × is Circle, Cancel while it runs (EXTRACTION
+  // PAUSED, the popover stays), and the paused popover's Close by IX.R4 exits without the disc, so no sound could come off
+  // it (`test/console/adapters/discExtract.test.ts`, "clicked: the head's Close while it runs pauses it").
   const extract = page.locator('#overlay .cx-extract');
-  await expect(extract, 'the disc copy\'s popover is offered').toHaveCount(1, { timeout: 30_000 });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __extractSeen: boolean }).__extractSeen), { timeout: 180_000, message: "the disc copy's popover is offered" }).toBe(true);
   await expect(extract, 'the disc copy ends EXTRACTED and closes itself').toHaveCount(0, { timeout: 180_000 });
-  await expect(page.locator('#legend .cx-mark[data-mark="disc"] .cx-mark__word')).toHaveText('Disc ready');
+  await expect(page.locator('#legend .cx-mark[data-mark="disc"] .cx-mark__word')).toHaveText('Disc ready', { timeout: 60_000 });
   await page.keyboard.press('ArrowDown');                           // the first gesture: the context made
   await expect.poll(async () => {
     await page.keyboard.press('ArrowDown');

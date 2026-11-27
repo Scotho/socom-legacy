@@ -152,11 +152,12 @@ describe('the headless recorder', () => {
     expect((await runScenario(parseScenario(scenarioText('synthetic-walk.json')))).trace!.header.mapHash).toBeNull();
   });
 
-  // SEGMENT-BODY: walked -z from x 938 the -x side line meets prop01's side face, the look-ahead (FUN_005483d0
-  // D:L413686-413756) holds the move 9.7 off the crate, and a side line stores no contact (D:L413823-413848), so nothing
-  // offers the climb. Unsettled at the source; held, the scenario's spawn not moved (LATER 680: an r0004 capture of that
-  // walk settles it).
-  it.skipIf(!fixture('RUN/MP2.ZDB') || !fixture('RUN/MOTION_P.ZAR')).fails('GAP (LATER 680): the Frostfire box scenario walked from x 938 reaches the climb', async () => {
+  // Was GAP (LATER 680; SEGMENT-BODY: walked -z from x 938 the -x side line meets prop01's side face, the look-ahead
+  // FUN_005483d0 D:L413686-413756 held the move 9.7 off the crate, a side line stores no contact D:L413823-413848, so
+  // nothing offered the climb). The walk reaches the climb since LATER 1164's RAMP-LEAD (merge acc500b570, viewer
+  // `mover.ts` `throttle`: the move's stick read along the ramp) -- found by bisecting agent/next's merges, 2026-11-19. The
+  // side line's contact rule itself is unchanged; LATER 680 stays open for its other GAP (climbInterrupt.parity).
+  it.skipIf(!fixture('RUN/MP2.ZDB') || !fixture('RUN/MOTION_P.ZAR'))('the Frostfire box scenario walked from x 938 reaches the climb (LATER 680, its old GAP; since LATER 1164)', async () => {
     const run = await runScenario(parseScenario(scenarioText('frostfire-box.json')));
     expect(run.trace!.frames.some((f) => f.fields['action.current'] === 'climb')).toBe(true);
   });

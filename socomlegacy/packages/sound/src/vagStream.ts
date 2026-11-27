@@ -1,4 +1,5 @@
 import type { RenderedSound } from './render';
+import { floatStream, type Pcm16Stream } from './streamPcm';
 import { decodeVag } from './vag';
 import { STREAM_RATE_GUARD } from './vpk';
 
@@ -27,6 +28,11 @@ export const VAGP_MAX_DATA_BYTES_GUARD = 4 * 1024 * 1024;
  * The worker's transfer list names the shared buffer once (`soundTransferables`' Set).
  */
 export function decodeVagStream(b: Uint8Array): RenderedSound {
+  return floatStream(decodeVagStreamPcm16(b));
+}
+
+/** Same decoder and samples; keep signed PCM until the output needs floats (browser memory adaptation). */
+export function decodeVagStreamPcm16(b: Uint8Array): Pcm16Stream {
   if (b.byteLength < VAGP_HEADER_BYTES) throw new Error('VAGp: no header');
   if (b[0] !== 0x56 || b[1] !== 0x41 || b[2] !== 0x47 || b[3] !== 0x70) throw new Error('VAGp: bad magic');
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
@@ -35,8 +41,7 @@ export function decodeVagStream(b: Uint8Array): RenderedSound {
   if (sampleRate < STREAM_RATE_GUARD[0] || sampleRate > STREAM_RATE_GUARD[1]) throw new Error(`VAGp: rate ${sampleRate}`);
   if (VAGP_HEADER_BYTES + size > b.byteLength) throw new Error('VAGp: truncated');
   const pcm = decodeVag(b.subarray(VAGP_HEADER_BYTES, VAGP_HEADER_BYTES + size)).pcm;
-  const left = new Float32Array(pcm.length);
   let peak = 0;
-  for (let i = 0; i < pcm.length; i++) { left[i] = pcm[i]! / 32768; const a = Math.abs(left[i]!); if (a > peak) peak = a; }
-  return { left, right: left, sendLeft: null, sendRight: null, sampleRate, voices: 1, samples: [], peak };
+  for (let i = 0; i < pcm.length; i++) { const a = Math.abs(pcm[i]! / 32768); if (a > peak) peak = a; }
+  return { storage: 'pcm16', left: pcm, right: pcm, sendLeft: null, sendRight: null, sampleRate, voices: 1, samples: [], peak };
 }

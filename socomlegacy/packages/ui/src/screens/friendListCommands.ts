@@ -128,6 +128,8 @@ export const FRIEND_TICKET_ADAPTATION = 'an answer acts only under the ticket it
 export interface FriendListEntry { status: number; accountId: number; accountName: string; onlineState: LadderOnlineState; endOfList: boolean }
 /** GetBuddyInvitations' reply row (LobbyExt 0x09): the account +0x1c, the name +0x20, the word +0x40 (`FUN_00301350`). */
 export interface FriendInvitationEntry { status: number; accountId: number; accountName: string; addType: number; endOfList: boolean }
+/** LATER 1505 (`FriendListCommands.answered`): the replies taken so far and the list as the latest left it. */
+export interface FriendListAnswer { readonly count: number; readonly records: readonly FriendListEntry[] }
 /** A push (`FRIEND_EVENTS_POLL_MS_ADAPTATION`): the forward (LobbyExt 0x06) or the request's reply (Lobby 0x44). */
 export type FriendEvent =
   | { kind: 'forward'; accountId: number; accountName: string; addType: number }
@@ -221,6 +223,14 @@ export class FriendListCommands {
   private listSeq = 0;
   private nextPoll = -Infinity;
   private polling = false;
+  /**
+   * LATER 1505 (a browser adaptation for Streamer mode's social set, `packages/viewer/src/socialSet.ts`): how many list
+   * replies have been taken -- a NoResult-only one included -- and the list as the latest left it, so a reader can tell
+   * "answered, none" from "asked, not answered yet", and a re-ask's emptied list (`requestList`) is never read as an
+   * answer. The console keeps no such count; nothing the page draws reads it.
+   */
+  private lastAnswer: FriendListAnswer = { count: 0, records: [] };
+  get answered(): FriendListAnswer { return this.lastAnswer; }
 
   constructor(private readonly o: FriendListCommandsOptions) {}
 
@@ -288,6 +298,8 @@ export class FriendListCommands {
       if (!this.friends.some((x) => x.accountId === r.accountId)) this.friends.push({ ...r, onlineState: { ...r.onlineState } });
       if (r.endOfList) this.drawList();
     }
+    // LATER 1505: one reply, rows or none -- the list as it left it, kept apart from a later re-ask's emptying.
+    this.lastAnswer = { count: this.lastAnswer.count + 1, records: this.friends.map((x) => ({ ...x, onlineState: { ...x.onlineState } })) };
   }
 
   /** `FUN_00301a70`: the rows set into FriendListVar, added TEMPORARY (`FUN_003857c0(.., 0, 1)`, `FUN_00386460`). */

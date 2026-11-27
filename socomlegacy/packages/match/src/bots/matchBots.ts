@@ -53,6 +53,22 @@ interface MatchBotOptions {
   doorStagger?: boolean;
   /** P537-L3: PR #537's behaviours on for this room (default: `botBehaviours` of the room's map, `../botGates`). */
   behaviours?: BotBehaviours;
+  /**
+   * LATER 1122 step (1) (a diagnostic, product track; no original -- the game had no multiplayer bots): told of every enemy
+   * `perceive` does not sight, with the reason, for a soak's record. Absent (every room): nothing is called and nothing changes.
+   */
+  perceptionTrace?: (drop: PerceptionDrop) => void;
+}
+
+/** LATER 1122: why `perceive` did not sight an enemy this tick (its checks in order; the first that dropped it). */
+export type PerceptionReason = 'flashed' | 'range' | 'cone' | 'vertical' | 'wall' | 'smoke' | 'danger';
+/** LATER 1122: one enemy not sighted (or, `danger`, sighted but not taken as the target), and the numbers its check read. */
+export interface PerceptionDrop {
+  tick: number; bot: number; enemy: number | null; reason: PerceptionReason; distance: number;
+  /** The bearing off the bot's yaw, degrees (the cone's test: 35 either side). */
+  bearing: number;
+  /** The elevation to the enemy's chest against the bot's pitch, degrees (the vertical test: 24.5). */
+  elevation: number; pitch: number;
 }
 
 /** BOP-S: where a resumable angle search stands -- `search`'s cursor, then the fallback list and its next candidate. */
@@ -135,9 +151,18 @@ interface Actor {
   /** BOP-S (LF3): the rungs it last got off -- their stand-off point and the facing into them -- kept out of its steering. */
   ladderAvoid?: { at: Point; into: [number, number]; until: number; revision: number; hull: string | null };
 }
+/**
+ * LATER 1122 (`perceive`; research 450 s2-s3, its readings section; reading, pending review): the radius of the original AI's
+ * sight cone at the eye, world units -- `FUN_005c9400` writes `+0x88` = 25.0 (0x41c80000, D:L481755), the take test
+ * `FUN_005cc120` compares the lateral distance against it (D:L483246-483252).
+ */
+const AI_CONE_EYE_RADIUS_READING = 25;
 /** OT.R81 (BTL.R3): the port's invention, no original value -- a bot decision, not an unknown of the game's. New AI timings/ranges. The project has no runnable retail campaign controller; these are exposed practice tuning. */
 // `fov` is no adaptation: a bot sees no wider than a player (OT.R81, area (a)'s re-read 1) -- every map's `cameras/camera`
 // authors fov (0.6109 0.4276), half-angles, so 70 degrees across and `fovVertical` 49 up and down (viewer `camera.ts`).
+// LATER 1122: that camera is the player's, not the original AI's cone (research 450 s2: a 25 u radius at the eye widening by
+// the controller's unread `+0x68`, no vertical test). `perceive` follows the AI's cone where read: within
+// `AI_CONE_EYE_RADIUS_READING` of the eye, in front, neither `fov` nor `fovVertical` drops an enemy; beyond it both still do.
 const BOT_AI_ADAPTATION = { perceptionTicks: 6, trackingTicks: 2, vision: 850, fov: 70, fovVertical: 49, planTicks: 90,
   stuckTicks: 60, recoverTicks: 45, recoveryDistances: [16, 28], recoveryRetreat: 0.5, progressDistance: 4,
   waypoint: 6, spacing: 20, separation: 2.5,
@@ -257,6 +282,15 @@ const STEERING_ADAPTATION = { stickRate: 5, response: 20, lookResponse: 12, clea
   // The steering's dead band: a waypoint nearer than this gives no stick, so one with route left is passed regardless
   // of the look-ahead (route[0] -> route[1] is a planned graph leg); bot-perf-2, MP51 seed 41.
   deadBand: 0.1 };
+/**
+ * PASS-BY (LATER 1173, OT.R81, a bot adaptation: the port's invention, no original value): a waypoint with route left is
+ * inside the dead band when the last tick's travel went through the band (the feet back along their velocity over a
+ * tick), not only when the feet ended in it -- a body covers 0.25 to 0.95 a tick, so a waypoint whose next leg fails
+ * `canWalk` (a corner) was passed only when a tick happened to end within 0.1 of it, and the bot circled it.
+ */
+function passedWithin(point: Point, s: { x: number; z: number; vx: number; vz: number }, band: number): boolean {
+  return pointSegment([point[0], 0, point[2]], [s.x - s.vx / TICK_HZ, 0, s.z - s.vz / TICK_HZ], [s.x, 0, s.z]) < band;
+}
 /**
  * BOT-CORNER (OT.R81, a bot adaptation: the port's invention, no original value -- a bot decision, not an unknown of the
  * game's). The walker takes a face's END along the face's own normal (viewer `WALL_END_CONTACT_READING`, MV-PARITY b2):
@@ -486,7 +520,11 @@ export class MatchBots {
     this.jobs = new NavScheduler(this.navigation, options.navWork ?? BOT_ROUTE_WORK_PER_TICK_ADAPTATION, BOT_NAV_JOB_ADAPTATION, (id) => this.feetOf(id));
     this.doorStagger = options.doorStagger ?? BOT_DOOR_STAGGER_ADAPTATION;
     this.doorState = this.doorsState();
+    this.perceptionTrace = options.perceptionTrace ?? null;
   }
+
+  /** LATER 1122 step (1): the soak's diagnostic hook (`MatchBotOptions.perceptionTrace`), null in every room. */
+  private readonly perceptionTrace: ((drop: PerceptionDrop) => void) | null;
 
   /** Where a living bot stands (null: no body). */
   private feetOf(id: number): Point | null {
@@ -897,12 +935,34 @@ export class MatchBots {
     }
   }
 
+  /**
+   * LATER 1122 (`perceive`): an enemy within the original AI cone's radius at the eye and in front of the axis is in the
+   * cone at any bearing and height. `FUN_005c9400` (D:L481718-481767) lays the AI's cone with `+0x88` = 25 (0x41c80000,
+   * D:L481755) about the axis 0.5 x (look + body facing) (D:L481744-481750); `FUN_005cc120` (D:L483236-483254) takes a body
+   * with 0 < along <= reach whose lateral distance is under 25 + along x `+0x68`, and has no vertical test (research 450
+   * s2-s3; reading, pending review). The port's look is its walker's yaw and pitch (what the actor's `+0x11a0` holds is
+   * unread, research 450 s6), its facing the yaw; the target point is `perceive`'s chest. Taken here only within 25 u
+   * (3-D, eye to chest) with along > 0 -- a sufficient case given the slope `+0x68` >= 0 and the reach >= 25 (both
+   * unread); the original's wider take beyond 25 u (lateral under the radius) is not built.
+   */
+  private static nearCone(yaw: number, pitchDeg: number, to: readonly [number, number, number]): boolean {
+    if (Math.hypot(to[0], to[1], to[2]) >= AI_CONE_EYE_RADIUS_READING) return false;
+    const p = pitchDeg * Math.PI / 180, fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    const along = 0.5 * ((fx * Math.cos(p) + fx) * to[0] + Math.sin(p) * to[1] + (fz * Math.cos(p) + fz) * to[2]);
+    return along > 0;
+  }
+
   private perceive(b: Actor, feet: Point): void {
     const p = this.room.player(b.id)!, yaw = p.sim.walker.state.yaw * Math.PI / 180;
     const eye: Point = [feet[0], feet[1] + scopeEyeHeight(p.sim.walker.posture), feet[2]];
     const frame = p.cone.frame(p.sim.seq), muzzle = frame ? this.shotOrigin(b.id, frame) : null;
     b.seen = [];
-    if (b.blindUntil !== undefined && this.room.tick < b.blindUntil) { b.target = null; return; }   // flashed: it sights nothing
+    const trace = this.perceptionTrace, pitch = p.sim.walker.state.pitch;
+    if (b.blindUntil !== undefined && this.room.tick < b.blindUntil) {                // flashed: it sights nothing
+      if (trace) trace({ tick: this.room.tick, bot: b.id, enemy: null, reason: 'flashed', distance: 0, bearing: 0, elevation: 0, pitch });
+      b.target = null;
+      return;
+    }
     const smoke = [...this.clouds.values()].map((c) => c.at);
     let best: { id: number; at: Point; score: number } | null = null;
     for (const m of this.room.lobby.players()) {
@@ -911,20 +971,25 @@ export class MatchBots {
       if (!enemy?.alive) continue;
       const s = enemy.sim.walker.state;
       const at: Point = [s.x, s.y, s.z], dx = s.x - feet[0], dz = s.z - feet[2], d = Math.hypot(dx, dz);
-      // The merge controller's ruling (BOTS-LAND, 2026-10-24): the sight range is the vision adaptation alone; the weapon's range
-      // (metres, scaled to world units) bounds only the fire preference (`withinWeaponPreference`).
-      if (d > BOT_AI_ADAPTATION.vision) continue;
-      if (d > 1 && (-Math.sin(yaw) * dx - Math.cos(yaw) * dz) / d < Math.cos(BOT_AI_ADAPTATION.fov * Math.PI / 360)) continue;
       const chest = enemy.sim.walker.posture === 'prone' ? 3 : enemy.sim.walker.posture === 'crouch' ? 8 : 12;
       // The camera's vertical half-angle too: the elevation to the chest against the bot's own pitch (up positive).
       const elevation = Math.atan2(s.y + chest - eye[1], d || 1) * 180 / Math.PI;
-      if (Math.abs(elevation - p.sim.walker.state.pitch) > BOT_AI_ADAPTATION.fovVertical / 2) continue;
-      if (segmentHit(this.room.map.grid, eye, [s.x, s.y + chest, s.z], (poly) => !isLiquidSurface(poly) && (surfaceWord(poly) & SURFACE_SKIP) === 0)) continue;
-      if (smokeHides(smoke, eye, [s.x, s.y + chest, s.z])) continue;   // a live smoke between: no sight (the controller's ruling)
+      // LATER 1122 step (1): the soak's record of a drop (the hook is absent in every room: nothing is computed).
+      const drop = trace ? (reason: PerceptionReason): void => trace({ tick: this.room.tick, bot: b.id, enemy: m.id, reason, distance: d,
+        bearing: d > 0 ? Math.acos(Math.max(-1, Math.min(1, (-Math.sin(yaw) * dx - Math.cos(yaw) * dz) / d))) * 180 / Math.PI : 0, elevation, pitch }) : null;
+      // The merge controller's ruling (BOTS-LAND, 2026-10-24): the sight range is the vision adaptation alone; the weapon's range
+      // (metres, scaled to world units) bounds only the fire preference (`withinWeaponPreference`).
+      if (d > BOT_AI_ADAPTATION.vision) { drop?.('range'); continue; }
+      // LATER 1122: within the original AI cone's radius at the eye, in front, neither cut applies (`nearCone`).
+      const near = MatchBots.nearCone(yaw, pitch, [dx, s.y + chest - eye[1], dz]);
+      if (!near && d > 1 && (-Math.sin(yaw) * dx - Math.cos(yaw) * dz) / d < Math.cos(BOT_AI_ADAPTATION.fov * Math.PI / 360)) { drop?.('cone'); continue; }
+      if (!near && Math.abs(elevation - pitch) > BOT_AI_ADAPTATION.fovVertical / 2) { drop?.('vertical'); continue; }
+      if (segmentHit(this.room.map.grid, eye, [s.x, s.y + chest, s.z], (poly) => !isLiquidSurface(poly) && (surfaceWord(poly) & SURFACE_SKIP) === 0)) { drop?.('wall'); continue; }
+      if (smokeHides(smoke, eye, [s.x, s.y + chest, s.z])) { drop?.('smoke'); continue; }   // a live smoke between: no sight (the controller's ruling)
       // Copy only sighted poses. Position planning never follows an unseen opponent's current state.
       b.seen.push({ id: m.id, at });
       const nearDanger = b.danger && Math.hypot(at[0] - b.danger[0], at[2] - b.danger[2]) < TACTICS_ADAPTATION.dangerRadius;
-      if (b.danger && this.room.tick < b.dangerUntil && !nearDanger && d > TACTICS_ADAPTATION.immediateThreat) continue;
+      if (b.danger && this.room.tick < b.dangerUntil && !nearDanger && d > TACTICS_ADAPTATION.immediateThreat) { drop?.('danger'); continue; }
       const enemyYaw = s.yaw * Math.PI / 180;
       const facingUs = d > 1 && (Math.sin(enemyYaw) * dx + Math.cos(enemyYaw) * dz) / d > DECISIONS_ADAPTATION.facingCosine;
       const clearLane = !muzzle || !this.positions!.blocked(muzzle, [s.x, s.y + chest, s.z]);
@@ -1046,9 +1111,11 @@ export class MatchBots {
       >= Math.min(TRAFFIC_ADAPTATION.overlap, Math.hypot(q.at[0] - feet[0], q.at[1] - feet[1], q.at[2] - feet[2]));
     const clearPass = (to: Point): boolean => allies.every((q) => legClear(q, to));
     if (moving < 0.1) { b.yieldFor = null; b.yieldedSince = undefined; b.passing = null; b.yieldUntil = 0; return [0, 0]; }
+    let asideCut = false;                                          // ASIDE-RETRY (LATER 1173), below
     if (b.passing) {
       const x = b.passing[0] - feet[0], z = b.passing[2] - feet[2];
       if (Math.hypot(x, z) > TACTICS_ADAPTATION.arrival && this.navigation.canWalk(feet, b.passing) && clearPass(b.passing)) return [x, z];
+      asideCut = b.giveWay?.aside === true && Math.hypot(x, z) > TACTICS_ADAPTATION.arrival;
       b.passing = null; b.yieldedSince = undefined;               // BOT-CORNER review 2: a finished pass restarts the yield clock
       // The pass displaced this body from the pose where its first route leg was checked. Reattach once
       // before resuming a blocked leg, keeping the same destination and the navigation search's fixed budget.
@@ -1119,13 +1186,22 @@ export class MatchBots {
       const oncoming = comingAt(yielding);
       if (d > 0.1 && d < de && d < TRAFFIC_ADAPTATION.radius && oncoming && this.room.tick - b.giveWay!.since < 3 * BOT_AI_ADAPTATION.stuckTicks
         && (-x * ex - z * ez) / (d * de) > TRAFFIC_ADAPTATION.ahead) {   // still coming along its way
-        if (b.giveWay!.aside) return [0, 0];                       // out of its way: wait for it to go by
+        if (b.giveWay!.aside && !asideCut) return [0, 0];          // out of its way: wait for it to go by
+        // ASIDE-RETRY (LATER 1173, OT.R81, a bot adaptation: the port's invention, no original value): a step aside the
+        // walk test cut short before its point (botHeadOn batch 7: from (2.28, 90.57) by the T's corner) is chosen again
+        // from where the feet are -- the same side first, at `passDistance` and then the traffic's `overlap` (batch 7's
+        // two lengths, as `backOff`), then the other side -- where it stood 2.3 off the priority bot's leg until its stall
+        // recovery. None reachable, it waits there as before.
         const side = b.id > yielding.id ? 1 : -1;
+        const lengths = asideCut ? [TRAFFIC_ADAPTATION.passDistance, TRAFFIC_ADAPTATION.overlap] : [TRAFFIC_ADAPTATION.passDistance];
         for (const [ox, oz] of [[-dz * side, dx * side], [dz * side, -dx * side]] as const) {
           if (!offRungs(ox, oz)) continue;
-          const to = this.navigation.offset(feet, ox / moving, oz / moving, TRAFFIC_ADAPTATION.passDistance);
-          if (to && clearPass(to)) { b.passing = to; b.yieldedSince = undefined; b.giveWay!.aside = true; return [to[0] - feet[0], to[2] - feet[2]]; }
+          for (const length of lengths) {
+            const to = this.navigation.offset(feet, ox / moving, oz / moving, length);
+            if (to && clearPass(to)) { b.passing = to; b.yieldedSince = undefined; b.giveWay!.aside = true; return [to[0] - feet[0], to[2] - feet[2]]; }
+          }
         }
+        if (asideCut) return [0, 0];
         const back = offRungs(-dx, -dz) ? backOff() : null;
         if (back) { b.passing = back; b.yieldedSince = undefined; return [back[0] - feet[0], back[2] - feet[2]]; }
         return [0, 0];
@@ -1921,7 +1997,7 @@ export class MatchBots {
         if (tacticFailed) tactical = null;
       }
       while (!b.cover && b.route.length && Math.hypot(b.route[0]![0] - s.x, b.route[0]![2] - s.z) < BOT_AI_ADAPTATION.waypoint
-        && (!this.behaviours.pursuit || nav.canWalk(feet, b.route[0]!)) && (b.route.length === 1 || Math.hypot(b.route[0]![0] - s.x, b.route[0]![2] - s.z) < STEERING_ADAPTATION.deadBand
+        && (!this.behaviours.pursuit || nav.canWalk(feet, b.route[0]!)) && (b.route.length === 1 || passedWithin(b.route[0]!, s, STEERING_ADAPTATION.deadBand)
           || nav.canWalk(feet, b.route[1]!))) b.route.shift();
       // Safe local smoothing does not cross a wall or jump between floors.
       if (b.route.length > 2 && tick % CROWD_ADAPTATION.shortcutEveryTicks === b.id % CROWD_ADAPTATION.shortcutEveryTicks) {
@@ -2006,7 +2082,7 @@ export class MatchBots {
         while (b.route.length && Math.hypot(b.route[0]![0] - s.x, b.route[0]![2] - s.z)
           < (b.route.length === 1 ? TACTICS_ADAPTATION.arrival : BOT_AI_ADAPTATION.waypoint)
           && (b.route.length > 1 || arrived)
-          && (b.route.length === 1 || Math.hypot(b.route[0]![0] - s.x, b.route[0]![2] - s.z) < STEERING_ADAPTATION.deadBand
+          && (b.route.length === 1 || passedWithin(b.route[0]!, s, STEERING_ADAPTATION.deadBand)
             || nav.canWalk(feet, b.route[1]!))) b.route.shift();
         dx = arrived ? 0 : b.route[0] ? b.route[0][0] - s.x : 0;
         dz = arrived ? 0 : b.route[0] ? b.route[0][2] - s.z : 0;
@@ -2273,7 +2349,13 @@ export class MatchBots {
       if (fireInput.trigger) buttons |= Button.Trigger;
       const speed = b.target !== null ? STRAFE_ADAPTATION.speed : STEERING_ADAPTATION.patrolSpeed;
       // Slow only near a terminal destination. An intermediate corner still needs a decisive pad input.
-      const arrival = b.reposition || b.route.length === 1 ? Math.max(STEERING_ADAPTATION.arrivalFloor, Math.min(1, remaining / STEERING_ADAPTATION.arrival)) : 1;
+      // HELD-WAYPOINT (LATER 1173, OT.R81, a bot adaptation: the port's invention, no original value): a waypoint kept
+      // inside `waypoint` -- its next leg refused from here (the drop loops above stop there only on a refusal) -- is
+      // passed only inside the dead band, so it is approached as a terminal one. At a full stick (about 57 u/s, 0.95 a
+      // tick) the body overshot it, circled it on the turn's lag and left it the wrong way round a corner, or the stall
+      // recovery fired first (botCornerSlide; the classing's #3-5 once RAMP_LEAD, LATER 1164, moved the circle's phase).
+      const held = b.route.length > 1 && Math.hypot(b.route[0]![0] - s.x, b.route[0]![2] - s.z) < BOT_AI_ADAPTATION.waypoint;
+      const arrival = b.reposition || b.route.length === 1 || held ? Math.max(STEERING_ADAPTATION.arrivalFloor, Math.min(1, remaining / STEERING_ADAPTATION.arrival)) : 1;
       const tSteer = prof ? prof.now() : 0n;
       if (prof) prof.caller = 'steer';
       const [forward, right] = mobileCombat ? this.steer(b, feet, radians, dx, dz, speed * arrival * b.trafficScale) : [
@@ -2286,8 +2368,10 @@ export class MatchBots {
       // countdown no more
       const raised = botRaise({ engaged: b.target !== null, throwing: b.equipment !== null, tick, until: b.raiseUntil });
       p.raise = raised.raise; b.raiseUntil = raised.until;
+      // LATER 1201 (the fresh review's F2): the bot's raise rides its command, as a person's does (`Command.raised`), so the
+      // room's walker takes the Fire set's head line while the rifle is up (`MoverSim.prepare`).
       const cmd: Command = { seq: p.sim.seq + 1, yaw, pitch, turn: turn * Math.PI / 180 * TICK_HZ, buttons, stance: desiredStance, weapon,
-        forward, right };
+        forward, right, ...(raised.raise ? { raised: true } : {}) };
       this.room.binary(b.id, encodeCommands({ viewTick: tick, commands: [cmd] }));
       if (prof) prof.end('command', tCommand);
       const tDoors = prof ? prof.now() : 0n;

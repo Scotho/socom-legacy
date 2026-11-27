@@ -14,7 +14,7 @@ import { Room } from '../src/room';
 type V3 = [number, number, number];
 const quad = (points: number[]): WorldPoly =>
   ({ modelName: 'worldmodel', path: 'worldmodel/q', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from(points) });
-const floor = quad([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]);
+const floor = quad([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]);
 const farWall = quad([-50, 0, -60, 50, 0, -60, 50, 50, -60, -50, 50, -60]);
 const post = quad([1, 0, -5, 10, 0, -5, 10, 50, -5, 1, 50, -5]);
 const lowWall = quad([-50, 0, -5, 50, 0, -5, 50, 17, -5, -50, 17, -5]);

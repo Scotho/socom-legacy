@@ -40,13 +40,14 @@ import {
   type GeoObject, type WorldGeometry,
 } from './world';
 import type { SavedWorld } from './geometryFile';
+import { pageSettings } from '../../pageStore';
 
 /**
- * The Forge's geometry mode (a browser adaptation, FG.R2; the owner, 2026-11-14: a full level-editor geometry editing
+ * The Forge's geometry mode (a browser adaptation, FG.R2; the Forge's owner (crispy, OT.R112), 2026-11-14: a full level-editor geometry editing
  * tool). Over a disc map's base it edits the map's world as `./world` holds it: object, point, edge and face modes,
  * the gizmo moving what is selected, primitives, extrude, delete, separate, flip, a level editor's texturing and displacement.
  * The edited world is drawn by a view of its own over the base's world, which is hidden while the geometry differs; the
- * hull is rebuilt only by Build (the owner, 2026-11-14: "collision should only be rebuilt with a rebuild button"), which
+ * hull is rebuilt only by Build (the Forge's owner (crispy, OT.R112), 2026-11-14: "collision should only be rebuilt with a rebuild button"), which
  * is where everything too slow for a drag goes.
  */
 
@@ -72,7 +73,7 @@ export interface GeometryEditorDeps {
   /** An edit made; `amend`: the same edit made again (a tool's setting changed) -- the current step, not a new one. */
   onEdit: (label: string, amend?: boolean) => void;
   /**
-   * The selection drawn (the owner, 2026-11-15: "any selection pattern should be part of the undo"): the page records a
+   * The selection drawn (the Forge's owner (crispy, OT.R112), 2026-11-15: "any selection pattern should be part of the undo"): the page records a
    * selection step when it differs from the step's (`selectionState`), once the gesture making it is over.
    */
   onSelect?: () => void;
@@ -81,7 +82,7 @@ export interface GeometryEditorDeps {
    * collision view (the Draw menu's Collision hull, which turning collision editing on turns on) draws it.
    */
   onCollisionView?: (on: boolean) => void;
-  /** The Collision section's Property chosen (the owner, 2026-11-20): the page colours the collision view by it. */
+  /** The Collision section's Property chosen (the Forge's owner (crispy, OT.R112), 2026-11-20): the page colours the collision view by it. */
   onSurfaceProperty?: (by: HullColourBy) => void;
   /** The map's default surface's name (material 0), for the Material list's first entry. */
   defaultMaterial?: () => string | null;
@@ -95,6 +96,8 @@ export interface GeometryEditorDeps {
   camera: () => Camera;
   /** The camera is navigating (RMB fly, a pan, an orbit, a dolly): the fly letters are its, never the editor's. */
   navigating: () => boolean;
+  /** A match runs (the Play match or a lobby's): the mode answers no key until it ends (OT.R68). */
+  matchHeld: () => boolean;
   say: (text: string, warn?: boolean) => void;
   /** The base's disc map, or null when the base is not one (a blank floor, an authored map). */
   map: () => LoadedMap | null;
@@ -123,7 +126,7 @@ export interface GeometryEditorDeps {
   /** The workplane shown (the Display menu's Workplane): the block tool's plane; hidden, the surface pressed on is. */
   workplaneShown?: () => boolean;
   /**
-   * The Texture button pressed (the owner, 2026-11-16: "make it a button that opens the asset browser filtered to textures
+   * The Texture button pressed (the Forge's owner (crispy, OT.R112), 2026-11-16: "make it a button that opens the asset browser filtered to textures
    * only"): the page opens its asset browser on its Textures tab by `anchor`, a pick handed back through `setTexture`.
    */
   browseTextures?: (anchor: HTMLElement) => void;
@@ -132,11 +135,11 @@ export interface GeometryEditorDeps {
 }
 
 /**
- * The selection modes, as the toolbar and the words name them: the point mode is "Vertex" (the owner, 2026-11-16: "use
+ * The selection modes, as the toolbar and the words name them: the point mode is "Vertex" (the Forge's owner (crispy, OT.R112), 2026-11-16: "use
  * vertex everywhere where we used point"; a level editor's word), its code name `point` kept.
  */
 const MODES: { mode: SelectMode; label: string; plural: string; key: string }[] = [
-  // The reference editor's keys (the owner, 2026-11-19: one to one with it): 1 Vertex, 2 Edge, 3 Face, 4 Object.
+  // The reference editor's keys (the Forge's owner (crispy, OT.R112), 2026-11-19: one to one with it): 1 Vertex, 2 Edge, 3 Face, 4 Object.
   { mode: 'point', label: 'Vertex', plural: 'vertices', key: '1' }, { mode: 'edge', label: 'Edge', plural: 'edges', key: '2' },
   { mode: 'face', label: 'Face', plural: 'faces', key: '3' }, { mode: 'object', label: 'Object', plural: 'objects', key: '4' },
 ];
@@ -159,16 +162,28 @@ function edgeMaterial(): MeshBasicNodeMaterial {
   m.wireframe = true;
   return m;
 }
-/** The hover over what is selected already: the hover's own colour (the owner, 2026-11-14), drawn a little stronger. */
+/** The hover over what is selected already: the hover's own colour (the Forge's owner (crispy, OT.R112), 2026-11-14), drawn a little stronger. */
 const HOVER_SELECTED = HOVER;
 
 type GizmoPointer = { x: number; y: number; button: number };
 
 /**
  * The floor plane's surface words when the library map's hull has no walkable surface to read (a library with no hull):
- * walkable ground (`ditype` 3), material 0. Named, not read: no disc value stands behind it.
+ * walkable ground (`ditype` 3), material 0. Named, not read: no disc value stands behind it -- an editor default, a browser
+ * adaptation (FG.R2).
  */
-const DEFAULT_FLOOR_SURFACE_PLACEHOLDER: Surface = [3, 0, 0, 0, 0];
+const DEFAULT_FLOOR_SURFACE_ADAPTATION: Surface = [3, 0, 0, 0, 0];
+
+/**
+ * PR #5 D2 (ours): a negative scale turns an object inside out -- its faces wound the wrong way, its collision mirrored
+ * (`transformObject`). Refused, typed or by the gizmo, in words that send the player to Mirror, which flips properly.
+ */
+export const NEGATIVE_SCALE_REFUSAL = 'A negative scale would turn it inside out: not applied. To flip it, use Mirror';
+/** A typed Scale row (`objectTransformMatrix`): refused with any negative axis (a 0 has its own words). */
+export const typedScaleRefusal = (v: readonly number[]): string | null => (v.some((x) => x < 0) ? NEGATIVE_SCALE_REFUSAL : null);
+/** A gizmo's move of the objects (column-major 4x4): refused when it mirrors (its 3x3 part's determinant below 0). */
+export const mirroringRefusal = (m: ArrayLike<number>): string | null =>
+  new Matrix4().fromArray(Array.from(m)).determinant() < 0 ? NEGATIVE_SCALE_REFUSAL : null;
 
 /** The pointer moved this far (CSS pixels) from its press is a drag select, not a click (the page's own slop, `BOX_DRAG_PX`). */
 const PAINT_DRAG_PX = 4;
@@ -223,7 +238,7 @@ export interface TextureStateView extends TextureState {
   detail: { faces: number; on: boolean | null; range: number | null };
 }
 /**
- * The toolbar's Displace group (Displace, Sculpt) shown: off for now (the owner, 2026-11-17: "remove the displacement
+ * The toolbar's Displace group (Displace, Sculpt) shown: off for now (the Forge's owner (crispy, OT.R112), 2026-11-17: "remove the displacement
  * geometry stuff for now we will come back to it"). Its code stays; a displaced face already made still loads and draws.
  */
 const DISPLACE_TOOLS_SHOWN = false;
@@ -247,7 +262,7 @@ const PICK_PX = 12;
 /** A point's handle, CSS pixels across (a browser adaptation, after a level editor's vertex squares). */
 const HANDLE_PX = 9;
 /**
- * The hover's and the selection's lines, CSS pixels wide (the owner, 2026-11-16: "make the edge hover/select line
+ * The hover's and the selection's lines, CSS pixels wide (the Forge's owner (crispy, OT.R112), 2026-11-16: "make the edge hover/select line
  * thicker ... make it more obvious that it is hovered/selected. keep the same colors"; a browser adaptation): an edge's
  * own, and the outline of a face or an object -- drawn as screen-space lines (`thickLines`), the renderer's own a pixel.
  */
@@ -363,12 +378,12 @@ export class GeometryEditor {
   /** The geometry the tools work on: the drawn geometry, or the hull objects while collision editing is on. */
   private geo: WorldGeometry | null = null;
   /**
-   * Collision editing (the owner, 2026-11-15: "a collision edit toggle in geometry mode ... like I was just editing another
+   * Collision editing (the Forge's owner (crispy, OT.R112), 2026-11-15: "a collision edit toggle in geometry mode ... like I was just editing another
    * geometry"; `./hullGeometry`): on, `geo` is the hull objects (`hullGeo`) and the drawn geometry waits in `drawGeo`.
    */
   private collisionOn = false;
   /**
-   * The Texture layer (the owner, 2026-11-16: "a third button/layer/mode for textures. in this mode we can't edit
+   * The Texture layer (the Forge's owner (crispy, OT.R112), 2026-11-16: "a third button/layer/mode for textures. in this mode we can't edit
    * geometry, but only apply textures ... the active texture painting ux/workflow similar to how we do it for ai tile
    * painting"): the drawn geometry, its shape left alone -- no gizmo, no Create, Edit or Displace, no Delete -- and the
    * brush laying the chosen texture (`textureName`) on the faces a click or a drag passes over, as Apply lays it.
@@ -387,7 +402,7 @@ export class GeometryEditor {
   private displaceGroup!: HTMLElement;
   private surfaceGroup!: HTMLElement;
   /**
-   * Collision painting (the owner, 2026-11-15: "more of a paint brush, click to paint the current type ... a collision
+   * Collision painting (the Forge's owner (crispy, OT.R112), 2026-11-15: "more of a paint brush, click to paint the current type ... a collision
    * paint mode toggle in the collision layer settings ... a paint brush/sample tool ... not a dropdown, but more of a
    * quick tab ... in each tab it should show the collision type color"; the same UX texture painting will take): the
    * type tabs (`collisionType`) and Paint, the brush (a click or a drag paints the faces under it the active type; the
@@ -398,7 +413,7 @@ export class GeometryEditor {
   private climbFlag: number = CLIMB_FLAG_DEFAULT;
   private climbFlagLabel: HTMLElement | null = null;
   /**
-   * The property the Collision section paints (the owner, 2026-11-20: "a way to paint every property type when we switch
+   * The property the Collision section paints (the Forge's owner (crispy, OT.R112), 2026-11-20: "a way to paint every property type when we switch
    * the mode ... the top bar changes to what we could paint for that property"): Type (the type tabs above), Area,
    * Reverb zone, Material or Camera, each with its value tabs; the view is coloured by it (`deps.onSurfaceProperty`),
    * and Paint, Sample and Apply set it alone, every other word kept (`withSurfaceChange`).
@@ -412,7 +427,7 @@ export class GeometryEditor {
   private materialSel: HTMLSelectElement | null = null;
   private materialSwatch: HTMLElement | null = null;
   /**
-   * The cursor's words on the Collision layer (the owner, 2026-11-15: "show the current collision type as a cursor overlay
+   * The cursor's words on the Collision layer (the Forge's owner (crispy, OT.R112), 2026-11-15: "show the current collision type as a cursor overlay
    * text (especially useful for climbable types)", "also when we are not in paint mode"): the face's type under the
    * pointer and, while painting and a click would change it, what it becomes -- `Floor -> Climbable 4 Crate`.
    */
@@ -494,7 +509,7 @@ export class GeometryEditor {
     }
   }
   /**
-   * The paint tool's mode on the Collision and Texture layers (`../paintTools`; the owner, 2026-11-16: "We have 3 modes.
+   * The paint tool's mode on the Collision and Texture layers (`../paintTools`; the Forge's owner (crispy, OT.R112), 2026-11-16: "We have 3 modes.
    * Select(default), Paint, Sample"): Select edits (the Collision layer) or picks faces for Apply; Paint lays what is
    * active (the collision type, the texture) on what the brush passes over; Sample takes it off a face. Select on any
    * other layer.
@@ -504,7 +519,7 @@ export class GeometryEditor {
   private toolBeforeSample: 'select' | 'paint' = 'select';
   private get paintOn(): boolean { return this.tool === 'paint'; }
   private get sampling(): boolean { return this.tool === 'sample'; }
-  /** Shift held: a click while painting samples (the owner, 2026-11-16: "toggle to that mode by pressing shift+click"). */
+  /** Shift held: a click while painting samples (the Forge's owner (crispy, OT.R112), 2026-11-16: "toggle to that mode by pressing shift+click"). */
   private shiftHeld = false;
   private toolBar!: PaintToolBar;
   private toolGroup!: HTMLElement;
@@ -525,7 +540,7 @@ export class GeometryEditor {
   } | null = null;
   private strokeDrawQueued = false;
   /**
-   * The Layer tabs, the object bar's first section (the owner, 2026-11-15: "in the second toolbar ... a geometry layer
+   * The Layer tabs, the object bar's first section (the Forge's owner (crispy, OT.R112), 2026-11-15: "in the second toolbar ... a geometry layer
    * and a collision layer"; then "like a quicktab, similar to ... the little tabs in the asset browser", their
    * `.fx-asset-tab` look): what Geometry mode's tools edit, the drawn geometry or the collision (`setCollision`).
    */
@@ -554,7 +569,7 @@ export class GeometryEditor {
    */
   private authored = false;
   /**
-   * The collision rebuilt by itself (the owner, 2026-11-15: no Build button, "update the collision mesh in real time";
+   * The collision rebuilt by itself (the Forge's owner (crispy, OT.R112), 2026-11-15: no Build button, "update the collision mesh in real time";
    * measured 2026-11-15: a whole Build 3-18 ms on MP6, MP51 and MP72): after each edit, undo and redo, once a burst of
    * them settles (`BUILD_SETTLE_MS`), and at once when the walk or Play asks for the map (`editedMap`). A gizmo drag is
    * one edit, at its release. The AI grid is not rebuilt with it.
@@ -609,7 +624,7 @@ export class GeometryEditor {
    */
   private live: { attr: BufferAttribute | InterleavedBufferAttribute; mesh: Mesh; at: number[]; base: number[] }[] = [];
   /**
-   * The live drag's texture (the owner, 2026-11-17: "the live preview should always show the correct texture"): each
+   * The live drag's texture (the Forge's owner (crispy, OT.R112), 2026-11-17: "the live preview should always show the correct texture"): each
    * drawn vertex of a face partly moved that carries a mapping -- its uv attribute and index, the mapping, its texture's
    * size, the point it stands on (as read) and whether that point moves, and its uv as drawn (put back on Escape). Each
    * drag step lays its uv from the mapping at where the point now is, as the release's `transformVerts` will (a face
@@ -617,7 +632,7 @@ export class GeometryEditor {
    */
   private liveUv: { attr: BufferAttribute | InterleavedBufferAttribute; i: number; map: TextureMapping; size: readonly [number, number]; at: Vec3; moves: boolean; uv: [number, number] }[] = [];
   /**
-   * A Shift-drag extrude's new faces during the drag (the owner, 2026-11-20: "when I am shift extruding, those looked
+   * A Shift-drag extrude's new faces during the drag (the Forge's owner (crispy, OT.R112), 2026-11-20: "when I am shift extruding, those looked
    * stretched until I release the mouse"): each face's corners where they start and whether they move, its texel scale
    * and texture size, and where its corners are drawn. Each drag step lays it as the release will: world-aligned by the
    * face's facing at that step (`moveLive`) -- the face has no facing of its own until it has depth.
@@ -636,7 +651,7 @@ export class GeometryEditor {
    */
   private extruding: { objects: GeoObject[]; sel: Selection; made: Map<string, { faces: number[]; texel: number; sides?: number[][]; pairs?: [number, number][] }> } | null = null;
   /**
-   * The collision view following a drag (the owner, 2026-11-15: "the collision geometry preview update in realtime as I
+   * The collision view following a drag (the Forge's owner (crispy, OT.R112), 2026-11-15: "the collision geometry preview update in realtime as I
    * edit the world geometry ... to see the colors move"): the drag applied for a moment, the collision built from it
    * and shown, every value it touched put back as it was (`previewCollision`); at most every `PREVIEW_MS`, the last
    * place always shown. A Ctrl-drag copy is not previewed (its copy is made at the release).
@@ -741,11 +756,11 @@ export class GeometryEditor {
       const g = doc.createElement('div'); g.className = 'fx-group'; g.append(...kids);
       sec.append(name, g); return sec;
     };
-    // The selection modes on the top toolbar, beside the mode picker (the owner, 2026-11-15).
+    // The selection modes on the top toolbar, beside the mode picker (the Forge's owner (crispy, OT.R112), 2026-11-15).
     deps.modeTools.classList.add('fx-group');
     deps.modeTools.setAttribute('role', 'group');
     deps.modeTools.setAttribute('aria-label', 'Select');
-    // "Select" before the modes, "Layer" before the layers (the owner, 2026-11-16), as the second toolbar labels its sections.
+    // "Select" before the modes, "Layer" before the layers (the Forge's owner (crispy, OT.R112), 2026-11-16), as the second toolbar labels its sections.
     const label = (text: string, extra = ''): HTMLSpanElement => {
       const l = doc.createElement('span'); l.className = `fx-mode-section__label fx-bar-label${extra}`; l.textContent = text; return l;
     };
@@ -756,7 +771,7 @@ export class GeometryEditor {
     layerRow.setAttribute('aria-label', 'Layer');
     for (const [v, label, title] of [
       ['geometry', 'Geometry', 'Edit the drawn geometry'],
-      // Surface/Collision (the owner, 2026-11-20): the layer holds the faces' surface properties as well as the hull.
+      // Surface/Collision (the Forge's owner (crispy, OT.R112), 2026-11-20): the layer holds the faces' surface properties as well as the hull.
       ['collision', 'Surface/Collision', 'Edit the collision with the same tools, and its surfaces: the Property in the Surface section sets what Paint, Sample and Apply change'],
       ['texture', 'Texture', 'Paint textures on the faces: choose a texture, then click or drag over faces (the geometry is not edited here)'],
     ] as const) {
@@ -774,12 +789,12 @@ export class GeometryEditor {
       this.layerTabs.set(v, b);
       layerRow.append(b);
     }
-    // On the top toolbar beside the selection modes (the owner, 2026-11-16: "move the layer switch from the second
+    // On the top toolbar beside the selection modes (the Forge's owner (crispy, OT.R112), 2026-11-16: "move the layer switch from the second
     // toolbar to the top most toolbar next to the object/point/edge/face"), a gap between them.
     layerRow.classList.add('fx-geo-layer-top');
     deps.modeTools.append(label('Layer', ' fx-geo-layer-label'), layerRow);
     this.layerGroup = layerRow;
-    // Two sections (the owner, 2026-11-20: "lets just go with a Edit and Select section"): the tools that change the
+    // Two sections (the Forge's owner (crispy, OT.R112), 2026-11-20: "lets just go with a Edit and Select section"): the tools that change the
     // geometry, then those that change the selection. A section with no tool for the mode is hidden (`drawBar`).
     deps.tools.append(
       (this.editGroup = group('Edit',
@@ -817,7 +832,7 @@ export class GeometryEditor {
         this.button('ribs', 'Select Ribs', 'Select Ribs (Ctrl+G): from a selected run or loop of edges, the edges across it on both sides, out through the four-sided faces', () => this.selectRibs()),
       )),
     );
-    // The texture a button, not a list (the owner, 2026-11-16): the asset browser's Textures tab chooses it.
+    // The texture a button, not a list (the Forge's owner (crispy, OT.R112), 2026-11-16): the asset browser's Textures tab chooses it.
     this.textureBtn = doc.createElement('button');
     this.textureBtn.type = 'button';
     this.textureBtn.className = 'fx-tool fx-geo-texture';
@@ -851,7 +866,7 @@ export class GeometryEditor {
       word.textContent = t.label;
       b.append(sw, word);
       if (t.type === 'climbable') {
-        // One button for Climbable and its climb flag (the owner, 2026-11-15: "merge this into a single button"): its
+        // One button for Climbable and its climb flag (the Forge's owner (crispy, OT.R112), 2026-11-15: "merge this into a single button"): its
         // flag on it, a click opening the flags; choosing one paints Climbable with it.
         const flag = doc.createElement('span');
         flag.className = 'fx-climb-flag';
@@ -864,7 +879,7 @@ export class GeometryEditor {
         this.climbFlagLabel = flag;
         b.addEventListener('click', () => { this.toggleClimbMenu(b); b.blur(); });
       } else {
-        // A type's tab is the active type (the owner, 2026-11-16: Select, Paint, Sample): Paint or Apply lays it.
+        // A type's tab is the active type (the Forge's owner (crispy, OT.R112), 2026-11-16: Select, Paint, Sample): Paint or Apply lays it.
         b.addEventListener('click', () => { this.pickType(t.type); b.blur(); });
       }
       this.typeTabs.set(t.type, b);
@@ -881,18 +896,18 @@ export class GeometryEditor {
         apply: 'Apply the active texture or collision type to the selection',
       },
     });
-    // Create last of the tools, its shape right beside it (the owner, 2026-11-17: "in collision mode, create button should
+    // Create last of the tools, its shape right beside it (the Forge's owner (crispy, OT.R112), 2026-11-17: "in collision mode, create button should
     // be next to the dropdown"): Select | Create on the Geometry layer; Select | Paint | Sample | Create on Collision.
-    // Block beside Select (the owner, 2026-11-17: "bring back the select workflow to the geometry mode, it should be a tool
+    // Block beside Select (the Forge's owner (crispy, OT.R112), 2026-11-17: "bring back the select workflow to the geometry mode, it should be a tool
     // and turned on by default ... Tool Select | Block"), its shape beside the section while it is on.
     this.toolBar.addTab('block', 'Create', 'Create: drag a shape out -- press and drag a rectangle on the workplane (shown; on its grid while snapping) or on the surface pressed (by its normal, unsnapped), let go, move to set its height, click or Enter to make it. Esc cancels, then back to Select', 'apply', () => this.setBlockOn(true));
     this.toolBar.tabOf('block')?.after(this.blockToolUi());
-    // The tools on the top toolbar, first, as Object mode's (the owner, 2026-11-17: "for all the tools section in geometry
+    // The tools on the top toolbar, first, as Object mode's (the Forge's owner (crispy, OT.R112), 2026-11-17: "for all the tools section in geometry
     // and ai nav mode, move it to the top toolbar like the object mode, and call it Tools ... make sure the tools are the
     // first in the list(left)"): before the selection modes and the layers.
     this.toolGroup = this.toolBar.row;
     deps.modeTools.prepend(label('Tools'), this.toolBar.row);
-    // The Geometry layer's from the start (the owner, 2026-11-17: "the paint/sample buttons shouldn't even be there in geo
+    // The Geometry layer's from the start (the Forge's owner (crispy, OT.R112), 2026-11-17: "the paint/sample buttons shouldn't even be there in geo
     // layer"): Select and Create alone; the Collision and Texture layers show the rest (`collisionUi`).
     for (const k of ['paint', 'sample', 'apply']) this.toolBar.setShown(k, false);
     deps.tools.append(
@@ -1035,7 +1050,7 @@ export class GeometryEditor {
   }
 
   /**
-   * View > Props (the owner, 2026-11-15): props cannot be edited in Geometry mode and stand in the way, so the mode hides
+   * View > Props (the Forge's owner (crispy, OT.R112), 2026-11-15): props cannot be edited in Geometry mode and stand in the way, so the mode hides
    * them, and the box shows them again to judge the geometry among them. The choice is kept while the page is open; out
    * of the mode the props are always drawn.
    */
@@ -1044,7 +1059,7 @@ export class GeometryEditor {
   applyProps(): void { if (this.active && !this.showProps) this.deps.propsShown(false); }
   private propsBox: HTMLInputElement | null = null;
   /**
-   * The View group (Props), Geometry mode's and Collision mode's alike (the owner, 2026-11-15: World taken out, then
+   * The View group (Props), Geometry mode's and Collision mode's alike (the Forge's owner (crispy, OT.R112), 2026-11-15: World taken out, then
    * "in the collision settings, similar to geometry, add the show props toggle"): one setting for both modes. The world
    * draws in Collision mode as the Display menu has it (hiding it with Display's Geometry on was "a weird bug"); only the
    * picks are the collision's.
@@ -1073,7 +1088,7 @@ export class GeometryEditor {
   view(): WorldView | null { return this.drawn; }
 
   /**
-   * The Display menu's Wireframe in Geometry mode (the owner, 2026-11-15: "draw the real polygon edges"): the edges of
+   * The Display menu's Wireframe in Geometry mode (the Forge's owner (crispy, OT.R112), 2026-11-15: "draw the real polygon edges"): the edges of
    * the faces as edited -- a box's quad as four edges, a disc triangle as three -- in place of the triangles the GPU draws,
    * which the page turns off while the mode is on, as a level editor's tools show a mesh's edges and never its triangulation.
    */
@@ -1119,7 +1134,7 @@ export class GeometryEditor {
     }
     if (!positions.length) return;
     // Drawn as the world's own Wireframe is (`../../world` `wireframeMaterial`): the same white, opacity and depth offset
-    // through the same wireframe path, so the lines read the same in every mode (the owner, 2026-11-15). Each edge a-b is
+    // through the same wireframe path, so the lines read the same in every mode (the Forge's owner (crispy, OT.R112), 2026-11-15). Each edge a-b is
     // a triangle a-b-a, whose wireframe is the edge itself.
     const tri: number[] = [], triMesh: number[] = [], triVert: number[] = [];
     for (let k = 0; k < positions.length / 6; k++) {
@@ -1138,7 +1153,7 @@ export class GeometryEditor {
   }
 
   /**
-   * The viewport's transform controls, the page's one set for both gizmos (the owner, 2026-11-14: "unify it"): its
+   * The viewport's transform controls, the page's one set for both gizmos (the Forge's owner (crispy, OT.R112), 2026-11-14: "unify it"): its
    * Move / Rotate / Scale, World / Local and the grid and turn snaps, as the page sets its own gizmo.
    */
   syncGizmo(s: { mode: 'translate' | 'rotate' | 'scale'; space: 'world' | 'local'; translationSnap: number | null; rotationSnap: number | null; surface?: { on: boolean; offset: number }; snapStep?: number; turnStep?: number; snapBy?: 'pivot' | 'centre' | 'bounds' }): void {
@@ -1157,7 +1172,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Snap by (the owner, 2026-11-17: "in object mode it should snap to center/pivot, and in geometry to edges"; then "both
+   * Snap by (the Forge's owner (crispy, OT.R112), 2026-11-17: "in object mode it should snap to center/pivot, and in geometry to edges"; then "both
    * modes should have the same settings"): Pivot -- where the gizmo sits lands on the grid (its own snap); Centre -- the
    * middle of what is moved (its box's, `boxSnapDrag`); Bounds -- a whole object lands its nearest edge on a grid line on
    * each moved axis (`boxSnapDrag`), points, edges and faces each moved point on the grid (`snapVerts`). The steps kept
@@ -1168,7 +1183,7 @@ export class GeometryEditor {
   private turnStep = 0;
   private rotSnap: number | null = null;
   /**
-   * Ctrl held (the owner, 2026-11-17: "make ctrl drag the snap"): the snaps the other way for the drag -- off while they
+   * Ctrl held (the Forge's owner (crispy, OT.R112), 2026-11-17: "make ctrl drag the snap"): the snaps the other way for the drag -- off while they
    * are on, on while off -- the gizmo's moves and turns, and Create's drag, pull and handles.
    */
   private ctrlHeld = false;
@@ -1220,7 +1235,7 @@ export class GeometryEditor {
   /** The grid snap's step while it is on (`syncGizmo`): a new primitive's footing lands on it. */
   private gridSnap: number | null = null;
   /**
-   * The block tool (Create's Block and its shape; the owner, 2026-11-17: "implement a Drag-out block tool on the grid", as a
+   * The block tool (Create's Block and its shape; the Forge's owner (crispy, OT.R112), 2026-11-17: "implement a Drag-out block tool on the grid", as a
    * level editor's block tool works): while on, a press drags a rectangle out on the plane --
    * the workplane, shown, on its grid while the snap is on; else the surface pressed on, by its normal, unsnapped -- the
    * release then pulls the height along the plane's normal until a click (or Enter) makes the shape. Esc cancels.
@@ -1234,7 +1249,7 @@ export class GeometryEditor {
    */
   private lastPull: number | null = null;
   /**
-   * The Polygon tool (the owner, 2026-11-17: a Polygon tool in geometry mode, to create
+   * The Polygon tool (the Forge's owner (crispy, OT.R112), 2026-11-17: a Polygon tool in geometry mode, to create
    * custom shapes by drawing them line by line; a browser adaptation, after a level editor's): on,
    * and the outline being drawn -- its plane (the workplane, or the face first clicked, as Create's), its snap, its
    * points in the plane's frame, where the pointer is, and its phase: points clicked one by one, then the height pulled.
@@ -1256,7 +1271,7 @@ export class GeometryEditor {
   private closeShapeMenu: (() => void) | null = null;
   private hoverShape: BlockShape | null = null;
   /**
-   * Each shape's settings as the user set them (`SHAPE_SETTINGS`' defaults under them; the owner, 2026-11-17: "would be
+   * Each shape's settings as the user set them (`SHAPE_SETTINGS`' defaults under them; the Forge's owner (crispy, OT.R112), 2026-11-17: "would be
    * nice for each shape to have some settings we can predefine"), kept in this browser (`SHAPE_SETTINGS_KEY`: a browser
    * adaptation, FG.R2 -- a viewer's own preference, never the layout's).
    */
@@ -1265,13 +1280,13 @@ export class GeometryEditor {
   private drawShapeSettings: (() => void) | null = null;
   private createPanel: HTMLElement | null = null;
   /**
-   * A setting being dragged (the owner, 2026-11-17: "when changing the settings via drag, it updates the preview in real
+   * A setting being dragged (the Forge's owner (crispy, OT.R112), 2026-11-17: "when changing the settings via drag, it updates the preview in real
    * time"): its shape's settings with the dragged value, read by `settingsFor` until the release keeps it (`change`).
    */
   private liveSettings: { shape: BlockShape; settings: ShapeSettings } | null = null;
   private toggleShapeMenu: (() => void) | null = null;
   /**
-   * The shape being made drawn as it will be (the owner, 2026-11-17: "when dragging to create it should show a live
+   * The shape being made drawn as it will be (the Forge's owner (crispy, OT.R112), 2026-11-17: "when dragging to create it should show a live
    * preview of the geometry and texture"): its faces with the texture Create lays, a little see-through, under its outline.
    */
   private readonly blockSolid = (() => {
@@ -1284,7 +1299,7 @@ export class GeometryEditor {
   /** The texture the preview wears, by name (`blockTexture`): built from the map's own pixels once. */
   private blockTex: { name: string; tex: DataTexture } | null = null;
   /**
-   * Where a press would start the shape (the owner, 2026-11-17: "when hovering in create mode show a preview of where the
+   * Where a press would start the shape (the Forge's owner (crispy, OT.R112), 2026-11-17: "when hovering in create mode show a preview of where the
    * start corner would be so that we know where it will initially snap to"): a dot at the corner, a cross along the
    * plane's two axes.
    */
@@ -1306,7 +1321,7 @@ export class GeometryEditor {
    * The shape Create made last, while it is selected alone and unchanged but for moves (`syncBlockHandles`): its frame and
    * its extent in it -- [x0, x1] along u, [y0, y1] along n, [z0, z1] along v -- the snap it was made with, its texture,
    * and its points as they stood (a move carries the frame along; any other change lets the handles go). Its handles
-   * resize it (the owner, 2026-11-17: "would be nice to have handles that allow us to quickly change the size of the
+   * resize it (the Forge's owner (crispy, OT.R112), 2026-11-17: "would be nice to have handles that allow us to quickly change the size of the
    * shape after it is created").
    */
   private lastBlock: { id: string; shape: BlockShape; frame: BlockFrame; x: [number, number]; y: [number, number]; z: [number, number]; snap: number | null; textureName: string | null; verts: number[]; run: { alongZ: boolean; rev: boolean }; settings: ShapeSettings } | null = null;
@@ -1349,7 +1364,7 @@ export class GeometryEditor {
 
   /**
    * The objects made here -- primitives, separated and merged pieces; not the map's own world (its nodes are the map's)
-   * -- for the Outliner's Geometry section (the owner, 2026-11-15), each with whether it is selected now.
+   * -- for the Outliner's Geometry section (the Forge's owner (crispy, OT.R112), 2026-11-15), each with whether it is selected now.
    */
   madeObjects(): { id: string; name: string; kind: GeoObject['kind']; selected: boolean }[] {
     return this.outlineObjects().filter((o) => o.kind !== 'world');
@@ -1362,7 +1377,7 @@ export class GeometryEditor {
    * the ids the opened geometry gives them, so a row's click opens the mode on that section.
    */
   /**
-   * The Outliner's rows for a layer (the owner, 2026-11-15: "create another folder called collision ... always show both
+   * The Outliner's rows for a layer (the Forge's owner (crispy, OT.R112), 2026-11-15: "create another folder called collision ... always show both
    * these folders in all modes at all time"): the drawn geometry's objects, or the collision's, whichever layer the tools
    * are on -- the collision's made from the drawn geometry when its layer is not open (`hullGeometryOf`, kept until the
    * next change: `collisionOutline`). Before the editor has opened the map, its sections stand for both.
@@ -1431,7 +1446,7 @@ export class GeometryEditor {
   }
 
   /*
-   * Object mode's own hold on the geometry (the owner, 2026-11-16: "allow to select meshes when in normal object mode ...
+   * Object mode's own hold on the geometry (the Forge's owner (crispy, OT.R112), 2026-11-16: "allow to select meshes when in normal object mode ...
    * just be able to move the geometry with the transform gizmo ... it should move the linked collision object with it";
    * "ok to have mixed selection since we are only selecting whole objects"): the page's Select tool picks whole geometry
    * objects beside its placements (`objectAt`), boxes them (`objectBounds`), and its gizmo moves them with the rest -- live
@@ -1511,10 +1526,10 @@ export class GeometryEditor {
   }
 
   /*
-   * Object mode's Delete, Copy, Paste and Duplicate on the geometry objects it picked (the owner, 2026-11-16: "make
+   * Object mode's Delete, Copy, Paste and Duplicate on the geometry objects it picked (the Forge's owner (crispy, OT.R112), 2026-11-16: "make
    * Delete, Copy, Paste and Duplicate in Object mode"): whole objects of the drawn layer, as Geometry mode's Object
    * selection does them (`command`) -- Delete takes a made object out and a map section's faces away; Copy fills the one
-   * clipboard Geometry mode's Paste reads too; Paste and Duplicate make the copies in place (the owner, same day: "keep it
+   * clipboard Geometry mode's Paste reads too; Paste and Duplicate make the copies in place (the Forge's owner (crispy, OT.R112), same day: "keep it
    * in the same position"). Each an edit of its own (`edit`); the page folds one into the placements' step of the same
    * command where it can.
    */
@@ -1596,7 +1611,7 @@ export class GeometryEditor {
   }
 
   /**
-   * The Inspector's Transform in Geometry mode (the owner, 2026-11-15: "show the transform for geometry objects, and allow
+   * The Inspector's Transform in Geometry mode (the Forge's owner (crispy, OT.R112), 2026-11-15: "show the transform for geometry objects, and allow
    * the user to edit these values, but only when in object mode ... basically equivalent to moving the gizmo"): the
    * object selection's -- its centre (the gizmo's pivot), the first object's own axes as angles (degrees, X Y Z: pitch,
    * yaw, roll) and its scale along them. Null outside object selection, or with nothing selected.
@@ -1624,7 +1639,7 @@ export class GeometryEditor {
   }
 
   /**
-   * A Transform row's live drag (the owner, 2026-11-15: "dragging in the transform fields live updated the object in
+   * A Transform row's live drag (the Forge's owner (crispy, OT.R112), 2026-11-15: "dragging in the transform fields live updated the object in
    * real time ... all cases where we can live drag a gizmo"): the selection shown at `v` as a gizmo drag shows it -- its
    * faces, edges and highlight carried (`moveLive`), the gizmo with them, the collision view following (`previewSoon`) --
    * no edit made; null puts it all back as it was (Escape, or just before the release's one edit, `setObjectTransform`).
@@ -1686,6 +1701,8 @@ export class GeometryEditor {
         core = new Matrix4().makeRotationFromEuler(new Euler(rad(v[0]), rad(v[1]), rad(v[2]), 'XYZ')).multiply(r0.clone().invert());
       } else {
         if (v.some((x) => Math.abs(x) < 1e-6)) { if (tell) this.deps.say('A scale of 0 would flatten it: not applied', true); return null; }
+        const negative = typedScaleRefusal(v);                   // PR #5 D2 (ours)
+        if (negative) { if (tell) this.deps.say(negative, true); return null; }
         const s0 = t.scale;
         core = r0.clone().multiply(new Matrix4().makeScale(v[0] / s0[0], v[1] / s0[1], v[2] / s0[2])).multiply(r0.clone().invert());
       }
@@ -1707,7 +1724,7 @@ export class GeometryEditor {
         // Ctrl-drag in object mode copies (the Forge's way for every placed kind).
         const moved = copy ? duplicateObject(geo, o) : o;
         transformObject(moved, mat, this.size);
-        // C1: its collision edited by hand moves with it; a copy takes its own copy of it (the owner, 2026-11-17: a
+        // C1: its collision edited by hand moves with it; a copy takes its own copy of it (the Forge's owner (crispy, OT.R112), 2026-11-17: a
         // ladder's, stairs' ramp: "check to see if this happens in any other cases") -- else Build would make the copy's
         // from its faces (steps, no ladder).
         if (!this.collisionOn) {
@@ -1720,7 +1737,7 @@ export class GeometryEditor {
   }
 
   /**
-   * The Outliner's Shift range (the owner, 2026-11-15: "shift select ... make it work for all objects"): exactly the
+   * The Outliner's Shift range (the Forge's owner (crispy, OT.R112), 2026-11-15: "shift select ... make it work for all objects"): exactly the
    * objects `ids` selected, in object selection (Geometry mode on).
    */
   selectObjects(ids: readonly string[]): void {
@@ -1743,7 +1760,7 @@ export class GeometryEditor {
     if (!on && this.knifeOn) this.setKnife(false);
     if (!on && this.lineTool) this.setLineTool(null);
     if (!on && this.collisionOn) this.leaveCollision();       // and collision editing (its edits kept in the collision)
-    // The mode left, what was selected in it let go (the owner, 2026-11-16: "when switching modes on the top bar,
+    // The mode left, what was selected in it let go (the Forge's owner (crispy, OT.R112), 2026-11-16: "when switching modes on the top bar,
     // deselect whatever we selected in that mode"), as Object mode's own selection is on entering this one.
     if (!on) this.sel = emptySelection(this.sel.mode);
     if (!on && this.textureOn) { this.setTool('select'); this.textureOn = false; this.collisionUi(); }   // the page's locks follow its onActive
@@ -1792,7 +1809,7 @@ export class GeometryEditor {
       if (look.texture) this.textureName = look.texture;
       // Untextured, mid grey (`UNTEXTURED_FLOOR_COLOR_ADAPTATION`): a white floor would drown the grid.
       const mesh = plane([0, 0, 0], size, size, divisions, { textureName: look.texture, size: this.size, scaleTexel: this.scaleTexel(), ...(look.texture ? {} : { color: UNTEXTURED_FLOOR_COLOR_ADAPTATION }) });
-      addObject(this.geo, { name: 'Floor', kind: 'plane', mesh, solid: look.surface ?? DEFAULT_FLOOR_SURFACE_PLACEHOLDER });
+      addObject(this.geo, { name: 'Floor', kind: 'plane', mesh, solid: look.surface ?? DEFAULT_FLOOR_SURFACE_ADAPTATION });
       // The floor stands for the blank base's own from the start: drawn, and what Play draws, at once -- its collision
       // built from it as well (a custom map's collision is the floor's and the objects', the Collision layer's to edit).
       this.edited = true;
@@ -1859,7 +1876,7 @@ export class GeometryEditor {
     if (!this.rerun && !this.parametricRunning && this.lastOp) { this.lastOp = null; this.drawToolPanel(); }
     if (!opts.shapeKept) this.twinIndex = null;                 // the shape may have changed: its twins read again
     // A face the edit left bent (a corner off its plane) split into triangles, its fold a real edge -- every tool, every
-    // move (the owner, 2026-11-19: "it is like an edge but it is invisible. Please fix on all the tools"); a selected face
+    // move (the Forge's owner (crispy, OT.R112), 2026-11-19: "it is like an edge but it is invisible. Please fix on all the tools"); a selected face
     // split selects its triangles.
     if (!opts.shapeKept) {
       for (const id of new Set([...selBefore, ...this.sel.objects])) {
@@ -1904,7 +1921,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Bug 1 (the owner, 2026-11-16: "Edits aren't saved"): the geometry as a layout saves it (`./geometryFile`) -- the drawn
+   * Bug 1 (the Forge's owner (crispy, OT.R112), 2026-11-16: "Edits aren't saved"): the geometry as a layout saves it (`./geometryFile`) -- the drawn
    * layer, the collision layer when it was edited, and the texture names its faces wear (the page keeps which of them it
    * lent from other maps) -- or null when no edit of a person's made it (the base's own; a blank base's floor untouched).
    */
@@ -1961,7 +1978,7 @@ export class GeometryEditor {
     this.previewObjectTransform('position', null);             // an undo mid field drag: the drag's preview let go first
     if (!this.rerun) { this.lastOp = null; this.drawToolPanel(); }   // an undo or redo: the last tool's adjusting over
     const map = this.deps.map();
-    // An undo or a redo leaves the layer and the brush as they are (the owner, 2026-11-15: "every stroke is ctrl z"):
+    // An undo or a redo leaves the layer and the brush as they are (the Forge's owner (crispy, OT.R112), 2026-11-15: "every stroke is ctrl z"):
     // undoing the first collision edit stays on the Collision layer, painting, its hull as Build makes it from the step's
     // drawn geometry (no collision edits yet).
     const onCollision = this.collisionOn, brush = this.tool;
@@ -2071,7 +2088,7 @@ export class GeometryEditor {
   }
 
   /**
-   * The faces one dab at face `f` of `o` covers: the selection mode's (the owner, 2026-11-16: no Scope row, "too
+   * The faces one dab at face `f` of `o` covers: the selection mode's (the Forge's owner (crispy, OT.R112), 2026-11-16: no Scope row, "too
    * complicated") -- Object mode the whole object, any other the face under the brush.
    */
   private scopeFaces(o: GeoObject, f: number): number[] {
@@ -2176,7 +2193,7 @@ export class GeometryEditor {
   }
 
   /**
-   * The hull objects as the page's one collision view draws them (`../hull`; the owner, 2026-11-15: "there should not be
+   * The hull objects as the page's one collision view draws them (`../hull`; the Forge's owner (crispy, OT.R112), 2026-11-15: "there should not be
    * two different ways to see collision"): each shown face a polygon with its words, null while collision editing is off.
    */
   collisionPolys(): HullViewPoly[] | null {
@@ -2422,7 +2439,7 @@ export class GeometryEditor {
   /* ---------- the Inspector's Surface (the Collision layer's face properties) ---------- */
 
   /**
-   * The selected faces' surface properties (the owner, 2026-11-20: the Collision layer's Surface panel, a level editor's
+   * The selected faces' surface properties (the Forge's owner (crispy, OT.R112), 2026-11-20: the Collision layer's Surface panel, a level editor's
    * face properties; a browser adaptation, FG.R2): each field the faces share, null where they differ; how many the
    * camera's floor probe reads (`readByCamera`: their indoors, reverb zone and region heard and seen). Null off the
    * Collision layer or with nothing selected (Face mode's faces, or every face of the selected objects).
@@ -2481,7 +2498,7 @@ export class GeometryEditor {
 
   /**
    * The tabs and the cursor as the brush stands: the painting type's tab lit (none while the brush is down), the cursor
-   * a ring in its colour while painting (the owner, 2026-11-15: "another cursor ... to indicate we are painting").
+   * a ring in its colour while painting (the Forge's owner (crispy, OT.R112), 2026-11-15: "another cursor ... to indicate we are painting").
    */
   private paintUi(): void {
     for (const [t, b] of this.typeTabs) { const on = t === this.collisionType; b.classList.toggle('is-on', on); b.setAttribute('aria-selected', String(on)); }
@@ -2501,7 +2518,7 @@ export class GeometryEditor {
     }
     if (this.materialSwatch) this.materialSwatch.style.background = hexOf(materialColour(this.brush.material));
     this.toolBar?.show(this.blockOn ? 'block' : this.tool);
-    // Create's shape always shown beside it (the owner, 2026-11-17: "don't hide the create dropdown when the create button
+    // Create's shape always shown beside it (the Forge's owner (crispy, OT.R112), 2026-11-17: "don't hide the create dropdown when the create button
     // is not active. I want to see the dropdown all the time"): gone with Create's own button on the Texture layer alone.
     if (this.blockShapeSel) { this.blockShapeSel.hidden = this.textureOn; if (this.textureOn) this.closeShapeMenu?.(); }
     if (this.createPanel) { const shown = this.active && this.blockOn && !this.textureOn; if (shown && this.createPanel.hidden) this.drawShapeSettings?.(); this.createPanel.hidden = !shown; }
@@ -2735,13 +2752,13 @@ export class GeometryEditor {
 
   private drawBar(): void {
     this.drawToolPanel();                                      // shown only while its tool's result stands, Create off
-    // Create on: the selection modes off (the owner, 2026-11-18: "if we are in create mode for geometry, disable all the
+    // Create on: the selection modes off (the Forge's owner (crispy, OT.R112), 2026-11-18: "if we are in create mode for geometry, disable all the
     // select tools, as it doesn't make sense to select a face in create mode"); Esc or Select brings them back.
     for (const m of MODES) {
       const b = this.buttons.get(`mode-${m.mode}`);
       if (!b) continue;
       b.classList.toggle('is-on', this.sel.mode === m.mode);
-      // An edit tool on (the Knife) does not lock them (the owner, 2026-11-19: "when we are using an edit tool, don't
+      // An edit tool on (the Knife) does not lock them (the Forge's owner (crispy, OT.R112), 2026-11-19: "when we are using an edit tool, don't
       // disable the select mode"): choosing one leaves the tool (`setMode`).
       const busy = this.blockOn;
       b.disabled = busy;
@@ -2751,10 +2768,10 @@ export class GeometryEditor {
     this.buttons.get('knife')?.classList.toggle('is-on', this.knifeOn);
     this.buttons.get('clip')?.classList.toggle('is-on', this.lineTool === 'clip');
     this.buttons.get('mirror')?.classList.toggle('is-on', this.lineTool === 'mirror');
-    // The Edit tools a selection mode has no use for, not shown (the owner, 2026-11-18: "if an edit tool cannot even be used
+    // The Edit tools a selection mode has no use for, not shown (the Forge's owner (crispy, OT.R112), 2026-11-18: "if an edit tool cannot even be used
     // in that mode, don't show it at all for that mode"); those it has, greyed while the selection gives them nothing to
     // do ("the edit tools should only be enabled ... if that operation can be done"), the reason in the title.
-    // Dissolve is Combine Faces in Face mode, as the reference editor names it there (the owner, 2026-11-20).
+    // Dissolve is Combine Faces in Face mode, as the reference editor names it there (the Forge's owner (crispy, OT.R112), 2026-11-20).
     const dissolveButton = this.buttons.get('dissolve');
     if (dissolveButton) {
       const face = this.sel.mode === 'face';
@@ -2808,7 +2825,7 @@ export class GeometryEditor {
   /* ---------- the tools ---------- */
 
   /**
-   * What a tool made, selected in the selection mode in force (the owner, 2026-11-18: "when bridging and or creating new
+   * What a tool made, selected in the selection mode in force (the Forge's owner (crispy, OT.R112), 2026-11-18: "when bridging and or creating new
    * geometry don't switch the select mode for me"): its faces in Face mode, their edges or points in Edge or Point mode,
    * its objects in Object mode (`convertSelection`, as a level editor carries a selection across modes).
    */
@@ -2881,7 +2898,7 @@ export class GeometryEditor {
   private lastEdgePick: { id: string; key: string } | null = null;
 
   /**
-   * Loop or ring select (the owner, 2026-11-18: "implement the loop/ring select"; every modeller's): the
+   * Loop or ring select (the Forge's owner (crispy, OT.R112), 2026-11-18: "implement the loop/ring select"; every modeller's): the
    * selected edges' loops (`./selection` `edgeLoop`) or rings (`edgeRing`) added to the selection -- or, given `from`,
    * those edges'. Edge mode only; each edge walks the faces of its own object.
    */
@@ -3028,7 +3045,7 @@ export class GeometryEditor {
     if (this.sel.mode !== 'face') { this.deps.say('Extrude works on faces: select them in Face mode', true); return; }
     const unit = this.tp('extrude', 'distance');
     // The walls world-aligned (a level editor's new faces), at the extruded face's own texel scale where it has a mapping: each
-    // wall's corners were its edge's, the same uv top and bottom, so its texture ran in stripes (the owner, 2026-11-17:
+    // wall's corners were its edge's, the same uv top and bottom, so its texture ran in stripes (the Forge's owner (crispy, OT.R112), 2026-11-17:
     // "When I extrude a face, there is no created geometry on the side walls"). The gizmo's move then keeps them mapped
     // (`transformVerts` rewrites a mapped face's uvs).
     this.edit('Extrude', () => this.forFaces((m, faces, o) => {
@@ -3043,7 +3060,7 @@ export class GeometryEditor {
   }
 
   /**
-   * A level editor's Bridge (the owner, 2026-11-18: "lets start with a bridge tool first"; a browser adaptation): two selected
+   * A level editor's Bridge (the Forge's owner (crispy, OT.R112), 2026-11-18: "lets start with a bridge tool first"; a browser adaptation): two selected
    * faces joined by new faces between them, the two removed (`./ops` `bridgeFaces`), or two selected edges joined by one
    * face (`bridgeEdges`). The new faces are world-aligned at the source face's texel scale, as an extrude's walls are,
    * and carry its object and collision. Two faces or edges of two objects: the objects merged into one first (a map's
@@ -3159,7 +3176,7 @@ export class GeometryEditor {
   }
 
   /**
-   * New faces a tool made given a level editor's texture for them (the owner, 2026-11-20: "fill the same hole, the texture
+   * New faces a tool made given a level editor's texture for them (the Forge's owner (crispy, OT.R112), 2026-11-20: "fill the same hole, the texture
    * applied is not great, it is rotated"): world-aligned, as Create lays a shape's faces and Extrude, Bevel and Bridge lay
    * theirs, at `texel` -- else the finest texel scale of the faces beside them, else the map's -- their uvs laid. Without
    * it a face made with no mapping keeps the uvs its corners were copied with, from the faces round it: rotated, stretched.
@@ -3198,7 +3215,7 @@ export class GeometryEditor {
   /** The tools' settings the user set (kept in this browser), over their starting values. */
   private toolStore: Record<string, Record<string, number>> = readToolSettings();
   /**
-   * The last parametric tool run (the owner, 2026-11-19: "parametric values ... in real time"; as a modeller's "adjust
+   * The last parametric tool run (the Forge's owner (crispy, OT.R112), 2026-11-19: "parametric values ... in real time"; as a modeller's "adjust
    * last operation"): the geometry and selection it ran on, and how to run it again -- so a setting changed in the panel
    * runs it again over what it started from, in the same undo step. Gone on any other edit, an undo, a mode change.
    */
@@ -3304,7 +3321,7 @@ export class GeometryEditor {
   }
 
   /**
-   * A level editor's Subdivide (the owner, 2026-11-18): in Face mode each selected face split in four round its middle (`./ops`
+   * A level editor's Subdivide (the Forge's owner (crispy, OT.R112), 2026-11-18): in Face mode each selected face split in four round its middle (`./ops`
    * `subdivideFaces`; a triangle in three), its neighbours given the edge middles so nothing cracks; in Edge mode each
    * selected edge split at its middle. The new faces or half-edges selected, the mode kept. One edit.
    */
@@ -3357,7 +3374,7 @@ export class GeometryEditor {
   }
 
   /**
-   * every modeller's loop cut (the owner, 2026-11-18): for each selected edge, a new edge loop through the
+   * every modeller's loop cut (the Forge's owner (crispy, OT.R112), 2026-11-18): for each selected edge, a new edge loop through the
    * middle of its ring (`./selection` `edgeRing`, `./ops` `loopCut`) -- across the four-sided faces beside it, round a
    * box or a cylinder, stopping where a face is not four-sided. The new loop selected (Edge mode). One edit.
    */
@@ -3400,7 +3417,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Connect (the owner, 2026-11-19: one to one with the reference editor): the selected edges that share a face with
+   * Connect (the Forge's owner (crispy, OT.R112), 2026-11-19: one to one with the reference editor): the selected edges that share a face with
    * another selected edge split at their middles, and the new points joined across each face they share (`./ops`
    * `connectEdges`). The new edges selected. One edit.
    */
@@ -3432,7 +3449,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Connect in Point mode (the reference editor's Connect Vertex Path; the owner, 2026-11-20): each object's selected
+   * Connect in Point mode (the reference editor's Connect Vertex Path; the Forge's owner (crispy, OT.R112), 2026-11-20): each object's selected
    * points joined in the order picked, each to the next by a straight cut across the faces between (`./ops` `knifeCut`,
    * the Knife's own cut through those points). All or nothing: a step with no way across refuses the whole connect.
    * The points stay selected. One edit.
@@ -3462,7 +3479,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Merge Meshes (the reference editor's, Object mode; the owner, 2026-11-20: "add the merge mesh button"): the
+   * Merge Meshes (the reference editor's, Object mode; the Forge's owner (crispy, OT.R112), 2026-11-20: "add the merge mesh button"): the
    * selected objects made one -- each into the first picked (`./world` `mergeObjects`), nothing welded. A map's section
    * takes the others in (its mesh is the map's: a section is never merged away), and sections of the one map mesh are
    * one mesh already, so only one of them takes part. The merged object selected. One edit.
@@ -3492,7 +3509,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Collapse (the reference editor's Shift+O; the owner, 2026-11-20): in Edge mode each run of selected edges made one
+   * Collapse (the reference editor's Shift+O; the Forge's owner (crispy, OT.R112), 2026-11-20): in Edge mode each run of selected edges made one
    * point at the average of its points (`./ops` `collapseEdgeGroups`, `mergeVerts`); in Face mode each selected face in
    * turn made one point at its middle (`collapseFaces`). The selection cleared, as the reference clears it. All or
    * nothing; one edit.
@@ -3523,7 +3540,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Extend (the reference editor's N in Edge mode; the owner, 2026-11-20): each selected open edge given a new face,
+   * Extend (the reference editor's N in Edge mode; the Forge's owner (crispy, OT.R112), 2026-11-20): each selected open edge given a new face,
    * its far edge the Amount out (a grid step to start, as the reference's) in the plane of the edge's face (`./ops`
    * `extendEdges`); the far edges selected. One edit; its Amount in the settings panel.
    */
@@ -3573,7 +3590,7 @@ export class GeometryEditor {
   }
 
   /**
-   * A level editor's Bevel on edges (the owner, 2026-11-18; one segment, a chamfer) -- or, on faces, their outline's edges: each edge between two faces
+   * A level editor's Bevel on edges (the Forge's owner (crispy, OT.R112), 2026-11-18; one segment, a chamfer) -- or, on faces, their outline's edges: each edge between two faces
    * replaced by a face a grid step across (`./ops` `bevelEdges`), held under half its faces' edges. The bevel faces
    * world-aligned at their face's texel scale (as an extrude's walls), the faces they reshaped laid again. The bevels
    * selected, the mode kept. One edit.
@@ -3592,7 +3609,7 @@ export class GeometryEditor {
         const items = [...(this.sel.items.get(id) ?? [])];
         if (!o || !items.length) continue;
         const m = o.mesh;
-        // Faces (the owner, 2026-11-18: "can a face have a bevel?" -- "yes"; Blender's face bevel): their outline -- each
+        // Faces (the Forge's owner (crispy, OT.R112), 2026-11-18: "can a face have a bevel?" -- "yes"; Blender's face bevel): their outline -- each
         // edge between a selected face and one not selected -- bevelled; the edges between selected faces left.
         const keys = onFaces ? (() => {
           const chosen = new Set(items as number[]);
@@ -3620,7 +3637,7 @@ export class GeometryEditor {
   /* ---------- Clip and Mirror ---------- */
 
   /**
-   * The Clipping and Mirror tools (the reference editor's; the owner, 2026-11-20: "implement the clipping tool and
+   * The Clipping and Mirror tools (the reference editor's; the Forge's owner (crispy, OT.R112), 2026-11-20: "implement the clipping tool and
    * mirror"): a line drawn on a surface -- pressed on it and dragged, its ends on the grid in that surface's plane while
    * snapping (Ctrl flips it), either end dragged again after -- and the plane through it square to the surface: Clip cuts
    * the selected objects (or faces) by it, Mirror copies the selected objects across it. The line is drawn on the
@@ -3945,7 +3962,7 @@ export class GeometryEditor {
   private readonly knifeLayer = new Group();
 
   /**
-   * The Knife on or off (the owner, 2026-11-18: "implement ... Knife"; a level editor's): on, a click is a point of the cut -- a
+   * The Knife on or off (the Forge's owner (crispy, OT.R112), 2026-11-18: "implement ... Knife"; a level editor's): on, a click is a point of the cut -- a
    * point of the mesh, or a place along an edge -- Enter cuts between them in order, Backspace takes the last back, Esc
    * lets them go (then the tool). Create off, the gizmo aside, the selection modes held (`drawBar`).
    */
@@ -4180,7 +4197,7 @@ export class GeometryEditor {
   }
 
   /**
-   * A Shift-drag's extrude, made as the drag starts (the owner, 2026-11-18: "do shift drag for faces and edges"; a browser
+   * A Shift-drag's extrude, made as the drag starts (the Forge's owner (crispy, OT.R112), 2026-11-18: "do shift drag for faces and edges"; a browser
    * adaptation after ProBuilder's and Maya's): the selected faces extruded by nothing (`./ops` `extrudeFaces`,
    * their walls between the old place and the new), or the selected edges pulled out into new faces (`extrudeEdges`, the
    * selection then their copies) -- so the drag moves them out and the walls follow, live. Not an edit of its own: the
@@ -4248,7 +4265,7 @@ export class GeometryEditor {
   }
 
   /**
-   * every modeller's Inset (the owner, 2026-11-18: "lets try to implement inset"; a browser adaptation): the
+   * every modeller's Inset (the Forge's owner (crispy, OT.R112), 2026-11-18: "lets try to implement inset"; a browser adaptation): the
    * selected faces shrunk in by the grid step (a metre with no grid) -- held under half the shortest edge of their border,
    * so nothing crosses -- with a ring of new faces round them (`./ops` `insetFaces`). The faces stay selected, inside
    * the ring, for the gizmo's scale to make it more or less. One edit.
@@ -4276,7 +4293,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Snap to Grid (the reference editor's Ctrl+B, in Point, Edge and Face mode; the owner, 2026-11-20): every selected
+   * Snap to Grid (the reference editor's Ctrl+B, in Point, Edge and Face mode; the Forge's owner (crispy, OT.R112), 2026-11-20): every selected
    * point -- or each point of the selected edges or faces -- put on the grid of the snap step in the workplane's frame
    * (`./ops` `onFrameGrid`). A face it bends is split (the bent-face rule in `edit`). One edit.
    */
@@ -4334,7 +4351,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Fill Hole (the owner, 2026-11-19: "do fill hole"; a browser adaptation): each hole a selected open edge lies on
+   * Fill Hole (the Forge's owner (crispy, OT.R112), 2026-11-19: "do fill hole"; a browser adaptation): each hole a selected open edge lies on
    * capped with one face (`./ops` `fillHoles`), its texture world-aligned; a cap off its plane split into triangles (the
    * bent-face rule in `edit`). The holes' edges stay selected. One edit.
    */
@@ -4363,7 +4380,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Thicken Faces (the reference editor's, G; the owner, 2026-11-20: "remove the hollow and add the thicken faces"):
+   * Thicken Faces (the reference editor's, G; the Forge's owner (crispy, OT.R112), 2026-11-20: "remove the hollow and add the thicken faces"):
    * each selected island of faces with an all-open border given a back `amount` behind it and walls round it (`./ops`
    * `thickenFaces`); its faces stay selected; the new faces world-aligned. An island on a closed solid is left alone.
    * One edit; its Amount (a grid step to start, as the reference's) in the settings panel.
@@ -4389,7 +4406,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Merge, as the reference editor's (the owner, 2026-11-19: "always match hammer for all tools"). Point mode: each
+   * Merge, as the reference editor's (the Forge's owner (crispy, OT.R112), 2026-11-19: "always match hammer for all tools"). Point mode: each
    * object's selected points merged by the Range setting -- Everything (one point), Grid (points nearer each other than
    * the grid step) or Fixed (nearer than Distance) -- each group landing where its last picked point is (`./ops`
    * `mergeGroups`). Edge mode: open edges welded -- two into one, more at their touching ends (`edgeMergeGroups`). The
@@ -4497,7 +4514,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Copy, Cut, Paste, Duplicate and Delete on the geometry (the owner, 2026-11-16: "implement copy/paste/cut/duplicate/
+   * Copy, Cut, Paste, Duplicate and Delete on the geometry (the Forge's owner (crispy, OT.R112), 2026-11-16: "implement copy/paste/cut/duplicate/
    * delete when in geometry mode ... on faces"), as a level editor has them: they act on faces (Face mode) or whole
    * objects (Object mode). A vertex or an edge is part of the faces round it, not geometry of its own, so there is
    * nothing of it to copy -- a level editor copies none; Delete (a hole) and Backspace (dissolve) are what those modes have.
@@ -4603,7 +4620,7 @@ export class GeometryEditor {
   }
 
   /**
-   * New objects made of `items`, in place (the owner, 2026-11-16: "keep it in the same position, dont offset the copy.
+   * New objects made of `items`, in place (the Forge's owner (crispy, OT.R112), 2026-11-16: "keep it in the same position, dont offset the copy.
    * this makes it easy to move in the same plane as the old one"), as one step: selected after, as `mode` selects --
    * Object mode the objects, else every face of them in Face mode (a paste in Vertex or Edge mode lands in Face mode).
    * Each is made from its own copy of the mesh, so the clipboard pastes again unchanged.
@@ -4626,7 +4643,7 @@ export class GeometryEditor {
 
   /** The block tool's shape (a level editor's Geometry Type), beside the Tool section while Block is on. */
   /**
-   * Create's shape menu (the owner, 2026-11-17: "make the dropdown create menu a little nicer. Be nice to have a preview
+   * Create's shape menu (the Forge's owner (crispy, OT.R112), 2026-11-17: "make the dropdown create menu a little nicer. Be nice to have a preview
    * image and it is categorized better"; a browser adaptation, FG.R2): a button wearing the shape's picture and word; its
    * panel the shapes by group, each a picture (`./blockShapeIcons`) -- a body-level popup, as the Select tool's settings
    * are (the toolbar would clip it). Hovering one previews it in the viewport (`previewShape`; "when hovering over an item
@@ -4669,7 +4686,7 @@ export class GeometryEditor {
       }
       menu.append(title, grid);
     }
-    // The settings in a panel in the viewport's lower left while Create is on (the owner, 2026-11-17: "in create mode make
+    // The settings in a panel in the viewport's lower left while Create is on (the Forge's owner (crispy, OT.R112), 2026-11-17: "in create mode make
     // the settings a little window in the viewport (bottom left) similar to legend, so the user can easily adjust the
     // settings from the viewport ... the settings change as we hover each item ... simplify the workflow"): the shape
     // hovered in the menu's, else the chosen one's; its head the shape, a click opening the menu.
@@ -4846,7 +4863,7 @@ export class GeometryEditor {
     if (this.block) { this.drawBlock(); return; }
     const lb = this.lastBlock;
     if (lb && lb.shape === shape && this.sel.objects.size === 1 && this.sel.objects.has(lb.id)) {
-      // The shape itself rebuilt with the value, nothing kept (the owner, 2026-11-19: "the live sliders should show the
+      // The shape itself rebuilt with the value, nothing kept (the Forge's owner (crispy, OT.R112), 2026-11-19: "the live sliders should show the
       // correct geometry, right now while I drag it shows a weird mixture of both"): never a preview drawn over the old
       // one. The release keeps it, one edit (`setShapeSetting`).
       lb.settings = this.liveSettings.settings;
@@ -4882,7 +4899,7 @@ export class GeometryEditor {
 
   /** `shape` previewed at the viewport's centre, `BLOCK_PREVIEW_SIZE_ADAPTATION` a side, by its settings now. */
   private showCentrePreview(shape: BlockShape): void {
-    // At the viewport's centre (the owner, 2026-11-17: "the hover preview should be in the center of the viewport"): on
+    // At the viewport's centre (the Forge's owner (crispy, OT.R112), 2026-11-17: "the hover preview should be in the center of the viewport"): on
     // the workplane or the surface there, centred on that point, on its grid while snapping.
     const st = this.blockStart(new Vector2(0, 0));
     if (!st) { this.blockPreview.visible = false; this.drawBlockSolid(null); return; }
@@ -4943,7 +4960,7 @@ export class GeometryEditor {
       const axis = (x: number, y: number, z: number): Vec3 => new Vector3(x, y, z).applyQuaternion(q).toArray() as Vec3;
       const wn = axis(0, 1, 0);
       const far = (x: Vec3): number => Math.hypot(x[0] - ray.origin[0]!, x[1] - ray.origin[1]!, x[2] - ray.origin[2]!);
-      // Geometry in front of the workplane takes the press (the owner, 2026-11-17: "I want to be able to use the create
+      // Geometry in front of the workplane takes the press (the Forge's owner (crispy, OT.R112), 2026-11-17: "I want to be able to use the create
       // brush on top of other geometry i made ... a roof ... on top of the room ... with the workplane on. it goes through
       // the geometry"), as the Place tool's seat does (`nearerOfWorkplane`): a face nearer along the ray by more than
       // `BLOCK_SEE_TOLERANCE` -- one lying on the workplane itself keeps the workplane.
@@ -5005,7 +5022,7 @@ export class GeometryEditor {
 
   private blockDown(ndc: Vector2, e: PointerEvent): void {
     if (this.block?.phase === 'height') { this.blockCommit(); return; }
-    // Clicked, not dragged: this click sets the far corner (the owner, 2026-11-17: "make the create tool also start
+    // Clicked, not dragged: this click sets the far corner (the Forge's owner (crispy, OT.R112), 2026-11-17: "make the create tool also start
     // working when I click down, so that I don't have to do a drag while mouse is down").
     if (this.block?.phase === 'base' && this.block.clicked) { this.block.pointerId = e.pointerId; this.blockBaseDone(); return; }
     const s = this.blockStart(ndc);
@@ -5076,7 +5093,7 @@ export class GeometryEditor {
 
   /**
    * A shape's mesh as Create makes it on this layer: stairs on the Collision layer are their ramp (the disc's stairs
-   * collide as ramps; the owner, 2026-11-17: "a smooth collision box for it (not jagged)"), every other shape itself.
+   * collide as ramps; the Forge's owner (crispy, OT.R112), 2026-11-17: "a smooth collision box for it (not jagged)"), every other shape itself.
    */
   private shapeMesh(shape: BlockShape, f: BlockFrame, a: readonly [number, number], b: readonly [number, number], h: number,
     opts: PrimitiveOptions, run: { alongZ: boolean; rev: boolean }, settings: ShapeSettings = this.settingsFor(shape)): EditMesh {
@@ -5088,9 +5105,9 @@ export class GeometryEditor {
   }
 
   /**
-   * The collision a shape has of its own, not its faces': stairs' the ramp (the disc's stairs collide as ramps; the owner,
+   * The collision a shape has of its own, not its faces': stairs' the ramp (the disc's stairs collide as ramps; the Forge's owner (crispy, OT.R112),
    * 2026-11-17: "a smooth collision box for it (not jagged)"), a ladder's the box of its footprint with every face a
-   * ladder -- climbable, climb flag 2, `ditype` 2 (the owner, 2026-11-17: "it should also set bit flag for the ladder";
+   * ladder -- climbable, climb flag 2, `ditype` 2 (the Forge's owner (crispy, OT.R112), 2026-11-17: "it should also set bit flag for the ladder";
    * `./hullGeometry` `withCollisionType`, as the disc's ladder faces are) over the `ground` words; a Ramp's its slope
    * walkable however steep; a railing's and a column's their box. Null for the rest: their faces' (floors up, walls else).
    */
@@ -5102,10 +5119,10 @@ export class GeometryEditor {
       for (const fc of liveFaces(m)) m.faces[fc]!.surface = [...(walk(faceNormal(m, fc)) ? floor : wall)] as Surface;
       return m;
     };
-    // A ramp's slope always walkable however steep (the owner, 2026-11-17: "for floors and ramps, always make the ramp
+    // A ramp's slope always walkable however steep (the Forge's owner (crispy, OT.R112), 2026-11-17: "for floors and ramps, always make the ramp
     // area walkable"): stairs' ramp and the Ramp shape -- every face facing up at all a floor.
     if (shape === 'stairs' || shape === 'ramp') return worded(stairsRampMesh(f, a, b, h, opts, run), (n) => n[1] > 1e-3);
-    // A railing's or a column's collision its box (the owner, 2026-11-17: "for railings collision just create a bounding
+    // A railing's or a column's collision its box (the Forge's owner (crispy, OT.R112), 2026-11-17: "for railings collision just create a bounding
     // box around the rail, don't have to do individual poles. you can simplify most collisions"): its top a floor.
     if (shape === 'railing' || shape === 'column') return worded(blockMesh('block', f, a, b, h, opts, run), (n) => n[1] >= FLOOR_NORMAL_Y_MIN);
     if (shape !== 'ladder') return null;
@@ -5333,7 +5350,7 @@ export class GeometryEditor {
     for (const f of liveFaces(m)) {
       const cs = m.faces[f]!.corners;
       // Each face cut into triangles by its outline (`triangulate`, ear by ear) -- a concave face (a Polygon's L) too, which
-      // a fan from its first corner would bridge across its notch (the owner, 2026-11-17: "a weird face ... that shouldnt
+      // a fan from its first corner would bridge across its notch (the Forge's owner (crispy, OT.R112), 2026-11-17: "a weird face ... that shouldnt
       // be connected").
       for (const [i, j, k] of triangulate(facePoints(m, f))) {
         for (const c of [cs[i]!, cs[j]!, cs[k]!]) {
@@ -5588,7 +5605,7 @@ export class GeometryEditor {
 
   /**
    * The surface a new shape is solid on: the map's commonest floor words (a disc map's), else -- a custom map, whose read
-   * hull is empty (the owner, 2026-11-15: "add a cube, then go to collision mode, the cube collision is not there") -- the
+   * hull is empty (the Forge's owner (crispy, OT.R112), 2026-11-15: "add a cube, then go to collision mode, the cube collision is not there") -- the
    * commonest of its solid objects' (its floor plane's), else the blank floor's own placeholder. Never none: a shape made
    * on the Geometry layer always has collision, on every map. On the Collision layer a new shape takes its words from
    * its facing (`wordsOf`), as before.
@@ -5606,7 +5623,7 @@ export class GeometryEditor {
     }
     let best: { s: Surface; n: number } | null = null;
     for (const e of tally.values()) if (!best || e.n > best.n) best = e;
-    return best ? [...best.s] as Surface : [...DEFAULT_FLOOR_SURFACE_PLACEHOLDER] as Surface;
+    return best ? [...best.s] as Surface : [...DEFAULT_FLOOR_SURFACE_ADAPTATION] as Surface;
   }
 
   /**
@@ -5644,11 +5661,11 @@ export class GeometryEditor {
   }
 
   /**
-   * A Textures tile dropped on the viewport at `n` (NDC; the owner, 2026-11-16: "allow drag and drop of textures onto
+   * A Textures tile dropped on the viewport at `n` (NDC; the Forge's owner (crispy, OT.R112), 2026-11-16: "allow drag and drop of textures onto
    * geometry faces/objects. This would be the same as we applied the texture"): `name` becomes the texture and is laid as
    * Apply lays it (kept where the old one lay) on what the drop lands on -- the selection, dropped on a selected face or
    * object; else the face under the pointer in Face mode, its whole object in any other. Not on the Collision layer.
-   * `whole` (an Object-mode drop; the owner, 2026-11-16: "in object mode ... it should only apply to the whole object
+   * `whole` (an Object-mode drop; the Forge's owner (crispy, OT.R112), 2026-11-16: "in object mode ... it should only apply to the whole object
    * geometry and not per face/edge/point"): every face of the object under the pointer, the selection aside -- the
    * base's geometry opened first where Geometry mode has not opened it yet.
    */
@@ -5721,7 +5738,7 @@ export class GeometryEditor {
   /* ---------- the Inspector's Texture State and Modify Texture (a level editor 2's face edit) ---------- */
 
   /**
-   * The selected faces' Texture State (the owner, 2026-11-17: texturing as a level editor does it: Align,
+   * The selected faces' Texture State (the Forge's owner (crispy, OT.R112), 2026-11-17: texturing as a level editor does it: Align,
    * Scale, Shift, Rotate, Fit, Justify; a browser adaptation): what they share, null where they differ; null off the
    * Texture layer or with nothing selected. The Inspector reads it whenever the selection or the geometry changes.
    */
@@ -5776,7 +5793,7 @@ export class GeometryEditor {
   }
 
   /**
-   * The Edit menu's face selections (the owner, 2026-11-17; the standard "select similar" of modelling tools): the
+   * The Edit menu's face selections (the Forge's owner (crispy, OT.R112), 2026-11-17; the standard "select similar" of modelling tools): the
    * faces that lie in the plane of a selected face (coplanar), that wear a selected face's texture, or that face up
    * (floors), sideways (walls) or down (ceilings) -- coplanar and same texture over every visible object, by facing over
    * the selected objects (every visible object with none selected). Face selection after; the count said.
@@ -5946,7 +5963,7 @@ export class GeometryEditor {
   }
 
   /**
-   * A Texture State field dragged, shown live (the owner, 2026-11-17: "Live preview while scrubbing"; a browser
+   * A Texture State field dragged, shown live (the Forge's owner (crispy, OT.R112), 2026-11-17: "Live preview while scrubbing"; a browser
    * adaptation, as the Transform rows' `previewObjectTransform`): `change` (an absolute value: scale, shift or rotation
    * set) laid on the selected faces with no edit made, the world redrawn at most every `TEXTURE_PREVIEW_MS`; null puts
    * every face back as it was -- its mapping and its UVs -- for Escape, or just before the release's one edit
@@ -6061,6 +6078,16 @@ export class GeometryEditor {
       this.drawSelection();
       return;
     }                                                          // no move: the preview goes
+    // PR #5 D2 (ours): an object drag that mirrors (a scale through zero) is taken back, the pivot where it began.
+    const mirrored = this.sel.mode === 'object' ? mirroringRefusal(mat) : null;
+    if (mirrored) {
+      this.endLive(true);
+      this.pivot.matrix.copy(start).decompose(this.pivot.position, this.pivot.quaternion, this.pivot.scale);
+      this.pivot.updateMatrixWorld(true);
+      this.drawSelection();
+      this.deps.say(mirrored, true);
+      return;
+    }
     this.endLive(false);
     if (this.sel.mode === 'object') { this.transformObjects(mat, copy); return; }
     if (copy && this.sel.mode === 'face') { this.copyFacesBy(mat); return; }
@@ -6095,7 +6122,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Surface snapping in Geometry mode (the owner, 2026-11-15: "add surface snapping in geometry mode when I am dragging a
+   * Surface snapping in Geometry mode (the Forge's owner (crispy, OT.R112), 2026-11-15: "add surface snapping in geometry mode when I am dragging a
    * geo object from the center of the gizmo, similar to object mode"; the Object mode's `surfaceSnapDrag`, a browser
    * adaptation, FG.R2): while the move gizmo's centre handle (`XYZ`) drags an object selection, the selection is seated
    * on the geometry under the pointer -- its lowest point on the surface (raised by the Surface Offset), across the floor
@@ -6109,7 +6136,7 @@ export class GeometryEditor {
     const hit = this.index ? this.index.pick(ray, (o) => moving.has(o.id)) : null;
     if (!hit) return;
     let [x, y, z] = hit.at;
-    // Across the surface on the grid by Snap by (the owner, 2026-11-17: "can we make the center transform drag also follow
+    // Across the surface on the grid by Snap by (the Forge's owner (crispy, OT.R112), 2026-11-17: "can we make the center transform drag also follow
     // the snap by settings?"): the pivot (Pivot), the moved box's middle (Centre) or its nearer edges (Bounds) on the grid
     // along x and z, Ctrl's flip in; its height the surface's.
     const g = this.moveSnap();
@@ -6360,7 +6387,7 @@ export class GeometryEditor {
   private onPointerDown(e: PointerEvent): void {
     if (!this.active || e.button !== 0 || !this.geo) return;
     // Alt + left drag is the camera's orbit (`../../camera`), as everywhere in the Forge -- but on the gizmo, a copy's drag
-    // (the owner, 2026-11-17: "make the alt+drag to copy").
+    // (the Forge's owner (crispy, OT.R112), 2026-11-17: "make the alt+drag to copy").
     if (e.altKey && !this.gizmoHovered(this.ndc(e))) return;
     this.setCtrlHeld(e.ctrlKey || e.metaKey);
     e.stopImmediatePropagation();
@@ -6371,11 +6398,11 @@ export class GeometryEditor {
     if (this.sampling) { if (this.sampleAt(n)) this.setTool(this.toolBeforeSample); return; }
     if (this.knifeOn) { this.knifeClick(n); return; }           // the Knife: a click is a point of the cut
     if (this.lineTool) { this.lineDown(n, e.pointerId); return; } // Clip / Mirror: a line drawn or an end moved
-    // Create on: a resize handle of the shape just made first (`handleDown`); then the gizmo (the owner, 2026-11-17: "use
+    // Create on: a resize handle of the shape just made first (`handleDown`); then the gizmo (the Forge's owner (crispy, OT.R112), 2026-11-17: "use
     // the gizmos after the shape is created"); else a new shape (`blockDown`, below).
     if (this.blockOn && !this.textureOn && this.block?.phase !== 'height' && this.handleDown(n, e)) return;
     if (this.blockOn && !this.textureOn && this.block?.phase === 'height') { this.blockCommit(); return; }
-    // Shift+click while painting: a sample, the brush kept (the owner, 2026-11-16).
+    // Shift+click while painting: a sample, the brush kept (the Forge's owner (crispy, OT.R112), 2026-11-16).
     if (this.paintOn && e.shiftKey && (this.collisionOn || this.textureOn)) { this.sampleAt(n); return; }
     // Collision painting: a click starts a stroke the drag carries on (`paintFaceAt`); never the gizmo's.
     if (this.paintOn && (this.collisionOn || this.textureOn)) {
@@ -6389,10 +6416,10 @@ export class GeometryEditor {
     if (this.gizmo.object && this.gizmo.getHelper().visible) {
       this.drive.pointerHover({ x: n.x, y: n.y, button: 0 });
       if (this.gizmo.axis !== null) {
-        // Alt-drag copies (the owner, 2026-11-17: "make ctrl drag the snap, and make the alt+drag to copy"; it was Ctrl):
+        // Alt-drag copies (the Forge's owner (crispy, OT.R112), 2026-11-17: "make ctrl drag the snap, and make the alt+drag to copy"; it was Ctrl):
         // objects whole, and faces (`copyFacesBy`). A vertex or an edge has nothing of its own to copy: it moves.
         this.dragCopy = e.altKey && (this.sel.mode === 'object' || this.sel.mode === 'face');
-        // Shift-drag extrudes (the owner, 2026-11-18: "do shift drag for faces and edges"; ProBuilder's and
+        // Shift-drag extrudes (the Forge's owner (crispy, OT.R112), 2026-11-18: "do shift drag for faces and edges"; ProBuilder's and
         // Maya's): faces, or edges pulled out into new faces, then moved with the drag -- one edit (`beginDragExtrude`).
         this.dragExtrude = e.shiftKey && !e.altKey && this.gizmo.mode === 'translate' && this.sel.mode !== 'object';
         this.drive.pointerDown({ x: n.x, y: n.y, button: 0 });
@@ -6537,7 +6564,7 @@ export class GeometryEditor {
   }
 
   /**
-   * What a click would take, lit under the pointer (the owner, 2026-11-14: "when I am in face mode and I am hovering over
+   * What a click would take, lit under the pointer (the Forge's owner (crispy, OT.R112), 2026-11-14: "when I am in face mode and I am hovering over
    * a face it shows a highlight"): the object in object mode, the face in face mode, the nearest point or edge -- with the
    * object's own points or edges faintly, to see what is there -- in point and edge mode. Nothing while the gizmo is
    * dragged or hovered, or the camera navigates.
@@ -6545,7 +6572,7 @@ export class GeometryEditor {
   private drawHover(): void {
     const at = this.hoverAt;
     const geo = this.geo;
-    // Create on: no hover on faces, edges, vertices or objects -- its press makes a shape, it picks nothing (the owner,
+    // Create on: no hover on faces, edges, vertices or objects -- its press makes a shape, it picks nothing (the Forge's owner (crispy, OT.R112),
     // 2026-11-17: "when we are in create mode, it should not do the hover select").
     const off = !this.active || !geo || !at || this.blockOn || this.polyOn || this.gizmo.dragging || (!this.sampling && this.gizmo.object && this.gizmo.axis !== null) || this.deps.navigating();
     if (off) { this.showPaintTip(null); if (this.hoverKey) { this.hoverKey = ''; this.clearHover(); } return; }
@@ -6556,7 +6583,7 @@ export class GeometryEditor {
     let draw: (() => void) | null = null;
     const mode = this.sel.mode;
     const chosen = (id: string, item: number | string): boolean => !!this.sel.items.get(id)?.has(item);
-    // The face's collision type at the pointer on the Collision layer, painting or not (the owner, 2026-11-15).
+    // The face's collision type at the pointer on the Collision layer, painting or not (the Forge's owner (crispy, OT.R112), 2026-11-15).
     const textureAt = (o: GeoObject, f: number): string => { const face = o.mesh.faces[f]; return (face && o.mesh.styles[face.style]?.style.textureName) || 'no texture'; };
     if (!(hit && (this.collisionOn || this.textureOn))) this.showPaintTip(null);
     else if (!this.paintOn) this.showPaintTip(this.textureOn ? textureAt(hit.object, hit.face) : this.propWords(wordsOf(hit.object, null)(hit.face)));
@@ -6578,7 +6605,7 @@ export class GeometryEditor {
       const now = this.propWords(wordsOf(hit.object, null)(hit.face));
       const to = this.propWords(this.brushWords(wordsOf(hit.object, null)(hit.face)));
       this.showPaintTip(now === to ? now : `${now} \u2192 ${to}`);
-      // In the painting value's own colour (the owner, 2026-11-15), so the face shows what a click makes it.
+      // In the painting value's own colour (the Forge's owner (crispy, OT.R112), 2026-11-15), so the face shows what a click makes it.
       const colour = this.brushColour();
       key = `p:${hit.object.id}:${hit.face}:${this.surfaceProp}:${this.brushLabel()}`;
       draw = () => {
@@ -6620,7 +6647,7 @@ export class GeometryEditor {
       draw = () => {
         if (!shown) return;
         // Point mode: a handle on every point of the object (hidden where the geometry stands in front); edge mode: the
-        // one edge alone (the owner, 2026-11-14: no other edges lit).
+        // one edge alone (the Forge's owner (crispy, OT.R112), 2026-11-14: no other edges lit).
         if (mode === 'point') this.hover.add(this.handles(this.cageOf(shown).points, HANDLE_PX, HOVER, true));
         if (!near) return;
         if (mode === 'point') this.hover.add(this.handles(vertPos(near.object.mesh, near.item as number), on ? HANDLE_PX + 8 : HANDLE_PX + 6, on ? HOVER_SELECTED : HOVER, true));
@@ -6904,7 +6931,7 @@ export class GeometryEditor {
   private is(id: string, e: KeyboardEvent): boolean { return isShortcut(id, e); }
 
   private onKey(e: KeyboardEvent): void {
-    if (!this.active || scrubbing(this.deps.doc) || keysPaused()) return;   // the shortcut editor's keys are its own     // a Transform field's drag: its keys are its own (`../scrub`)
+    if (!this.active || this.deps.matchHeld() || scrubbing(this.deps.doc) || keysPaused()) return;   // the shortcut editor's keys are its own     // a Transform field's drag: its keys are its own (`../scrub`)
     // A field being typed in keeps its keys; a box or a button (the mode's own Props, its tools) does not.
     const t = e.target as HTMLElement | null;
     const typing = !!t && (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable
@@ -6964,7 +6991,7 @@ export class GeometryEditor {
     if (dissolve) { this.dissolveSelection(); this.stop(e); return; }
     if (this.is('geo.back', e) && !(e.code === 'Escape' && this.deps.doc.pointerLockElement)) {
       // Back steps out one thing at a time: the selection, then -- nothing selected, no tool -- out of Point, Edge or Face
-      // mode to Object mode (the owner, 2026-11-19: "nothing is selected and no tool is selected, pressing esc should
+      // mode to Object mode (the Forge's owner (crispy, OT.R112), 2026-11-19: "nothing is selected and no tool is selected, pressing esc should
       // make us go to geometry object mode").
       const empty = [...this.sel.items.values()].every((x) => x.size === 0) && (this.sel.mode !== 'object' || this.sel.objects.size === 0);
       if (empty && this.sel.mode !== 'object') this.setMode('object');
@@ -6983,7 +7010,7 @@ export class GeometryEditor {
   }
 
   /**
-   * Select All / Invert Selection (the reference editor's Ctrl+A and Ctrl+I; the owner, 2026-11-20: buttons in the
+   * Select All / Invert Selection (the reference editor's Ctrl+A and Ctrl+I; the Forge's owner (crispy, OT.R112), 2026-11-20: buttons in the
    * Select section and rows in the Edit menu too). Object mode: every object on the layer that is shown -- or, inverted,
    * those not selected now. Point, Edge and Face mode: every point, edge or face of the objects the selection is in, or
    * those of them not selected now.
@@ -7023,7 +7050,7 @@ export class GeometryEditor {
 export type { Vector3 };
 
 /**
- * An Edit tool's setting (the owner, 2026-11-19: "for each tool can you add parameteric values we can change ...
+ * An Edit tool's setting (the Forge's owner (crispy, OT.R112), 2026-11-19: "for each tool can you add parameteric values we can change ...
  * similar [to] the create objects ... in real time"): a number, starting at `value` -- or at the grid step times `grid`
  * (a metre with no grid), or a metre times `metre` -- in [`min`, `max`] by `step`.
  */
@@ -7071,12 +7098,12 @@ const TOOL_SETTINGS: Readonly<Record<string, readonly ToolSetting[]>> = {
 const TOOL_SETTINGS_KEY = 's2u-forge-tool-settings';
 function readToolSettings(): Record<string, Record<string, number>> {
   try {
-    const raw = JSON.parse(globalThis.localStorage?.getItem(TOOL_SETTINGS_KEY) ?? 'null') as unknown;
+    const raw = JSON.parse(pageSettings.get(TOOL_SETTINGS_KEY) ?? 'null') as unknown;
     return raw && typeof raw === 'object' ? raw as Record<string, Record<string, number>> : {};
   } catch { return {}; }
 }
 function writeToolSettings(all: Record<string, Record<string, number>>): void {
-  try { globalThis.localStorage?.setItem(TOOL_SETTINGS_KEY, JSON.stringify(all)); } catch { /* this visit's alone */ }
+  pageSettings.set(TOOL_SETTINGS_KEY, JSON.stringify(all));   // refused: this visit's alone
 }
 
 /** Where Create's shape settings are kept in this browser (a browser adaptation, FG.R2: a viewer's own preference). */
@@ -7084,12 +7111,12 @@ const SHAPE_SETTINGS_KEY = 's2u-forge-shape-settings';
 /** The kept shape settings (none where the storage is shut or the record unreadable); `shapeSettings` checks each on use. */
 function readShapeSettings(): Partial<Record<BlockShape, ShapeSettings>> {
   try {
-    const raw = JSON.parse(globalThis.localStorage?.getItem(SHAPE_SETTINGS_KEY) ?? 'null') as unknown;
+    const raw = JSON.parse(pageSettings.get(SHAPE_SETTINGS_KEY) ?? 'null') as unknown;
     return raw && typeof raw === 'object' ? raw as Partial<Record<BlockShape, ShapeSettings>> : {};
   } catch { return {}; }
 }
 function writeShapeSettings(all: Partial<Record<BlockShape, ShapeSettings>>): void {
-  try { globalThis.localStorage?.setItem(SHAPE_SETTINGS_KEY, JSON.stringify(all)); } catch { /* this visit's alone */ }
+  pageSettings.set(SHAPE_SETTINGS_KEY, JSON.stringify(all));   // refused: this visit's alone
 }
 
 /** The own collision a copy carries (`copyWithHull`) until it is made (`addCopy`): a copy's, by the copy, gone with it. */

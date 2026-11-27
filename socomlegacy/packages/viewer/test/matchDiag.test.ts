@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  contextDiagMessage, DIAG_MESSAGE_MAX, DIAG_PAD_ID_CHARS_ADAPTATION, DIAG_RING_ADAPTATION, DIAG_SAMPLE_MS_ADAPTATION, DIAG_STAGE_LANE_ADAPTATION, DIAG_STAGES,
-  DiagRing, gameInputActive, INPUT_DIAG_AT_MS_ADAPTATION, inputDiagMessage, inputSummary, InputTrack, MatchDiag, sampleNow, StageLane, xboxMarks, type DiagInfo,
-  type DiagKind, type DiagStage, type GameInputLike, type XboxMarks,
+  contextDiagMessage, DIAG_MESSAGE_MAX, DIAG_REPORT_VERSION, DIAG_PAD_ID_CHARS_ADAPTATION, DIAG_RING_ADAPTATION, DIAG_SAMPLE_MS_ADAPTATION, DIAG_STAGE_LANE_ADAPTATION, DIAG_STAGES,
+  DiagRing, gameInputActive, INPUT_DIAG_AT_MS_ADAPTATION, inputDiagMessage, inputSummary, InputTrack, lossInPlay, MatchDiag, sampleNow, StageLane, xboxMarks, type DiagInfo,
+  type DiagKind, type DiagSource, type DiagStage, type GameInputLike, type XboxMarks,
 } from '../src/matchDiag';
 import { followLoad, noteLoadReply, readPageState } from '../src/matchDiagPage';
 import { inputPhase, inputSources, installInputSources, noteInput, padHasInput, resetInputSourcesForTest, setInputPhase, type SourcesSnapshot } from '../src/inputSources';
@@ -46,14 +46,14 @@ describe('XBOX-DIAG: the ring', () => {
     for (let i = 0; i < 20; i++) r.write(i * 2, info(i), 0.75, Math.min(8, i));
     const rows = r.rows();
     expect(rows).toHaveLength(DIAG_RING_ADAPTATION);
-    expect(rows[0]).toEqual([24, 22, 32, 52, 5, 42, 0.75, 8]);
-    expect(rows.at(-1)).toEqual([38, 29, 39, 59, 5, 49, 0.75, 8]);
+    expect(rows[0]).toEqual([24, 22, 32, 52, 5, 42, 0.75, 8, null, null, null]);   // XBOX-CAUSE-B's frame lanes: none written here
+    expect(rows.at(-1)).toEqual([38, 29, 39, 59, 5, 49, 0.75, 8, null, null, null]);
   });
 
   it('a lane the renderer does not give is null, never a guess; no phase is null', () => {
     const r = new DiagRing();
     r.write(1.04, { memory: { textures: 3 } }, null, -1);
-    expect(r.rows()).toEqual([[1, null, 3, null, null, null, null, null]]);
+    expect(r.rows()).toEqual([[1, null, 3, null, null, null, null, null, null, null, null]]);
   });
 
   it('the write allocates nothing (2f\'s ask 5): one preallocated array, written in place', () => {
@@ -185,9 +185,11 @@ const NO_SOURCES: SourcesSnapshot = { menu: { pad: 0, key: 0, ptr: 0 }, match: {
 
 describe('XBOX-DIAG: every report under the beacon\'s 1024-character message cap, whole (2f\'s ask 3)', () => {
   const BIG = 9_999_999_999;
+  // I-4: the widest pad id the summary can carry is 'ffff:ffff:wireless controller' (29 characters), not a cut of free text (48).
+  const WORST_PAD = 'Wireless Controller (Vendor: ffff Product: ffff)';
   const worstInput = (): Record<string, unknown> => {
     const t = new InputTrack();
-    t.pads = BIG; t.padId = 'P'.repeat(500); t.mapping = 'M'.repeat(500);
+    t.pads = BIG; t.padId = WORST_PAD; t.mapping = 'M'.repeat(500);
     t.firstButton = BIG; t.firstButtonT = BIG; t.firstStickT = BIG; t.held = BIG; t.frames = BIG; t.framesWithInput = BIG;
     const s: SourcesSnapshot = { menu: { pad: BIG, key: BIG, ptr: BIG }, match: { pad: BIG, key: BIG, ptr: BIG }, last: 'ptr', connected: BIG, disconnected: BIG };
     return inputSummary(t, { emulation: 'E'.repeat(500), focus: true, visibility: 'V'.repeat(500), activation: true, pointerLock: true }, s);
@@ -201,12 +203,13 @@ describe('XBOX-DIAG: every report under the beacon\'s 1024-character message cap
   const marks: XboxMarks = { ua: true, sraKmd: true, cls: true };
   const common = { marks, backend: 'B'.repeat(500), heapMB: BIG, deviceMemory: BIG };
 
-  it('contextdiag at its worst: every field, eight full samples, the input summary -- parses, all eight kept', () => {
+  it('contextdiag at its worst: every field, eight full samples, the input summary -- parses; since XBOX-CAUSE-B six kept', () => {
     const s = contextDiagMessage('gpudevicelost'.repeat(5), common, worstRing(), worstRing().rows()[0]!, { w: BIG, h: BIG }, BIG, worstInput());
     expect(s.length).toBeLessThanOrEqual(DIAG_MESSAGE_MAX);
     const d = JSON.parse(s) as { r: unknown[]; in: { id: string; map: string; emu: string; vis: string } };
-    expect(d.r).toHaveLength(DIAG_RING_ADAPTATION);
-    expect(d.in.id).toHaveLength(DIAG_PAD_ID_CHARS_ADAPTATION);   // the pad's id cut inside the JSON, the JSON whole
+    expect(d.r).toHaveLength(DIAG_RING_ADAPTATION - 2);          // XBOX-CAUSE-B's frame lanes: at every field's bound the two oldest shed
+    expect(d.in.id).toBe('ffff:ffff:wireless controller');       // the pad as vendor:product:family, the JSON whole
+    expect(d.in.id.length).toBeLessThanOrEqual(DIAG_PAD_ID_CHARS_ADAPTATION);
     expect([d.in.emu.length, d.in.map.length, d.in.vis.length]).toEqual([12, 12, 9]);
   });
 
@@ -219,57 +222,97 @@ describe('XBOX-DIAG: every report under the beacon\'s 1024-character message cap
     expect('x' in plain).toBe(false);                                    // no extra, no key: today's rows unchanged
   });
 
-  it('review F3: a pad id of quotes, backslashes and control characters is put as ? -- its JSON length its length, all eight rows kept', () => {
+  it('review F3 (I-4): a pad id of quotes, backslashes and control characters sends only -:-:generic (11 characters); the other strings still go as ?', () => {
     const t = new InputTrack();
     t.padId = '"\\\u0001\u001f'.repeat(200); t.mapping = '"'.repeat(50);
     const input = inputSummary(t, { emulation: '\u0000'.repeat(50), visibility: '\\'.repeat(50) }, NO_SOURCES);
     const s = contextDiagMessage('w"hy'.repeat(10), { marks, backend: '"'.repeat(50), heapMB: BIG, deviceMemory: BIG }, worstRing(), worstRing().rows()[0]!, { w: BIG, h: BIG }, BIG, input);
     expect(s.length).toBeLessThanOrEqual(DIAG_MESSAGE_MAX);
     const d = JSON.parse(s) as { r: unknown[]; bk: string; in: { id: string; map: string; emu: string; vis: string } };
-    expect(d.r).toHaveLength(DIAG_RING_ADAPTATION);
-    expect(d.in.id).toBe('?'.repeat(DIAG_PAD_ID_CHARS_ADAPTATION));
+    expect(d.r).toHaveLength(DIAG_RING_ADAPTATION - 1);          // this id is 11 characters, not 48: 37 fewer, so only the oldest sample sheds (6 kept before I-4)
+    expect(d.in.id).toBe('-:-:generic');
     expect([d.in.map, d.in.emu, d.in.vis, d.bk]).toEqual(['?'.repeat(12), '?'.repeat(12), '?'.repeat(9), '?'.repeat(12)]);
+  });
+
+  it("I-4: the input summary's id is vendor:product:family, and a renamed pad's name is in neither message kind", () => {
+    const t = new InputTrack();
+    t.pads = 1; t.padId = "Craig's Wireless Controller (Vendor: 054c Product: 09cc)"; t.mapping = 'standard';
+    const input = inputSummary(t, {}, NO_SOURCES);
+    expect(input['id']).toBe('054c:09cc:wireless controller');
+    const ctx = contextDiagMessage('gpudevicelost', common, new DiagRing(), [], null, null, input);
+    const inp = inputDiagMessage(common, 45, input);
+    expect((JSON.parse(ctx) as { in: { id: string } }).in.id).toBe('054c:09cc:wireless controller');
+    expect((JSON.parse(inp) as { in: { id: string } }).in.id).toBe('054c:09cc:wireless controller');
+    expect(ctx).not.toContain('Craig');
+    expect(inp).not.toContain('Craig');
+    const bare = new InputTrack(); bare.padId = 'Some Pad';
+    expect(inputSummary(bare, {}, NO_SOURCES)['id']).toBe('-:-:generic');
+    expect(inputSummary(new InputTrack(), {}, NO_SOURCES)['id']).toBeNull();
   });
 
   it('XBOX-790-LOADDIAG: no load open, no load fields -- the report as before, all eight samples kept', () => {
     const d = JSON.parse(contextDiagMessage('gpudevicelost'.repeat(5), common, worstRing(), worstRing().rows()[0]!, { w: BIG, h: BIG }, BIG, worstInput(), null)) as Record<string, unknown>;
     expect(['s', 'sx', 'lt'].filter((k) => k in d)).toEqual([]);
-    expect(d['r']).toHaveLength(DIAG_RING_ADAPTATION);
+    expect(d['r']).toHaveLength(DIAG_RING_ADAPTATION - 2);       // XBOX-CAUSE-B: at every field's bound the two oldest shed
   });
 
-  it('XBOX-790-LOADDIAG review L1: contextdiag at its TRUE worst -- exactly 1024 characters: all eight ring samples shed, every stage kept, sx 99', () => {
+  it('XBOX-790-LOADDIAG review L1: contextdiag at its TRUE worst -- all eight ring samples shed and, since XBOX-WARM pc, XBOX-CAUSE-B and I-4 (the shorter pad id), the two oldest stages: 1008 characters, sx 99', () => {
     // The widest each field can be: every number at its bound; every string at its cut; the input's focus, activation and
     // pointer lock null (4 characters, wider than 0 or 1); every ring row's and the now row's phase null (4, wider than
     // its bound 9); the menus' last source 'ptr' (5 with its quotes, wider than null); the lane full of the widest stage
     // rows and dropped to sx's two-digit bound. Counted by hand: 621 characters beside the ring and the stages, the empty
     // ring 7, the 15 stages 396 -- 1024; one ring sample more (61) would not fit, so the cap sheds all eight and no stage.
+    // XBOX-WARM: `"pc":null,` adds 10 (631 beside the ring and stages): 1034, so the oldest stage (26 with its comma) goes too.
+    // XBOX-CAUSE-B: `"st":999,"rs":999,"ll":99999.9,` (32) and the now row's three frame lanes at their bounds
+    // (`,999,9999,9999`, 14) make it 677 beside the ring and the stages: three stages go, 1001. The ring's samples, as wide,
+    // all shed as before.
+    // I-4: the pad id is at most 'ffff:ffff:wireless controller', 29 characters, not 48 (19 fewer): 1060 before the stages shed;
+    // one stage (26) leaves 1034, over the cap, a second leaves 1008 -- two stages go, not three. (No field row comes near: a console's contextdiag rows measured 771-1012 characters.)
     const lane = new StageLane();
     for (let k = 0; k < DIAG_STAGE_LANE_ADAPTATION + 99; k++) lane.write(BIG, BIG, BIG, BIG, true);
     const ring = new DiagRing();
-    for (let k = 0; k < DIAG_RING_ADAPTATION; k++) ring.write(BIG, worstInfo, BIG, -1);
-    const nowRow = sampleNow(BIG, worstInfo, BIG, -1);
-    expect(nowRow).toEqual([99_999.9, 999_999, 999_999, 999_999, 999_999, 999_999, 9.99, null]);
+    for (let k = 0; k < DIAG_RING_ADAPTATION; k++) ring.write(BIG, worstInfo, BIG, -1, BIG, BIG, BIG);
+    const nowRow = sampleNow(BIG, worstInfo, BIG, -1, BIG, BIG, BIG);
+    expect(nowRow).toEqual([99_999.9, 999_999, 999_999, 999_999, 999_999, 999_999, 9.99, null, 999, 9_999, 9_999]);   // XBOX-CAUSE-B's lanes at their bounds
     expect(ring.rows()).toEqual(Array.from({ length: DIAG_RING_ADAPTATION }, () => nowRow));
     const t = new InputTrack();
-    t.pads = BIG; t.padId = 'P'.repeat(500); t.mapping = 'M'.repeat(500);
+    t.pads = BIG; t.padId = WORST_PAD; t.mapping = 'M'.repeat(500);
     t.firstButton = BIG; t.firstButtonT = BIG; t.firstStickT = BIG; t.held = BIG; t.frames = BIG; t.framesWithInput = BIG;
     const src: SourcesSnapshot = { menu: { pad: BIG, key: BIG, ptr: BIG }, match: { pad: BIG, key: BIG, ptr: BIG }, last: 'ptr', connected: BIG, disconnected: BIG };
     const input = inputSummary(t, { emulation: 'E'.repeat(500), visibility: 'V'.repeat(500) }, src);
     expect([input['foc'], input['act'], input['lock']]).toEqual([null, null, null]);
-    const s = contextDiagMessage('gpudevicelost'.repeat(5), common, ring, nowRow, { w: BIG, h: BIG }, BIG, input, { lt: BIG, lane });
-    expect(s.length).toBe(DIAG_MESSAGE_MAX);
+    const s = contextDiagMessage('gpudevicelost'.repeat(5), { ...common, parallelCompile: null, seats: BIG, room: BIG, sinceLink: BIG }, ring, nowRow, { w: BIG, h: BIG }, BIG, input, { lt: BIG, lane });
+    expect(s.length).toBe(1008);
     const d = JSON.parse(s) as { r: unknown[]; now: unknown[]; s: number[][]; sx: number; lt: number; in: { id: string } };
     expect(d.r).toEqual([]);                                            // shed: all eight ring samples
-    expect(d.s).toEqual(Array.from({ length: DIAG_STAGE_LANE_ADAPTATION }, () => [99, 999_999, 9_999, 999_999, 1]));   // shed: no stage
+    expect(d.s).toEqual(Array.from({ length: DIAG_STAGE_LANE_ADAPTATION - 2 }, () => [99, 999_999, 9_999, 999_999, 1]));   // shed: the two oldest stages (XBOX-WARM's pc, XBOX-CAUSE-B's fields, I-4's 29-character id)
     expect([d.lt, d.sx]).toEqual([999_999, 99]);                        // the lane's own 99 dropped, at sx's bound
     expect(d.now).toEqual(nowRow);
-    expect(d.in.id).toHaveLength(DIAG_PAD_ID_CHARS_ADAPTATION);
+    expect(d.in.id).toBe('ffff:ffff:wireless controller');
+  });
+
+  it('XBOX-WARM: contextdiag and inputdiag carry pc -- KHR_parallel_shader_compile offered 1, not 0, unknown null', () => {
+    const at = (pc: boolean | null | undefined): [unknown, unknown] => {
+      const c = { marks, backend: 'webgl2', ...(pc !== undefined ? { parallelCompile: pc } : {}) };
+      return [(JSON.parse(contextDiagMessage('webglcontextlost', c, new DiagRing(), [], null, null, null)) as Record<string, unknown>)['pc'],
+        (JSON.parse(inputDiagMessage(c, 45, {})) as Record<string, unknown>)['pc']];
+    };
+    expect(at(true)).toEqual([1, 1]);
+    expect(at(false)).toEqual([0, 0]);
+    expect(at(null)).toEqual([null, null]);
+    expect(at(undefined)).toEqual([null, null]);
+  });
+
+  it('XBOX-WARM: contextdiag at its worst with pc still fits and parses', () => {
+    const s = contextDiagMessage('gpudevicelost'.repeat(5), { ...common, parallelCompile: null }, worstRing(), worstRing().rows()[0]!, { w: BIG, h: BIG }, BIG, worstInput());
+    expect(s.length).toBeLessThanOrEqual(DIAG_MESSAGE_MAX);
+    expect((JSON.parse(s) as Record<string, unknown>)['pc']).toBeNull();
   });
 
   it('inputdiag at its worst: parses', () => {
     const s = inputDiagMessage(common, BIG, worstInput());
     expect(s.length).toBeLessThanOrEqual(DIAG_MESSAGE_MAX);
-    expect((JSON.parse(s) as { in: { id: string } }).in.id).toHaveLength(DIAG_PAD_ID_CHARS_ADAPTATION);
+    expect((JSON.parse(s) as { in: { id: string } }).in.id).toBe('ffff:ffff:wireless controller');
   });
 });
 
@@ -287,6 +330,16 @@ describe('XBOX-DIAG: the page\'s diagnostic through a match', () => {
   };
   const XBOX: XboxMarks = { ua: false, sraKmd: true, cls: true };
   const PC: XboxMarks = { ua: false, sraKmd: false, cls: false };
+
+  it('XBOX-WARM: the option parallelCompile reaches the report; one that throws reads null', () => {
+    const sent: Record<string, unknown>[] = [];
+    const make = (pc: () => boolean | null) => new MatchDiag({ marks: () => XBOX, backend: () => 'webgl2', sources: () => NO_SOURCES, page: () => ({}), parallelCompile: pc,
+      send: (_k, message) => { sent.push(JSON.parse(message) as Record<string, unknown>); } });
+    make(() => false).lost('webglcontextlost', 1000);
+    make(() => true).lost('webglcontextlost', 1000);
+    make(() => { throw new Error('no'); }).lost('webglcontextlost', 1000);
+    expect(sent.map((m) => m['pc'])).toEqual([0, 1, null]);
+  });
 
   it('off outside a match (2f\'s ask 5): frames read nothing; in one, a sample every 2 s, not every frame', () => {
     const { d, source, reads } = rig(XBOX);
@@ -310,21 +363,39 @@ describe('XBOX-DIAG: the page\'s diagnostic through a match', () => {
     d.end(61_000);
     expect(sent.map(([k]) => k)).toEqual(['inputdiag']);
     const [, m] = sent[0]!;
-    expect(m).toMatchObject({ v: 2, bk: 'webgl2', m: { ua: 0, sk: 1, cl: 1 },   // review M2: v2, one version per build
+    expect(m).toMatchObject({ v: 3, bk: 'webgl2', m: { ua: 0, sk: 1, cl: 1 },   // review M2: one version per build (v3: XBOX-CAUSE-B's lanes)
       in: { emu: 'mouse', pads: 1, map: 'standard', hld: 1, gf: 1, gfIn: 0, menu: { ptr: 14, pad: 0, last: 'ptr' }, match: { ptr: 3, pad: 0 } } });
     expect(m['t']).toBeGreaterThanOrEqual(INPUT_DIAG_AT_MS_ADAPTATION / 1000);
   });
 
-  it('a match ended before 45 s sends it at the end; a page not Xbox-marked never sends it', () => {
+  it('a match ended before 45 s sends it at the end', () => {
     const x = rig(XBOX);
     x.d.begin(0, x.source); x.d.frame(1000); x.d.end(20_000);
     expect(x.sent.map(([k]) => k)).toEqual(['inputdiag']);
     expect(x.sent[0]![1]['t']).toBe(20);
+  });
+
+  it('LATER 1001: a page not Xbox-marked sends a compact inputdiag once a page load -- the sticks (stk), no input summary', () => {
     const pc = rig(PC);
     pc.d.begin(0, pc.source);
+    pc.d.pads([{ id: 'pad', mapping: 'standard', buttons: [{ pressed: false }], axes: [0.6, -0.05] }], 1000, true);
     for (let t = 0; t <= 60_000; t += 16) pc.d.frame(t);
     pc.d.end(61_000);
-    expect(pc.sent).toEqual([]);
+    expect(pc.sent.map(([k]) => k)).toEqual(['inputdiag']);
+    const [, m] = pc.sent[0]!;
+    expect(m).toMatchObject({ v: 3, bk: 'webgl2', m: { ua: 0, sk: 0, cl: 0 } });
+    expect(m['in']).toBeUndefined();
+    expect(m['stk']).toBeDefined();
+    expect(m['t']).toBeGreaterThanOrEqual(INPUT_DIAG_AT_MS_ADAPTATION / 1000);
+  });
+
+  it("LATER 1001 (the batch review's F2): the compact report goes once a page load -- a second match on a PC page sends none; an Xbox page reports every match", () => {
+    const pc = rig(PC);
+    for (const at of [0, 100_000]) { pc.d.begin(at, pc.source); pc.d.frame(at + 1000); pc.d.end(at + 20_000); }
+    expect(pc.sent.map(([k]) => k)).toEqual(['inputdiag']);
+    const x = rig(XBOX);
+    for (const at of [0, 100_000]) { x.d.begin(at, x.source); x.d.frame(at + 1000); x.d.end(at + 20_000); }
+    expect(x.sent.map(([k]) => k)).toEqual(['inputdiag', 'inputdiag']);
   });
 
   it('a loss at 12 s on an Xbox-marked page (2f\'s ask 1): contextdiag with the ring, a sample now, the buffer, the links and the input so far', () => {
@@ -335,7 +406,7 @@ describe('XBOX-DIAG: the page\'s diagnostic through a match', () => {
     expect(sent.map(([k]) => k)).toEqual(['contextdiag']);
     const m = sent[0]![1] as { why: string; r: number[][]; now: number[]; buf: number[]; lk: number; heap: number; dm: number; in?: unknown };
     expect(m.why).toBe('webglcontextlost');
-    expect(sent[0]![1]['v']).toBe(2);                                    // review M2: the ring's clock changed with v2
+    expect(sent[0]![1]['v']).toBe(3);                                    // review M2: the ring's clock changed with v2; v3 XBOX-CAUSE-B's lanes
     expect(m.r.map((row) => row[0])).toEqual([0, 2, 4, 6, 8, 10, 12]);
     expect(m.r[0]![7]).toBe(6);                                          // the load phase at each sample
     expect([m.now[0], m.now[7]]).toEqual([12.1, 6]);
@@ -361,7 +432,7 @@ describe('XBOX-DIAG: the page\'s diagnostic through a match', () => {
     expect(pc.sent[0]![1]['in']).toBeUndefined();
     const early = rig(XBOX);
     early.d.lost('gpudevicelost', 500);
-    expect(early.sent[0]![1]).toMatchObject({ v: 2, why: 'gpudevicelost', r: [], now: [], m: { sk: 1 } });   // review M2: v2 with no load open too
+    expect(early.sent[0]![1]).toMatchObject({ v: 3, why: 'gpudevicelost', r: [], now: [], m: { sk: 1 } });   // review M2: one version with no load open too
   });
 
   type LoadReport = { r: number[][]; now: number[]; s: number[][]; sx: number; lt: number; in?: unknown };
@@ -571,6 +642,13 @@ describe('XBOX-DIAG: on the beacon -- its own kinds, past the gap, never in the 
     expect(b.text()).not.toContain('contextdiag');
   });
 
+  it("B-22 S2 (the batch review's F2): settingdiag keeps its own cap -- eight of them leave the shared diagnostics' budget whole", () => {
+    const { b, bodies } = beacon();
+    for (let i = 0; i < 8; i++) expect(b.reportDiag('settingdiag', '{"v":1}')).toBe(true);
+    for (let i = 0; i < BEACON_DIAGS_PER_LOAD_ADAPTATION; i++) expect(b.reportDiag('contextdiag', '{}')).toBe(true);
+    expect(bodies.filter((x) => x['kind'] === 'contextdiag')).toHaveLength(BEACON_DIAGS_PER_LOAD_ADAPTATION);
+  });
+
   it('review F1: diagnostics on their own budget -- they never hold an error back by the gap, never count against the errors\' twenty', () => {
     const { b, bodies, at } = beacon();
     expect(b.reportDiag('inputdiag', '{"v":1}')).toBe(true);
@@ -609,7 +687,165 @@ describe('XBOX-DIAG: on the beacon -- its own kinds, past the gap, never in the 
     expect(m.indexOf("setInputPhase('match'); matchDiag.begin(")).toBeGreaterThan(m.indexOf('beaconMatchBegan();'));
     expect(m).toMatch(/beaconMatchEnded\(\{[^\n]*\r?\n\s+if \(attached\) \{ matchDiag\.end\([^\n]*setInputPhase\('menu'\); \}/);   // review F5
     expect(m).toMatch(/const polled = gamePad\.poll\(nav\);\r?\n\s+matchDiag\.pads\(gamePad\.input\.devices, now, held\);/);
-    expect(m).toMatch(/Object\.assign\(pad, gamePad\.extras\(pad, padMenu\)\);\r?\n\s+matchDiag\.gameInput\(pad\);/);
+    expect(m).toMatch(/Object\.assign\(pad, gamePad\.extras\(pad, padMenu\)\);\r?\n\s+matchDiag\.gameInput\(pad, true\);/);   // I-4 follow-up: the pad's lanes; the trigger follows the merge (`matchDiag.gameFire`)
     expect(m).toMatch(/matchDiag\.frame\(now\);[^\n]*\r?\n\s+if \(adaptiveRatio\.frame\(/);
+  });
+});
+
+describe('XBOX-CAUSE-B (product track, an instrument): what a loss after a healthy match carries', () => {
+  // The bugs seat's read s7 (`evidence/weekend-mega-2026-11-14/bugs/xbox-loss-read-2026-11-18.md`): seven console losses
+  // after 43-119 s of healthy frames, no burst; the rows held counts, not frame times. Each ring sample now carries its
+  // interval's frames, its longest frame (ms) and the main thread's own work in that frame (ms: the rest is the GPU's or
+  // the compositor's -- the one GPU-process signal a page can read); the reports carry the others' bodies, the room's
+  // rows and the seconds since the last program link.
+  const rig = (clock: () => number) => {
+    const sent: [string, Record<string, unknown>][] = [];
+    const d = new MatchDiag({
+      marks: () => ({ ua: true, sraKmd: false, cls: false }), backend: () => 'webgl2', sources: () => NO_SOURCES, page: () => ({}), clock,
+      send: (kind, message) => { sent.push([kind, JSON.parse(message) as Record<string, unknown>]); },
+    });
+    return { d, sent };
+  };
+  const source = (over: Partial<DiagSource> = {}): DiagSource => ({ info: () => info(1), scale: () => 1, buffer: () => ({ w: 640, h: 448 }), phase: () => 8, links: () => 90, ...over });
+
+  it('a ring sample carries its interval’s frames, longest gap and the work of the frame before it (review F1: a light frame, then a 300 ms gap)', () => {
+    let work = 4;
+    let rafAt = 0;
+    const { d, sent } = rig(() => rafAt + work);
+    d.begin(0, source());
+    // 2 s of 16 ms frames; a 300 ms gap after a light frame (4 ms), the frame after it working 40: the gap reads as spent
+    // elsewhere (review F1 corrected this test's first form, which paired the gap with the frame after it).
+    let t = 0;
+    for (let i = 0; i < 60; i++) { t += 16; rafAt = t; work = 4; d.frame(t); }
+    t += 300; rafAt = t; work = 40; d.frame(t);
+    for (; t < 2100;) { t += 16; rafAt = t; work = 4; d.frame(t); }
+    d.lost('webglcontextlost', t + 1);
+    const r = (sent[0]![1]['r'] as (number | null)[][]);
+    const last = r[r.length - 1]!;
+    expect(last.length).toBe(11);
+    expect(last.slice(8)).toEqual([expect.any(Number), 300, 4]);
+    expect(last[8]).toBeGreaterThan(60);
+  });
+
+  it('contextdiag and inputdiag carry st (the others’ bodies), rs (the room’s rows) and ll (s since the last link)', () => {
+    let at = 0;
+    const { d, sent } = rig(() => at);
+    d.begin(0, source({ seats: () => 15, room: () => 16, lastLink: () => 20_000 }));
+    at = 45_000; d.frame(45_000);                                // the input report at 45 s
+    at = 50_000; d.lost('webglcontextlost', 50_000);
+    const input = sent.find(([k]) => k === 'inputdiag')![1], ctx = sent.find(([k]) => k === 'contextdiag')![1];
+    expect([input['st'], input['rs'], input['ll']]).toEqual([15, 16, 25]);
+    expect([ctx['st'], ctx['rs'], ctx['ll']]).toEqual([15, 16, 30]);
+  });
+
+  it('unread, each is left out; a link never made is left out', () => {
+    const { d, sent } = rig(() => 0);
+    d.begin(0, source({ lastLink: () => null }));
+    d.lost('webglcontextlost', 1000);
+    const ctx = sent[0]![1];
+    expect([ctx['st'], ctx['rs'], ctx['ll']]).toEqual([undefined, undefined, undefined]);   // left out unread (the size bound)
+  });
+});
+
+describe('XBOX-CAUSE-B review folds (reviews/xbox-cause-b-review-47ddd3df92.md)', () => {
+  const rig = (clock: () => number) => {
+    const sent: [string, Record<string, unknown>][] = [];
+    const d = new MatchDiag({
+      marks: () => ({ ua: true, sraKmd: false, cls: false }), backend: () => 'webgl2', sources: () => NO_SOURCES, page: () => ({}), clock,
+      send: (kind, message) => { sent.push([kind, JSON.parse(message) as Record<string, unknown>]); },
+    });
+    return { d, sent };
+  };
+  const source = (over: Partial<DiagSource> = {}): DiagSource => ({ info: () => info(1), scale: () => 1, buffer: () => ({ w: 640, h: 448 }), phase: () => 8, links: () => 90, ...over });
+  /** 2.1 s of frames: 16 ms apart with 4 ms of work, but at `slowAt` one frame whose own work is `slowWork`, then a `gap` before the next. */
+  const drive = (slowWork: number, gap: number) => {
+    let rafAt = 0, work = 4;
+    const { d, sent } = rig(() => rafAt + work);
+    d.begin(0, source());
+    let t = 0;
+    for (let i = 0; i < 60; i++) { t += 16; rafAt = t; work = 4; d.frame(t); }
+    t += 16; rafAt = t; work = slowWork; d.frame(t);              // the frame BEFORE the gap: its own work
+    t += gap; rafAt = t; work = 4; d.frame(t);                    // the gap ends here: the frame after is light
+    for (; t < 2100;) { t += 16; rafAt = t; work = 4; d.frame(t); }
+    d.lost('webglcontextlost', t + 1);
+    const r = sent[0]![1]['r'] as (number | null)[][];
+    return r[r.length - 1]!;
+  };
+
+  it('F1: a long gap is paired with the work of the frame that used it -- a main-thread stall reads as work', () => {
+    expect(drive(290, 300).slice(9)).toEqual([300, 290]);        // the frame before the gap worked 290 of it: the main thread
+  });
+
+  it('F1: the same gap after a light frame reads as a wait elsewhere (the GPU process or the compositor)', () => {
+    expect(drive(4, 300).slice(9)).toEqual([300, 4]);
+  });
+
+  it('F5: the loss carries lf, ms since the last frame (a hung frame loop shows)', () => {
+    let at = 0;
+    const { d, sent } = rig(() => at);
+    d.begin(0, source());
+    for (let t = 16; t <= 1600; t += 16) { at = t; d.frame(t); }
+    d.lost('webglcontextlost', 9600);                             // no frame for 8 s before the loss
+    expect(sent[0]![1]['lf']).toBe(8000);
+  });
+
+  it('F6: every report says v 3 (the ring rows went from 8 lanes to 11)', () => {
+    expect(DIAG_REPORT_VERSION).toBe(3);
+  });
+
+  it('F3: a loss in play (the first frame drawn) keeps every ring sample and sheds the load\u2019s stages first', () => {
+    const BIG = 9_999_999_999;
+    const lane = new StageLane();
+    for (let k = 0; k < DIAG_STAGE_LANE_ADAPTATION; k++) lane.write(k % 9, 9_000 + k, 120, 2_000, false);
+    const ring = new DiagRing();
+    for (let k = 0; k < DIAG_RING_ADAPTATION; k++) ring.write(40 + k * 2, { memory: { geometries: 1100, textures: 220, uniformBuffers: 5600, total: 22 * 1_048_576 }, programs: { length: 140 } }, 0.75, 8, 120, 2_500, 33);
+    const t = new InputTrack();
+    t.pads = 1; t.padId = 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e)'; t.mapping = 'standard';
+    t.firstButton = 0; t.firstButtonT = 3.2; t.firstStickT = 2.1; t.held = 20; t.frames = 3400; t.framesWithInput = 1900;
+    const src: SourcesSnapshot = { menu: { pad: 300, key: 0, ptr: 4 }, match: { pad: 3400, key: 0, ptr: 0 }, last: 'pad', connected: 1, disconnected: 0 };
+    const input = inputSummary(t, { emulation: 'gamepad', focus: true, visibility: 'visible', activation: true, pointerLock: false }, src);
+    const nowRow = sampleNow(118.4, { memory: { geometries: 1180, textures: 230, uniformBuffers: 7400, total: 24 * 1_048_576 }, programs: { length: 168 } }, 0.75, 8, 90, 2_200, 30);
+    const c = { marks: { ua: true, sraKmd: true, cls: true }, backend: 'webgl2', heapMB: 11, deviceMemory: 8, parallelCompile: true, seats: 15, room: 16, sinceLink: 88.4 };
+    const inPlay = JSON.parse(contextDiagMessage('webglcontextlost', c, ring, nowRow, { w: 640, h: 448 }, 412, input, { lt: 121_000, lane }, null, true)) as { r: unknown[]; s: unknown[] };
+    expect(inPlay.r).toHaveLength(DIAG_RING_ADAPTATION);           // every sample kept ...
+    expect(inPlay.s.length).toBeLessThan(DIAG_STAGE_LANE_ADAPTATION);   // ... the stale load's stages shed first
+    expect(BIG).toBeGreaterThan(0);
+  });
+});
+
+describe('XBOX-CAUSE-B re-review folds (reviews/xbox-cause-b-rereview-1bb097225f.md)', () => {
+  it('F1: in play is the mount\u2019s own first frame drawn, not the highest load phase (loaded-sent comes before the attach)', () => {
+    expect(lossInPlay(true, true)).toBe(true);
+    expect(lossInPlay(true, false)).toBe(false);                 // attached, phase 8, but held (XBOX-WARM) or never drawn
+    expect(lossInPlay(false, true)).toBe(false);                 // no match running
+    expect(lossInPlay(true, null)).toBe(false);                  // a source that cannot say: the ring first, as before
+  });
+
+  it('F1: the match hands its own firstDrawn to the diagnostic', () => {
+    const m = read('../src/matchMount.ts');
+    expect(m).toMatch(/drawn: \(\) => firstDrawn,/);
+  });
+
+  it('F2: the true worst in play with lf at its bound still fits whole (no cut fallback), stages shed before samples', () => {
+    const BIG = 9_999_999_999;
+    const lane = new StageLane();
+    for (let k = 0; k < DIAG_STAGE_LANE_ADAPTATION + 99; k++) lane.write(BIG, BIG, BIG, BIG, true);
+    const worstInfo: DiagInfo = { memory: { geometries: BIG, textures: BIG, uniformBuffers: BIG, total: BIG * 1_048_576 }, programs: { length: BIG } };
+    const ring = new DiagRing();
+    for (let k = 0; k < DIAG_RING_ADAPTATION; k++) ring.write(BIG, worstInfo, BIG, -1, BIG, BIG, BIG);
+    const nowRow = sampleNow(BIG, worstInfo, BIG, -1, BIG, BIG, BIG);
+    const t = new InputTrack();
+    t.pads = BIG; t.padId = 'Wireless Controller (Vendor: ffff Product: ffff)'; t.mapping = 'M'.repeat(500);
+    t.firstButton = BIG; t.firstButtonT = BIG; t.firstStickT = BIG; t.held = BIG; t.frames = BIG; t.framesWithInput = BIG;
+    const src: SourcesSnapshot = { menu: { pad: BIG, key: BIG, ptr: BIG }, match: { pad: BIG, key: BIG, ptr: BIG }, last: 'ptr', connected: BIG, disconnected: BIG };
+    const input = inputSummary(t, { emulation: 'E'.repeat(500), visibility: 'V'.repeat(500) }, src);
+    const c = { marks: { ua: true, sraKmd: true, cls: true }, backend: 'B'.repeat(500), heapMB: BIG, deviceMemory: BIG, parallelCompile: null, seats: BIG, room: BIG, sinceLink: BIG };
+    const s = contextDiagMessage('gpudevicelost'.repeat(5), c, ring, nowRow, { w: BIG, h: BIG }, BIG, input, { lt: BIG, lane }, null, true, BIG);
+    expect(s.length).toBeLessThanOrEqual(DIAG_MESSAGE_MAX);
+    const d = JSON.parse(s) as { r: unknown[]; s: unknown[]; lf: number; cut?: number };
+    expect(d.cut).toBeUndefined();
+    expect(d.s).toEqual([]);                                     // in play: every stage before any sample
+    expect(d.r.length).toBeGreaterThan(0);
+    expect(d.lf).toBe(999_999);
   });
 });

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Hud } from '../src/hud';
 import { NetPage, type NetPageDeps } from '../src/netPage';
 import type { WebSocketLike } from '../src/net/client';
-import { FLINCH_CLIPS, flinchClip, flinchRefused, MP_LONG_FLINCHES } from '../src/net/deaths';
+import { FLINCH_CLIPS, flinchClip, flinchLoopedTop, flinchRefused, flinchStartRefused, MP_LONG_FLINCHES } from '../src/net/deaths';
 import { PART } from '../src/net/damage';
 import type { ServerEvent } from '../src/net/protocol';
 import { flinchPose, stepFlinch, RemotePlayers as RealRemotePlayers, type RemotePlayers } from '../src/remotePlayers';
@@ -233,6 +233,41 @@ describe('a body\'s frame plays its flinch (RemotePlayers.frame -> stepFlinch; F
     const r = { flinch: { clip: 'seal_flinch_rarm', t: 0 } }, sw = ground({ action: act('swapStand') });
     stepFlinch(r, sw, 0.1, clips);
     expect([r.flinch, sw.traversal]).toEqual([null, null]);
+  });
+
+  // R4P-227 (research 179 s11.4, research 217 s4.6; reading, pending review; an unscored capture, FLINCH-PC3, agrees):
+  // `FUN_005a2690` (r0004 0x5a8200) starts no flinch over a looped top other than the three idles
+  // (`FLINCH_LOOPED_GATE_READING`) nor on a mounted gun (`FLINCH_MOUNTED_READING`) -- at the START only
+  // (`flinchStartRefused`, the room's). The per-frame predicate (`flinchRefused`, asked of a flinch already playing by
+  // `WalkMode.snapshot` and `stepFlinch`) never reads either: a flinch pushed is the top play, and a step does not drop it.
+  it('R4P-227: the start refuses a looped locomotion top and a mounted body; the per-frame predicate reads neither', () => {
+    const owner = { source: 'action', name: 'jump', family: 'jump', serial: 1 } as const;
+    const body = (state: 'idle' | 'stand' | 'crouch' | 'prone', top: typeof owner | null = null) => ({ ground: { state }, bodyOwner: () => top });
+    expect(flinchLoopedTop(body('stand'), null)).toBe(true);                      // the run, the strafe, the crouch's full-stick run
+    expect(flinchLoopedTop(body('crouch'), null)).toBe(true);                     // the crouch walk
+    expect(flinchLoopedTop(body('prone'), null)).toBe(true);                      // the crawl
+    expect(flinchLoopedTop(body('idle'), null)).toBe(false);                      // the three idles (1, 0x12, 0x1a)
+    expect(flinchLoopedTop(body('stand', owner), null)).toBe(false);              // a one-shot on top (flag 0x40 clear)
+    expect(flinchLoopedTop(body('stand'), { clip: 'seal_step_up' })).toBe(false); // a traversal's clip on top
+    // R4P-227 review F1: the room's own one-shots on top (`Walker.oneShotOnTop`: the flinch's slot, a still reload clip).
+    expect(flinchLoopedTop({ ...body('stand'), oneShotOnTop: () => true }, null)).toBe(false);
+    expect(flinchLoopedTop({ ...body('stand'), oneShotOnTop: () => false }, null)).toBe(true);
+    // In the air the fall is on top, not the ground's locomotion (research 230 s5.2.4: a flinch pushed in the air sits over
+    // the fall), whatever the ground state ran before the take-off.
+    expect(flinchLoopedTop({ ...body('stand'), airborne: true }, null)).toBe(false);
+    for (const s of [ground(), ground({ action: { name: 'jump' } } as Partial<Snap>)]) {
+      expect(flinchStartRefused({ ...s, looped: true }), JSON.stringify(s)).toBe(true);
+      expect(flinchStartRefused({ ...s, mounted: true }), JSON.stringify(s)).toBe(true);
+      expect(flinchStartRefused({ ...s, looped: false, mounted: false }), JSON.stringify(s)).toBe(false);
+      expect(flinchRefused({ ...s, looped: true, mounted: true }), JSON.stringify(s)).toBe(false);   // never per frame
+    }
+    expect(flinchStartRefused(ground({ action: { name: 'swapStand' } } as Partial<Snap>))).toBe(true);   // the refusals before it hold
+    // A flinch pushed standing survives the first step: the snapshot of a moving body, inside FLINCH_CUT_COMMANDS.
+    const r = { flinch: { clip: 'seal_flinch_rarm', t: 0 } };
+    const s = ground({ cutStick: { forward: 1, right: 0 }, turnRate: 0, airborne: false });
+    stepFlinch(r, s, 0.02, clips);
+    expect(r.flinch).not.toBeNull();
+    expect(s.traversal?.clip).toBe('seal_flinch_rarm');
   });
 
   it('a dead body: the flinch reset, its death clip left as it is', () => {

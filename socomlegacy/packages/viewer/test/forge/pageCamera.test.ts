@@ -195,6 +195,9 @@ vi.mock('../../src/forge/archives', () => ({ Archives: class {
   clips = async () => null;
   list = async () => ({ entries: archiveEntries, problems: [] });
   load = archiveLoad;
+  census = async () => null;
+  props = async () => null;
+  scriptNames = async () => null;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
@@ -298,6 +301,24 @@ describe('the mounted Forge page plays an agent camera shot (R5-B)', () => {
     expect((await api.execute('camera.shot', { points: [{ at: [0, 100, 0], look: [0, 100, 0] }, { at: [10, 100, 0], look: [0, 50, 0] }], seconds: 2 }, r)).code).toBe('INVALID_ARGUMENT');
     expect((await api.execute('camera.shot', { points: [{ at: [0, 100, 0], look: [0, 50, 0] }, { at: [0, 900, 0], look: [0, 50, 0] }], seconds: 2 }, r)).code).toBe('OUT_OF_BOUNDS');
     expect(api.shotRunning?.()).toBe(false);
+  }, 90_000);
+
+  it("PR #5's review: with AI Navigation off, a right-button release with no pointer id reaches the camera -- the look held lets go and W no longer flies", async () => {
+    const api = await mounted();
+    await api.execute('layout.base', { base: { kind: 'map', archive: 'MP2' } }, api.read().revision);
+    frame(); frame();
+    const viewportInput = document.querySelector<HTMLElement>('.fx-input')!;
+    Object.assign(viewportInput, { setPointerCapture: () => undefined, releasePointerCapture: () => undefined });
+    // The press and the release as the seams case below sends them (MouseEvent: no pointerId). AI Navigation mode is off,
+    // so its capture-phase pointerup (`aiPaint.ts` onUp) has no stroke and no pick of its own and must let it through.
+    viewportInput.dispatchEvent(new MouseEvent('pointerdown', { button: 2, bubbles: true, cancelable: true }));
+    viewportInput.dispatchEvent(new MouseEvent('pointerup', { button: 2, bubbles: true, cancelable: true }));
+    for (let i = 0; i < 30; i++) frame();
+    const before = cameraOf(api);
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', key: 'w', bubbles: true }));
+    for (let i = 0; i < 10; i++) frame();
+    window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w', bubbles: true }));
+    near(cameraOf(api), before);                                  // the forge's camera flies on W only while the right button is held
   }, 90_000);
 
   it('ends the shot at the page\'s seams: manual input, a map change, Circle, a hidden page and the teardown', async () => {

@@ -216,7 +216,9 @@ export function flinchStance(body: FlinchBody): Stance {
  * landing's `hit` and `hitStomach` (the long hits `Hit01` and `Hit stomach01`); a swap, full-body or the moving overlay;
  * a launcher raise or lower. Allowed: the jump, the launch and the fall, the soft and hard landings, the get-ups, the
  * stance transitions (whole-body over them: the transition's clock runs on under the flinch, `FLINCH_LAYER_PLACEHOLDER`),
- * the climbs and the step-up, the peek. [reading: the hang taken as the ladder's state; the climbs other than the
+ * the climbs and the step-up, the peek. R4P-227: the motion flagged 0x40 and the turret (`+0xeb8`) are the START's
+ * (`flinchStartRefused`: `FLINCH_LOOPED_GATE_READING`, `FLINCH_MOUNTED_READING`), never this per-frame predicate's; the
+ * restrained / turret anim sets (`+0x528`) are not built. [reading: the hang taken as the ladder's state; the climbs other than the
  * ladder's taken as the original's "climb"; states 8, 9 and 10 by name unread (research 179 s11.4's owed read)]
  */
 export const FLINCH_GATE_READING = 'the original refusals' as const;
@@ -229,6 +231,63 @@ export interface FlinchGateBody {
   overlay?: { clip: string } | null;
   /** A launcher raise or lower playing (`Rifle -> Launcher` / `Pistol -> Launcher`): the room's clock knows it. */
   launcher?: boolean;
+  /** R4P-227: a looped top other than the three idles (`flinchLoopedTop`; `FLINCH_LOOPED_GATE_READING`). Read at the start only. */
+  looped?: boolean;
+  /** R4P-227: holding a mounted gun (`+0xeb8`; `FLINCH_MOUNTED_READING`). Read at the start only. */
+  mounted?: boolean;
+}
+
+/**
+ * R4P-227 (research 179 s11.4, research 217 s4.6; reading, pending review; an unscored capture of the original,
+ * FLINCH-PC3, agrees on every leg): `FUN_005a2690` (r0001 D:L460011-460035; r0004 0x5a88e8-0x5a8924, the same function
+ * instruction for instruction) tests the top play's flags (`FUN_005551a0(top + 0x28, 0x40)`, D:L460011): a top flagged
+ * looped starts a flinch only when the type playing is 1, 0x12 or 0x1a (`FUN_00577e40`, D:L460033-460035: the stand,
+ * crouch and prone idles); any other looped top -- the run, the strafe, the crouch's run at full stick, the crouch walk,
+ * the crawl -- refuses it. Not a speed and not the stick. The port's stand-in: the mover's ground state ran a locomotion
+ * (`Walker.ground.state` not `idle`: `FUN_00586570` / `FUN_00584c60` / `FUN_005845c0` played a set) with no one-shot
+ * on top (`Walker.bodyOwner()` null: every walk action, hold and dance is a one-shot; nor the room's own one-shots,
+ * `Walker.oneShotOnTop`: the flinch's slot and the still reload's or after-shot's clip on its life, `motion.rdr` looped 0
+ * -- a flinch pushed is the top play with flag 0x40 clear, FLINCH-PC3 `+0x28` = 0x6, so a second hit under it is pushed
+ * again even while the stick has moved the ground state off `idle`: R4P-227 review F1), no traversal clip on top, and not
+ * in the air (the fall is on top there: research 230 s5.2.4 reads a flinch pushed in the air over it, PAR-65).
+ */
+export const FLINCH_LOOPED_GATE_READING = 'a locomotion set on top, no one-shot, no traversal clip, on the floor' as const;
+
+/**
+ * R4P-227: whether the turn or step in place (`seal_step`, `seal_crouch_step`) and the stop after a stick release
+ * (research 217: type 0x11 before 0x12) carry flag 0x40 is unread. The port's ground state is `idle` there, so it
+ * FLINCHES meanwhile. Research 80 (the jump's rule, `FUN_0057e1b0`) reads the turn steps as looped, which would refuse it
+ * unless their type is 1, 0x12 or 0x1a (unread). What settles it: the top play's `+0x28` and type while turning in place,
+ * one more FLINCH-PC3 leg.
+ */
+export const FLINCH_STEP_TOP_READING = 'the turn in place flinches' as const;
+
+/**
+ * R4P-227 (research 179 s11.4; reading, pending review; FLINCH-PC3 leg 5 agrees, unscored): `FUN_005a2690` starts no
+ * flinch while `+0xeb8` is non-zero (D:L460017, D:L460040; r0004 0x5a8970): a body holding a mounted gun. The room's
+ * `Player.mounted`. The mount's and the dismount's own clips (`FUN_005a7980`'s list) and the turret anim set (`+0x528`)
+ * around it are R4P-R2's edges, not built here.
+ */
+export const FLINCH_MOUNTED_READING = 'Player.mounted' as const;
+
+/**
+ * R4P-227 (`FLINCH_LOOPED_GATE_READING`): a looped locomotion is the top play -- the ground ran a set, nothing on it: no
+ * mover action (`bodyOwner`) and no room one-shot (`oneShotOnTop`, review F1). The airborne clause adds no rule of the
+ * original (r0004 0x5a8850-0x5a8a50 reads neither `+0x105e` nor `+0x1061`): it is implied by the `fall` action the air
+ * starts (`../mover` `setAirborne`, which `bodyOwner` reports), kept as a guard that agrees.
+ */
+export function flinchLoopedTop(walker: { readonly ground: { readonly state: string }; readonly airborne?: boolean; bodyOwner(): unknown; oneShotOnTop?: (() => boolean) | null }, traversal: { clip: string } | null): boolean {
+  return traversal === null && walker.airborne !== true && walker.bodyOwner() === null && walker.oneShotOnTop?.() !== true && walker.ground.state !== 'idle';
+}
+
+/**
+ * R4P-227: whether `FUN_005a2690` refuses to START a flinch on this body now -- `flinchRefused`'s refusals, a looped
+ * locomotion on top (`FLINCH_LOOPED_GATE_READING`) or a mounted gun (`FLINCH_MOUNTED_READING`). Asked once, at the hit
+ * (the room's `flinch`); never of a flinch already playing: that one is the top play (flag 0x40 clear) and a step does
+ * not drop it -- the stick's cut does (`flinchCut`, after `FLINCH_CUT_COMMANDS`).
+ */
+export function flinchStartRefused(body: FlinchGateBody): boolean {
+  return flinchRefused(body) || body.looped === true || body.mounted === true;
 }
 
 /**

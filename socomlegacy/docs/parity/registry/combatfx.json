@@ -96,19 +96,19 @@
   },
   {
    "id": "combatfx.grenade.power.held",
-   "claim": "a held digital button's power is 1 - 0.95^n at 60 Hz: 0.265 at 0.1 s, 0.537 at 0.25 s, 0.785 at 0.5 s, 0.954 at 1 s, 0.998 at 2 s",
+   "claim": "a held digital button's power chases at the original's per-game-frame law, 1 - (1 - 3G)^(t / G) at any step (LATER 1027, research 437 s1; was the 60 Hz step's 1 - 0.95^n): 0.271 at 0.1 s, 0.546 at 0.25 s, 0.794 at 0.5 s, 0.958 at 1 s, 0.998 at 2 s",
    "level": "reading",
    "source": "FUN_00594cf0 D:L453025",
    "note": "docs/research/85-grenades.md",
    "tests": [
     {
      "file": "packages/scene/test/grenade.parity.test.ts",
-     "name": "a held digital button's power: 0.265 at 0.1 s, 0.537 at 0.25 s, 0.785 at 0.5 s, 0.954 at 1 s, 0.998 at 2 s",
+     "name": "a held digital button's power: 0.271 at 0.1 s, 0.546 at 0.25 s, 0.794 at 0.5 s, 0.958 at 1 s, 0.998 at 2 s",
      "data": "none"
     },
     {
      "file": "packages/scene/test/projectile.test.ts",
-     "name": "a digital button held: 1 - 0.95^n at 60 Hz -- how long it was held is how hard it goes",
+     "name": "a digital button held: 1 - (1 - 3G)^(t / G) at any step -- how long it was held is how hard it goes",
      "data": "none"
     }
    ]
@@ -157,17 +157,17 @@
   },
   {
    "id": "combatfx.grenade.throw.clearance",
-   "claim": "Before the commit the hand-grenade release request asks a segment from GetThrowAnim's hand point (its z forward of the feet taken to 0) to an end point by the state -- standing toss (3.457, 12.454, -10) or throw (1.155, 13.354, -15.75), crouched (0.924, 10.631, -12.1), prone toss (1.820, 5.580, -10.6) or throw (0.594, 9.082, -6.75), actor frame -- of the world; a hit refuses the throw as a short tap is, nothing spent; the lean (state 3) asks no segment and is never refused by it.",
+   "claim": "r0004 (OT.R97): before the commit the hand-grenade release request casts a 25-unit ray from GetThrowAnim's hand point, unclamped (no forward z taken to 0), along the body's aim vector -- the aim from the latched origin over the feet toward the crosshair's point -- turned by the actor matrix; only the nearest hit is judged, and it refuses when the material verdict calls it a blocker, as a short tap is, nothing spent; a lean is cast from its own lean hand point like any state (no state is read) and is refused by a wall the ray meets; a state with no throw clip is refused.",
    "level": "reading",
-   "source": "FUN_005be9a0 D:L475491-475498; FUN_005499e0 D:L413977-414063; FUN_0031e250 D:L220150-220175",
+   "source": "r0004 0x54e6f0 (0x54e6f8-0x54e738 the hand pick 0x585280; 0x54e768-0x54e788 the start, unclamped; 0x54e798 the 25.0; 0x54e854-0x54e888 the query 0x33b860), 0x2f1bd0 (the nearest hit), 0x5bc8d0 (the verdict), asked from the release request at 0x5c5d6c; the aim vector actor+0x144c written by 0x5e6690 (origin 0x5e66d0-0x5e681c, T 0x5b0370); research 256 s5.3 (two readers, reading pending review); r0001 FUN_005be9a0 D:L475491-475498 the request's shape, FUN_005499e0 D:L413977-414063 superseded",
    "note": "docs/research/256-the-explosives-commit-rules-as-the-originals.md",
    "tests": [
-    { "file": "packages/viewer/test/grenade.test.ts", "name": "the five end points are FUN_005499e0's float32 words, in the actor frame (D:L414004-414006, D:L414025-414047)", "data": "none" },
-    { "file": "packages/viewer/test/grenade.test.ts", "name": "the exact segment: from GetThrowAnim's hand point (z forward of the feet taken to 0) to the state's end point, turned by the yaw; the lean has none", "data": "none" },
-    { "file": "packages/viewer/test/grenade.test.ts", "name": "a wall across the standing throw's segment refuses it before the commit, nothing spent; the same wall clears the prone throw (whose end stops short) and the lean (no query)", "data": "none" },
-    { "file": "packages/viewer/test/grenade.test.ts", "name": "yaw 90: the standing throw's segment meets container_blue01's side 12 units west of A -- a movement surface of a static world node -- and the clearance refuses", "data": "fixture" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "the ray is 25 units, r0004 0x54e798; the query placeholder kept", "data": "none" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "the exact ray: from GetThrowAnim's hand point (unclamped) 25 units along the aim, turned by the yaw; the lean cast from its own hand", "data": "none" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "a wall across the ray refuses it before the commit, nothing spent; past its end it clears; the prone ray meets the same wall", "data": "none" },
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "yaw 90: the standing throw's ray meets container_blue01's side west of A -- a movement surface of a static world node, a blocker -- and the clearance refuses", "data": "fixture" },
     { "file": "packages/viewer/test/grenade.test.ts", "name": "through the thrower, as the hook's throwGrenade(1) asks it: at yaw 90 refused -- nothing thrown, nothing spent, the grenade still up, the power zeroed; at yaw 210 thrown", "data": "fixture" },
-    { "file": "packages/viewer/test/grenade.test.ts", "name": "yaws 210 and 240 (the spec's throws from A) are clear; yaw 90's lean asks no query", "data": "fixture" }
+    { "file": "packages/viewer/test/grenade.test.ts", "name": "yaws 210 and 240 (the spec's throws from A) are clear; yaw 90's lean meets the same container and is refused (r0004 casts the lean)", "data": "fixture" }
    ],
    "owed": "The query's class (THROW_CLEARANCE_QUERY_PLACEHOLDER: DAT_0044d758 at the call, the owners +0xa1 mask 4 (bit 2) skips, the record's +0x3c) is unread; FUN_0059d830's other refusals are not ported; map prevalence and feel need a capture (research 256 s6)."
   },

@@ -1,6 +1,9 @@
-import {LinearFilter,LinearMipmapLinearFilter,LinearMipmapNearestFilter,NearestFilter,NearestMipmapLinearFilter,NearestMipmapNearestFilter,RepeatWrapping,type DataTexture} from 'three';
+import {ColorManagement,LinearFilter,LinearMipmapLinearFilter,LinearMipmapNearestFilter,NearestFilter,NearestMipmapLinearFilter,NearestMipmapNearestFilter,RepeatWrapping,SRGBTransfer,type DataTexture} from 'three';
 import type {Rgba} from '@s2u/gs';
 import {sha256} from './texturePack';
+import {alphaUnscaled,blockChainGpuBytes,blockEligible,blockGpuBytes,blockImage,blocksOf,pageBlockSupport,type BcKind,type BlockDecision} from './hdPackBlocks';
+import type {Ktx2Image} from './ktx2';
+import {currentHdLayout,hdEntriesFor,type HdLayout} from './hdPackLayout';
 
 /**
  * OT.R92 (plan 2026-10-31-hd-texture-pack-parity, HD.R1-R5): the HD pack kind -- a pack made for PCSX2, applied in the
@@ -10,11 +13,15 @@ import {sha256} from './texturePack';
  * Budgets are experiment limits, not console values.
  */
 export const HD_LIMITS = {entries:8192,sourceEdge:1024,outputEdge:8192,manifestBytes:8*1024*1024,entryBytes:256*1024*1024,
-  totalBytes:8*1024*1024*1024,appliedBytes:1536*1024*1024,nameLength:64,methodLength:512,placements:64} as const;
+  totalBytes:8*1024*1024*1024,appliedBytes:1536*1024*1024,nameLength:64,methodLength:512,placements:64,layoutEntries:64} as const;
 /** HD.R2's evidence tiers: A..C exact hashes, D..F image matches accepted at their margins. */
 export const HD_TIERS = ['A','A2','B','C','D','E','F'] as const;
 export type HdTier = typeof HD_TIERS[number];
-export const HD_FORMATS = ['png','dds'] as const;
+/**
+ * `ktx2` (WM-PACK-2, WM.R13; product track, a browser adaptation): a payload read by `ktx2.ts`, its BC blocks uploaded as
+ * they are where `hdPackBlocks.ts` `blockEligible` allows. An older reader (v0.4.22) refuses a pack holding one, in words.
+ */
+export const HD_FORMATS = ['png','dds','ktx2'] as const;
 export type HdFormat = typeof HD_FORMATS[number];
 /** `[x, y, width, height]`, whole texels (or a pack image's pixels). */
 export type HdRect=readonly [x:number,y:number,w:number,h:number];
@@ -43,7 +50,17 @@ export interface HdEntry {key:string;width:number;height:number;file:string;form
  * decoded one; a manifest built before it (the 0.1.x packs) has none and loads as before.
  */
 export interface HdManifest {format:'s2u-hd-texture-pack';version:1;localOnly:true;game:string;name:string;method:string;
-  entries:HdEntry[];totalBytes:number;packedBytes?:number}
+  entries:HdEntry[];totalBytes:number;packedBytes?:number;
+  /**
+   * WM-32 (a browser adaptation, product track; mechanism only, the pack author's permission pending): a layout's
+   * overlay -- whole entries, each for a base whole entry's key, applied in its place when the player's controller
+   * labels are that layout's (`./hdPackLayout`). Its own files are outside `totalBytes`, so a reader that keeps only the
+   * fields it knew (v0.4.24) still validates and loads the base (the PlayStation pack); `layoutBytes` is their sum,
+   * each file once, required with `layouts`.
+   */
+  layouts?:{xbox?:HdEntry[]};layoutBytes?:number}
+/** WM-32: the layouts a manifest may carry (`HdManifest.layouts`). */
+export const HD_LAYOUT_NAMES=['xbox'] as const;
 export class HdRefusal extends Error {constructor(readonly reason:string){super(reason);this.name='HdRefusal';}}
 function need(ok:unknown,reason:string):asserts ok {if(!ok)throw new HdRefusal(reason);}
 const hash=(v:unknown):v is string=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v);
@@ -59,36 +76,76 @@ export function validateHdManifest(raw:unknown):HdManifest {
   need(text(m.name,HD_LIMITS.nameLength),'name is not printable');need(text(m.method,HD_LIMITS.methodLength),'method is not printable');
   need(Array.isArray(m.entries)&&m.entries.length>0&&m.entries.length<=HD_LIMITS.entries,`entries is not 1-${HD_LIMITS.entries}`);
   // One file may serve several keys (a pack file bound to more than one decoded image), declared alike each time.
-  const keys=new Set<string>(),sizes=new Map<string,string>(),files=new Map<string,string>(),entries:HdEntry[]=[];let total=0;
+  const keys=new Set<string>(),scope:EntryScope={sizes:new Map(),files:new Map()},entries:HdEntry[]=[];let total=0;
   for(const [i,x] of (m.entries as Record<string,unknown>[]).entries()){
-    const at=`entry ${i+1}`;need(x&&typeof x==='object',`${at} is not an object`);
-    need(hash(x.key),`${at}: key is not a sha256`);
-    const placed=x.placements!==undefined||x.placementKind!==undefined;
-    if(!placed){need(!keys.has(x.key),`${at}: duplicate key`);keys.add(x.key);}
-    need(typeof x.file==='string'&&/^(0|[1-9]\d{0,4})\.(png|dds)$/.test(x.file),`${at}: file is not <n>.png or <n>.dds`);
-    const decl=JSON.stringify([x.format,x.outWidth,x.outHeight,x.bytes,x.sha256]),prior=files.get(x.file);
-    need(prior===undefined||prior===decl,`${at}: file ${x.file} declared differently by another entry`);
-    need((HD_FORMATS as readonly unknown[]).includes(x.format)&&x.file.endsWith('.'+x.format),`${at}: format does not match its file`);
-    need(int(x.width,1,HD_LIMITS.sourceEdge)&&int(x.height,1,HD_LIMITS.sourceEdge),`${at}: source size out of bounds`);
-    need(int(x.outWidth,1,HD_LIMITS.outputEdge)&&int(x.outHeight,1,HD_LIMITS.outputEdge),`${at}: output size out of bounds`);
-    need(x.bytes===(x.outWidth as number)*(x.outHeight as number)*4&&int(x.bytes,4,HD_LIMITS.entryBytes),`${at}: bytes is not its output size`);
-    need(hash(x.sha256),`${at}: sha256 is not a sha256`);
-    need((HD_TIERS as readonly unknown[]).includes(x.tier),`${at}: tier is not one of ${HD_TIERS.join(', ')}`);
-    need(text(x.source,128),`${at}: source is not printable`);
-    const size=`${x.width}x${x.height}`,known=sizes.get(x.key);
-    need(known===undefined||known===size,`${at}: its key is declared at another source size`);sizes.set(x.key,size);
-    const placements=placed?checkPlacements(x,at):undefined;
-    if(prior===undefined){files.set(x.file,decl);total+=x.bytes as number;need(total<=HD_LIMITS.totalBytes,'over the total byte bound');}
-    entries.push({key:x.key,width:x.width as number,height:x.height as number,file:x.file,format:x.format as HdFormat,outWidth:x.outWidth as number,
-      outHeight:x.outHeight as number,bytes:x.bytes as number,sha256:x.sha256,tier:x.tier as HdTier,source:x.source as string,
-      ...(placements?{placements,placementKind:x.placementKind as HdPlacementKind}:{})});
+    const r=checkEntry(x,`entry ${i+1}`,scope,(key,at,placed)=>{if(!placed){need(!keys.has(key),`${at}: duplicate key`);keys.add(key);}});
+    if(r.newFile){total+=r.entry.bytes;need(total<=HD_LIMITS.totalBytes,'over the total byte bound');}
+    entries.push(r.entry);
   }
   need(m.totalBytes===total,'totalBytes is not the sum over its files');
   // LATER 742: each payload as served may be up to 1 KiB over its entry (`installHdFromSource`'s bound), so the packed
   // total's bound is the decoded one's plus that per file.
   need(m.packedBytes===undefined||int(m.packedBytes,1,HD_LIMITS.totalBytes+1024*HD_LIMITS.entries),'packedBytes is not a byte count within the pack\'s bound');
+  // WM-32 (a browser adaptation, product track; mechanism only, the pack author's permission pending): the layout
+  // overlays -- each entry a base whole key's other whole replacement, checked as a base entry is, its files declared
+  // alike with the base's where they share one, its own files outside `totalBytes` and summed in `layoutBytes`.
+  let layouts:HdManifest['layouts'],layoutTotal=0;
+  if(m.layouts!==undefined){
+    const l=m.layouts as Record<string,unknown>|null;
+    need(l&&typeof l==='object'&&!Array.isArray(l),'layouts is not an object');
+    for(const name of Object.keys(l))need((HD_LAYOUT_NAMES as readonly string[]).includes(name),`layouts: unknown layout ${name}`);
+    layouts={};
+    for(const name of HD_LAYOUT_NAMES){
+      const list=l[name];if(list===undefined)continue;
+      need(Array.isArray(list)&&list.length<=HD_LIMITS.layoutEntries,`layouts.${name} is not at most ${HD_LIMITS.layoutEntries} entries`);
+      const seen=new Set<string>(),out:HdEntry[]=[];
+      for(const [i,x] of (list as Record<string,unknown>[]).entries()){
+        const r=checkEntry(x,`layouts.${name} entry ${i+1}`,scope,(key,at,placed)=>{
+          need(!placed,`${at}: a layout entry is whole only (no placements)`);
+          need(keys.has(key),`${at}: its key is not a base whole entry's`);
+          need(!seen.has(key),`${at}: duplicate key`);seen.add(key);
+        });
+        if(r.newFile){layoutTotal+=r.entry.bytes;need(total+layoutTotal<=HD_LIMITS.totalBytes,'over the total byte bound');}
+        out.push(r.entry);
+      }
+      layouts[name]=out;
+    }
+  }
+  need(m.layoutBytes===undefined&&layouts===undefined||m.layoutBytes===layoutTotal,'layoutBytes is not the sum over its layouts\' own files');
   return {format:'s2u-hd-texture-pack',version:1,localOnly:true,game:m.game,name:m.name,method:m.method,entries,totalBytes:total,
-    ...(m.packedBytes!==undefined?{packedBytes:m.packedBytes as number}:{})};
+    ...(m.packedBytes!==undefined?{packedBytes:m.packedBytes as number}:{}),
+    ...(layouts!==undefined?{layouts}:{}),...(m.layoutBytes!==undefined?{layoutBytes:layoutTotal}:{})};
+}
+/** What a manifest's entries share across its base and its layouts: each key's source size, each file's declaration. */
+interface EntryScope {sizes:Map<string,string>;files:Map<string,string>}
+/**
+ * One entry's checks, the same for a base entry and a layout's (WM-32). `keyRule` runs where the base's duplicate-key
+ * check always ran (after the key's form, before the file's), so every refusal keeps its words and its order.
+ * `newFile`: the entry's file was not declared before (its bytes count once).
+ */
+function checkEntry(x:Record<string,unknown>,at:string,scope:EntryScope,keyRule:(key:string,at:string,placed:boolean)=>void):{entry:HdEntry;newFile:boolean}{
+  const {sizes,files}=scope;
+  need(x&&typeof x==='object',`${at} is not an object`);
+  need(hash(x.key),`${at}: key is not a sha256`);
+  const placed=x.placements!==undefined||x.placementKind!==undefined;
+  keyRule(x.key,at,placed);
+  need(typeof x.file==='string'&&/^(0|[1-9]\d{0,4})\.(png|dds|ktx2)$/.test(x.file),`${at}: file is not <n>.png, <n>.dds or <n>.ktx2`);
+  const decl=JSON.stringify([x.format,x.outWidth,x.outHeight,x.bytes,x.sha256]),prior=files.get(x.file);
+  need(prior===undefined||prior===decl,`${at}: file ${x.file} declared differently by another entry`);
+  need((HD_FORMATS as readonly unknown[]).includes(x.format)&&x.file.endsWith('.'+x.format),`${at}: format does not match its file`);
+  need(int(x.width,1,HD_LIMITS.sourceEdge)&&int(x.height,1,HD_LIMITS.sourceEdge),`${at}: source size out of bounds`);
+  need(int(x.outWidth,1,HD_LIMITS.outputEdge)&&int(x.outHeight,1,HD_LIMITS.outputEdge),`${at}: output size out of bounds`);
+  need(x.bytes===(x.outWidth as number)*(x.outHeight as number)*4&&int(x.bytes,4,HD_LIMITS.entryBytes),`${at}: bytes is not its output size`);
+  need(hash(x.sha256),`${at}: sha256 is not a sha256`);
+  need((HD_TIERS as readonly unknown[]).includes(x.tier),`${at}: tier is not one of ${HD_TIERS.join(', ')}`);
+  need(text(x.source,128),`${at}: source is not printable`);
+  const size=`${x.width}x${x.height}`,known=sizes.get(x.key);
+  need(known===undefined||known===size,`${at}: its key is declared at another source size`);sizes.set(x.key,size);
+  const placements=placed?checkPlacements(x,at):undefined;
+  if(prior===undefined)files.set(x.file,decl);
+  return {newFile:prior===undefined,entry:{key:x.key,width:x.width as number,height:x.height as number,file:x.file,format:x.format as HdFormat,
+    outWidth:x.outWidth as number,outHeight:x.outHeight as number,bytes:x.bytes as number,sha256:x.sha256,tier:x.tier as HdTier,source:x.source as string,
+    ...(placements?{placements,placementKind:x.placementKind as HdPlacementKind}:{})}};
 }
 const rect=(v:unknown):v is HdRect=>Array.isArray(v)&&v.length===4&&v.every((n,i)=>int(n,i<2?0:1,HD_LIMITS.outputEdge));
 /** HD.R9: each rectangle inside its target and its image, at a whole square scale whose composite fits the output bound. */
@@ -307,6 +364,23 @@ const SAME_ALPHA=Uint8ClampedArray.from({length:256},(_,a)=>a);
 export const HD_CONCURRENT_LOADS=4;
 
 const MIP_FILTERS=new Set<number>([LinearMipmapLinearFilter,LinearMipmapNearestFilter,NearestMipmapLinearFilter,NearestMipmapNearestFilter]);
+/**
+ * LATER 1228 (product track; from LATER 1137's review): the bytes an RGBA texture holds on the GPU with the chain three
+ * generates -- every level, halving each side (at least 1) down to 1 x 1: a square ~4/3 of its level 0, a strip nearly 2x.
+ * What the applied cap counts for a replacement that generates its chain (its original's own, `minify`, LATER 1137's).
+ */
+export function rgbaChainBytes(width:number,height:number):number{
+  let w=Math.max(1,width),h=Math.max(1,height),n=w*h*4;
+  while(w>1||h>1){w=Math.max(1,w>>1);h=Math.max(1,h>>1);n+=w*h*4;}
+  return n;
+}
+/**
+ * LATER 1228: what a load reserves against the cap before its replacement is decoded -- `composite`, doubled when the
+ * texture may end with a generated chain (its original mipped or linear-filtered: `minify` and LATER 1137 both need a
+ * bilinear original), since no chain is more than twice its level 0 and its size is not known yet. The swap then counts
+ * the exact bytes (`rgbaChainBytes` or level 0).
+ */
+export function hdLoadReserve(composite:number,mayChain:boolean):number{return mayChain?2*composite:composite;}
 const KEYS=new WeakMap<Rgba,Promise<string>>();
 const keyOf=(r:Rgba):Promise<string>=>{
   let k=KEYS.get(r);if(!k){k=sha256(new Uint8Array(r.data.buffer,r.data.byteOffset,r.data.byteLength));KEYS.set(r,k);}return k;
@@ -329,7 +403,13 @@ export type HdAlphaStep=(whole:Rgba)=>Rgba|Promise<Rgba>;
 export const hdFullAlpha:HdAlphaStep=(r)=>({width:r.width,height:r.height,data:fullAlpha(r.data as Uint8ClampedArray)});
 export interface HdSkip {key:string;source:string;reason:string}
 export interface HdReport {applied:number;skipped:HdSkip[]}
-interface Original {image:DataTexture['image'];mipmaps:DataTexture['mipmaps'];generate:boolean;min:DataTexture['minFilter'];bytes:number}
+/**
+ * A texture's state before its replacement. `blocks` (WM-PACK-2 RUNTIME): the replacement went up as its BC blocks -- the
+ * texture's own `isCompressedTexture` / `isDataTexture` flags and its `format` are put back as constructed on restore;
+ * `opaqueOut`: whether that replacement is opaque (the guard's re-read, `reguard`).
+ */
+interface Original {image:DataTexture['image'];mipmaps:DataTexture['mipmaps'];generate:boolean;min:DataTexture['minFilter'];bytes:number;
+  format?:DataTexture['format'];blocks?:boolean;opaqueOut?:boolean}
 /** Decodes an entry's payload to RGBA (a fetch and `png.ts` / `dds.ts`; a test passes its own). */
 export type HdLoad=(entry:HdEntry)=>Promise<Rgba>;
 
@@ -345,7 +425,18 @@ export type HdLoad=(entry:HdEntry)=>Promise<Rgba>;
  * P1): absent, every registered texture is this runtime's; a name or null, only those registered in that scope (null:
  * outside every scope) -- a distinct owner alone does not keep the Forge's editor runtime off its match's textures.
  */
-export interface HdRuntimeOptions {opaqueGuard?:()=>boolean;frames?:ApplyFrames;owner?:string;alpha?:HdAlphaStep;scope?:string|null}
+export interface HdRuntimeOptions {opaqueGuard?:()=>boolean;frames?:ApplyFrames;owner?:string;alpha?:HdAlphaStep;scope?:string|null;
+  /**
+   * WM-PACK-2 RUNTIME (a browser adaptation): the BC kinds the page's device samples (`hdPackBlocks.ts` `blockSupport`);
+   * absent, the page's renderer's probe (`pageBlockSupport`; none until a renderer is made: the RGBA path).
+   */
+  blocks?:()=>ReadonlySet<BcKind>;
+  /**
+   * WM-32 (a browser adaptation, product track; mechanism only, the pack author's permission pending): the button layout
+   * whose entries `setPack` applies (`./hdPackLayout` `hdEntriesFor`); absent, the player's controller labels
+   * (`currentHdLayout`).
+   */
+  layout?:()=>HdLayout}
 
 /**
  * B206 ML-4 (ML.R10; a browser adaptation, no original -- PACK_APPLY_OVERLAY_ADAPTATION): bounds the pack apply's work in
@@ -524,7 +615,9 @@ export class HdPackRuntime {
   setPack(manifest:HdManifest|null):Promise<HdReport>{
     this.generation++;this.restore();this.off?.();this.off=null;this.byKey.clear();this.payloads.clear();this.skips=[];this.matchedSet.clear();this.guardedCount=0;this.guardedSet.clear();this.guardOn=this.options.opaqueGuard?.()??false;
     if(!manifest)return Promise.resolve({applied:0,skipped:[]});
-    for(const e of manifest.entries){
+    // WM-32: the entries of the layout the labels ask for, read here -- a label changed later takes effect at the next
+    // `setPack` (no live re-apply).
+    for(const e of hdEntriesFor(manifest,this.options.layout?.()??currentHdLayout())){
       let g=this.byKey.get(e.key);if(!g)this.byKey.set(e.key,g={placed:[]});
       if(e.placements)g.placed.push(e);else g.whole=e;
     }
@@ -631,8 +724,15 @@ export class HdPackRuntime {
         // injected step's refusal is caught -- the whole dropped, with why, the build going on as for a whole refused by
         // its hash; the default step's throw rejects the build, as before GM-13d (a pack given no decoder). The match, the
         // Forge and the test room pass the worker's step (B206 ML-4), so a worker failing mid-rescale drops that whole.
-        const step=this.alone(whole,g.whole.file)?this.alpha:hdFullAlpha;
-        if(step===hdFullAlpha)base=hdFullAlpha(whole) as Rgba;
+        // WM-PACK-2 RUNTIME (review F5): a whole KTX2 payload with BC blocks, on a page whose device samples some, whose
+        // every alpha byte is 0 or 255 (`alphaUnscaled`: `fullAlpha` leaves it as it is) is its own rescale -- taken as it
+        // is when this build alone holds it (no copy), else `fullAlpha`'s copy as for any shared payload -- and its blocks
+        // kept beside it for the swap. Every other payload, ktx2 or not, takes the steps below as before.
+        const blocks=blocksOf(whole),alone=this.alone(whole,g.whole.file);
+        const asBlocks=!!blocks&&!g.placed.length&&(this.options.blocks??pageBlockSupport)().size>0&&alphaUnscaled(whole);
+        const step=alone&&!asBlocks?this.alpha:hdFullAlpha;
+        if(asBlocks){base=alone?whole:hdFullAlpha(whole) as Rgba;this.built.set(base,{img:blocks!,decoded:base});}
+        else if(step===hdFullAlpha)base=hdFullAlpha(whole) as Rgba;
         else try{const out=step(whole);base=out instanceof Promise?await out:out;}
         catch(x){if(generation===this.generation)this.skip(key,`alpha rescale unavailable (${x instanceof Error?x.message:x})`,g.whole.source);}
         if(generation!==this.generation)return null;
@@ -663,6 +763,8 @@ export class HdPackRuntime {
       plan=drawn;
     }
   }
+  /** WM-PACK-2 RUNTIME: a whole replacement built from a payload with BC blocks -> those blocks and the payload as decoded. */
+  private built=new WeakMap<Rgba,{img:Ktx2Image;decoded:Rgba}>();
   private async apply(t:DataTexture,generation:number):Promise<void>{
     const src=this.registry.source(t);if(!src||this.originals.has(t))return;
     const key=await keyOf(src);if(generation!==this.generation)return;
@@ -674,16 +776,21 @@ export class HdPackRuntime {
     // leaves build compositing over the original at the placements' scale. GM-13c: build holds one payload at a time,
     // so a key with placements reserves its composite and its largest payload twice -- the payload and its hash's copy
     // (`texturePack.ts` `sha256`), as `hdLoadBytes` counts it (review F3); was every placement's payload once. A whole
-    // alone reserves its composite only, as before HD.R9: it under-counts the same way, but changing it would change
-    // which of the match's textures the cap admits (every entry before HD.R9 is one).
+    // alone reserves its composite only, as before HD.R9 -- unless (LATER 1228) it may end with a generated chain: then
+    // twice it (`hdLoadReserve`), which does change which textures the cap admits near it, as counting the chain must.
     const peak=hdKeyPeak(src.width,src.height,g.whole,g.placed);
-    const loading=peak.composite+(g.placed.length?2*peak.payload:0),first=g.whole??g.placed[0]!;
+    // LATER 1228: a chain may come from the original's own (mipped), or -- for a bilinear original -- `minify` or LATER
+    // 1137's chain, both only for a replacement LARGER than it (its review's F2: a same-size one never chains).
+    const out=hdCompositeSize(src.width,src.height,g.whole,g.placed);
+    const mayChain=t.mipmaps.length>0||(t.generateMipmaps&&MIP_FILTERS.has(t.minFilter))||(t.minFilter===LinearFilter&&(out.width>src.width||out.height>src.height));
+    const loading=hdLoadReserve(peak.composite,mayChain)+(g.placed.length?2*peak.payload:0),first=g.whole??g.placed[0]!;
     if(this.appliedBytes+this.reserved+loading>HD_LIMITS.appliedBytes){this.skip(key,`over the ${HD_LIMITS.appliedBytes/1024/1024} MiB applied cap`,first.source);return;}
     this.reserved+=loading;
     // PR #729's Codex P2: the built composite stays reserved until the swap counts it in `appliedBytes` (or it is
     // dropped): with the frame budget the upload waits its turn, and a texture checked meanwhile sees it in neither.
     let r:Rgba|null=null,kept=0;
-    try{r=await this.build(g,key,src,generation,samplingOf(t));kept=r?Math.min(loading,r.data.length):0;}finally{this.reserved-=loading-kept;}
+    // LATER 1228 (its review's F1): what stays reserved until the swap is the chain's bytes when one may come, not level 0's.
+    try{r=await this.build(g,key,src,generation,samplingOf(t));kept=r?Math.min(loading,mayChain?rgbaChainBytes(r.width,r.height):r.data.length):0;}finally{this.reserved-=loading-kept;}
     const unreserve=():void=>{this.reserved-=kept;kept=0;};
     try{
       if(!r||generation!==this.generation||this.originals.has(t)||this.registry.source(t)!==src)return;
@@ -699,7 +806,7 @@ export class HdPackRuntime {
         // Counted once the swap takes it (a texture another drawer holds is not drawn by this runtime: PR #729 P1's test).
         const guarded=!!this.options.opaqueGuard?.()&&opaque(src)&&!opaque(out);
         if(guarded){const d=out.data;for(let i=3;i<d.length;i+=4)d[i]=255;}
-        if(!this.swap(t,src,out,key,first))return null;
+        if(!this.swap(t,src,out,key,first,guarded,g.placed.length>0))return null;
         if(guarded){this.guardedCount++;this.guardedSet.add(t);}
         return t;
       };
@@ -707,8 +814,9 @@ export class HdPackRuntime {
     }finally{unreserve();}
   }
   /** One texture's image replaced by `r` (its original kept); false (a skip, with why) when another drawer holds it. */
-  private swap(t:DataTexture,src:Rgba,r:Rgba,key:string,first:HdEntry):boolean{
+  private swap(t:DataTexture,src:Rgba,r:Rgba,key:string,first:HdEntry,guarded=false,keyPlaced=false):boolean{
     if(!this.registry.claim(t,this.owner)){this.skip(key,'held by another drawer (the HUD sampling experiment, or another pack runtime)',first.source);return false;}
+    const built=this.built.get(r);
     // The pack keys the disc's bottom-row-first decode; a bitmap the 2D drawers turned top row first takes it turned.
     if(this.registry.isFlipped(t))r=reverseRows(r);
     const mipped=t.mipmaps.length>0||(t.generateMipmaps&&MIP_FILTERS.has(t.minFilter));
@@ -716,12 +824,44 @@ export class HdPackRuntime {
     // bilinear original (3-4x, drawn at the original's size) is minified by a single bilinear tap, aliasing its edges (the
     // nav marks' dark fringe, HD.R8 batch 3): it gets a chain and trilinear minification. Not the world's: a generated
     // chain averages alpha, thinning alpha-tested cut-outs (foliage, grates) with distance. A nearest original keeps its filter.
-    const minify=!mipped&&this.registry.isFlipped(t)&&t.minFilter===LinearFilter&&(r.width>src.width||r.height>src.height);
-    this.originals.set(t,{image:t.image,mipmaps:t.mipmaps,generate:t.generateMipmaps,min:t.minFilter,bytes:r.data.length});
+    const larger=r.width>src.width||r.height>src.height;
+    const minify=!mipped&&this.registry.isFlipped(t)&&t.minFilter===LinearFilter&&larger;
+    // LATER 1137 (product track; the owner, 2026-11-18, in the main controller's seat: "interested" -- generate the smaller
+    // mip sizes for larger replacements): an UNFLIPPED texture's (the world's, and the 3-D models' and effect sprites':
+    // armory and grenade models, lights, fire) OPAQUE replacement larger than its unmipped bilinear original
+    // (TEX1 `mipmaps=false`: MP71's boat planks, 128x128 -> 512x512) speckled at middle distance under single bilinear
+    // taps: it gets a chain and trilinear minification. Alpha cut-outs are still left alone (a chain thins them, above).
+    // On the RGBA path the chain is generated; on the block path (B, the main controller's pick under the owner's word) the
+    // KTX2's own full chain goes up, a file without one taking the RGBA path ('no-chain'). Beyond the original's own
+    // filtering (it had no HD texture to minify): an adaptation, the original's look at 100% unchanged without a pack.
+    const chain=!mipped&&!this.registry.isFlipped(t)&&t.minFilter===LinearFilter&&larger&&opaque(r);
+    // WM-PACK-2 RUNTIME (a browser adaptation): only when every condition holds (`blockEligible`) do the payload's own BC
+    // blocks go up; else the RGBA path below, as before. A replacement from a payload without blocks never asks.
+    const decision:BlockDecision=built?blockEligible({entry:first,keyPlaced,blocks:built.img,decoded:built.decoded,rescaled:r,flipped:this.registry.isFlipped(t),
+      mipped,minify,chain,guarded,flipY:t.flipY,srgb:ColorManagement.getTransfer(t.colorSpace)===SRGBTransfer,
+      supported:(this.options.blocks??pageBlockSupport)()}):{ok:false,reason:'not-ktx2'};
+    if(decision.ok){
+      const b=blockImage(built!.img,chain);
+      this.originals.set(t,{image:t.image,mipmaps:t.mipmaps,generate:t.generateMipmaps,min:t.minFilter,format:t.format,
+        bytes:chain?blockChainGpuBytes(built!.img):blockGpuBytes(b.kind,b.width,b.height),
+        blocks:true,opaqueOut:opaque(r)});
+      this.registry.reallocate(t);
+      // three r186 uploads by `isCompressedTexture` on WebGL2, but WebGPU tests `isDataTexture` first
+      // (WebGPUTextureUtils.js:655 before :696): both flags are this texture's own while it holds blocks.
+      const f=t as unknown as {isCompressedTexture?:boolean;isDataTexture:boolean};f.isCompressedTexture=true;f.isDataTexture=false;
+      t.format=b.format as DataTexture['format'];t.image={width:b.width,height:b.height} as unknown as DataTexture['image'];
+      t.mipmaps=b.levels as unknown as DataTexture['mipmaps'];t.generateMipmaps=false;
+      if(chain)t.minFilter=LinearMipmapLinearFilter;   // LATER 1137 (B): the file's own levels, trilinear
+      t.needsUpdate=true;
+      return true;
+    }
+    const generate=mipped||minify||chain;
+    // LATER 1228: a generated chain is counted whole (`rgbaChainBytes`), not its level 0 alone.
+    this.originals.set(t,{image:t.image,mipmaps:t.mipmaps,generate:t.generateMipmaps,min:t.minFilter,bytes:generate?rgbaChainBytes(r.width,r.height):r.data.length});
     // A larger DataTexture cannot be uploaded into the existing allocation (as `TexturePackTarget.apply`).
     this.registry.reallocate(t);
-    t.image={width:r.width,height:r.height,data:r.data as unknown as Uint8Array};t.mipmaps=[];t.generateMipmaps=mipped||minify;
-    if(minify)t.minFilter=LinearMipmapLinearFilter;
+    t.image={width:r.width,height:r.height,data:r.data as unknown as Uint8Array};t.mipmaps=[];t.generateMipmaps=generate;
+    if(minify||chain)t.minFilter=LinearMipmapLinearFilter;   // LATER 1137: the world's opaque larger replacement too
     t.needsUpdate=true;
     return true;
   }
@@ -736,9 +876,12 @@ export class HdPackRuntime {
     if(now===this.guardOn)return;
     this.guardOn=now;
     if(now){
-      for(const t of this.originals.keys()){
+      for(const [t,o] of [...this.originals]){
         const src=this.registry.source(t),img=t.image as {width:number;height:number;data:Uint8Array|Uint8ClampedArray};
         if(!src||!opaque(src)||this.guardedSet.has(t))continue;
+        // WM-PACK-2 RUNTIME: blocks are not drawn opaque in place: a transparent one is given back and applied again
+        // (the guard now on, it takes the RGBA path, `blockEligible` (e)).
+        if(o.blocks){if(!o.opaqueOut){this.put(t,o);this.registry.release(t,this.owner);this.originals.delete(t);this.track(t);}continue;}
         const r={width:img.width,height:img.height,data:img.data as Uint8ClampedArray};
         if(opaque(r))continue;
         const d=img.data;for(let i=3;i<d.length;i+=4)d[i]=255;
@@ -747,7 +890,7 @@ export class HdPackRuntime {
     }else{
       for(const t of [...this.guardedSet]){
         const o=this.originals.get(t);this.guardedSet.delete(t);if(!o)continue;
-        this.registry.reallocate(t);t.image=o.image;t.mipmaps=o.mipmaps;t.generateMipmaps=o.generate;t.minFilter=o.min;t.needsUpdate=true;
+        this.put(t,o);
         this.registry.release(t,this.owner);this.originals.delete(t);this.guardedCount--;
         this.track(t);
       }
@@ -755,7 +898,17 @@ export class HdPackRuntime {
     this.changed();
   }
   private restore():void{
-    for(const [t,o] of this.originals){this.registry.reallocate(t);t.image=o.image;t.mipmaps=o.mipmaps;t.generateMipmaps=o.generate;t.minFilter=o.min;t.needsUpdate=true;this.registry.release(t,this.owner);}
+    for(const [t,o] of this.originals){this.put(t,o);this.registry.release(t,this.owner);}
     this.originals.clear();
+  }
+  /**
+   * `t`'s original put back (reallocated first, as a swap is). WM-PACK-2 RUNTIME: a block-path texture's flags as its
+   * constructor left them -- `isDataTexture` its own true again (DataTexture's constructor sets it on the instance), the
+   * `isCompressedTexture` it never had removed -- and its format.
+   */
+  private put(t:DataTexture,o:Original):void{
+    this.registry.reallocate(t);
+    if(o.blocks){const f=t as unknown as {isCompressedTexture?:boolean;isDataTexture:boolean};delete f.isCompressedTexture;f.isDataTexture=true;t.format=o.format!;}
+    t.image=o.image;t.mipmaps=o.mipmaps;t.generateMipmaps=o.generate;t.minFilter=o.min;t.needsUpdate=true;
   }
 }

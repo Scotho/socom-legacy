@@ -150,6 +150,22 @@ Ruling PF.R44 (the owner's H92: "a standing SEAL under a low overhang **yes**").
 - **The class** (`FUN_0058a720(actor, 1)`, D:L415110-415133): class 0 or default (r 3.5, h 19.1); 1 (3.5, 15.0); 2 with
   `bVar5` (8.0, 6.0), without it (3.5, 19.1). `bVar5` is prone (state `+0x174` 2) or one of the actions 0x1a / 0x1b /
   `DAT_003dec58` / `DAT_003decc0..d0` (D:L415088-415111; `WALL_PROBE_ACTIONS_READING`, note only).
+  **SWAPFIRE-CROUCH (2026-11-22):** `FUN_0058a720(actor, 1)` is the STANCE IN USE (D:L446829-446870): while `Stand ->
+  Crouch` (action 0x11) is the top played forward it answers the action's clip flag 0x20, stand (D:L446846-446850; the
+  flag's meaning a reading; the stand row's use by the kit PROVEN by atlas's r0004 capture, agent/spc-atlas 899c79b16a
+  `docs/atlas/captures/nade-swap-reticle-r0004-desert-glory.md`: 1.668 a frame and a 1.000 hold through action 17).
+  The port's `Walker.stanceInUse` gives it, and the kit's and the cone's row read it (`PlaySnapshot.stanceInUse` ->
+  `matchFirearm`; `AimMover.stanceInUse` -> `net/shotCone`). **Not built:** this class here reads the same function,
+  so the original's probe class during the crouched stop is the STAND's (r 3.5, h 19.1) where the port's probes follow
+  the posture (crouch) -- a departure named for its own LATER row, not changed for Sunday. The other five arms of the same
+  function are departures named, not built (the fresh review of SWAPFIRE-CROUCH-FIX, F2): 0x11 reversed (the original
+  keeps the crouch row for the clip; the port gives stand at once), 0x13 forward and reversed (crouch / prone; the port
+  prone / crouch), 0x19 forward and reversed (stand / prone; the port prone / stand) -- with the probe class, one LATER
+  row. r0004 twins: 0x58fd20 (the function), 0x57d220 (the action test), 0x5c9bec (the kit's read), 0x54fd4c (the probe
+  class's read). The stop's length matches: a one-shot ends at the first frame where its phase plus half the frame's
+  step is strictly past the stop (`FUN_0028c6e0` D:L134298-134300, as `reloadPlayedOut` in `mover.ts` reads it; r0004
+  0x28da70) on the measured dt -- the nearest whole frame to its length -- so 18 frames here as in the port; its feet's
+  steps are LATER 1376.
 - **The direction** `fStack_10`: the velocity `+0xf44` normalised (the actor matrix's row +0x20 negated when still or under `bVar4`, the actions `DAT_003decc0..d0`:
   D:L415135-415161), times `r x 1.4` (D:L415166). **The side** `fStack_20`: that direction turned a quarter
   (D:L415171-415181), times r; `uStack_30` = side x 0.3 (D:L415184 / 415210), `uStack_40` = side x 1.2 (D:L415194 /
@@ -237,8 +253,8 @@ clock (the same test).
 
 The rule: the walker knows the airborne clip's phase -- its action's clock, `launch` from the take-off and `fall` from
 its push, which the animator plays the clip by -- so the line follows the key: the clock x (n - 1) over
-`oneShotSeconds`, held at the last key, the greater of the two keys about it, as the ground table takes the greater of
-two stick samples (§2.3). The clip's greatest head over its whole run, the ground case's rule (the launch's 16.950 + 2 =
+`oneShotSeconds`, held at the last key, the greater of the two keys about it, as the ground table took the greater of
+two stick samples (§2.3; interpolated since LATER 1169 (B), §2.3a). The clip's greatest head over its whole run, the ground case's rule (the launch's 16.950 + 2 =
 18.95), was weighed and not taken: the walker tracks the phase, the original reads each frame's pose, and the greatest
 stands the take-off's key 0 over the whole flight -- at the window it passes no press distance from 6 to 44 (the sweep).
 Standing only (the fresh review's F1, 2026-11-13): a crouched or prone body in the air -- a crouch walk or a crawl off a
@@ -315,7 +331,8 @@ Where the port departs from §2.1, each a reading:
   length in steps of 0.1 (between two, the greater): forward the walk 16.705-16.891 (to 0.4), the jog to 17.383 (0.6),
   the run 16.530 (0.8), 16.006 (0.9), **15.761 (1.0; the line 17.761)**; back 16.58-17.14; right 16.06-16.58; left
   16.15-16.68. Crouch-walking by the held class, its own set with no blend (`FUN_00582d10`; review F1, 2026-11-07):
-  forward 13.122 (the line 15.122), back 13.114, right 12.990, left 13.274 (15.274); crawling 4.996 (6.996). **A
+  forward 13.122 (the line 15.122), back 13.114, right 12.990, left 13.274 (15.274); crawling 4.996 (6.996). *Superseded 2026-11-18 by LATER 1169 (B), §2.3a: the samples are interpolated and the 0.86 crouch run passes (16.216).*
+  *Was:* **A
   partial-push crouch run still stops at the MP72 doorway** (review F3): a stick in (0.8, 0.9] takes the greater of the
   0.8 and 0.9 samples, 16.530, a line of 18.53 over the lintel's 18.23, so only a push of 0.9 or over (16.006, the line
   18.006) clears it (`crouchRunHeadLineDisc.test.ts` pins 0.86 stopped, 0.9 through). The animator's own head between
@@ -442,6 +459,38 @@ Where the port departs from §2.1, each a reading:
     pin, and the branch's prone and hit-count cases skipped under LATER 283.
   - Owed (LATER 283): a capture of a body walked into M71's ramp-foot pocket and out of it, and of MP72's emb01
     step-down walked +x from (2156, 89.25, 1574).
+
+### 2.3a The head line follows the raise; the stick samples interpolated (LATER 1201 + LATER 1169 (B), 2026-11-18)
+
+Level: **reading, pending review** -- the tables are the port's animator; the check against the original is a **memory
+trace of the original** (relay-2, PC 2, r0004; the head chain composed offline by coreB with `FUN_002869d0`'s rule,
+D:L130725; `agent-mail/evidence/later1169-headchain-pc2/HEADCHAIN-READ.md`). The main controller's ruling (B), amended,
+2026-11-18.
+- **The rule.** The head line's height is the head node as the frame's pose puts it (`FUN_0054aa30` D:L415441-415443), and a
+  raised rifle's pose is the Fire set at the raise weight (`FUN_0057a330` D:L438828-438860; §3.6c). So the raise
+  (`Command.raised`, ER-2: the original's +0xf74, 1 up, 2 down; laid on the walker by `MoverSim.prepare` on the page and
+  the room alike) picks the table: `POSED_HEAD_AIMED_READING` (the same animator with the Fire set at weight 1:
+  `seal_fp_stand` 15.806 at rest, `seal_fp_crouch` 9.298, the run rows, the crouch's forward and back rows) or
+  `POSED_HEAD_READING`. The RIFLE's Fire set: a raised pistol (`seal_pfp_*`) takes the same table, unmeasured on its own.
+  Bots' and AI seats' raise rides their commands too (`matchBots` sets `Command.raised` from `botRaise`), so the room's
+  walker takes the same table for them. The strafes, the crawl and the jumps have no Fire version (§3.6c): those rows are the lowered
+  ones. The prone idle stays the lowered 3.637 (`seal_fp_prone` 3.307 and the original's resting prone 4.264 fit neither).
+  The raise envelope's ease between the two tables is not followed: the command's state picks one whole.
+- **Between two stick samples the table is interpolated** (was: the greater of the two, which over-stopped a partial
+  push; review F3 of 2026-11-07): the 0.86 crouch run now passes MP72's 18.23 lintel on 16.216 (the animator's own
+  16.215).
+- **The check (the lowered table against the capture).** The original's lowered run, greatest head over the feet: at the
+  stick word 0.75 (MP62, in 9.5 u of water: the water's floor, LATER 1212) 16.775-16.782, the table interpolated 16.777;
+  at 1.0 (dry, spot B, l1169-dry) 15.751-15.758, the table 15.761. The cycle's least matches too (16.119 / 16.12 at 0.75,
+  15.397 / 15.395 at 1.0). Held by `viewer/test/headLineRaise.test.ts`.
+- **The residual (`AIMED_HEAD_RESIDUAL_READING`).** The port's Fire-set head stands over the original's aimed head: at
+  rest 15.806 against 15.54-15.57, crouched 9.298 against 8.89; at the 0.75 run 15.774 (the table) / 15.708 (straight
+  forward) against 15.45-15.51; at a full run the table's 15.706 against 15.68-15.72 (a match). Unread: the aim's twist
+  and pitch (`FUN_005aca70`, the animator's `aimWeight`) or the Fire blend's weights. It cuts the head line's error for a
+  raised SEAL from about 1.27 (the lowered table) to about 0.24-0.32.
+- **The phase, not followed.** The head moves with the stride: the aimed full run 14.66-15.72 (about 1.03), the lowered
+  0.34-0.36 at 1.0 and 0.66 at 0.75; the table holds the cycle's greatest -- a named divergence of up to 1.03 u (LATER
+  1211, un-parked at medium priority: the head line following the phase).
 
 ### 2.4 The eye kept off a wall (`HEAD_EYE_WALL_BACK_PLACEHOLDER`, kept)
 
@@ -702,7 +751,7 @@ clears (`slideOrMove`'s stuck rule) and the next tick starts again from 0. The j
 - prone: when `+0x1340` is 0, the same zeroes and record, with no `n_y` or facing test (r4 0x5542e0-0x554328).
 The driver already pushes off a set record after `FUN_0054edf0` (D:L416578-416613; r0001's only writer of the record on
 this path is the walk-off's `FUN_0054a8b0`, D:L414474-414512, which the port does not model): `FUN_0054a6d0`
-(D:L414410-414469) with 6.0 standing (`0x40c00000`, D:L416613) -- prone `max(7, 8 x the back axis . n)` -- takes the
+(D:L414410-414469) with 6.0 standing (`0x40c00000`, D:L416613) -- prone `max(7, |8 x the back axis . n|)` -- takes the
 moved feet P (the position plus the frame's displacement), the plane of the record's point and normal (`FUN_00286e20`),
 and `t` = the plane's crossing along P - 6 n with P's own y (`FUN_00286db0`): `t` = n . (P - X0) / (6 |n_xz|^2). Under
 1 it raises each axis of the displacement to `n 6 (1 - t) 0.7` in that axis's sign. A standing body's record goes at the
@@ -729,6 +778,18 @@ Held by `viewer/test/steepFloorContact.test.ts` (disc-backed): facing into the f
 either side) the body is off it and on the canal (n_y over 0.9) in one tick; facing away it is held as before (r0004
 pushes nothing); the bot's own case -- held facing its patrol leg (1529.8, 696.1), freed the tick it faces its
 recovery leg (1492.3, 686.1).
+
+**Built, the prone block (R4P-107, 2026-11-24; reading, pending review)** (`mover.ts` `slideOrMove`,
+`STEEP_FLOOR_CONTACT_PRONE_READING` `{ min: 7, scale: 8 }`): a prone body whose slide has not started takes the same
+zeroes and push on any face steeper than `max_slope` (a sliding floor: `slideEligible`'s prone case), with no `n_y` test
+and no facing test (r4 0x5542e0-0x554328), at the driver's prone distance `max(7, |8 x back . n|)` in place of 6
+(D:L416578-416613), the same 0.7 and `t`. *Was*: prone exempt, so a prone body could lie on a face too steep to stand on.
+Held by `viewer/test/r4p107ProneSteepPush.test.ts` (synthetic, a steep band of n_y 0.24 between two floors): the standing
+control is not pushed (over 0.1); prone at three facings is pushed `n_x d 0.7` in one tick onto the low floor, facing
+up and down the face alike (the fabs), side on less; mid-way up a 200-tall face the body is held one game frame, then
+pushed once, takes off and falls (the re-review's merge condition). Owed to raise it: a capture of a prone body on a steep face on r0004.
+
+> **Second read (patches-contrib, 2026-11-24, non-author; pilot/walls/r4p107-prone-push.second-read.md):** the prone push itself is upheld (r4 0x5542e0-0x554328: stance 2, slide speed 0, no span / n_y / facing test; the record only at n_y <= 0.6428; the distance and the 0.7 push; r0004-only). CORRECTED: the push is NOT one push for prone. The take clears the record on a grounded hit for every stance EXCEPT prone, in both builds (r0001 D:L467119-467120, r0004 D4:L508340-508341: `if (stance != 2) record = 0`), so the original keeps the prone record and (inferred; the plane / t functions not reached) keeps pushing against the old plane until t >= 1, a probe miss or a landing. The port pushes once, when the slide has not started, and stops once the slide speed is non-zero: a NAMED DEPARTURE (LATER, owner seat-walls). Also: the record is written only when the floor's material class is not 1 and the extent read succeeds (r4 0x5541c8-0x5541d8, 0x554204; the port checks the extent, not the class); and the original's back . n is 3D (the matrix's back row against the full normal) where the port's is (sin yaw, cos yaw) -- a prone matrix tilted with the slope would give ~7 at every facing (the tilt not traced). The +0x1340 at line 751 is r0004's +0x1344.
 
 **The push is a displacement, never a velocity (LATER 833, 2026-11-10).** *Reading, pending review* (seat 00's research
 workflow: two readers -- r0001 by its decompilation, r0004 by disassembly -- and two independent re-readers at the
@@ -1026,6 +1087,8 @@ about 3 out (3.10 -> 6.16, 4.50 -> 7.38). Read against it:
   - 1 = 9.66 exactly. Under MISSION's owner ruling R8 (movement continuous at the page's rate) the port's 60 Hz move is
   under 1, the push never runs, and the port stops anywhere from the reach to the reach plus one 60 Hz move.
 - The port, headless, on the same faces (feet to the plane):
+
+> **Correction (2026-11-24; Kill item 1; pilot/kill/keyjob-side-standoff-read.md, seat-kill's Fable read; reading, pending review):** on a WIDE, tall face the "depth less 1" push does not run: a depth over 1 always comes with 3-4 hits, which zero the displacement (r0004 0x54d894-0x54d8ec; r0001 `FUN_005483d0` D:L413601-413614: a depth over 1 with the jam or more than 2 hits returns the body to the tick's start, else pushes it out by depth less 1). So the rest is the FIRST HIT, anywhere in [5.39, 5.39 + v), v one frame's move (2.17 at 65 u/s), by the start distance modulo that move: 5.39-7.56 at the run, sideways and forward alike (the fan is built on the frame's move, 0x54f700). "5.39 + 2.17 - 1 = 6.56" holds only where the push arm runs (a backing case: 8.43 + 1.23). IQ-152 capture 2 (r0004, unscored, its record on the hub, not in the tree: 5.684 strafing right into MP51 wc23A from 12.18 u off), the port's 7.392 at the same face from the same start and this note's 6.78 are points of the band. The port meets walls once per 30 Hz frame on the frame's move (`GROUND_WALLS_PER_TICK_READING` 'per-frame', LATER 1194), so its band is the 30 Hz one too; the line above on the 60 Hz move predates that and is superseded here. Held by `viewer/test/standoffBand.test.ts` (the port's band, strafe = forward) and `viewer/test/standoffWc23aDisc.test.ts` (the port's rest at wc23A inside it).
 
 | case | the original | the port, checkpoint 4 | checkpoints 1-3 |
 |---|---|---|---|
@@ -1665,6 +1728,16 @@ nodes): rounds aimed at 15.3 struck 7-9 u forward at about 13.5 up, about 2.35-2
 BODY), and rounds aimed at 16.2 struck about 10.7 u forward at 13.7 up, about 2.06 to his right (3 blood with no damage,
 1 RARM). Which bones those were is inferred from the six healths and the blood, not read.
 
+**Correction (2026-11-23, atlas-parity via the main controller; a reading, pending review):** the +0x1336 values in
+this paragraph come from the WRONG FIELD. r0004's anim mode word is at +0x133a (FUN_005828f0, D4:L480935); +0x1336
+is always 0 on r0004. No conclusion is drawn from the mode readings here until IQ-088 re-captures +0x133a (LATER
+
+**Settled (2026-11-23):** u16 +0x133a stayed 0 through a full Terrorist and a full SEAL game, ~5,370 frames each,
+every posture (agent-mail/evidence/weekend-mega-2026-11-14/shadow/L1024-133A-PC2/SUMMARY.md; a capture of the
+original, not yet reviewed by a second reader), so the DEFAULT-mode reading above stands at the corrected field
+(LATER 1024 point 2).
+1024).
+
 **The feet match the Fire stand; the arm and hand contacts do not, at key 0.** `FUN_005e3c20` takes (set, type, mode)
 and no weapon (D:L495800 on), so the c1 stance is not another Stand clip. The Fire version is a separate blend (reading,
 re-read by a fresh reviewer): `FUN_0057a330` maps the playing type to its base (`FUN_0058c820`) and on to its Fire
@@ -1723,8 +1796,63 @@ against the design above: at 14 up on the facing line through the left hand's mi
 forearm (LARM), not a `NO_PART` record at the hand -- the hand's middle stands about 15 up (14.90 terrorist, 15.02 SEAL),
 and on the same line at that height the first record is the hand's (`NO_PART`); lowered, BODY (spinehi) at 14 as foreseen.
 Not built (FL.R3, `HIT_POSE_LAYERS_READING`): the pistol's Fire versions and plays (and a swap clip, where the copy
-already holds the pistol), the reloads, the binoculars, the throw's hands, the flinch, the victory dance, the launcher
-set's rows, `aimWeight`. Not measured: whether the original's arms stand where the port's Fire stand puts them.
+already holds the pistol), the binoculars, the flinch, the victory dance, the launcher set's rows, `aimWeight`. The
+throw's hands were built after (PRONE-THROW-HITBOX, 2026-11-25; reading, pending review: the throw layer laid from the
+wire's hold, `HIT_POSE_LAYERS_READING` 'fire-throw', `hitPoseThrowLayer.test.ts`), then the reload (RELOAD-HITPOSE,
+2026-11-25; reading, pending review: started at the room's take with what its `reloadSound` tells the pages, ended by
+the flinch and the death as the page's copy is, `HIT_POSE_LAYERS_READING` 'fire-throw-reload',
+`hitPoseReloadLayer.test.ts`). Not measured: whether the original's arms stand where the port's Fire stand puts them.
+
+**The side picture (LATER 1025, 2026-11-14; the original MEASURED, a capture; the port's side a unit test, reported).**
+The rig (r0004, MP2 c1, al_gman01 standing still side-on to the shooter A at about 15 u, unscoped; the box store's
+`gate-runner/shadow/out/2026-11-14/q10-hitreg/side-picture-3/` and `-4/` `times.txt`, the healths read off memory before
+and after each round, B's root (+0x1c) and yaw, A's eye (cam +0x2c) and the crosshair ray's world point (+0x3c0, past
+the body) at each trigger): every line crosses B's centreline at 13.1-13.9 u up within 0.05 u of his root's z, and on
+one root, line and range his FACING decides -- yaw 0 took no damage in 4 rounds, yaw 180 BODY in 3 (body -18.5, each
+limb capped to -11.1, the head untouched; D = 36 at P = 3), A standing or crouched. The port separates neither
+(`match/test/q10Replay.test.ts` SIDE, tallied over all 72 cases a row, 24 phases at three roundings): on the standing
+idle every case applies at both yaws -- at the logged yaws the four yaw-0 rows BODY at 282 of 288 cases and LARM+BODY at
+6, the three yaw-180 rows BODY, RARM+BODY (the crouched shooter's line, all 72, where the original took BODY alone) and
+BODY; on the Fire stand alone (`seal_fp_stand`) no record at either yaw in any case.
+
+**The yaw's sense, pinned (Q19, 2026-11-14; MEASURED, memory reads, no shot; the rig's
+`q10-hitreg/q19-facing-nodes/q19-reads.jsonl`).** The port's forward is (-sin, -cos) of the yaw (`hitVolumes.ts`
+`toWorld`; `actorToWorld` takes the skeleton's frame, z behind): at yaw 0 he faces world -z and A, at -x, sees his left
+side; at 180 his right. The Q10 rows before pinned only yaw 90. Q19 read the original's hips and spinehi world origins
+(node +0x00 chained through parent +0x64 up to *(actor+0x28), research 421 s11; hips *(*(actor+0x304)+0xc), spinehi
+*(*(actor+0x310)+0xc)) with al_gman01 standing (posture 0) on the side picture's root (855.5, 100.004, 690), four reads
+0.4 s apart at each yaw (his sway about 0.1 u): from the root, yaw 0 hips (-0.91, +10.63, -2.65) and spinehi (-0.27,
++12.69, -3.50); yaw 180 hips (+0.98, +10.63, +2.66) and spinehi (+0.33, +12.69, +3.52). The body leans forward of the
+root and the offset turns with the yaw, to -z at 0 and +z at 180: the port's sense. The 'neither' result never depended
+on the sense (the mirrored rows); an offset's sign does, and is now pinned.
+
+**The first candidate WITHDRAWN.** This paragraph's first version (2026-11-14, `agent/q10-side` 1824d917c5) named a body
+placed 1-2 u to world -z of +0x1c, not turned by the yaw, as what would split the two facings. Q19 contradicts it: the
+offset turns with the yaw. **The port's Fire stand against Q19:** at key 0, yaw 0, hips (-1.06, 10.63, -2.16) and
+spinehi (-0.42, 12.70, -2.97) from the root -- the same side, a rigid 0.54 u short along the facing: spinehi laid on the
+original's (yaw 0 by (0.14, -0.54) in x and z, yaw 180 by (-0.09, +0.56)) leaves hips within 0.06 u. That is the 0.537 u
+the c1 LOW rows found at yaw 90 (`q10Replay.test.ts`, the 'L' rows), now seen at three yaws as body-local. The "0.75 u"
+of the first version is not a node origin: it is where the side line, B's root moved across it, first meets spinehi's
+box; spinehi's origin stands 2.97 u forward in the port and 3.50 in the original. **So placed** (the port's stand moved
+by those 0.54 u, the Q19 case), the side line meets no box at either yaw -- no damaging box and no `NO_PART` record; the
+first box across it is spinehi (BODY), 1.25 u further toward his front, the same at both yaws. Nothing of the port's box
+set stands where the original's round met BODY from his right side, nor where it met whatever took no damage from his
+left (blood unknown in side-picture-3 and -4). Q19 also read him RAISED standing still with A 12 u off (+0xf74 = 1) and
++0x1160 = 0.1; crouched, as spawned, also raised, the hips within 0.25 u of the root.
+
+**The next candidate (not a reading): the first contact** (the main controller's reading, 67, 2026-11-14). In the body's
+own frame both lines pass the same point, travelling opposite ways; a line test is blind to the direction, a first
+contact is not -- from his left the round may meet first a box that takes no damage (the red-mist reads' blood with no
+damage near the forward hands, LATER 1025), from his right BODY first. For it the original's boxes must reach about 1.25
+u behind where the port's spinehi box ends, at 13.1-13.9 u up on his root's vertical (a deeper torso box, the weapon's,
+or an arm or hand box of the raised stance). It settles with the original's boxes read at that pose (each node's six
+floats at +0x40, as F79 read spinehi's) and the round's first contact at each yaw.
+
+**The caveats.** (a) The yaw's sense: pinned above. (b) The pose: the Fire rows write `seal_fp_stand` whole at full
+weight (`writePose`), not the room's `HitPoser`, where `WeaponPose.fireLayer` blends the Fire version over the idle per
+node at the eased raise weight (`weaponPose.ts` `sampleFire`) with the head look and the pitch twist; at a steady full
+raise the two should agree, which this test does not check, and a partial blend is not covered. +0x1160 = 0.1 equals
+`RAISE_TIMES.in` (`weaponRaise.ts`, the raise's 0.1 s ease-in); that the field is that time is unread.
 
 ### 3.6b The bone boxes (BONE-BOXES, 2026-11-10; reading, pending review)
 
@@ -2088,6 +2216,34 @@ port's turn clip at about half the original's phase rate, table (vi), inferred t
 (unit-test and dev-disc evidence, no capture of the port): full45 -54.61 (swing 8.70), half45 -44.20, raised still
 -60.14; the raised turns' hips 5.2 standing (original 6.3) and 5.6 crouched (7.7), the crouched feet 4.9 / 4.3.
 
+### 3.6d The rewound body is the drawn one (LATER 891, 2026-11-18; the port's own netcode, no original)
+
+The room judges a round on the body the shooter's page drew, so the rewind must pick what the page picked. The page
+(`net/client.ts` `drawnAt`, `bodiesAt`) draws a remote body at its view tick from the two SNAPSHOTS around it: the feet
+lerped, the yaw turned the short way, the pitch lerped, and every other field -- the pose's inputs (posture, action,
+traversal key and root, peek, raise) -- from the NEWER snapshot. The room's rewind took the tick entry at or before the
+moment, its pose and yaw, and lerped only the feet toward the next tick. On a moving climb (match
+`test/hitPoseClimbRewind.test.ts`, WM-CLIMB-RED) that put the drawn chest up to 0.577 u off the judged one and changed
+the first bone a ray met.
+
+The rewind of a player now goes through `drawnPastOf` (match `room.ts`): it reads only the entries at the snapshot ticks
+the room sent (every `TICK_HZ / SNAPSHOT_HZ`th; `snapshots` runs after `remember` in the step, so that entry is the
+snapshot's body), takes `newer` as the oldest after the moment (else the newest) and `older` as the one before it, and
+returns `newer` -- its kept pose (§3.6a) and every discrete field -- with the feet lerped and the yaw turned as the page
+does. A moment ON a snapshot tick is that snapshot whole: the page HOLDS its newest snapshot in a stall (`drawnAt`'s `older`
+null, `shownTick` that tick), while the room already keeps the next one (the review's F1; an interpolating clock almost
+never lands on a whole tick, and where it does the page takes the newer's pose). Not covered: the first ~`INTERP_DELAY_MS`
+after a join, where the page draws its first snapshot whole while `shownOf` refuses that `shownTick` (above `viewTick`)
+and the room blends toward it at the view tick -- the feet up to one snapshot's step apart (older than LATER 891's fix). Where `alive` differs it does not blend (both sides then have
+the body dead and `rewoundBodies` skips it; the page blends within a life by its spawn count). With it the climb's worst
+chest offset is 0.150 u (was 0.577) and the first bone agrees; a stall mid-climb 0.052 u (0.660 without the whole-tick
+rule). One edge is left: a spawn inside `clock()` on a snapshot tick leaves no entry at it (the spawn clears the
+history), so for that one snapshot the room returns the next whole. The hit test, its vouching bodies (LATER 1141) and the replay's rewind record (FL-2) all read it.
+
+Left, named in LATER 891: the root tilt (the page's own `remoteTilt` against the room's walker), the feet's precision
+(the wire's step against the room's floats) and the two animators' phases (`HIT_POSE_CLOCK_READING`). Hostages still
+rewind by `pastOf` (their poser is LATER 831).
+
 ## 4. The bodies (PF-21)
 
 Ruling PF.R45. Seven small facts research 179 C1-E and 180 §1 read; each built on the page and in the room, the room
@@ -2178,6 +2334,20 @@ transitions, the climbs and the step-up, the peek. Over a transition the flinch 
 is back in the transition's pose when the flinch has played. A page does not know another's launcher raise; the room
 gates the start, so no such flinch reaches it.
 
+**R4P-227 (2026-11-24; reading, pending review; an unscored capture (FLINCH-PC3, `agent-mail/evidence/weekend-mega-2026-11-14/shadow/FLINCH-PC3/SUMMARY.md`) agrees).** "Over a motion flagged 0x40" and "on a turret" were
+named above and not built: a running, crouch-walking or crawling body flinched, and so did a mounted one. Built now as the
+room's START gate only, `flinchStartRefused` (`flinchRefused`, or a looped locomotion on top, or a mounted gun), asked by
+the room's `flinchRefusedOn`: the looped top, `FUN_005551a0(top + 0x28, 0x40)` D:L460011 outside types 1 / 0x12 / 0x1a
+D:L460033-460035 (`FLINCH_LOOPED_GATE_READING`; the port's stand-in `flinchLoopedTop`: the ground state not `idle`, no
+one-shot on top, no traversal clip, on the floor -- in the air the fall is on top, research 230 §5.2.4); the mounted gun, `+0xeb8` D:L460017 and D:L460040 (`FLINCH_MOUNTED_READING`,
+`Player.mounted`). The per-frame predicate the page asks of a flinch already playing (`WalkMode.snapshot`, `stepFlinch`)
+is unchanged: the original asks once, at the hit, and a step under a flinch does not end it (the stick's cut does,
+`flinchCut`). Pinned by `central/test/roomFlinchMoving.test.ts` and `viewer/test/flinch.test.ts`. Unsettled: the turn or
+step in place and the stop after a release (`FLINCH_STEP_TOP_READING`; the port flinches there). The review's F1: the
+stand-in also reads the room's own one-shots on top (`Walker.oneShotOnTop`: the flinch's slot, a still reload or
+after-shot clip), so a second hit under them is pushed again with the stick under the cut. Owed: the hostage's flinch
+(`room.ts` `hostageFlinch`) still asks `flinchRefused` alone, so a following hostage flinches (LATER 1569).
+
 **Owed (PF-21's review, 2026-10-06):** (1) a pin that a REFUSED flinch sets no reload window -- `roomReloadLock.test.ts`: a hit during `swapStand`, then `flinchUntil` unchanged and the reload taken (the room's `flinch()` gates before `flinchState`; nothing pins the order) -- *Done 2026-10-10 (`ccr-ef8214e9-7mkm9s`, pending review): pinned in `roomReloadLock.test.ts`.* (2) `FLINCH_REFUSING_ACTIONS` does not list PF-19's `proneCover`, so a nonlethal hit during Prone cover's 3.78 s plays a flinch over it on both ends and PF-18 holds a window for it; `FUN_005a2690` does not name Prone cover and whether it carries motion flag 0x40 is unread -- harmless (the cover already refuses the reload and the round), a read owed.
 
 ### 4.7 The flinch's stance row (`FLINCH_STANCE_READING`, re-documented)
@@ -2243,6 +2413,7 @@ under way refuses a swap (`FUN_005a7de0(actor, 1, 1)`, research 206 §1.2, 211 �
 | `SWAP_IN_TRANSITION_CLIP_READING` | the new stance's swap clip, the stance word changing at once | 211 §6, §7 C3 (§5) | *note only*: owed capture C3 |
 | `STEEP_RISE_FACE_MIN_READING` (`mover.ts`, retired 2026-11-05) | was 6.5 (`SEAL_TUNING.stepHeight`): the grounded step's steep-rise refusal held only on a floor polygon at least this tall; removed with the refusal (LATER 590 closed, §2.7) | the owner's interim ruling on LATER 590 (2026-10-31); `step_height` (`dynamics.rdr` +0x1c), `FUN_005483d0` D:L413724-413725 (§2.7) | a reading, pending review: the refusal has no source; a capture owed (LATER 590) |
 | `STEEP_FLOOR_CONTACT_READING` (`mover.ts`) | `{ normalY: 0.1, distance: 6, gain: 0.7 }`: a standing or crouched body facing into a sliding floor under n_y 0.1, its slide not started, is pushed off it along the normal for one tick | r0004's `FUN_0054f330` twin r4 0x554248-0x5542d0, `FUN_005b0c10`'s twin r4 0x5b6a60; the driver D:L416578-416613, `FUN_0054a6d0` D:L414410-414469 (§2.8) | a reading, pending review (MP51-FLOOR-TRAP, 2026-11-02): the back axis, the record's point and P's y the port's; one push a frame by r0001's frame order (D:L145065-145071), a second at tick N+1 (about 1.26) the other reading until r0004's `FUN_005483d0` bit-0 write is re-read or a capture; the prone block owed; a capture owed |
+| `STEEP_FLOOR_CONTACT_PRONE_READING` (`mover.ts`) | `{ min: 7, scale: 8 }`: a prone body whose slide has not started is pushed off a face steeper than `max_slope` (the floor's material class not 1, unchecked here), with no `n_y` or facing test, at `max(7, |8 x back . n|)` x 0.7; ONCE here, where r0004 keeps the prone record (second read) | r0004's `FUN_0054f330` twin r4 0x5542e0-0x554328 (the prone block); the driver's prone distance D:L416578-416613, `FUN_0054a6d0` D:L414410-414469 (§2.8) | a reading, pending review (R4P-107, 2026-11-24): the back axis the port's `(sin yaw, cos yaw)`; owed to raise it, a capture of a prone body on a steep face on r0004 |
 | `WALL_PROBE_READING` (`mover.ts`) | stand / crouch `{ h: 6.5, r: 3.5 }`, prone `{ h: 3.0, r: 8.0 }` (h = `SEAL_TUNING.stepHeight`, prone the class height 6.0 x 0.5) | `FUN_0054aa30` D:L415110-415133, D:L415231-415233, D:L415418-415419 (§2.1) | a reading: the stand-off is `r`, the original's about its segments' reach (`r x 1.4`); owed a capture of a SEAL pressed to a wall |
 | `PRONE_FAN_READING` (`mover.ts`) | `{ count: 3, ahead: 1.4, centre: 1.1, across: 0.39 }`: built as 3.12 every way and 8.0 ahead along the travel | D:L415166, D:L415235, D:L415582-415621, D:L415822-415861 (§2.1) | a reading: the segments' lengths are not the stand-off; the standing fan's side lines taken as the disc; owed a capture, prone crawled in head-on and aslant |
 | `PRONE_PROBE_TILT_READING` (`mover.ts`) | `'root'` (was `'level'`): the prone low line ahead rises `(q d).y` a unit along the travel, `q` the root's tilt as the last tick left it | `FUN_0054ecd0` D:L416972-417027, called for each prone segment of `FUN_0054aa30` (D:L415426-415431 the centre; D:L415533-416013), the travel `fStack_190` D:L415341-415352 (§7.8) | a reading, pending review: the port's 3.12 disc (the side lines, also lifted in the original) and the crossing guard stay level, and the line is the port's 8.0, not the segments' reach; `'level'` the alternative; owed a capture of a prone crawl up M51's incline to a kerb |
@@ -2265,12 +2436,15 @@ under way refuses a swap (`FUN_005a7de0(actor, 1, 1)`, research 206 §1.2, 211 �
 | `STAND_CROUCH_TILT_READING` (`rootTilt.ts`) | `'by-span'`: the rule as read, the clip's window decides -- no stand or crouch clip has a `Normalize` (the loader's (1, 1)), so none tilts | `FUN_00548090` D:L413225-413255 tests no stance; `FUN_00287620` D:L131523-131527; `motion.rdr` 345 of 398 records without (§7.2) | a reading, pending review: `'never'` the alternative; settled by the PCSX2 read of §7.5 standing on the incline |
 | `ROOT_TILT_UNWRITTEN_READING` (`rootTilt.ts`) | `'clip'`: on a tick the rule writes nothing the root is the clip's (identity on every clip but three, none windowed) | `FUN_005777d0` D:L437231-437289 samples the root with every tracked node; `FUN_0057a330` D:L439116-439124 writes the root's `+0x20` after the pass (§7.3) | a reading, pending review: `'held'` the alternative (the last tilt kept); settled by the PCSX2 read of §7.5 during a prone throw (`seal_prone_throwgrenade` has no `Normalize`) |
 | `PRONE_AIM_LEAN_READING` (`look.ts`) | `'saved-floor'`: the prone aim limits moved by `pi/2 - acos|d|` (negated for `d` over 0), `d` the saved floor normal `actor+0x1344` dotted with the facing; the port's `Walker.floorNormal`, written where the mover stands on a floor and held in the air | `FUN_00594600` D:L452839-452884; `+0x1344` written by `FUN_0059b440` D:L456525-456533 (from `FUN_005af930` D:L466809), up at creation D:L419834-419836 (§7.6) | a reading, pending review: the original writes `+0x1344` once a grounded tick from the floor record (outside a list of actions, D:L466760-466788, D:L466808, and the dive, D:L456503), the port where its mover stands on a floor; `'level'` the alternative (no lean); settled by the PINE read of §7.6 |
-| `PRONE_EYE_LOOK_PLACEHOLDER` (`cameraRig.ts`) | 0: a level look | `FUN_0029ae50` D:L142592 (`cam+0xb4` -> `+0x24`, x 6, floored at 0) (§7.7) | placeholder: the look term's meaning is owed (research 180 §1.3); was `PRONE_EYE_TERMS_PLACEHOLDER`'s `look`, whose `groundNormalY` is now the body's saved normal (§7.7) |
+| `PRONE_EYE_LOOK_READING` (`cameraRig.ts`) | `'same-command'`: q = sin(look down), the same command's pitch on page and room | `FUN_0029ae50` D:L142591-142602 / r0004 0x29c4d0-0x29c594 (`cam+0xb4` -> `+0x24` = the camera's row 2 y, x 6, floored at 0) (§7.7) | reading, pending review (PRONE_EYE_LOOK: patches-contrib's read, seat-kill's re-read); the original's q is one camera update old (LATER 1438); unread: the prone actor matrix's ground tilt (F7), the camera blend / parent (F8); was `PRONE_EYE_LOOK_PLACEHOLDER` (0, a level look), before it `PRONE_EYE_TERMS_PLACEHOLDER`'s `look` |
+| `PRONE_EYE_LOOK_PLACEHOLDER` (`cameraRig.ts`) | 0: a level look | (§7.7) | replaced 2026-11-23 by `PRONE_EYE_LOOK_READING` (retired) |
 | `CORPSE_TILT_READING` (`rootTilt.ts`) | `'by-span'`: a dead body runs the rule on its top play's window (the walker's `dead`); in the air its top is the dead's posture word 8 (0.8 / 0.99) | `FUN_00548090` D:L413207-413214; `FUN_005807d0` D:L442094-442102; `FUN_005a2490` D:L459804; `FUN_0059b440` D:L456563-456565 (§7.9) | a reading, pending review: `FUN_00550ef0` skips the pass and the rule for an actor in state 8 (D:L418070, D:L418112-418114, D:L418460; `FUN_005506a0` D:L417822) and where `+0x174` becomes 8 for the dead is not read; the page's death poses are not the walker's top and stay level (not built); `'level'` the alternative; settled by a PCSX2 read of the root and `+0x174` on a SEAL killed on M51's incline |
 | `HOSTAGE_PRONE_TILT_READING` (`remotePlayers.ts`) | `'unprone'`: a knocked hostage's tilt takes no prone ease on the page, as the room's `HostageFollow` walker (never prone) | `FUN_0058a4d0` D:L442089; `FUN_005807d0` D:L442094-442102; research 189 #13 (§7.10) | a reading, pending review (PRONE-TILT-2 review F1): whether the hostage's AI controller answers vtable +0x34 (`CRemoteCtrl::IsRemote`, research 193 §9) false where the room runs it, and whether `+0x174` follows the stack's top word, are not read; `'ai-stance'` the alternative (the AI's stance as the posture), not built for the room; settled by a PCSX2 read of a get-down hostage through a blast on a slope |
 | `TILT_HIT_TEST_READING` (`rootTilt.ts`) | `'posed'`: the room's capsules (and the page's copies of them) turn with the root's tilt about the posed root | `FUN_005abbc0` hits the skeleton's nodes (research 91 §1.3); whether after this rule's write is not read (§7.4) | a reading, pending review: `'level'` the alternative; settled by a capture of a shot along a prone body on a slope |
-| `WALL_HEAD_LINE_READING` (`mover.ts`) | `'posed'` (2026-11-06, the crouch-run head line): moving on the ground the line at the posed head + 2 of the clip the ground state plays (`POSED_HEAD_READING`); at rest and under a one-shot on the ground the stance's idle head + 2 (19.394, 12.138, 5.637); in the air (since 2026-11-13, AIR-HEAD-LINE), standing, the launch's or the fall's posed head + 2 at the clip's key (`AIR_POSED_HEAD_READING`), a crouched or prone body in the air and a blast's fall the idle head; `'idle'` (the idle head for every state) the switch's other arm, as before | D:L415441-415459 (§2.2); D:L415437-415446 and the airborne segments D:L415157-415166, D:L415401-415410 (§2.2, §2.10); `FUN_00584c60` (the crouch run plays the standing blend) | a reading, pending review: in the air (2026-11-13) a running jump passes MP6's SEAL-building window (`mp6_window_wide`, (1234.5, 1768)) from one take-off tick, 43.2 out, where the idle head passed none (dev-disc, `airHeadLineDisc.test.ts`; §2.2; the port's own arithmetic, not the original running; LATER 994 the head segment's look-ahead); crouched and prone in the air the idle head, as unread (whether the original plays the standing in-air clips for those stances); a known deviation, older than 2026-11-13: the standing jump plays on the floor and the port keeps the idle head under it, where `FUN_0054aa30` reads any body's posed head (about 24.19 at its peak); the cycle's phase and the blend's cross-fade are not followed (§2.3); MP72's warehouse doorway (a crouch run stopped under the 18.23 lintel) and the canopy band below now pass the run (dev-disc, `crouchRunHeadLineDisc.test.ts`); a partial push (0.84-0.9) still stops at the doorway (§2.3); the crouch-walk and crawl lines rose (15.0-15.3, 7.0) and only MP72's two spots were measured -- LATER 723, a dev-disc sweep of every map for wall faces whose underside sits in those bands over a walkable floor; owed a capture, a SEAL walked, run and crouch-run under a lintel. Before 2026-11-06 the idle head for every state. A reachable spot (OBF-21, 2026-10-30, `viewer/test/ledgeCase.probe.test.ts`, the disc's MP72): Crossroads' Charlie, where `worldmodel/tent_beige`'s canopy band (y 75.8-76.9, z 1541.6-1550.0, a wall by `isWallSurface`) hangs over the lip of `g1212/table_slanted` above the road -- a standing SEAL run -z down the grass is turned along the lip and held at (1284.78, 56.87, 1545.75) between the band (met by the idle line at 76.26, 19.39 over the feet) and the tent's pole; the run's posed head + 2 (17.4-17.7, §2.3) would pass under the band's 18.93 -- and since 2026-11-06 does (§2.3) |
-| `POSED_HEAD_READING` (`mover.ts`) | the head node's greatest height over a held cycle: standing by the stick's class and length (0.1 to 1.0; forward the walk 16.705 to the run's 15.761), crouch-walking by class 12.990-13.274 (forward 13.122), crawling 4.996 | the port's `Animator` over `MOTION_P.ZAR` / `READERC.ZAR` on `seal_A_scuba` (§2.3), re-measured by `crouchRunHeadLineDisc.test.ts` | a reading, pending review: measured on the port's animator, not the original's; the 0.1 samples and the greater of two stand for the sticks between; owed with `WALL_HEAD_LINE_READING`'s capture |
+| `POSED_HEAD_AIMED_READING` (`mover.ts`) | the head node's greatest height over a held cycle with the Fire set at weight 1 (the port's animator): idle stand 15.806, crouch 9.298, prone 3.637 (the lowered); stand rows by class and stick 0.1-1.0; crouch forward 13.025, back 12.909, right 12.990, left 13.274; prone 4.996 | `FUN_0057a330` D:L438828-438860 (the Fire set at the raise weight); `FUN_0054aa30` D:L415441-415443 (§2.3a) | a reading, pending review: re-measured by `crouchRunHeadLineDisc.test.ts`; against the capture it stands about 0.24-0.32 high at rest and at 0.75, a match at 1.0 (`AIMED_HEAD_RESIDUAL_READING`); the raise envelope's ease not followed; the rifle's Fire set, a raised pistol takes it too (unmeasured) |
+| `AIMED_HEAD_RESIDUAL_READING` (`mover.ts`) | `'unread: standing 0.24-0.32 high, crouched 0.41 high; prone rest 0.63 low'`: the port's Fire-set head over the original's aimed head (15.806 / 15.54-15.57 at rest; 15.774 / 15.45-15.51 at 0.75; 9.298 / 8.89 crouched; prone rest 3.637 kept / 4.264) | the capture (`HEADCHAIN-READ.md`, §2.3a) | owed: a capture of the aimed node chain beside the port's, per node -- the aim's twist and pitch or the Fire blend's weights |
+| `WALL_HEAD_LINE_READING` (`mover.ts`) | `'posed'` (2026-11-06, the crouch-run head line): moving on the ground the line at the posed head + 2 of the clip the ground state plays (`POSED_HEAD_READING`); at rest and under a one-shot on the ground the stance's idle head + 2 (19.394, 12.138, 5.637); in the air (since 2026-11-13, AIR-HEAD-LINE), standing, the launch's or the fall's posed head + 2 at the clip's key (`AIR_POSED_HEAD_READING`), a crouched or prone body in the air and a blast's fall the idle head; `'idle'` (the idle head for every state) the switch's other arm, as before | D:L415441-415459 (§2.2); D:L415437-415446 and the airborne segments D:L415157-415166, D:L415401-415410 (§2.2, §2.10); `FUN_00584c60` (the crouch run plays the standing blend) | a reading, pending review: in the air (2026-11-13) a running jump passes MP6's SEAL-building window (`mp6_window_wide`, (1234.5, 1768)) from one take-off tick, 43.2 out, where the idle head passed none (dev-disc, `airHeadLineDisc.test.ts`; §2.2; the port's own arithmetic, not the original running; LATER 994 the head segment's look-ahead); crouched and prone in the air the idle head, as unread (whether the original plays the standing in-air clips for those stances); a known deviation, older than 2026-11-13: the standing jump plays on the floor and the port keeps the idle head under it, where `FUN_0054aa30` reads any body's posed head (about 24.19 at its peak); the cycle's phase and the blend's cross-fade are not followed (§2.3); MP72's warehouse doorway (a crouch run stopped under the 18.23 lintel) and the canopy band below now pass the run (dev-disc, `crouchRunHeadLineDisc.test.ts`); a partial push of 0.84 still stops at the doorway and 0.86 passes on the interpolated head (§2.3a; was 0.84-0.9 stopped on the greater of two samples); the crouch-walk and crawl lines rose (15.0-15.3, 7.0) and only MP72's two spots were measured -- LATER 723, a dev-disc sweep of every map for wall faces whose underside sits in those bands over a walkable floor; owed a capture, a SEAL walked, run and crouch-run under a lintel. Before 2026-11-06 the idle head for every state. A reachable spot (OBF-21, 2026-10-30, `viewer/test/ledgeCase.probe.test.ts`, the disc's MP72): Crossroads' Charlie, where `worldmodel/tent_beige`'s canopy band (y 75.8-76.9, z 1541.6-1550.0, a wall by `isWallSurface`) hangs over the lip of `g1212/table_slanted` above the road -- a standing SEAL run -z down the grass is turned along the lip and held at (1284.78, 56.87, 1545.75) between the band (met by the idle line at 76.26, 19.39 over the feet) and the tent's pole; the run's posed head + 2 (17.4-17.7, §2.3) would pass under the band's 18.93 -- and since 2026-11-06 does (§2.3) |
+| `POSED_HEAD_READING` (`mover.ts`) | the head node's greatest height over a held cycle: standing by the stick's class and length (0.1 to 1.0; forward the walk 16.705 to the run's 15.761), crouch-walking by class 12.990-13.274 (forward 13.122), crawling 4.996 | the port's `Animator` over `MOTION_P.ZAR` / `READERC.ZAR` on `seal_A_scuba` (§2.3), re-measured by `crouchRunHeadLineDisc.test.ts` | a reading, pending review: measured on the port's animator, not the original's; the 0.1 samples and the samples interpolated since LATER 1169 (B) (§2.3a; was the greater of two); checked against the capture at 0.75 and 1.0 (§2.3a) |
 | `AIR_POSED_HEAD_READING` (`mover.ts`) | the head node's height over the feet at each key of the airborne clips: `seal_runningjump_launch` (the action `launch`; 25 keys, playback 2.4) 15.947 to 16.950, `seal_runningjump_in_air` (`fall`; 14 keys, playback 5) 14.567 to 16.328; the line takes the key at the action's clock, the greater of the two about it (`airPosedHead`); standing only -- a crouched or prone body in the air keeps its idle head | the port's `Animator` over `MOTION_P.ZAR` / `READERC.ZAR` on `seal_A_scuba`, each key held through the traversal seam (§2.2), re-measured by `airHeadLineDisc.test.ts`; the line `FUN_0054aa30` D:L415437-415446 | a reading, pending review (AIR-HEAD-LINE, 2026-11-13): measured on the port's animator, not the original's; the cross-fades into the clips are not followed (the fall's first 0.75 s under the launch's last pose by up to 0.5); whether the original plays these standing clips for a crouched or prone body in the air is unread (the review's F1); owed with `WALL_HEAD_LINE_READING`'s capture, a SEAL jumped through MP6's SEAL-building window |
 | `WALL_PROBE_ACTIONS_READING` | the actions that set `bVar5` standing or crouched (heights 9.55 / 7.5) | D:L415088-415111 (§2.1) | *note only*: none of 0x1a / 0x1b / `DAT_003dec58` / `DAT_003decc0..d0` is a port action yet; owed a read |
 | `WALL_DEEP_REVERT_READING` | when the deepest contact is over 1.0 and `bVar6 || 2 < iVar25`, the displacement is zeroed (the body where the tick began); otherwise `depth - 1` along the deepest normal | `FUN_005483d0` D:L413406-413614, saved D:L413959-413962 (§2.3, §2.8) | resolved 2026-11-02 (SEGMENT-BODY, §2.9): built on the original's segments (`SEGMENT_BODY_READING` `depth`, `jamHits`); was *note only* on the disc, where it stuck MP72's emb01 step-down and froze a body placed deep (§2.3) |
@@ -2290,7 +2464,7 @@ under way refuses a swap (`FUN_005a7de0(actor, 1, 1)`, research 206 §1.2, 211 �
 | `SPINELO_RADIUS_PLACEHOLDER` (`net/hitVolumes.ts`, retired 2026-11-10) | was 2.0: `spinelo`'s capsule radius, its bbox empty | §3.6b | retired by BONE-BOXES: the volume is the bone's box, `spinelo`'s an empty one nothing enters |
 | `HIT_POSE_CLOCK_READING` (`net/hitPose.ts`) | `'tick'`: the room's animator steps once a room tick by `1 / TICK_HZ` on that tick's snapshot of the body; a shooter's page steps its copy each drawn frame on snapshots at `SNAPSHOT_HZ`, `INTERP_DELAY_MS` behind, its copy built at its first snapshot -- nothing aligns the two loops' phases | `FUN_005abbc0` D:L464672-464803 meets the shooter console's own copy (its phase that console's); one judge here (§3.6a) | a reading, pending review (HIT-POSE, 2026-11-10): settles with a capture of the drawn body's phase on two consoles at once, or the room's phase sent to the pages (a wire change, not made) |
 | `HIT_POSE_RANDOM_READING` (`net/hitPose.ts`) | `0`: every random number the room's animator draws (the crouch's three idles, the first at 0; the head look's turns); a page's copy draws `Math.random` | each console's copy draws its own; nothing on the wire aligns them (§3.6a) | a reading, pending review (HIT-POSE, 2026-11-10): a still crouched body's idle and a looking head can differ between the room and a page |
-| `HIT_POSE_LAYERS_READING` (`net/hitPose.ts`) | `'fire'` (FL-1, 2026-11-14; was `'none'`): the room's poser lays the Fire set as the page lays it on a remote copy, by the page's own code -- a `WeaponRaise` fed the body's `raised` through `RaiseFeed` at the copy's `RAISE_TIMES`, its eased weight on `WeaponPose.fireLayer`, 0 with a rocket launcher in the hand (`launcherInHand`) or the pistol's slot; every body eases on `RAISE_TIMES` (`FUN_005dffc0`), as a remote copy does -- only the own body calls `setRaiseTimes` (`matchFirearm.ts:1288`), with `ZERO_RAISE_TIMES` under a mount or with an item up; how the original's copy times its raise there is unread; not fed: the pistol's Fire versions and plays, the reloads, the binoculars, the throw's hands, the flinch, the victory dance, the launcher set's rows, `aimWeight` (the animator's `AIM_WEIGHT_PLACEHOLDER`) | the page's `Play` lays them over its copy's animator (`play.ts`, `remotePlayers.ts`) (§3.6a); the Fire set's blend `FUN_0057a330` D:L438828-438860, `FUN_005551a0(..., 0x40)` D:L438710, the launcher excluded D:L438829, the weight eased `FUN_00286b80` (FL.R1); MEASURED gap (2026-11-13, the rig's Q10-T, LATER 1025): a still Terrorist at c1 stands with his feet in the Fire stand on the original (INFERRED from the dump comparison; only the foot nodes are measured) and rounds met his arm and a hand 7-11 u in front of him (which hand unread; in front of the port's Fire-stand right arm at key 0) | a reading, pending review (HIT-POSE, 2026-11-10; FL-1, 2026-11-14): the Fire set A = B with the page's copy to the bit only against a copy at `aimWeight`'s placeholder 1 -- a steadily raised body (`hitPoseFireLayer.test.ts`); the real page passes `aimWeight` = the raise's weight (`play.ts:634`, `:644`), so two differences stand, both `aimWeight`'s, unfed under FL.R3: through the 0.1 s raise and the 0.5 s lower a pitched body's spine twist is whole in the room and scaled by the weight on the page (`animator.ts:1474`), and a lowered body's head look runs on the page at weight 0 (`animator.ts:1450`) and not in the poser; whether the original's arm and hand stand where the port's Fire stand puts them waits on the rig's hand and forearm box reads; each other layer settles fed from what the room holds (the reload's lock, the hold code), one at a time, each against its capture |
+| `HIT_POSE_LAYERS_READING` (`net/hitPose.ts`) | `'fire-throw-reload'` (RELOAD-HITPOSE, 2026-11-25; was `'fire-throw'`, PRONE-THROW-HITBOX, 2026-11-25; before it `'fire'`, FL-1, 2026-11-14; first `'none'`): the room's poser plays the reload as the page lays it on a remote copy -- the room's take (`room.ts` `reload`, the step that sends `reloadSound` with its posture, moving, family and seconds) starts the poser's `WeaponPose.startReload` with those four (`HitPoser.startReload`: `RemotePlayers.reload`'s guard, `Play.remoteReload`), a take the pages are not told (`late`) none; the clip runs on the tick with the page's stick cut (`hitPoseReloadCut`, `play.ts` `reloadCut` transcribed) and `airborne`; the room's flinch ends a crouched or prone still clip (`HitPoser.stopReload('flinch')`, `Play.stopRemoteReload`), a death drops the poser, a spawn makes it anew; the room's own ends of the lock the pages are not told (a knock, a mount's take, a swap, a cancel) end neither clip; the original's (r0001 lines (D:L), r0004 twins per the atlas; the read of 2026-11-25, reading, pending review): a still reload on the action stack's top (`CZSealBody::Reload` `FUN_005a82e0` D:L462815-462941, r0004 0x5ae000 unchanged; from `CZKit::Reload` `FUN_005c2a90` D:L477479, r0004 0x5c9f60, CHANGED per the atlas: a constant, lbu 220 -> 224), the moving reload, the pump and the swap on the second channel (`+0x1e4`; the moving reload routed there by `FUN_00588bc0` D:L446083-446086), the pose pass drawing the stack then that channel (`FUN_00577ea0` D:L437415-437470, the channel D:L437456-437461; r0004 0x57d280 unchanged); MEASURED gap before it (the pilot's hit-pose audit, 2026-11-25, a rendered run): the drawn body up to 8.6 u from the room's boxes through a still reload standing, 5.8 crouched, 7.6 prone, 7.2 through the moving overlay (`hitPoseReloadLayer.test.ts`); the review's F1 (ONE-CLOCK) fixed (a BROWSER ADAPTATION -- the page's interpolation delay has no original; not a reading): the page's copy started the clip when the room's event arrived, about six ticks before it draws the body at the take, so its drawn reload led the poser judged at the shooter's drawn tick (`room.ts` `drawnPastOf`) by 4.3-4.9 ticks (a rendered run, the bone gap up to 3.4 u); now the page's remote reload starts on the drawn clock -- the event marked with `NetClient.heardTick`, released once `NetClient.shownTick` passes the mark and run on by the ticks past it (`RemotePlayers.frame`), the flinch's and the kill's ends of it likewise, in order -- its start and end edges aligned with the room's poser at the drawn tick and its phase within about -1 to +2 ticks, a mean lead of about half a tick (the room's whole-snapshot staircase against the page's continuous drawn clock; the delta review, 2026-11-25) (`remoteReloadDrawnClock.test.ts`); three known residuals of it, each unmeasured / for a v0.4.33 row (the hits-owner review of 1ef0409da3, F3, F4, F7): (F3) the room tests the reload's stick cut and `airborne` on every 60 Hz tick (`net/hitPose.ts` `HitPoser` step) while the page sees 30 Hz snapshots (`play.ts` `frame`'s `reloadCut`), so a one-tick stick, turn or airborne can cut the room's clip while the page's plays on -- up to the 5.8-8.6 u judged-vs-drawn gap for the rest of that reload; (F4) only the START is on the drawn clock -- after it the page's clip runs on the frame's `dt`, never re-tied, so a hitch drifts it; (F7) the reload SOUND still plays at the event, about 100 ms before the drawn motion, where the original starts both together; not fed under it: a pistol's reload plays over the rifle's set beneath (FL.R3), the after-shot clip sends no take (LATER 810); and the throw layer as the page lays it on a remote copy (`ThrowPose.follow` on the wire's hold code and serial, stepped by the tick, laid after the Fire and reload layers: a throw's, a toss's or a placing's clip the action stack's top alone at weight 1 from push to pop, eased in over its `BlendTime`, `FUN_0028dc90` D:L135215-135220; the original hit-tests the thrower in the posed clip (r0001 lines (D:L), r0004 twins per the atlas; the read of 2026-11-25, reading, pending review): BeginThrowItem `FUN_005802b0` D:L441882-441905 (r0004 0x585850) -> `FUN_00588bc0` D:L446083-446086, D:L446292 (r0004 0x58e160, CHANGED: +0x1336 -> +0x133a, the anim-kind field, not the push) on the stack's top, the pose pass `FUN_00577ea0` D:L437415-437470, the bone boxes `FUN_0058b960` D:L447557-447593 (r0004 0x590f60, unchanged); `hitPoseThrowLayer.test.ts`) and the Fire set as the page lays it on a remote copy, by the page's own code -- a `WeaponRaise` fed the body's `raised` through `RaiseFeed` at the copy's `RAISE_TIMES`, its eased weight on `WeaponPose.fireLayer`, 0 with a rocket launcher in the hand (`launcherInHand`) or the pistol's slot; every body eases on `RAISE_TIMES` (`FUN_005dffc0`), as a remote copy does -- only the own body calls `setRaiseTimes` (`matchFirearm.ts:1288`), with `ZERO_RAISE_TIMES` under a mount or with an item up; how the original's copy times its raise there is unread; not fed: the pistol's Fire versions and plays, the binoculars, the flinch, the victory dance, the launcher set's rows, `aimWeight` (the animator's `AIM_WEIGHT_PLACEHOLDER`) | the page's `Play` lays them over its copy's animator (`play.ts`, `remotePlayers.ts`) (§3.6a); the Fire set's blend `FUN_0057a330` D:L438828-438860, `FUN_005551a0(..., 0x40)` D:L438710, the launcher excluded D:L438829, the weight eased `FUN_00286b80` (FL.R1); MEASURED gap (2026-11-13, the rig's Q10-T, LATER 1025): a still Terrorist at c1 stands with his feet in the Fire stand on the original (INFERRED from the dump comparison; only the foot nodes are measured) and rounds met his arm and a hand 7-11 u in front of him (which hand unread; in front of the port's Fire-stand right arm at key 0) | a reading, pending review (HIT-POSE, 2026-11-10; FL-1, 2026-11-14): the Fire set A = B with the page's copy to the bit only against a copy at `aimWeight`'s placeholder 1 -- a steadily raised body (`hitPoseFireLayer.test.ts`); the real page passes `aimWeight` = the raise's weight (`play.ts:634`, `:644`), so two differences stand, both `aimWeight`'s, unfed under FL.R3: through the 0.1 s raise and the 0.5 s lower a pitched body's spine twist is whole in the room and scaled by the weight on the page (`animator.ts:1474`), and a lowered body's head look runs on the page at weight 0 (`animator.ts:1450`) and not in the poser; whether the original's arm and hand stand where the port's Fire stand puts them waits on the rig's hand and forearm box reads; each other layer settles fed from what the room holds, one at a time, each against its capture |
 | `FIRE_SUB_MISSING_BONE_READING` (`animator.ts`) | `'whole'`: a part a sub-node (the Fire version, FL-0) carries and its node's clip lacks is taken from the sub-node whole, at any weight; `'leftover'` (the original's fold from the pose slot's leftover) not built | `FUN_00576bb0` D:L436732 (the node slot's bone index set before the `+0x0e` test, so D:L436756-436763 never runs), `FUN_005777d0` (no turn written for an untracked part) (§3.6c) | a reading, pending review (FL-0's review F1, 2026-11-14; measured on the disc by b0's box run at 5b99c2d3ce): the case arises on the disc only for `do_not_use` (no node of the play skeleton: never posed) and `pistol` (the sidearm's held node: with the rifle posed by its mount; with the pistol drawn covered by the pistol's version laid first, but under the base clips `PISTOL_ANIMS` lacks, where it differs from the original only while the raise eases); `fireSubNode.disc.test.ts` holds that the extras are only those two; the leftover blend is owed only if a pose of the drawn pistol during the raise's ease is ever compared |
 | `HIT_POSE_MOUNT_READING` (`net/hitPose.ts`) | `'idle'`: a seat holding a turret (`Player.mounted`) is met on its stance's idle set in the room (`Room.hitPose` keeps no posed set) and in the page's aim (`remotePlayers.ts` `aimCapsules`), where the page draws the turret anim set's mount or hold clip; `'posed'` (the poser fed the turret clip at the seat's steer frame) not built | the page's mount pose, `turretPage.ts` `turretPose` (MAP-10b, research 215 s7); the live nodes `FUN_005abbc0` D:L464672-464803 (§3.6a) | a reading, pending review (HIT-POSE's fold, 2026-11-10): page and room agree (both idle), the drawn mount pose is not judged; settles with the turret clip fed to the poser and its A = B test against the page's mount pose |
 | `PRONE_POP_RISE_S_ADAPTATION` (`animator.ts`) | 0.26 s: the prone-pop's rise, the cross-fade from the prone pose into the standing play in place of the get-up clip the pop skips (`stanceButton.ts` `PRONE_POP_ADAPTATION`) | an adaptation, no original: OT.R67 (the owner's word, 2026-10-20), Benny's playtest's 0.26 s (`playtests/prone-pop/client.js`) | an adaptation (OT.R67); since HIT-POSE (§3.6a) the room's animator runs it too, so the room's hit body rises as the page draws it -- listed here since the animator joined the shared sim's closure (`simMap.ts` -> `net/hitPose.ts`) |
@@ -2305,6 +2479,9 @@ under way refuses a swap (`FUN_005a7de0(actor, 1, 1)`, research 206 §1.2, 211 �
 | `LANDING_HIT_DRAW_READING` (`mover.ts`) | the command's seq, the living's alone | `FUN_005af590` D:L466658-466669, `FUN_00197740` (180 §1.8; §4.3) | a reading, re-documented by PF-21: a corpse draws none (`Land forward`) |
 | `DEATH_LANDING_GETUP_PLACEHOLDER` (`mover.ts`) | true | 180 §1.8 (§4.3) | the page's own (the free walk), re-documented by PF-21; no original counterpart |
 | `FLINCH_GATE_READING` (`net/deaths.ts`) | `flinchRefused` | `FUN_005a2690` D:L459887-460017 (179 §11.4; §4.6) | a reading, re-documented by PF-21: owed a read of states 8, 9, 10 by name and of the hang's state |
+| `FLINCH_LOOPED_GATE_READING` (`net/deaths.ts`) | `flinchLoopedTop`, `flinchStartRefused` | `FUN_005a2690` D:L460011, D:L460033-460035 (179 §11.4; §4.6) | a reading, pending review (R4P-227, 2026-11-24); an unscored capture (FLINCH-PC3, `agent-mail/evidence/weekend-mega-2026-11-14/shadow/FLINCH-PC3/SUMMARY.md`) agrees: a looped top other than the three idles refuses the start; the port's stand-in the ground state not `idle` with nothing on top, on the floor |
+| `FLINCH_MOUNTED_READING` (`net/deaths.ts`) | `Player.mounted` | `FUN_005a2690` D:L460017, D:L460040 (`+0xeb8`; 179 §11.4; §4.6) | a reading, pending review (R4P-227, 2026-11-24); an unscored capture (FLINCH-PC3, `agent-mail/evidence/weekend-mega-2026-11-14/shadow/FLINCH-PC3/SUMMARY.md`) agrees (its leg 5); the mount and dismount edges and the turret anim set (`+0x528`) not built (LATER 1570) |
+| `FLINCH_STEP_TOP_READING` (`net/deaths.ts`) | `'the turn in place flinches'` | `FUN_005a2690` D:L460011 (179 §11.4; §4.6) | open: whether the turn or step in place (`seal_step`, `seal_crouch_step`) and the stop after a release carry flag 0x40 is unread (research 80 reads the turn steps as looped; their type, 1 / 0x12 / 0x1a or not, is unread); owed: capture (the top play's `+0x28` while turning in place, one more FLINCH-PC3 leg) |
 | `FLINCH_STANCE_READING` (`net/deaths.ts`) | the transition's origin under half | `FUN_005a0270` D:L458746-458775 (179 §11.6; §4.7) | a reading, re-documented by PF-21: 0x11 / 0x13 / 0x19 named by their rows; the `+0x1060` bit not built |
 | `FLINCH_LEGS_READING` | (none) | `FUN_00588bc0` one motion (179 §11.5; §4.6) | *note only*: owed a capture (PLAT-36), whether the legs keep their locomotion under the whole-body flinch |
 
@@ -2527,9 +2704,15 @@ and across it, with the stick held up and down: the pitch's stops against the te
 camera's body `cam+0xbc`, D:L142591), reads the floor normal's y at the body's **`+0x1348`** (D:L142596): the y of the
 saved normal `+0x1344..+0x134c` (§7.6) -- not the tilt's `+0x410`. It floors it at 0.5 (D:L142597-142599) and places the
 eye `(max(6q, 0) + 1.8) x 2 / n` over the root and `n x 0.7 x -7` ahead (D:L142592-142601). The look term q
-(`*(cam+0xb4)+0x24`, D:L142592) is untouched: still a level look, now `PRONE_EYE_LOOK_PLACEHOLDER` (0) -- the old
+(`*(cam+0xb4)+0x24`, D:L142592) was then left a level look, `PRONE_EYE_LOOK_PLACEHOLDER` (0) -- the old
 `PRONE_EYE_TERMS_PLACEHOLDER` split, its `groundNormalY` retired (it was 1 because the room's frame carried no normal and
-the two had to place the same eye).
+the two had to place the same eye). **Since PRONE_EYE_LOOK (2026-11-23; reading, pending review):** q is the camera's
+row 2 y = sin(look DOWN) (r0001 D:L143129-143131's look-at writer negates the forward; r0004 0x29d278-0x29d294; r0004's
+`FUN_0029c3e0` reads the same field, 0x29c3e0 by the bytes), floored
+by a branch on 6q, so looking down the eye rises and level or up it does not; it is one camera update old (the view reads
+the node at r0004 0x29b080, before this update's write at 0x29b114; r0001 D:L142025 -- LATER 1438), and the aim pick
+leaves from that raised eye (r0004 0x29b14c jal 0x5b0370 with a1 = cam+0xd8; r0001 D:L142025-142028). The port: page and
+room take the same command's pitch (`PRONE_EYE_LOOK_READING`); the start tolerance keeps a level head.
 
 The port: `cameraRig.ts` `proneEyeTerms(n)`; the room's frame carries `AimFrame.groundNormalY` (the room's walker's
 `floorNormal[1]` after the command, `room.ts`'s cone tick and `startBody`), `net/shotCone.ts` `headPoint` takes it, and the

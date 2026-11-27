@@ -76,7 +76,7 @@ describe('LR-29.2: the short-landscape bar\'s Tab order', () => {
   });
 });
 
-describe('LR-29.3: a pad\'s Down from Server status on a wide layout lands on the shown stop and leaves the list where it stood', () => {
+describe('LR-29.3: the shown community stop on a wide layout (by the pointer since 2026-11-19, not the pad) and the list where it stood', () => {
   const shiftOf = (): string => document.querySelector<HTMLElement>('.cx-home .cx-list')!.style.getPropertyValue('--cx-list-shift');
   it('wide: the header icon is the stop (ringed), the hidden row is not lit, and the list holds Server status\' place', () => {
     const p = boot('pad');
@@ -90,8 +90,8 @@ describe('LR-29.3: a pad\'s Down from Server status on a wide layout lands on th
     expect(held).toBe('0');
     const hidden = document.querySelectorAll('#stage .cx-item.is-above').length;
     expect(hidden).toBe(0);                                                // LR-37: nothing above Server status's row before it (was Play)
-    p.ctl.press('down');
-    expect(p.ctl.S.item[HOME_CATEGORY]).toBe(2);                           // the walk still reaches Discord: the header icon
+    p.ctl.S.item[HOME_CATEGORY] = 2; p.render();                           // Discord by the pointer (the owner, 2026-11-19: not the pad's)
+    expect(p.ctl.S.item[HOME_CATEGORY]).toBe(2);                           // the header icon
     expect(document.querySelector('#header .cx-discord')!.classList.contains('is-focused')).toBe(true);
     expect(document.querySelector('#stage .cx-discord-row .cx-item')!.classList.contains('is-focused')).toBe(false);
     expect(shiftOf()).toBe(held);                                          // not slid up to a row nobody sees
@@ -101,7 +101,7 @@ describe('LR-29.3: a pad\'s Down from Server status on a wide layout lands on th
     const p = boot('pad');
     width(760);
     p.render();
-    for (let i = 0; i < 2; i++) p.ctl.press('down');                       // LR-37 (LR.R31): Discord is item 2 (was 3)
+    p.ctl.S.item[HOME_CATEGORY] = 2; p.render();                           // LR-37 (LR.R31): Discord is item 2, by the pointer (2026-11-19)
     expect(document.querySelector('#stage .cx-discord-row .cx-item')!.classList.contains('is-focused')).toBe(true);
     expect(shiftOf()).toBe('1');                                           // LR-37: one row above the one before it (was 2)
   });

@@ -47,6 +47,7 @@ export function planObstacle(w: Walker, goal: Point, clips: PlayClips | null): O
     if (jump && wallDistance > 30) continue;
     const probe = new Walker(w.grid);
     probe.weaponLineCast = WEAPON_LINE_BOTS_READING === 'cast';   // SEGMENT-BODY (review 2 F3): the zombie's own body's
+    probe.idleFrame = false;                                       // IDLE-FRAME's BOT ADAPTATION (LATER 1053): a probe's stick, no pad
     if (!probe.place(s.x, s.y + 5, s.z)) return null;
     Object.assign(probe.state, s);
     const moves = botTraversal(w.grid, clips);

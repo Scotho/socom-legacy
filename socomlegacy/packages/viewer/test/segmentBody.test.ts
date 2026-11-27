@@ -2,7 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { buildGrid, polygonNormal, type CollisionOwner, type GridParams, type WorldPoly } from '@s2u/scene';
+import { buildGrid, GAME_FRAME_DT, polygonNormal, type CollisionOwner, type GridParams, type WorldPoly } from '@s2u/scene';
 import { simMapFromBytes } from '../src/simMap';
 import { DoorSet } from '../src/doors';
 import { groundGrid, groundPolygons, SEGMENT_BODY_READING, SEGMENT_HIT_PICK_READING, probeLiftOf, TICK, WALL_BODY_READING, Walker } from '../src/mover';
@@ -23,7 +23,7 @@ const STILL = { forward: 0, right: 0, boost: false };
 function floor(minX: number, minZ: number, maxX: number, maxZ: number, y: number): WorldPoly {
   return {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([minX, y, minZ, maxX, y, minZ, maxX, y, maxZ, minX, y, maxZ]),
+    points: Float32Array.from([minX, y, maxZ, maxX, y, maxZ, maxX, y, minZ, minX, y, minZ]),
   };
 }
 /** A vertical quad from (ax, az) to (bx, bz), y0 to y1; its own normal (Newell's) is (b - a) turned a quarter one way. */
@@ -86,7 +86,9 @@ describe('SEGMENT-BODY: the jam rule (FUN_005483d0 D:L413602-413614)', () => {
     const w = new Walker(world([floor(-200, -200, 200, 200, 0), post]));
     expect(w.place(0, 1, 0)).toBe(true);
     w.state.yaw = EAST;
-    w.tick(STILL);
+    // LATER 1194 (H404 (b)): the walls are met once a game frame, so the put-out is whole at the frame's end -- the first
+    // frame after a placing spans three ticks (`throttleFrameEnds(3)`); was one tick, the walls met every tick.
+    for (let i = 0; i < 3; i++) w.tick(STILL);
     expect(w.wallHits().length).toBe(1);
     expect(w.state.x).toBeCloseTo(-(1.1 * 1.4 * 3.5 - 4 - 1), 3);
   });
@@ -189,14 +191,15 @@ describe.skipIf(!HAVE_MP51)(`DOOR-PIN: MP51's door_ft_2 over a still body${HAVE_
   // D:L415549-415577), and the swinging leaf crosses the +z one from its front: two hits or fewer, the deepest over 1,
   // so the body is put out by the depth less 1 each tick (D:L413612-413614) and carried with the leaf, until it stands
   // in the angle between the open leaf and the stairwell's west wall (`wc17A/di_intbasement_hint_01`) at about
-  // (953.97, 925.15), held there while the leaf is open -- not the disc's wedge. Both outcomes are the lane's to weigh
+  // (953.97, 925.15), held there while the leaf is open -- not the disc's wedge. LATER 1194 (the walls once a game frame,
+  // H404 (b)): (953.90, 925.07), the port's output; was (953.97, 925.15) with the walls every tick. Both outcomes are the lane's to weigh
   // against a capture of a body in a door's arc (research 217 s2.9).
   it("facing away from the leaf (yaw 270, facing +x) the leaf meets the body's side line and carries it, not into the disc's wedge", () => {
     const { w, before } = swing(270);
     expect(Math.hypot(w.state.x - before[0], w.state.z - before[1])).toBeGreaterThan(1);
     expect(Math.hypot(w.state.x - 950.13, w.state.z - 922.11)).toBeGreaterThan(1);
-    expect(w.state.x).toBeCloseTo(953.97, 1);
-    expect(w.state.z).toBeCloseTo(925.15, 1);
+    expect(w.state.x).toBeCloseTo(953.9, 1);
+    expect(w.state.z).toBeCloseTo(925.1, 1);
   });
 
   it('facing -x, -z or +z (yaw 90, 0, 180) the body walks out in at least 5 of 8 headings', () => {
@@ -257,6 +260,13 @@ const EDGES = [
   { map: 'MP1', x: 2140.72, z: 1968.24, out: [-0.202, 0.979], top: 109.86, why: 'land40/invis40 met from behind put it back onto invis40 at 80.36' },
   { map: 'MP51', x: 1349.15, z: 409.6, out: [0.908, -0.419], top: -7.39, why: 'mixed: crates under wc06A' },
 ] as const;
+/**
+ * The headings a walk-off must come free in, of 8: 6, but MP51's 5 -- LATER 1194 (the walls met once a game frame on its
+ * whole move, H404 (b), `GROUND_WALLS_PER_TICK_READING` 'per-frame'): the frame's longer segments meet more than two of the
+ * crates' faces more than 1 deep on one more heading, and the jam holds it (`FUN_005483d0` D:L413598-413609). The port's
+ * output, no capture (was 6 of 8, the walls met every tick).
+ */
+const FREE_OF_8: Readonly<Record<string, number>> = { MP9: 6, MP1: 6, MP51: 5 };
 describe.each(EDGES)('SEGMENT-BODY: the sweep\'s ledge walk-off at $map ($x, $z)', (e) => {
   const run = (grid: ReturnType<typeof groundGrid>, polys: ReturnType<typeof groundPolygons>) => {
     const w = new Walker(grid);
@@ -279,7 +289,7 @@ describe.each(EDGES)('SEGMENT-BODY: the sweep\'s ledge walk-off at $map ($x, $z)
       for (let i = 0; i < 90; i++) w.tick(FORWARD);
       return Math.hypot(w.state.x - bx, w.state.z - bz) > 5;
     }).length;
-    expect(free).toBeGreaterThanOrEqual(6);
+    expect(free).toBeGreaterThanOrEqual(FREE_OF_8[e.map]!);
     if (e.map === 'MP1') expect(run(grid, polys).state.y).not.toBeCloseTo(80.36, 1);
   }, 60_000);
 });
@@ -342,8 +352,11 @@ describe.skipIf(!HAVE('MP5'))(`SEGMENT-BODY: a fall over a steep face is not hel
  * 5.85, prone 16.04, backing 9.66. The head line runs along the facing by the muzzle only prone or in a transition
  * (`HEAD_LINE_MUZZLE_READING`, D:L415457-415523): standing and crouched the centre line stops the body -- 1.1 x 1.4 x 3.5 =
  * 5.39, x 1.75 crouch-walking and backing (D:L415354-415371), not while the crouch runs (`CROUCH_RUN_FLAG_READING`). The
- * port's stop is the reach plus up to one 60 Hz move (owner ruling R8; the original's settle at reach + a 30 Hz move - 1
- * is HUMAN_TASKS' row).
+ * port's stop is the reach plus up to one game frame's move (LATER 1194: the owner's answer to H404, option (b), the walk's
+ * wall records stepped at 30 Hz, an exception to R8; `GROUND_WALLS_PER_TICK_READING` 'per-frame'; was up to one 60 Hz
+ * move, under which the original's 6.78 standing lay outside the port's range). The original's 6.78 and 9.66 both lie in
+ * the frame's window; where in it a body stops is the approach's phase (a first hit more than 1 deep is put out to 1, the
+ * captured 9.66 = 9.43 + 37/30 - 1; one less deep stays).
  */
 describe.skipIf(!HAVE('M51'))(`SEGMENT-BODY: M51 house2's west wall, the captured stand-offs${HAVE('M51') ? '' : ' (SOCOM_DISC absent)'}`, () => {
   const WALL = 5425, Z = 2444, CENTRE = 1.1 * 1.4 * 3.5;
@@ -365,7 +378,7 @@ describe.skipIf(!HAVE('M51'))(`SEGMENT-BODY: M51 house2's west wall, the capture
   it('standing, full stick: the centre line (was the head line, 9.97; the original 6.78)', () => {
     const d = at(270, 'stand', 30, 1);
     expect(d).toBeGreaterThan(CENTRE - 1e-6);
-    expect(d).toBeLessThan(CENTRE + 65 / 60 + 1e-6);
+    expect(d).toBeLessThan(CENTRE + 65 * GAME_FRAME_DT + 1e-6);
   });
   it('crouch walk, half stick: the centre x 1.75 (was the crouched head line, 12.64; the original 9.48)', () => {
     const d = at(270, 'crouch', 30, 0.5);
@@ -375,7 +388,7 @@ describe.skipIf(!HAVE('M51'))(`SEGMENT-BODY: M51 house2's west wall, the capture
   it("the crouch's run, full stick: the centre, no 1.75 (was 10.14; the original 5.85)", () => {
     const d = at(270, 'crouch', 30, 1);
     expect(d).toBeGreaterThan(CENTRE - 1e-6);
-    expect(d).toBeLessThan(CENTRE + 65 / 60 + 1e-6);
+    expect(d).toBeLessThan(CENTRE + 65 * GAME_FRAME_DT + 1e-6);
   });
   it('prone crawl: the head line along the facing, 15.94 (the original 16.04)', () => {
     const d = at(270, 'prone', 40, 1, 600);
@@ -385,7 +398,7 @@ describe.skipIf(!HAVE('M51'))(`SEGMENT-BODY: M51 house2's west wall, the capture
   it('backing, full back: the centre x 1.75 (the original 9.66)', () => {
     const d = at(90, 'stand', 30, -1);
     expect(d).toBeGreaterThan(CENTRE * 1.75 - 1e-6);
-    expect(d).toBeLessThan(CENTRE * 1.75 + 37 / 60 + 1e-6);
+    expect(d).toBeLessThan(CENTRE * 1.75 + 37 * GAME_FRAME_DT + 1e-6);
   });
 }, 120_000);
 

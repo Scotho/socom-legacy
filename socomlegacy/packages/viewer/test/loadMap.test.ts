@@ -168,11 +168,13 @@ describe.skipIf(absent)(`the draw order out of loadMap${absent ? ` (${FIXTURES_A
     const map = await load('RUN/MP2.ZDB');
     // `railings_low` fades in at 100-120 units where `railings_high` fades out; the graph places both
     // sets on the same rails (10 placements each). `grate_lowlod` is in the table but never placed.
+    // Research 439: the band is each visual's own (`vparams` byte 5 into `LOD_Object`), carried on each part
+    // (`LoadedMesh.lod`); the entry's own `lod` is left null by the loader.
     const by = (name: string) => map.props.filter((p) => p.modelName === name);
     expect(by('railstraitlo1').length).toBeGreaterThan(0);
-    expect(by('railstraitlo1').every((p) => p.lod?.nearFade[0] === 100 && p.lod.farFade[1] === 440)).toBe(true);
+    expect(by('railstraitlo1').every((p) => p.lod === null && p.parts.every((q) => q.lod?.nearFade[0] === 100 && q.lod.farFade[1] === 440))).toBe(true);
     expect(by('railstraithi1').length).toBe(by('railstraitlo1').length);
-    expect(by('railstraithi1').every((p) => p.lod?.nearFade[0] === 0 && p.lod.farFade[0] === 100)).toBe(true);
+    expect(by('railstraithi1').every((p) => p.parts.every((q) => q.lod?.nearFade[0] === 0 && q.lod.farFade[0] === 100))).toBe(true);
     expect(by('railstraitlo1').every((p) => !p.alternate)).toBe(true);   // a LOD copy is not a state
     // The copies of one object share a placement: every low rail stands within 5 units of a high rail,
     // which is what lets `world.ts` tell a copy with a successor from the last one at its spot. The
@@ -187,7 +189,8 @@ describe.skipIf(absent)(`the draw order out of loadMap${absent ? ` (${FIXTURES_A
     expect(spots('railstraitlo1').every((lo) => highs.some((hi) => near(lo, hi)))).toBe(true);
     expect(by('grate_midlod').length).toBeGreaterThan(0);
     expect(by('grate_lowlod').length).toBe(0);
-    expect(map.props.filter((p) => p.lod === null).length).toBeGreaterThan(map.props.filter((p) => p.lod !== null).length);
+    const banded = (p: (typeof map.props)[number]) => p.parts.some((q) => q.lod !== undefined);
+    expect(map.props.filter((p) => !banded(p)).length).toBeGreaterThan(map.props.filter(banded).length);
     // The facade flag reaches the props; the scroll bands reach the world chunks they name.
     expect(map.props.some((p) => p.facade !== 0)).toBe(true);
     const scrolled = map.world.filter((m) => m.scroll !== null);

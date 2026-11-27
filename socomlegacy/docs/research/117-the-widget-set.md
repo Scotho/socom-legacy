@@ -451,6 +451,25 @@ when the name changes (`FUN_00379160` D:L272950-272978).
 - `Start` sets `StartTime` to the clock now; `Finish` stops the clock and shows the target (`FUN_0037b490`
   D:L274143-274181). The disc's four are on `dlgMultiplayerFinalReally`.
 
+**One item, one UIVAR -- names may repeat (LATER 1546, 2026-11-24; reading, pending review).** Each record of a design
+becomes its own item, and each item attaches its own UIVAR as it is set up (`FUN_003792f0` D:L273072-273077:
+`FUN_00385df0`, then the attachment's vtable +0xc with the var, so a var set earlier shows at once) -- per item, never by
+name. A name may repeat among a dialog's plain items: the disc's PLAYER INFO pages (`dlgMPBriefingRoom`,
+`dlgLadderLobby`, `dlgFriendList`, `dlgManageRoster`, `dlgManageRosterLeader`) hold a top-level TEXT `bar_title` and
+then the page's WRAPPEDTEXT `bar_title` on `PLAYER_INFO_NAME_VAR`; `dlgExitState` (READERC and READERX) two TEXT
+`PercentCntr`, the first `CHILDOF CPercent` on `StatObjectivesPct`, the second top-level on `TimeInGame` (the ui's
+`loadDialog` over every dlg*; 39 dialogs repeat a plain name, these alone with a UIVAR on a repeat). The loader makes
+an item and a fresh node per record with no name check (`FUN_00367950` -> `FUN_003696d0` D:L263627, 263636, 263649;
+D:L264427-264492). A command's by-name lookup reaches the node the node search finds first -- children before their
+own children, so a shallower node before a deeper one (`FUN_00315d00` D:L215253) -- which for `PercentCntr` is the
+second. The port follows each plain item on its own node (`buildDialogScreen`'s `UiScreen.nodeOf`, `WidgetSet`) and
+aims by-name commands at the searched node; until LATER 1546 it followed by name, so the PLAYER INFO name stayed blank
+and dlgExitState printed `StatObjectivesPct` into the second `PercentCntr`, leaving the first blank (9 widgets change
+in all; `ui/test/widgets/duplicateNameUivar.test.ts`). r0004: `FUN_003792f0`, `FUN_003696d0` and `FUN_00315d00` are
+unchanged twins (atlas); the loader's twin `r0004:0x00385b80` is CHANGED (+152 bytes) and its creation loops are not
+re-read in r0004 (no export here) -- it keeps three direct calls to the item maker (0x386160, 0x3861d8, 0x386254), as
+r0001 has three.
+
 ## 8. Where this differs from the roadmap and research 95
 
 | where | says | the code |

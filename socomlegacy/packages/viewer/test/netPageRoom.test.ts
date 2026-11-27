@@ -253,7 +253,7 @@ describe('SA-7h S5: the standing room\'s seat (NetPageDeps.room)', () => {
   it('a page without a room: its socket and hello exactly as before (no token, no pass)', () => {
     const p = page(null);
     expect(p.last().url).toBe('wss://site.test/ws');
-    expect(Object.keys(hello(p.last())).sort()).toEqual(['cranes', 'map', 'name', 'rules', 'type', 'version']);   // #337: the cranes word
+    expect(Object.keys(hello(p.last())).sort()).toEqual(['cranes', 'map', 'name', 'rules', 'type', 'variants', 'version']);   // #337: the cranes word; DAY-7a (1033095ae4): `variants: true` beside it (net/client.ts hello, net/protocol.ts)
   });
 
   // SA-57 (`GAME_HELLO_WAIT_MS_ADAPTATION`, SA-55's wait on the match's own socket; `netPageRetoken.test.ts` has the rest).

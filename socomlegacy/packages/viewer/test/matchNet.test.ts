@@ -362,7 +362,8 @@ describe('one deps builder: both pages build NetPage\'s deps with it', () => {
     for (const f of ['main.ts', 'matchMount.ts']) {
       expect(src(f), f).toMatch(/\.\.\.sound\.netDeps\(\),[^\n]*\n\s+hostageState: \(ev\) => hostages\.state\(ev\),/);
     }
-    expect(src('matchSound.ts')).toMatch(/escorteeVoice: \(_id, cue, at\) => \{ if \(cue === 'yes' && at && !screens\(\)\) audio\.play\(HOSTAGE_YES_CUE_READING\.sound, at, 'voice'\); \},/);
+    // R4P-254: the placed character's own YES through the one-voice AI vocal queue (was the fixed ^CO_0343)
+    expect(src('matchSound.ts')).toMatch(/escorteeVoice: \(_id, cue, at, character\) => \{ if \(cue === 'yes' && at && !screens\(\)\) escorteeYes\(character, at\); \},/);
     for (const f of ['main.ts', 'matchMount.ts']) expect(src(f), f).not.toMatch(/escorteeVoice: \(/);
   });
 });
@@ -370,7 +371,8 @@ describe('one deps builder: both pages build NetPage\'s deps with it', () => {
 
 describe('WALL-CAM: both pages share the spectator obstruction rig', () => {
   const wall: WorldPoly = { modelName: 'worldmodel', path: 'wall', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-200, 0, 0, 200, 0, 0, 200, 80, 0, -200, 80, 0]) };
+    // LATER 1057: wound facing -z, the watched body's side (it stands at z -3.5): the pass is one-sided on the hull.
+    points: Float32Array.from([-200, 80, 0, 200, 80, 0, 200, 0, 0, -200, 0, 0]) };
   const grid = (): Grid => buildGrid({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 8, cellsZ: 8, originX: -400, originZ: -400 }, [], [], [wall], [{ modelName: 'worldmodel', path: 'wall', first: 0, count: 1 }]);
   it.each([TESTROOM_CAPABILITIES, FRONT_END_CAPABILITIES])('uses live hull, stance and peek with the set-up look pitch 0, not the aim, resetting on target and map changes', (caps) => {
     const { p } = parts(caps); let hull = grid(); let pose: SpectatorPose | null = null;

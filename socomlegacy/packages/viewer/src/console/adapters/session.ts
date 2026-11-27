@@ -185,12 +185,16 @@ export function liveSession(notify: () => void, deps: SessionDeps = {}): LiveSes
       if (await passAgreement(s.account()?.name ?? p.NAME)) return { ok: true, persona: p.NAME, accepted: AGREEMENT_ACCEPTED_WORDS };
       return s.state() === 'agreement' ? { ok: true, persona: p.NAME, next: 'agreement' } : { ok: true, persona: p.NAME };
     }
+    // OPS-A3: a banned account (-972) is not `gone`: no password asked and nothing filed; its error is the session's ban
+    // words (`../../modern/session` MU_BANNED_WORDS_ADAPTATION), as any other refusal's.
     const gone = r.error.status === MEDIUS_STATUS.InvalidPassword;
     // The review's F1: -978 is the cookie gone (step 4: the server cleared it), so the card files NO -- the next load,
     // or another tab, tries no quick sign-in that would only count against the login limit; a ticked sign-in files YES.
     if (gone) await file(p.NAME, false, null);
+    // OPS-Q1: the session's own classification of -972 (`../../modern/session` loginError, PLAYER_BANNED_STATUS) marks it.
     return {
       ok: false, persona: p.NAME, askPassword: gone,
+      ...(r.error.code === 'banned' ? { banned: true as const } : {}),
       error: gone ? `This browser no longer remembers ${p.NAME}. Enter its password.` : r.error.message,
     };
   };

@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { chatHiddenWords, setChatFilter } from '../../src/text/chatFilter';
+import { setOwnNameDisplay } from '../../src/text/ownNameDisplay';
 import type { ListboxWidget } from '../../src/widgets/listbox';
 import type { ChannelListEntry } from '../../src/screens/worldOfSocomCommands';
 import { BRIEFING_ROOM, GAME_DETAILS_TYPE_WORDS, GAME_INFO_DETAILS_VAR, gameDetails, type GameListEntry } from '../../src/screens/briefingRoomCommands';
@@ -7,9 +9,13 @@ import {
   CLOSED_CLAN_GAME_TEXT, GAME_LOBBY, isVersionRefusal, MATCH_ENDING_READY_LINE, NET_ABANDONED, PLAYER_GAME_PASSWORD_VAR, SPECTATOR_GAME_PASSWORD_VAR, TOO_MANY_PLAYERS_TEXT, TOO_MANY_SPECTATORS_TEXT, VERSION_REFUSAL_ABORT_READING, versionRefusalText,
   type GameLobbyView,
 } from '../../src/screens/gameLobbyCommands';
+import { GameLobbyCommands, TEAM_SWITCH_ERROR_DIALOG, TEAM_SWITCH_ERROR_TEXT, type LobbyControlRecovery } from '../../src/screens/gameLobbyCommands';
+import { SWAP_MARK_ARROW_SIZE_ADAPTATION, SWAP_MARK_ARROW_TEXELS, SWAP_MARK_DOT_SHIFT, SWAP_MARK_TEXTURE_SIZE, withSwapMark } from '../../src/screens/swapMark';
+import { DIALOG_EVENTS } from '../../src/dialog';
+import { UiVarManager } from '../../src/uiVars';
 import { UI_TICK_SECONDS } from '../../src/clock/uiClock';
 import { CREATE_GAME, clanField } from '../../src/screens/createGameCommands';
-import { VALVE_TYPE } from '../../src/valves';
+import { VALVE_TYPE, ValveStore } from '../../src/valves';
 import { HAVE } from './worldOfSocomRig';
 import { discMissionVars, gameLobbyRig, seat, type GameLobbyRigOptions } from './gameLobbyRig';
 
@@ -129,7 +135,7 @@ describe.skipIf(!HAVE)(`the GAME LOBBY over the machine${HAVE ? '' : ' (no disc 
     ]);
     expect(r.joins).toEqual([{ mediusWorldId: 7, joinType: 0, gamePassword: '' }]);
     expect([r.socketLog, r.lobby.state(), r.valve('mp_join_game')]).toEqual([['open 7'], 17, 10]);
-    expect(['mp_max_rounds', 'mp_max_round_time', 'MaxSpectatorsValve', 'MaxPlayersValve', 'mp_friendly_fire', 'mp_allow_respawn'].map((v) => r.valve(v))).toEqual([5, 360, 8, 24, 1, 0]);
+    expect(['mp_max_rounds', 'mp_max_round_time', 'MaxSpectatorsValve', 'MaxPlayersValve', 'mp_friendly_fire', 'mp_allow_respawn'].map((v) => r.valve(v))).toEqual([5, 360, 8, 16, 1, 0]);   // AS-17 / L72: r0004's MaxPlayers, the total 24 less 8 spectator slots
     expect(r.uiVars.find('GAMENAMEVAR')!.value).toEqual({ type: 'string', value: 'test' });
   });
 
@@ -725,7 +731,7 @@ describe.skipIf(!HAVE)(`the GAME LOBBY over the machine${HAVE ? '' : ' (no disc 
     expect(r.starts).toHaveLength(2);
   });
 
-  it('ONL-20b (research 309 R309.1-R309.2): the lobby a match returned to runs the first entry\'s branch -- FromBriefing re-arms the kit for the side held (IDFromBriefing 0), ArmButtonClock and the joiner\'s 10 s READY lock again (ComeFromBriefing 0); ClanSwapSidesIndex 1 after one game', async () => {
+  it('ONL-20b (research 309 R309.1-R309.2): the lobby a match returned to runs the first entry\'s branch -- FromBriefing re-arms the kit for the side held (IDFromBriefing 0), ComeFromBriefing 0; OT.R129: ArmButtonClock and the joiner\'s 10 s READY lock laid aside at once; ClanSwapSidesIndex 1 after one game', async () => {
     const r = await lobby();
     const bit = (name: string): boolean => r.input.ring()!.controls.find((c) => c.name === name)!.enabled();
     await r.settle(12 * SECOND);                                                    // the first entry's ArmButtonClock ran out (P:L7044)
@@ -746,12 +752,14 @@ describe.skipIf(!HAVE)(`the GAME LOBBY over the machine${HAVE ? '' : ' (no disc 
     await until(r, () => r.builds.length > built && r.current() === GAME_LOBBY);
     await r.settle(2 * SECOND);
     expect(r.current()).toBe(GAME_LOBBY);
-    // FromBriefing (P:L7561-7586): the default type for the side held (no stored record); ArmButtonClock counting
-    // (NoReadyButton 1, ComeFromBriefing still 0); SetupNormalJoiner's ClientDAReadyButton holding READY.
-    expect(['MpCharSet', 'NoReadyButton', 'ComeFromBriefing', 'ClanSwapSidesIndex'].map((n) => r.valve(n))).toEqual([5, 1, 0, 1]);
-    expect(bit('PlayerReady')).toBe(false);
+    // FromBriefing (P:L7561-7586): the default type for the side held (no stored record). OT.R129 (the owner's ruling,
+    // 2026-11-14; `LOBBY_AFTER_MATCH_FREE_OWNER`): was "ArmButtonClock counting (NoReadyButton 1), SetupNormalJoiner's
+    // ClientDAReadyButton holding READY, ComeFromBriefing 1 at ArmButtonClock's end" -- both stopped at once, NoReadyButton
+    // 0 as ArmButtonClock's end leaves it, READY open; ComeFromBriefing kept 0 (its end's 1 not written: SwapClanSides).
+    expect(['MpCharSet', 'NoReadyButton', 'ComeFromBriefing', 'ClanSwapSidesIndex'].map((n) => r.valve(n))).toEqual([5, 0, 0, 1]);
+    expect(bit('PlayerReady')).toBe(true);
     await r.settle(10 * SECOND);
-    expect(['NoReadyButton', 'ComeFromBriefing', 'ClanSwapSidesIndex'].map((n) => r.valve(n))).toEqual([0, 1, 1]);   // a joiner never resets it (R309.8)
+    expect(['NoReadyButton', 'ComeFromBriefing', 'ClanSwapSidesIndex'].map((n) => r.valve(n))).toEqual([0, 0, 1]);   // a joiner never resets it (R309.8)
     expect(bit('PlayerReady')).toBe(true);
   });
 
@@ -823,6 +831,381 @@ describe.skipIf(!HAVE)(`the GAME LOBBY over the machine${HAVE ? '' : ' (no disc 
     await r.settle(11 * SECOND);                                                    // the WAIT 10, then mp_teams_too_big 0
     expect(r.valve('mp_locked_game')).toBe(0);
     expect(r.sent.slice(sent)).toEqual(['clanSwap']);
+  });
+
+  /**
+   * OT.R129 (the owner's ruling, 2026-11-14, seat redotcom-8f; `LOBBY_AFTER_MATCH_FREE_OWNER`, a departure from the
+   * original on his word): the lobby a match returned to keeps none of its waits on the page -- the joiner's 10 s
+   * `ClientDAReadyButton`, the 10 s `ArmButtonClock`, the 5 s after SWITCH TEAMS (`CountButtonFiveST`), READY's and SWITCH
+   * TEAMS' own 5 s -- while `ComeFromBriefing` stays 0 (`SwapClanSides` keeps its branch). The countdown's lock and the
+   * clan games' team lock stay; a fresh lobby keeps every wait.
+   */
+  const RETURNED = TWO.map((s) => ({ ...s, readyIn: 0 }));
+  const bits = (r: Rig): boolean[] => ['PlayerReady', 'Glswitchteams', 'weaponselect'].map((name) => r.input.ring()!.controls.find((c) => c.name === name)!.enabled());
+  /** Into the lobby, its first entry's waits run out, a match launched and returned, the lobby built again and settled 1 s. */
+  async function returnedLobby(o: GameLobbyRigOptions = {}, seats: GameLobbyView['seats'] = RETURNED): Promise<Rig> {
+    const r = await lobby(o);
+    await r.settle(12 * SECOND);
+    r.commands.gameLobby(view(seats, { launched: true }));
+    await r.settle(SECOND);
+    expect(r.starts).toHaveLength(1);
+    r.commands.matchReturned();
+    const built = r.builds.length;
+    r.m.menu.startDialog = GAME_LOBBY;                                                        // the page's way back (frontEnd's `back`)
+    r.m.states.switchTo(r.m.menu);
+    r.commands.gameLobby(view(seats));
+    await until(r, () => r.builds.length > built && r.current() === GAME_LOBBY);
+    await r.settle(SECOND);
+    return r;
+  }
+
+  it('OT.R129: a joiner back from a match -- READY, SWITCH TEAMS and the ARMORY open within a second (ClientDAReadyButton and ArmButtonClock laid aside); ComeFromBriefing kept 0', async () => {
+    const r = await returnedLobby();
+    expect(r.current()).toBe(GAME_LOBBY);
+    expect(bits(r)).toEqual([true, true, true]);
+    expect(['NoReadyButton', 'WsCount', 'ComeFromBriefing', 'ClanSwapSidesIndex'].map((n) => r.valve(n))).toEqual([0, 0, 0, 1]);
+  });
+
+  it('OT.R129: back from a match, a second READY inside 5 s goes (CycleReadyButton\'s and ReadyToLoad\'s 5 s laid aside)', async () => {
+    const r = await returnedLobby();
+    const sent = r.sent.length;
+    go(r, 'PlayerReady');
+    r.press('CROSS', 4);
+    expect([r.sent.slice(sent), r.valve('mp_minor_game_state')]).toEqual([['lobbyReady'], 2]);
+    r.commands.gameLobby(view([RETURNED[0]!, { ...RETURNED[1]!, ready: true }]));
+    await r.settle(SECOND);
+    expect(bits(r)[0]).toBe(true);
+    go(r, 'PlayerReady');
+    r.press('CROSS', 4);
+    expect([r.sent.slice(sent), r.valve('mp_minor_game_state')]).toEqual([['lobbyReady', 'lobbyReady'], 1]);
+  });
+
+  it('OT.R129: back from a match, SWITCH TEAMS leaves READY, the ARMORY and SWITCH TEAMS open (CountButtonFiveST and the switch\'s 5 s laid aside), the kit re-armed for the new side', async () => {
+    const r = await returnedLobby();
+    const sent = r.sent.length;
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    expect(r.sent.slice(sent)).toEqual(['switchTeams']);
+    r.commands.gameLobby(view([RETURNED[0]!, { ...RETURNED[1]!, team: 'seal' }]));
+    await r.settle(SECOND);
+    expect(bits(r)).toEqual([true, true, true]);
+    expect([r.valve('player_team'), r.valve('MpCharSet')]).toEqual([0, 1]);                // switch_teams_anim's tail: the SEAL default type
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    expect(r.sent.slice(sent)).toEqual(['switchTeams', 'switchTeams']);
+  });
+
+  /**
+   * B-21 / I-1 (the lobby lane, 2026-11-21; INTAKE.md I-1: "i get randomly from seal to terrorist side when coming back in
+   * lobby from map"): the side changes only by SWITCH TEAMS pressed on a lobby that is shown. The disc's scripts focus
+   * SWITCH TEAMS on every arrival (P:L7226, P:L7280), and OT.R129 lays its 5 s aside after a return, so a stray press there
+   * is a move: a click or a tap off every control is lost (B-21, `MENU_TOUCH_READING`), and a pad's CROSS held through the
+   * return is the flush's (`MenuPad.flush`, `FUN_002d9e00`), never a press. The room's half (a queued swap, the balance)
+   * is central's (`central/test/bridge.test.ts`, the two I-1 cases).
+   */
+  it('B-21: a first-entry lobby, SWITCH TEAMS focused -- a click off every control sends no switchTeams', async () => {
+    const r = await lobby();
+    expect([r.focused(), bits(r)[1]]).toEqual(['Glswitchteams', true]);         // focused and open: a press would move
+    expect(r.input.tap(330, 40)).toBeNull();
+    await r.settle(SECOND);
+    expect(r.sent).not.toContain('switchTeams');
+  });
+
+  it('I-1: back from a match, SWITCH TEAMS focused and open -- two clicks off every control 150 ms apart send no switchTeams (B-62)', async () => {
+    const r = await returnedLobby();
+    const sent = r.sent.length;
+    go(r, 'Glswitchteams');
+    expect(bits(r)[1]).toBe(true);
+    r.input.tap(330, 40);
+    await r.settle(5);
+    r.input.tap(600, 30);
+    await r.settle(SECOND);
+    expect(r.sent.slice(sent)).toEqual([]);
+    expect(r.valve('player_team')).toBe(8);
+  });
+
+  it('I-1: a CROSS held as the match ends and through the return is the pad flush, not a press -- no switchTeams; let go, still none', async () => {
+    const r = await lobby();
+    await r.settle(12 * SECOND);
+    r.commands.gameLobby(view(RETURNED, { launched: true }));
+    await r.settle(SECOND);
+    r.commands.matchReturned();
+    const sent = r.sent.length, built = r.builds.length;
+    r.hold('CROSS');                                                                           // jump held as GAME COMPLETE ends
+    r.m.menu.startDialog = GAME_LOBBY;
+    r.m.states.switchTo(r.m.menu);
+    r.commands.gameLobby(view(RETURNED));
+    await until(r, () => r.builds.length > built && r.current() === GAME_LOBBY);
+    await r.settle(2 * SECOND);
+    expect([r.focused(), bits(r)[1]]).toEqual(['Glswitchteams', true]);                       // focused and open: a press would move
+    r.hold(null);
+    await r.settle(SECOND);
+    expect(r.sent.slice(sent)).toEqual([]);
+    r.press('CROSS', 4);                                                                       // a press on the shown lobby is SWITCH TEAMS
+    expect(r.sent.slice(sent)).toEqual(['switchTeams']);
+  });
+
+  it('OT.R129: back from a match, the launch countdown still closes READY, SWITCH TEAMS and the ARMORY (CountDown)', async () => {
+    const r = await returnedLobby();
+    r.commands.gameLobby(view(RETURNED, { countdown: 11 }));
+    await r.settle(2 * SECOND);
+    expect(bits(r)).toEqual([false, false, false]);
+  });
+
+  it('OT.R129: back from a match in a clan game of affiliation 1, SWITCH TEAMS stays closed (IsSwitchTeamsOK); READY and the ARMORY open', async () => {
+    const r = await returnedLobby({ games: [{ ...GAME, genericField3: 0xa0000005 }], clanId: 5 });
+    expect(bits(r)).toEqual([true, false, true]);
+  });
+
+  it('OT.R129: a fresh lobby keeps its waits -- the joiner\'s READY and the ARMORY held at its entry (ClientDAReadyButton, ArmButtonClock)', async () => {
+    const r = await lobby();
+    await r.settle(2 * SECOND);
+    expect([bits(r)[0], bits(r)[2], r.valve('NoReadyButton')]).toEqual([false, false, 1]);
+  });
+
+  /**
+   * LOBBY-READY-DELAY (the brief's item 2; the owner's words, extending OT.R129): a page that enters a RETURNED lobby
+   * fresh -- a reload, a rejoin, every page after a rotation's 4021 close -- was held by the first entry's waits (`hold`
+   * sets `afterMatch` false, and the view said nothing of the return): the joiner's 10 s `ClientDAReadyButton`, the 10 s
+   * `ArmButtonClock`. The room's view now says so (`returned: true`, our match server's own wire), and the page lays the
+   * waits aside on the first such view. The first entry from the briefing room keeps the original's gates.
+   *
+   * `freshInto`: the menu, BRIEFING ROOMS, Alpha, the listed game's join -- its first `gameLobby` the one given -- and the
+   * lobby shown; NOT settled further, so the test reads the controls at its own second.
+   */
+  const withReturned = (v: GameLobbyView): GameLobbyView => Object.assign(v, { returned: true as const });
+  async function freshInto(first: GameLobbyView, o: GameLobbyRigOptions = {}): Promise<Rig> {
+    const r = await briefing({ ...o, lobbyView: () => first });
+    joinListed(r);
+    await until(r, () => r.current() === GAME_LOBBY);
+    expect(r.current()).toBe(GAME_LOBBY);
+    return r;
+  }
+
+  it('LOBBY-READY-DELAY (2): a FRESH joiner page into a returned lobby -- READY, SWITCH TEAMS and the ARMORY open within a second', async () => {
+    const r = await freshInto(withReturned(view(RETURNED)));
+    await r.settle(SECOND);
+    // RED until the change: the view's `returned` is not read, so ClientDAReadyButton holds READY and ArmButtonClock the
+    // ARMORY for their 10 s (bits [false, true, false] today; SWITCH TEAMS is open on a first entry too).
+    expect(bits(r)).toEqual([true, true, true]);
+    expect(r.valve('NoReadyButton')).toBe(0);
+    go(r, 'PlayerReady');
+    const sent = r.sent.length;
+    r.press('CROSS', 4);
+    expect(r.sent.slice(sent)).toEqual(['lobbyReady']);
+  });
+
+  /**
+   * OT.R129's #350 (the owner's ruling of 2026-11-23 in the controller's seat, "Hide it there"): a FRESH host page in the
+   * RETURNED lobby shows no "The READY button will be available in 30 seconds." -- as a host page that played the match
+   * shows none on its return (its `SeenPopup` stands at 1 from the first entry's dismissal, and `Enable_SM_Launch` tests
+   * it under `ComeFromBriefing` 0, tools/test/onlineDialogs.pinned.json:7145-7160). The first entry from the briefing
+   * room keeps #350 as the original shows it (the guard below, and the host case at "the host: IsSessionMaster ...").
+   */
+  const HOSTED = [seat(2, 'socomc', 'seal', { host: true, readyIn: 0 }), seat(3, 'other', 'terrorist', { readyIn: 0 })];
+
+  it('LOBBY-READY-DELAY (2), OT.R129 "Hide it there": a FRESH host page into a returned lobby -- no #350; READY, SWITCH TEAMS and the ARMORY open at 2 s, nothing dismissed', async () => {
+    const r = await freshInto(withReturned(view(HOSTED)));
+    // RED at 07e24a163b: the fresh page's `SeenPopup` is 0 (the briefing room's join_game_main writes it 0 before
+    // ConnectToGameServer, pinned :4563 and :4644), so `Enable_SM_Launch` raises #350 over the lobby and waits on HostValve.
+    let seen = popupText(r) !== '';
+    // 2 s, not 1: `SetupSessionMaster` enables READY after its own WAIT 1 once `mp_45_sec_clock` is 0 -- the disc's
+    // script, kept; the release writes the controls when it stops ArmButtonClock. No press: nothing is dismissed.
+    for (let i = 0; i < 2 * SECOND; i++) { await r.settle(1); seen ||= popupText(r) !== ''; }
+    expect(seen).toBe(false);
+    expect(r.valve('SeenPopup')).toBe(1);
+    expect(bits(r)).toEqual([true, true, true]);
+  });
+
+  it('LOBBY-READY-DELAY (2), the guard: a FRESH host page on a FIRST entry (no `returned`) still shows #350 (Enable_SM_Launch, SeenPopup 0)', async () => {
+    // Green before and after the change: the ruling hides #350 in the returned lobby only.
+    const r = await freshInto(view(HOSTED));
+    await until(r, () => popupText(r) === loc(r, 350), 2 * SECOND);
+    expect(popupText(r)).toBe(loc(r, 350));
+    await r.settle(2 * SECOND);
+    expect(popupText(r)).toBe(loc(r, 350));                               // it stands until dismissed (HostValve)
+    expect(r.valve('SeenPopup') ?? 0).toBe(0);
+  });
+
+  it('LOBBY-READY-DELAY (2), OT.R129 "Hide it there": the room\'s `returned` heard AFTER Enable_SM_Launch raised #350 -- the popup ends through its own valve (HostValve), then the controls open', async () => {
+    // The other order: the first returned view later than the screen's ONSTART. Simulated by a first view without
+    // `returned` (#350 up, the script waiting `WHILE HostValve == 0`), then the returned view. RED at 07e24a163b: nothing
+    // writes HostValve, so #350 stands.
+    // Read the POPUP node's visibility, not the text: KillPopup only hides the node (menuShell `killPopUp`, popupSlot
+    // `hide`, FUN_0027d190) and leaves the popup's text lines as they were (Popup.setText ignores ''), so the text of
+    // #350 reads on after its close.
+    const r = await freshInto(view(HOSTED));
+    const shown = (): boolean => r.parts.current?.popup()?.node?.visible === true;
+    await until(r, () => popupText(r) === loc(r, 350), 2 * SECOND);
+    expect([popupText(r), shown()]).toEqual([loc(r, 350), true]);
+    r.commands.gameLobby(withReturned(view(HOSTED)));
+    await r.settle(SECOND);
+    expect(shown()).toBe(false);                                          // the script's own tail: SeenPopup 1, KillPopup
+    expect(r.valve('SeenPopup')).toBe(1);
+    await r.settle(2 * SECOND);                                           // SetupSessionMaster's WAIT 1, as above
+    expect(bits(r)).toEqual([true, true, true]);
+  });
+
+  it('LOBBY-READY-DELAY (2), OT.R129 "Hide it there", keyed on the return (the controller\'s ruling of 2026-11-23): a FIRST-entry joiner that played the match and is the host in the returned lobby (a migration) shows no #350', async () => {
+    // The joiner never saw #350 (Enable_SM_Launch raises it only under IsSessionMaster), so its SeenPopup is 0; the return
+    // (`matchReturned`) now writes it 1, as every page that played a match back to the lobby. RED at e6cf06e50f: only a
+    // FRESH returned page wrote it, so the migrated host's rebuilt lobby raised #350.
+    const r = await lobby();
+    r.commands.gameLobby(view(TWO));
+    await r.settle(SECOND);
+    expect(r.valve('SeenPopup') ?? 0).toBe(0);
+    r.commands.gameLobby(view(TWO, { launched: true }));
+    await r.settle(SECOND);
+    r.commands.matchReturned();
+    const built = r.builds.length;
+    r.m.menu.startDialog = GAME_LOBBY;                                    // the page's way back (frontEnd's `back`)
+    r.m.states.switchTo(r.m.menu);
+    const MIGRATED = [seat(2, 'socomc', 'terrorist', { host: true, readyIn: 0 }), seat(3, 'other', 'seal', { readyIn: 0 })];
+    r.commands.gameLobby(withReturned(view(MIGRATED)));
+    await until(r, () => r.builds.length > built && r.current() === GAME_LOBBY);
+    let seen = popupText(r) !== '';
+    for (let i = 0; i < 2 * SECOND; i++) { await r.settle(1); seen ||= popupText(r) !== ''; }
+    expect(seen).toBe(false);
+    expect(r.valve('SeenPopup')).toBe(1);
+  });
+
+  it('LOBBY-READY-DELAY (2), the control: the same fresh joiner page WITHOUT `returned` still runs the first entry\'s waits (ClientDAReadyButton, ArmButtonClock)', async () => {
+    // A guard, green today and after the change: readyIn 0 alone is no return.
+    // It also shows the rig's first second already held by the scripts, so the two cases above are red for the waits.
+    const r = await freshInto(view(RETURNED));
+    await r.settle(SECOND);
+    expect([bits(r)[0], bits(r)[2]]).toEqual([false, false]);
+    await r.settle(3 * SECOND);
+    expect([bits(r)[0], bits(r)[2], r.valve('NoReadyButton')]).toEqual([false, false, 1]);
+  });
+
+  it('LOBBY-READY-DELAY (2): the fresh returned page keeps the launch countdown\'s lock (CountDown) -- READY, SWITCH TEAMS and the ARMORY closed under it', async () => {
+    // A guard: OT.R129 keeps the countdown lock; a fresh page told `returned` keeps it too.
+    const r = await freshInto(withReturned(view(RETURNED)));
+    await r.settle(SECOND);
+    r.commands.gameLobby(withReturned(view(RETURNED, { countdown: 11 })));
+    await r.settle(2 * SECOND);
+    expect(bits(r)).toEqual([false, false, false]);
+  });
+
+  /**
+   * LOBBY-READY-DELAY (the brief's item 3; reading, pending review): `return_to_gamelobby` sets `mp_x_sec_clock` 11
+   * (P:L14644-14649; research 179 :565 and :2070), which `matchReturned`'s doc cites and did not write. On the console
+   * that script is the session master's (`watch_for_switch_to_client` -> `call_gamelobby`); a joiner's `check_loop`
+   * writes 11 itself at the launch (`IF NOT ( IsSessionMaster(NA) )`, tools/test/onlineDialogs.pinned.json:7122-7124), so
+   * the hole was the HOST page's: after a launch by the 80% countdown its clock stood where `CountDown` left it, under
+   * 11, and `CountDown`'s "under 11" lock could close the returned lobby's controls again. The review's F2: on a host
+   * rig, so only `matchReturned`'s write makes the 11 -- red at c4afde8981 (no write; the host's check_loop skips its
+   * own), where a joiner's rig was green there (its check_loop's 11 at the launch).
+   */
+  it('LOBBY-READY-DELAY (3): a HOST lobby launched by the 80% countdown, then the match\'s return -- mp_x_sec_clock 11 again, READY and the ARMORY open past CountDown\'s next tick', async () => {
+    const hosted = [seat(2, 'socomc', 'seal', { host: true, readyIn: 0 }), seat(3, 'other', 'terrorist', { readyIn: 0 })];
+    const r = await lobby({ lobbyView: () => view(hosted) });
+    r.press('CROSS', 6);                                                 // #350 seen (SeenPopup 1)
+    await r.settle(12 * SECOND);
+    r.commands.gameLobby(view(hosted, { countdown: 11 }));               // the room's 80% countdown
+    await r.settle(5 * SECOND);
+    expect(r.valve('mp_x_sec_clock')).toBeLessThan(11);                  // CountDown's clock driven down (the page's `clocks`)
+    r.commands.gameLobby(view(hosted, { launched: true }));              // the countdown's end: the launch
+    await r.settle(SECOND);
+    expect(r.starts).toHaveLength(1);
+    expect(r.valve('mp_x_sec_clock')).toBeLessThan(11);                  // the host's check_loop writes no 11 at the launch
+    r.commands.matchReturned();
+    // RED at c4afde8981: matchReturned writes no mp_x_sec_clock, so the host's still holds the countdown's last value.
+    expect(r.valve('mp_x_sec_clock')).toBe(11);
+    const built = r.builds.length;
+    r.m.menu.startDialog = GAME_LOBBY;                                   // the page's way back (frontEnd's `back`)
+    r.m.states.switchTo(r.m.menu);
+    r.commands.gameLobby(view(hosted));
+    await until(r, () => r.builds.length > built && r.current() === GAME_LOBBY);
+    await r.settle(2 * SECOND);                                          // SetupSessionMaster's WAIT 1, as the host cases above
+    expect(r.valve('mp_x_sec_clock')).toBe(11);
+    expect([bits(r)[0], bits(r)[2]]).toEqual([true, true]);
+    await r.settle(2 * SECOND);                                          // past CountDown's next tick
+    expect(r.valve('mp_x_sec_clock')).toBe(11);
+    expect([bits(r)[0], bits(r)[2]]).toEqual([true, true]);
+  });
+
+  /** A valve written in its own type (or TEMP, as the script parse makes an unknown name). */
+  const setValve = (r: Rig, n: string, v: number): void => { r.m.valves.set(n, v, r.m.valves.find(n)?.type ?? VALVE_TYPE.TEMP); };
+
+  it("OT.R129 fold (a): back from a match, a character committed in the ARMORY (IDFromBriefing 1), then SWITCH TEAMS -- the kit re-armed for the new side as switch_teams_anim's end does (P:L7603-7621), not FromBriefing alone", async () => {
+    const r = await returnedLobby();
+    setValve(r, 'IDFromBriefing', 1);                                                       // as the ARMORY's commit leaves it
+    expect([r.valve('player_team'), r.valve('MpCharSet'), r.valve('UiCharSet')]).toEqual([8, 5, 240]);
+    const from = r.outcomes.length;
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    r.commands.gameLobby(view([RETURNED[0]!, { ...RETURNED[1]!, team: 'seal' }]));
+    await r.settle(SECOND);
+    expect([r.valve('player_team'), r.valve('MpCharSet'), r.valve('UiCharSet')]).toEqual([0, 1, 15]);   // the SEAL default type
+    expect(rowCalls(r, GAME_LOBBY, from, /ChangeCharacterType\(/).at(-1)).toMatch(/^ChangeCharacterType\(1\) /);
+    expect(bits(r)).toEqual([true, true, true]);
+  });
+
+  it("OT.R129 fold (b): back from a match, the room's launch heard right after its answer to SWITCH TEAMS -- the new side's kit re-armed (switch_teams_anim's end) as the match starts", async () => {
+    const r = await returnedLobby();
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    const moved = [{ ...RETURNED[0]!, ready: true }, { ...RETURNED[1]!, team: 'seal' as const, ready: true }];
+    r.commands.gameLobby(view(moved));
+    r.commands.gameLobby(view(moved, { launched: true }));
+    expect(r.starts).toHaveLength(2);
+    await r.settle(2);
+    expect([r.valve('player_team'), r.valve('MpCharSet'), r.valve('UiCharSet')]).toEqual([0, 1, 15]);
+  });
+
+  it("OT.R129 fold: a seat in the lobby when the room abandons its match (a late seat waiting) has the waits laid aside too -- the ARMORY open within a second", async () => {
+    const r = await lobby({ lobbyView: () => view(TWO, { launched: true }) });
+    r.press('CROSS', 10);                                                                   // #353: YES, wait in the lobby
+    expect(r.valve('NoReadyButton')).toBe(1);                                               // ArmButtonClock counting
+    r.commands.abandoned();                                                                 // the room's abandon, then its lobby again
+    r.commands.gameLobby(view(RETURNED));
+    await r.settle(SECOND);
+    expect([bits(r)[2], r.valve('NoReadyButton')]).toEqual([true, 0]);
+  });
+
+  it("OT.R129 fold: a host's mp_locked_game left at 1 by an earlier swap (an ARMORY trip in SwapClanSides' WAIT 10) holds nothing at a return with no swap due (ClanSwapSidesIndex 2)", async () => {
+    const hosted = [seat(2, 'socomc', 'seal', { host: true, readyIn: 0 }), seat(3, 'other', 'terrorist', { readyIn: 0 })];
+    const r = await lobby({ games: [{ ...GAME, genericField3: 0xd0000005 }], lobbyView: () => view(hosted) });
+    r.press('CROSS', 6);                                                                    // #350 seen (SeenPopup 1)
+    await r.settle(12 * SECOND);
+    r.commands.gameLobby(view(hosted, { launched: true }));
+    await r.settle(SECOND);
+    expect(r.starts).toHaveLength(1);
+    setValve(r, 'mp_locked_game', 1);                                                       // the earlier swap's lock, never let go
+    setValve(r, 'ClanSwapSidesIndex', 1);                                                   // a game since this host's last attempt
+    r.commands.matchReturned();                                                             // GAME COMPLETE's +1: 2, no swap due
+    const built = r.builds.length;
+    r.m.menu.startDialog = GAME_LOBBY;
+    r.m.states.switchTo(r.m.menu);
+    r.commands.gameLobby(view(hosted));
+    await until(r, () => r.builds.length > built && r.current() === GAME_LOBBY);
+    await r.settle(2 * SECOND);
+    expect([r.valve('ClanSwapSidesIndex'), r.valve('mp_locked_game'), bits(r)[2]]).toEqual([2, 1, true]);
+  });
+
+  it('OT.R129, the swap guard on the host\'s page: in "Alternate teams" its waits stand through SwapClanSides\' window, then open at its FINISH', async () => {
+    const hosted = [seat(2, 'socomc', 'seal', { host: true, readyIn: 0 }), seat(3, 'other', 'terrorist', { readyIn: 0 })];
+    const r = await lobby({ games: [{ ...GAME, genericField3: 0xd0000005 }], lobbyView: () => view(hosted) });
+    r.press('CROSS', 6);                                                            // #350 seen (SeenPopup 1)
+    await r.settle(12 * SECOND);
+    r.commands.gameLobby(view(hosted, { launched: true }));
+    await r.settle(SECOND);
+    expect(r.starts).toHaveLength(1);
+    r.commands.matchReturned();
+    const built = r.builds.length;
+    r.m.menu.startDialog = GAME_LOBBY;
+    r.m.states.switchTo(r.m.menu);
+    r.commands.gameLobby(view(hosted));
+    await until(r, () => r.builds.length > built && r.current() === GAME_LOBBY);
+    const sent = r.sent.length;
+    await r.settle(2 * SECOND);
+    expect([bits(r)[2], r.valve('mp_locked_game')]).toEqual([false, 1]);              // the swap's window: ArmButtonClock stands
+    await r.settle(5 * SECOND);
+    expect(r.sent.slice(sent)).toEqual(['clanSwap']);
+    await r.settle(SECOND);
+    expect(bits(r)[2]).toBe(true);                                                   // FINISH sent: the ARMORY open before ArmButtonClock's 10 s
   });
 
   it('the host: IsSessionMaster from the star, #350 at the entry; MP_EIGHTY_READY runs launch_10sec_anim -- ForceMPLaunch sends launch, or #356 with a side empty', async () => {
@@ -963,6 +1346,25 @@ describe.skipIf(!HAVE)(`the GAME LOBBY over the machine${HAVE ? '' : ' (no disc 
     expect(rowCalls(r, GAME_LOBBY, from, /DisconnectFromGameServer|SWITCHMENU/)).toEqual(['DisconnectFromGameServer(NA) table', 'SWITCHMENU(dlgMPBriefingRoom.rdr) table']);
     expect([r.socketLog, r.leaves.length, r.lobby.state(), r.current()]).toEqual([['open 7', 'close'], 1, 11, BRIEFING_ROOM]);
   });
+
+  // R4P-232 / L379 (reading, pending review): r0004 0x0027f660 D4:L133648-133654 clears GoneToArmory on leaving and,
+  // when it was non-zero, runs its watchers; r0001's FUN_0027e420 goes straight to the teardown.
+  for (const [armory, runs] of [[1, 1], [0, 0]] as const) {
+    it(`leaving with GoneToArmory ${armory}: the valve is 0 and its watchers ran ${runs} time(s) (R4P-232)`, async () => {
+      const r = await lobby();
+      r.m.valves.acquire('GoneToArmory', VALVE_TYPE.TEMP);                    // the script's valve (TEMP)
+      r.m.valves.set('GoneToArmory', armory, VALVE_TYPE.TEMP);
+      let ran = 0;
+      r.m.valves.watch('GoneToArmory', 0xff, () => { ran++; });
+      r.press('TRIANGLE', 6);
+      r.press('LEFT', 4);
+      r.press('CROSS', 6);
+      await until(r, () => r.current() === BRIEFING_ROOM, 10 * SECOND);
+      expect([r.valve('GoneToArmory'), ran, r.leaves.length]).toEqual([0, runs, 1]);
+      // r0004 acquires it as type 2 (TEMP): the leave never promotes it, so the relaunch's TEMP drop still clears it.
+      expect(r.m.valves.acquire('GoneToArmory', VALVE_TYPE.TEMP).type).toBe(VALVE_TYPE.TEMP);
+    });
+  }
 
   /**
    * LATE-WATCH (W19.R12; research 314 §4.2, §7 item 3): a seat whose first view is launched is a late joiner. YES to
@@ -1142,6 +1544,31 @@ describe.skipIf(!HAVE)(`the GAME LOBBY over the machine${HAVE ? '' : ' (no disc 
     expect(rowCalls(r, GAME_LOBBY, from, /GetTextInput|SendChatText/)).toEqual(['GetTextInput(CHATTEXT) table', 'SendChatText(CHATTEXT) table']);
     expect(r.sent.filter((s) => s.startsWith('chat'))).toEqual(['chat gg all']);
     expect(r.uiVars.find('BCHATLISTVAR')!.value).toEqual({ type: 'array', value: [{ type: 'string', value: '#C\x80\x80\x80socomc (All): gg all\n' }] });
+  });
+
+  /**
+   * R4P-324 (web research 263 §3a; `CENSOR_HASH_C_READING`): r0004's game line (0x002bc460 -> `Censor` 0x00311fc0, the
+   * tail jump at 0x2bc474) has its callback 0x002bc480 build the packet from the FILTERED text (0x2bc544), send it
+   * (0x2bc57c) and hand the same packet to the local handler 0x002bc5e0 (0x2bc59c): the wire and the seat's own line
+   * both carry `#` + 0xb2 where `#C` was typed. The panel's own colour prefix is the receiver's format, not the text's.
+   */
+  it('R4P-324: a typed #C on the game line goes out and is echoed rewritten, "#" + 0xb2 (0x2bc544-0x2bc59c); the panel\'s own #C prefix kept', async () => {
+    const r = await lobby({ typed: '#Cabc gg #c #B' });
+    await r.settle(11 * SECOND);
+    r.press('TRIGGER_R1' as never, 10);
+    await r.settle(4);
+    expect(r.sent.filter((s) => s.startsWith('chat'))).toEqual(['chat #\u00b2abc gg #c #B']);
+    expect(r.uiVars.find('BCHATLISTVAR')!.value).toEqual({ type: 'array', value: [{ type: 'string', value: '#C\x80\x80\x80socomc (All): #\u00b2abc gg #c #B\n' }] });
+  });
+
+  it('R4P-324: the team form keeps its scope and its own colour prefix; the text in it rewritten', async () => {
+    const r = await lobby({ typed: '#Cxyz go' });
+    await r.settle(11 * SECOND);
+    r.m.valves.set('ChatRecipient', 1, VALVE_TYPE.PERM);
+    r.press('TRIGGER_R1' as never, 10);
+    await r.settle(4);
+    expect(r.sent.filter((s) => s.startsWith('chat'))).toEqual(['chat #\u00b2xyz go (team)']);
+    expect(r.uiVars.find('BCHATLISTVAR')!.value).toEqual({ type: 'array', value: [{ type: 'string', value: '#C@\x80@socomc (Team): #\u00b2xyz go\n' }] });
   });
 
   /**
@@ -1364,5 +1791,377 @@ describe.skipIf(!HAVE)(`the GAME LOBBY over the machine${HAVE ? '' : ' (no disc 
     await r.settle(SETTLED);
     expect(r.valve('player_team')).toBe(8);
     expect(['MpCharSet', 'primsel', 'secsel', 'equip1sel', 'equip2sel', 'equip3sel'].map((n) => r.valve(n))).toEqual([6, 8, 81, 36, 37, 0]);
+  });
+
+  /**
+   * WM-51 task 3 (WM.R21, the owner's team swap queue -- a DEPARTURE from the original on his word; research 432): the
+   * mark (`SWAP_MARK_ADAPTATION`, `../../src/screens/swapMark`) drawn only from the server's `queued` seat field, and the
+   * SWITCH TEAMS button's page behaviour. The original has no queue and no mark (research 432 §1): its rows are the disc's
+   * [name, medal, ready dot, clan tag] (`FUN_002f7020` D:L196331-196496) -- a row with no ask keeps exactly those four
+   * cells; `MARK` the mark (`arrow_top.tif` over `arrow_botm.tif`, the ladder screens' `arrow_up` / `arrow_dwn`, P:L11897-11898).
+   */
+  const MARK = 'arrow_top.tif arrow_botm.tif';
+  const marked = (o: GameLobbyRigOptions = {}): Promise<Rig> => lobby({ ...o, dialogs: (lookup) => withSwapMark(lookup) });
+
+  it('WM.R21 (SWAP_MARK_ADAPTATION): the mark from the server\'s `queued` -- own and others\', both sides -- in the ready dot\'s cell, the dot not drawn; a 30-character name and a clan tag clear of it', async () => {
+    const r = await marked();
+    const long = 'A'.repeat(30);
+    r.commands.gameLobby(view([
+      seat(1, 'host', 'seal', { host: true }), seat(3, long, 'seal', { queued: true }),
+      seat(2, 'socomc', 'terrorist', { queued: true }), seat(4, 'bravo', 'terrorist', { ready: true }), seat(-5, 'CPU 1', 'terrorist', { bot: true }),
+    ]));
+    r.commands.seatClans(new Map([[3, 'TAG']]));
+    await r.settle(2);
+    expect([items(r, 'B_SEALLIST'), items(r, 'B_REDLIST')]).toEqual([
+      [`host | null.tif ping_dot_red.tif`, `${long.slice(0, 14)} [TAG] | null.tif null.tif ${MARK}`]   /* LOBBY_NAME_CUT_14_ADAPTATION: the list draws 14 */,
+      [`socomc | null.tif null.tif ${MARK}`, `bravo | null.tif ping_dot_green.tif`, `CPU 1 BOT | null.tif ping_dot_red.tif`],
+    ]);
+    // Where it is drawn: each arrow's OWN texels (SWAP_MARK_ARROW_TEXELS, not the 16 x 16's transparent margin) on
+    // the ruled w x h, centred on the dot's cell, the two stacked about the dot's middle, clear of the clan tag and the name:
+    // the quad is the texture scaled so its arrow spans w x h (16 x 12 / 10, 16 x 8 / 6 -> 19 x 21), moved up and left by
+    // the margin before the arrow (3 x 19 / 16, 5 x 21 / 16 -> 4, 7).
+    const [w, h] = SWAP_MARK_ARROW_SIZE_ADAPTATION;
+    const [tw, th] = SWAP_MARK_TEXTURE_SIZE;
+    const [ax, ay, aw, ah] = SWAP_MARK_ARROW_TEXELS;
+    const qw = Math.round(tw * w / aw), qh = Math.round(th * h / ah);
+    const dx = Math.round(ax * qw / tw), dy = Math.round(ay * qh / th);
+    expect([qw, qh, dx, dy]).toEqual([19, 21, 4, 7]);
+    for (const [list, row] of [['B_SEALLIST', 1], ['B_REDLIST', 0]] as const) {
+      const l = r.parts.current!.widgets.get(list) as ListboxWidget;
+      const dot = l.spec.columns[2]!;
+      const cell = (c: number) => l.placed.cells.find((x) => x.item === row && x.column === c)!;
+      expect([l.spec.columns.length, l.spec.columns[4]!.size, l.spec.columns[5]!.size]).toEqual([6, [qw, qh], [qw, qh]]);
+      const x = cell(2).x - Math.trunc((w - dot.size[0]) / 2);                // the arrow's own left edge
+      expect([cell(4).kind, cell(5).kind, cell(4).x + dx, cell(5).x + dx]).toEqual(['image', 'image', x, x]);
+      const middle = cell(2).y + Math.trunc(dot.size[1] / 2);
+      expect([cell(4).y + dy + h, cell(5).y + dy]).toEqual([middle, middle]);
+      expect(x + w).toBeLessThan(cell(3).x);
+      expect(x + w).toBeLessThan(cell(0).x);
+    }
+  });
+
+  it('WM.R21: no mark from a view without the field (an older server); a dialog without the mark\'s columns draws a queued seat\'s dot as today', async () => {
+    const r = await marked();
+    r.commands.gameLobby(view(TWO, { refused: 'sides' }));
+    await r.settle(2);
+    expect([items(r, 'B_SEALLIST'), items(r, 'B_REDLIST')]).toEqual([[`host | null.tif ping_dot_red.tif`], [`socomc | null.tif ping_dot_red.tif`]]);
+    const plain = await lobby();
+    plain.commands.gameLobby(view([TWO[0]!, { ...TWO[1]!, queued: true }]));
+    await plain.settle(2);
+    expect(items(plain, 'B_REDLIST')).toEqual(['socomc | null.tif ping_dot_red.tif']);
+  });
+
+  it('WM.R21: the queuing and the cancelling answers (`queued`, `unqueued`) end the switch\'s wait as any refusal -- a fresh lobby after its 5 s', async () => {
+    const r = await marked();
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    r.commands.gameLobby(view([TWO[0]!, { ...TWO[1]!, queued: true }], { refused: 'queued' }));
+    await r.settle(2);
+    expect(items(r, 'B_REDLIST')).toEqual([`socomc | null.tif null.tif ${MARK}`]);
+    await r.settle(7 * SECOND);
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    r.commands.gameLobby(view(TWO, { refused: 'unqueued' }));
+    await r.settle(2);
+    expect(items(r, 'B_REDLIST')).toEqual([`socomc | null.tif ping_dot_red.tif`]);
+    await r.settle(7 * SECOND);
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    expect(r.sent).toEqual(['switchTeams', 'switchTeams', 'switchTeams']);
+    expect([r.valve('player_team'), r.valve('MpCharSet')]).toEqual([8, 5]);
+  });
+
+  it('WM.R21: back from a match (OT.R129) the queuing and the cancelling answers each pass switch_teams_anim\'s WAIT at once -- READY, SWITCH TEAMS and the ARMORY open', async () => {
+    const r = await returnedLobby();
+    const sent = r.sent.length;
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    r.commands.gameLobby(view([RETURNED[0]!, { ...RETURNED[1]!, queued: true }], { refused: 'queued' }));
+    await r.settle(SECOND);
+    expect(bits(r)).toEqual([true, true, true]);
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    r.commands.gameLobby(view(RETURNED, { refused: 'unqueued' }));
+    await r.settle(SECOND);
+    expect(bits(r)).toEqual([true, true, true]);
+    expect(r.sent.slice(sent)).toEqual(['switchTeams', 'switchTeams']);
+    expect([r.valve('player_team'), r.valve('MpCharSet')]).toEqual([8, 5]);
+  });
+
+  it('WM.R21: a queued move that lands later (switch_teams_anim long ended) runs its end -- the kit re-armed for the new side (P:L7603-7628) -- with no second switchTeams and no SwitchSides; a fresh lobby', async () => {
+    const r = await marked();
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    r.commands.gameLobby(view([TWO[0]!, { ...TWO[1]!, queued: true }], { refused: 'queued' }));
+    await r.settle(7 * SECOND);                                                    // its WAIT 5 run out: the end armed the TERRORIST kit
+    expect([r.valve('player_team'), r.valve('MpCharSet')]).toEqual([8, 5]);
+    const from = r.outcomes.length;
+    r.commands.gameLobby(view([TWO[0]!, { ...TWO[1]!, team: 'seal' }]));           // a Terrorist left: the queued move lands, the ask ended
+    await r.settle(SECOND);
+    expect([r.valve('player_team'), r.valve('MpCharSet'), r.valve('UiCharSet')]).toEqual([0, 1, 15]);   // the SEAL default type
+    expect(rowCalls(r, GAME_LOBBY, from, /ChangeCharacterType\(/).at(-1)).toMatch(/^ChangeCharacterType\(1\) /);
+    expect(rowCalls(r, GAME_LOBBY, from, /SwitchSides/)).toEqual([]);
+    expect(r.sent).toEqual(['switchTeams']);
+    expect(items(r, 'B_SEALLIST')).toEqual([`host | null.tif ping_dot_red.tif`, `socomc | null.tif ping_dot_red.tif`]);
+  });
+
+  it('WM.R21: back from a match, a queued move that lands later re-arms the new side\'s kit with no second switchTeams; the controls stay open', async () => {
+    const r = await returnedLobby();
+    const sent = r.sent.length;
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    r.commands.gameLobby(view([RETURNED[0]!, { ...RETURNED[1]!, queued: true }], { refused: 'queued' }));
+    await r.settle(SECOND);
+    expect([r.valve('player_team'), r.valve('MpCharSet')]).toEqual([8, 5]);
+    r.commands.gameLobby(view([RETURNED[0]!, { ...RETURNED[1]!, team: 'seal' }]));
+    await r.settle(SECOND);
+    expect([r.valve('player_team'), r.valve('MpCharSet'), r.valve('UiCharSet')]).toEqual([0, 1, 15]);
+    expect(r.sent.slice(sent)).toEqual(['switchTeams']);
+    expect(bits(r)).toEqual([true, true, true]);
+  });
+
+  it('WM.R21: a trade inside the queuing press\'s own 5 s -- switch_teams_anim\'s own end arms the new side once, nothing more started', async () => {
+    const r = await marked();
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    const from = r.outcomes.length;
+    r.commands.gameLobby(view([TWO[0]!, { ...TWO[1]!, queued: true }], { refused: 'queued' }));
+    await r.settle(SECOND);
+    r.commands.gameLobby(view([TWO[0]!, { ...TWO[1]!, team: 'seal' }]));           // a queued SEAL pressed: the trade
+    await r.settle(6 * SECOND);
+    expect([r.valve('player_team'), r.valve('MpCharSet')]).toEqual([0, 1]);
+    // ONE switch end: its own ChangeCharacterType(1) (P:L7613) and its CALL FromBriefing's (P:L7576: no record, IDFromBriefing 0) -- a second end would make four
+    expect(rowCalls(r, GAME_LOBBY, from, /ChangeCharacterType\(/)).toEqual(['ChangeCharacterType(1) not implemented: PLAT-34', 'ChangeCharacterType(1) not implemented: PLAT-34']);
+    expect(r.sent).toEqual(['switchTeams']);
+  });
+
+  it("the fold's finding 1: a queued move landing with the countdown's first view -- SWITCH TEAMS stays closed, the old kit kept; the countdown called off, the switch's end runs", async () => {
+    const r = await marked();
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    r.commands.gameLobby(view([TWO[0]!, { ...TWO[1]!, queued: true }], { refused: 'queued' }));
+    await r.settle(7 * SECOND);
+    r.commands.gameLobby(view([TWO[0]!, { ...TWO[1]!, team: 'seal' }], { countdown: 11 }));
+    await r.settle(2 * SECOND);
+    expect([bits(r)[1], r.valve('MpCharSet')]).toEqual([false, 5]);
+    r.commands.gameLobby(view([TWO[0]!, { ...TWO[1]!, team: 'seal' }]));           // the call-off
+    await r.settle(SECOND);
+    expect([r.valve('player_team'), r.valve('MpCharSet'), r.valve('UiCharSet')]).toEqual([0, 1, 15]);
+    expect(r.sent).toEqual(['switchTeams']);
+  });
+
+  it('WM.R21: an older server (`sides`, no field) -- no mark, no queued belief: a later side change runs no switch end', async () => {
+    const r = await marked();
+    go(r, 'Glswitchteams');
+    r.press('CROSS', 4);
+    r.commands.gameLobby(view(TWO, { refused: 'sides' }));
+    await r.settle(7 * SECOND);
+    expect(items(r, 'B_REDLIST')).toEqual([`socomc | null.tif ping_dot_red.tif`]);
+    const from = r.outcomes.length;
+    r.commands.gameLobby(view([TWO[0]!, { ...TWO[1]!, team: 'seal' }]));
+    await r.settle(SECOND);
+    expect(rowCalls(r, GAME_LOBBY, from, /ChangeCharacterType\(|CharacterProfile\(/)).toEqual([]);
+    expect([r.valve('player_team'), r.valve('MpCharSet')]).toEqual([0, 5]);
+  });
+});
+
+/**
+ * WM-51 task 3 (WM.R21) off the machine (no disc): the page's own choices on a `gameLobby` view, with the seat's
+ * `queued` field. R4B-08's "Team Switch Error!" (research 379 §3; `TEAM_SWITCH_ERROR_DIALOG`) is r0004's for a SWITCH
+ * TEAMS move landing on the in-lobby ARMORY; under WM.R21 a queued player's OWN queued move landing there later is not
+ * shown it, every other case as research 379 §3 has it. Synthetic seats; names invented.
+ */
+describe('WM.R21: the page on a queued seat\'s views (no disc)', () => {
+  const listed: GameListEntry = { ...GAME, gameStats: statsHex({ 8: 2 }) };
+  function page(recover?: (s: LobbyControlRecovery) => boolean) {
+    const valves = new ValveStore();
+    valves.acquire('player_team', VALVE_TYPE.PERM);
+    const events: [number, string | null][] = [];
+    const sent: string[] = [];
+    let dialog: string | null = GAME_LOBBY;
+    const uiVars = new UiVarManager();
+    const c = new GameLobbyCommands({
+      uiVars, valves: () => valves, games: () => [], dialog: () => dialog,
+      socket: { open: () => true, send: (t) => { sent.push(t); }, close: () => undefined },
+      event: (kind, text) => { events.push([kind, text]); },
+      ...(recover ? { recoverLobby: recover } : {}),
+    });
+    c.enterGameLobby(listed);
+    c.welcomed(2);
+    const at = (team: 'seal' | 'terrorist', queued = false): GameLobbyView => ({
+      seats: [{ id: 2, name: 'Me', team, ready: false, host: false, readyIn: 0, ...(queued ? { queued: true } : {}) }, { id: 3, name: 'Other', team: 'seal', ready: false, host: true, readyIn: 0 }],
+      countdown: null, launched: false,
+    });
+    return { c, uiVars, valves, events, sent, at, on: (d: string | null) => { dialog = d; } };
+  }
+  const ERROR = DIALOG_EVENTS.MP_MEDIUS_ERROR!;
+
+  it('the fold\'s finding 1: a late re-arm is not asked while the launch countdown runs (CountDown\'s lock); the countdown called off, it is', () => {
+    const asked: LobbyControlRecovery[] = [];
+    const p = page((s) => { asked.push(s); return true; });
+    p.c.gameLobby(p.at('terrorist', true));
+    p.c.gameLobby({ ...p.at('seal'), countdown: 11 });                            // the move and the 80% countdown together
+    p.c.gameLobby({ ...p.at('seal'), countdown: 10 });
+    expect(asked.filter((s) => s.late)).toEqual([]);
+    p.c.gameLobby(p.at('seal'));                                                   // called off: the view schedules the reset
+    expect(asked.filter((s) => s.late)).toEqual([]);                              // not before the reset (the re-check's A)
+    p.c.CheckForcedLaunch({ arg: '' } as never, undefined as never, undefined);                                   // the lobby's frame: the reset, then the end
+    const late = asked.findIndex((s) => s.late), reset = asked.findIndex((s) => s.reset);
+    expect([asked.filter((s) => s.late).length, reset >= 0 && reset < late]).toEqual([1, true]);
+  });
+
+  it('the fold\'s finding 2: at the launch a late re-arm that cannot run (another dialog built) writes the new side\'s default type, as the end\'s no-record branch does (P:L7610-7618)', () => {
+    const p = page(() => false);
+    for (const [n, v] of [['MpCharSet', 5], ['UiCharSet', 240]] as const) { p.valves.acquire(n, VALVE_TYPE.PERM); p.valves.set(n, v, VALVE_TYPE.PERM); }
+    p.c.gameLobby(p.at('terrorist', true));
+    p.c.gameLobby(p.at('seal'));                                                   // moved; the end owed, the recovery refusing
+    expect([p.valves.find('MpCharSet')!.value, p.valves.find('UiCharSet')!.value]).toEqual([5, 240]);
+    p.c.gameLobby({ ...p.at('seal'), launched: true });
+    expect([p.valves.find('player_team')!.value, p.valves.find('MpCharSet')!.value, p.valves.find('UiCharSet')!.value]).toEqual([0, 1, 15]);
+  });
+
+  it('the fold\'s finding 2: with no late re-arm owed the launch writes no character type', () => {
+    const p = page(() => false);
+    for (const [n, v] of [['MpCharSet', 6], ['UiCharSet', 32]] as const) { p.valves.acquire(n, VALVE_TYPE.PERM); p.valves.set(n, v, VALVE_TYPE.PERM); }
+    p.c.gameLobby(p.at('terrorist'));
+    p.c.gameLobby({ ...p.at('terrorist'), launched: true });
+    expect([p.valves.find('MpCharSet')!.value, p.valves.find('UiCharSet')!.value]).toEqual([6, 32]);
+  });
+
+  it('note 6: an old page traded cleanly -- views without the field, the own side changed with no press: today\'s behaviour (no error on the lobby, no switch end asked, nothing sent)', () => {
+    const asked: LobbyControlRecovery[] = [];
+    const p = page((s) => { asked.push(s); return true; });
+    p.c.gameLobby(p.at('terrorist'));
+    p.c.gameLobby(p.at('seal'));
+    expect([p.events, asked.filter((s) => s.late), p.sent, p.valves.find('player_team')!.value]).toEqual([[], [], [], 0]);
+  });
+
+  it('on the ARMORY: its OWN queued move landing is not shown "Team Switch Error!"; a move with no ask in the last view still is', () => {
+    const p = page();
+    p.c.gameLobby(p.at('terrorist', true));
+    p.on(TEAM_SWITCH_ERROR_DIALOG);
+    p.c.gameLobby(p.at('seal'));
+    expect(p.events).toEqual([]);
+    p.c.gameLobby(p.at('terrorist'));                                              // no ask standing: the original's case
+    expect(p.events).toEqual([[ERROR, TEAM_SWITCH_ERROR_TEXT]]);
+  });
+
+  it('on the ARMORY: an ask cancelled (the last view without the field) and then a move -- the error as research 379 §3 has it', () => {
+    const p = page();
+    p.c.gameLobby(p.at('terrorist', true));
+    p.c.gameLobby(p.at('terrorist'));
+    p.on(TEAM_SWITCH_ERROR_DIALOG);
+    p.c.gameLobby(p.at('seal'));
+    expect(p.events).toEqual([[ERROR, TEAM_SWITCH_ERROR_TEXT]]);
+  });
+
+  it('a queued move landing asks the page\'s recovery for the switch\'s end (`rearm` with `late`) and sends nothing; no ask, no move or the first view asks none', () => {
+    const asked: LobbyControlRecovery[] = [];
+    const p = page((s) => { asked.push(s); return true; });
+    p.c.gameLobby(p.at('terrorist', true));                                        // the first view: no move
+    p.c.gameLobby(p.at('terrorist', true));                                        // no move
+    expect(asked.filter((s) => s.late)).toEqual([]);
+    p.c.gameLobby(p.at('seal'));
+    expect(asked.filter((s) => s.late)).toEqual([{ reset: false, restartEntryTimers: false, host: false, rearm: true, late: true }]);
+    p.c.gameLobby(p.at('terrorist'));                                              // a move with no ask: none asked
+    expect(asked.filter((s) => s.late)).toHaveLength(1);
+    expect(p.sent).toEqual([]);
+  });
+
+  it('the switch\'s end owed is asked again while the recovery cannot run it (another dialog built), then once', () => {
+    let can = false;
+    const asked: LobbyControlRecovery[] = [];
+    const p = page((s) => { asked.push(s); return can; });
+    p.c.gameLobby(p.at('terrorist', true));
+    p.c.gameLobby(p.at('seal'));
+    p.c.gameLobby(p.at('seal'));
+    can = true;
+    p.c.gameLobby(p.at('seal'));
+    p.c.gameLobby(p.at('seal'));
+    expect(asked.filter((s) => s.late)).toHaveLength(3);
+  });
+
+  it('the mark\'s cells: drawn from the field only -- the dot column shifted past the disc\'s three textures, the two arrow cells 1; a row with no ask keeps the disc\'s four', () => {
+    const p = page();
+    p.c.gameLobby({ ...p.at('terrorist', true), refused: 'queued' });
+    const rows = (name: string) => p.uiVars.find(name)!.value;
+    expect(rows('BTERRLISTVAR')).toEqual({ type: 'array', value: [{ type: 'array', value: [
+      { type: 'string', value: 'Me' }, { type: 'int', value: 0 }, { type: 'int', value: 1 + SWAP_MARK_DOT_SHIFT },
+      { type: 'array', value: [{ type: 'string', value: 'VALUE' }, { type: 'string', value: '' }, { type: 'string', value: 'COLOR' }, expect.anything()] },
+      { type: 'int', value: 1 }, { type: 'int', value: 1 },
+    ] }] });
+    p.c.gameLobby({ ...p.at('terrorist'), refused: 'queued' });                     // `refused` alone is no mark: the field decides
+    expect((rows('BTERRLISTVAR') as unknown as { value: { value: unknown[] }[] }).value[0]!.value.slice(2)).toEqual([
+      { type: 'int', value: 1 }, expect.anything(),                                // the disc's four cells, no more
+    ]);
+  });
+});
+
+/** STREAMER-P1 slice 2 (a browser adaptation, `../../src/text/chatFilter`): the game lobby's relayed lines under the page's filter. */
+describe.skipIf(!HAVE)(`STREAMER-P1: the game lobby's relayed lines under the page's chat filter${HAVE ? '' : ' (no disc and no fixtures)'}`, () => {
+  const lines = (r: { uiVars: { find(n: string): { value: { type: string; value?: unknown } } | undefined } }): string[] => {
+    const v = r.uiVars.find('BCHATLISTVAR')?.value as { type: string; value: { type: string; value: string }[] } | undefined;
+    return v?.type === 'array' ? v.value.map((e) => (e.type === 'string' ? e.value : '')) : [];
+  };
+  it('a refused sender not drawn, one count line rewritten in place; a friend drawn; unset as before', async () => {
+    setChatFilter((place, s) => place === 'lobby' && s.name === 'pal');
+    try {
+      const r = await lobby();
+      await r.settle(11 * SECOND);
+      r.commands.chatLine({ sender: 1, name: 'host', text: 'slur' });
+      r.commands.chatLine({ sender: 2, name: 'pal', text: 'hi' });
+      r.commands.chatLine({ sender: 1, name: 'host', text: 'more' });
+      expect(lines(r as never)).toEqual([`#C\x80\x80\x80${chatHiddenWords(2)}\n`, '#C\x80\x80\x80pal (All): hi\n']);
+      r.commands.welcomed(7);
+      r.commands.chatLine({ sender: 7, name: 'socomc', text: 'mine' });                // the seat's own: never asked
+      expect(lines(r as never).at(-1)).toBe('#C\x80\x80\x80socomc (All): mine\n');
+      r.commands.seatEnded(null);                                                     // no seat (the review's F4): the own line is sent as -1
+      r.commands.chatLine({ sender: -1, name: '', text: 'early' });
+      expect(lines(r as never).at(-1)).toBe('#C\x80\x80\x80Unknown (All): early\n');
+      setChatFilter(null);
+      r.commands.chatLine({ sender: 1, name: 'host', text: 'back' });
+      expect(lines(r as never).at(-1)).toBe('#C\x80\x80\x80host (All): back\n');
+    } finally { setChatFilter(null); }
+  });
+});
+
+/** IQ-183 (a browser adaptation, `../../src/text/ownNameDisplay`): the own seat's name in the lists and the own chat line. */
+describe.skipIf(!HAVE)(`IQ-183: the game lobby draws the own seat’s name by the page’s own-name rule${HAVE ? '' : ' (no disc and no fixtures)'}`, () => {
+  const lines = (r: { uiVars: { find(n: string): { value: { type: string; value?: unknown } } | undefined } }): string[] => {
+    const v = r.uiVars.find('BCHATLISTVAR')?.value as { type: string; value: { type: string; value: string }[] } | undefined;
+    return v?.type === 'array' ? v.value.map((e) => (e.type === 'string' ? e.value : '')) : [];
+  };
+  const names = (r: { uiVars: { find(n: string): { value: { type: string; value?: unknown } } | undefined } }, list: string): string[] => {
+    const v = r.uiVars.find(list)?.value as { type: string; value: { type: string; value: { type: string; value: unknown }[] }[] } | undefined;
+    return v?.type === 'array' ? v.value.map((row) => String(row.value[0]!.value)) : [];
+  };
+  it('set: the own seat reads the rule’s text in its side’s list and on its own chat line; others unchanged; unset as before', async () => {
+    setOwnNameDisplay(() => 'YOU');
+    try {
+      const r = await lobby();
+      await r.settle(11 * SECOND);
+      r.commands.gameLobby({ seats: [seat(1, 'host', 'seal', { host: true }), seat(2, 'socomc', 'terrorist')], countdown: null, launched: false });
+      expect([names(r as never, 'BSEALLISTVAR'), names(r as never, 'BTERRLISTVAR')]).toEqual([['host'], ['YOU']]);
+      r.commands.chatLine({ sender: 2, name: 'socomc', text: 'mine' });
+      r.commands.chatLine({ sender: 1, name: 'host', text: 'hi' });
+      expect(lines(r as never).slice(-2)).toEqual(['#C\x80\x80\x80YOU (All): mine\n', '#C\x80\x80\x80host (All): hi\n']);
+      setOwnNameDisplay(null);
+      r.commands.gameLobby({ seats: [seat(1, 'host', 'seal', { host: true }), seat(2, 'socomc', 'terrorist')], countdown: null, launched: false });
+      expect(names(r as never, 'BTERRLISTVAR')).toEqual(['socomc']);
+      r.commands.chatLine({ sender: 2, name: 'socomc', text: 'back' });
+      expect(lines(r as never).at(-1)).toBe('#C\x80\x80\x80socomc (All): back\n');
+    } finally { setOwnNameDisplay(null); }
+  });
+  it('the review’s F3: the 14-character cut is after the rule; before a seat the own line (sender -1, no name) still reads Unknown', async () => {
+    setOwnNameDisplay(() => 'ABCDEFGHIJKLMNOPQ');
+    try {
+      const r = await lobby();
+      await r.settle(11 * SECOND);
+      r.commands.gameLobby({ seats: [seat(1, 'host', 'seal', { host: true }), seat(2, 'socomc', 'terrorist')], countdown: null, launched: false });
+      expect(names(r as never, 'BTERRLISTVAR')).toEqual(['ABCDEFGHIJKLMN']);
+      r.commands.seatEnded(null);
+      r.commands.chatLine({ sender: -1, name: '', text: 'early' });
+      expect(lines(r as never).at(-1)).toBe('#C\x80\x80\x80Unknown (All): early\n');
+    } finally { setOwnNameDisplay(null); }
   });
 });

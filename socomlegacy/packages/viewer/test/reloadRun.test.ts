@@ -388,7 +388,7 @@ describe.skipIf(absent)('the disc\'s reload clips (research 150 §2)', () => {
 
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]),
+  points: Float32Array.from([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400]),
 };
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
 const OWNERS: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
@@ -592,7 +592,7 @@ function pagePeriod(sim: SimClips, record: WeaponRecord, stance: 'crouch' | 'pro
 
 function flatSimMap(): SimMap {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
-  const floor: WorldPoly = { ...FLOOR, points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
+  const floor: WorldPoly = { ...FLOOR, points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) };
   const ground = packGround(params, [floor], OWNERS);
   const slot = (side: 0 | 1, index: number, x: number, z: number): SpawnSlot => ({
     side, index, position: [x, 0, z], onFloor: true, step: side === 0 ? 2 : 6, facing: side === 0 ? [1, 0] : [-1, 0], loc: { map: 0, x: 0, z: 0 },

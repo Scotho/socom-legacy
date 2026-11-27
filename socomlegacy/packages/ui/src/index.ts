@@ -31,6 +31,7 @@ export * from './uiCommands';
 export * from './movie';
 export * from './clock';
 export * from './text/index';
+export * from './text/ownNameDisplay';   // IQ-183: the page's own-name rule (a browser adaptation)
 export * from './compositor/index';
 export * from './screens/index';
 export * from './routes/index';
@@ -63,6 +64,7 @@ export * from './screens/createClanCommands';
 export * from './screens/invitedPlayersCommands';
 export * from './screens/respondToInvitesCommands';
 export * from './screens/clanMessagesCommands';
+export * from './screens/clanBandAlign';   // CLAN_BAND_ALIGN_ADAPTATION (the owner's intended divergence)
 export * from './screens/manageRosterCommands';
 export * from './screens/manageRosterLeaderCommands';
 export * from './screens/autoplayCommands';
@@ -70,6 +72,8 @@ export * from './screens/briefingRoomCommands';
 export * from './screens/briefingRoomChat';
 export * from './screens/gameLobbyCommands';
 export * from './screens/lobbyBots';
+export * from './screens/seatQueue';
+export * from './screens/swapMark';
 export * from './screens/lobbyRecovery';
 export * from './screens/inviteJoin';
 export * from './screens/createGameCommands';

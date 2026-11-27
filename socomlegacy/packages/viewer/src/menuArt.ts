@@ -90,6 +90,8 @@ export const UI_MODEL_TEXTURES = { txr: 'RUN/UI/UI_TXR.ZED', pal: 'RUN/UI/UI_PAL
 
 /** The art: the bitmaps by name (top row first), the models by name, what would not read. */
 export interface MenuArt {
+  /** Xbox memory adaptation: forget decoded bitmap copies, retaining their immutable source libraries and model data. */
+  releaseDecoded?(): void;
   textures: UiTextures;
   model: (name: string) => UiModelGeometry | null;
   missing: string[];
@@ -153,6 +155,8 @@ export async function readMenuArt(source: AssetSource, dialogs: readonly DialogD
     await add('UI', UI_MODEL_TEXTURES.txr, UI_MODEL_TEXTURES.pal);
   }
   const bitmaps = new Map<string, UiBitmap | null>();
+  let decodeGeneration = 0;
+  const reported = new Set<string>();
   // GM-32: the prefetch's answers by lower-cased name, each the bitmap the lookup would make (its decode said nothing),
   // moved into `bitmaps` at the lookup's first ask.
   const prefetched = new Map<string, UiBitmap>();
@@ -163,7 +167,8 @@ export async function readMenuArt(source: AssetSource, dialogs: readonly DialogD
       if (pre) { prefetched.delete(key); bitmaps.set(key, pre); return pre; }
       const lib = libs.find((l) => l.has(name));
       const got = lib ? lib.decode(name) : null;
-      if (got) for (const d of got.diagnostics) missing.push(`${lib!.name}: ${d}`);
+      if (got && !reported.has(key)) for (const d of got.diagnostics) missing.push(`${lib!.name}: ${d}`);
+      reported.add(key); // Recreating a released bitmap must not duplicate its diagnostics.
       bitmaps.set(key, got?.rgba ? { ...flipRows(got.rgba), blend: got.blend } : null);
     }
     return bitmaps.get(key)!;
@@ -187,10 +192,12 @@ export async function readMenuArt(source: AssetSource, dialogs: readonly DialogD
   const prefetch = (o: UiTexturePrefetchOptions): UiTexturePrefetch => {
     const max = o.maxBytes ?? MENU_ART_PREFETCH_ADAPTATION.maxBytes;
     const st = { decoded: 0, bytes: 0, raced: 0, capped: false, stopped: false };
+    const generation = decodeGeneration;
+    const stopped = (): boolean => st.stopped || generation !== decodeGeneration;
     const run = async (): Promise<string | null> => {
       let budget = 0;
       for (const lib of libs.slice()) {
-        if (st.stopped) return null;
+        if (stopped()) return null;
         // The names this library answers for the lookup (the first library holding each) that nothing decoded yet.
         const names: string[] = [];
         for (const n of lib.names) {
@@ -202,7 +209,7 @@ export async function readMenuArt(source: AssetSource, dialogs: readonly DialogD
         }
         if (names.length) {
           const got = await o.decoder({ txr: lib.txr, pal: lib.pal, names, hash: o.seedKey !== undefined, diagnostics: true });
-          if (st.stopped) return null;
+          if (stopped()) return null;
           for (const g of got) {
             if (bitmaps.has(g.name)) { st.raced++; continue; }              // the lookup decoded it first: its object stays
             const bind = lib.bind(g.name);
@@ -220,13 +227,15 @@ export async function readMenuArt(source: AssetSource, dialogs: readonly DialogD
       return null;
     };
     // A decode the stop cut short (the worker closed under it) is the stop, not a failure: no reason.
-    const finished = run().catch((e: unknown) => (st.stopped ? null : why(e)));
+    const finished = run().catch((e: unknown) => (stopped() ? null : why(e)));
     return {
       get decoded() { return st.decoded; }, get bytes() { return st.bytes; }, get raced() { return st.raced; }, get capped() { return st.capped; },
       finished, stop: () => { st.stopped = true; },
     };
   };
-  return { textures, model, missing, libraries: libs.map((l) => l.name), prefetch };
+  return { textures, model, missing, libraries: libs.map((l) => l.name), prefetch,
+    releaseDecoded: () => { decodeGeneration++; bitmaps.clear(); prefetched.clear(); },
+  };
 }
 
 /**

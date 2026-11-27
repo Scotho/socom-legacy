@@ -172,25 +172,43 @@ describe('RESUME-MOUNTED: the resume re-applies the page\'s hold (OT.R59\'s foll
   });
 });
 
-/** The placeholder, read loosely so the RED runs before it exists. */
+/** The retired stand-in, read loosely: TURRET_FREE_GUN_PITCH settled it (the room keeps the pitch; the wire carries it). */
 const FREE_PITCH = (turretPage as unknown as { TURRET_FREE_GUN_PITCH_PLACEHOLDER?: number }).TURRET_FREE_GUN_PITCH_PLACEHOLDER;
 
-describe("RESUME-MOUNTED: a free gun a welcome named left turned, drawn at the room's yaw (TURRET_FREE_GUN_PITCH_PLACEHOLDER)", () => {
-  it('the stand-in pitch is level, 0: the room keeps no pitch (research 215 s4)', () => {
-    expect(FREE_PITCH).toBe(0);
+describe("RESUME-MOUNTED: a free gun a welcome named left turned, drawn at the room's yaw and pitch (TURRET_FREE_GUN_PITCH, R2-FIRE-3 s9)", () => {
+  it('the stand-in is retired: the page keeps no placeholder pitch', () => {
+    expect(FREE_PITCH).toBeUndefined();
   });
 
-  it("a welcome naming a free gun at 60: each frame draws it at the room's yaw and the stand-in pitch (gunDelta), until it is taken", () => {
+  it("a welcome naming a free gun at yaw 60, pitch -15: each frame draws it at the room's yaw AND pitch (gunDelta), until it is taken", () => {
     const { page: p, moved } = page({ yaw: 0, pitch: 0 });
-    p.event(ev({ type: 'welcome', turrets: [{ id: 0, occupant: null, ammo: 750, gunYaw: 60 }] }));
+    p.event(ev({ type: 'welcome', turrets: [{ id: 0, occupant: null, ammo: 750, gunYaw: 60, gunPitch: -15 } as never] }));
     p.frame();
     expect(moved.map(([path]) => path)).toEqual(['g']);
-    expect([...moved[0]![1]]).toEqual([...gunDelta(PLACE, 60, FREE_PITCH ?? NaN)]);
+    expect([...moved[0]![1]]).toEqual([...gunDelta(PLACE, 60, -15)]);
     p.frame();
     expect(moved).toHaveLength(2);                                   // drawn each frame while free
   });
 
-  it("the edge: a welcome-named gun taken and released live leaves the welcome's draw at the occupation and stays where its occupant left it -- never redrawn at the stand-in pitch", () => {
+  it("the turret review's N4: a second welcome naming the same gun at the same yaw but a NEW pitch redraws it at the new pitch", () => {
+    const { page: p, moved } = page({ yaw: 0, pitch: 0 });
+    p.event(ev({ type: 'welcome', turrets: [{ id: 0, occupant: null, ammo: 750, gunYaw: 60, gunPitch: -15 } as never] }));
+    p.frame();
+    p.event(ev({ type: 'welcome', turrets: [{ id: 0, occupant: null, ammo: 750, gunYaw: 60, gunPitch: -5 } as never] }));
+    moved.length = 0;
+    p.frame();
+    expect(moved, 'redrawn: the pitch changed while away').toHaveLength(1);
+    expect([...moved[0]![1]]).toEqual([...gunDelta(PLACE, 60, -5)]);
+  });
+
+  it("a welcome naming a free gun at 60 with no gunPitch: drawn level (the room sends none for a level gun)", () => {
+    const { page: p, moved } = page({ yaw: 0, pitch: 0 });
+    p.event(ev({ type: 'welcome', turrets: [{ id: 0, occupant: null, ammo: 750, gunYaw: 60 }] }));
+    p.frame();
+    expect([...moved[0]![1]]).toEqual([...gunDelta(PLACE, 60, 0)]);
+  });
+
+  it("the edge: a welcome-named gun taken and released live leaves the welcome's draw at the occupation and stays where its occupant left it -- never redrawn at the welcome's pitch", () => {
     const { page: p, moved, bodies, advance } = page({ yaw: 0, pitch: 0 });
     p.event(ev({ type: 'welcome', turrets: [{ id: 0, occupant: null, ammo: 750, gunYaw: 60 }] }));
     p.frame();
@@ -227,12 +245,12 @@ describe("the review's finding 1: a reconnect keeps a gun this page saw released
     expect(moved).toEqual([]);
   });
 
-  it('turned while the page was away, the welcome names it at 45: drawn at 45 and the stand-in pitch', () => {
+  it('turned while the page was away, the welcome names it at 45 (no gunPitch: level): drawn at 45 and pitch 0', () => {
     const { page: p, moved } = watched();
     p.event(ev({ type: 'welcome', map: 'MP72', turrets: [{ id: 0, occupant: null, ammo: 750, gunYaw: 45 }] }));
     p.frame();
     expect(moved).toHaveLength(1);
-    expect([...moved[0]![1]]).toEqual([...gunDelta(PLACE, 45, FREE_PITCH ?? NaN)]);
+    expect([...moved[0]![1]]).toEqual([...gunDelta(PLACE, 45, 0)]);   // TURRET_FREE_GUN_PITCH: no gunPitch told, a level gun
   });
 
   it('a welcome for another map: the told yaws let go (turret ids restart per map), so its free turned gun at 30 is drawn', () => {
@@ -240,6 +258,6 @@ describe("the review's finding 1: a reconnect keeps a gun this page saw released
     p.event(ev({ type: 'welcome', map: 'MP6', turrets: [{ id: 0, occupant: null, ammo: 750, gunYaw: 30 }] }));
     p.frame();
     expect(moved).toHaveLength(1);
-    expect([...moved[0]![1]]).toEqual([...gunDelta(PLACE, 30, FREE_PITCH ?? NaN)]);
+    expect([...moved[0]![1]]).toEqual([...gunDelta(PLACE, 30, 0)]);   // TURRET_FREE_GUN_PITCH: no gunPitch told, a level gun
   });
 });

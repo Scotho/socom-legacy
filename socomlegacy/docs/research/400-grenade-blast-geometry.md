@@ -186,6 +186,10 @@ Frostfire's.
 | MP51 | 8950 | 4930 | 2823 | 141 | 39 | 96 | 16 |
 | MP72 | 9838 | 7071 | 3093 | 375 | 399 | 786 | 835 |
 
+*(2026-11-14, OT.R127: the port's MP72 hull is now 9836 -- r0004's node 0x2d8500, two INVISIBLE_DI quads at the gray
+tents' fronts, is not applied ([research 388](388-r0004-blast-see-through.md) §4). The row above is the census as run
+before the ruling and is not re-run here.)*
+
 **Desert Glory, by type** (one-faced; see-through; drawn wall area with no collision / see-through only;
 PENETRATION > 0):
 - **Unnamed geometry `gNNN`** (DG's mud walls and rock): 1055 of 1074 one-faced, 4 with room behind; 9.5% no
@@ -485,7 +489,8 @@ round's point (`FUN_00272bb0(.., 1, 5, round+0x48)`, D:L319246), sorts the targe
 list itself was filled in state 3 by `FUN_0031dc90`, D:L316805 / D:L320416, which copies the point, D:L219822-219824),
 sets the state again (D:L319265) and, last, lifts the point: `round+0x4c += 1.0` (D:L319266), unconditional. Both
 projectile updaters run it on state 4 -- `FUN_003c5310` (D:L316877) and `FUN_003c9fb0` (D:L320105), the one that counts
-online. The round's node (`+0x20`, its `+0x30`) is not moved with it in state 5 (the pool class returns before
+online; the `+0x54` -> `+0x48` copy and the state-5 line-1 queue are in `FUN_003ca5a0` (D:L320292-320297), not
+`FUN_003c9fb0` (corrected 2026-11-15 by 8f's second read of research 430, at the bytes). The round's node (`+0x20`, its `+0x30`) is not moved with it in state 5 (the pool class returns before
 `FUN_003cabe0`, whose node move runs in state 6 only, D:L320102 / D:L320557; the placed class never moves it from
 `+0x48`). So on the following frames state 5's walk (`FUN_003c7dd0`, D:L316866 / D:L320094) reads two points:
 - **the lifted `+0x48`**: line 1 (`FUN_003c7ee0` D:L319056), line 2 (`FUN_005ac070` D:L464853), the body handler's
@@ -528,7 +533,10 @@ lifted point; red on the base).
   height, which the rig reads (rest at the floor + 0.1) -- kept; the lift is added on it (the floor + 1.1).
 - *`sightFrom`'s 0.1 toward the end point* (`room.ts` `IMPACT_SIGHT_READING`; the page's copy in `explode`): a line's start
   stepped off the surface a launched round struck (`HandleImpact` 0x3c8920) -- along the line, not in y, so on a wall it
-  still matters after the lift -- kept, not a stand-in for this lift.
+  still matters after the lift -- kept, not a stand-in for this lift. *Removed 2026-11-15 (WM-29, research 430, 8f's read
+  at the bytes):* every blast line starts at the lifted `+0x48` with no further offset, an impact's point being the
+  intersection itself; a resting round within 0.1 of a wall had started its lines past the wall's face. The page's
+  copy in `explode` the same (research 430 s3).
 - *The resting charges' own points* (`blastCharges`' targets): a target's point, not a blast's -- unchanged.
 - *The bomb's point* (`BombAuthority`'s `detonated` position) and *a `FIRE_WEAPON` round's* (`Room.sceneRound`: the node's
   world matrix through the command's offset): no offset of their own -- lifted now.
@@ -578,3 +586,27 @@ posture; research 421 s14 keeps the blast paths apart, named for the controller)
 review: the bomb's own explosion lifts as the port lifts it -- `FUN_002c1c30` runs `base_explosion1` at the planted
 bomb's node (D:L163919-163927, research 332), whose one `FIRE_WEAPON` makes a pool round like any scene round's
 (`FUN_003c9fb0` state 4 -> `FUN_003c8330`, s11), its command's byte +10 zero on every map (research 386 s3.2).
+
+**The blast's death pick on a transition (LATER 1014, 2026-11-19; reading, pending review; no change to the port).** The
+original (D, source inspection): `FUN_0057e770`'s prone branch (D:L441003-441013) tests the low byte of the raw stance
+word `+0x174` (the halfword at `actor + 0x5d * 4`) against 2 -- the word `FUN_0058a720(actor, 0)` returns, not the size
+class, and with no phase rule (unlike the bullet pick's `FUN_005a0700`, research 421 s14) -- and, prone, plays the BODY
+list's prone death (`FUN_005a0950(actor, 3, 2)`, when `+0xe1` bit 4 is clear); any other word throws the body
+(`FUN_005807d0`, by the side the blast came from). The word's one writer is `FUN_0028dfb0` (D:L135233), reached only
+from `FUN_0058a6b0` (D:L446823) -- the actor's vtable slot `+0x90`, and through a thunk (0x555290) slot `+0x14` of the
+`+0x170` sub-object's table, which the play stack's pop `FUN_0028da00` (D:L135104) calls with the entry left on top
+(the review's trace of the ELF's tables; a push, `FUN_0028dc90`, stores only the entry's `+0x2b`, D:L135202). Two
+writes make the word prone where it matters: **at the press** the stance dispatcher `FUN_00552d60` calls the press and
+then `FUN_00581ed0(actor, 2)` (D:L418896; crouch D:L418901, stand D:L418906), whose first act is vtable `+0x90`
+(D:L442697), so the word is the target from the press frame; and **inside the blast handler, before the test**,
+`FUN_0058a4d0(actor, 0)` (D:L440997) pops down to a base play (1, 0x12 or 0x1a, D:L446763-446765), each pop rewriting
+the word from the entry left on top -- stand -> prone and crouch -> prone fall back to 0x1a (posture 2, prone), prone ->
+stand to the bottom play, prone -> crouch to 0x12 (posture 1). **The port** hands the pick the walker's
+`posture`; its `stance` is the word, written at the press. The two differ only on a crouch run (word crouch, body stand:
+neither prone); on every transition the posture follows the word at once (viewer `mover.ts`, the stance setter and
+`locomote`), so `posture === 'prone'` exactly when `stance === 'prone'`, and a pick that asks only "prone?" is the
+original's either way. No change: match `test/roomBlastStanceDeath.test.ts` pins it (a kill on the press tick, the
+transition's clip playing: just pressed prone, the prone death; just pressed up, thrown; and the invariant over six
+transitions, which holds by construction -- every stance write goes through the walker's setter). Named, not read: in
+deep water the prone press queues a crouch while the dispatcher still calls `FUN_00581ed0(actor, 2)`, so the original's
+word may read prone for a frame where the port's water demotion makes it crouched.

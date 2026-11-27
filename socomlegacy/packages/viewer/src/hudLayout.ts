@@ -1,0 +1,2488 @@
+// Shared HUD layout and state descriptions. Extracted unchanged from hud.ts; no GPU backend.
+
+import type { HudFrameStorage } from './hudFrameStorage';
+import { labelTag } from './clanTagOption';
+import {
+  segmentHit, type Grid, type WorldPoly,
+} from '@s2u/scene';
+
+import {
+  FONT_TEXT_01, layoutText, textRise, textWidth,
+} from './hudFont';
+import {
+  keepClearNeighbours, MESSAGE_WRAP_SLACK, messageMeasureScale, messagePanelSpan, wrapMessageLine, type KeepClear,
+} from './hudMessagePanel';
+import type {
+  Rect,
+} from './reticle';
+import {
+  DEFAULT_PLAYER, MODERN_SCOREBOARD_LIFT, SCORE_LAYOUT, SCORE_TOP, scoreboardLayout, scoreboardRowAt, type DamageBoardReport, type GameDetails, type ScoreRowInfo,
+} from './scoreboard';
+import { KILL_FEED_MARK_ADAPTATION, killFeedMarkSpan } from './killFeed';
+import type { SeatClaimDevice } from './seatClaim';
+import type {
+  Presentation,
+} from './renderer';
+import {
+  roundScreenLayout, type RoundScreen,
+} from './roundScreens';
+import {
+  roundBanner,
+} from './net/rules';
+import {
+  BodyFlag,
+} from './net/protocol';
+import {
+  tagTalkSprites, VOICE_ICON_RAMP, type TagSprite, type VoiceElementView,
+} from './hudVoice';
+import type {
+  TeamTagsView,
+} from './hudTags';
+import {
+  deadHelpLines, type InputDevice,
+} from './weaponSelect';
+import {
+  respawnHelpLines,
+} from './respawnPrompt';
+import {
+  botDisplayName, plainBotText, sliceBotText,
+} from './botPresentation';
+
+
+/**
+ * The in-game HUD (socomlegacy/docs/research/87-hud.md): SOCOM II's own multiplayer HUD drawn over the world in walk mode --
+ * the ammo box (panel, "30/30", "2 MAGS", the weapon's icon, the fire-mode rounds), the compass ring turned by the
+ * heading, the info box (the health bar, the round timer, the consoles' count), the stance word on a stance change, the
+ * context-action icon (the climb icon among them) and the message banner -- out of the game's own bitmaps and font
+ * (`./hudAssets`, `./hudFont`), at the places `CHUD`'s code puts them (research 87 §1: the constants read out of
+ * the ELF) and the console frames show them (`scripts/parity/refs/console_spawn_slot8.png`; research 87 §2).
+ *
+ * **Frames and scale** are `./reticle`'s: the layout is in pixels of the PS2's 640x448 frame, y down, which is the
+ * HUD's own space -- `CHUD` writes these numbers straight (the ammo box's `-10, 364, 170, 75`). The PS2 presentation
+ * draws it one to one; the native one scales it by the canvas height / 448 and anchors each element to the side
+ * the console keeps it on (the ammo box left, the compass and the info box right, the prompt and the banner on the
+ * centre line), so a wide screen keeps the console's margins. The reticle is `./reticle`'s own pass, drawn before
+ * this one; nothing here overlaps it.
+ */
+
+export const PS2_W = 640, PS2_H = 448;
+
+export type FireMode = 'single' | 'burst' | 'auto';
+/**
+ * The context prompts `CZActionBitmap` shows (research 87 §5), by the icon each flag selects in `FUN_0021f850`:
+ * `climb` (flag `0x4`, `action_climb.tif`) is what the traversal's ledge prompt and a ladder's foot drive;
+ * `ladder_slide` is flag `0x10000`'s `action_slide.tif`.
+ */
+export type ActionPrompt =
+  | 'climb' | 'ladder_slide' | 'door' | 'pickup' | 'bomb' | 'bomb_drop' | 'c4' | 'button' | 'lever' | 'turret_mount'
+  | 'turret_dismount' | 'knife' | 'restrain' | 'escortee' | 'victory' | 'action' | 'bomb_defuse' | 'pickup2';
+/** The traversal workstream's getter (`climbPrompt()`): a ledge in reach, and how high. The icon is the same for all three. */
+export interface ClimbPrompt { visible: boolean; kind: 'low' | 'med' | 'high' }
+export type HudStance = 'stand' | 'crouch' | 'prone';
+
+/**
+ * VICTORY_CAPTION_READING (research 303): the VICTORY DANCE action's caption -- the record's text (`FUN_0021ded0`
+ * D:L73781, the string at 0x3e4ef0) drawn by the selected action's label (`FUN_00220350` D:L74387-74490, the record's
+ * `+0x90`), at y 435 (`DAT_003dc67c`, read off the executable) and, per Chris's reading of the label's set-up (research
+ * 303 s4: `0x0021ee78` scale 0.9, `FUN_003fe5c8` x 306, colour 128 and alpha 80), centred. Reading, pending review: the
+ * x, the scale and the colour are the author's alone; settles with a capture of the prompt.
+ */
+export const VICTORY_CAPTION_READING = { text: 'VICTORY DANCE', x: 306, y: 435, scale: 0.9, rgb: 128, alpha: 80 } as const;
+
+/** Each prompt's bitmap in `HUD_TXR.ZED` (research 87 §5). `action_x.tif` is also the game's fallback icon. */
+export const ACTION_ICONS: Record<ActionPrompt, string> = {
+  climb: 'action_climb.tif', ladder_slide: 'action_slide.tif', door: 'action_door_open.tif',
+  // LkPaioX5 part 2 (c): the two TAKE records' own icons (`FUN_0021ded0`: 0x3e4cd0, 0x3e4cf0; records 4 and 5, D:L73632-73651).
+  // (Was: `action_pickup_item.tif`, which no record names.)
+  pickup: 'action_pickup_item1.tif', pickup2: 'action_pickup_item2.tif',
+  bomb: 'action_mp_bomb.tif', bomb_drop: 'action_drop_mp_bomb.tif', c4: 'action_place_c4.tif',
+  button: 'action_button.tif', lever: 'action_pull_lever.tif', turret_mount: 'action_mount_turret.tif',
+  turret_dismount: 'action_dismount_turret.tif', knife: 'action_knife.tif', restrain: 'action_restrain.tif',
+  escortee: 'action_escortee.tif',                     // HX-4a: FOLLOW! / HOLD POSITION (FUN_0021ded0 D:L73564-73565)
+  victory: 'action_victory_dance.tif',
+  action: 'action_x.tif',
+  // LkPaioX5 part 2 (b): the defuse is the bomb's record (type 7) beside a bomb node, which keeps its own icon
+  // (`FUN_002209c0` D:L74585-74586; `action_MP_bomb.tif`, D:L73664). After `bomb`, so `promptOfBitmap` reads it as `bomb`.
+  bomb_defuse: 'action_mp_bomb.tif',
+};
+
+/**
+ * XR-04: the prompt an action record's `bitmap` names (`actions.rdr`, lower case) -- `ACTION_ICONS` read backwards:
+ * Crossroads' switches' `action_pull_lever.tif` is `lever`. Null for a bitmap the HUD holds no prompt for.
+ */
+export function promptOfBitmap(bitmap: string): ActionPrompt | null {
+  const b = bitmap.toLowerCase();
+  for (const [prompt, icon] of Object.entries(ACTION_ICONS) as [ActionPrompt, string][]) if (icon === b) return prompt;
+  return null;
+}
+
+/**
+ * How many `firemode.tif` rounds each mode shows (`FUN_00237b40`): the weapon's fire-mode value 1 shows one, 2
+ * three, 3 four. The console frame at spawn shows three: the M4A1 at its mode 2.
+ */
+export const FIRE_MODE_ROUNDS: Record<FireMode, number> = { single: 1, burst: 3, auto: 4 };
+
+/** One HUD text line: its pen x (or the x it is right-aligned to / centred on), its baseline, its scale. */
+export interface TextSpot { x: number; y: number; scale: number; align?: 'left' | 'right' | 'centre' }
+
+/**
+ * PICKUP-LINE (research 87 §14; research 234 §7): the small message window, the window `0x437060` -- `small_messages.rdr`
+ * (`RUN/READERC.ZAR`, read through `@s2u/archive` `parseRdr`; the dev-disc test in `test/pickupLine.test.ts`): the
+ * main window's `messages.rdr` but for `left` 12 (157), `maxlength` 120 (325) and `fadetime` 5 (7); its `color` 100,
+ * `background` `newweapnbkrnd.tif` and the rest the same. A pick-up's item name posts here (`FUN_005bb000` D:L473374,
+ * colour 0), and "Satchel" (D:L473660, not ported here).
+ */
+export const SMALL_MESSAGES = {
+  left: 12, bottom: 91, maxlength: 120, XMargin: 10, YMargin: 8, fadetime: 5, scale: 0.9, maxsize: 8, spacing: 15,
+} as const;
+/**
+ * The small window's wrap limit, `FUN_002b6530`'s rule on its own `maxlength` (D:L158010, research 87 §14.1):
+ * int(-8 + (120 - 2 x 10)) = 92 -- "HE Grenade Ammo" breaks into the rig's "HE Grenade / Ammo".
+ */
+export const SMALL_MESSAGE_WRAP_WIDTH = Math.trunc(MESSAGE_WRAP_SLACK + (SMALL_MESSAGES.maxlength - 2 * SMALL_MESSAGES.XMargin));
+/**
+ * PICKUP-LINE correction 5: what the small window does with a post whose text is its last post's again. `FUN_002b6530`
+ * skips the text's leading spaces (D:L157930-157931), compares it with the window's stored last text by bytes (the
+ * 0x80-byte compare `FUN_00199648`, D:L157933), flags a repeat when equal while the window holds a line (its count at
+ * `+0`, raised by the list insert `FUN_001feae0`; D:L157935) and stores the text (D:L157941); on a repeat it adds no
+ * line (D:L157943-157969; the add is the other branch, D:L157970-). What it does to that post's lines is not plain: it
+ * walks up to the last post's line count (`+0x458`) calling each line's virtual `+0x34` with 0 (D:L157944-157951),
+ * then either re-times the window (`+0x43c`..`+0x450`, D:L157952-157956) or re-ramps its panel through two more
+ * virtual `+0x34` calls (D:L157958-157968) -- the line class's vtable (0x406420) is not read. Built: no line added. Not
+ * built: the reset (whether the lines' fade restarts). Settles: the vtable 0x406420's `+0x34` and the window's own,
+ * or a rig take of the same item twice inside 5 s (does the first line's fade restart?). [placeholder]
+ */
+export const SMALL_MESSAGE_REPEAT_RESET_PLACEHOLDER = "no line added; the last post's lines left as they are (their reset not built)" as const;
+/**
+ * Where the small window is drawn: the main window's panel (x 147-492, y 0-99, measured on the Vigilance frames) is
+ * `messages.rdr`'s `left - XMargin` to `left + maxlength + XMargin`, 0 to `bottom + YMargin`; the small window takes the
+ * same rule on its own numbers -- its panel x 2-142, y 0-99 -- with the left edge's anchor (the ammo box's) where the
+ * main one takes the centre line's. Its lines are LEFT-ANCHORED at the window's `left`, x 12 (PICKUP-LINE correction 2):
+ * the window's draw `FUN_002b5830` places a line posted with the centred argument 0 at the window's left in a
+ * non-centred window (D:L157609-157610), and the take posts with 0 (`FUN_002b6530(0, 0x437060, text, 0, 0, 0)`,
+ * D:L473374). Non-centred: the window loader sets its flag bit 0 only on the key "centered" (D:L158216-158219) and bit
+ * 1 only on "descends" (D:L158220-158226); neither key is in `small_messages.rdr` (nor `messages.rdr`; the dev-disc
+ * test `test/pickupLine.test.ts`). Not settled: the baseline -- the lines keep the main window's baselines and pitch, the font's metrics not
+ * derived for this window. Settles the baseline: a rig frame of a take's line. [reading, pending review]
+ */
+export const SMALL_MESSAGE_LAYOUT_READING = "the main window's rule on small_messages.rdr: x 2-142, y 0-99; lines from x 12 (left); baseline unsettled" as const;
+
+/**
+ * The layout in the frame's pixels (research 87 §1; every number's source is its table): `CHUD`'s constants where the
+ * ELF holds them, the console frames' measurements where it does not (marked "measured").
+ */
+export const HUD_LAYOUT = {
+  ammo: {
+    /** `newweapnbkrnd.tif` stretched over `DAT_003dcb90..a8`: x -10..160, y 364..439. */
+    panel: { x: -10, y: 364, w: 170, h: 75 },
+    /** The weapon's HUDW icon, top-left (20, 389), its own size (`FUN_00237fc0`). */
+    icon: { x: 20, y: 389 },
+    /** `"%d/%d"`: scale 0.9, pen x 15, baseline 382. */
+    rounds: { x: 15, y: 382, scale: 0.9 } as TextSpot,
+    /** `"%d MAG%c"`: scale 0.9, pen x 95, baseline 382. */
+    mags: { x: 95, y: 382, scale: 0.9 } as TextSpot,
+    /** `firemode.tif` at x = 15 + 36i, y 422, its own 32x16; the first moved to x 10 (`FUN_00237b40`). */
+    rounds4: { xs: [10, 51, 87, 123], y: 422 },
+  },
+  /** `compass_lo.tif` at 0.75 (96x96) centred on `DAT_003dc508/50c` (565, 90); alpha 100 (`FUN_002126f0`). */
+  compass: { cx: 565, cy: 90, size: 96, alpha: 100 / 128 },
+  /** The MP info box (`FUN_002388a0`): the health bar at (488, 396) 134x18; the timer and range lines. */
+  info: {
+    bar: { x: 488, y: 396, w: 134, h: 18 },
+    /**
+     * NU-9 N2 (research 327 §1.2, §1.3): the name on the bar -- the text's scale `+0x40` = `DAT_003dcc58` 0.8, centred
+     * (`+0x69` 1), its pen `DAT_003dcc48/50` = (555, 409) (`FUN_002388a0` D:L85646-85653; again at the round's
+     * `FUN_00238710` D:L85612-85619); 555 = 488 + 134 / 2, centred on the bar. The frame `A_ready091` agrees (ink x
+     * 535-575, 41 wide: 0.8's travel 43, not 0.9's 49). `infoBoxName`'s cut measures at it (D:L85570-85571). (Was:
+     * "measured on the Vigilance frames", (555, 411) at 0.9.)
+     */
+    name: { x: 555, y: 409, scale: 0.8, align: 'centre' } as TextSpot,
+    /** The box under the timer line: measured x 488-622, y 418-438, `newweapnbkrnd.tif` mirrored. */
+    box: { x: 488, y: 418, w: 134, h: 20 },
+    /** `"%02d:%02d"` at (500, 433), scale 0.9. */
+    timer: { x: 500, y: 433, scale: 0.9 } as TextSpot,
+    /**
+     * HUD-ALIVE B (research 87 §1.12, corrected): the info box's number, `CHUD+0x19cc0`, at (587, 433) (`DAT_003dc3a8/b0`),
+     * scale 0.9 (0x3f666666), set up online only (`FUN_001fa360` D:L57455-57471): the connected consoles' count,
+     * `infoNumberText`. The element keeps its old name, 'range'. (Was: `"%dm"`, the port's range readout.)
+     */
+    range: { x: 587, y: 433, scale: 0.9 } as TextSpot,
+  },
+  /** `PoseBitmap`'s word, multiplayer place: right-aligned to x 480, baseline 431, scale 0.765 (`FUN_00222010`). */
+  stance: { x: 480, y: 431, scale: 0.765, align: 'right' } as TextSpot,
+  /** `"ZOOM: %2.1fx"` (0x3e3098) at (20, 420), scale 0.9, while the magnification is over 1.01 (`FUN_001f6ce0`). */
+  zoom: { x: 20, y: 420, scale: 0.9 } as TextSpot,
+  /**
+   * The reticle's `"RANGE(m): %.0f"` (0x3e4850; `"RANGE(m): ----"` 0x3e4860 with nothing under it), the HUD's own string
+   * (`CHUD_Init` L57319: scale 0.9), placed at (415, 215) in the scope (`DAT_003dc528/530`, `ChangeReticule` L69508).
+   */
+  scopeRange: { x: 415, y: 215, scale: 0.9 } as TextSpot,
+  /** The same line in the binoculars (`ChangeReticule` type 7, L69571: `DAT_003dc538/540`, read off the ELF: 515, 40). */
+  binocularsRange: { x: 515, y: 40, scale: 0.9 } as TextSpot,
+  /**
+   * `CZActionBitmap`: 50x50 centred on x 306, y 365..415 (`DAT_003dc628/630/640`). LkPaioX5 part 2 (a): list[1] and
+   * list[2] beside it, each `size + gap` = 62 further out (`DAT_003dc638 + 12.0`, `FUN_0021f210` D:L73989, D:L73995).
+   */
+  action: { cx: 306, y: 365, size: 50, gap: 12 },
+  /**
+   * PB-8 (issue #120; research 87 s5, 214 s3): the bomb's hold bar, two untextured widgets of the prompt's
+   * (`FUN_0021ded0` D:L73815-73829; `FUN_00364660` D:L261712-261718 takes x0, y0, x1, y1). The box 585-635 x 345-360:
+   * `DAT_003dc648/650/658/660`, read off the ELF's data as floats 585, 345, 635, 360 (D:L73817). The fill inset by
+   * `DAT_003dc668` (2.0): x from 587 = 585 + 2, y 347-358 = 345 + 2 .. 360 - 2, and 46 px at full = 635 - 587 - 2
+   * (`FUN_003fe550` D:L327765-327769); its right edge is `(int)(587 + 46 x t x DAT_003dc670)` with `DAT_003dc670` 0.2
+   * and t the hold's seconds (D:L74441-74442), so the drawn width is 46 x the share, truncated.
+   */
+  holdBar: { box: { x: 585, y: 345, w: 50, h: 15 }, fill: { x: 587, y: 347, w: 46, h: 11 } },
+  /**
+   * The event banner ("STARTING ROUND 1 OF 11"): measured on the Vigilance frames -- the panel x 147-492, y 0-99, the
+   * line centred on x 320 with its ink at y 81-93.
+   */
+  message: { panel: { x: 147, y: 0, w: 345, h: 99 }, text: { x: 320, y: 93, scale: 0.9, align: 'centre' } as TextSpot },
+  /**
+   * The event banner's lines (measured on the Vigilance round start, `A_ready022..033`, one frame a second): centred on
+   * x 320, the newest line at the bottom, its baseline at 83.4 + 10.6 x its scale (94 for "STARTING ROUND 1 OF 11" at
+   * 1.0, 91.5 for "ELIMINATE THE TERRORISTS" at 0.765), each older line 15 above the one under it.
+   */
+  banner: { x: 320, base: 83.4, perScale: 10.6, pitch: 15 },
+  /** PICKUP-LINE: the small message window (`SMALL_MESSAGES`, `SMALL_MESSAGE_LAYOUT_READING`); its lines the banner's pitch. */
+  smallMessage: {
+    panel: {
+      x: SMALL_MESSAGES.left - SMALL_MESSAGES.XMargin, y: 0,
+      w: SMALL_MESSAGES.maxlength + 2 * SMALL_MESSAGES.XMargin, h: SMALL_MESSAGES.bottom + SMALL_MESSAGES.YMargin,
+    },
+    /** The lines' pen x: the window's `left` (`SMALL_MESSAGE_LAYOUT_READING`, `FUN_002b5830` D:L157609-157610). */
+    x: SMALL_MESSAGES.left,
+  },
+  /**
+   * MATCH-05 (research 170 §5.2; note 227 §2): the voice element (`FUN_00238f50` D:L85768-85835, `FUN_00238d00`). The
+   * channel icon 32x32 at (590, 361) (`DAT_003dcbe0/e8/f0/f8`, `FUN_002393f0` D:L85937); the talk / busy icon at (545,
+   * 361) (`DAT_003dcc00/08`, `FUN_00239250` D:L85879); the number centred (HCENTERED, its `+0x69`) on x 589 = 590 - 1,
+   * baseline 371 (`DAT_003dcc28`), scale 0.8, on a 16x16 box 582-598 x 359-375 (x 590 - 8, y `DAT_003dcc10`, the sizes
+   * `DAT_003dcc18/20`); the speaker's line right-justified (`+0x6a`) to x 622 = 598 + 24 (`DAT_003dcc30/38`), baseline
+   * 352 (`DAT_003dcc40`), scale 0.9. The x's that live in the BSS are the static initializer's at 0x3ff680
+   * (disassembled: the decompilation has no function there); the box and the "1" are the archived frames' (A_hold01,
+   * B_hold01: box 582-598 x 359-375, the digit's ink x 587-590, y 361-370).
+   */
+  voice: {
+    icon: { x: 590, y: 361, w: 32, h: 32 },
+    talk: { x: 545, y: 361, w: 32, h: 32 },
+    count: { x: 589, y: 371, scale: 0.8, align: 'centre' } as TextSpot,
+    countBox: { x: 582, y: 359, w: 16, h: 16 },
+    name: { x: 622, y: 352, scale: 0.9, align: 'right' } as TextSpot,
+  },
+} as const;
+
+/**
+ * HUD-ALIVE (OT.R117; **a browser adaptation**, `./hudVoice` `HUD_ALIVE_COUNTS_ADAPTATION`, the owner's words there):
+ * where the two alive numbers sit. The original draws no number in the voice element's right corner, so its place is
+ * ours: the left number's box (582-598 x 359-375, `HUD_LAYOUT.voice`) mirrored about the channel icon's centre x 606
+ * (590 + 32 / 2) -- the box 614-630 x 359-375 -- at scale 0.8 and the left number's text colour. It sits under the
+ * speaker's line (baseline 352), clear of it.
+ *
+ * HUD-ALIVE-BOXES (the owner, 2026-11-11/12, seat 2f, verbatim in `./hudVoice`: "Ensure both are centered in their
+ * square, the right one looks uncentered"): each number on its own box by one rule, x = the box's x + 7 and the
+ * baseline 372 -- 589 left, 621 right. The rule is the ink's, measured off the disc's `font_text_01.tif` (MP2's
+ * HUD2_TXR; `test/hudVoice.test.ts`): a string centred on x (`textWidth`, `layoutText`: the glyphs' `PEN_NUDGE` -0.6,
+ * the GS's half-pixel corner sampling `GS_SAMPLE_OFFSET` +0.5) puts its ink 0.4 to 1.1 right of x and, on baseline 372,
+ * rows 361.6-372.8 -- so on x = box + 7 the ink of "0".."16" sits -0.6 to +0.1 of the box's centre across and +0.2
+ * down, the same in both boxes. Until 2026-11-12 the right number was the left one's x mirrored (2 x 606 - 589 = 623),
+ * which mirrors the spot but not the glyphs: its ink sat 1.4 to 2.1 right of its box's centre, and both 0.8 high on
+ * baseline 371. Without the alive counts the number is the original's, on `HUD_LAYOUT.voice.count` (589, 371).
+ */
+export const HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION = {
+  count: { x: 621, y: 372, scale: 0.8, align: 'centre' } as TextSpot,
+  countBox: { x: 614, y: 359, w: 16, h: 16 },
+} as const;
+/** HUD-ALIVE-BOXES: the SEALs-alive number on the original's box (`HUD_LAYOUT.voice.countBox`), by the rule above. */
+export const HUD_ALIVE_LEFT_LAYOUT_ADAPTATION = {
+  count: { x: 589, y: 372, scale: 0.8, align: 'centre' } as TextSpot,
+} as const;
+/**
+ * HUD-ALIVE-BOXES (OT.R117; **a browser adaptation**; the owner, 2026-11-11/12, seat 2f, verbatim in `./hudVoice`):
+ * with the alive counts on, the left box in the in-game scoreboard's SEALs bar colour and the right box in its
+ * TERRORISTS bar colour, each at the bar's alpha 80 -- `./scoreboard`'s `SCORE_LAYOUT.teams[i].header` (32, 32, 64) and
+ * (64, 32, 32) and `SCORE_LAYOUT.header.alpha` (the original's `FUN_00229d00` colours, research 87 §12), reused here by
+ * his choice. Converted as the board converts them (`c255`: each channel over 255) and as this HUD's other untextured
+ * fills are (`HUD_COLOURS.health`): both reach the screen as the vertex colour over a white texel (`WHITE`, 255 = 1.0),
+ * one blend, so the box and the bar are the same colour on screen. Without the alive counts the box is the original's
+ * black at alpha 50 (`HUD_COLOURS.voiceBox`).
+ */
+export const HUD_ALIVE_BOX_COLOURS_ADAPTATION = {
+  seal: [...SCORE_LAYOUT.teams[0].header.map((c) => c / 255), SCORE_LAYOUT.header.alpha] as Rgba4,
+  terrorist: [...SCORE_LAYOUT.teams[1].header.map((c) => c / 255), SCORE_LAYOUT.header.alpha] as Rgba4,
+} as const;
+
+/**
+ * KEYBOARD-WHISPER (OT.R48; web research 266 §3.9): the HUD's text line 0x437540, the online round's USB-keyboard line
+ * (`./roundTextLine`), as `FUN_002ca100` (D:L169289-169322) sets it up from `CHUD`'s init (`FUN_001fa360` D:L57429-57431):
+ * - `box`: the line's untextured backing, `FUN_003646d0(DAT_003de7a8, DAT_003de7b0, DAT_003de7b8, DAT_003de7c0)` -- x0,
+ *   y0, x1, y1 (`FUN_003646d0` D:L261746-261766), read off the ELF's data as the floats 25, 338, 615, 360 -- coloured
+ *   (0, 0, 0) by `FUN_00364930(0, 0, 0)`;
+ * - `text`: the line's text object, made by its vtable's +0x7c (0x3631c0) with the scale 0x3f4ccccd (0.8, in `$f12`) and
+ *   the pen `DAT_00441678`, `DAT_00441680` (`$f13`, `$f14`; 0x2ca128, 0x2ca144), in the BSS and written by the static
+ *   initializer at 0x400830-0x400868 (disassembled: the decompilation has no function there): `DAT_003de7a8` +
+ *   `DAT_003de7e0` = 25 + 3 = 28 and `DAT_003de7c0` - `DAT_003de7d8` = 360 - 6 = 354; the font the HUD's +0x498, the one
+ *   the main window takes (`FUN_002b6fc0(0x4366a0, +0x498)`, D:L57423) -- the page's `FONT_TEXT_01`;
+ * - `rgb`: the text's colour, written over the text object's default (255, 255, 255) at its +0x48..+0x50 (`FUN_00363e70`)
+ *   as the line's +0xec, +0xf0, +0xf4 = 100, 100, 20 (0x42c80000, 0x42c80000, 0x41a00000), on the GS's 128-as-1 scale
+ *   the message window's colours take (`./matchMessages` `MESSAGE_COLOURS`);
+ * - the fade (`FUN_002c9e90` D:L169201-169254, the line's vtable +0x38): while the line holds text the box's alpha (+0xa0)
+ *   rises to `DAT_003de798` 76.8 at `DAT_003de7a0` 200 a second and the text's (+0x13c) to `DAT_003de7c8` 100 at
+ *   `DAT_003de7d0` 200; with none both fall at the same rates to 0;
+ * - `widthLimit`: `FUN_002c9d90` (D:L169187) appends only while the text's width (+0xe0) is under `DAT_003de7b8` -
+ *   `DAT_003de7a8` - `DAT_003de7e0` x 4 = 615 - 25 - 12 = 578.
+ * `ROUND_TEXT_LINE_DRAW_READING` (`./roundTextLine`) names what the page chooses in drawing it.
+ */
+export const TEXT_LINE_LAYOUT = {
+  box: { x: 25, y: 338, w: 590, h: 22 },
+  text: { x: 28, y: 354, scale: 0.8 },
+  rgb: [100, 100, 20] as readonly [number, number, number],
+  boxAlpha: 76.8, boxRate: 200, inkAlpha: 100, inkRate: 200,
+  widthLimit: 578,
+} as const;
+
+/**
+ * One line of the event banner: its text, its scale, and its colour when not the window's colour 0 (0..1, the GS's 128 as
+ * 1). `post` is the scale the original posts it with (`FUN_002b6530`'s first argument; absent, 0: the window's own), the
+ * scale its wrap is measured by (`./hudMessagePanel` `messageMeasureScale`; TAUNT-WRAP, research 87 §14.1).
+ */
+export interface BannerLine {
+  text: string; scale: number; rgb?: [number, number, number]; opacity?: number; post?: number;
+  /**
+   * RC-3 ROUND-CHAT (V21.R15a; a browser adaptation beside OT.R48, `./matchMessages` `roundChatLine`): the line drawn in
+   * pieces, each in its own colour (absent, the line's `rgb`), their texts together `text`; absent, the line draws in
+   * one colour as it always has. `icon`: a bitmap the HUD holds, drawn before the first piece a letter cell high at its
+   * own aspect, then a space's advance; a name the HUD does not hold draws nothing and takes no room.
+   */
+  segments?: BannerSegment[]; icon?: string;
+  /**
+   * WM-DATA-FEED (look 3B2, a browser adaptation, `./killFeed` `killFeedLine`): the kill line's orange mark (0..1, the
+   * GS's 128 as 1), set by the page when it posts the kill (the local or watched player's, decided by id) and kept by the
+   * line -- every wrapped piece carries it (`windowLines`) -- drawn behind it as `KILL_FEED_MARK_ADAPTATION`; absent, none.
+   */
+  feedMark?: [number, number, number];
+}
+/** RC-3 ROUND-CHAT (a browser adaptation): one piece of a segmented message line, in its colour (0..1, the GS's 128 as 1). */
+export interface BannerSegment { text: string; rgb?: [number, number, number] }
+
+/**
+ * ROUND_CHAT_ICON_PITCH_SHARE_ADAPTATION (RC-3, a browser adaptation): a round chat line's icon is this share of the
+ * message window's line pitch high (`HUD_LAYOUT.banner.pitch`, 15), centred on its line -- so it never reaches the lines
+ * above or below (the look sheet's finding, 2026-11-13: a whole letter cell, ~21, did).
+ */
+export const ROUND_CHAT_ICON_PITCH_SHARE_ADAPTATION = 0.9;
+
+/** A line's lines in the window (TAUNT-WRAP, research 87 §14.1): its pieces, measured at the original's scale. */
+export function windowLines(l: BannerLine): BannerLine[] {
+  const pieces = wrapMessageLine(l.text, messageMeasureScale(l.post ?? 0));
+  if (l.segments === undefined && l.icon === undefined) return pieces.map((text) => ({ ...l, text }));
+  return segmentedPieces(l, pieces);
+}
+
+/**
+ * RC-3 ROUND-CHAT (a browser adaptation): a segmented line's wrapped pieces (the same wrap as every post's, measured on
+ * its text alone), each piece's segments its share of the line's, the icon on the first piece only. Each piece is found
+ * in the text in order, past the whitespace the wrap drops where it breaks (`./hudMessagePanel` `wrapMessageLine`; the
+ * review's F1). Pieces that are not the text's characters in order (a bot's marked name re-marked by the wrap) keep the
+ * line's one colour, unsegmented.
+ */
+function segmentedPieces(l: BannerLine, pieces: string[]): BannerLine[] {
+  const { segments, icon, ...plain } = l;
+  const segs = segments ?? [{ text: l.text }];
+  const starts: number[] = [];
+  let scan = 0;
+  for (const text of pieces) {
+    let from = scan;
+    while (from < l.text.length && /\s/.test(l.text[from]!) && !l.text.startsWith(text, from)) from++;
+    if (!l.text.startsWith(text, from)) { starts.length = 0; break; }
+    starts.push(from);
+    scan = from + text.length;
+  }
+  if (starts.length !== pieces.length || segs.map((g) => g.text).join('') !== l.text) return pieces.map((text) => ({ ...plain, text }));
+  return pieces.map((text, i) => {
+    const from = starts[i]!, to = from + text.length;
+    const cut: BannerSegment[] = [];
+    let p = 0;
+    for (const g of segs) {
+      const a = Math.max(from, p), b = Math.min(to, p + g.text.length);
+      if (b > a) cut.push({ ...g, text: g.text.slice(a - p, b - p) });
+      p += g.text.length;
+    }
+    return i === 0 && icon !== undefined ? { ...plain, text, segments: cut, icon } : { ...plain, text, segments: cut };
+  });
+}
+/**
+ * The window's scale for a posted line: `FUN_002b6530` takes the window's own 0.9 for a scale of 0, else the scale x
+ * 1.1429 (the round start's 0.9 posts, measured 1.0 on the frames).
+ */
+export const MESSAGE_SCALE = 0.9;
+
+/** Keeps the window's newest `MESSAGE_LINES` lines: the oldest messages go first, a message whole or not at all. */
+export function capLines(messages: BannerMessage[]): BannerMessage[] {
+  let lines = 0;
+  const kept: BannerMessage[] = [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    lines += messages[i]!.lines.length;
+    if (lines > MESSAGE_LINES) break;
+    kept.unshift(messages[i]!);
+  }
+  return kept;
+}
+
+/** One banner message: its lines, and its alpha now (0..1: the fades are the `Hud`'s). */
+export interface BannerMessage { lines: BannerLine[]; alpha: number }
+
+/** RGBA 0..1. A textured draw is the GS's MODULATE, the vertex colour's 128 being 1; an untextured one is the colour as is. */
+export type Rgba4 = [number, number, number, number];
+export const HUD_COLOURS = {
+  /** `DAT_00408e40..4c`: 128, 128, 128 and alpha 80 -- every HUD string (and `min(80, 0.75 x 128)` for the shadow). */
+  text: [1, 1, 1, 80 / 128] as Rgba4,
+  shadow: [0, 0, 0, 80 / 128] as Rgba4,
+  /** The panels' alpha 76.8 (0.6 of 128). */
+  panel: [1, 1, 1, 0.6] as Rgba4,
+  icon: [1, 1, 1, 1] as Rgba4,
+  /** `CHealthBar`'s fill (0, 128, 64), untextured, at the HUD's alpha 80. */
+  health: [0, 128 / 255, 64 / 255, 80 / 128] as Rgba4,
+  /** The missing part of the bar (128, 64, 64). */
+  healthLost: [128 / 255, 64 / 255, 64 / 255, 80 / 128] as Rgba4,
+  /** MATCH-05: the voice number's box, untextured (0, 0, 0) at alpha 50 (`FUN_00238d00` D:L85750-85751). */
+  voiceBox: [0, 0, 0, 50 / 128] as Rgba4,
+  /** MATCH-05: the voice number, the HUD's string colour at alpha 128 (`+0x34` 128, D:L85759). */
+  voiceCount: [1, 1, 1, 1] as Rgba4,
+  /** PB-8: the hold bar's box, untextured black (`FUN_00364930` D:L73816) at alpha 38.4 (`0x4219999a`, D:L74438). */
+  holdBox: [0, 0, 0, 38.4 / 128] as Rgba4,
+  /**
+   * PB-8: the hold bar's fill, untextured (100, 100, 100) (`DAT_003e4ba0..a8` = 100.0, `FUN_003fe550` D:L327785-327787,
+   * set at D:L73823) at alpha 100 (`0x42c80000`, D:L74440).
+   */
+  holdFill: [100 / 255, 100 / 255, 100 / 255, 100 / 128] as Rgba4,
+};
+
+/**
+ * `CZActionBitmap`'s colour table (`FUN_0021f120` D:L73837-73865): base + pulse x delta, the GS's 128 as 1, indexed
+ * 0..3 by a record's `+0xd0` byte (`FUN_0021f210` D:L73956, D:L73961-73964). LkPaioX5 (research 87 §5; reading,
+ * pending review): no record's byte names entry 2 (blue) at `FUN_0021ded0`'s init, the only writer
+ * (`ACTION_PROMPT_COLOUR`); entry 3 (grey) is taken only by a map action the player may not use (D:L73957-73959).
+ * (Was: "Entry 2 (blue) is the allowed action's", unsourced.)
+ */
+export const ACTION_COLOURS = {
+  red: { base: [120, 0, 0], delta: [80, 24, 24] },
+  green: { base: [24, 80, 24], delta: [24, 80, 24] },
+  blue: { base: [20, 50, 60], delta: [35, 80, 80] },
+  grey: { base: [42, 42, 42], delta: [8, 8, 8] },
+} as const;
+/** The pulse ramps 0 to 1 and back at 5 a second (`DAT_0040d750`). */
+export const ACTION_PULSE_RATE = 5;
+/**
+ * LkPaioX5 (research 87 §5; reading, pending review): each prompt's colour entry, its record's `+0xd0` byte as
+ * `FUN_0021ded0` sets it at init (written nowhere else) -- green (1) for every record but KNIFE ATTACK (type 10,
+ * D:L73693), RESTRAIN (11, D:L73703), RIFLE BUTT (12, D:L73713), SATCHEL (0x11, D:L73743) and PLACE C4 CHARGE (0x12,
+ * D:L73734), red (0). The green ones: ACTION (1, D:L73603), CLIMB (2, D:L73613), the pick-ups (4 and 5, D:L73633,
+ * D:L73643), DROP BOMB (6, D:L73654), the bomb's PRESS AND HOLD (7, D:L73663), the map's action (13, D:L73723),
+ * FOLLOW! / HOLD POSITION (0xe, 0xf, D:L73784, D:L73794), LADDER SLIDE (0x10, D:L73593), the turret's two (0x13, 0x14,
+ * D:L73753, D:L73763), VICTORY DANCE (0x15, D:L73774). Two mappings are the port's own, not read from the original
+ * (research 87 §5): `door`, `button` and `lever` taken as the type-13 record, a map's `actions.rdr` action (that record
+ * takes the action's icon, `FUN_002209c0` D:L74562-74581); `action` taken as the ACTION record's.
+ */
+export const ACTION_PROMPT_COLOUR: Record<ActionPrompt, Exclude<keyof typeof ACTION_COLOURS, 'blue' | 'grey'>> = {
+  climb: 'green', ladder_slide: 'green', door: 'green', pickup: 'green', bomb: 'green', bomb_drop: 'green', c4: 'red',
+  button: 'green', lever: 'green', turret_mount: 'green', turret_dismount: 'green', knife: 'red', restrain: 'red',
+  escortee: 'green', victory: 'green', action: 'green',
+  bomb_defuse: 'green',                                // LkPaioX5 part 2 (b): the bomb's record, type 7 (D:L73663)
+  pickup2: 'green',                                    // LkPaioX5 part 2 (c): record 5 (D:L73643)
+};
+/**
+ * The prompts that are a map's action, the type-13 record: the only one `FUN_0021f210` greys, when the player's
+ * `+200` word and the action's `+0x30` word share no bit (D:L73957-73959, the side icons' D:L74005-74007; its caption
+ * then UNAVAILABLE, `FUN_00220350` D:L74402-74403). What the two words hold is not read; the port's
+ * caller says it (`allowed`).
+ */
+export const MAP_ACTION_PROMPTS: ReadonlySet<ActionPrompt> = new Set<ActionPrompt>(['door', 'button', 'lever']);
+/**
+ * LkPaioX5 part 2 (a) (research 87 §5, "The action list"; reading, pending review -- source inspection, nothing run or
+ * captured): each record's sprite alpha, GS units (128 = 1), as `FUN_0021f210` steps it once a frame. Before each draw it
+ * writes the sprite's step and cap (`+0x1c`, `+0x20` of the sprite at the record's `+0x10`): the head 28 and 90
+ * (D:L73952-73953), list[1] and list[2] 19 and 28 (D:L74001-74002), and `FUN_003642d0` (D:L261609-261634) takes the
+ * alpha to alpha + step, held at the cap and at 128 -- so a record above its cap (the old head turned aside) drops to it
+ * at once. A record put in the list starts at 0 (`FUN_002209c0` D:L74589, each list rebuild `FUN_0021f850` makes), and
+ * the frame that rebuilds it draws it, so it is drawn a step in. (Was: the head drawn at alpha 1, "assumed like the
+ * other strings'", §15.) What makes it proven: a capture of a prompt's first frames and of a two-entry list.
+ */
+export const ACTION_ICON_FADE = { primary: { step: 28, cap: 90 }, side: { step: 19, cap: 28 } } as const;
+/**
+ * LkPaioX5 part 2 (a): ACTION_ICON_FADE_OUT_READING -- a record that leaves the list keeps its last place and colour and
+ * fades at 400 a second (`FUN_002200c0` D:L74312-74382, called each frame after the draw, D:L73399): its visible bit is
+ * not cleared (only list[3] on are hidden, D:L74028). The port hides it at once. What makes it proven: a capture of a
+ * prompt leaving (a door walked away from).
+ */
+export const ACTION_ICON_FADE_OUT_READING = 'hidden at once: the 400 a second fade-out of a record that left the list is not drawn';
+/**
+ * LkPaioX5 part 2: one entry of the action list the HUD is fed (`Hud.setNearbyAction`, `HudSources.nearby`), the picker's
+ * order, its head first: its prompt and, for a map action's record, whether the player may use it (`allowed`, false
+ * greys it: `MAP_ACTION_PROMPTS`).
+ */
+export interface ActionEntry {
+  prompt: ActionPrompt;
+  allowed?: boolean;
+  /** LkPaioX5 part 2 (b): a TAKE's weapon name (the drop's record's `DisplayName`, `FUN_00220870` D:L74508-74536). */
+  name?: string;
+  /**
+   * LkPaioX5 part 2 (b): a caption its page gives (a hostage's order: `./hostagePage` `ESCORTEE_PROMPTS`; G1, a door's or
+   * a switch's record's text: `./matchActions`, `./mapActions` `mapActionCaption`).
+   */
+  caption?: string;
+}
+/**
+ * LkPaioX5 part 2 (b) (research 87 §5, "The action list"; reading, pending review): each record's caption, its `+0x90`
+ * as `FUN_0021ded0` sets it (the ELF's literal at `at`, checked on the disc by `hud.test.ts`), which `FUN_00220350`
+ * draws under the head (D:L74479; a pick-up's through "%s %s", D:L74469-74476). The escortee's two (FOLLOW!, HOLD
+ * POSITION) come from its page (`ActionEntry.caption`); the bomb's are HudCLOC's (`ACTION_BOMB_CAPTION_IDS`); a map
+ * action's record's come with its entry (G1: `ActionEntry.caption`, `./mapActions` `mapActionCaption`).
+ */
+export const ACTION_RECORD_CAPTIONS: Partial<Record<ActionPrompt, { at: number; text: string }>> = {
+  climb: { at: 0x3e4e00, text: 'CLIMB' }, ladder_slide: { at: 0x3e4de8, text: 'LADDER SLIDE' }, action: { at: 0x3e4df8, text: 'ACTION' },
+  bomb_drop: { at: 0x3e4e18, text: 'DROP BOMB' }, c4: { at: 0x3e4eb0, text: 'PLACE C4 CHARGE' },
+  turret_mount: { at: 0x3e4ec8, text: 'USE TURRET' }, turret_dismount: { at: 0x3e4ee0, text: 'DISMOUNT TURRET' },
+  knife: { at: 0x3e4e68, text: 'KNIFE ATTACK' }, restrain: { at: 0x3e4e78, text: 'RESTRAIN' },
+  victory: { at: 0x3e4ef0, text: 'VICTORY DANCE' }, pickup: { at: 0x3e4e10, text: 'TAKE' }, pickup2: { at: 0x3e4e10, text: 'TAKE' },
+};
+/**
+ * LkPaioX5 part 2 (b): `FUN_00220350`'s other literals -- UNAVAILABLE for a map action the player may not use
+ * (D:L74401-74403), the pick-up's format (D:L74471), and the name a weapon record without one takes (`FUN_00220870`
+ * D:L74515-74516, D:L74528-74529).
+ */
+export const ACTION_CAPTION_TEXT = {
+  unavailable: { at: 0x3e4f50, text: 'UNAVAILABLE' }, take: { at: 0x3e4f28, text: '%s %s' }, unknown: { at: 0x3e4b98, text: 'UNKNOWN' },
+} as const;
+/**
+ * LkPaioX5 part 2 (b): the bomb's caption (type 7) is HudCLOC's, by id through `FUN_00361b40`: 0xec40 (60480, BOMB
+ * DEFUSAL) while the world bomb's node is set (`DAT_0044d4a0`: on the ground or planted -- the defuse), else 0xec41 (60481,
+ * DEMOLITION -- the plant) (D:L74458-74461); drawn with no table lookup (the label's flag 0, D:L74463). Shown outside the
+ * hold; through the hold the label is not written again (D:L74427-74443).
+ */
+export const ACTION_BOMB_CAPTION_IDS = { bomb: 0xec41, bomb_defuse: 0xec40 } as const;
+/*
+ * LkPaioX5 part 2 (b), G1 of the action-labels review (reading, pending review; was the map-action caption reading, "not
+ * drawn"): a map action's record (type 13) the player may use is captioned with the action's own text, which
+ * `FUN_002209c0` sets in its `+0x90` (D:L74567-74582) and `FUN_00220350` draws (D:L74420) -- built for a DOOR and a
+ * SWITCH (`./mapActions` `mapActionCaption`, carried on the entry by `./matchActions`). Still unported: the other types'
+ * texts and UNKNOWN (`MAP_ACTION_CAPTION_OTHER_TYPES_READING`), and the `tcm` action's text at 0x436500 or PLEASE ADD TO
+ * MISSION.RDR (D:L74405-74416; the key sets `+0x3f` bit 2, D:L157420-157423).
+ */
+/**
+ * LkPaioX5 part 2 (b): ACTION_CAPTION_EMPTY_READING -- what the label shows once the list is empty: `FUN_0021f210` returns
+ * before `FUN_00220350` with no entry (D:L73904-73905) and nothing found hides the label, nor clears it in the pick-ups'
+ * branch without a weapon (D:L74469-74476). The port draws no caption with no prompt, or a pick-up with no weapon.
+ */
+export const ACTION_CAPTION_EMPTY_READING = 'none: no prompt, or a pick-up without a weapon' as const;
+
+/**
+ * LkPaioX5 part 2 (b): the caption `FUN_00220350` writes for the list's head (research 87 §5), or null for none. `loc` is
+ * HudCLOC's strings by id and by message name (`./tauntData` `tauntCaptions`); a caption written with the label's flag 1
+ * is looked up when it opens on '_' (`FUN_003631f0` D:L260990-260992 through `FUN_003a3100`, D:L296945-296949).
+ */
+export function actionCaptionOf(e: ActionEntry, loc: Readonly<Record<string, string>> | null): string | null {
+  const msg = (t: string): string => (t.startsWith('_') ? loc?.[t] ?? t : t);
+  const p = e.prompt;
+  // A map action: UNAVAILABLE when not allowed (D:L74401-74403), else the caption its entry carries (G1), else none.
+  if (MAP_ACTION_PROMPTS.has(p)) return e.allowed === false ? msg(ACTION_CAPTION_TEXT.unavailable.text) : e.caption !== undefined ? msg(e.caption) : null;
+  if (p === 'bomb' || p === 'bomb_defuse') return loc?.[String(ACTION_BOMB_CAPTION_IDS[p])] ?? null;
+  if (p === 'escortee') return e.caption !== undefined ? msg(e.caption) : null;
+  const own = ACTION_RECORD_CAPTIONS[p];
+  if (!own) return null;
+  if (p === 'pickup' || p === 'pickup2') return e.name === undefined ? null : msg(`${own.text} ${e.name}`);
+  return msg(own.text);
+}
+/** What the HUD is fed for the action slot: one prompt (the list's head alone), the picker's list, or none. */
+export type ActionFeed = ActionPrompt | readonly ActionEntry[] | null;
+/**
+ * PB-8: the hold bar off the hold. When the kit's hold flags are not both set, `FUN_00220350` (D:L74444-74457) -- and
+ * `FUN_002200c0` with no prompt (D:L74334-74345) -- takes the fill's alpha (`FUN_00364850`, +0x3c; 100 while held)
+ * down by `DAT_004a449c` (the frame's dt, 1/60 at its init, D:L304924) x 400, gives the box the same alpha, and hides
+ * both below 0 (vtable +0x18, `FUN_00364e50`); the fill keeps its last width. In GS alpha units.
+ */
+export const HOLD_BAR_FADE = { from: 100, perSecond: 400 } as const;
+/**
+ * The ammo box's fade (`DAT_003dc380`): hidden for 1 s, then up over 0.5 s. Its counter is zeroed at the HUD's init
+ * (`FUN_001fa360` D:L57489; the port's `setBitmaps`) and the tactical map's close (D:L56164), not at a spawn (research
+ * 322 R322.8, its F4 correction; was: "The HUD fades in on a spawn"), nor at a round's start (PAR-94d, D6 closed; was:
+ * "the port's `startRound` zeroes it too") but a new match's started in place, standing in for the original's reload
+ * (PAR-94d F1, `Hud.startRound`).
+ */
+export const SPAWN_FADE = { hold: 1, ramp: 0.5 } as const;
+/** The stance word: alpha 127 on a change, down 64 a second (`FUN_00221d90`). */
+export const STANCE_FADE = { start: 127 / 128, perSecond: 64 / 128 } as const;
+/**
+ * The round's start as the console plays it (research 87 §8): the picture fades up from black over `fader` seconds
+ * [fitted on the Vigilance frames: `CFader_FadeIn(0.5)`'s argument unresolved]; the ammo box fades in (`SPAWN_FADE`);
+ * the message window (`messages.rdr`, `FUN_002b77a0`) shows "STARTING ROUND 1 OF 11" and 5 s later "OBJECTIVE:" over
+ * the side's objective, pushing the first line up; each line fades in at 280 alpha a second (100 / 280 = 0.357 s),
+ * starts fading out 7 s (`fadetime`) after it was posted, at the same rate; the panel goes with the last line. The
+ * posting times, 0.36 and 5.36 s after the round clock's 06:00, are the Vigilance frames' (A_ready021..034). The
+ * objective's lines are the map's own (PF-12: `RoundInfo.objective`, `start`'s MESSAGEs by `player_team`), posted at the
+ * script's waits plus `OBJECTIVE_POST_OFFSET_READING` -- Vigilance's WAIT 5 is the frames' 5.36.
+ */
+export const ROUND_START = {
+  fader: 1.5,
+  fadeIn: 100 / 280, fadetime: 7, fadeOut: 100 / 280,
+  messages: [
+    // `FUN_001fb420` L57633-57648: "STARTING ROUND %d OF %d", or "PLAYING TIEBREAKER ROUND" past the round count.
+    { at: 0.36, lines: (r: RoundInfo): BannerLine[] => [{ text: roundBanner(r.round, r.rounds), scale: 1 }] },
+  ],
+} as const;
+
+/**
+ * The script's `MESSAGE` reaches the window 0.36 s after the script's wait: the Vigilance frames put the objective at
+ * 5.36 s, `start`'s WAIT 5 (research 87 s8), as the round's first line is at 0.36 s; the same offset is taken on every
+ * map, Crossroads' WAIT 3 at 3.36 s. [reading: measured on the one map; the controller's ruling PF.R17, 2026-10-04]
+ */
+export const OBJECTIVE_POST_OFFSET_READING = 0.36;
+
+/**
+ * The window's drawn scale of an objective line by its script scale, measured on the Vigilance frames (research 87 s8):
+ * "OBJECTIVE:" (0.9) at 1.0, the objective (0.7) at 0.765. Every multiplayer MESSAGE is one of the two (research 192
+ * s3.1); another scale is drawn as the script gives it.
+ */
+export const OBJECTIVE_DRAWN_SCALE: ReadonlyMap<number, number> = new Map([[0.9, 1], [0.7, 0.765]]);
+
+/** One line of the side's objective as the map's script posts it (`./roundCues` `ObjectiveLine`, its text read). */
+export interface ObjectiveText { text: string; scale: number; waitBefore: number }
+/** What the round-start banner says: the round of the game, and the side's objective lines (none: the banner alone). */
+export interface RoundInfo { round: number; rounds: number; objective: readonly ObjectiveText[] }
+/** The console capture's: round 1 of 11, the SEALs' suppression objective (Vigilance: WAIT 5, mp51LOC 5100/5101). */
+export const DEFAULT_ROUND: RoundInfo = {
+  round: 1, rounds: 11,
+  objective: [{ text: 'OBJECTIVE:', scale: 0.9, waitBefore: 5 }, { text: 'ELIMINATE THE TERRORISTS', scale: 0.7, waitBefore: 0 }],
+};
+
+/** The objective's messages: the lines the script posts together (no wait between) one message, at its wait + the offset. */
+export function objectivePosts(objective: readonly ObjectiveText[]): { at: number; lines: BannerLine[] }[] {
+  const out: { at: number; lines: BannerLine[] }[] = [];
+  let t = 0;
+  for (const l of objective) {
+    // TAUNT-WRAP: a post of `FUN_002b6530` at the script's scale (`FUN_00267760` D:L113376), wrapped as the window does;
+    // drawn at the frames' scale (`OBJECTIVE_DRAWN_SCALE`), measured at the code's (`messageMeasureScale`).
+    const scale = OBJECTIVE_DRAWN_SCALE.get(l.scale) ?? l.scale;
+    const lines = wrapMessageLine(l.text, messageMeasureScale(l.scale)).map((text) => ({ text, scale }));
+    if (out.length && l.waitBefore === 0) { out[out.length - 1]!.lines.push(...lines); continue; }
+    t += l.waitBefore;
+    out.push({ at: t + OBJECTIVE_POST_OFFSET_READING, lines });
+  }
+  return out;
+}
+
+/** The banner's messages and the fader `t` seconds into the round start. */
+export function roundStartAt(t: number, round: RoundInfo = DEFAULT_ROUND): { banner: BannerMessage[]; fader: number } {
+  const banner: BannerMessage[] = [];
+  const posts = [...ROUND_START.messages.map((m) => ({ at: m.at, lines: m.lines(round) })), ...objectivePosts(round.objective)];
+  for (const m of posts) {
+    const alpha = messageAlpha(t - m.at);
+    if (alpha !== null) banner.push({ lines: m.lines, alpha });
+  }
+  return { banner, fader: Math.max(0, 1 - t / ROUND_START.fader) };
+}
+
+/**
+ * A message window line's alpha `age` seconds after its posting (`FUN_002b77a0`), or null once it is gone. `fadetime`:
+ * the window's (`messages.rdr`'s 7; PICKUP-LINE: `small_messages.rdr`'s 5), the fades' rate the same.
+ */
+export function messageAlpha(age: number, fadetime: number = ROUND_START.fadetime): number | null {
+  const R = ROUND_START, life = fadetime + R.fadeOut;
+  if (age < 0 || age >= life) return null;
+  return Math.min(1, age / R.fadeIn, (life - age) / R.fadeOut);
+}
+
+/** The message window holds up to 8 lines (`messages.rdr`); a post past that pushes the oldest out. */
+export const MESSAGE_LINES = 8;
+
+/**
+ * The nav marks' colours: the mark (32, 62, 32) of `FUN_002126f0`'s table (types 14-37), and the pinned mark's
+ * arrow as the Vigilance frame shows it (85, 62, 27) [measured: its peak (170, 124, 53) over a white bitmap].
+ */
+export const NAV_MARK = { rgb: [32, 62, 32] as [number, number, number], arrow: [85, 62, 27] as [number, number, number] };
+
+/**
+ * XR-06 (research 214 s3; 87 s1.7, 192 G27): a mark of the round's objective on the compass at a world point (x, z) --
+ * the bomb (`ret_bomb.tif`) and the base its carrier's side must reach (`ret_base.tif`), both HUD2 16x16 bitmaps
+ * (`FUN_002126f0` D:L68576). `./bombPage` says where (`COMPASS_BASE_MARK_READING`). HX-5 (research 239 s5): a hostage
+ * (`ret_hostage.tif`, type 4) and an extraction zone's centre (`ret_extraction.tif`, type 6), `./hostageMarks` -- with
+ * `pulse`, drawn at the types 1-13 pulse's alpha (`OBJECTIVE_MARK_PULSE_READING`).
+ */
+export interface CompassMark {
+  /** MATCH-05: `hud_talk.tif`, type 9, the `WhoIsTalking` mark (`./hudVoice` `talkMark`). */
+  bitmap: 'ret_bomb.tif' | 'ret_base.tif' | 'ret_hostage.tif' | 'ret_extraction.tif' | 'hud_talk.tif';
+  x: number; z: number;
+  pulse?: true;
+  /**
+   * BOMB-MARKS (research 214 s3 "The base mark for both sides"): the base mark's type, which picks its colour
+   * (`BASE_MARK_TYPE_RGB_READING`) -- 2 for a viewer on the carrier's side, 3 for any other (`FUN_005bbf10`
+   * D:L473696-473699). Absent, the bitmap's own row (`OBJECTIVE_MARK_RGB_READING`).
+   */
+  type?: 2 | 3;
+}
+
+/**
+ * BASE_MARK_TYPE_RGB_READING (BOMB-MARKS; research 214 s3, s6): the `ret_base` mark's two types' colours, GS 0-128, from
+ * `FUN_002126f0`'s table (floats at `+0xa0` in threes, type 0 first): type 2 (40, 62, 36) green at `+0xb8..+0xc0`
+ * (D:L68684-68687), type 3 (62, 37, 36) red at `+0xc4..+0xcc` (D:L68680-68683). `FUN_005bbf10` writes the type into the
+ * mark's bits 4-19 (D:L473696-473700). [reading]
+ */
+export const BASE_MARK_TYPE_RGB_READING: Readonly<Record<2 | 3, readonly [number, number, number]>> = {
+  2: [40, 62, 36], 3: [62, 37, 36],
+};
+
+/**
+ * OBJECTIVE_MARK_RGB_READING: the objective marks' colours, by bitmap. `FUN_002126f0`'s table gives each mark type its own
+ * RGB (research 87 s1.7). HX-5 (research 239 s5): the table read at D:L68680-68700 (floats at `+0xa0` in threes, type 0
+ * first): type 4 `ret_hostage` (62, 49, 36), type 6 `ret_extraction` (36, 40, 62) -- 190 D's values, re-read 2026-10-06.
+ * The bomb's row is type 1's (62, 62, 32), the table's second row at `+0xac` (D:L68677-68679): the bomb's ground mark is
+ * made type 1 (`FUN_0059dab0` D:L457521-457523, the mark word's type field 0x10 >> 4; research 214 s3) with no colour of
+ * its own (its maker `FUN_002a28f0` sets `+0x18` to -1, so `FUN_002a2c70` answers 0 and `FUN_00211510` takes the table's,
+ * D:L68188-68198; no setter of that index was found reaching it -- a search, not a proof). Was the nav marks' (32, 62, 32),
+ * which XR-06 had left until the type was read. Not measured: no frame of the original with the bomb on the compass has
+ * been scored (capture B). BOMB-MARKS: the base's row is type 2's (`BASE_MARK_TYPE_RGB_READING`), a typed mark's `type`
+ * choosing between 2 and 3.
+ */
+export const OBJECTIVE_MARK_RGB_READING: Readonly<Record<CompassMark['bitmap'], readonly [number, number, number]>> = {
+  'ret_bomb.tif': [62, 62, 32], 'ret_base.tif': BASE_MARK_TYPE_RGB_READING[2], 'ret_hostage.tif': [62, 49, 36], 'ret_extraction.tif': [36, 40, 62],
+  'hud_talk.tif': [32, 62, 62],   // MATCH-05: type 9's row, `+0x10c` (D:L68703-68705; `./hudVoice` VOICE_TALK_MARK_READING)
+};
+
+/**
+ * OBJECTIVE_MARK_PULSE_READING (HX-5; research 190 D, 87 s1.7): the compass marks of types 1-13 draw at the alpha
+ * `DAT_0040c070` (`FUN_00211510` D:L68126-68130; types 0 and 14+ at `DAT_003dc500`, 128), which the compass's update
+ * moves by `rate` 250 a second between `min` 64 and `max` 128, turning at each end (D:L68043-68050) -- in GS units of
+ * 128. The port pulses the marks that say `pulse`: the hostage's and the zone's, BOMB-MARKS' base (types 2-3) and the
+ * bomb's (type 1, `./bombPage` `marks()`; was drawn at 1 until its type was read). [reading]
+ */
+export const OBJECTIVE_MARK_PULSE_READING = { min: 64, max: 128, rate: 250 } as const;
+
+/**
+ * EXTRACT_CAPTION_READING (HX-5; research 190 A1, 87 s12): GAME DETAILS names the game type by `FUN_0022be20`'s switch on
+ * game `+0x111` (D:L79744-79758): 1 BREACH (0x3e5828), 2 DEMOLITION (0x3e5830), 3 ESCORT (0x3e5840), 4 EXTRACT
+ * (0x3e5848), 5 SUPPRESSION (0x3e5850), else "GAMETYPE ERROR02" -- so the four others are their mode's name upper-cased
+ * and EXTRACTION's is EXTRACT (`gameCaption`). [reading]
+ */
+export const EXTRACT_CAPTION_READING = 'EXTRACT';
+
+/** The scoreboard's caption for a mode name (`./mapOrder`'s `mode`): `EXTRACT_CAPTION_READING`, else the name upper-cased. */
+export function gameCaption(mode: string): string {
+  return mode.toLowerCase() === 'extraction' ? EXTRACT_CAPTION_READING : mode.toUpperCase();
+}
+
+/**
+ * DEFUSE_TIMER_LAYOUT_READING: while the fuse runs the HUD's timer line shows the fuse's seconds (`"%02d:%02d"`) in the
+ * round timer's own place (`HUD_LAYOUT.info.timer`), the round's clock not drawn. Research 192 G27 names a defuse timer
+ * among the mode's HUD; where the game draws it is not read, and "MP DEFUSE BOMB" (S:0x3e5ff8) is the tactical command
+ * row 0x2e's label (research 197 W2-R-05, D:L83771), not the timer's: no label is drawn. Settles: capture B item 8
+ * (research 213 s3: the defuse timer's first frame).
+ */
+export const DEFUSE_TIMER_LAYOUT_READING = 'round-timer-slot' as const;
+
+/**
+ * The compass's marks now: each nav point's bitmap (the name's first letter: `ret_nav_01` is C), its bearing from the view
+ * (sin, cos: clockwise from straight ahead) and its distance -- those within 200 units and the nearest -- then every
+ * objective mark (`extraMarks`, XR-06), whatever its distance, by the same bearing and distance.
+ */
+export function compassMarks(model: Pick<HudModel, 'navPoints' | 'position' | 'yaw' | 'extraMarks' | 'hostageMarks' | 'talkMarks'>): { bitmap: string; sin: number; cos: number; distance: number; objective?: true; pulse?: true; type?: 2 | 3 }[] {
+  if (!model.position) return [];
+  const yaw = (model.yaw * Math.PI) / 180;
+  const f = [-Math.sin(yaw), -Math.cos(yaw)], r = [Math.cos(yaw), -Math.sin(yaw)];
+  const bearing = (x: number, z: number): { sin: number; cos: number; distance: number } => {
+    const dx = x - model.position![0], dz = z - model.position![1];
+    const distance = Math.hypot(dx, dz) || 1e-9;
+    return { sin: (dx * r[0]! + dz * r[1]!) / distance, cos: (dx * f[0]! + dz * f[1]!) / distance, distance };
+  };
+  const all = model.navPoints.map((p) => {
+    const c = p.name.toUpperCase().charCodeAt(0);
+    const bitmap = c >= 67 && c <= 90 ? `ret_nav_${String(c - 66).padStart(2, '0')}.tif` : '';
+    return { bitmap, ...bearing(p.x, p.z) };
+  }).filter((m) => m.bitmap);
+  let nearest = -1;
+  all.forEach((m, i) => { if (nearest < 0 || m.distance < all[nearest]!.distance) nearest = i; });
+  // HX-5: the hostages' and the zone's after the bomb's, shown whatever the distance online (`FUN_00211510` D:L68148's
+  // jump table: types 1-8, 12, 13 always).
+  // MATCH-05: the talk mark after them, already cut past 900 units (`./hudVoice` `talkMark`: types 9-11's test).
+  const extra = [...model.extraMarks ?? [], ...model.hostageMarks ?? [], ...model.talkMarks ?? []]
+    .map((m) => ({ bitmap: m.bitmap, ...bearing(m.x, m.z), objective: true as const, ...(m.pulse ? { pulse: true as const } : {}),
+      ...(m.type ? { type: m.type } : {}) }));
+  return [...all.filter((m, i) => m.distance < 200 || i === nearest), ...extra];
+}
+
+/** User-requested C4 countdown; appearance/priority are unverified against the original (research 209 §17). */
+export const C4_FUSE_BAR_PRESENTATION_ADAPTATION = {
+  layout: 'holdBar', colours: 'holdBar', priority: 'bomb-hold', removal: 'immediate', visibility: 'holdBar',
+} as const;
+
+/**
+ * What the scoreboard hides while it is up (L56808-56828): the ammo box, the compass, the prompts, the timer. PAR-48
+ * (research 282 §1): also the info box -- the bar, the name on it, its box (D:L56811) -- and the number at (587, 433),
+ * the page's range (D:L56826), for every seat; and a spectator's panel (D:L56813) and help lines (D:L56817-56823). AD-7
+ * (C87; note 227 §2.8): and the voice element -- D:L56811's call is the info box's `+0x18`, the table 0x405b40 + 0x18 =
+ * `FUN_00238420` (read off the ELF), which hides its `+0x390`, the voice element (D:L85523; `FUN_00238f50` D:L85656).
+ * (Was: the voice element kept under the board, its hide's reach not read -- note 227 §3's retired row.) SPECTATOR HUD
+ * off takes the same set (D:L56808); the START menu's does not (`START_MENU_HIDES`, PAR-97).
+ */
+export const SCOREBOARD_HIDES: ReadonlySet<HudElement> = new Set<HudElement>(
+  ['panel', 'rounds', 'mags', 'icon', 'firemode', 'compass', 'marks', 'action', 'actionSides', 'actionCaption', 'timer',
+    // PB-8: the hold bar's two widgets are the prompt's children (`FUN_0021ded0` D:L73819-73829, `FUN_001feae0`),
+    // hidden with it (the prompt's hide, D:L56814).
+    'holdBar', 'c4FuseBar', // C4_FUSE_BAR_PRESENTATION_ADAPTATION: same visibility group.
+    'bar', 'name', 'box', 'range', 'spectatorInfo', 'help',
+    'voice']);
+/**
+ * What a round's end screen hides (research 91 §18 §2.4: it is its own screen, replacing the game): what the scoreboard
+ * hides and the rest of the in-round HUD -- all but the fader. It replaces the scoreboard and the tactical map's layer.
+ */
+export const ROUND_SCREEN_HIDES: ReadonlySet<HudElement> = new Set<HudElement>([
+  ...SCOREBOARD_HIDES, 'bar', 'name', 'box', 'range', 'stance', 'banner', 'message', 'marks', 'tacmap', 'zoom', 'scopeRange', 'scoreboard',
+  // PICKUP-LINE: the small message window goes with the rest of the in-round HUD. (Correction 3: the START menu's
+  // hide-all hides it too, `START_MENU_HIDES`; the scoreboard's hide is not read for it and leaves it shown.)
+  'smallMessage',
+  'voice',   // MATCH-05: no voice widget on the round or final screens (research 170 §5.2)
+  // NU-9 (c): the over-head tags and their sprites, the in-round HUD's (research 329 §1.1: the round's reset and start
+  // clear them, `FUN_002271d0`, `FUN_00227240`; `Hud.startRound`).
+  'teamTags', 'teamTalk',
+]);
+
+/**
+ * MATCH-01 (research 266 §8.5): what the START menu's open hides -- the hide-all `FUN_001f77c0` (D:L56312-56361, called
+ * at the open, `FUN_00204a40` D:L61964), online, after the control state is set to 3 (D:L61963), mapped onto the page's
+ * elements as research 282 §1 maps it (`SPECTATOR_HIDES`): the weapon box (D:L56340), the compass and its marks
+ * (`FUN_00212260`, D:L56359), the prompts and their children (D:L56325), the stance word (D:L56328), the ZOOM line and
+ * the scope's range (D:L56338, D:L56326), the spectator's panel (D:L56348) and the main message window (D:L56354). Not
+ * hidden online: the info box (its hide is outside state 3, D:L56344-56346) and its child the voice element (`+0x390`,
+ * `FUN_00238f50` D:L85656; PAR-97, NU-9's review F3 -- was: `'voice'` in the set, on research 282 §1's old mapping of
+ * D:L56341, which hides `+0x17580`, the name tags' part, below), the round timer and the number (offline only,
+ * D:L56320-56324). The close's show is `FUN_001f7a90` (D:L56366-56447), at the first
+ * closed tick (`FUN_002011f0` D:L60702-60704). START_MENU_HIDES_READING: the hide is held for the menu's whole open --
+ * whether a widget's own frame shows it again under the menu is not traced; the hide-all's three unnamed children
+ * (D:L56332-56334) and the reticle's root (D:L56327) have no element here.
+ */
+export const START_MENU_HIDES: ReadonlySet<HudElement> = new Set<HudElement>([
+  'panel', 'rounds', 'mags', 'icon', 'firemode', 'compass', 'marks', 'action', 'actionSides', 'actionCaption', 'holdBar', 'c4FuseBar', 'stance', 'zoom', 'scopeRange',
+  'spectatorInfo', 'banner', 'message',
+  // PICKUP-LINE correction 3: the small message window -- the hide-all's tail hides the main message window `0x4366a0`
+  // (D:L56354) and the small one `0x437060` (D:L56355); D:L56356 is object `0x437540`, not a message window (its loader
+  // `FUN_002ca100`, D:L57429-57431), and the subtitles window `0x436b80` is not in the hide-all (research 282 §1).
+  'smallMessage',
+  // NU-9 (c): the over-head name texts -- D:L56341 is the hide of `+0x17580`, `CMPTeammateNames` (its vtable at
+  // `+0x1758c`; research 329 §1.7); the talk sprites are not the part's and stay (329 N1).
+  'teamTags',
+]);
+
+/** The words `PoseBitmap` writes. */
+export const STANCE_WORDS: Record<HudStance, string> = { stand: 'STAND', crouch: 'CROUCH', prone: 'PRONE' };
+/** A plain white texel: the bitmap the untextured draws (the health bar) modulate. */
+export const WHITE = 'white';
+
+export type HudElement =
+  | 'panel' | 'rounds' | 'mags' | 'icon' | 'firemode' | 'compass' | 'bar' | 'name' | 'box' | 'timer' | 'range'
+  | 'stance' | 'action' | 'banner' | 'message' | 'smallMessage' | 'fader' | 'marks' | 'tacmap' | 'zoom' | 'scopeRange' | 'scoreboard'
+  | 'roundScreen'
+  /** WEAPON EXCHANGE and the dead's prompt (`./weaponSelect`, `./weaponExchange`; research 94 part 2), the overlay's layer 1. */
+  | 'weaponSelect' | 'chatMenu'
+  /** MATCH-05: the round's voice element (`./hudVoice`). */
+  | 'voice'
+  /** PB-8: the bomb's hold bar (`HUD_LAYOUT.holdBar`), the prompt's own widgets. */
+  | 'holdBar' | 'c4FuseBar'
+  /** LkPaioX5 part 2 (a): list[1] and list[2] beside the prompt (`HudModel.actionSides`); (b) the caption under it. */
+  | 'actionSides' | 'actionCaption'
+  /** PAR-48 (research 282): a spectator's panel `CSpectatorInfo` and its help lines (`Hud.setSpectator`). */
+  | 'spectatorInfo' | 'help'
+  /** KEYBOARD-WHISPER: the online round's USB-keyboard text line (`TEXT_LINE_LAYOUT`, `Hud.setTextLine`). */
+  | 'textLine'
+  /** MATCH-01: the in-round START menu (`./startMenu`), the overlay's layer 1. */
+  | 'startMenu'
+  /**
+   * NU-9 (c): the teammates' over-head name texts (`CMPTeammateNames`'s eight, research 329 §1.1), and the talk arrow
+   * and icon over the holder's tag -- the HUD's own sprites, not the part's (D:L77550, D:L77557).
+   */
+  | 'teamTags' | 'teamTalk'
+  /** WM-PACKS-CHIP (a browser adaptation, no original): the texture pack's loading chip (`./packApplyChip`), layer 1. */
+  | 'packChip';
+
+/**
+ * WM-PACKS-CHIP (a browser adaptation, no original): the hook the texture pack's loading chip draws through
+ * (`./packApplyChip` `feedPackApplyChip` installs it). hud.ts imports nothing of the chip at runtime: the chip's module
+ * reaches `./matchMessages`, whose top level reads this module's `MESSAGE_SCALE`, so a runtime import here is a cycle.
+ */
+export type HudChipDrawer = (frame: { width: number; height: number }, sizes: Record<string, { width: number; height: number }>) => HudQuad[];
+let chipDrawer: HudChipDrawer | null = null;
+/** Installs (or with null clears) the chip's drawer the HUD's render calls once a frame, on layer 1 over all. */
+export function setHudChipDrawer(d: HudChipDrawer | null): void { chipDrawer = d; }
+/** The chip's drawer now (null with none installed). */
+export function hudChipDrawer(): HudChipDrawer | null { return chipDrawer; }
+
+/** One textured quad in frame pixels (y down): its centre, size, turn (radians, clockwise), texels, colour. */
+export interface HudQuad {
+  element: HudElement;
+  texture: string;
+  x: number; y: number; w: number; h: number; turn: number;
+  u0: number; v0: number; u1: number; v1: number;
+  rgba: Rgba4;
+  /** Optional right-side vertex opacity, used by the original TCM panel fade. */
+  alphaRight?: number;
+  /** The pass layer: 0 the in-round HUD, 1 the tactical map over it (its shapes first, then its bitmaps). */
+  layer?: number;
+}
+
+/** The page's extra layer: asked each frame for its quads and shapes (the tactical map). */
+export type HudOverlay = (
+  frame: { width: number; height: number }, sizes: Record<string, { width: number; height: number }>,
+) => { quads: HudQuad[]; tris: HudTri[] } | null;
+
+/** One untextured triangle in frame pixels (y down), for the tactical map's polygons and lines. */
+export interface HudTri { layer: number; p: [number, number, number, number, number, number]; rgba: Rgba4 }
+
+/** Everything the HUD shows; the page writes it through `Hud`'s setters. */
+export interface HudModel {
+  rounds: number; capacity: number; spare: number; reloading: boolean;
+  /**
+   * NET-REFILL N4 (research 312 §4.2; `NET_REFILL_MAGS_HIDDEN_READING`, `./net/netRefill` `netMagsHidden`): online the
+   * box's MAGS line is hidden for a pistol in the hand, and in a respawn game for any primary class (`FUN_00237760`
+   * D:L85181-85192); `%d/%d` unchanged. Absent or false: shown by `spare` as offline.
+   */
+  magsHidden?: boolean;
+  fireMode: FireMode;
+  /**
+   * A launcher's round mode (web sprint 4 M4, research 94 §C9): the round's own icon (`firemode_203_frag.tif` ...), drawn
+   * in the first fire-mode cell with the four `firemode.tif` rounds hidden (`FUN_00237b40` L85254-85300: a mode > 3 hides
+   * the four and shows the first with `FUN_005c6530`'s icon). Absent or null: the rounds of `fireMode`.
+   */
+  fireModeIcon?: string | null;
+  /**
+   * The fire-mode row at all: false while a throwable, a charge or the Detonator is up -- `FUN_005bc300` refuses the
+   * item in the hand's class (grenade 121, explosive 151, gear 190, armour 201, turret 230) and the four cells are hidden
+   * (L85207-85219; the capture of 2026-10-05, h00 / h01: a grenade in hand, no rounds). Absent: shown.
+   */
+  fireModeRow?: boolean;
+  /** The weapon's HUDW icon, e.g. `m4carbine_icon.tif`. */
+  weaponIcon: string;
+  /** The camera's heading in degrees (`fly.pose().yaw`): the ring turns by it, clockwise (research 87 §1.2). */
+  yaw: number;
+  action: ActionPrompt | null;
+  /** The action's colour: `blue` when it can be done, `grey` when not. */
+  actionColour: keyof typeof ACTION_COLOURS;
+  /**
+   * LkPaioX5 part 2 (a): list[1] and list[2], drawn right and left of the head (`FUN_0021f210` D:L73987-74000), each in its
+   * own record's colour; empty with no list or one entry.
+   */
+  actionSides?: readonly { prompt: ActionPrompt; colour: keyof typeof ACTION_COLOURS }[];
+  /** LkPaioX5 part 2 (b): the caption under the head (`actionCaptionOf`), or none. */
+  actionCaption?: string | null;
+  stance: HudStance;
+  /**
+   * The walker's own name on the health bar (NU-9 N1, research 327 §1.1: `FUN_00238500` D:L85562 writes the viewed actor's
+   * `+0x14`, his own while he walks), set once a frame from the page (`ownHudName`, `setPlayerName`); '' with no page.
+   * Bare: the scoreboard's single-row fallback reads it as the name column (`boardLayout`; 327 F4). (Was: "the viewer's
+   * SEAL has none" -- no page set it.)
+   */
+  name: string;
+  /**
+   * NU-9 N1: the walker's own clan tag, his score row's `clan` (research 275 §2.1), kept apart from `name` (327 F4): only
+   * the info box formats "[tag] name" (`taggedName`, D:L85563-85567). Absent or '': the name alone.
+   */
+  tag?: string;
+  /** Health, 0..1: the bar's green share. */
+  health: number;
+  /** The round timer, seconds; static in the viewer (a round's six minutes). */
+  timer: number;
+  /**
+   * The range finder's metres, or null for none (nothing under the reticle within the weapon's range): the scope's and
+   * binoculars' `RANGE(m)` line, and the info box's spot only while this browser's range readout is on (`rangeReadout`).
+   */
+  range: number | null;
+  /**
+   * HUD-ALIVE B: the info box's number (`infoNumberText`) -- the connected consoles' count (`validClientCount`,
+   * `INFO_CLIENT_COUNT_READING`) and whether this page is the session master (`INFO_SESSION_MASTER_READING`); null with no
+   * room, the original's offline (the number hidden, `FUN_001fa360` D:L57455-57456).
+   */
+  infoNumber: { count: number; master: boolean } | null;
+  /**
+   * HUD-ALIVE C (`./rangeReadout` `RANGE_READOUT_ADAPTATION`, a browser adaptation): this browser's range readout on --
+   * the info box's spot shows the range finder's `"<n>m"` in the count's place. Absent or false: the count (the original).
+   */
+  rangeReadout?: boolean;
+  message: string | null;
+  /** The event banner's messages, oldest first. */
+  banner: BannerMessage[];
+  /** PICKUP-LINE: the small message window's messages (`SMALL_MESSAGES`), oldest first; absent, none. */
+  smallBanner?: BannerMessage[];
+  /** The map's nav points (AIMAPS named points of kind 1, world x, z) and the feet: the compass's marks. */
+  navPoints: { name: string; x: number; z: number }[];
+  position: [number, number] | null;
+  /** SELECT (Tab) held in a multiplayer round: the scoreboard (research 87 §12). */
+  scoreboard: boolean;
+  /** The game the scoreboard's details name: the viewer's is the map, and the map's game type. */
+  game: { name: string; type: string };
+  /** Every player's row, the spectators and the rounds won (`setScoreRows`); null rows are the single-SEAL layout. */
+  scoreRows: { rows: ScoreRowInfo[] | null; spectators: string[]; wins?: { seal: number; terrorist: number } };
+  /** BOMB-MARKS (`setBombCarrier`): the bomb carrier's id, his scoreboard row's satchel (`./scoreboard`); absent or null, none. */
+  bombCarrier?: number | null;
+  /**
+   * ONL-19 (research 269 §5.1): GAME DETAILS' source as taken when the board opened (`setScoreboard`), kept until it
+   * closes -- `FUN_0022be20` builds the lines on the press only; absent or null, the LAN fill.
+   */
+  scoreboardDetails?: GameDetails | null;
+  /**
+   * WM-13 (a BROWSER ADAPTATION, the DAMAGE REPORT PANEL, `./damagePanel`; the original has none): set while SELECT is held
+   * in the result window or a respawn wait (`setDamagePanel`) -- `report` the panel's rows, drawn in the board's place
+   * (`boardLayout`), null the board; `hint` its line's text (`damageHintText`), drawn above the panel
+   * (`./scoreboard` `DAMAGE_HINT_ADAPTATION`). Absent or null: today's board. Never over a round screen
+   * (`hudPass` returns the round screen first).
+   */
+  damagePanel?: { report: DamageBoardReport | null; hint: string | null } | null;
+  /**
+   * WM-DATA (a BROWSER ADAPTATION, the scoreboard's ping on hover; `./scoreboard` `PING_BARS_ADAPTATION`): the page's
+   * pointer in frame pixels (`setPointer`), the drawing buffer's, as the board's quads are; `boardLayout` hands the board
+   * the row under it (`scoreboardRowAt`). Absent or null -- no pointer on the page, a pad-only player -- no row is
+   * hovered and nothing else changes.
+   */
+  pointer?: { x: number; y: number } | null;
+  /** The spawn's fade from black, 0..1 (1 is black). */
+  fader: number;
+  /** `FUN_001f6ce0`'s value: 9.0 in the binoculars, the scope's `ZoomMode`; shown over 1.01. */
+  zoom: number;
+  /** The binoculars are up (view state 4): the RANGE line at their place (`HUD_LAYOUT.binocularsRange`). */
+  binoculars?: boolean;
+  /** A round's end screen (`setRoundScreen`, research 91 §18), drawn over everything while set; absent or null is none. */
+  roundScreen?: RoundScreen | null;
+  /** XR-06: the objective's compass marks (`setExtraMarks`: the bomb, the base), drawn by the nav marks' rule. */
+  extraMarks?: CompassMark[];
+  /** HX-5: the hostages' and the extraction zones' marks (`setHostageMarks`, `./hostageMarks`), after the bomb's. */
+  hostageMarks?: CompassMark[];
+  /** XR-06: the bomb's fuse, seconds left, in the round timer's place while set (`setDefuseTimer`); absent or null: none. */
+  defuseTimer?: number | null;
+  /** MATCH-05: the voice element (`setVoice`, `./hudVoice` `HudVoiceElement`); absent or null: not drawn. */
+  voice?: VoiceElementView | null;
+  /** MATCH-05: the `hud_talk.tif` compass mark (`setTalkMarks`, `./hudVoice` `talkMark`), after the hostages'. */
+  talkMarks?: CompassMark[];
+  /**
+   * PB-8: the bomb's hold bar (`setHoldBar`): `fill`, the fill's share of its 46 px, 0..1; `fade`, absent while a hold
+   * plays (the box at 38.4, the fill at 100), else the GS alpha both widgets share as they fade out (`HOLD_BAR_FADE`).
+   * Absent or null: not drawn.
+   */
+  holdBar?: { fill: number; fade?: number } | null;
+  /** C4 projectile fuse share; separate from the DEMOLITION hold (research 209 §17). */
+  c4FuseBar?: { fill: number } | null;
+  /** PAR-48: the seat's view when it is not a walker viewing himself (`Hud.setSpectator`); absent or null: the walker's HUD. */
+  spectator?: HudSpectatorView | null;
+  /**
+   * KEYBOARD-WHISPER (`Hud.setTextLine`, `TEXT_LINE_LAYOUT`): the round's text line -- its text, the box's and the text's
+   * alphas (GS units, 0..76.8 and 0..100) as its fade leaves them; absent or null once both have faded out.
+   */
+  textLine?: { text: string; box: number; ink: number } | null;
+  /** OT.R82 (`Hud.setKeepClear`, `./hudMessagePanel`): the page's touch controls over the picture. Absent: none. */
+  keepClear?: readonly KeepClear[];
+  /** MATCH-01 (`Hud.setStartMenu`): the START menu is up -- `START_MENU_HIDES` not drawn. Absent: closed. */
+  startMenu?: boolean;
+  /**
+   * MATCH-01 (`Hud.setSpectatorHud`): the START menu's SPECTATOR HUD (`DAT_003dc3e0`, 1 in the ELF's data). Off, the
+   * frame hides what the scoreboard hides (D:L56808-56827, the same block). Absent: on.
+   */
+  spectatorHud?: boolean;
+  /**
+   * NU-9 (c) T3 (`Hud.setTeamTags`, research 329): the over-head tags' points this frame (`./hudTags` `teamTags`), laid
+   * out on the frame by `teamTagLayout`; absent or null: none.
+   */
+  teamTags?: TeamTagsView | null;
+  /**
+   * NU-9 (c) T4 (`Hud.setTeammateNames`): the TEAMMATE NAMES option as the HUD's set-up read it (`DISPLAY_MP_TEAM_NAMES`
+   * into the part's `+0x5e4`, D:L77558-77559, read nowhere else): off, no name texts -- the talk sprites drawn still
+   * (the part's show `FUN_00226960` D:L77292-77301 sets or clears only the part's draw bit). Absent: on, the default 1.
+   */
+  teammateNames?: boolean;
+  /**
+   * LATER 671 (OT.R101; a browser adaptation): the "original" look of the tags -- SS-2 (H422 answered (a)): this
+   * browser's Name tags (`./nameTags`), no longer a card value -- the page's `teamTags` then makes the original's tags
+   * (`./hudTags` `TeamTagInput.original`). Absent: the adaptation.
+   */
+  teammateNamesOriginal?: boolean;
+  /**
+   * NU-9 (c) T3 (`Hud.setCommandMenu`): the Chat menu is open -- the original's command menu, control state 2
+   * (`FUN_00235440`, research 276; *inference*: the port's Chat menu is it) -- which hides the part, the name texts
+   * (D:L56617-56623), not the talk sprites (329 N1). Absent: closed.
+   */
+  commandMenu?: boolean;
+}
+
+export const DEFAULT_MODEL: HudModel = {
+  rounds: 30, capacity: 30, spare: 2, reloading: false, fireMode: 'burst', weaponIcon: 'm4carbine_icon.tif',
+  yaw: 0, action: null, actionColour: 'green', actionSides: [], stance: 'stand', name: '', health: 1, timer: 6 * 60, range: null, infoNumber: null,
+  message: null, banner: [], fader: 0, navPoints: [], position: null, scoreboard: false, game: { name: '', type: '' },
+  scoreRows: { rows: null, spectators: [] }, zoom: 1,
+};
+
+/**
+ * The HUD's time-varying alphas, 0..1: the spawn fade, the stance word, the action pulse; HX-5 `marks`, the compass's
+ * types 1-13 pulse (`OBJECTIVE_MARK_PULSE_READING`; absent: 1); PAR-48 `help`, a spectator's help lines' share of their
+ * alpha 100 (`helpAlpha`; absent: 1); AD-7 `voice`, the voice element's two icon sprites' alphas over 128 -- the channel
+ * icon and the talk / busy icon, each its own ramp (`./hudVoice` `VOICE_ICON_RAMP`, stepped by `Hud.step`; absent, a
+ * pass outside the HUD's clock: the ramp's end, 64 / 128).
+ */
+export interface HudTiming {
+  fade: number; stance: number; pulse: number; marks?: number; help?: number; voice?: { icon: number; talk: number };
+  /**
+   * LkPaioX5 part 2 (a): the action list's alphas, 0..1 -- the head, list[1], list[2] (`ACTION_ICON_FADE`, stepped by
+   * `Hud.step`); absent, a pass outside the HUD's clock: each slot's cap (90 / 128, 28 / 128).
+   */
+  actionAlpha?: readonly number[];
+}
+export const AT_REST: HudTiming = { fade: 1, stance: 0, pulse: 0 };
+
+/**
+ * PAR-48 (research 282 §5; the playtest lane's research 276 §7): what `Hud.setSpectator` takes -- the HUD of a seat that
+ * is not a walker viewing himself, by the original's dispatch (`FUN_001f7ff0` D:L56564-56600). This shape is the API the
+ * pages and the replay's watcher wire; it is kept stable.
+ */
+export interface HudSpectatorView {
+  /**
+   * The original's path; absent is 'spectator'.
+   * - 'spectator', `FUN_001f9160` (a lobby spectator, the `watch` page, a replay's watcher): the round timer, the viewed
+   *   body's info box, the panel `CSpectatorInfo` and the four help lines; the weapon box, the compass and its marks, the
+   *   prompts, the stance word and the ZOOM line hidden (the hide-all `FUN_001f77c0`, D:L56312-56361).
+   * - 'teammate', `FUN_001f9f20` (a dead player viewing another): as a spectator less the panel, its help lines the
+   *   view's `help`; LATER 117: the weapon box's panel and the teammate's held icon (`weaponIcon`), its rounds, MAGS and
+   *   fire-mode row hidden (`TEAMMATE_HIDES`; `FUN_00237e50` D:L57180, D:L85367-85371).
+   * - 'own', `FUN_001f97b0` (a dead player on his own body): the walker's HUD less the compass and its marks (D:L57115),
+   *   with the view's `help`.
+   */
+  path?: 'spectator' | 'teammate' | 'own';
+  /**
+   * LATER 118 (research 282 §8): the six help lines a dead player's path writes (`./weaponSelect` `deadHelpLines`: on his
+   * own body `FUN_001f97b0` D:L56996-57107, watching `FUN_001f9f20` D:L57149-57173), the `%c` rendered for the page's
+   * device; drawn as the spectator's are, on the same clock. RSP-6 adds the respawn path's first line and eligible
+   * second line, with four blanks (`./respawnPrompt`, research 351). Unused on 'spectator' (`SPECTATOR_HELP`).
+   */
+  help?: readonly string[];
+  /** RSP-6: the eligible respawn Action line (index 1) reasserts alpha 100 each frame (research 351 §2). */
+  respawnReady?: boolean;
+  /**
+   * PV-6h (POV_VIEW_ADAPTATION, a browser adaptation with no original; the plan 2026-11-11-players-view, Log 16:30Z,
+   * call 2): the player's view's help line -- 'offered' while a body is followed or watched and the view is off,
+   * 'shown' on a frame the view was drawn, 'waiting' while it is on and the frame fell back to the follow (PV.R6).
+   * Absent: no line (the free and scenic cameras, 'own', a page that gives no state). On 'spectator' and 'teammate'
+   * alike the HUD draws it as one text at `POV_HELP_PLACE_ADAPTATION`, never in `help`.
+   */
+  pov?: 'offered' | 'shown' | 'waiting';
+  /**
+   * WM-PV-HINT (a browser adaptation, no original): Cross's hold toward the view's swap, 0..1 of POV_HOLD_S_ADAPTATION
+   * (`SpectatorView.povHold`: 1 from the swap until the release) -- the ring around the hint's Cross glyph
+   * (`POV_HINT_RING_ADAPTATION`). Absent: no hold, no ring.
+   */
+  povHold?: number;
+  /** WM-PV-HINT: the seconds since the view was swapped, carried only inside `POV_HINT_DIM_S_ADAPTATION` (the hint at half). */
+  povSince?: number;
+  /**
+   * WM-PV-HINT (the review's F1): the page offers the player's view on this path (`SpectatorView.povOffered`) -- the
+   * spectator's every camera, a benched watcher's watch -- so a hint can show in it: the help lines stand raised
+   * (`POV_HELP_LINES_SHIFT_ADAPTATION`) for the help's whole life, whether or not the hint is drawn this frame, and never
+   * move while lit. Absent: raised only while the hint is drawn (a source without the getter). Never on 'own'.
+   */
+  povRaise?: true;
+  /**
+   * SEAT_CLAIM_ADAPTATION (a service adaptation with no original; `./seatClaim`): on 'spectator', a watcher's seat claim --
+   * the line (`seatClaimLine`) and its button's index in it (`at`: the ring's glyph), its share of the help's alpha (an
+   * open slot's breath, `seatClaimPulse`) and the hold's share done (the ring, as the player's view's). Drawn at
+   * `SEAT_CLAIM_PLACE_ADAPTATION` whatever the help's clock. Absent: no claim offered.
+   */
+  claim?: { line: string; at: number; share: number; hold?: number };
+  /**
+   * LATER 118 (the review's F1): on 'teammate', the watched body is dead -- its room body's Alive flag clear, or gone
+   * from the room's list (a leaver's actor killed, `FUN_005477a0(0, ...)` D:L455521, and retired, D:L455525, under
+   * `FUN_005998b0`); absent: alive or unknown. The help clock's edge is
+   * the camera's (`DAT_00408f08`, last frame's viewed actor alive, D:L56754): a dead watched teammate giving way to the
+   * own dead body is no edge (`Hud.setSpectator`).
+   */
+  watchedDead?: true;
+  /**
+   * LATER 117 (research 282 §9): on 'teammate', the watched body's held item's weapon-box icon (`BodyState.weapon` through
+   * the room's bodies, `./loadout` `itemIcon`): the box's icon `+0x1f0` is the viewed actor's current item's bitmap
+   * (`FUN_00237760` D:L85148-85156, D:L85245-85249), redrawn at each cycle (D:L412619, D:L412676) and each change of the
+   * viewed kit (`FUN_005c4b10` D:L478913) -- the page takes the snapshot's item each frame (DEAD_WATCH_HELD_ICON_READING).
+   * Absent: the panel alone (no item, an unknown one, a body gone, or a page that passes no resolver). Unused elsewhere.
+   */
+  weaponIcon?: string;
+  /**
+   * The viewed body: its name on the info box's bar (`FUN_00238500` D:L85558-85576) and the panel's title; its health,
+   * 0..1, on the bar (SPECTATOR_FOLLOWED_HEALTH_READING), null when the page does not know it (no bar). null: the free
+   * camera or a scenic view, whose info box the page leaves empty (SPECTATOR_OWN_INFO_PLACEHOLDER). Unused on 'own'.
+   * `tag` (SPECTATOR-VIEW W4): the body's clan tag, its score row's `clan` (research 275 §2.1), drawn "[tag] name"
+   * (`taggedName`); absent or empty, the name alone.
+   */
+  followed: { name: string; health: number | null; tag?: string } | null;
+  /** The panel's title with no body followed: a scenic view's `Desc` (D:L90239-90256); absent or empty: FREE CAMERA. */
+  title?: string;
+  /**
+   * The panel's four values, a followed SEAL's or Terrorist's (match plus round, D:L90308-90325); null hides them (anyone
+   * else, free, scenic: D:L90238, D:L90277-90294). `headshots` null: the label drawn, the value empty
+   * (SPECTATOR_HEADSHOTS_PLACEHOLDER).
+   */
+  stats: { kills: number; deaths: number; headshots: number | null; score: number } | null;
+  /** The round timer, seconds, for a caller with no `setTimer` feed; absent: the HUD's own timer. */
+  roundTimer?: number;
+}
+
+/**
+ * SPECTATOR_INFO_RGB_PLACEHOLDER (research 282 §2, §6): the panel's title bar and stats panel colours are `.bss`
+ * (0x414900-0x414958, D:L90237-90304, D:L90399, D:L90413); the HUD's panel colour stands in. FREE CAMERA's (100, 100,
+ * 100) is read (`SPECTATOR_INFO_LAYOUT.freeRgb`).
+ */
+export const SPECTATOR_INFO_RGB_PLACEHOLDER: readonly [number, number, number] = [HUD_COLOURS.panel[0], HUD_COLOURS.panel[1], HUD_COLOURS.panel[2]];
+/** SPECTATOR_INFO_TEXT_RGB_PLACEHOLDER (research 282 §6): the panel's texts take no colour in `FUN_00242bb0`; the HUD's string colour. */
+export const SPECTATOR_INFO_TEXT_RGB_PLACEHOLDER: Readonly<Rgba4> = HUD_COLOURS.text;
+/** SPECTATOR_INFO_VALUE_Y_PLACEHOLDER (research 282 §2): the values' first baseline is `DAT_00414920` (`.bss`); the labels'. */
+export const SPECTATOR_INFO_VALUE_Y_PLACEHOLDER = 346;
+/** SPECTATOR_HEADSHOTS_PLACEHOLDER (research 282 §6): the room's score rows carry no headshots; the value is left empty. */
+export const SPECTATOR_HEADSHOTS_PLACEHOLDER = null;
+/**
+ * SPECTATOR_FOLLOWED_HEALTH_READING (LATER 119; research 282 §4, 321 §4.2.1): the info box's bar over the viewed body is
+ * its overall health (`FUN_00238500` -> `FUN_00241cc0(+0x20, viewed)` D:L85555-85556, the fill `+0x1044` D:L89957),
+ * which a console that does not own the body makes from its six part bytes -- the bytes the room's `health` event
+ * carries to the seat's side and the spectators (NU-3c, `TEAM_HEALTH_RECIPIENTS_ADAPTATION`): the page's
+ * `NetClient.healthOf`, read each frame (`spectatorHudView`). A spectator's follow shows any seat's, a dead player's
+ * watched teammate his own side's; a body the room never sent (an enemy's) and a replay (no `health` in a `.s2r`:
+ * `ReplayClient.healthOf`) show no bar. The bar's loss flash and its reset on a change of viewed actor (`FUN_00241cc0`
+ * D:L89961-90035) are not drawn, as on the walker's own bar. [reading, pending review -- H242 (1), a capture of a spectator following a
+ * wounded player, settles it at proven] (Was a placeholder, null: no bar; research 282 §6.)
+ */
+export const SPECTATOR_FOLLOWED_HEALTH_READING = "the viewed body's overall health from the room's six part bytes (healthOf)";
+/** SPECTATOR_OWN_INFO_PLACEHOLDER (research 282 §4): free and scenic, the spectator's own object's bar and name; none drawn. */
+export const SPECTATOR_OWN_INFO_PLACEHOLDER = null;
+/** SPECTATOR_HELP_TAIL_PLACEHOLDER (research 282 §3): help lines 5 and 6, shown but never written on this path; none drawn. */
+export const SPECTATOR_HELP_TAIL_PLACEHOLDER: readonly string[] = [];
+/**
+ * DEAD_WATCH_HELD_ICON_READING (research 282 §9, §6): a dead player watching a teammate sees the teammate's held item's
+ * icon, which the page takes from the room's snapshot each frame (`BodyState.weapon`). The original redraws it when the
+ * viewed kit is marked changed (`FUN_005bc2c0`, D:L56732-56734): at each cycle (D:L412619, D:L412676) and at the kit's own
+ * changes (the slot `FUN_005c4b10` D:L478913); whether the receipt of another console's item marks a remote copy's kit
+ * is not traced. A dead watched teammate (LATER 69) keeps the room's last held item (`room.ts` `bodyOf`'s
+ * `p.held ?? p.loadout[slot]`); whether the death's drop (`FUN_005a0040` D:L458646-458706) empties the slot the box shows
+ * is not traced. Settles it: a capture of a dead player watching a living teammate who swaps, then a dead one.
+ * (Was: the dead watcher's weapon-box placeholder, the box not drawn -- retired by LATER 117.)
+ */
+export const DEAD_WATCH_HELD_ICON_READING = "the snapshot's held item, each frame" as const;
+/**
+ * DEAD_HELP_GHOST_CLOCK_READING (research 282 §8, §6): where a ghost's help clock starts. The original zeroes `+0x1a0e8`
+ * at the HUD's init (D:L57498), a round start (D:L57663) and the camera's edge onto the dead local body -- last frame's
+ * viewed actor alive (`DAT_00408f08`, D:L56754), this frame's the local one, dead (D:L56631-56645); no write at a ghost's
+ * seating was found. The page starts it at the ghost's first dead view (`Hud.setSpectator`: the walker's null or a
+ * spectator's view giving way to 'own' or 'teammate'), its nearest moment to a late joiner's HUD init, as research 282 §3
+ * does for the spectator's arrival -- a promoted spectator following a living player meets the original's own edge on
+ * 'own'. A capture of a late joiner's first seconds settles it.
+ */
+export const DEAD_HELP_GHOST_CLOCK_READING = 'first dead view' as const;
+
+/**
+ * PAR-48: `CSpectatorInfo` (`FUN_00242bb0` D:L90372-90440; research 282 §2), the ELF's words in the 640x448 frame:
+ * `newweapnbkrnd.tif` over the title bar (`DAT_003dcf18..38`) and the stats panel (`DAT_003dcf58..78`), each at its
+ * alpha; the title at the pen (20, 430), scale 0.9 (`DAT_003dcf40..50`); the labels at (20, 346 + 18i) and the values
+ * right-aligned (`+0x6a`, D:L90434) to x 160, scale 0.9 (`DAT_003dcf80..a0`). Left-anchored, as the ammo box is.
+ */
+export const SPECTATOR_INFO_LAYOUT = {
+  title: { x: 10, y: 410, w: 164, h: 28, alpha: 72 },
+  titleText: { x: 20, y: 430, scale: 0.9 } as TextSpot,
+  stats: { x: 10, y: 326, w: 164, h: 84, alpha: 64 },
+  labels: { x: 20, y0: 346, pitch: 18, scale: 0.9 },
+  values: { x: 160, y0: SPECTATOR_INFO_VALUE_Y_PLACEHOLDER, pitch: 18, scale: 0.9, align: 'right' as const },
+  /** 0x3e6e88, 0x3e6ea0, 0x3e6eb0, 0x3e6ec0. */
+  words: ['Kill Count :', 'Deaths :', 'Headshots :', 'Score :'],
+  /** 0x3e6ec8, over the bar's (100, 100, 100) (D:L90326-90328). */
+  free: 'FREE CAMERA',
+  freeRgb: [100, 100, 100],
+} as const;
+
+/**
+ * PAR-48: a spectator's help lines (research 282 §3): 0x3e30f0..0x3e3180 (D:L56869-56872; 0xa6 the pad's Cross, 0xac its
+ * Triangle), centred (`+0x69`, D:L56883) on x 324 at y 380 + 18i (`DAT_003dc3b8/c0/c8`), scale 0.9 and colour (100,
+ * 100, 20) (the HUD's init, D:L57298-57303), alpha 100 held to 10 s and faded to 0 by 10.5 s (D:L56541-56562).
+ */
+export const SPECTATOR_HELP = {
+  lines: ['You are a spectator.  Use the directional', 'buttons to cycle through active players',
+    'and fixed views.  \u00a6 Use the Free-Motion', 'Camera.  \u00ac Jump to visible players.'],
+  x: 324, y0: 380, pitch: 18, scale: 0.9, rgb: [100, 100, 20], alpha: 100, hold: 10, fade: 0.5,
+} as const;
+
+/** The help lines' share of their alpha `t` seconds after their clock started (D:L56541-56562): 1 to 10 s, 0 at 10.5 s. */
+export function helpAlpha(t: number): number {
+  const H = SPECTATOR_HELP;
+  return t <= H.hold ? 1 : Math.max(0, 1 - (t - H.hold) / H.fade);
+}
+
+/**
+ * POV_HELP_OFFERED_ADAPTATION (POV_VIEW_ADAPTATION; a browser adaptation, no original -- research 402 §7; the plan
+ * 2026-11-11-players-view, Log 16:30Z, call 2; WM-PV-HINT, the owner's ruling of 2026-11-15): the player's view's hint
+ * while it is offered, the help block's bottom line in its font, scale and colour (`SPECTATOR_HELP`): `¦` the pad's
+ * Cross as the spectator's line 3 writes it, then the hold's word. (Was: "Hold ¦ for the Player's View.")
+ */
+export const POV_HELP_OFFERED_ADAPTATION = '¦ HOLD: VIEW';
+/**
+ * POV_HELP_SHOWN_ADAPTATION (as above, no original): the hint while the view is on -- drawn, or fallen back (PV.R6).
+ * (Was: "PLAYER'S VIEW.  Hold ¦ to leave.") The watched player's name stays on the panel's name line, whole, as before.
+ */
+export const POV_HELP_SHOWN_ADAPTATION = '¦ HOLD: EXIT';
+/**
+ * POV_HELP_PLACE_ADAPTATION (PV_HINT_LINE_ADAPTATION; a BROWSER ADAPTATION, no original -- WM-PV-HINT, the owner's ruling
+ * of 2026-11-15: "align it along the bottom and bump the you are a spectator text up which will go away on its own"; it
+ * supersedes option 4D, one line above the block at 362): the hint's place, the same on the spectator's, the dead
+ * watcher's and the ghost watcher's path -- the help block's bottom line, line 4's slot: baseline `SPECTATOR_HELP.y0 + 3
+ * x pitch` = 380 + 54 = 434, centred on the block's x (324), at the 640 x 448 frame. Why the block: the hint is a
+ * control, and the help block is where the screen lists the spectator's controls. Why line 4 and not below: the next
+ * slot (baseline 452) is cut 8.5 px by the frame's bottom. A glyph at scale 0.9 spans baseline - 16.5 to baseline + 4.5
+ * (`layoutText`: k = 0.9 x 448/480 = 0.84, top = baseline - 20k + 0.3, height 25k), so the line's cell is y 417.5-438.5
+ * ("¦ HOLD: VIEW" x 273-375, "¦ HOLD: EXIT" x 276.5-371.5): clear of the stats panel (10-174 x 326-410), the name bar
+ * (10-174 x 410-438), the info bar (488-622 x 396-414) and the info box (488-622 x 418-438); it shares 3 px with the line
+ * above it, the block's own overlap (a 21 px line at a pitch of 18). It stays when the help lines fade: no jump, no hole.
+ * A `HudQuad`'s x and y are its CENTRE (`hudLayout`'s `push`).
+ */
+export const POV_HELP_PLACE_ADAPTATION = { x: SPECTATOR_HELP.x, y: SPECTATOR_HELP.y0 + 3 * SPECTATOR_HELP.pitch } as const;
+/**
+ * POV_HELP_LINES_SHIFT_ADAPTATION (as above, a browser adaptation): how far the help lines stand raised while the hint
+ * is drawn or can be (`HudSpectatorView.povRaise`, the review's F1: the page offers the view on the path, so the lines
+ * never move while lit) and a line stands in its slot (the spectator's four, `SPECTATOR_HELP`; a ghost watcher's four):
+ * one pitch, so the
+ * spectator's lines sit at baselines 362, 380, 398, 416 (line 1's cell x 188-460 x 345.5-366.5 ... line 4's 399.5-420.5,
+ * clear of the four boxes above; the round's text line, y 338-360, up only while a line is typed, now crosses line 1's
+ * cell by 14.5 px). A dead watcher's line 4 is blank: his lines stay. The lines keep their clock and fade by themselves.
+ */
+export const POV_HELP_LINES_SHIFT_ADAPTATION = SPECTATOR_HELP.pitch;
+/**
+ * POV_HINT_DIM_S_ADAPTATION (a browser adaptation, no original; the owner, 2026-11-15: "make it semi transparent for a
+ * second after swapping views"): the seconds after a swap of the view (Cross's hold, the strip's `setPov`) that the hint
+ * is drawn at `POV_HINT_DIM_SHARE_ADAPTATION` of its alpha. Visual only: the hold (`./spectatorView` PovHold) has no
+ * re-arm or lockout after a swap, so a new hold runs at once and the dim does not refuse it.
+ */
+export const POV_HINT_DIM_S_ADAPTATION = 1;
+/**
+ * POV_HINT_DIM_SHARE_ADAPTATION (as above): the hint's share of its alpha while dimmed -- half, the share the HUD's own
+ * semi-transparent spectator stats panel is drawn at (`SPECTATOR_INFO_LAYOUT.stats.alpha` 64 of the GS's 128).
+ */
+export const POV_HINT_DIM_SHARE_ADAPTATION = 0.5;
+/**
+ * POV_HINT_RING_ADAPTATION (a browser adaptation, no original; the owner, 2026-11-15: "do a nice circular selection
+ * progress bar around the duration of the animation ... sticking to the original theme"; the looks seat's call after its
+ * capture): while Cross is held toward a swap, a ring of `segments` tangent bars (the HUD's white quad, turned along the
+ * circle), each its whole arc (`arc` 1, so it reads as an arc, not dots), `thickness` px, at `radius` around the hint's
+ * Cross glyph's centre; filled clockwise from twelve o'clock over the hold (`HudSpectatorView.povHold`, over
+ * POV_HOLD_S_ADAPTATION's 0.4 s) in the hold bar's fill colour (`HUD_COLOURS.holdFill`), the rest the empty track
+ * (`POV_HINT_RING_TRACK_SHARE_ADAPTATION`); full at the swap; an early release ends the hold and the ring vanishes. The
+ * whole ring at the hint's alpha (`povHelpAlpha`: half in the 1 s dim). Radius 10 (the review's F2; was 11, whose top
+ * bars met the raised line 4), centred on the glyph (427.41): the ring's box is x 271.56-293.09 ("HOLD: VIEW") or
+ * 275.06-296.59 ("HOLD: EXIT"), y 416.64-438.18, inside the frame and clear of the disc's boxes; its top lies under line
+ * 4's baseline (416), so under every letter's body, but still in the glyph cells' band below it (to 420.5) -- no ring
+ * around the glyph clears that band.
+ */
+export const POV_HINT_RING_ADAPTATION = { radius: 10, thickness: 1.5, segments: 48, arc: 1 } as const;
+/**
+ * POV_HINT_RING_TRACK_SHARE_ADAPTATION (as above, the looks seat's call: the hold bar's black box colour was barely
+ * visible on a dark floor): the empty track drawn in the hint's own colour (`SPECTATOR_HELP.rgb`) at this share of the
+ * hint's alpha. The fill keeps the hold bar's fill colour: each bar is drawn once, fill or track, never one over the
+ * other, so the grey fill stands against the floor exactly as the bomb's hold bar does, and reads apart from the
+ * yellow track.
+ */
+export const POV_HINT_RING_TRACK_SHARE_ADAPTATION = 0.35;
+
+/**
+ * SEAT_CLAIM_PLACE_ADAPTATION (a service adaptation with no original; `./seatClaim`; the owner's word, 2026-11-24): the
+ * claim's line joins the player's view's hint at the help block's bottom, the controls together as WM-PV-HINT put that
+ * one ("align it along the bottom and bump the you are a spectator text up"): one pitch above the hint's slot (434)
+ * where the hint can show on the path (`povRaise`: baseline 416), else in the hint's slot itself (434); centred on the
+ * block's x, in the lines' font, scale and colour. While it is offered the help lines stand one pitch higher again
+ * (`up`), so with the hint they sit at 344-398 (line 1's cell 327.5-348.5, clear of the stats panel, 10-174 x 326-410,
+ * at its width, x 188-460; the round's text line, y 338-360, crosses it only while a line is typed). The line keeps its
+ * place for as long as an offer stands (its state changing in it), and the help lines fade on their own clock.
+ */
+export const SEAT_CLAIM_PLACE_ADAPTATION = { x: SPECTATOR_HELP.x, bottom: POV_HELP_PLACE_ADAPTATION.y, up: SPECTATOR_HELP.pitch } as const;
+
+/** PV-6h: the player's view's help line for a state (`HudSpectatorView.pov`). */
+export function povHelpLine(pov: NonNullable<HudSpectatorView['pov']>): string {
+  return pov === 'offered' ? POV_HELP_OFFERED_ADAPTATION : POV_HELP_SHOWN_ADAPTATION;
+}
+
+/**
+ * PV-6h: the line's alpha, 0..100 (`SPECTATOR_HELP.alpha`). WM-PV-HINT (the owner's ruling of 2026-11-15): the lines' full
+ * alpha in every state whatever their clock -- the hint stays up -- but `POV_HINT_DIM_SHARE_ADAPTATION` of it while
+ * `since` (the seconds since a swap, `HudSpectatorView.povSince`) is under `POV_HINT_DIM_S_ADAPTATION`. (Was: 'offered'
+ * on the clock, 'shown' at full and 'waiting' at half whatever the clock; 4D: every state on the clock.)
+ */
+export function povHelpAlpha(since?: number): number {
+  const dim = since !== undefined && since < POV_HINT_DIM_S_ADAPTATION;
+  return SPECTATOR_HELP.alpha * (dim ? POV_HINT_DIM_SHARE_ADAPTATION : 1);
+}
+
+/**
+ * The panel's words for a view (`FUN_002425e0` D:L90217-90330): the followed body's name (" " without one) over its four
+ * rows -- `"%d"` (0x3e6e98) of each value, empty for an unknown one -- or, with none, a scenic view's title or FREE
+ * CAMERA over its own colour (`titleRgb`, 0..1 of the GS's 128; null is the panel's colour). No stats: no rows.
+ */
+export function spectatorInfoText(view: HudSpectatorView): {
+  title: string; titleRgb: [number, number, number] | null; rows: { label: string; value: string }[] | null;
+} {
+  const S = SPECTATOR_INFO_LAYOUT;
+  if (!view.followed) {
+    if (view.title) return { title: view.title, titleRgb: null, rows: null };
+    return { title: S.free, titleRgb: [S.freeRgb[0] / 128, S.freeRgb[1] / 128, S.freeRgb[2] / 128], rows: null };
+  }
+  const s = view.stats, values = s ? [s.kills, s.deaths, s.headshots, s.score] : null;
+  return {
+    // NU-9 N3: "[tag] name" from a two-character tag (`spectatorTitleName`); was: the name alone, the tag dropped.
+    title: spectatorTitleName(view.followed.tag, view.followed.name || ' '), titleRgb: null,
+    rows: values ? S.words.map((label, i) => ({ label, value: values[i] === null || values[i] === undefined ? '' : String(values[i]) })) : null,
+  };
+}
+
+/**
+ * The info box's name cut (`FUN_00238500` D:L85571-85576): wider than the bar's `DAT_003dcc70` (134) less 4, its first
+ * nine characters and a "-".
+ */
+export const INFO_NAME_CUT = { width: 134 - 4, keep: 9 } as const;
+export function infoBoxName(name: string): string {
+  return textWidth(name, HUD_LAYOUT.info.name.scale) > INFO_NAME_CUT.width ? `${sliceBotText(name, INFO_NAME_CUT.keep)}-` : name;
+}
+
+/**
+ * SPECTATOR-VIEW W4 (research 314 §5.2, 275 §1.5): a name with its clan tag as `FUN_00238500` writes the info box's --
+ * "[%s] %s" (S:0x3e6718) when the tag's length is one or more (`FUN_00199288`, strlen, D:L85563-85567), the name alone
+ * with none (no record, D:L85559-85561) or an empty one (D:L85564); the cut (`infoBoxName`, D:L85571-85576) measures
+ * the string this gives. The round's speaker line writes the same format off the same lookup (`FUN_00238ac0`
+ * D:L85681-85691, `./hudVoice`); NU-3b's name beside the reticle imports this rule.
+ * PSR-5 (**a browser adaptation**, R4P.R11, `./clanTagOption`): with the option Hidden the tag is dropped here -- the one
+ * decision point for the info box, the over-head tags, the reticle's target and the spectator's title -- and the name alone
+ * is drawn; Shown (the default) leaves the original's "[tag] name".
+ */
+export function taggedName(tag: string | null | undefined, name: string): string {
+  const t = labelTag(tag);   // PSR-5
+  return t ? `[${plainBotText(FONT_TEXT_01.tagText(t))}] ${name}` : name;   // LATER 1030 (c): the bytes decoded
+}
+
+/**
+ * NU-9 N3 (research 327 §4.2, §5 N3): `CSpectatorInfo`'s title takes the followed actor's seat's tag only when it is two
+ * characters or more (`FUN_002425e0` D:L90266-90270: `FUN_00199288` under 2 copies the name alone, else "[%s] %s"
+ * 0x3e6e80) -- one more than the info box's (`taggedName`, D:L85563). The reticle's target name has the same length test
+ * (D:L70193-70194; `./reticle` `TARGET_TAG_MIN`, NU-3b's own).
+ */
+export const SPECTATOR_TITLE_TAG_MIN = 2;
+/** NU-9 N3: the spectator panel's title, "[tag] name" for a tag of `SPECTATOR_TITLE_TAG_MIN` characters or more, else the name. */
+export function spectatorTitleName(tag: string | null | undefined, name: string): string {
+  return taggedName(tag && tag.length >= SPECTATOR_TITLE_TAG_MIN ? tag : null, name);
+}
+
+/**
+ * NU-9 (c) (research 329 §1.1, §1.3, §1.4): the over-head tags' constants -- the text's scale 0.9 (`+0x58` 0x3f666666,
+ * D:L77539), at most eight drawn (D:L77357-77358), the overlap test's padding 10 and its push 5 (D:L77412-77426), the
+ * anchor's 3.0 over the head (D:L77383-77384; `./hudTags`).
+ */
+export const TEAM_TAG_LAYOUT = { scale: 0.9, max: 8, pad: 10, push: 5, raise: 3 } as const;
+/**
+ * MP_TEAM_TAG_LINE_HEIGHT_READING (research 329 §1.3 step 6, §6): the overlap test's line height is the font's `+0x24`
+ * less `+0x20` (D:L77417-77418, D:L77475-77476). The font load `FUN_00359c40` writes `+0x24` from `fonts.rdr`'s `boty`
+ * and `+0x20` from its `topy` (D:L255453-255458; the keys' strings 0x3f88c0 "boty", 0x3f88c8 "topy" in the game's ELF):
+ * `font_text_01`'s 15 less 0, unscaled (`./hudFont`). (Was 25, the glyph cell, an inference -- NU-9's review, F1.)
+ */
+export const MP_TEAM_TAG_LINE_HEIGHT_READING = 15;
+/**
+ * MP_TEAM_TAG_TOP_MARGIN_READING (research 329 §1.3, §6): the bounds' margin is the letterbox's bar height (`+0x1a224`
+ * copied each frame, D:L56755), closed every frame in the living player's own view online (`FUN_001fec60` D:L56568);
+ * when `FUN_00228ee0` (D:L78450) or `FUN_002ae970` (D:L153314) open the bars online is not read. 0: the port draws no
+ * letterbox. Settles: a read of those two callers' online paths.
+ */
+export const MP_TEAM_TAG_TOP_MARGIN_READING = 0;
+/**
+ * MP_TEAM_TAG_WIDE_FRAME_ADAPTATION (research 329 §4.2, §6; **a browser adaptation**): the original's bounds (the left
+ * edge inside 0..600) and its clamp at 600 are the 640 frame's, 40 short of its right edge; a frame wider than 640 (the
+ * native presentation, in its 448-high units) has no original. The same inset from the frame's own right edge: the PS2
+ * presentation (640 wide) gets the original's 600 exactly.
+ */
+export const MP_TEAM_TAG_WIDE_FRAME_ADAPTATION = { rightInset: 40 } as const;
+/**
+ * MP_TEAM_TAG_COLOUR_READING (research 329 §1.4, §6): the tag's text takes the text object's default colour (255, 255,
+ * 255) -- no line of the part writes `+0x48..0x50` (`FUN_00363e70` D:L261473-261475) -- where the HUD's strings are (128,
+ * 128, 128); how the font's draw maps 255 against 128 (a GS modulate doubling, clamped) is not read. The default: white at
+ * full (the 128-as-1 scale, clamped at 1); the alpha the tag's own (100, or fading) over 128, the drop shadow at
+ * min(alpha, 96) (`FUN_003625e0`). Settles: NU9C-1 (a tag's ink against the info box's name on one frame).
+ */
+export const MP_TEAM_TAG_COLOUR_READING: readonly [number, number, number] = [1, 1, 1];
+
+/**
+ * TEAMMATE_NAME_AT_HEAD_ADAPTATION (NAME-TAGS-AT-HEAD; product track, **a browser adaptation** with no original, the
+ * Modern look alone -- `./nameTags`, the default; the Original look keeps `FUN_00227130` exactly): a name stays at its
+ * teammate's head and is never moved; one under a nearer name dims. The original's overlap rule moves a tag DOWN
+ * 5 px a step until its box, padded 10 a side, clears every tag laid before it (D:L77412-77426, D:L77463-77483) --
+ * 25 px at the least on the 448 frame, which is a standing body's whole height from about 34 m at the game's field of
+ * view, so a pushed name lies on the body or under its feet -- and it lays the tags in the actor list's order (the
+ * port's: member id), so a far teammate's tag moves a near one's; with teammates crossing, the pushed names jump
+ * about. (That push is note 329's reading and the port's; the atlas's lead L39, `docs/atlas/LEADS.md`, reads the
+ * helper's shifted origin as leaving tags near the frame's centre unpushed in the original -- open, for the Original
+ * look.) In the Modern look the view's points come nearest first (`./hudTags` `teamTags` orders them once, by each
+ * one's `distance`) and each tag is laid at its own head, whatever lies there already. Where a tag's letters (their
+ * rows at the view's scale, `./hudFont` `textRise`, by its width) lie under the letters of nearer tags, its alpha
+ * falls with the covered share, down to `floor` of its own once `fullAt` of it is covered -- each nearer tag counted
+ * by how much of it is itself shown. So the nearest name is always whole and at its head; a name behind it dims as it
+ * passes under and returns as it comes clear; no name changes place. A dimmed name is not gone: near, it still reads
+ * behind the one over it; far, the distance fade (`./hudTags` `TEAMMATE_NAME_DISTANCE_ADAPTATION`) has already taken
+ * most of it, so a covered far name all but disappears (a first value hid a covered name outright at any range; in a
+ * rendered room that read as names vanishing). The values are a starting call for the owner to tune.
+ */
+export const TEAMMATE_NAME_AT_HEAD_ADAPTATION = { fullAt: 0.5, floor: 0.3 } as const;
+
+/** One tag drawn: its text, its pen (left edge) and baseline on the frame (448-high units), its width at the view's scale, its alpha. */
+export interface TeamTag { id: number; text: string; x: number; y: number; width: number; alpha: number }
+
+/**
+ * NU-9 (c) T1's layout (research 329 §1.3 steps 4-7, §1.6): the points of `./hudTags` `teamTags` on a frame `width`
+ * wide (448-high units; 640 the PS2's), in order, until eight are drawn (D:L77357-77358). For each: its width at 0.9
+ * (`FUN_00362b70`, D:L77399-77400) and h its half; x the centre (`u` x width), left = x - h; drawn only when 0 < left <
+ * right and top < y < 448 - top (strict, D:L77404-77405; right 600 on the 640 frame, `MP_TEAM_TAG_WIDE_FRAME_ADAPTATION`);
+ * the pen, as the decompiled text reads (D:L77406-77411): right - h when x is past right, else left when left - h >= 0,
+ * else h; then against each tag already drawn this frame, `FUN_00227130` (D:L77463-77483) -- the (int) box (pen - 10,
+ * y - 10)..(pen + width + 10, y + line + 10) against that tag's (x, y)..(x + width, y + line) -- on a hit y += 5 and the
+ * test starts again (no bound re-tested after); placed at ((int)pen, (int)y) (`FUN_003631a0`, D:L77445). The holder's
+ * drawn tag carries the arrow and the talk icon at its projected centre (`./hudVoice` `tagTalkSprites`, D:L77434-77443),
+ * each corner (int) as `FUN_00364660` takes it. LATER 671 (`./hudTags` `TEAMMATE_NAME_DISTANCE_ADAPTATION`, a browser
+ * adaptation, OT.R101): the width is taken at the view's `scale` (absent, 0.9) -- the one value the bounds, the overlap
+ * push and the draw use. NAME-TAGS-AT-HEAD (`TEAMMATE_NAME_AT_HEAD_ADAPTATION`, a browser adaptation): a view marked
+ * `atHead` (the Modern look's, its points nearest first) is laid in its order with no push at all: a tag covered by
+ * nearer ones keeps its place and dims with the covered share; the bounds, the clamp, the cap of eight and the
+ * sprites are as above.
+ */
+export function teamTagLayout(
+  view: TeamTagsView, width = PS2_W, top = MP_TEAM_TAG_TOP_MARGIN_READING,
+): { tags: TeamTag[]; sprites: TagSprite[] } {
+  const T = TEAM_TAG_LAYOUT, line = MP_TEAM_TAG_LINE_HEIGHT_READING, right = width - MP_TEAM_TAG_WIDE_FRAME_ADAPTATION.rightInset;
+  const scale = view.scale ?? T.scale;
+  const tags: TeamTag[] = [];
+  let sprites: TagSprite[] = [];
+  const hit = (x0: number, y0: number, x1: number, y1: number, t: TeamTag): boolean =>
+    x0 < Math.trunc(t.x + t.width) && t.x < x1 && y0 < t.y + line && t.y < y1;
+  const atHead = view.atHead === true, rise = textRise(scale);
+  const shown: number[] = [];   // NAME-TAGS-AT-HEAD: each laid tag's share left after its cover, 0..1
+  for (const p of view.points) {
+    if (tags.length >= T.max) break;
+    const w = textWidth(p.text, scale), h = w * 0.5;
+    const x = p.u * width, left = x - h;
+    let y = p.y;
+    if (!(left < right && y < PS2_H - top && 0 < left && top < y)) continue;
+    const pen = right < left + h ? right - h : left - h >= 0 ? left : h;
+    let alpha = p.alpha;
+    if (atHead) {
+      // The letters cover (x, y - rise)..(x + w, y) where the tag is drawn; a laid (nearer) tag's the same about its
+      // own place. The share of this tag's letters under them, each by how much of it is shown, dims it; no move.
+      y = Math.trunc(y);
+      const px = Math.trunc(pen);
+      let cover = 0;
+      for (let k = 0; k < tags.length && w > 0; k++) {
+        const t = tags[k]!;
+        const ox = Math.min(px + w, t.x + t.width) - Math.max(px, t.x), oy = Math.min(y, t.y) - Math.max(y - rise, t.y - rise);
+        if (ox > 0 && oy > 0) cover += (ox * oy) / (w * rise) * shown[k]!;
+      }
+      const H = TEAMMATE_NAME_AT_HEAD_ADAPTATION;
+      const left = 1 - Math.min(1, cover / H.fullAt) * (1 - H.floor);
+      shown.push(left);
+      alpha *= left;
+    } else {
+      for (let k = 0; k < tags.length; k++) {
+        const box = [Math.trunc(pen - T.pad), Math.trunc(y - T.pad), Math.trunc(pen + w + T.pad), Math.trunc(y + line + T.pad)] as const;
+        if (hit(box[0], box[1], box[2], box[3], tags[k]!)) { y += T.push; k = -1; }
+      }
+    }
+    if (view.holder !== null && p.id === view.holder) {
+      sprites = tagTalkSprites({ id: p.id, x, y }, view.holder, view.self)
+        .map((s) => ({ ...s, x0: Math.trunc(s.x0), y0: Math.trunc(s.y0), x1: Math.trunc(s.x1), y1: Math.trunc(s.y1) }));
+    }
+    tags.push({ id: p.id, text: p.text, x: Math.trunc(pen), y: Math.trunc(y), width: w, alpha });
+  }
+  return { tags, sprites };
+}
+
+/** What a seat viewing another does not draw (research 282 §1: the hide-all `FUN_001f77c0` D:L56312-56361). */
+export const SPECTATOR_HIDES: ReadonlySet<HudElement> = new Set<HudElement>([
+  'panel', 'rounds', 'mags', 'icon', 'firemode',   // the weapon box (D:L56340; its show refuses a spectator, D:L85354)
+  'compass', 'marks',                               // `FUN_00212260` (D:L56359; D:L68360-68369)
+  'action', 'actionSides', 'actionCaption', 'holdBar', 'c4FuseBar',   // the prompts and their children (D:L56325)
+  'stance', 'zoom', 'scopeRange',                   // D:L56328, D:L56338; the reticle's root (D:L56327)
+  'smallMessage',                                   // PICKUP-LINE correction 3: the small message window (D:L56355)
+  // Not the number at (587, 433), 'range': written online each frame with no seat test (D:L56605-56613), hidden by the
+  // hide-all offline only (D:L56320-56324), shown each frame with SPECTATOR HUD on (D:L56803-56806) -- the review's F3,
+  // HUD-ALIVE; research 282 §6 (was `SPECTATOR_INFO_NUMBER_PLACEHOLDER`, false: not drawn).
+]);
+/**
+ * LATER 117 (research 282 §9): what a dead player watching a teammate does not draw -- the hide-all's set less the weapon
+ * box's panel and icon. The box's show `FUN_00237e50` (D:L57180) shows the panel and its child the icon `+0x1f0`
+ * (D:L85358; the panel's draw `FUN_00359520` D:L255103-255109 draws its children), then hides the group `+0x270` when the viewed
+ * actor is not the local one (D:L85367-85371): the group's draw `FUN_00364e70` walks its children only while shown (its
+ * table at 0x406ef0: +0xc `FUN_00364e70`, +0x18 `FUN_00364e50`, +0x1c `FUN_00364e30`, read off the ELF), so "%d/%d"
+ * `+0x288`, "%d MAG%c" `+0x320` and the four fire-mode cells `+0x3c0` are not drawn. A spectator gets no box (D:L85354).
+ */
+export const TEAMMATE_HIDES: ReadonlySet<HudElement> = new Set<HudElement>([...SPECTATOR_HIDES].filter((e) => e !== 'panel' && e !== 'icon'));
+/**
+ * A dead player on his own body: the compass's show refuses a dead viewed actor (`FUN_002122a0` D:L68371-68392; D:L57115).
+ * PICKUP-LINE correction 3: and the small message window -- `FUN_001f97b0` shows the walker's HUD, then hides the small
+ * window (D:L57112-57113; research 282 §1's own-body row).
+ */
+export const OWN_BODY_HIDES: ReadonlySet<HudElement> = new Set<HudElement>(['compass', 'marks', 'smallMessage']);
+
+/** What `spectatorHudView` reads of a page's `NetPage` (structural, so `./netPage` is not imported here). */
+export interface SpectatorHudSource {
+  /**
+   * `bodies` (LATER 118 F1): the room's bodies now (`NetClient.bodies`), for the watched teammate's Alive flag; LATER 117:
+   * and its held item (`BodyState.weapon`, 255 none) for the box's icon -- WM-DATA-17: `BodyState.hand` in its place when
+   * non-zero (the grenade, charge or gear in the hand, since protocol 17; 0 or absent, `weapon` as before).
+   */
+  client: {
+    role: string; bodies?(): readonly { id: number; flags: number; weapon?: number; hand?: number }[];
+    /** LATER 119 (SPECTATOR_FOLLOWED_HEALTH_READING): a seat's health from the room's bytes (`NetClient.healthOf`), null unknown. */
+    healthOf?(id: number): number | null;
+  };
+  /** `benched`: classic's dead and the ghosts until the next round (`SpectatorView.benched`; PAR-48b, research 282 §7). */
+  /**
+   * PV-6h (POV_VIEW_ADAPTATION): `pov` and `povShown`, `SpectatorView`'s getters -- the player's view chosen, and drawn this
+   * frame; the pages pass their `SpectatorView` itself (`NetPage.spectator`). Absent (a stand-in): no line.
+   */
+  spectator: {
+    mode: string; target: number | null; scenic: number; watching: number | null; benched: boolean;
+    pov?: boolean; povShown?: boolean; povHold?: number | null; povSince?: number; povOffered?: boolean;
+  };
+  /** `clan` (SPECTATOR-VIEW W4): the row's tag, as the room's score rows carry it (`ScoreRow.clan`, research 275 §2.1). */
+  rows: readonly { id: number; kills: number; deaths: number; score: number; clan?: string; bot?: true }[];
+  nameOf(id: number): string;
+  isBot?(id: number): boolean;
+  /** PF-31: the map's scenic views, read through the page (`NetPageDeps.scenicViews`, once, in `./matchNet`). */
+  scenicViews?(): readonly { name: string }[];
+  /** LATER 118: a late joiner's ghost (`NetPage.ghost`, NU-11b H2): the ghost's help lines; absent, the dead's. */
+  ghost?(): boolean;
+  /** RSP-6: the same current death/eligibility state read by WEAPON EXCHANGE; absent on non-playing stand-ins. */
+  prompt?(): { ghost: boolean; sinceDeath: number; respawnReady?: boolean } | null;
+  /** SEAT_CLAIM_ADAPTATION: the claim's line on a device (`NetPage.seatClaimView`); absent or null, none. */
+  seatClaimView?(device: SeatClaimDevice): { line: string; at: number; share: number; hold?: number } | null;
+}
+
+/**
+ * PAR-48: the page's `NetPage` state as `Hud.setSpectator`'s view, once a frame (`./main`, `./matchMount`), by the
+ * dispatch (research 282 §1): a spectator (the client's role, once the welcome has flown the walk: `NetPage`'s
+ * `spectatorWelcome`) -- the followed player's name (`nameOf`) and its score row's tally, or none in the free camera, a
+ * scenic view's name when `views` gives one, else the page's own (`NetPage.scenicViews`, PF-31: once, in `./matchNet`); a benched player watching a teammate -- 'teammate'; a dead player on his own
+ * body -- 'own', a ghost too (PAR-48b: benched, its walk dead from its seat, NU-11b F1; the dispatch's not-alive seat, research 282 §7); else
+ * null, the walker's HUD. No page: null. LATER 118: a benched seat's 'own' and 'teammate' carry its six help lines
+ * (`deadHelpLines`, the ghost's by `page.ghost()`), the `%c` for `device` (the page's prompt device; absent, the pad's).
+ * LATER 117: 'teammate' carries the watched body's held item's icon (`weaponIcon`), its item off the room's bodies and
+ * named by `icon` (the page's `./loadout` `itemIcon` over its tables); absent `icon`, none.
+ */
+export function spectatorHudView(
+  page: SpectatorHudSource | null, walk: { mode(): string; isDead(): boolean }, views?: () => readonly { name: string }[],
+  device: InputDevice = 'pad', icon?: (item: number) => string | null, claimDevice?: SeatClaimDevice,
+): HudSpectatorView | null {
+  if (!page) return null;
+  const s = page.spectator;
+  // W4: the viewed body's tag off its row (the original's slot lookup `FUN_002c3ac0`, D:L85560; research 275 §1.5), none without.
+  const tagOf = (id: number): { tag?: string } => { const clan = page.rows.find((r) => r.id === id)?.clan; return clan ? { tag: clan } : {}; };
+  // PV-6h (POV_VIEW_ADAPTATION): the player's view's state off the page's `SpectatorView` getters, on a followed or a
+  // watched body only; a source without the getters gives none.
+  const pov: HudSpectatorView['pov'] = typeof s.pov !== 'boolean' ? undefined : !s.pov ? 'offered' : s.povShown ? 'shown' : 'waiting';
+  // WM-PV-HINT: with the state, the hold's share (the ring) and the swap's seconds inside the dim (`SpectatorView` getters).
+  const povBits: Pick<HudSpectatorView, 'pov' | 'povHold' | 'povSince'> = !pov ? {} : {
+    pov, ...(typeof s.povHold === 'number' ? { povHold: s.povHold } : {}),
+    ...(typeof s.povSince === 'number' && s.povSince < POV_HINT_DIM_S_ADAPTATION ? { povSince: s.povSince } : {}),
+  };
+  // WM-PV-HINT (F1): the view offered (`SpectatorView.povOffered`): the help lines stay raised on this path, hint or none.
+  const raise: Pick<HudSpectatorView, 'povRaise'> = s.povOffered === true ? { povRaise: true } : {};
+  if (page.client.role !== 'player') {
+    if (walk.mode() === 'walk') return null;
+    // SEAT_CLAIM_ADAPTATION: a watcher's offer, on the spectator's every camera.
+    // LATER 1604: the page's claim device (`./seatClaim` `seatClaimDeviceOf`: `none` on a page that reads neither button)
+    const offered = page.seatClaimView?.(claimDevice ?? (device === 'keyboard' ? 'keyboard' : 'pad')) ?? null;
+    const claim: Pick<HudSpectatorView, 'claim'> = offered ? { claim: offered } : {};
+    if (s.mode === 'follow' && s.target !== null) {
+      const row = page.rows.find((r) => r.id === s.target);
+      return {
+        path: 'spectator', followed: { name: botDisplayName(page.nameOf(s.target), page.isBot?.(s.target) ?? row?.bot === true), health: page.client.healthOf?.(s.target) ?? null, ...tagOf(s.target) },
+        stats: row ? { kills: row.kills, deaths: row.deaths, headshots: SPECTATOR_HEADSHOTS_PLACEHOLDER, score: row.score } : null,
+        ...povBits, ...raise, ...claim,
+      };
+    }
+    const title = s.mode === 'scenic' ? (views ?? page.scenicViews?.bind(page))?.()[s.scenic]?.name : undefined;
+    return { path: 'spectator', followed: null, stats: null, ...(title ? { title } : {}), ...raise, ...claim };
+  }
+  // LATER 118: classic and ghosts keep their existing lines. RSP-6: a respawn dead seat is not benched; its two-line
+  // state comes from the same page prompt the menu/touch layer reads. Bindings/device are resolved on every frame.
+  const prompt = page.prompt?.();
+  // PV-6h: a benched watcher's view carries the player's view's state (drawn at `POV_HELP_PLACE_ADAPTATION`); his six
+  // help lines are `deadHelpLines`' own.
+  const help = (watching: boolean): { help?: readonly string[]; respawnReady?: boolean } & Pick<HudSpectatorView, 'pov' | 'povHold' | 'povSince' | 'povRaise'> =>
+    s.benched ? { help: deadHelpLines({ ghost: page.ghost?.() ?? false, watching, device }), ...(watching ? { ...povBits, ...raise } : {}) }
+      : !watching && prompt?.respawnReady !== undefined
+        ? { help: respawnHelpLines(device, prompt.respawnReady), respawnReady: prompt.respawnReady } : {};
+  if (s.watching !== null) {
+    // F1: the watched body dead or gone (LATER 69 keeps a dead teammate watched); a page with no body list says nothing.
+    const list = page.client.bodies?.(), id = s.watching;
+    const dead = list ? !list.some((b) => b.id === id && (b.flags & BodyFlag.Alive) !== 0) : false;
+    // LATER 117: the watched body's held item's icon (`FUN_00237760` D:L85245-85249; DEAD_WATCH_HELD_ICON_READING).
+    // WM-DATA-17: the hand's item (`BodyState.hand`, HAND_WIRE_ADAPTATION) when non-zero, else the kit's (`weapon`).
+    const body = list?.find((b) => b.id === id), held = body?.hand ? body.hand : body?.weapon;
+    const weaponIcon = held !== undefined && icon ? icon(held) : null;
+    return {
+      path: 'teammate', followed: { name: botDisplayName(page.nameOf(s.watching), page.isBot?.(s.watching) ?? page.rows.find((row) => row.id === s.watching)?.bot === true), health: page.client.healthOf?.(s.watching) ?? null, ...tagOf(s.watching) }, stats: null,
+      ...help(true), ...(dead ? { watchedDead: true as const } : {}), ...(weaponIcon ? { weaponIcon } : {}),
+    };
+  }
+  return walk.isDead() || s.benched ? { path: 'own', followed: null, stats: null, ...help(false) } : null;
+}
+
+/** What `ownHudName` reads of a page's `NetPage` (structural, as `SpectatorHudSource`). */
+export interface OwnNameSource {
+  client: { id: number };
+  /** The room's score rows; the page's own row's `clan` is its tag (research 275 §2.1). */
+  rows: readonly { id: number; clan?: string; bot?: true }[];
+  isBot?(id: number): boolean;
+  nameOf(id: number): string;
+}
+
+/**
+ * NU-9 N1 (research 327 §5 N1, §1.1, §3.1): the walker's own name and clan tag for the info box, apart (327 F4) -- the
+ * page's own id's name (`NetPage.nameOf`, the welcome's, a rename's on the next frame) and its own score row's `clan`
+ * ('' with no row: a late joiner before his first `score`). The info box's draw `FUN_00238500` writes the viewed actor's
+ * `+0x14` with its seat's tag (D:L85558-85569), and a walker views his own actor. No page (the free walk of `/testroom`):
+ * none. The pages set it once a frame beside `Hud.setSpectator` (`Hud.setPlayerName`).
+ */
+export function ownHudName(page: OwnNameSource | null): { name: string; tag: string } {
+  // Before the welcome the client's id is 0, which no seat has (the server numbers them from 1, `freeId`): none, not
+  // `nameOf(0)`'s "Player0" (NU-9's review, F5).
+  if (!page || page.client.id === 0) return { name: '', tag: '' };
+  const id = page.client.id;
+  return { name: botDisplayName(page.nameOf(id), page.isBot?.(id) ?? page.rows.find((row) => row.id === id)?.bot === true), tag: page.rows.find((r) => r.id === id)?.clan ?? '' };
+}
+
+/**
+ * The ammo box's lines as `CHUD` formats them: `"%d/%d"` and `"%d MAG%c"` ('S' unless one), none with no spare -- nor,
+ * NET-REFILL N4, when the network test hides it (`magsHidden`: `FUN_00237760` D:L85192's `cVar3`).
+ */
+export function ammoLines(m: Pick<HudModel, 'rounds' | 'capacity' | 'spare' | 'magsHidden'>): { rounds: string; mags: string | null } {
+  return { rounds: `${m.rounds}/${m.capacity}`, mags: m.spare > 0 && !m.magsHidden ? `${m.spare} MAG${m.spare === 1 ? '' : 'S'}` : null };
+}
+
+/**
+ * INFO_CLIENT_COUNT_READING (HUD-ALIVE B; research 87 §1.12, research 101): who the info box's number counts. The original
+ * counts `FUN_0030d510(0x45a0c0)` = `zNetGetValidGameClientCount` (research 193 §M2): through `FUN_00623090`
+ * (D:L532383-532408), the network table's entries whose status byte is 1 (`FUN_00615160` D:L523200-523233) -- the
+ * consoles connected to the game, players and spectators alike. The port has no such table at the page; it counts the
+ * room's human seats (the score rows less the bots, `ScoreRow.bot`, which are no consoles: the original has no online
+ * bots) and the spectators the room names (`Hud.spectatorCount`). [reading, pending review: whether a parked or
+ * reconnecting seat (OT.R59, NET-RES.R6) is still a valid client, and a console mid-join, are not traced; the archived
+ * frames' 1v1 "2" agrees]
+ */
+export const INFO_CLIENT_COUNT_READING = 'the human seats among the score rows plus the spectators' as const;
+/**
+ * INFO_SESSION_MASTER_READING (HUD-ALIVE B; research 101): which page draws the "m" -- the original's session master
+ * (`DAT_0045a0c0`, `IsSessionMaster`; `FUN_001f7ff0` D:L56607-56611), the console hosting the game. Here the match server
+ * is that host for every game (`@s2u/match` `gameLobby.ts`'s header); its stand-in is the seat wearing the game lobby's
+ * host star (`gameLobby` seats' `host`, `NetClient.sessionMaster`). A room with no game lobby (the test room's) names no
+ * master, so its pages draw "%d". [reading, pending review: the archived frames show "2m" on the host and "2" on the client]
+ */
+export const INFO_SESSION_MASTER_READING = "the seat wearing the game lobby's host star; none in a room without a game lobby" as const;
+
+/** HUD-ALIVE B (`INFO_CLIENT_COUNT_READING`): the connected consoles -- the room's human seats and its spectators. */
+export function validClientCount(rows: readonly { bot?: true }[], spectators: number): number {
+  return rows.filter((r) => r.bot !== true).length + spectators;
+}
+
+/**
+ * The info box's number at (587, 433). HUD-ALIVE B: online, the connected consoles' count, `"%d"` (0x3e3080) or `"%dm"`
+ * (0x3e3078) on the session master (`FUN_001f7ff0` D:L56605-56613; the "m" means "this console hosts", not metres); null
+ * with no room (hidden offline, `FUN_001fa360` D:L57455-57456). HUD-ALIVE C (`./rangeReadout`, a browser adaptation,
+ * off by default): with this browser's range readout on, a walker's range finder `"<n>m"` in its place, none with no
+ * range; a seat viewing another keeps the count (the review's F3).
+ */
+export function infoNumberText(m: Pick<HudModel, 'infoNumber' | 'range' | 'rangeReadout' | 'spectator'>): string | null {
+  // The readout is the walker's range finder; a seat viewing another (`spectator` set) keeps the count (the review's F3).
+  if (m.rangeReadout === true && !m.spectator) return m.range === null ? null : `${Math.round(m.range)}m`;
+  return m.infoNumber ? `${m.infoNumber.count}${m.infoNumber.master ? 'm' : ''}` : null;
+}
+
+/** `"%02d:%02d"`. */
+export function timerText(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/**
+ * PAGE-ALLOC-A (LATER 867 (A); a CPU-side browser adaptation): `hudLayout`'s per-call constants -- the text's two passes,
+ * its read options and the empty options -- made once, where each string and each glyph made them anew (13 MB of its own
+ * in 10 s of shadow's X2c profile, with the glyphs' colour and texel temporaries below). Read only.
+ */
+const TEXT_PASSES = ['shadow', 'text'] as const;
+/** PICKUP-LINE: the small window with no line (`hudLayout`): one shared empty list, so a frame without one makes none. */
+const NO_BANNER: readonly BannerMessage[] = [];
+const READ_PLAIN: { special: boolean } = { special: false }, READ_SPECIAL: { special: boolean } = { special: true };
+const NO_TEXT_OPTS: { special?: boolean; shadow?: number } = {};
+
+/**
+ * The HUD's quads on a frame of `frame` pixels: pure, for the tests and the pass. `sizes` gives each bitmap's texel
+ * size; a bitmap missing from it is not drawn. `rects` is each element's bounding box on the frame.
+ * Internal draws may supply storage: then quads are borrowed until its next layout, never retained by a caller.
+ */
+export function hudLayout(
+  frame: { width: number; height: number }, model: HudModel, sizes: Record<string, { width: number; height: number }>,
+  timing: HudTiming = AT_REST, storage?: HudFrameStorage,
+): { scale: number; quads: HudQuad[]; rects: Partial<Record<HudElement, Rect>> } {
+  const s = frame.height / PS2_H;
+  storage?.reset();
+  const quads: HudQuad[] = [];
+  // Anchors: the left edge, the right edge, the centre line.
+  const L = (x: number): number => x * s;
+  const R = (x: number): number => frame.width - (PS2_W - x) * s;
+  const C = (x: number): number => frame.width / 2 + (x - PS2_W / 2) * s;
+  const Y = (y: number): number => y * s;
+  // With owned storage, push copies this scratch colour into the quad's own array.
+  const colour = (r: number, g: number, b: number, a: number): Rgba4 => {
+    const out = storage?.scratchColour ?? [0, 0, 0, 0];
+    out[0] = r; out[1] = g; out[2] = b; out[3] = a;
+    return out as Rgba4;
+  };
+  const alpha = (rgba: Rgba4, a: number): Rgba4 => colour(rgba[0], rgba[1], rgba[2], rgba[3] * a);
+  // PAGE-ALLOC-A: the quad made with its texels as numbers and its layer set only when one (the keys in the same order).
+  const push = (
+    element: HudElement, texture: string, x: number, y: number, w: number, h: number, rgba: Rgba4, turn: number,
+    u0: number, v0: number, u1: number, v1: number, layer: number,
+  ): void => {
+    const q: HudQuad = storage
+      ? storage.write(element, texture, x + w / 2, y + h / 2, w, h, rgba, turn, u0, v0, u1, v1, layer)
+      : { element, texture, x: x + w / 2, y: y + h / 2, w, h, turn, u0, v0, u1, v1, rgba };
+    if (layer) q.layer = layer;
+    quads.push(q);
+  };
+  const bitmap = (
+    element: HudElement, texture: string, x: number, y: number, w: number, h: number, rgba: Rgba4,
+    turn = 0, src?: [number, number, number, number], layer = 0,
+  ): void => {
+    const size = sizes[texture];
+    if (!size || rgba[3] <= 0) return;
+    if (src) push(element, texture, x, y, w, h, rgba, turn, src[0], src[1], src[2], src[3], layer);
+    else push(element, texture, x, y, w, h, rgba, turn, 0, 0, size.width, size.height, layer);
+  };
+  /** A glyph's quad: `bitmap` with its texels as numbers, no turn, no layer. */
+  const glyph = (
+    element: HudElement, texture: string, x: number, y: number, w: number, h: number, rgba: Rgba4,
+    u0: number, v0: number, u1: number, v1: number,
+  ): void => {
+    if (!sizes[texture] || rgba[3] <= 0) return;
+    push(element, texture, x, y, w, h, rgba, 0, u0, v0, u1, v1, 0);
+  };
+  // PAR-48: `opts.special` reads the pad glyphs (`./hudFont`), drawn from their atlas in their own colour with no shadow;
+  // `opts.shadow` is the shadow's alpha when not the HUD's (`FUN_003625e0`: min(the string's, 96), as `./weaponSelect`).
+  const text = (
+    element: HudElement, line: string, spot: TextSpot, anchor: (x: number) => number, a = 1, rgb?: readonly number[], opacity = HUD_COLOURS.text[3],
+    opts: { special?: boolean; shadow?: number } = NO_TEXT_OPTS,
+  ): void => {
+    const font = FONT_TEXT_01.texture;
+    if (!sizes[font] || a <= 0) return;
+    const read = opts.special === true ? READ_SPECIAL : READ_PLAIN;
+    const width = textWidth(line, spot.scale, read);
+    const pen = spot.align === 'right' ? spot.x - width : spot.align === 'centre' ? spot.x - width / 2 : spot.x;
+    const { glyphs } = layoutText(line, pen, spot.y, spot.scale, read);
+    const [dx, dy] = FONT_TEXT_01.dropShadow.pixels;
+    for (const pass of TEXT_PASSES) {
+      const ox = pass === 'shadow' ? dx * spot.scale : 0, oy = pass === 'shadow' ? dy * spot.scale : 0;
+      for (const g of glyphs) {
+        if (g.texture) {
+          if (pass === 'text' && g.rgb) {
+            glyph(element, g.texture, anchor(g.x), Y(g.y), g.w * s, g.h * s, colour(g.rgb[0] / 128, g.rgb[1] / 128, g.rgb[2] / 128, opacity * a), g.u0, g.v0, g.u1, g.v1);
+          }
+          continue;
+        }
+        // PAGE-ALLOC-A: the colour made once, as `alpha(base, a)` made it (base's alpha times `a`), not twice.
+        let rgba: Rgba4;
+        if (pass === 'text' && g.rgb) rgba = colour(g.rgb[0] / 128, g.rgb[1] / 128, g.rgb[2] / 128, opacity * a);
+        else if (pass === 'text' && rgb) rgba = colour(rgb[0]!, rgb[1]!, rgb[2]!, opacity * a);
+        else if (pass === 'shadow' && opts.shadow !== undefined) rgba = colour(0, 0, 0, opts.shadow * a);
+        else { const c = HUD_COLOURS[pass]; rgba = colour(c[0], c[1], c[2], c[3] * a); }
+        glyph(element, font, anchor(g.x + ox), Y(g.y + oy), g.w * s, g.h * s, rgba, g.u0, g.v0, g.u1, g.v1);
+      }
+    }
+  };
+
+  // The ammo box, faded in on a spawn; hidden while scoped (`FUN_00237de0`, L56217-56225: the zoom readout stands
+  // where it was).
+  const A = HUD_LAYOUT.ammo, fade = model.zoom > 1.01 ? 0 : timing.fade;
+  bitmap('panel', 'newweapnbkrnd.tif', L(A.panel.x), Y(A.panel.y), A.panel.w * s, A.panel.h * s, alpha(HUD_COLOURS.panel, fade));
+  // LATER 117: watching a teammate, the icon is the viewed actor's held item's (`FUN_00237760` D:L85245-85249), not the
+  // dead walker's own; none known, the panel alone.
+  const watching = model.spectator?.path === 'teammate' ? model.spectator : null;
+  const iconName = watching ? watching.weaponIcon ?? null : model.weaponIcon;
+  const icon = iconName ? sizes[iconName] : undefined;
+  if (iconName && icon) bitmap('icon', iconName, L(A.icon.x), Y(A.icon.y), icon.width * s, icon.height * s, alpha(HUD_COLOURS.icon, fade));
+  const fm = sizes['firemode.tif'];
+  const roundIcon = model.fireModeIcon ? sizes[model.fireModeIcon] : undefined;
+  if (model.fireModeRow === false) {
+    // Nothing up that has fire modes: no row (`FUN_005bc300`).
+  } else if (model.fireModeIcon) {
+    // A round mode (`FUN_00237b40`): the four cells hidden, the first shows the round's icon at its own size.
+    if (roundIcon) bitmap('firemode', model.fireModeIcon, L(A.rounds4.xs[0]!), Y(A.rounds4.y), roundIcon.width * s, roundIcon.height * s, alpha(HUD_COLOURS.icon, fade));
+  } else if (fm) {
+    for (const x of A.rounds4.xs.slice(0, FIRE_MODE_ROUNDS[model.fireMode])) {
+      bitmap('firemode', 'firemode.tif', L(x), Y(A.rounds4.y), fm.width * s, fm.height * s, alpha(HUD_COLOURS.icon, fade));
+    }
+  }
+  const lines = ammoLines(model);
+  text('rounds', lines.rounds, A.rounds, L, fade);
+  if (lines.mags) text('mags', lines.mags, A.mags, L, fade);
+
+  // The compass: the ring turned by the heading (`FUN_00211510` -> `FUN_00358730`).
+  const K = HUD_LAYOUT.compass;
+  bitmap('compass', 'compass_lo.tif', R(K.cx - K.size / 2), Y(K.cy - K.size / 2), K.size * s, K.size * s,
+    [1, 1, 1, K.alpha], (model.yaw * Math.PI) / 180);
+
+  // The compass's nav marks (`FUN_00211510`, research 87 §10): each nav point by its bearing from the view, within
+  // 200 units at 0.005 x 65 pixels a unit and its own size; farther, pinned at radius 64 at 1.2x with `ret_triangle`
+  // at radius 50 at 0.6x pointing to it. Shown: those within 200, and the nearest.
+  // XR-06: the objective marks (`extraMarks`) by the same rule, in their colour (OBJECTIVE_MARK_RGB_READING).
+  // HX-5: each objective mark in its type's colour (OBJECTIVE_MARK_RGB_READING), a pulsing one at the marks' pulse.
+  // BOMB-MARKS: a typed base mark in its type's colour (BASE_MARK_TYPE_RGB_READING).
+  for (const m of compassMarks(model)) {
+    const c = m.type ? BASE_MARK_TYPE_RGB_READING[m.type]
+      : m.objective ? OBJECTIVE_MARK_RGB_READING[m.bitmap as CompassMark['bitmap']] ?? NAV_MARK.rgb : NAV_MARK.rgb;
+    const rgbNav: Rgba4 = [c[0] / 128, c[1] / 128, c[2] / 128, m.pulse ? timing.marks ?? 1 : 1];
+    const size = sizes[m.bitmap];
+    if (!size) continue;
+    const at = (radius: number): [number, number] => [K.cx + radius * m.sin, K.cy - radius * m.cos];
+    if (m.distance < 200) {
+      const [x, y] = at(m.distance * 0.005 * 65);
+      bitmap('marks', m.bitmap, R(x - size.width / 2), Y(y - size.height / 2), size.width * s, size.height * s, rgbNav);
+    } else {
+      const tri = sizes['ret_triangle.tif'];
+      if (tri) {
+        const [x, y] = at(50), w = tri.width * 0.6, h = tri.height * 0.6;
+        bitmap('marks', 'ret_triangle.tif', R(x - w / 2), Y(y - h / 2), w * s, h * s,
+          [NAV_MARK.arrow[0] / 128, NAV_MARK.arrow[1] / 128, NAV_MARK.arrow[2] / 128, 1], Math.atan2(m.sin, m.cos));
+      }
+      const [x, y] = at(64), w = size.width * 1.2, h = size.height * 1.2;
+      bitmap('marks', m.bitmap, R(x - w / 2), Y(y - h / 2), w * s, h * s, rgbNav);
+    }
+  }
+
+  // The info box: the health bar and the name on it, the timer line's box, the timer, the number (HUD-ALIVE B).
+  // PAR-48: a seat viewing another shows the viewed body's (`FUN_00238500` D:L85555-85569), the walker's model untouched.
+  const view = model.spectator ?? null, away = view !== null && view.path !== 'own';
+  const body = away && view ? view.followed ?? SPECTATOR_OWN_INFO_PLACEHOLDER : null;
+  const I = HUD_LAYOUT.info;
+  const shownHealth = away ? body?.health ?? null : model.health;
+  if (shownHealth !== null) {
+    const health = Math.min(1, Math.max(0, shownHealth));
+    if (health > 0) bitmap('bar', WHITE, R(I.bar.x), Y(I.bar.y), I.bar.w * health * s, I.bar.h * s, HUD_COLOURS.health);
+    if (health < 1) {
+      bitmap('bar', WHITE, R(I.bar.x + I.bar.w * health), Y(I.bar.y), I.bar.w * (1 - health) * s, I.bar.h * s, HUD_COLOURS.healthLost);
+    }
+  }
+  // W4: "[tag] name", D:L85563-85567; NU-9 N1: the walker's own the same, his name and tag kept apart until here.
+  const infoName = away ? (body ? taggedName(body.tag, body.name) : '') : model.name ? taggedName(model.tag, model.name) : '';
+  if (infoName) text('name', infoBoxName(infoName), I.name, R);
+  const panel = sizes['newweapnbkrnd.tif'];
+  if (panel) {
+    bitmap('box', 'newweapnbkrnd.tif', R(I.box.x), Y(I.box.y), I.box.w * s, I.box.h * s, HUD_COLOURS.panel, 0,
+      [panel.width, 0, 0, panel.height]);
+  }
+  // XR-06: the fuse in the round timer's place while it runs (DEFUSE_TIMER_LAYOUT_READING).
+  text('timer', timerText(model.defuseTimer ?? view?.roundTimer ?? model.timer), I.timer, R);
+  const infoNumber = infoNumberText(model);   // HUD-ALIVE B: the consoles' count ("%d" / "%dm"); C: the range readout, when on
+  if (infoNumber !== null) text('range', infoNumber, I.range, R);
+
+  // MATCH-05 (research 170 §5.2): the voice element -- the number's box and the number, always (`FUN_00238ac0`
+  // D:L85716-85717), the speaker's line, the channel icon and the talk / busy icon when they have a texture.
+  // AD-7 (C93): each icon at its own ramped alpha (`timing.voice`; was the fixed 64 / 128 of
+  // `VOICE_INDICATOR_LOOK_PLACEHOLDER.iconAlpha`), no positional motion (none read).
+  if (model.voice) {
+    const V = HUD_LAYOUT.voice, v = model.voice, rest = VOICE_ICON_RAMP.target / 128;
+    const iconA = timing.voice?.icon ?? rest, talkA = timing.voice?.talk ?? rest;
+    // HUD-ALIVE (OT.R117, a browser adaptation): with the alive counts on (`right` set) the SEALs alive on the left box in
+    // the scoreboard's SEAL bar colour, the Terrorists alive on the left box mirrored in its TERRORIST bar colour, each
+    // number centred on its own box (HUD-ALIVE-BOXES); without them the original's element, box and spot.
+    const alive = v.right != null;
+    bitmap('voice', WHITE, R(V.countBox.x), Y(V.countBox.y), V.countBox.w * s, V.countBox.h * s,
+      alive ? HUD_ALIVE_BOX_COLOURS_ADAPTATION.seal : HUD_COLOURS.voiceBox);
+    text('voice', v.count, alive ? HUD_ALIVE_LEFT_LAYOUT_ADAPTATION.count : V.count, R, 1, [1, 1, 1], HUD_COLOURS.voiceCount[3]);
+    if (v.right != null) {
+      const A = HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION;
+      bitmap('voice', WHITE, R(A.countBox.x), Y(A.countBox.y), A.countBox.w * s, A.countBox.h * s, HUD_ALIVE_BOX_COLOURS_ADAPTATION.terrorist);
+      text('voice', v.right, A.count, R, 1, [1, 1, 1], HUD_COLOURS.voiceCount[3]);
+    }
+    if (v.name) text('voice', v.name, V.name, R);
+    if (v.icon) bitmap('voice', v.icon, R(V.icon.x), Y(V.icon.y), V.icon.w * s, V.icon.h * s, [1, 1, 1, iconA]);
+    if (v.talk) bitmap('voice', v.talk, R(V.talk.x), Y(V.talk.y), V.talk.w * s, V.talk.h * s, [1, 1, 1, talkA]);
+  }
+
+  // NU-9 (c) T3 (research 329 §1.3-§1.7): the teammates' over-head tags, laid on the frame's own width in its 448-high
+  // units (`teamTagLayout`; MP_TEAM_TAG_WIDE_FRAME_ADAPTATION) and placed from its left edge. The name texts in
+  // `font_text_01` at 0.9 (LATER 671: the view's scale, the adaptation's by default), left at the pen, white (MP_TEAM_TAG_COLOUR_READING) at the tag's alpha over 128 with the drop
+  // shadow at min(alpha, 96) (`FUN_003625e0`) -- none with TEAMMATE NAMES off (D:L77292-77301) or the Chat menu open
+  // (D:L56617-56623). The talk arrow and icon over the holder's tag always (the HUD's own sprites, D:L77550, D:L77557),
+  // each over its rectangle as `FUN_00364660` takes it -- the arrow's y0 under its y1, so drawn flipped.
+  if (model.teamTags) {
+    const laid = teamTagLayout(model.teamTags, s > 0 ? frame.width / s : PS2_W);
+    if (model.teammateNames !== false && !model.commandMenu) {
+      // NAME-TAGS-AT-HEAD (a browser adaptation): an atHead view is laid nearest first, so it is drawn back to front --
+      // the nearest name last, whole, never under a dimmed farther one. The Original look draws in its laid order.
+      for (const t of model.teamTags.atHead === true ? [...laid.tags].reverse() : laid.tags) {
+        text('teamTags', t.text, { x: t.x, y: t.y, scale: model.teamTags.scale ?? TEAM_TAG_LAYOUT.scale }, L, 1, MP_TEAM_TAG_COLOUR_READING, t.alpha / 128,
+          { shadow: Math.min(t.alpha, 96) / 128 });
+      }
+    }
+    for (const sp of laid.sprites) {
+      const size = sizes[sp.texture];
+      if (!size) continue;
+      const flipped = sp.y0 > sp.y1;
+      bitmap('teamTalk', sp.texture, L(Math.min(sp.x0, sp.x1)), Y(Math.min(sp.y0, sp.y1)), Math.abs(sp.x1 - sp.x0) * s,
+        Math.abs(sp.y1 - sp.y0) * s, [sp.rgb[0] / 128, sp.rgb[1] / 128, sp.rgb[2] / 128, sp.alpha / 128], 0,
+        flipped ? [0, size.height, size.width, 0] : undefined);
+    }
+  }
+
+  // The zoom readout and the scope's range (research 87 §13): while magnified.
+  if (model.zoom > 1.01) {
+    text('zoom', `ZOOM: ${model.zoom.toFixed(1)}x`, HUD_LAYOUT.zoom, L);
+    text('scopeRange', `RANGE(m): ${model.range === null ? '----' : model.range.toFixed(0)}`, model.binoculars ? HUD_LAYOUT.binocularsRange : HUD_LAYOUT.scopeRange, C);
+  }
+
+  // The stance word, fading after a change.
+  if (timing.stance > 0) text('stance', STANCE_WORDS[model.stance], HUD_LAYOUT.stance, R, timing.stance / HUD_COLOURS.text[3]);
+
+  // The context prompt, pulsing.
+  if (model.action) {
+    const P = HUD_LAYOUT.action, c = ACTION_COLOURS[model.actionColour];
+    const rgb = c.base.map((b, i) => (b + timing.pulse * c.delta[i]!) / 128) as [number, number, number];
+    // LkPaioX5 part 2 (b): the head's caption (`actionCaptionOf`), every record's on the one label `FUN_00220350` writes
+    // (D:L74385-74496), placed at (306, 435) as research 303 read it for VICTORY DANCE (VICTORY_CAPTION_READING's spot).
+    if (model.actionCaption) {
+      const V = VICTORY_CAPTION_READING;
+      text('actionCaption', model.actionCaption, { x: V.x, y: V.y, scale: V.scale, align: 'centre' }, C, 1, [V.rgb / 128, V.rgb / 128, V.rgb / 128], V.alpha / 128);
+    }
+    // A bitmap the map lacks is `action_x.tif`, as `FUN_0021ded0` falls back for each (D:L73569-73570 the emblem's).
+    const icon = (p: ActionPrompt): string => (sizes[ACTION_ICONS[p]] ? ACTION_ICONS[p] : ACTION_ICONS.action);
+    // LkPaioX5 part 2 (a): each slot at its alpha (`ACTION_ICON_FADE`), the head's cap at rest.
+    const F = ACTION_ICON_FADE, A = timing.actionAlpha;
+    bitmap('action', icon(model.action), C(P.cx - P.size / 2), Y(P.y), P.size * s, P.size * s, [...rgb, A?.[0] ?? F.primary.cap / 128]);
+    // list[1] right, list[2] left (`FUN_0021f210` D:L73987-74000: odd right, even left, 62 out), each its record's colour
+    // on the one pulse (D:L74004-74012).
+    (model.actionSides ?? []).slice(0, 2).forEach((side, i) => {
+      const k = ACTION_COLOURS[side.colour], cx = P.cx + (i === 0 ? 1 : -1) * (P.size + P.gap);
+      const sideRgb = k.base.map((b, j) => (b + timing.pulse * k.delta[j]!) / 128) as [number, number, number];
+      bitmap('actionSides', icon(side.prompt), C(cx - P.size / 2), Y(P.y), P.size * s, P.size * s, [...sideRgb, A ? (A[i + 1] ?? 0) : F.side.cap / 128]);
+    });
+  }
+
+  // PB-8: the bomb's hold bar, the box then the fill (`FUN_00220350` D:L74437-74442), right-anchored as the info box
+  // is; its alphas its own, not the prompt's pulse.
+  if (model.holdBar) {
+    const H = HUD_LAYOUT.holdBar, f = Math.min(1, Math.max(0, model.holdBar.fill)), fade = model.holdBar.fade;
+    const box: Rgba4 = fade === undefined ? HUD_COLOURS.holdBox : [0, 0, 0, fade / 128];
+    const [r, g, b] = HUD_COLOURS.holdFill;
+    const fill: Rgba4 = fade === undefined ? HUD_COLOURS.holdFill : [r, g, b, fade / 128];
+    bitmap('holdBar', WHITE, R(H.box.x), Y(H.box.y), H.box.w * s, H.box.h * s, box);
+    const width = Math.trunc(H.fill.x + H.fill.w * f) - H.fill.x;     // the (int) of D:L74442
+    if (width > 0) bitmap('holdBar', WHITE, R(H.fill.x), Y(H.fill.y), width * s, H.fill.h * s, fill);
+  }
+
+  // The bomb hold (including its fade) has priority; the C4 clock itself continues in the projectile.
+  if (model.c4FuseBar && !model.holdBar) {
+    const H = HUD_LAYOUT[C4_FUSE_BAR_PRESENTATION_ADAPTATION.layout];
+    const f = Math.min(1, Math.max(0, model.c4FuseBar.fill));
+    bitmap('c4FuseBar', WHITE, R(H.box.x), Y(H.box.y), H.box.w * s, H.box.h * s, HUD_COLOURS.holdBox);
+    const width = Math.trunc(H.fill.w * f);
+    if (width > 0) bitmap('c4FuseBar', WHITE, R(H.fill.x), Y(H.fill.y), width * s, H.fill.h * s, HUD_COLOURS.holdFill);
+  }
+
+  // PAR-48: a spectator's own (`FUN_001f9160` D:L56875-56895): the panel `CSpectatorInfo` -- the stats panel, then the
+  // title bar, then their words (`SPECTATOR_INFO_LAYOUT`, `spectatorInfoText`). The help lines follow, every seat's.
+  if (view && (view.path ?? 'spectator') === 'spectator') {
+    const S = SPECTATOR_INFO_LAYOUT, words = spectatorInfoText(view), ink = SPECTATOR_INFO_TEXT_RGB_PLACEHOLDER;
+    const panelRgb = SPECTATOR_INFO_RGB_PLACEHOLDER;
+    if (words.rows) {
+      bitmap('spectatorInfo', 'newweapnbkrnd.tif', L(S.stats.x), Y(S.stats.y), S.stats.w * s, S.stats.h * s, [panelRgb[0], panelRgb[1], panelRgb[2], S.stats.alpha / 128]);
+    }
+    const titleRgb = words.titleRgb ?? panelRgb;
+    bitmap('spectatorInfo', 'newweapnbkrnd.tif', L(S.title.x), Y(S.title.y), S.title.w * s, S.title.h * s, [titleRgb[0], titleRgb[1], titleRgb[2], S.title.alpha / 128]);
+    text('spectatorInfo', words.title, S.titleText, L, 1, ink, ink[3]);
+    words.rows?.forEach((row, i) => {
+      text('spectatorInfo', row.label, { x: S.labels.x, y: S.labels.y0 + i * S.labels.pitch, scale: S.labels.scale }, L, 1, ink, ink[3]);
+      if (row.value) {
+        text('spectatorInfo', row.value, { x: S.values.x, y: S.values.y0 + i * S.values.pitch, scale: S.values.scale, align: S.values.align }, L, 1, ink, ink[3]);
+      }
+    });
+  }
+  // LATER 118 (research 282 §8): the six help lines `CHUD+0x19d58` on every seat's path -- the spectator's four
+  // (`FUN_001f9160` D:L56869-56872) or a dead player's six (`view.help`: `FUN_001f97b0` D:L56996-57107, `FUN_001f9f20`
+  // D:L57149-57173) -- placed and shown alike (`SPECTATOR_HELP`: D:L56881-56895, D:L57120-57135, D:L57191-57205), on the
+  // one clock (`timing.help`, D:L56541-56562); RSP-6's ready Action line reasserts 100 every eligible frame
+  // (research 351 §2, loaded r0004 0x1f9c50-0x1f9c68). Hidden while the Chat menu is open, for every seat (control state 2,
+  // D:L56617-56622), and under the scoreboard (`SCOREBOARD_HIDES`, D:L56817-56823).
+  const helpLines = !view ? null
+    : (view.path ?? 'spectator') === 'spectator' ? [...SPECTATOR_HELP.lines, ...SPECTATOR_HELP_TAIL_PLACEHOLDER] : view.help ?? null;
+  const H = SPECTATOR_HELP;
+  if (helpLines && !model.commandMenu) {
+    // PV-6h (POV_VIEW_ADAPTATION, no original): the player's view's line; never on 'own'. WM-PV-HINT: where it is drawn,
+    // or can be on the path (`povRaise`, F1), and a help line stands in its slot (line 4), the lines stand one pitch up
+    // (`POV_HELP_LINES_SHIFT_ADAPTATION`).
+    const pov = view && view.path !== 'own' ? view.pov : undefined;
+    const raised = pov !== undefined || (view?.path !== 'own' && view?.povRaise === true);
+    // SEAT_CLAIM_ADAPTATION: an offered claim takes the slot above the hint's (or the hint's own), the lines one more up.
+    const claimed = view?.claim !== undefined && (view.path ?? 'spectator') === 'spectator';
+    const shift = (raised && helpLines.slice(3).some((l) => l.trim() !== '') ? POV_HELP_LINES_SHIFT_ADAPTATION : 0)
+      + (claimed ? SEAT_CLAIM_PLACE_ADAPTATION.up : 0);
+    helpLines.forEach((line, i) => {
+      const helpA = i === 1 && view?.respawnReady ? H.alpha : (timing.help ?? 1) * H.alpha;
+      if (helpA <= 0) return;
+      text('help', line, { x: H.x, y: H.y0 + i * H.pitch - shift, scale: H.scale, align: 'centre' }, C, 1,
+        [H.rgb[0] / 128, H.rgb[1] / 128, H.rgb[2] / 128], helpA / 128, { special: true, shadow: Math.min(helpA, 96) / 128 });
+    });
+    // The line at the block's bottom (`POV_HELP_PLACE_ADAPTATION`) in the lines' font, scale and colour, at its own alpha
+    // whatever the help clock (`povHelpAlpha`: half for a second after a swap), after the lines and hidden with them; under
+    // it while Cross is held, the ring around its Cross glyph (`POV_HINT_RING_ADAPTATION`: the hold bar's fill over a track in the hint's colour, at the hint's alpha).
+    // The hold's ring around a line's first glyph (`POV_HINT_RING_ADAPTATION`): the player's view's Cross, the claim's button.
+    const holdRing = (line: string, P: { x: number; y: number }, hold: number, lineA: number): void => {
+      const G = layoutText(line, P.x - textWidth(line, H.scale, READ_SPECIAL) / 2, P.y, H.scale, READ_SPECIAL).glyphs[0];
+      const R = POV_HINT_RING_ADAPTATION, n = R.segments, w = (2 * Math.PI * R.radius / n) * R.arc;
+      const filled = Math.floor(Math.min(1, Math.max(0, hold)) * n + 1e-9);
+      const cx = G ? G.x + G.w / 2 : P.x, cy = G ? G.y + G.h / 2 : P.y;
+      const F = HUD_COLOURS.holdFill, ringA = lineA / 128;
+      const fill: Rgba4 = [F[0], F[1], F[2], ringA];
+      const track: Rgba4 = [H.rgb[0] / 128, H.rgb[1] / 128, H.rgb[2] / 128, ringA * POV_HINT_RING_TRACK_SHARE_ADAPTATION];
+      for (let i = 0; i < n; i++) {
+        const turn = 2 * Math.PI * (i + 0.5) / n, x = cx + R.radius * Math.sin(turn), y = cy - R.radius * Math.cos(turn);
+        bitmap('help', WHITE, C(x) - w * s / 2, Y(y) - R.thickness * s / 2, w * s, R.thickness * s, i < filled ? fill : track, turn);
+      }
+    };
+    if (pov && view) {
+      const P = POV_HELP_PLACE_ADAPTATION, line = povHelpLine(pov), povA = povHelpAlpha(view.povSince);
+      if (view.povHold !== undefined) holdRing(line, P, view.povHold, povA);
+      text('help', line, { x: P.x, y: P.y, scale: H.scale, align: 'centre' }, C, 1,
+        [H.rgb[0] / 128, H.rgb[1] / 128, H.rgb[2] / 128], povA / 128, { special: true, shadow: Math.min(povA, 96) / 128 });
+    }
+    // SEAT_CLAIM_ADAPTATION: the claim's line at the block's bottom with the hint (`SEAT_CLAIM_PLACE_ADAPTATION`), at its own alpha
+    // whatever the help clock (a free seat's breath), its button ringed while held -- on the spectator's path only.
+    if (claimed && view?.claim) {
+      const Q = { x: SEAT_CLAIM_PLACE_ADAPTATION.x, y: SEAT_CLAIM_PLACE_ADAPTATION.bottom - (raised ? SEAT_CLAIM_PLACE_ADAPTATION.up : 0) };
+      const line = view.claim.line, claimA = H.alpha * Math.min(1, Math.max(0, view.claim.share));
+      // The ring on the button: the line's tail from the button, centred where it stands in the whole line.
+      const tail = line.slice(view.claim.at);
+      if (view.claim.hold !== undefined) holdRing(tail, { x: Q.x + (textWidth(line, H.scale, READ_SPECIAL) - textWidth(tail, H.scale, READ_SPECIAL)) / 2, y: Q.y }, view.claim.hold, H.alpha);
+      text('help', line, { x: Q.x, y: Q.y, scale: H.scale, align: 'centre' }, C, 1,
+        [H.rgb[0] / 128, H.rgb[1] / 128, H.rgb[2] / 128], claimA / 128, { special: true, shadow: Math.min(claimA, 96) / 128 });
+    }
+  }
+
+  // The event banner: the panel while any message shows, the lines newest at the bottom (`HUD_LAYOUT.banner`).
+  const messages = model.message ? [...model.banner, { lines: [{ text: model.message, scale: 1 }], alpha: 1 }] : model.banner;
+  const shown = messages.filter((m) => m.alpha > 0);
+  if (shown.length > 0) {
+    const M = HUD_LAYOUT.message, B = HUD_LAYOUT.banner;
+    const panelAlpha = Math.max(...shown.map((m) => m.alpha));
+    const lines = shown.flatMap((m) => m.lines.map((l) => ({ ...l, alpha: m.alpha })));
+    // RC-3 ROUND-CHAT (a browser adaptation): a segmented line's icon slot -- the window's line pitch's share high
+    // (`ROUND_CHAT_ICON_PITCH_SHARE_ADAPTATION`; a whole letter cell, ~21, is taller than the 15 pitch and spilled onto the
+    // lines around it: the look sheet, 2026-11-13), centred on the line's letter cell ('H' at the line's scale and
+    // baseline), its bitmap's aspect, a space's advance after it; none for an icon the HUD does not hold.
+    const iconSlot = (l: BannerLine, y: number): { w: number; top: number; h: number; advance: number } | null => {
+      const size = l.icon === undefined ? undefined : sizes[l.icon];
+      const cell = size ? layoutText('H', 0, y, l.scale).glyphs[0] : undefined;
+      if (!size || !cell) return null;
+      const h = Math.min(cell.h, B.pitch * ROUND_CHAT_ICON_PITCH_SHARE_ADAPTATION);
+      const w = (h * size.width) / size.height;
+      return { w, top: cell.y + (cell.h - h) / 2, h, advance: w + textWidth(' ', l.scale) };
+    };
+    const lineWidth = (l: BannerLine): number => textWidth(l.text, l.scale) + (iconSlot(l, 0)?.advance ?? 0);
+    // OT.R82 (`./hudMessagePanel`): wider, to its cap, for a line the default does not hold, clear of what stands beside it.
+    const P = messagePanelSpan({ x: C(M.panel.x), w: M.panel.w * s, y0: Y(M.panel.y), y1: Y(M.panel.y + M.panel.h) }, s,
+      Math.max(0, ...lines.map((l) => lineWidth(l))), [...quads, ...keepClearNeighbours(frame, model.keepClear ?? [])]);
+    bitmap('banner', 'newweapnbkrnd.tif', P.x, Y(M.panel.y), P.w, M.panel.h * s, alpha(HUD_COLOURS.panel, panelAlpha));
+    let y = 0;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const l = lines[i]!;
+      y = i === lines.length - 1 ? B.base + B.perScale * l.scale : y - B.pitch;
+      // WM-DATA-FEED (review F1): a marked line takes the pen's path even unsegmented (a wrap's fallback piece), for its mark.
+      if (l.segments === undefined && l.icon === undefined && l.feedMark === undefined) {
+        text('message', l.text, { x: B.x, y, scale: l.scale, align: 'centre' }, C, l.alpha, l.rgb, l.opacity);
+        continue;
+      }
+      // RC-3: the icon, then each piece left to right from the pen that centres the whole on the window's centre line.
+      const slot = iconSlot(l, y), segs = l.segments ?? [{ text: l.text }];
+      const widths = segs.map((g) => textWidth(g.text, l.scale));
+      let pen = B.x - ((slot?.advance ?? 0) + widths.reduce((sum, w) => sum + w, 0)) / 2;
+      if (l.feedMark) {                    // WM-DATA-FEED (look 3B2): the wash, then the bar, behind the line, centred on its capitals
+        const A = KILL_FEED_MARK_ADAPTATION, x0 = pen - A.pad - A.bar, { up, down } = killFeedMarkSpan(l.scale);
+        const x1 = pen + (slot?.advance ?? 0) + widths.reduce((sum, w) => sum + w, 0) + A.pad;
+        bitmap('message', WHITE, C(x0), Y(y - up), (x1 - x0) * s, (up + down) * s, [...l.feedMark, A.washAlpha * l.alpha]);
+        bitmap('message', WHITE, C(x0), Y(y - up), A.bar * s, (up + down) * s, [...l.feedMark, A.barAlpha * l.alpha]);
+      }
+      if (slot && l.icon !== undefined) {
+        bitmap('message', l.icon, C(pen), Y(slot.top), slot.w * s, slot.h * s, [1, 1, 1, (l.opacity ?? HUD_COLOURS.text[3]) * l.alpha]);
+        pen += slot.advance;
+      }
+      segs.forEach((g, k) => {
+        text('message', g.text, { x: pen, y, scale: l.scale }, C, l.alpha, g.rgb ?? l.rgb, l.opacity);
+        pen += widths[k]!;
+      });
+    }
+  }
+
+  // PICKUP-LINE (`SMALL_MESSAGES`, `SMALL_MESSAGE_LAYOUT_READING`): the small message window -- its panel while a line
+  // shows, the lines newest at the bottom on the main window's baselines and pitch (the baseline unsettled), each
+  // starting at the window's left, x 12 (`FUN_002b5830` D:L157609-157610), the frame's left edge its anchor. A
+  // pick-up's line is colour 0, the HUD's own text colour.
+  const small = model.smallBanner !== undefined && model.smallBanner.length > 0 ? model.smallBanner.filter((m) => m.alpha > 0) : NO_BANNER;
+  if (small.length > 0) {
+    const W = HUD_LAYOUT.smallMessage, B = HUD_LAYOUT.banner;
+    const panelAlpha = Math.max(...small.map((m) => m.alpha));
+    const lines = small.flatMap((m) => m.lines.map((l) => ({ ...l, alpha: m.alpha })));
+    bitmap('smallMessage', 'newweapnbkrnd.tif', L(W.panel.x), Y(W.panel.y), W.panel.w * s, W.panel.h * s, alpha(HUD_COLOURS.panel, panelAlpha));
+    let y = 0;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const l = lines[i]!;
+      y = i === lines.length - 1 ? B.base + B.perScale * l.scale : y - B.pitch;
+      text('smallMessage', l.text, { x: W.x, y, scale: l.scale, align: 'left' }, L, l.alpha, l.rgb, l.opacity);
+    }
+  }
+
+  // KEYBOARD-WHISPER (`TEXT_LINE_LAYOUT`; `ROUND_TEXT_LINE_DRAW_READING`): the round's text line, the box then the text,
+  // anchored on the centre line as the message window is (25..615 is symmetric about x 320).
+  const T = model.textLine;
+  if (T) {
+    const TL = TEXT_LINE_LAYOUT, [r, g, b] = TL.rgb;
+    if (T.box > 0) bitmap('textLine', WHITE, C(TL.box.x), Y(TL.box.y), TL.box.w * s, TL.box.h * s, [0, 0, 0, T.box / 128]);
+    if (T.text && T.ink > 0) {
+      text('textLine', T.text, { x: TL.text.x, y: TL.text.y, scale: TL.text.scale }, C, 1, [r / 128, g / 128, b / 128], T.ink / 128,
+        { shadow: Math.min(T.ink, 96) / 128 });
+    }
+  }
+
+  // The spawn's fade from black, over everything the pass draws.
+  if (model.fader > 0) bitmap('fader', WHITE, 0, 0, frame.width, frame.height, [0, 0, 0, model.fader], 0, undefined, 1);
+
+  // PAR-48: what the view's path does not draw (`SPECTATOR_HIDES`, `OWN_BODY_HIDES`); LATER 117: `TEAMMATE_HIDES`.
+  const hides = !view ? null : view.path === 'teammate' ? TEAMMATE_HIDES : away ? SPECTATOR_HIDES : OWN_BODY_HIDES;
+  const kept = hides ? quads.filter((q) => !hides.has(q.element)) : quads;
+  const rects: Partial<Record<HudElement, Rect>> = {};
+  for (const q of kept) {
+    const c = Math.abs(Math.cos(q.turn)), n = Math.abs(Math.sin(q.turn));
+    const hw = (q.w * c + q.h * n) / 2, hh = (q.w * n + q.h * c) / 2;
+    const r = rects[q.element];
+    const x0 = q.x - hw, y0 = q.y - hh, x1 = q.x + hw, y1 = q.y + hh;
+    if (!r) rects[q.element] = { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
+    else {
+      // PAGE-ALLOC-A: the element's rect grown in place (each number from the rect as it stood), not made again.
+      const nx0 = Math.min(r.x, x0), ny0 = Math.min(r.y, y0);
+      const width = Math.max(r.x + r.width, x1) - nx0, height = Math.max(r.y + r.height, y1) - ny0;
+      r.x = nx0; r.y = ny0; r.width = width; r.height = height;
+    }
+  }
+  return { scale: s, quads: kept, rects };
+}
+
+/**
+ * The pass's quads and shapes on a frame, pure: the in-round HUD less what the tactical map, the scoreboard or a round
+ * screen hides, then the extra layer -- a round screen (over everything, replacing the scoreboard and the tactical
+ * map), else the tactical map's overlay and the scoreboard. `presentation` places the scoreboard: the Modern one
+ * (`'native'`) raises it by `MODERN_SCOREBOARD_LIFT` and shrinks it clear of the bottom HUD (`modernScoreboardFit`);
+ * the PS2 one keeps the game's place.
+ */
+export function hudPass(
+  frame: { width: number; height: number }, model: HudModel, sizes: Record<string, { width: number; height: number }>,
+  timing: HudTiming, tacOpen: boolean, overlay: HudOverlay | null, presentation: Presentation = 'ps2', storage?: HudFrameStorage,
+): { quads: HudQuad[]; tris: HudTri[] } {
+  const { quads } = hudLayout(frame, model, sizes, timing, storage);
+  if (model.roundScreen) {
+    const screen = roundScreenLayout(model.roundScreen, frame, sizes);
+    return { quads: [...quads.filter((q) => !ROUND_SCREEN_HIDES.has(q.element)), ...screen.quads], tris: screen.tris };
+  }
+  // The tactical map hides the in-round HUD and the compass (`FUN_001f71c0`); its own layer draws instead. The
+  // scoreboard hides the ammo box, the compass, the prompts and the timer (L56808-56828) and draws on layer 1.
+  // MATCH-01: SPECTATOR HUD off hides the scoreboard's set (D:L56808: `DAT_003dc3e0 == 0` or the board up); the START
+  // menu's open hides `START_MENU_HIDES` (the hide-all, D:L61964).
+  const hiding = model.scoreboard || model.spectatorHud === false;
+  const shown = (q: HudQuad): boolean => !(hiding && SCOREBOARD_HIDES.has(q.element)) && !(model.startMenu && START_MENU_HIDES.has(q.element));
+  // NU-9 (c): the talk sprites over a teammate's tag are the HUD's own and no hide takes them (research 329 §1.7: the
+  // tactical map's hide-all hides the tags' part, the texts).
+  const base = tacOpen ? quads.filter((q) => q.element === 'fader' || q.element === 'teamTalk') : hiding || model.startMenu ? quads.filter(shown) : quads;
+  const board = model.scoreboard && !tacOpen ? boardLayout(frame, model, sizes, presentation) : null;
+  const tac = overlay?.(frame, sizes) ?? null;
+  return { quads: [...base, ...(tac?.quads ?? []), ...(board?.quads ?? [])], tris: [...(tac?.tris ?? []), ...(board?.tris ?? [])] };
+}
+
+/**
+ * The Modern board's clearance over the bottom HUD, in the 640x448 frame's pixels (owner ruling 2026-09-29: "you can
+ * just make it a bit smaller instead of moving the top chat"): its bottom, and its sides where it stands beside an
+ * element rather than over it, keep this far from every bottom-HUD element still up while it shows.
+ */
+export const MODERN_SCOREBOARD_MARGIN = 4;
+/**
+ * The smallest the Modern board is drawn (legibility): its rows' 0.8 text is then 0.6 of the font, the smallest the HUD
+ * writes anywhere is the stance word's 0.765. An aspect needing less is drawn at this and reported (`fits` false).
+ */
+export const MODERN_SCOREBOARD_MIN_SCALE = 0.75;
+/**
+ * The bottom HUD still drawn while the board is up (all but `SCOREBOARD_HIDES`): what the Modern board must clear. PAR-48:
+ * the info box and the number are hidden under the board (D:L56811, D:L56826), so the stance word and the ZOOM line.
+ */
+export const SCOREBOARD_KEEPS_BOTTOM: readonly HudElement[] = ['stance', 'zoom'];
+
+/** One bottom-HUD element's footprint on a frame (frame pixels): its sides and its top edge. */
+export interface BottomEdge { element: HudElement; x0: number; x1: number; top: number }
+
+/**
+ * The bottom HUD's footprint on a frame while the board is up: each of `SCOREBOARD_KEEPS_BOTTOM` at its widest -- the
+ * health bar, the name on it, the timer line's box, the range ("999m"), the stance word (the widest of the three), the
+ * zoom readout ("ZOOM: 10.0x") -- from `hudLayout`'s own anchors (all of them the right edge but the zoom's left edge).
+ */
+export function bottomHudEdges(frame: { width: number; height: number }, sizes: Record<string, { width: number; height: number }>): BottomEdge[] {
+  const edges = new Map<HudElement, BottomEdge>();
+  for (const stance of ['stand', 'crouch', 'prone'] as const) {
+    const probe: HudModel = { ...DEFAULT_MODEL, name: DEFAULT_PLAYER, range: 999, rangeReadout: true, zoom: 10, stance };   // HUD-ALIVE C: "999m" outspans the count
+    const { rects } = hudLayout(frame, probe, sizes, { fade: 1, stance: 1, pulse: 0 });
+    for (const element of SCOREBOARD_KEEPS_BOTTOM) {
+      const r = rects[element];
+      if (!r) continue;
+      const e = edges.get(element), x0 = r.x, x1 = r.x + r.width, top = r.y;
+      edges.set(element, e ? { element, x0: Math.min(e.x0, x0), x1: Math.max(e.x1, x1), top: Math.min(e.top, top) } : { element, x0, x1, top });
+    }
+  }
+  return [...edges.values()];
+}
+
+/**
+ * The Modern board's place on a frame: the lift, and the uniform scale about its top-centre that brings its bottom
+ * `MODERN_SCOREBOARD_MARGIN` clear of every bottom-HUD element it would stand over (an element it clears sideways by
+ * that margin does not bind it), at most 1, at least `MODERN_SCOREBOARD_MIN_SCALE`; `fits` false when even the minimum
+ * does not clear. The board's top stays at the lift's place (100), under the message window, whatever the scale.
+ * `rows` true measures the board with the room's rows (OPS-S1: 1..639, the satchel's slot) instead of the rowless 10..630.
+ */
+export function modernScoreboardFit(
+  frame: { width: number; height: number }, sizes: Record<string, { width: number; height: number }>, rows = false,
+): { lift: number; scale: number; fits: boolean; need: number; edges: BottomEdge[]; board: { x0: number; x1: number; top: number; bottom: number } } {
+  const s = frame.height / PS2_H, m = MODERN_SCOREBOARD_MARGIN * s, cx = frame.width / 2;
+  const lift = MODERN_SCOREBOARD_LIFT;
+  const full = scoreboardLayout(frame, { player: DEFAULT_PLAYER, game: 'GAME', type: 'TYPE', ...(rows ? { rows: [] } : {}) }, sizes, lift);
+  const xs = [...full.quads.flatMap((q) => [q.x - q.w / 2, q.x + q.w / 2]), ...full.tris.flatMap((t) => [t.p[0], t.p[2], t.p[4]])];
+  const ys = [...full.quads.flatMap((q) => [q.y - q.h / 2, q.y + q.h / 2]), ...full.tris.flatMap((t) => [t.p[1], t.p[3], t.p[5]])];
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), bottom = Math.max(...ys), top = (SCORE_TOP - lift) * s;
+  const edges = bottomHudEdges(frame, sizes);
+  let need = 1;
+  for (const e of edges) {
+    const kv = (e.top - m - top) / (bottom - top);
+    const right = e.x0 - m - cx, left = cx - e.x1 - m;
+    const kh = Math.max(right > 0 ? right / (x1 - cx) : 0, left > 0 ? left / (cx - x0) : 0);
+    need = Math.min(need, Math.max(kv, kh));
+  }
+  const scale = Math.max(MODERN_SCOREBOARD_MIN_SCALE, need);
+  return { lift, scale, fits: need >= MODERN_SCOREBOARD_MIN_SCALE, need, edges, board: { x0, x1, top, bottom } };
+}
+
+/**
+ * The scoreboard's quads and shapes for the model, in the presentation's place: the Modern one lifted
+ * (`MODERN_SCOREBOARD_LIFT`) and scaled to clear the bottom HUD (`modernScoreboardFit`); the PS2 one the game's.
+ */
+export function boardLayout(
+  frame: { width: number; height: number }, model: HudModel, sizes: Record<string, { width: number; height: number }>,
+  presentation: Presentation,
+): ReturnType<typeof scoreboardLayout> {
+  const fit = presentation === 'native' ? modernScoreboardFit(frame, sizes, !!model.scoreRows.rows) : { lift: 0, scale: 1 };
+  // WM-DATA (a browser adaptation, `HudModel.pointer`): the row under the pointer, read in the board's own place.
+  const p = model.pointer, rows = model.scoreRows.rows;
+  const hoverRow = p && rows ? scoreboardRowAt(frame, { rows }, p.x, p.y, fit.lift, fit.scale) : null;
+  return scoreboardLayout(frame, { player: model.name || DEFAULT_PLAYER, game: model.game.name, type: model.game.type,
+    ...(model.scoreboardDetails ? { details: model.scoreboardDetails } : {}),
+    ...(model.scoreRows.rows ? { rows: model.scoreRows.rows, spectators: model.scoreRows.spectators, wins: model.scoreRows.wins } : {}),
+    ...(model.bombCarrier != null ? { bombCarrier: model.bombCarrier } : {}),
+    ...(hoverRow !== null ? { hoverRow } : {}),
+    ...(model.damagePanel?.report ? { damage: model.damagePanel.report } : {}),   // WM-13: the panel in the board's place
+    ...(model.damagePanel?.hint ? { damageHint: model.damagePanel.hint } : {}) }, sizes,   // WM-13: its hint above it
+    fit.lift, fit.scale);
+}
+
+/** What `Hud.feed` reads each frame. */
+export interface HudSources {
+  /** `magsHidden`: NET-REFILL N4, the network test's hidden MAGS line (`./fire` `MagazineState`). */
+  magazine: { rounds: number; capacity: number; spare: number; reloading: boolean; magsHidden?: boolean };
+  yaw: number;
+  stance?: HudStance;
+  /** LATER 414: a stance taken this frame (the walker's one-time bit): the word shown again, whatever it was. */
+  stanceTaken?: HudStance;
+  climb?: ClimbPrompt | null;
+  /** The feet (x, z), for the compass's nav marks. */
+  position?: [number, number] | null;
+  /** The map's action in reach (`./mapActions`'s `actionInReach`), as a prompt kind; LkPaioX5 (a): or the picker's list. */
+  nearby?: ActionFeed;
+  range?: number | null;
+  /** The weapon's fire mode, once the weapon has a switch (the ACCURACY workstream's); absent leaves `setFireMode`'s. */
+  fireMode?: FireMode;
+}
+
+/** The test hook's patch: any of the inputs the walk does not drive yet. */
+export interface HudPatch {
+  fireMode?: FireMode; weaponIcon?: string; action?: ActionPrompt | null; climb?: ClimbPrompt | null;
+  message?: string | null; zoom?: number; name?: string; health?: number; timer?: number; range?: number | null;
+  stance?: HudStance; yaw?: number; rounds?: number; capacity?: number; spare?: number; scoreboard?: boolean;
+  /** Skip the spawn fade and the round start (the tests' still frames). */
+  settled?: boolean;
+  /** Put the round start at this many seconds (the tests' frames of the sequence). */
+  roundTime?: number;
+  /** Hold the model as patched: `feed` is ignored until a patch with `frozen: false` (the tests' still frames). */
+  frozen?: boolean;
+}
+
+/** `Hud.state()`: drawn or not, the frame, what it shows, the fades, and each element's rectangle (y down). */
+export interface HudView {
+  visible: boolean;
+  frame: { width: number; height: number };
+  model: HudModel;
+  timing: HudTiming;
+  rects: Partial<Record<HudElement, Rect>>;
+  /**
+   * LATER 117: the bitmap the weapon box's icon draws on the last frame (the 'icon' quad's texture, e.g.
+   * `sigcommando_icon.tif`), null when no icon is drawn -- so a check can tell the watched teammate's from the walker's own.
+   */
+  icon?: string | null;
+}
+
+/**
+ * The range finder -- the scope's and binoculars' `RANGE(m)` line (research 87 §13), and the info box's spot only while
+ * this browser's range readout is on (HUD-ALIVE C, `./rangeReadout`; the original's number there is the consoles' count,
+ * `infoNumberText`), in metres (`MetersPerUnit` 0.1). AIM-TRACE-FILTER (a reading): the line reads the eye's aim trace's
+ * stored record (`FUN_005aa6d0`, actor+0x3c0, D:L464015-464018) in `FUN_00216770` (D:L70446-70461) without tracing
+ * again -- no record, or its +0x1c zero, prints `"RANGE(m): ----"` (0x3e4860; null here); otherwise the distance from the
+ * actor's position (`iVar13 + 0x1c`, the local actor `FUN_001fcd70`, D:L70321, D:L70357) to the record's point, / 10.
+ * The record is the nearest hit `FUN_005aa6e0` keeps (D:L464145-464169, stored D:L464262-464286): the caller passes that
+ * query's filter (`./fire` `Fire.eyeStops`, `stops`) and the actor's position (`actor`). Without them (a caller that has
+ * neither) every face stops and the eye is the origin -- the earlier viewer reading, kept only as that fallback. The
+ * segment runs from the eye through the aim point as long as the aim trace's own reach (`reach`: the caller passes
+ * `Fire.eyeReach`, `aimReach` of the held item's range and the camera's cap, D:L464096-464108 -- a wall beyond it has no
+ * record, "----"); without one, the finder's own `reach` (1000 units), the same fallback. Measured at most five times a second: the segment walks the hull's grid. Was: "the
+ * surface under the reticle ... along a segment from the eye" with no filter [the game's source was not traced].
+ */
+export class RangeFinder {
+  private at = -Infinity;
+  private value: number | null = null;
+  constructor(private readonly metersPerUnit = 0.1, private readonly every = 0.2, private readonly reach = 1000) {}
+  measure(
+    grid: Grid | null, aim: { eye: readonly number[]; far: readonly number[] } | null, now: number,
+    q: { stops?: (p: WorldPoly) => boolean; actor?: readonly number[] | null; reach?: number } = {},
+  ): number | null {
+    if (now - this.at < this.every) return this.value;
+    this.at = now;
+    if (!grid || !aim) return (this.value = null);
+    const d = [aim.far[0]! - aim.eye[0]!, aim.far[1]! - aim.eye[1]!, aim.far[2]! - aim.eye[2]!];
+    const n = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
+    const from: [number, number, number] = [aim.eye[0]!, aim.eye[1]!, aim.eye[2]!];
+    const r = q.reach ?? this.reach;                    // the aim trace's own reach (`Fire.eyeReach`, D:L464096-464108)
+    const end: [number, number, number] = [from[0] + (d[0]! / n) * r, from[1] + (d[1]! / n) * r, from[2] + (d[2]! / n) * r];
+    const hit = segmentHit(grid, from, end, q.stops);   // FUN_005aa6e0's kept hit, nearest the eye (D:L464145-464169)
+    if (!hit) return (this.value = null);               // "RANGE(m): ----" (D:L70447-70448)
+    const o = q.actor ?? from, s = hit.t * r;           // from the actor's position (D:L70451-70460)
+    const p = [from[0] + (d[0]! / n) * s - o[0]!, from[1] + (d[1]! / n) * s - o[1]!, from[2] + (d[2]! / n) * s - o[2]!];
+    return (this.value = Math.hypot(p[0]!, p[1]!, p[2]!) * this.metersPerUnit);
+  }
+}
+
+/**
+ * The GS samples a sprite's texture at each pixel's integer corner where GL samples at its centre (research 87 §2):
+ * with the HUD's bilinear filter (every HUD bitmap's TEX1 asks for it) the console's content sits half a PS2 pixel
+ * right of and below GL's for the same quad -- the +0.2..+0.8 pixel offsets the console frames show on every bitmap
+ * before this correction. The pass moves each quad's texels by this much, in PS2 pixels, and leaves its edges.
+ */
+export const GS_SAMPLE_OFFSET = 0.5;

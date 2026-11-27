@@ -5,6 +5,7 @@ import { CUSTOM_MAP_ALREADY_HERE } from '../../packs/customMaps';
 import { customMapDetail, readinessSentence } from '../../packs/readiness';
 import type { ModsAdapter, ModsFile, ModsRowView, ModsView } from '../state';
 import { HD_PACK_AUTHOR, HD_PACK_CREDIT } from '../../hdPackCredit';
+import { setTexturePackSource } from '../texturePackSetting';
 
 /**
  * B206 ML-2 (ML.R6, ML.R7): the MODS screen's adapter -- reads and writes only through the one registry (ML-1,
@@ -246,6 +247,7 @@ export function liveMods(doc: Document, notify: () => void, deps: ModsDeps = {})
       });
     },
     dispose() {
+      releaseSetting();
       for (const u of unsubscribe) u();
       unsubscribe = [];
       picker.removeEventListener('change', onPick);
@@ -253,6 +255,10 @@ export function liveMods(doc: Document, notify: () => void, deps: ModsDeps = {})
       doc.removeEventListener('drop', onDrop, true);
     },
   };
+  // WM-PACKS-SETTING (a browser adaptation): Settings > Display's Texture pack reads this view and chooses through this
+  // `setTexture` (`../texturePackSetting`); a pack's size beside its name is this screen's own words (`sizeWords`: an HD
+  // pack's decoded size, said so), so one pack reads the same in Settings and here.
+  const releaseSetting = setTexturePackSource(api, (id) => { const p = list.find((x) => x.id === id); return p ? sizeWords(p) : null; });
   const onPick = (): void => { const files = Array.from(picker.files ?? []); picker.value = ''; api.drop(files); };
   const shown = (): boolean => !!doc.querySelector('[data-key="mods"]');
   const carriesFiles = (e: DragEvent): boolean => Array.from(e.dataTransfer?.types ?? []).includes('Files');

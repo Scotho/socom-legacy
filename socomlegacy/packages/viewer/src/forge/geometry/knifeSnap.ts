@@ -2,7 +2,7 @@ import { add, cross, dot, faceVerts, length, normalize, scale, sub, triangulate,
 import type { KnifePoint } from './ops';
 
 /**
- * The Knife's snapping (the owner, 2026-11-20: "when I use the knife tool, why can't I snap the vertex to the grid";
+ * The Knife's snapping (the Forge's owner (crispy, OT.R112), 2026-11-20: "when I use the knife tool, why can't I snap the vertex to the grid";
  * a browser adaptation, the game has no editor; after the reference editor's edge cut, as every tool is -- "always match
  * hammer for all tools"). With the grid snap on, a Knife point is the nearest to the pointer's place on the face under
  * it of: the face's points; each of its edges' middles; each edge's nearest place, moved along it to the nearest world
@@ -12,10 +12,10 @@ import type { KnifePoint } from './ops';
  * the face (a point inside it, on the grid). Shift, with a point already made: only the aligned places.
  */
 
-/** Two snap places nearer than this are one (the reference editor's 0.01, a reading). */
-export const KNIFE_SNAP_MIN_GAP_READING = 0.01;
-/** An edge spanning less than this across an aligning plane gives no aligned place (the reference's 0.125 / 2, a reading). */
-export const KNIFE_ALIGN_MIN_SPAN_READING = 0.0625;
+/** Two snap places nearer than this are one (the reference editor's 0.01; an editor value, a browser adaptation, FG.R2). */
+export const KNIFE_SNAP_MIN_GAP_ADAPTATION = 0.01;
+/** An edge spanning less than this across an aligning plane gives no aligned place (the reference's 0.125 / 2; an editor value, a browser adaptation, FG.R2). */
+export const KNIFE_ALIGN_MIN_SPAN_ADAPTATION = 0.0625;
 
 /** The workplane's frame: its origin and its three axes (its grid's), unit and square to each other. */
 export interface KnifeFrame { origin: Vec3; axes: readonly [Vec3, Vec3, Vec3] }
@@ -55,7 +55,7 @@ function edgeOnGrid(p: Vec3, a: Vec3, b: Vec3, step: number): Vec3 | null {
 /** Where segment `a`-`b` crosses the plane through `through` square to `n`, if the edge spans the plane enough. */
 function planeOnEdge(n: Vec3, through: Vec3, a: Vec3, b: Vec3): Vec3 | null {
   const d = sub(a, b);
-  if (length([d[0] * n[0], d[1] * n[1], d[2] * n[2]]) < KNIFE_ALIGN_MIN_SPAN_READING) return null;
+  if (length([d[0] * n[0], d[1] * n[1], d[2] * n[2]]) < KNIFE_ALIGN_MIN_SPAN_ADAPTATION) return null;
   return segmentOnPlane(n, dot(n, through), a, b);
 }
 
@@ -126,7 +126,7 @@ export function knifeSnaps(m: EditMesh, f: number, target: Vec3, step: number, f
   const out: KnifeSnap[] = [];
   for (const s of all) {
     if (alignedOnly && prev && !s.aligned) continue;
-    if (out.some((o) => length(sub(o.at, s.at)) < KNIFE_SNAP_MIN_GAP_READING)) continue;
+    if (out.some((o) => length(sub(o.at, s.at)) < KNIFE_SNAP_MIN_GAP_ADAPTATION)) continue;
     out.push(s);
   }
   return out;

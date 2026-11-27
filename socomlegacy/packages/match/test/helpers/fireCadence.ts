@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { arsenalOf, HELD_SIDEARM, M67, type CollisionOwner, type GridParams, type Loadout, type SpawnSlot, type ThrowableRecord, type WeaponRecord, type WorldPoly } from '@s2u/scene';
 import type { SimKits } from '../../../viewer/src/loadout';
 import { Accuracy, fireInterval, perturb, roundsPerPull } from '../../../viewer/src/accuracy';
+import { fastestWait } from '../../../viewer/src/net/fireGate';
 import { Fire } from '../../../viewer/src/fire';
 import {
   Button, cameraLook, encodeCommands, EYE_HEIGHT, faceToward, groundGrid, packGround, PROTOCOL_VERSION, ringFor, ShotCone, TICK_HZ,
@@ -31,13 +32,13 @@ type FireEv = Extract<ClientEvent, { type: 'fire' }>;
 const TICK_MS = 1000 / TICK_HZ;
 const unitV = (a: readonly number[]): V3 => { const l = Math.hypot(a[0]!, a[1]!, a[2]!); return [a[0]! / l, a[1]! / l, a[2]! / l]; };
 /** The rate the room's cycle is built from (`room.ts` `fire`: the fastest enabled mode). */
-export const fastest = (rec: WeaponRecord): number => Math.min(...rec.fireModes.filter((m) => m > 0).map((m) => fireInterval(rec.fireWait, m)), rec.fireWait);
+export const fastest = (rec: WeaponRecord): number => fastestWait(rec);   // SWAP-FIRE: the room's own (single x 1.2)
 
 function flatMap(): SimMap {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const floor: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
   };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const ground = packGround(params, [floor], owners);
@@ -78,7 +79,12 @@ const camOf = (f: AimFrame): Cam => { const c = cameraLook(f); return { eye: c.e
  * `turn`: degrees of yaw a command while the trigger is held (a turning page; its claims from `looks`, the room's own
  * cameras at each command from a first run of the same commands -- the page's camera is the room's for an honest look).
  */
-export function burst(rec: WeaponRecord, fps: number, seconds: number, frames?: number[], opts: { turn?: number; looks?: Map<number, Cam>; presses?: number; gap?: number; corner?: boolean; spread?: () => [number, number]; trace?: boolean; pressAtPrevious?: boolean; mash?: boolean; held?: boolean[]; mode?: number; around?: Around } = {}) {
+/**
+ * `hold` (LATER 336's re-review, finding 1): per frame of the burst, true where the line holds that frame's commands and
+ * rounds -- the room's clock runs on (a stall of the line, not of the page) -- all delivered, in order, before the first
+ * frame not held.
+ */
+export function burst(rec: WeaponRecord, fps: number, seconds: number, frames?: number[], opts: { turn?: number; looks?: Map<number, Cam>; presses?: number; gap?: number; corner?: boolean; spread?: () => [number, number]; trace?: boolean; pressAtPrevious?: boolean; mash?: boolean; held?: boolean[]; mode?: number; around?: Around; hold?: boolean[] } = {}) {
   // LATER 347's trace: per round, the page's cone at the claim's roll, the room's cones over the named command's window, the verdict.
   type Cn = { x: number; y: number; r: number };
   const traced: { seq: number; out: string; burst: number; page: Cn; room: { seq: number; cone: Cn }[] }[] = [];
@@ -95,6 +101,9 @@ export function burst(rec: WeaponRecord, fps: number, seconds: number, frames?: 
   p.sim.walker.place(0, 20, 0); q.sim.walker.place(100, 20, 0);
   const R = room as unknown as { fire: (pp: unknown, ev: FireEv) => void };
   const orig = R.fire.bind(room);
+  // `hold`: what the line holds back, delivered in order when it lets go (null: delivered at once).
+  let line: (() => void)[] | null = null;
+  const deliver = (f: () => void): void => { if (line) line.push(f); else f(); };
   let blooms = 0;
   const round = P.cone.round.bind(P.cone);
   P.cone.round = (seq: number): void => { blooms++; round(seq); };
@@ -211,7 +220,7 @@ export function burst(rec: WeaponRecord, fps: number, seconds: number, frames?: 
     const first = history.length;
     frameTicks = [{ seq, at: -before }];                              // the last command sent, `before` seconds ago
     for (let k = 0; k < n; k++) { tick(firing); frameTicks.push({ seq, at: (k + 1) / TICK_HZ - before }); }
-    if (n > 0) room.binary(1, encodeCommands({ viewTick: room.tick, commands: history.slice(Math.max(0, first - 2)) }));
+    if (n > 0) { const batch = encodeCommands({ viewTick: room.tick, commands: history.slice(Math.max(0, first - 2)) }); deliver(() => room.binary(1, batch)); }
     return n;
   };
   for (let i = 0; i < 6 * fps; i++) {
@@ -225,13 +234,16 @@ export function burst(rec: WeaponRecord, fps: number, seconds: number, frames?: 
   const lengths = frames ?? Array(Math.round(seconds * fps)).fill(1 / fps);
   // `presses` bursts of `seconds` each, `gap` seconds apart (the trigger let go, the kit still running): the press lands
   // wherever the kit's game-frame clock stands (the review's F1).
-  const run = (dt: number, firing: boolean): void => {
+  const run = (dt: number, firing: boolean, frame = -1): void => {
     const given = Math.min(dt, 0.1);                                   // the page's clamp (PAR-24, `matchMount.ts`)
+    const holding = opts.hold?.[frame] ?? false;
+    if (holding && !line) line = [];
+    if (!holding && line) { const held = line; line = null; for (const f of held) f(); }
     const n = page(given, firing);
     if (n > 0) for (const h of heldRounds.splice(0)) name(h.e, Math.max(h.after + 1, (h.e as { seq?: number }).seq ?? 0), h.c);
     bloom.update(given, STILL);
     kit.update(given);
-    for (const ev of pending.splice(0)) room.text(1, ev);
+    for (const ev of pending.splice(0)) deliver(() => room.text(1, ev));
     // LATER 338: every command the room ran, not only each step's last -- a step may run several (the credit kept while
     // none were queued), and a round is now named at any command of its frame.
     for (let k = 0; k < n; k++) {
@@ -253,10 +265,11 @@ export function burst(rec: WeaponRecord, fps: number, seconds: number, frames?: 
   }
   else for (let press = 0; press < (opts.presses ?? 1); press++) {
     kit.pull();
-    for (const dt of lengths) run(dt, true);
+    lengths.forEach((dt, i) => run(dt, true, i));
     kit.release();
     if (opts.gap) for (let i = 0; i < Math.round(opts.gap * fps); i++) run(1 / fps, false);
   }
+  if (line) { const held: (() => void)[] = line; line = null; for (const f of held) f(); }
   // A second more of the page's commands, the trigger let go: each round is decided once the command after its own runs.
   for (let i = 0; i < fps; i++) { const n = page(1 / fps, false); for (let k = 0; k < n; k++) { now += TICK_MS; room.step(); } }
   // SEC-F1: the seat's round signals as the room kept them (`Player.signals`), the shot-centring statistic among them.
@@ -264,11 +277,23 @@ export function burst(rec: WeaponRecord, fps: number, seconds: number, frames?: 
   return { tally, named, cycle: interval * TICK_HZ - 1, rows, blooms: () => blooms, seen, traced, signals };
 }
 
-/** A forged burst: a round every `gap` commands at 60 Hz for `seconds`, each inside the cone, decided as it comes. */
-export function forger(rec: WeaponRecord, gap: number, seconds: number): { fired: number; sent: number } {
+/**
+ * A forged burst: a round every `gap` commands at 60 Hz for `seconds`, each inside the cone, decided as it comes.
+ * LATER 336: `at`, the rounds' ticks after the burst's start instead of every `gap`; `around`, called before the room
+ * decides the `call`-th round with the seat (a test may move its line's best offset, `lagFloor`); `delay`, the ticks the
+ * line holds back the commands made at tick `t` (a rise is the line slowing; a fall delivers the held commands at once, in
+ * one batch, each round and reload after its own command); `reloads`, the ticks after the burst's start a reload is named
+ * at; `onFired`, the room's tick of each round fired; `onReload`, the room's tick and the seat after each reload decided;
+ * `clips`, the room's clips (none by default: an after-shot lock is then its timer alone, `Room.afterShotPick`).
+ */
+export function forger(rec: WeaponRecord, gap: number, seconds: number, opts: {
+  at?: readonly number[]; around?: (call: number, seat: unknown) => void; delay?: (t: number) => number;
+  reloads?: readonly number[]; onFired?: (tick: number) => void; onReload?: (tick: number, seat: unknown) => void;
+  clips?: ConstructorParameters<typeof Room>[1];
+} = {}): { fired: number; sent: number } {
   let now = 0, s = 1;
   const map = flatMap();
-  const room = new Room(map, null, { now: () => now, random: () => { s = (s * 16807) % 2147483647; return s / 2147483647; }, launchCountdownS: 0 }, null, null);
+  const room = new Room(map, opts.clips ?? null, { now: () => now, random: () => { s = (s * 16807) % 2147483647; return s / 2147483647; }, launchCountdownS: 0 }, null, null);
   for (const id of [1, 2]) room.hello(id, new Client(), { type: 'hello', version: PROTOCOL_VERSION, name: '', map: 'MP99' }, `10.0.0.${id}`);
   room.step();
   const p = room.player(1)!, q = room.player(2)!;
@@ -277,25 +302,48 @@ export function forger(rec: WeaponRecord, gap: number, seconds: number): { fired
   p.sim.walker.place(0, 20, 0); q.sim.walker.place(100, 20, 0);
   const R = room as unknown as { fire: (pp: unknown, ev: FireEv) => void };
   const orig = R.fire.bind(room);
-  let fired = 0, sent = 0;
-  R.fire = (pp: unknown, ev: FireEv): void => { room.takeDrops(); orig(pp, ev); if (!room.takeDrops()) fired++; };
+  let fired = 0, sent = 0, calls = 0;
+  R.fire = (pp: unknown, ev: FireEv): void => {
+    room.takeDrops(); opts.around?.(calls++, p); orig(pp, ev);
+    if (!room.takeDrops()) { fired++; opts.onFired?.(room.tick); }
+  };
+  const L = room as unknown as { reload: (pp: unknown, seq: number) => void };
+  const reload = L.reload.bind(room);
+  L.reload = (pp: unknown, sq: number): void => { reload(pp, sq); opts.onReload?.(room.tick, p); };
   let seq = p.sim.seq, look = { yaw: 0, pitch: 0 };
   const history: Command[] = [];
+  const rounds: (Omit<FireEv, 'viewTick'> | null)[] = [];
+  const reloadsAt: boolean[] = [];
+  let sentTo = 0;
+  const send = (upTo: number): void => {
+    if (upTo <= sentTo) return;
+    // in batches the room takes (`MAX_BATCH` 16: a longer one is dropped whole), each repeating the two before it
+    for (let from = sentTo; from < upTo; from += 14) room.binary(1, encodeCommands({ viewTick: room.tick, commands: history.slice(Math.max(0, from - 2), Math.min(upTo, from + 14)) }));
+    for (let i = sentTo; i < upTo; i++) {
+      const r = rounds[i];
+      if (r) { room.text(1, { ...r, viewTick: room.tick } as FireEv); sent++; }
+      if (reloadsAt[i]) room.text(1, { type: 'reload', seq: history[i]!.seq });
+    }
+    sentTo = upTo;
+  };
   let base: { eye: V3; look: V3; from: V3 } | null = null;
   for (let t = 0; t < 360 + seconds * TICK_HZ; t++) {
     if (t === 2) { const st = p.sim.walker.state; look = faceToward({ feet: [st.x, st.y, st.z], posture: p.sim.walker.posture }, [100, 12, 300]); p.sim.allowSnap(); }
     if (t === 356) { const f = p.cone.frame(p.sim.seq)!, c = cameraLook(f); base = { eye: c.eye, look: c.look, from: [f.feet[0], f.feet[1] + EYE_HEIGHT, f.feet[2]] }; }
     const firing = t >= 360;
     history.push({ seq: ++seq, forward: 0, right: 0, ...look, turn: 0, buttons: firing ? Button.Trigger : 0, stance: 0, weapon: 0 });
-    room.binary(1, encodeCommands({ viewTick: room.tick, commands: history.slice(-3) }));
-    if (firing && base && (t - 360) % gap === 0) {
+    let round: Omit<FireEv, 'viewTick'> | null = null;
+    if (firing && base && (opts.at ? opts.at.includes(t - 360) : (t - 360) % gap === 0)) {
       const { eye, look: l, from } = base;
       const point = [eye[0] + l[0] * 200, eye[1] + l[1] * 200, eye[2] + l[2] * 200];
-      room.text(1, { type: 'fire', seq, from, dir: unitV([point[0]! - from[0], point[1]! - from[1], point[2]! - from[2]]), eye, aim: l, weapon: 0, viewTick: room.tick });
-      sent++;
+      round = { type: 'fire', seq, from, dir: unitV([point[0]! - from[0], point[1]! - from[1], point[2]! - from[2]]), eye, aim: l, weapon: 0 };
     }
+    rounds.push(round);
+    reloadsAt.push(firing && (opts.reloads?.includes(t - 360) ?? false));
+    send(history.length - (opts.delay?.(t) ?? 0));
     now += TICK_MS; room.step();
   }
+  send(history.length);
   for (let k = 0; k < 4; k++) { now += TICK_MS; room.step(); }
   return { fired, sent };
 }
@@ -306,9 +354,11 @@ export function forger(rec: WeaponRecord, gap: number, seconds: number): { fired
  * M203 FRAG in the kit (stand-in round data as central's `room.test.ts` M4 block: 270 u/s, `FireWait` 1, the 0.5 s
  * after-shot lock). Rifle rounds named at the commands `rifleAt` (ticks after the seat settled, each inside the cone);
  * the round thrown by name once the room has run the command `launchAt` (`launchRound` judges at its arrival, `p.ran`).
- * Returns the rifle rounds the room fired and whether it took the round (one off its slot).
+ * Returns the rifle rounds the room fired and whether it took the round (one off its slot). LATER 336's re-review (finding
+ * 6): `lockS`, the round's after-shot lock in seconds (0.5 by default); `around`, called with the tick after the seat
+ * settled, the seat and the room before each tick's commands are sent (a test may move the line's best offset, `lagFloor`).
  */
-export function launchAfter(rec: WeaponRecord, rifleAt: readonly number[], launchAt: number): { rifle: number; launched: boolean } {
+export function launchAfter(rec: WeaponRecord, rifleAt: readonly number[], launchAt: number, opts: { lockS?: number; around?: (t: number, seat: unknown, room: unknown) => void } = {}): { rifle: number; launched: boolean } {
   const kit = [rec.id, HELD_SIDEARM.id, 141, 175, 194] as unknown as Loadout;
   const frag: ThrowableRecord = { ...M67, name: 'M203 FRAG', id: 175, muzzleVelocity: 270, armingDistance: 100, impact: true, fuse: 10, removal: 10.1, explosionRadius: 150 };
   const kits: SimKits = {
@@ -319,7 +369,7 @@ export function launchAfter(rec: WeaponRecord, rifleAt: readonly number[], launc
         ['InternalName', ['M203 HE'], 'ID', ['171'], 'Ammo_Capacity', ['6'], 'NumMags', ['1'], 'AMMO_TYPES', [[]]],
       ]] as never),
       records: new Map([[rec.id, rec], [HELD_SIDEARM.id, HELD_SIDEARM]]),
-      rounds: new Map([[175, { record: frag, piercing: 0, fireWait: 1, reloadAfterShot: true, reloadDelayAfterShot: 0.5, icon: 'firemode_203_frag.tif' }]]),
+      rounds: new Map([[175, { record: frag, piercing: 0, fireWait: 1, reloadAfterShot: true, reloadDelayAfterShot: opts.lockS ?? 0.5, icon: 'firemode_203_frag.tif' }]]),
     },
     map: { valves: new Map(), selectable: { seal: [], terrorist: [] }, kits: { seal: [{ type: 'S', character: 's', loadout: kit }], terrorist: [{ type: 'T', character: 't', loadout: kit }] } },
   };
@@ -340,6 +390,7 @@ export function launchAfter(rec: WeaponRecord, rifleAt: readonly number[], launc
   for (let t = 0; t < 360 + Math.max(launchAt, ...rifleAt) + 4; t++) {
     if (t === 2) { const st = p.sim.walker.state; look = faceToward({ feet: [st.x, st.y, st.z], posture: p.sim.walker.posture }, [100, 12, 300]); p.sim.allowSnap(); }
     if (t === 356) { const f = p.cone.frame(p.sim.seq)!, c = cameraLook(f); base = { eye: c.eye, look: c.look, from: [f.feet[0], f.feet[1] + EYE_HEIGHT, f.feet[2]] }; }
+    opts.around?.(t - 360, p, room);
     history.push({ seq: ++seq, forward: 0, right: 0, ...look, turn: 0, buttons: t >= 360 ? Button.Trigger : 0, stance: 0, weapon: 0 });
     room.binary(1, encodeCommands({ viewTick: room.tick, commands: history.slice(-3) }));
     if (base && rifleAt.includes(t - 360)) {

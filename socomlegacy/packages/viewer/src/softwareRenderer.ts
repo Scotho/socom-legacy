@@ -36,8 +36,20 @@ export function softwareRendererOf(gl: WebGL2RenderingContext | WebGLRenderingCo
   }
 }
 
-/** What the probe found: the renderer string (null when none), and whether it is software or no context could be made. */
-export interface SoftwareProbe { renderer: string | null; software: boolean }
+/**
+ * What the probe found: the renderer string (null when none), and whether it is software or no context could be made;
+ * `parallelCompile` (XBOX-WARM, an instrument for the diagnostic's `pc`): whether the context offers
+ * `KHR_parallel_shader_compile` -- without it three's `compileAsync` links each program at once, so the page's compile
+ * queue cannot take a link off the draw. Null when no context was made or the read threw.
+ */
+export interface SoftwareProbe {
+  renderer: string | null; software: boolean; parallelCompile?: boolean | null;
+  /**
+   * LATER 1265: whether a WebGL2 context could be made -- the game needs WebGL2 (or WebGPU); a browser that answers WebGL1
+   * only (WebGL2 refused or blocked) names its GPU but cannot draw the game. Absent on an older probe's answer: unknown.
+   */
+  webgl2?: boolean;
+}
 
 /**
  * Makes a throwaway WebGL2 context (then WebGL1) on a detached canvas, reads its renderer, and loses the context at once
@@ -49,21 +61,26 @@ export function probeSoftwareRenderer(doc: Document): SoftwareProbe {
   const context = (kind: 'webgl2' | 'webgl'): WebGL2RenderingContext | WebGLRenderingContext | null => {
     try { return canvas.getContext(kind) as WebGL2RenderingContext | WebGLRenderingContext | null; } catch { return null; }
   };
-  const gl = context('webgl2') ?? context('webgl');
-  if (!gl) return { renderer: null, software: true };
+  const gl2 = context('webgl2');
+  const gl = gl2 ?? context('webgl');
+  if (!gl) return { renderer: null, software: true, parallelCompile: null, webgl2: false };
   const renderer = softwareRendererOf(gl);
+  let parallelCompile: boolean | null = null;
+  try { parallelCompile = gl.getExtension('KHR_parallel_shader_compile') !== null; } catch { /* no verdict */ }
   try { (gl.getExtension('WEBGL_lose_context') as { loseContext(): void } | null)?.loseContext(); } catch { /* already gone */ }
-  return { renderer, software: isSoftwareRenderer(renderer) };
+  return { renderer, software: isSoftwareRenderer(renderer), parallelCompile, webgl2: gl2 !== null };
 }
 
 // N1b (the fresh review of N1): the page's one memoised probe, here so the error beacon reads it without pulling
 // `./deviceClass` into the page's entry (OT.R12; `clientErrorBeacon.test.ts` pins that). `./deviceClass` `pageRendererProbe`
 // returns it; never a second throwaway WebGL context beside a live one on the Xbox class (GM-XBOX1); a browser adaptation.
 let pageProbe: SoftwareProbe | null = null;
+/** Opt-in diagnostics read the existing result without allocating a probe context during a load. */
+export function pageSoftwareProbeIfKnown(): SoftwareProbe | null { return pageProbe ? { ...pageProbe } : null; }
 /** The page's renderer probe, made once a page load: it makes (and loses) a throwaway WebGL context; a throw reads "no verdict". */
 export function pageSoftwareProbe(): SoftwareProbe {
   if (!pageProbe) {
-    try { pageProbe = probeSoftwareRenderer(globalThis.document); } catch { pageProbe = { renderer: null, software: false }; }
+    try { pageProbe = probeSoftwareRenderer(globalThis.document); } catch { pageProbe = { renderer: null, software: false, parallelCompile: null }; }
   }
   return pageProbe;
 }

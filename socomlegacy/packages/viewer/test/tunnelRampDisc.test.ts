@@ -53,12 +53,21 @@ describe.skipIf(!HAVE_DISC)(`LATER 412: Frostfire's tunnel ramp foot, standing a
   // move: standing z 1114.48 (5.52 off the face at z 1120); crouched the forward reach is x 1.75 (D:L415354-415371): z
   // 1110.43 (9.57 off). [reading, pending a capture: r0004's flat-wall standing stand-off is 6.78, the open 30 Hz settle,
   // H404] Was: both at the disc's 3.5 radius, z 1116.5.
-  it("square on to tun1_4 at x 382.81: standing and crouched stop at the centre segment's reach (z 1114.5, crouched 1110.4)", async () => {
+  // LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): the walk's ramp read half a tick ahead puts 0.36 more on the approach at
+  // stick 0.6, so this start lands at another point of the 60 Hz wall stop's sawtooth (one tick's move wide; H404, LATER
+  // 681/784): standing z 1114.12 (5.88 off; 1114.48 before the lead), crouched 1110.49 (1110.43 before). The trunk's start
+  // sweep backing 0.1 at a time gave 5.52-6.02 standing; the head samples the same sawtooth 0.36 further on. The body
+  // still stops at tun1_4 in both stances, short of the face. The port's own stop, pending a capture.
+  it("square on to tun1_4 at x 382.81: standing and crouched stop at the centre segment's reach (z 1114.1, crouched 1110.5)", async () => {
     const g = await mp2();
     for (const stance of ['stand', 'crouch'] as const) {
       const w = walkUp(g, 382.81, stance);
       expect(w.posture, stance).toBe(stance);
-      expect(w.state.z, stance).toBeCloseTo(stance === 'stand' ? 1114.5 : 1110.4, 1);
+      // LATER 1194B (the walls trial, 2026-11-21; re-measured on the hub at agent/walls a6af3e96f4): the walls met once a
+      // game frame, a frame that would cross the face cut whole (FUN_005483d0's ground cut, second-read r0001 + r0004), so
+      // the stop lands on another point of a frame's sawtooth, not a 60 Hz tick's: standing z 1113.466 (was 1114.12, 6.53
+      // off the face), crouched 1110.493 (unchanged). Both still stop at tun1_4 at y 63.19. The port's own stop.
+      expect(w.state.z, stance).toBeCloseTo(stance === 'stand' ? 1113.47 : 1110.49, 1);
       expect(w.state.y, stance).toBeCloseTo(63.19, 1);
       expect(w.wallHits().map((h) => h.poly.path), stance).toContain('worldmodel/tun1_4');
     }

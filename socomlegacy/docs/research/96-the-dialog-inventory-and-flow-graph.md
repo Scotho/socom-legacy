@@ -244,20 +244,35 @@ Popups are not dialogs: they are `POPUPDIALOG` commands inside a dialog's script
 gives each a cited caller chain or the recorded searches for none:
 
 - **`dlgExitState`**: the dialog of `CExitMenu` (vtable 0x404ff0, its +0x10 getter 0x1f3b00 returns 0x3e2ce0), which
-  the game state `CExitState` (`FUN_001f1d70`; entry `FUN_001f1bb0`, D:L53451-53503) makes after mounting READERX and
-  EXTZANIM. The state is pushed only offline, at a single-player mission's end, from three sites: `FUN_002a9b30`
+  the game state `CExitState` (`FUN_001f1d70`; entry `FUN_001f1bb0`, D:L53451-53503) makes in this order: it mounts
+  READERX (`run/ui/readerx.zar`, 0x3e29e8), allocates the menu object, loads EXTZANIM (`run/extzanim.zar`, 0x3e2a00) and
+  then starts the menu (`FUN_00368570`), which builds the dialog -- after both archives (D:L53479-53493). The state is pushed only offline, at a single-player mission's end, from three sites: `FUN_002a9b30`
   (D:L150592-150606), the `MissionFadeToEnd` task's own tick 0x2a98a0 when the fade ends (push at 0x2a9a2c, not in
   the decompilation; scheduled only by `FUN_002a97c0`), and `FUN_002a9a70` (D:L150569) after `FUN_001ebed0`'s
   post-end count, its own fade to black with the world held still (`FUN_003b1760`, D:L50792-50797), which runs
-  whenever bit 0 of `DAT_004365dc` is clear (D:L50781). `FUN_002a9b30` itself clears that bit for any abort or
-  death (with `nofade` 1 at D:L150597, pushing at once; with `nofade` not 1 through the `bne` at 0x2a9ddc,
-  D:L150608-150609, where that clear is what arms the count) and leaves it on a success, failure or
-  timeout; but the bit has other writers (`FUN_002980d0` sets it at D:L141368 and clears it at D:L141620,
+  only when all three hold: offline (`DAT_0045a0c1` 0), the mission's state (`DAT_004364f8`, mission 0x4364e0 + 0x18) not
+  1, and bit 0 of `DAT_004365dc` (mission + 0xfc) clear (D:L50781; r0004 `FUN_001ebed0` D4:L55584, the same test).
+  `FUN_002a9b30` (`CMission::OnMissionComplete`) itself clears that bit when the state has changed and the new state
+  is 4 (aborted) **or the player is alive** (D:L150593-150595; r0004 `FUN_002ab5d0`, D4:L159159-159162, the same gate;
+  paired by the revision map, ATL-2, anchored-order; the match table pairs none). Bit 4 of the player's `+0xe1` is the **alive** bit: `CEntity`'s
+  constructor `FUN_0029ee10` sets it (D:L145030; r0004 `FUN_002a0310` D4:L153120) and `CEntity::OnDeath` `FUN_0029e8b0`
+  clears it (D:L144775; r0004 `FUN_0029fdb0` D4:L152745); research 180 (U8, §7.2; §1.8) and 199 read it the same; reCOM's
+  `!ftsPlayer->m_isAlive` (`fts_mission.cpp:460`) has it backwards. So the bit is cleared for an abort, and for a success,
+  failure or timeout with the player alive -- in both arms: with `nofade` 1 at D:L150597 (r0004 D4:L159164), pushing at
+  once; with `nofade` not 1 through the `bne` at 0x2a9ddc, D:L150608-150609 (r0004 D4:L159176), where that clear is what
+  arms the count. It is left as it was when the call brings no change of state (the same state again, D:L150593), and
+  when an outcome other than an abort arrives with the player dead; a death alone does not clear it. *(Corrected 2026-11-23 from note-corrections-3 rows 10, 17, 18 and 21, each re-read at the
+  source: the note said the count ran whenever the bit was clear, and that the bit was cleared for any abort or death
+  and left on a success, failure or timeout.)* But the bit has other writers (`FUN_002980d0` sets it at D:L141368 and clears it at D:L141620,
   `FUN_002232a0` clears it at D:L75870, and the mission (re)start `FUN_002a7d40` clears it through 0x4364e0 + 0xfc at
   D:L149686, a writer a `grep DAT_004365dc` misses; the list is the ones found, not proven whole), so an end that
   arrives with the bit clear -- a success with no `FUN_002a97c0` call and no D:L141368 set since the start among them -- runs the count too
   (`EXIT_FADE_CALLERS_READING` in research 114). The pause
-  menu's abort (`FUN_002041e0` sets `mission_abort` to 2, D:L61891-61901) pops the state with no screen. Campaign only: not built (R1).
+  menu's REPLAY MISSION (its choice 1, +0xbe0 1: `FUN_002041e0`, `CZPauseTest::HandleSelectionInput`, sets
+  `mission_abort` to 2, D:L61898-61902; r0004 the same function at the same address, D4:L67257-67258) pops the state with
+  no screen (`FUN_001f1bb0` tests 2, D:L53475; r0004 D4:L58441); its ABORT (choice 2, +0xbe0 2) sets 1 (D:L61891-61895;
+  r0004 D4:L67248-67250) and may reach the screen (research 114 §1.5, research 266
+  §8.10.1 -- MATCH-02's correction; this line said the abort set 2, corrected 2026-11-23 with the rows above). Campaign only: not built (R1).
 - **`dlgHype`**: no caller. The `strstr` of §3.5 is a debug hook in the switch handler that prints the empty string
   when a switch already names it; nothing names it, and its set and asset library are on no archive. Unreachable.
 - **`dlgStickSetup`**: on no archive and in no ELF string; `GoToStickSetup` has no binding, no `CALL_ANIMATION` and

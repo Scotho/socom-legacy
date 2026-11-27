@@ -1,5 +1,6 @@
 import { Matrix4, type Object3D, type Scene } from 'three';
 import { CLAYMORE_RULES, EMPTY_ITEM, itemClass, launchReportItem, type KitTable, type ThrowableRecord } from '@s2u/scene';
+import { itemReticleOf } from './accuracy';
 import type { GameAudio } from './audio';
 import type { FlyCamera } from './camera';
 import { EQUIPMENT_SLOTS, equipmentKind, launcherLowerSeconds, slotSelectable, throwableOf } from './equipment';
@@ -12,6 +13,7 @@ import type { PlayerLoadout } from './loadout';
 import { CAMERA_BLAST_EXEMPT_ITEMS, muzzleAnimation } from './effects';
 import { explosionShake, type Shake } from './look';
 import type { BoxMagazine, FirearmHands, MatchFirearm } from './matchFirearm';
+import type { TakenEquipment } from './takeKit';
 import type { PART_DEPS } from './matchNet';
 import type { PoseLayer } from './animator';
 import type { NetPage, NetPageDeps } from './netPage';
@@ -88,14 +90,15 @@ export const LAUNCH_REPORT_KIT_READING: readonly number[] | null = null;
  */
 export const LAUNCHER_PULL_WAIT_READING = 'the raise only' as const;
 
-/** The R2 inventory's Detonator slot: after the loadout's five, while the kit carries a claymore (`FUN_005c74e0`). */
+/** The R2 inventory's Detonator slot: after the loadout's five, while the kit holds the Detonator (`FUN_005c74e0` adds it, nothing removes it: LATER 1129). */
 const DETONATOR_SLOT = 5;
 
 /** What the part reads. */
 export interface MatchThrowDeps {
   scene: Scene;
   walk: WalkMode;
-  fly: Pick<FlyCamera, 'shakeScreen'>;
+  /** R4P-220: `shakeSubject` and `subjectFeet`, the Player View's own shake (POV_SHAKE_ADAPTATION); absent, none. */
+  fly: Pick<FlyCamera, 'shakeScreen'> & Partial<Pick<FlyCamera, 'shakeSubject' | 'subjectFeet'>>;
   play: Play;
   loadouts: PlayerLoadout;
   view(): WorldView | null;
@@ -121,6 +124,11 @@ export interface MatchThrowDeps {
   remoteKit?(owner: number): readonly number[] | null;
   /** Research 209 §18: the in-page room's tick, so a C4's fallback counts it. Absent off that room. */
   simTick?(): number | undefined;
+  /**
+   * PAD-DS3 part 5 (research 373, section 7): the pad's Fire pressure for the throw's power (`./controllerInput`
+   * `ControllerInput.firePressure`); absent or null, the throw feeds 1 as before (`GrenadeSource.firePressure`).
+   */
+  firePressure?(): number | null;
 }
 
 /** The page's other owner of the hand (`/testroom`'s turret, `./matchActions`): asked before this part's own. */
@@ -152,16 +160,24 @@ export interface PageHands {
    * hold still held through the dismount (the kit's count, `FUN_005be9a0` D:L475514-475516), 0 with none.
    */
   heldPulls?(): number | null;
+  /**
+   * LATER 1427 review F1: a placing type this owner plays on the own body is the top play (the bomb's own plant or manual
+   * drop, `BombPage.ownPlacingClip`), asked beside the core's own (`GrenadeCore.placingClipActive`) for d-pad Up's term.
+   */
+  placingClip?(): boolean;
 }
 
 /** The throwables part's `NetPage` hooks, as `PART_DEPS.throwables` lists them. */
 /**
  * The throwables' NetPage deps: `PART_DEPS.throwables`, owed where the part is on, and `roundEndEffects`
  * (ROUND_END_EFFECTS_READING), handed with them but optional in `NetPageDeps` -- a page with the part off has no effects to
- * stop at the engine's read -- and ROOM-HAND's `handItem` (the item up, re-told at a welcome and a resume), optional alike:
- * a page with the part off holds no item.
+ * stop at the engine's read -- with R4P-234b's `roundEndZoom` (ROUND_END_CAMERA_FOV_READING, the firearm's view at 1.0
+ * at that moment), and ROOM-HAND's `handItem` (the item up, re-told at a welcome and a resume), optional alike:
+ * a page with the part off holds no item. R4P-224's `removeProjectile` (the room's `chargeGone`: a dead owner's claymore or
+ * PMN removed with no blast, `GrenadeThrower.removeRemote`) is handed with them too, optional in `NetPageDeps` and not in
+ * `PART_DEPS.throwables`: a page that does not hand it ignores the event.
  */
-export type MatchThrowNetDeps = Required<Pick<NetPageDeps, (typeof PART_DEPS)['throwables'][number] | 'roundEndEffects' | 'handItem'>>;
+export type MatchThrowNetDeps = Required<Pick<NetPageDeps, (typeof PART_DEPS)['throwables'][number] | 'roundEndEffects' | 'roundEndZoom' | 'handItem' | 'removeProjectile'>>;
 
 export interface MatchThrowables {
   readonly grenade: GrenadeThrower;
@@ -244,11 +260,33 @@ function throwableRecords(table: KitTable | null | undefined): PiercedRecord[] {
  */
 type P3 = readonly [number, number, number];
 export function blastPointShake(at: P3, feet: P3 | null | undefined): Shake | null {
-  return feet ? explosionShake(Math.hypot(at[0] - feet[0], at[1] - feet[1], at[2] - feet[2])) : null;
+  return feet ? blastShakeFor(Math.hypot(at[0] - feet[0], at[1] - feet[1], at[2] - feet[2]), true) : null;
+}
+
+/**
+ * R4P-220 (reading, pending review; docs/atlas/readings/r4p-phase2-reads-216-220-227.md): the blast's shake asks the
+ * local body ALIVE -- r0004's body tick `FUN_00556050` adds its alive bit (`+0xe1` bit 0x10) to the shake's test
+ * (D4:L456790-456802), where r0001's `FUN_00550ef0` had none (D:L418097-418109, before the dead return at D:L418112). So
+ * a blast by a dead player's body shakes nothing; alive, `explosionShake`'s bands. `alive` is the page's own body as the
+ * match server has it (`WalkMode.isDead`, the client's `kill` and `spawn`).
+ */
+export function blastShakeFor(distance: number | null, alive: boolean): Shake | null {
+  return alive && distance !== null ? explosionShake(distance) : null;
 }
 
 export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
   const { scene, walk, fly, play, loadouts } = d;
+  /**
+   * R4P-220, POV_SHAKE_ADAPTATION (product track, a browser adaptation with no original: the Player View, `./povCamera`):
+   * the owner's criterion (the reading's, verbatim) -- the Player View "should receive all of the same player events that
+   * a living player does necessary to drive the parallel view". A blast at `at` shakes the view drawn on a watched body by
+   * that body's feet (`FlyCamera.subjectFeet`, handed by `./matchNet` `spectatePov` only while the view is drawn on a
+   * living body), with the living page's bands (`blastShakeFor(.., true)`), whatever the watcher's own state. Not drawn: none.
+   */
+  const blastSubject = (at: P3): void => {
+    const s = blastPointShake(at, fly.subjectFeet?.());
+    if (s) fly.shakeSubject?.(s);
+  };
   /**
    * OBF-31 (`./matchSound` `ROUND_SCREENS_STOP_ALL_READING`): a round screen up -- MPExitState alone is ticked
    * (`FUN_002ce9e0` D:L171877-171888), so no throw, rocket or charge is taken and none of this part's sounds starts
@@ -280,8 +318,8 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
   /**
    * The throwables (`./grenade`, socomlegacy/docs/research/85): the kit's equipment slots through the R2 inventory (the
    * game's `CWeaponSel`, `./inventoryMenu`; `3`/`4`/`5` a development build's) -- and the trigger throws: held for power,
-   * let go to throw. The throw's clip plays on the body (`./throwPose`; the pistol's version with the sidearm in the
-   * hand), the grenade rides the right hand's `grenade` node (`Play.itemNode`) with the firearm left on its own mount
+   * let go to throw. The throw's clip plays on the body (`./throwPose`; the rifle's clip with the sidearm in the hand
+   * but for the two peek tosses, LATER 1442), the grenade rides the right hand's `grenade` node (`Play.itemNode`) with the firearm left on its own mount
    * (research 85 s8.1), and leaves the posed hand.
    */
   const grenade = new GrenadeThrower({
@@ -293,9 +331,12 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     attachToNode: (path, mark) => d.view()?.attachToNode(path, mark) ?? null,   // EFFECTS: a scorch rides a door's leaf too
     holdOnNode: (path, gone) => d.view()?.holdOnNode(path, gone) ?? null,        // LATER 277: and goes with a node switched off
     aim: () => walk.fireAim(),                          // SUP-03: C4's target is the destructible under the reticle
+    startBody: () => walk.startBody(),                  // C4-GLASS cure B: the head the room judges a plant from
     online: () => d.net() !== null,                     // NET-CAP: the page predicts the room's cap only where a room judges its throws
     simTick: () => d.simTick?.(),                       // research 209 §18: the in-page room's tick, the C4 fallback's clock
+    firePressure: () => d.firePressure?.() ?? null,     // PAD-DS3 part 5: R1's or X's pressure on a pressure pad, else null (feeds 1)
     dead: () => walk.isDead(),                          // THROW-INTERRUPT (research 326 §2.4): the room's death cuts a throw not yet let go
+    hurts: () => d.net()?.ownHurts?.() ?? 0,             // R4P-248 (D4:L453015): a non-lethal hit cancels a release not yet out
     fireAllowed: () => walk.fireAllowed(),              // P36 (TB-12): the playing clip's NoFire, the room's 'nofire' (FUN_005a7de0 D:L457365)
     // M7: the actors an armed PMN tests (`FUN_00543930`): the page's SEAL and the match's other living bodies.
     listenerFeet: () => walk.feet(),                    // LATER 645: the feet another's rocket passes (FUN_00598000 D:L454629)
@@ -444,6 +485,8 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     const pop = raisePhase === 'throwing' && phase !== 'throwing' && !walk.isDead();
     raisePhase = phase;
     return {
+      // B-01 D1: the class alone drives the idle branch (r0004 0x59bbac-0x59bbc4), the class with a round the wind-up
+      grenadeSelected: held !== null && handGrenade(grenade.recordOf(held)?.id),
       grenade: held !== null && handGrenade(grenade.recordOf(held)?.id) && grenade.stats().left > 0,
       windUp: phase === 'holding',
       trigger: placingDown || launcherDown || press,
@@ -568,13 +611,21 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
   offs.push(walk.onLauncherStickLower(() => { rocket.lower('stick'); }));
   // The throw's zAnim (`frag_start`, `HE_start`: `.THROW_OBJECT`); the bank's own name carries a trailing space. Research
   // 304: the weapon's FireAnimName alone -- a map whose zAnim lacks it hears nothing, no sound stands in. PAR-77: in third
-  // person only (`releaseAnim`).
+  // person only (`releaseAnim`). LATER 1209: the zAnim's own WAITs are kept -- `frag_start` sounds `.THROW_OBJECT` 0.2 s
+  // after the release, `HE_start` at once (`@s2u/sound` `callbackPlays`' delay, `Audio`'s owed callbacks).
   offs.push(grenade.on('throw', (info) => {
     throwPose.released();                                            // LATER 529 (F1): a refused take's wait past the hand's opening, run on
     audio.onAnimCallback(releaseAnim(info.fireAnim), info.from);
     d.net()?.throwEvent(info.item, info.from, info.velocity, undefined, startSeq ?? undefined, info.slot);   // THROW-INTERRUPT: its request's seq
     startSeq = null;
     firearm().shotRumble(grenade.recordOf(info.item)?.rumble);       // CTL-2: the release's fire step (FUN_005c3360)
+    // SWAP-FIRE P1 (research 321 section 7.8; reading, pending review): the launch's round step on the grenade's own
+    // record (r4 0x5c93c8, 0x5cd5d4, 0x5cdbc0 -> 0x5ca830): the pull +1, the exertion +0.35, the knock and the size
+    // clamped to the record's 2 to 6. The row is the body in use, FUN_0058a720(body, 1), as the firearm's round takes it.
+    // LATER 1400 (reading, pending review): the stance IN USE (`walk.stanceInUse()`, as matchFirearm's round), not the
+    // posture -- r0001 FUN_005c3360 D:L477722 (`FUN_003c5a50(item, FUN_0058a720(body, 1))`); r4 0x5ca830.
+    const launched = itemReticleOf(loadouts.tables(), handItemId(info.item));
+    if (launched) firearm().accuracy.launch(firearm().zoom.state(), walk.stanceInUse(), launched);
   }));
   /**
    * M203-FIRE-SOUND (research 94 §C4.5): another's launched round the room told live -- its copy's release plays the
@@ -625,9 +676,12 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     // The game's screen shake by the distance (research 83, `./look`) -- j5t3o2iU (the owner's report, 2026-11-02): only
     // for an item `HandleDetonateExplosion` sets the camera's blast point for (`FUN_003c8330` D:L319186-319195), never a
     // smoke's pop (122, 127) or a flash's (123): `CAMERA_BLAST_EXEMPT_ITEMS`, as a script round's (`./effects`).
+    // R4P-220 (`blastShakeFor`): only a living page's own camera (r0004 `FUN_00556050` D4:L456790-456802); the Player
+    // View's by the watched body's feet whatever the watcher's state (`blastSubject`, POV_SHAKE_ADAPTATION).
     const id = grenade.recordOf(info.item)?.id;
-    if (info.distanceToPlayer !== null && !(id !== undefined && CAMERA_BLAST_EXEMPT_ITEMS.includes(id))) {
-      const s = explosionShake(info.distanceToPlayer); if (s) fly.shakeScreen(s);
+    if (!(id !== undefined && CAMERA_BLAST_EXEMPT_ITEMS.includes(id))) {
+      const s = blastShakeFor(info.distanceToPlayer, !walk.isDead()); if (s) fly.shakeScreen(s);
+      blastSubject(info.pos);
     }
   }));
   // The grenades' explosions through the effects' door: the game's own zAnim (`frag_grenade_stone`, `smoke_grenade`,
@@ -649,10 +703,13 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
   }
 
   /** The live kit's slot identities changed without a spawn: preserve the remaining rings (research 361 §3). */
-  function takeEquipmentKit(): void {
+  function takeEquipmentKit(taken?: TakenEquipment): void {
     const table = loadouts.tables(), loadout = loadouts.loadout();
     grenade.setRecords(throwableRecords(table));
-    grenade.takeKit(EQUIPMENT_SLOTS.map(s => table?.arsenal.items.get(loadout[s])?.name ?? throwableOf(null, loadout[s])?.name ?? null));
+    const names = EQUIPMENT_SLOTS.map(s => table?.arsenal.items.get(loadout[s])?.name ?? throwableOf(null, loadout[s])?.name ?? null);
+    // LATER 1129 (R142 head B): a walk-over's take -- the slots it wrote and the kept Detonator -- on the page's rings.
+    if (taken) grenade.takeRoomEquipment(names, taken.equipment, taken.detonator === true);
+    else grenade.takeKit(names);
   }
   /** M7 (research 94 §C9): the HUD weapon box's icon -- the launcher's, the throwable's or charge's, else the firearm's. */
   function equipmentIcon(): string {
@@ -673,12 +730,12 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
   }
   /**
    * The kit as the R2 inventory sees it (`./inventoryMenu`): the loadout's five slots, the Detonator a sixth while the kit
-   * carries a claymore (`FUN_005c74e0` adds it); each slot takeable by `FUN_005bdc30` (`./equipment` `slotSelectable`, a
+   * holds it (`FUN_005c74e0` adds it and nothing removes it, `GrenadeThrower.hasDetonator`; LATER 1129, review F1); each slot takeable by `FUN_005bdc30` (`./equipment` `slotSelectable`, a
    * throwable's count left: `GrenadeThrower.takeable`); the slot in the hand (`FUN_005be040`).
    */
   function inventoryKit(): InventoryKit {
     const loadout = loadouts.loadout();
-    const detonator = grenade.stats().kit?.includes('Claymore') ?? false;
+    const detonator = grenade.hasDetonator();
     const takeable = (slot: number): boolean => {
       if (slot === DETONATOR_SLOT) return grenade.takeable('detonator') !== null;
       const id = loadout[slot];
@@ -690,6 +747,19 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     };
     return { count: detonator ? DETONATOR_SLOT + 1 : DETONATOR_SLOT, takeable, current: inventoryCurrent() };
   }
+  /**
+   * R4P-243 (ATLAS L367; reading, pending review; research 313 s8.24): an item in hand that `slotSelectable`
+   * (`FUN_005bdc30`, r0004's isSelectableItem 0x5c47e0) refuses -- the launcher up with no round, the Detonator with no
+   * claymore down (`GrenadeThrower.takeable`) -- refuses the climb, the step-up and the ladder (r0004 `FUN_00598d30`
+   * D4:L493145-493148, D4:L493164-493168). A launcher up passes the body test at any depth (its set is the launcher's,
+   * research 236 s3, as `RocketLauncher.selectSlot` asks it): no wading term. The firearm in hand, and a throwable
+   * slot thrown empty, refuse nothing: the port's reading, OPEN in s8.24 (capture Q-243a / IQ-179).
+   */
+  walk.setHandRefusesClimb?.(() => {
+    const up = rocket.held();
+    if (up !== null) return !slotSelectable(up, { claymoresDown: 0, roundsFor: (l) => rocket.roundsFor(l), wadingDepth: () => 0 });
+    return grenade.held() === 'Detonator' && grenade.takeable('detonator') === null;
+  });
   /** The exact slot in the hand (`FUN_005be040`); duplicate items remain distinct (research 361 §2). */
   function inventoryCurrent(): number {
     const loadout = loadouts.loadout();
@@ -800,6 +870,8 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     launcherRoundIcon: () => rocket.roundIcon(),
     itemUp: () => grenade.equipped(),
     busy: () => grenade.phase() === 'throwing',                                        // PAR-19 D07: FUN_005a8cb0 sees no wind-up
+    throwClip: () => grenade.throwClipActive(),                                        // R4P-111: the zoom refused under the clip
+    placingClip: () => grenade.placingClipActive() || (page.placingClip?.() ?? false),   // LATER 1427: Up refused under a placing, past third person; review F1: the bomb's own
     takeable: (slot) => inventoryKit().takeable(slot),
     putAway: () => {
       if (grenade.equipped()) grenade.select('rifle');
@@ -812,9 +884,11 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     },
     kitTaken: (rounds) => { takeEquipmentKit(); rocket.setKit(loadouts.tables(), loadouts.loadout(), rounds); },   // NU-5 L1: a claimed launcher (research 323 §1.6)
     // OT.R59 (RECONNECT-GHOST): a resumed seat -- the room's pouch laid (no refill), the launcher down when the room holds none.
+    equipmentTaken: (t) => { takeEquipmentKit(t); },              // LATER 1129: the room's equipment take, with the kit
     resumed: (r) => {
       takeEquipmentKit();
       grenade.setLeft(r.pouch, r.equipmentSlots);
+      grenade.keepDetonator(r.detonator === true);                // LATER 1129: the room kept the Detonator
       // RECONNECT_HELD_LAUNCHER_ADAPTATION (server `room.ts`, condition 4 (b)): lowered at once, as the room lowered it --
       // no throw to the room, no lower clip, the firearm's trigger free; the rifle off the back, the walk's set cleared.
       if (r.held === null && rocket.up()) { rocket.drop(); firearmReadyAt = 0; stowRifle(); walk.launcherCleared(); }
@@ -827,6 +901,13 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
       holdPulls = 0;
       // MAP-10b: mounted, the trigger is the turret's (`./matchActions`: the room fires its rounds), never the rifle's.
       if (page.trigger?.(down)) return true;
+      // SWAP-FIRE P1b (keyjob SWAP-FIRE P1 review F1; reading, pending review): r4's fire gate 0x5c77f0 zeroes the pull count
+      // kit+0x818 on every tick that reaches it with the trigger's state byte 0 (0x5c7860-0x5c786c) or 3 (0x5c78c0-0x5c78cc),
+      // for ANY item in the slot -- not only a firearm's -- so a throw's count starts from 0 each pull and is 1 at its launch
+      // (r4 0x5c93c8, `Accuracy.launch`). The port zeroes it on the trigger's press and let-go, as the firearm's pull does
+      // (`Fire`'s `trigger`, `fireCore.ts`): a launch always follows a let-go (state 3) or a press (state 1 after state 0).
+      // (`?.`: the part's test rigs hand a firearm stub with no bloom.)
+      firearm().accuracy?.trigger();
       // The binoculars (view state 4): FUN_005be9a0 runs no class's use -- no rocket, no pin pulled, no charge placed; the
       // firearm's trigger is held as the game's is and its rounds refused one by one (`Fire`'s `fireRefused`).
       if (down && fireRefused(firearm().zoom.state()) && (rocket.up() || grenade.equipped())) return true;
@@ -869,7 +950,8 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
     },
     // A script round's blast point (research 332 section 7: the planted bomb's MPBOMB, drawn and heard by the effects;
     // the room deals its blast): the camera's shake by the distance, as the grenades' `explode` above.
-    blast: (at) => { const s = blastPointShake(at, walk.snapshot()?.feet); if (s) fly.shakeScreen(s); },
+    // R4P-220: the living page's own camera only (`blastShakeFor`); the Player View's by its watched body (`blastSubject`).
+    blast: (at) => { const s = walk.isDead() ? null : blastPointShake(at, walk.snapshot()?.feet); if (s) fly.shakeScreen(s); blastSubject(at); },
     icon: () => page.icon?.() ?? rocket.icon() ?? grenade.icon(),   // PAR-55: mounted, the turret's (research 215 s8)
     // MAP-10b: mounted, the turret's rounds (TURRET_AMMO_HUD_READING); an item up, its count (research 85, 94 §C9).
     magazine: () => page.magazine?.() ?? equipmentMagazine(),
@@ -898,7 +980,9 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
       // ROUND_END_EFFECTS_READING (research 283 §9-§10): the effects playing stop at the engine's read (`NetPage`,
       // `ENGINE_READ_S` after the `roundOver`), as the original's `FUN_002aa910` before the round screen; not the air or
       // the scorches (the round's start's, `roundStart`, which runs this clear again as a backstop).
-      roundEndEffects: () => { grenade.clearRoundEffects(); firearm().effects?.clearRound(); },
+      roundEndEffects: () => { grenade.clearRoundEffects(); firearm().effects?.clearRound(); firearm().roundEndFog?.(); },   // R4P-234: the fog's own colour (FUN_002ac270)
+      // R4P-234b (`./zoom` ROUND_END_CAMERA_FOV_READING): the firearm's view held at zoom 1.0 at the same moment.
+      roundEndZoom: () => { firearm().roundEndView(); },
       // ROOM-HAND (LATER 652; the task-2 review's F1): the item up, as the equip hook tells it, for NetPage's re-tell
       handItem: () => handItemId(grenade.held()),
       // The room's projectiles flown here.
@@ -918,6 +1002,7 @@ export function mountThrowables(d: MatchThrowDeps): MatchThrowables {
       },
       tagOwnProjectile: (kind, from, pid) => grenade.tagOwn(kind, from, pid),   // PF-36: the room's pid for the page's own
       detonateProjectile: (pid) => grenade.detonateRemote(pid),                 // PF-36: a charge shot or blasted in the room
+      removeProjectile: (pid) => grenade.removeRemote(pid),                     // R4P-224: a dead owner's mine removed, no blast
       sceneRound: (kind: string, at: [number, number, number]) => grenade.fireScene(kind, at),                    // research 386 §3.2: a scene FIRE_WEAPON's round
       // P2 (TB-1; research 85 s9.5): the room's gated blast's level on the page's own SEAL -- with a room the page reckons
       // none of its own (`GrenadeThrower.explode`'s `online()`), so the white-out is the room's alone.

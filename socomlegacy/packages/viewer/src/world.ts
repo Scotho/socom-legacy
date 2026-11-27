@@ -12,7 +12,7 @@ import {
   attribute, cameraPosition, float, log2, materialReference, modelViewMatrix, normalWorld, positionView, positionWorld,
   renderGroup, select, texture as textureNode, uniform, uv, varying, vec3, vec4, vertexColor,
 } from 'three/tsl';
-import { buildGrid, cellAt, lodIsLast, lodOpacity, lodVisible, scaledRangeSq, type LodBand } from '@s2u/scene';
+import { buildGrid, cellAt, lodDrawn, lodIsLast, lodOpacity, lodVisible, scaledRangeSq, type LodBand } from '@s2u/scene';
 import { centreOf, centroidsOf } from '@s2u/mesh';
 import { DEFAULT_RENDER_VIEW, type RenderView } from './zoom';
 import { extendFar, extendFog } from './fog';
@@ -453,6 +453,24 @@ export function blendFactorsFor(factors: DrawState['factors']): BlendFactors {
  * `map.origin` is zero whenever the scene graph could be read; it is only non-zero for the fallback,
  * where the whole group still shifts together the way it did before per-node placement.
  */
+/**
+ * MAC-FLOOR (INTAKE I-3; B-64; a test-room instrument, a browser adaptation with no original): the polygon offset the
+ * detail and environment passes carry when the test room's address asks (`./testroomAntialias` `testroomCoplanarOffset`,
+ * `?coplanaroffset=on`) -- the drop shadows' own (below, `material.polygonOffset = b.shadow`), so a Mac tester can try it
+ * beside the invariant position (`./invariantPosition`) in one sitting. OFF by default; no match sets it, so what a match
+ * draws is unchanged. Read when a world is built.
+ */
+export const COPLANAR_PASS_OFFSET_ADAPTATION = { factor: -1, units: -1 } as const;
+let coplanarPassOffset = false;
+/** The test room only (`./main` `boot`, from its address): the detail and environment passes offset for the next world built. */
+export function setCoplanarPassOffset(on: boolean): void { coplanarPassOffset = on; }
+/** Puts the instrument's offset (or none) on a coplanar pass's material. */
+function applyCoplanarOffset(material: MeshBasicNodeMaterial): void {
+  material.polygonOffset = coplanarPassOffset;
+  material.polygonOffsetFactor = coplanarPassOffset ? COPLANAR_PASS_OFFSET_ADAPTATION.factor : 0;
+  material.polygonOffsetUnits = coplanarPassOffset ? COPLANAR_PASS_OFFSET_ADAPTATION.units : 0;
+}
+
 export function buildWorld(map: LoadedMap): WorldView {
   const group = new Group();
   group.name = `${map.archive} worldmodel`;
@@ -590,6 +608,14 @@ export function buildWorld(map: LoadedMap): WorldView {
   const switchable: { key: string; path: string; setOff: (off: boolean) => void; setCut: (cut: boolean) => void }[] = [];
   /** Each instanced draw's members put again when its hidden set or `setAlternate` changed (a dirty flag a draw). */
   const instancePuts: (() => void)[] = [];
+  /**
+   * Research 439 s4a: each instance of an unramped banded part (one instanced draw for all its placements): its band, its
+   * node's origin, whether it is the last copy at its spot, whether it is shown, and how to show or hide it (the zero
+   * matrix, put again with its draw's next `instancePuts`).
+   */
+  const lodInstances: { band: LodBand; at: Vector3; last: boolean; visible: boolean; set: (visible: boolean) => void }[] = [];
+  /** A band whose fade is a ramp at either end (its two ends differ): drawn a mesh per placement (research 439 s4a). */
+  const lodRamped = (band: LodBand): boolean => band.nearFade[0] !== band.nearFade[1] || band.farFade[0] !== band.farFade[1];
   /** The scrolling materials beside their offsets, advanced every frame. */
   const scrolling: { offset: ReturnType<typeof vec2Uniform>; du: number; dv: number }[] = [];
   /** LATER 782 (`setNodeUvOffset`): each scrolled path's materials' offsets (`LoadedMesh.scrollPath`), by path. */
@@ -923,6 +949,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     material.transparent = state.transparent;
     material.depthWrite = state.depthWrite;
     material.depthFunc = LessEqualDepth;
+    applyCoplanarOffset(material);                    // MAC-FLOOR: the test room's instrument only; off in a match
     Object.assign(material, blendFactorsFor(state.factors));
     material.side = entry.spec.cull ? FrontSide : DoubleSide;
     material.fog = entry.spec.fog;
@@ -979,7 +1006,7 @@ export function buildWorld(map: LoadedMap): WorldView {
    * the material's base colour and faded by `(1 + a) * vertex alpha * rim` -- a faint sky on Blood Lake's, Fish Hook's
    * and Enowapi's water, the clouds on Sujo's glass. Computed per vertex, as the VU does, and interpolated. Its
    * `ALPHA` and `TEX1` are the texture's own (source-alpha, bilinear on all of them), it depth-tests less-or-equal
-   * against its base (`TEST` GEQUAL on the console's Z16S) and writes none, fogged as its base is.
+   * against its base (`TEST_1` `0x5000c`, GEQUAL, on every env texture's bind packet: research 330 §7, `ENV_PASS_TEST_READING`) and writes none, fogged as its base is.
    */
   let envOn = true;
   const envPasses: { mesh: Mesh; base: Object3D }[] = [];
@@ -1025,6 +1052,7 @@ export function buildWorld(map: LoadedMap): WorldView {
     material.transparent = true;
     material.depthWrite = false;
     material.depthFunc = LessEqualDepth;
+    applyCoplanarOffset(material);                    // MAC-FLOOR: the test room's instrument only; off in a match
     Object.assign(material, blendFactorsFor({ src: 'srcAlpha', dst: 'oneMinusSrcAlpha' }));
     material.side = cull ? FrontSide : DoubleSide;
     material.fog = fog;
@@ -1179,6 +1207,8 @@ export function buildWorld(map: LoadedMap): WorldView {
   /** PB-9b: the meshes `setNodeOpacity` reaches, by their node's path. */
   const faded: { path: string; object: Mesh }[] = [];
 
+  /** LATER 951: the world chunks of a translated node (`LoadedMesh.movePath`), made movable once `movableMesh` stands. */
+  const followedWorld: [string, Mesh][] = [];
   for (const part of map.world) {
     const mesh = new Mesh(geometryOf(part, lighting, lit), materialFor(part.textureName, part.fog, 'mesh', part.cull, part.scroll, true, part.vertexAlpha === true, part.alphaPass === true, part.scrollPath ?? null));
     mesh.name = part.textureName ?? 'untextured';
@@ -1194,8 +1224,12 @@ export function buildWorld(map: LoadedMap): WorldView {
     later(revealWorld, mesh, part.order, part.cells ?? [], part.alternate, part.textureName, false, null, part.alphaPass === true, part.alphaPass ? part.centre ?? null : null);
     switchMesh(part.switchPath ? `w:${part.switchPath}` : undefined, part.switchPath, mesh);
     // OBF-22: the marks' clip files a mark on it under its switch path (`./markClip`, `lastNodePath`), so `setNodeActive`
-    // at or above that path takes the mark (`holdOnNode`). Not `nodePath`: the world chunk is not a placement that moves.
+    // at or above that path takes the mark (`holdOnNode`). Not `nodePath`: the world chunk is not a placement that moves --
+    // but for a chunk under a sky held at the camera (`movePath`, below), which `movableMesh` gives a `nodePath`.
     if (part.switchPath) mesh.userData.switchPath = part.switchPath;
+    // LATER 951 (research 436): a sky a program holds at the camera -- its chunks, in world space, moved whole by its
+    // node's translation from rest (`moveNode`, the identity base).
+    if (part.movePath) followedWorld.push([part.movePath, mesh]);
     addDetail(mesh, part);
     addEnv(mesh, part);
     triangles += part.indices.length / 3;
@@ -1229,6 +1263,12 @@ export function buildWorld(map: LoadedMap): WorldView {
     mesh.userData.nodePath = path;                        // the marks' clip reads it (`./markClip`, `lastNodePath`)
     movable.push({ path, base: base.clone(), delta: new Matrix4(), set: (m) => { m.decompose(mesh.position, mesh.quaternion, mesh.scale); mesh.updateMatrix(); } });
   };
+  for (const [path, mesh] of followedWorld) movableMesh(path, mesh, new Matrix4());
+  /**
+   * LATER 951 (research 436, the review's F1): a placement under a node a program holds at the camera
+   * (`MapMeta.motion.translated`) -- a facade there (MP53's and MP71's suns) is made movable as a crane's is.
+   */
+  const follows = (path: string | undefined): boolean => !!path && (map.meta?.motion?.translated ?? []).some((t) => under(path, t));
   /** A piece under a hook, `epan_N` or `hcont_N`: drawn on its own and not frustum-culled with a shared instance. */
   const craneRide = (path: string | undefined): boolean => !!path && (map.cranes ?? []).some((spec) => craneRides(spec, path));
   /**
@@ -1311,6 +1351,9 @@ export function buildWorld(map: LoadedMap): WorldView {
     // a mesh per placement would cost 26 draws to fix a shading error of a few degrees.
     const rotation = new Matrix4().fromArray(prop.matrices, 0);
     for (const part of prop.parts) {
+      // Research 439: each visual has its own band (`LoadedMesh.lod`: `vparams` byte 5 into `LOD_Object`); an entry's
+      // band, where a hand-built map gives one, bands every part.
+      const band = part.lod ?? prop.lod;
       if (prop.facade !== 0) {
         // A facade node -- a lamp flare, a star, the moon -- is turned to face the camera by the
         // engine every frame: left where it was modelled a flare is edge-on from most of the map and
@@ -1329,7 +1372,9 @@ export function buildWorld(map: LoadedMap): WorldView {
           mesh.name = `${prop.modelName} (flare)`;
           const pose = { quaternion: new Quaternion(), scale: new Vector3() };
           m.decompose(mesh.position, pose.quaternion, pose.scale);
-          later(revealProps, mesh, part.order, cellsOf(i), prop.alternate, part.textureName, false, null, part.alphaPass === true);
+          // Research 439: a banded flare (Death Trap's bulbs and glows) is shown in its band at its node's origin.
+          const lod = band ? { band, at: mesh.position.clone(), visible: lodVisible(band, 0), last: false } : null;
+          later(revealProps, mesh, part.order, cellsOf(i), prop.alternate, part.textureName, false, lod, part.alphaPass === true);
           // LATER 114: `frame` lights a part with normals again under the turned ones (`FacadeRelight`); the load's bake
           // above is the pose on disc's. LATER 113: the alpha key from the visual's centroid (`facadeAlphaKey`).
           const relight = part.normals ? new FacadeRelight({ ...part, normals: part.normals }, mesh.geometry.getAttribute('color') as BufferAttribute | InterleavedBufferAttribute) : null;
@@ -1337,7 +1382,8 @@ export function buildWorld(map: LoadedMap): WorldView {
           switchMesh(`${propIndex}:${i}`, prop.paths?.[i], mesh);
           // A crane facade is still turned to the camera in `frame` (quaternion only). The translation has to be a
           // movable, or the panel stays where it was modelled (`CRANE_PANEL_WITH_HOOK_READING`).
-          if (craneRide(prop.paths?.[i])) { movableMesh(prop.paths?.[i], mesh, m); mesh.frustumCulled = false; }
+          // LATER 951: so does a facade under a sky held at the camera (`follows`), or it stays where the map placed it.
+          if (craneRide(prop.paths?.[i]) || follows(prop.paths?.[i])) { movableMesh(prop.paths?.[i], mesh, m); mesh.frustumCulled = false; }
         }
         triangles += (part.indices.length / 3) * count;
         continue;
@@ -1347,9 +1393,12 @@ export function buildWorld(map: LoadedMap): WorldView {
       // dust and rain that follow, the monitors (180 parts on 8 maps).
       const material = materialFor(part.textureName, part.fog, 'mesh', part.cull, part.scroll, true, part.vertexAlpha === true, part.alphaPass === true);
       if (!part.textureName) untexturedDraws++;
-      if (prop.lod) {
-        // A model in a LOD band is shown by the camera's range to each placement, so every placement
-        // is its own mesh -- there are tens of these per map, not the hundreds instancing is for.
+      // Research 439 s4a: a RAMPED band fades each placement through its own opacity, which an instanced draw cannot carry
+      // (LATER 1136), so a ramped part is a mesh per placement; an UNRAMPED band only shows or hides a placement, so a
+      // banded part with several placements stays one instanced draw below, each instance hidden outside its band.
+      if (band && (count === 1 || lodRamped(band))) {
+        // A visual in a LOD band is shown by the camera's range to its node's origin in each placement
+        // (`LOD_BAND_ANCHOR_READING`): a ramped band's placements are each their own mesh, faded through its twin.
         const rest = built.find((b) => b.material === material);   // what its fading twin is made from
         for (let i = 0; i < count; i++) {
           const mesh = new Mesh(geometry, material);
@@ -1360,7 +1409,7 @@ export function buildWorld(map: LoadedMap): WorldView {
           movableMesh(prop.paths?.[i], mesh, m);
           if (craneRide(prop.paths?.[i])) mesh.frustumCulled = false;
           const at = new Vector3().setFromMatrixPosition(m);
-          later(revealProps, mesh, part.order, cellsOf(i), prop.alternate, part.textureName, false, { band: prop.lod, at, visible: lodVisible(prop.lod, 0), last: false }, part.alphaPass === true, alphaKeyAt(part, m));
+          later(revealProps, mesh, part.order, cellsOf(i), prop.alternate, part.textureName, false, { band, at, visible: lodVisible(band, 0), last: false }, part.alphaPass === true, alphaKeyAt(part, m));
           switchMesh(`${propIndex}:${i}`, prop.paths?.[i], mesh);
           if (rest) lodRest.set(mesh, rest);
           addDetail(mesh, part);
@@ -1389,7 +1438,9 @@ export function buildWorld(map: LoadedMap): WorldView {
         const now = Array.from({ length: count }, (_, i) => new Matrix4().fromArray(prop.matrices, i * 16));
         const hidden: boolean[] = new Array(count).fill(prop.alternate);
         const cut: boolean[] = new Array(count).fill(false);           // LATER 165 (`setNodeCut`)
-        const put = (i: number): void => { mesh.setMatrixAt(i, (hidden[i] && !alternateOn) || cut[i] ? ZERO_MATRIX : now[i]!); centroidRefresh.get(mesh)?.(i); };
+        // Research 439 s4a: an unramped banded part's instance outside its band, at the zero matrix as a hidden state is.
+        const outOfBand: boolean[] = new Array(count).fill(band !== null && !lodVisible(band, 0));
+        const put = (i: number): void => { mesh.setMatrixAt(i, (hidden[i] && !alternateOn) || cut[i] || outOfBand[i] ? ZERO_MATRIX : now[i]!); centroidRefresh.get(mesh)?.(i); };
         const putAll = (): void => { for (let i = 0; i < count; i++) put(i); mesh.instanceMatrix.needsUpdate = true; mesh.boundingSphere = null; };
         putAll();
         // Put again (and uploaded) only when a member's hidden state or the show-everything view changed since the last
@@ -1397,6 +1448,16 @@ export function buildWorld(map: LoadedMap): WorldView {
         let dirty = false, putWith = alternateOn;
         instancePuts.push(() => { if (!dirty && putWith === alternateOn) return; dirty = false; putWith = alternateOn; putAll(); });
         if (prop.paths) mesh.userData.nodePaths = prop.paths;   // per instance, for the marks' clip (`./markClip`)
+        // Research 439 s4a: each instance of a banded part tested at its own node's origin (`LOD_BAND_ANCHOR_READING`),
+        // its last-copy rule decided with every other band at its spot (`lodIsLast`, H92 as built), put again at a crossing.
+        if (band) {
+          for (let i = 0; i < count; i++) {
+            lodInstances.push({
+              band, at: new Vector3().setFromMatrixPosition(now[i]!), last: false, visible: !outOfBand[i],
+              set: (visible) => { if (outOfBand[i] !== !visible) { outOfBand[i] = !visible; dirty = true; } },
+            });
+          }
+        }
         for (let i = 0; i < count; i++) {
           const path = prop.paths?.[i];
           // The detail and env passes share `instanceMatrix` (`addDetail`, `addEnv`): one write moves them too.
@@ -1430,13 +1491,16 @@ export function buildWorld(map: LoadedMap): WorldView {
   }
 
   // Which LOD copy is the last at its spot (`lodIsLast`): the copies of one object share a placement,
-  // so the others at a placement are the bands within a stride of it. Tens of placements, once.
+  // so the others at a placement are the bands within a stride of it -- a drawn copy's or an instanced band's (research
+  // 439 s4a), alike. Hundreds of placements at most, once.
   {
-    const lodDrawn = drawn.filter((d): d is Drawn & { lod: NonNullable<Drawn['lod']> } => d.lod !== null);
-    for (const d of lodDrawn) {
+    const spots: { band: LodBand; at: Vector3; mark: (last: boolean) => void }[] = [];
+    for (const d of drawn) if (d.lod) { const lod = d.lod; spots.push({ band: lod.band, at: lod.at, mark: (last) => { lod.last = last; } }); }
+    for (const e of lodInstances) spots.push({ band: e.band, at: e.at, mark: (last) => { e.last = last; } });
+    for (const s of spots) {
       const bandsHere: LodBand[] = [];
-      for (const o of lodDrawn) if (o !== d && o.lod.at.distanceToSquared(d.lod.at) < LOD_SAME_SPOT_SQ) bandsHere.push(o.lod.band);
-      d.lod.last = lodIsLast(d.lod.band, bandsHere);
+      for (const o of spots) if (o !== s && o.at.distanceToSquared(s.at) < LOD_SAME_SPOT_SQ) bandsHere.push(o.band);
+      s.mark(lodIsLast(s.band, bandsHere));
     }
   }
 
@@ -1749,9 +1813,14 @@ export function buildWorld(map: LoadedMap): WorldView {
         // faded across each fade, at rest on the plateau.
         // The range squared over the magnification (`scaledRangeSq`, FUN_00290aa0 D:L137045); the last copy kept (H92).
         const opacity = lodOpacity(d.lod.band, scaledRangeSq(d.lod.at.distanceToSquared(camera.position), magnification), d.lod.last);
-        const visible = opacity > 0;
+        const visible = lodDrawn(opacity);   // above the fade floor, 1/128 (`LOD_FADE_FLOOR_READING`, D:L235437)
         if (visible !== d.lod.visible) { d.lod.visible = visible; lodChanged = true; }
         fadeTo(d.object, opacity);
+      }
+      // Research 439 s4a: the unramped banded parts' instances, shown or hidden at their crossings (no fade to draw).
+      for (const e of lodInstances) {
+        const visible = lodDrawn(lodOpacity(e.band, scaledRangeSq(e.at.distanceToSquared(camera.position), magnification), e.last));
+        if (visible !== e.visible) { e.visible = visible; e.set(visible); lodChanged = true; }
       }
       if (lodChanged) refreshVisibility();
       for (const s of scrolling) {

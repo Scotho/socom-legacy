@@ -9,7 +9,7 @@ import { PROTOCOL_VERSION, type ScoreRow, type ServerEvent } from '../src/net/pr
 import { NetPage, type NetPageDeps } from '../src/netPage';
 import type { RemotePlayers } from '../src/remotePlayers';
 import { layoutText } from '../src/hudFont';
-import { NO_CLAN, SCORE_LAYOUT, scoreboardLayout, type ScoreRowInfo } from '../src/scoreboard';
+import { NO_CLAN, pingBarsPlace, SCORE_LAYOUT, scoreboardLayout, type ScoreRowInfo } from '../src/scoreboard';
 import type { WalkMode } from '../src/walk';
 
 const PS2 = { width: 640, height: 448 };
@@ -69,7 +69,7 @@ const score = (rows: ScoreRow[]): ServerEvent => ({ type: 'score', rows, timeLef
 
 describe('the protocol: ScoreRow.clan is additive (COLLABORATION, "Protocol N") -- no version bump', () => {
   it('the version is 12 (SEP-POP; the tag rode 11 additively); a row with no tag is the older shape exactly; a tagged row read for the older fields gives the same values', () => {
-    expect(PROTOCOL_VERSION).toBe(16);                           // WIRE-16's bump (PV.R4: the player's view's bytes); 15 PROTO-15's, 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
+    expect(PROTOCOL_VERSION).toBe(19);                           // LATER 1141's bump (the round's `at`, research 441); 18 LATER 1147's; 17 WM-DATA-17's bump (WM.R11: the body's hand byte); 16 WIRE-16's (PV.R4: the player's view's bytes); 15 PROTO-15's, 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
     expect(Object.keys(JSON.parse(JSON.stringify(LIMA)) as object).sort()).toEqual(['alive', 'deaths', 'id', 'kills', 'name', 'ping', 'score', 'team']);
     const older = ({ id, name, team, kills, deaths, score: s, alive, ping }: ScoreRow) => ({ id, name, team, kills, deaths, score: s, alive, ping });
     const { clan, ...rest } = JSON.parse(JSON.stringify(KILO)) as ScoreRow;
@@ -89,7 +89,7 @@ describe('the protocol: ScoreRow.clan is additive (COLLABORATION, "Protocol N") 
 describe('the page\'s board: a tagged row and an untagged row from the room\'s score (FUN_0022a290 D:L79042-79053; research 269 §5.2)', () => {
   const base = (i: number): number => SCORE_LAYOUT.teams[0]!.y + 38 + 16.8 * i;
 
-  it('the page hands each row\'s tag to the board whole; the tagged row draws "[NSW]" at 163, the untagged the seed\'s space', () => {
+  it('the page hands each row\'s tag to the board whole; the tagged row draws "[NSW]" after the ping bars (WM-DATA, 185.4), the untagged the seed\'s space', () => {
     const p = page();
     p.server(score([KILO, LIMA]));
     const rows = p.rows()!;
@@ -97,11 +97,13 @@ describe('the page\'s board: a tagged row and an untagged row from the room\'s s
     expect(rows.find((r) => r.id === 2)).not.toHaveProperty('clan');
     const { quads } = scoreboardLayout(PS2, { player: 'Kilo', game: 'CROSSROADS', type: 'DEMOLITION', rows }, SIZES);
     // Kilo scores 20, first; Lima 10, second (the board's sort by score).
-    expect(drawn(quads, '[NSW]', 163, base(0))).toHaveLength(5);
-    expect(drawn(quads, 'Kilo', 223, base(0)).length).toBeGreaterThan(0);
+    // WM-DATA (a browser adaptation, capture 1F's place, `pingBarsPlace`): the tag after the row's ping bars, not 163; the
+    // name after the widest typeable tag, not 223.
+    expect(drawn(quads, '[NSW]', pingBarsPlace().tagX, base(0))).toHaveLength(5);
+    expect(drawn(quads, 'Kilo', pingBarsPlace().nameX, base(0)).length).toBeGreaterThan(0);
     expect(NO_CLAN).toBe(' ');
     expect(glyphsOn(quads, base(1), 223)).toHaveLength(0);       // no clan: nothing left of the name
-    expect(drawn(quads, 'Lima', 223, base(1)).length).toBeGreaterThan(0);
+    expect(drawn(quads, 'Lima', pingBarsPlace().nameX, base(1)).length).toBeGreaterThan(0);
   });
 
   it('the next score replaces the rows: a seat that leaves its tag behind is not drawn with it', () => {

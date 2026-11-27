@@ -10,7 +10,8 @@ import { DEDICATED_NEXT_MATCH_ADAPTATION, IDLE_KICK_ADAPTATION } from '../src/ro
  * in the `//` comment lines directly above it -- so a new branch, or one whose row is dropped, goes red here. Ten
  * branches at P33 (2026-11-03): nine the solo room's one-player match (`SOLO_ROUND_PLACEHOLDER`, research 101) or the
  * idle kick's absence (`IDLE_KICK_ADAPTATION`, research 101 section 3 B13); one, the developer's `&kit=` (`soloKit`),
- * has no row -- named here and reported by P33, not given one.
+ * has no row -- named here and reported by P33, not given one. Twelve since PR #941 (SEAT_CLAIM_ADAPTATION, 2026-11-25):
+ * its two seat-hold branches leave the solo room out as `abandonIfSideEmpty` does (`SOLO_ROUND_PLACEHOLDER`).
  */
 
 const ROOM = readFileSync(resolve(import.meta.dirname, '../src/room.ts'), 'utf8').split(/\r?\n/);
@@ -35,6 +36,9 @@ function branches(): { line: number; text: string; cited: string }[] {
 const EXPECTED: { what: RegExp; row: string | null }[] = [
   { what: /this\.lobby\.join\(id, ev\.name/, row: 'SOLO_ROUND_PLACEHOLDER' },     // hello: the solo seat's side
   { what: /this\.lobby\.join\(id, name/, row: 'SOLO_ROUND_PLACEHOLDER' },         // replace: the same
+  // SEAT_CLAIM_ADAPTATION (PR #941): a held seat taken at once on an empty side -- not in the solo room, which never abandons
+  { what: /rules === 'classic' && !this\.opts\.solo && !this\.sideSeated\(c\.team\)/, row: 'SOLO_ROUND_PLACEHOLDER' },   // broadcastChanges' `reserved`
+  { what: /rules !== 'classic' \|\| this\.opts\.solo \|\| this\.claimDue\.size === 0/, row: 'SOLO_ROUND_PLACEHOLDER' },   // heldSeatsOnEmptySides
   { what: /rules !== 'classic' \|\| this\.opts\.solo\) return;/, row: 'SOLO_ROUND_PLACEHOLDER' },   // abandonIfSideEmpty
   { what: /this\.idle\(now\)/, row: 'IDLE_KICK_ADAPTATION' },                     // no idle kick
   { what: /soloKit\?\.\(\)/, row: null },                                         // typeKit: the developer's `&kit=`
@@ -46,9 +50,9 @@ const EXPECTED: { what: RegExp; row: string | null }[] = [
 ];
 
 describe("P33 (RS-0): every `this.opts.solo` branch of the room names its row", () => {
-  it('ten branches, in file order, each the one listed', () => {
+  it('twelve branches, in file order, each the one listed', () => {
     const found = branches();
-    expect(found.map((b) => b.line)).toHaveLength(10);
+    expect(found.map((b) => b.line)).toHaveLength(12);
     found.forEach((b, i) => expect(b.text, `line ${b.line}`).toMatch(EXPECTED[i]!.what));
   });
 

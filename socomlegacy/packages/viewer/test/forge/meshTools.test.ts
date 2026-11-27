@@ -5,7 +5,7 @@ import { box, plane, sphere, type PrimitiveOptions } from '../../src/forge/geome
 import { edgeRing } from '../../src/forge/geometry/selection';
 
 /**
- * Subdivide, Loop Cut, Knife and Bevel (`src/forge/geometry/ops`; a browser adaptation after a level editor's mesh tools, the owner
+ * Subdivide, Loop Cut, Knife and Bevel (`src/forge/geometry/ops`; a browser adaptation after a level editor's mesh tools, the Forge's owner (crispy, OT.R112),
  * 2026-11-18): each leaves a closed mesh closed and every face turned as its neighbours, and handles the odd cases --
  * triangles, a grid's straight-on edge ends, edges with one face, widths past the faces.
  */
@@ -57,6 +57,20 @@ describe('Subdivide', () => {
     expect(made).toHaveLength(4);
     for (const g of made) expect(m.faces[g]!.surface).toEqual([3, 5, 0, 7, 8]);
   });
+  // PR #5 D1 (seat-forge): Quad Slice made each piece with `faceLike`, which rewrites a hull face's words to a floor's or
+  // a wall's by its facing (`floorOrWall`): a ladder face (climb, cameratype bit 0) sliced became a plain wall. The pieces
+  // now keep the source's words, as the knife's and the loop cut's do (`propsOf(f, { surface: true })`).
+  it('a ladder face sliced: every piece keeps its climb words, as the knife keeps them', () => {
+    const m = plane([0, 0, 0], 2, 2, 1, OPTS);
+    for (let i = 0; i < m.verts.length; i += 3) { const y = m.verts[i + 1]!; m.verts[i + 1] = m.verts[i + 2]!; m.verts[i + 2] = y; }   // stood upright
+    const f = liveFaces(m)[0]!;
+    const ladder: [number, number, number, number, number] = [2, 5, 1, 7, 5];   // a wall, climbable (cameratype bit 0), app flags 5
+    m.faces[f]!.surface = [...ladder];
+    const made = subdivideFaces(m, [f], 2, 2);
+    expect(made).toHaveLength(9);
+    for (const g of made) expect(m.faces[g]!.surface).toEqual(ladder);
+    expect(new Set(made.map((g) => m.faces[g]!.surface)).size, 'each piece its own words, none shared').toBe(made.length);
+  });
   it('slices a grid of cuts: 2 x 3 on a box top makes 12 pieces, closed', () => {
     const m = cube();
     const top = liveFaces(m).find((f) => faceNormal(m, f)[1] > 0.9)!;
@@ -65,7 +79,7 @@ describe('Subdivide', () => {
   });
 });
 
-describe('Subdivide, consistent (the owner, 2026-11-18: "It should be consistent all the time")', () => {
+describe('Subdivide, consistent (the Forge\'s owner (crispy, OT.R112), 2026-11-18: "It should be consistent all the time")', () => {
   /** A face's corners: the points where its outline turns. */
   const turns = (m: EditMesh, f: number): number[][] => { const vs = faceVerts(m, f); return vs.filter((v, i) => { const a = vertPos(m, vs[(i + vs.length - 1) % vs.length]!), b = vertPos(m, v), c = vertPos(m, vs[(i + 1) % vs.length]!); const d1 = [b[0]! - a[0]!, b[1]! - a[1]!, b[2]! - a[2]!], d2 = [c[0]! - b[0]!, c[1]! - b[1]!, c[2]! - b[2]!]; return Math.hypot(d1[1]! * d2[2]! - d1[2]! * d2[1]!, d1[2]! * d2[0]! - d1[0]! * d2[2]!, d1[0]! * d2[1]! - d1[1]! * d2[0]!) > 1e-12; }).map((v) => vertPos(m, v) as number[]); };
   const area = (pts: number[][]): number => { let x = 0, y = 0, z = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i]!, q = pts[(i + 1) % pts.length]!; x += p[1]! * q[2]! - p[2]! * q[1]!; y += p[2]! * q[0]! - p[0]! * q[2]!; z += p[0]! * q[1]! - p[1]! * q[0]!; } return Math.hypot(x, y, z) / 2; };
@@ -130,7 +144,8 @@ describe('Knife', () => {
     expect(knifeCut(m, [{ a: fl.a, b: fl.b, t: 0.5 }, { a: ft.a, b: ft.b, t: 0.5 }, { a: bt.a, b: bt.b, t: 0.5 }]).edges).toHaveLength(2);
     expect(closed(m)).toBe(true);
   });
-  it('misses two points with no face in common, and passes over two already joined', () => {
+  // His own red at 0ed80a521b (the owner, 2026-11-22: "Mark as known failures"): expects no edge for two points with no face in common; gets one ([0, 2]).
+  it.fails('misses two points with no face in common, and passes over two already joined', () => {
     let m = cube();
     const g1 = edgeWhere(m, (a, b) => a[1] === 0 && b[1] === 0 && a[2] === 0 && b[2] === 0), g2 = edgeWhere(m, (a, b) => a[1] === 2 && b[1] === 2 && a[2] === 2 && b[2] === 2);
     expect(knifeCut(m, [{ a: g1.a, b: g1.b, t: 0.5 }, { a: g2.a, b: g2.b, t: 0.5 }]).missed).toBe(1);
@@ -139,7 +154,8 @@ describe('Knife', () => {
     const vs = faceVerts(m, liveFaces(m)[0]!);
     expect(knifeCut(m, [{ v: vs[0]! }, { v: vs[1]! }])).toEqual({ edges: [], missed: 0 });
   });
-  it('cuts a zigzag with two places on each edge', () => {
+  // His own red at 0ed80a521b (the owner, 2026-11-22: "Mark as known failures"): expects the zigzag cut as 2 edges; gets 4.
+  it.fails('cuts a zigzag with two places on each edge', () => {
     const m = plane([0, 0, 0], 2, 2, 1, OPTS);
     const l = edgeWhere(m, (a, b) => a[0] === -1 && b[0] === -1), r = edgeWhere(m, (a, b) => a[0] === 1 && b[0] === 1);
     const k = knifeCut(m, [{ a: l.a, b: l.b, t: 0.3 }, { a: r.a, b: r.b, t: 0.3 }, { a: r.a, b: r.b, t: 0.7 }, { a: l.a, b: l.b, t: 0.7 }]);
@@ -191,7 +207,8 @@ describe('Bevel', () => {
       expect(sane(m)).toBe(true);
     }
   });
-  it('bevels a grid edge that carries straight on: no flat triangle, the end points on the bevel', () => {
+  // His own red at 0ed80a521b (the owner, 2026-11-22: "Mark as known failures"): expects 17 live faces after the bevel; gets 19.
+  it.fails('bevels a grid edge that carries straight on: no flat triangle, the end points on the bevel', () => {
     const m = plane([0, 0, 0], 4, 4, 4, OPTS);
     const e = edgeWhere(m, (a, b) => a[0] === 0 && b[0] === 0 && Math.min(a[2]!, b[2]!) === 0);
     const r = bevelEdges(m, [[e.a, e.b]], 0.25);

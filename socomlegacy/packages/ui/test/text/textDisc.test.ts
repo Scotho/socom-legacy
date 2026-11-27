@@ -33,7 +33,8 @@ describe.skipIf(DISC === null)(`UI text over the disc${DISC === null ? ' (no SOC
     const z = Zar.parse(read(FONTS_RDR.archive));
     expect(faceNames(parseRdr(z.data(z.find(FONTS_RDR.member)!)))).toEqual(['font_titlebar_01', 'font_text_01']);
     const [title, text] = loadFaces() as [TextFace, TextFace];
-    expect([title.glyphs.size, text.glyphs.size]).toEqual([166, 184]);   // 185 records: code 96 twice, one glyph
+    // 185 records: code 96 twice, one glyph; plus R4P-324's alias 0xb2 from each face's Code-path C (HASH_C_GLYPH_ALIAS_READING)
+    expect([title.glyphs.size, text.glyphs.size]).toEqual([167, 185]);
     expect(title.textures).toEqual(['font_titlebar_01.tif']);
     expect(text.textures).toEqual(['font_text_01.tif', 'font_special_01.tif']);
     expect([title.shadow, text.shadow]).toEqual([

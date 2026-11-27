@@ -42,7 +42,20 @@ vi.mock('../src/nightVision', async (importOriginal) => {
  * `PlayerLoadout` on a jsdom canvas), with every write the task's readers make recorded in one ordered log.
  */
 
-afterEach(() => { vi.restoreAllMocks(); sink.log = null; });
+/**
+ * AIM-AT-REST (the re-review's R3): every `hudAim` the firearm asks, recorded -- the one rule the page's reticles go
+ * through (`RETICLE_DISPLACED_CAMERA_AIM_ADAPTATION`); passed through to the real one.
+ */
+const aims = vi.hoisted(() => ({ calls: [] as [boolean, [number, number]][] }));
+vi.mock('../src/reticle', async (importOriginal) => {
+  const m = await importOriginal<typeof import('../src/reticle')>();
+  return {
+    ...m,
+    hudAim: (centred: boolean, projected: readonly [number, number]) => { aims.calls.push([centred, [projected[0], projected[1]]]); return m.hudAim(centred, projected); },
+  };
+});
+
+afterEach(() => { vi.restoreAllMocks(); sink.log = null; aims.calls.length = 0; });
 
 const DT = 1 / 60;
 const PS2 = { autoClear: true, getDrawingBufferSize: (v: Vector2) => v.set(640, 448), render: () => {} };
@@ -477,10 +490,84 @@ describe('PV-7b: the lens\'s ticks', () => {
     const input = tick.mock.calls[0]![0];
     expect(input).toMatchObject({
       view: 5, yaw: 30, pitch: -4, velocity: [1, 2, 3], alive: true, airborne: true, trigger: true, posture: 'crouch',
-      thermal: true, itemUp: true, mapNight: false, spawns: 0,
+      thermal: false, itemUp: true, mapNight: false, spawns: 0,   // R4P-110: 195 in the kit, a grenade in the hand
     });
     expect(input.record.id).toBe(HELD_SIDEARM.id);       // the selected FIREARM slot's record, never the item's
     expect(input.coneRecord).toBe(input.record);
+  });
+
+  // R4P-103 fresh review F2: the watched seat took a LAW -- its kit, from the room's `taken`, is six records (the round
+  // appended); the spectated kit is that kit (`setKit` keeps it, `wireKit`), not the one named before the claim. Since
+  // R4P-110 the thermal also needs a sniper in the hand, so the taker holds the M40A1 (102).
+  it('R4P-103 F2: a watched taker\'s six-record kit is the spectated kit (the thermal read off it)', () => {
+    const tick = vi.spyOn(PovLens.prototype, 'tick');
+    const w = watcher({ dead: true, script: () => bodyOf(5, { slot: 0, weapon: 102 }) });
+    w.remote.setKit(7, [102, HELD_SIDEARM.id, ITEM.THERMAL, 145, EMPTY_ITEM, 185]);
+    w.frame();
+    expect(tick.mock.calls[0]![0]).toMatchObject({ thermal: true });
+  });
+
+  // R4P-110 (r0004 0x547e50, research 94 section C7): the thermal input is 195 in the kit AND a sniper (101-120) in the hand.
+  it('R4P-110: the thermal input needs the item in his hand to be a sniper -- the M40A1 yes, the M4A1 beside 195 no', () => {
+    const tick = vi.spyOn(PovLens.prototype, 'tick');
+    let weapon = 102;
+    const w = watcher({ dead: true, script: () => bodyOf(5, { weapon, slot: 0 }) });
+    w.remote.setKit(7, [102, HELD_SIDEARM.id, ITEM.THERMAL, 121, EMPTY_ITEM]);
+    w.frame();
+    expect(itemClass(102)).toBe('sniper');
+    expect(tick.mock.calls.at(-1)![0].thermal).toBe(true);
+    weapon = 54;
+    w.remote.setKit(7, [54, HELD_SIDEARM.id, ITEM.THERMAL, 121, EMPTY_ITEM]);
+    w.frame();
+    expect(itemClass(54)).toBe('rifle');
+    expect(tick.mock.calls.at(-1)![0].thermal).toBe(false);
+    // The review's F5: the kit half is the room-named kit (`remote.playerKit`), which a take replaces whole -- the
+    // room's `taken` carries the taker's kit after a weapon or launcher claim (match `worldDrops.ts` `take`), and the
+    // page's net sets it (`netPage.ts` `case 'taken'`: `remote.setKit(ev.by, ev.kit)`); an equipment install's `taken`
+    // names no kit, but never lands over 195 (`pickups.ts` `equipmentSlotFor`: `PICKUP_SPENT_EXEMPT_IDS_READING` holds it).
+    // As here: the M40A1 in hand, the slot that held 195 now 126 -> false.
+    weapon = 102;
+    w.remote.setKit(7, [102, HELD_SIDEARM.id, ITEM.THERMAL, 121, EMPTY_ITEM]);
+    w.frame();
+    expect(tick.mock.calls.at(-1)![0].thermal).toBe(true);
+    w.remote.setKit(7, [102, HELD_SIDEARM.id, 126, 121, EMPTY_ITEM]);
+    w.frame();
+    expect(tick.mock.calls.at(-1)![0].thermal).toBe(false);
+  });
+
+  // WM-DATA-17 (protocol 17, HAND_SINCE_PROTOCOL): the hand's item off `BodyState.hand` while `weapon` keeps naming the
+  // firearm (the kit's item, `BodyState.hand`'s doc) -- the record still the firearm's, the set the hand's item's.
+  it('WM-DATA-17: hand = an M67, weapon = the rifle -- the item up and the grenade\'s set, the record still the rifle\'s', () => {
+    const tick = vi.spyOn(PovLens.prototype, 'tick');
+    const w = watcher({ dead: true, script: () => bodyOf(1, { weapon: HELD_RIFLE.id, hand: 121 }) });
+    w.frame();
+    const input = tick.mock.calls[0]![0];
+    expect(input.itemUp).toBe(true);
+    expect(input.record.id).toBe(HELD_RIFLE.id);
+    expect(input.coneRecord).toBe(input.record);
+    expect(last(w.log, 'reticle.setSet')).toEqual([handReticleType(121, HELD_RIFLE.id, 1, 1)]);
+    expect(last(w.log, 'reticle.setSet')).toEqual([4]);
+    expect(last(w.log, 'reticle.setMeter')).toEqual([0]);   // the wind-up is not on the wire (PV-7b's known limit)
+  });
+
+  it('WM-DATA-17: hand 0 (a protocol 16 replay, or the firearm in the hand) -- the firearm as before', () => {
+    const tick = vi.spyOn(PovLens.prototype, 'tick');
+    const w = watcher({ dead: true, script: () => bodyOf(1, { weapon: HELD_RIFLE.id, hand: 0 }) });
+    w.frame();
+    const input = tick.mock.calls[0]![0];
+    expect(input.itemUp).toBe(false);
+    expect(input.record.id).toBe(HELD_RIFLE.id);
+    expect(last(w.log, 'reticle.setSet')).toEqual([handReticleType(null, HELD_RIFLE.id, 1, 1)]);
+  });
+
+  it('WM-DATA-17: hand = the C4 -- the item up, no grenade reticle (none for the C4 and the satchel, FUN_005be300)', () => {
+    const tick = vi.spyOn(PovLens.prototype, 'tick');
+    const w = watcher({ dead: true, script: () => bodyOf(0, { weapon: HELD_RIFLE.id, hand: ITEM.C4 }) });
+    w.frame();
+    const input = tick.mock.calls[0]![0];
+    expect(input.itemUp).toBe(true);
+    expect(input.record.id).toBe(HELD_RIFLE.id);
+    expect(last(w.log, 'reticle.setSet')).toEqual([-1]);
   });
 
   it('a subject\'s round blooms its lens once the clock has run past the body that carried it; another\'s never', () => {
@@ -776,5 +863,21 @@ describe('PV-7b: the seam in PV-5b\'s dep -- the subject handed after the camera
     g.setMode('walk');
     for (let i = 0; i < 5; i++) { g.clock.cmd += 1; expect(g.d.spectatePov!(g.drawn, DT, true)).toBe(false); }
     expect(g.writes.filter((w) => w.name === 'setSubjectView' && w.args[0] !== null)).toEqual([]);
+  });
+});
+
+describe('AIM-AT-REST (the re-review\'s R3): the subject\'s reticle goes through the one rule, `hudAim`', () => {
+  it('each drawn frame hands the subject\'s projected aim through hudAim, centred false (no signal of its own yet); the owner\'s through it too', () => {
+    const w = watcher({ dead: true });
+    for (let f = 0; f < 3; f++) w.frame();
+    expect(aims.calls.length, 'one hudAim a drawn frame').toBe(3);
+    for (const [centred] of aims.calls) expect(centred).toBe(false);
+    // The aim point the reticle is handed is hudAim's: under the default, the projected aim itself.
+    expect(last(w.log, 'reticle.setAimPoint')).toEqual(aims.calls.at(-1)![1]);
+    aims.calls.length = 0;
+    const own = owner();
+    own.frame();
+    expect(aims.calls.length, 'the owner\'s path').toBe(1);
+    expect(aims.calls[0]![0]).toBe(own.walk.aimCentred());
   });
 });

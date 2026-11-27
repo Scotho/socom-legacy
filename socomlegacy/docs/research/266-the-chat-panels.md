@@ -561,6 +561,55 @@ The proven level is ONL-32's two-instance round with a USB keyboard on one insta
   not opening the DEV line), `testroomMapBar.test.ts` (with the release line mounted online, the map bar keeps every key,
   by code too, and its keyed change is still undone). After ROUND-LINE-YIELDS: `roundTextLine.test.ts` (a closed DEV line under a menu leaves ENTER to it and the registry answers false, the menu closed ENTER opens it; an open line keeps its keys under a menu until ENTER closes it; a repeated ENTER never opens it; a release build unchanged under a menu; `attachRoundTextKeys`' fourth argument absent, no menu).
 
+### 3.10 ROUND-CHAT: the open line in a round (V21.R15a, H452; a browser adaptation)
+
+The original has no open line in a round (§3.1, §3.9: ENTER sends only `/w`). V21.R15a adds one, labelled as an
+adaptation; nothing below is a reading of the original but the two icons' sources and the two colours that are the
+original's. Built on `agent/round-chat` (`../plans/2026-11-13-round-chat.md`, RC-1 to RC-5).
+
+- **The rule, in one place** (`match/src/gameChat.ts` `roundChatReaches(sender, team, receiver)`, re-exported by
+  central `src/chat.ts`): a seat is `{ side, alive }` -- its side the room lobby member's team (null: a spectator, always
+  dead), its life the room's (`match/src/room.ts` `chatState(roomId)`'s `alive`; a seat with no member counts as dead).
+  Whether the room is in a round is the room's own (`Room.chatInRound`), never read through the sender's membership, so
+  a sender the room no longer places fails closed (the review's F5). V21.R15a's table, decided by the server. All three relays use it in a round and the original's `gameChatScope` / `gameChatReaches` outside one:
+  central `src/bridge.ts`, match `src/game.ts`, match `src/forgeGame.ts`, each in its `chatLine`. In a round the relay
+  also sends the line back to its sender (the page draws no echo of its own), so the sender sees the side and life the
+  server judged it by.
+- **The rate limit** (`ROUND_CHAT_RATE_ADAPTATION`: 5 lines in 10 s per seat, `ChatRateLimit`): none existed; it applies
+  to every game line a relay takes, the lobby's too. A line over it is dropped silently.
+- **The wire** (protocol 15 kept): the relayed `chat` gains an additive `round: { side, dead }` (`RoundChatSender`) on a
+  line relayed under the round's rule; the page's request is unchanged, `team` the `/team` prefix. An older page puts
+  such a line in the lobby's panel, as before.
+- **The send and the keys** (viewer `src/roundTextLine.ts`): `/w name text` the original's whisper, unchanged; `/team
+  text` a team line (`ROUND_CHAT_TEAM_PREFIX_ADAPTATION`); any other line a plain one; a malformed `/w` is still cleared
+  unsent. Where the pad is the controls (a release build), the original's line stays live and a letter types at once;
+  where keyboard-and-mouse controls are in use (the development build's testing layer, `ROUND_CHAT_KBM_CONTROLS_ADAPTATION`)
+  the line opens on tilde, never typed, replacing that build's ENTER-opens rule (`ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION`'s
+  text rewritten). On a touch device or a real Xbox (`roundChatDeviceClass`: the device's own class, the saved Xbox
+  graphics preset left out) the line stays the original's: a `/w` whisper sends as before, any other line is cleared
+  unsent -- they read the round's lines and do not chat in them (`ROUND_CHAT_READ_ONLY_ADAPTATION`; the review's F2).
+- **The line on the HUD** (viewer `src/matchMessages.ts` `roundChatLine` / `roundChatPost`, `src/hud.ts`'s `BannerLine`
+  segments and icon, `src/netPage.ts`'s routing): a `chat` with `round` goes to the message window, not the lobby's
+  panel; `[icon] NAME: text`, or `NAME (team): text` with the body in the team's green (`MESSAGE_COLOURS[3]`); OFF
+  (`EnableExternalWhispers` 0) hides it. A line with no segments draws exactly as before.
+- **The colours** (`src/roundChatIcons.ts` `ROUND_CHAT_NAME_COLOURS_ADAPTATION`, provisional until the owner has seen
+  them): the Terrorists' the original's message red `MESSAGE_COLOURS[5]` (128, 64, 64); the spectators' the scoreboard's
+  spectators' name colour `SPECTATOR_RGB_READING` (115, 115, 115); the SEALs' a proposed lighter blue (72, 100, 128) --
+  the original's blues (the scoreboard's bar (32, 32, 64), the window's (64, 64, 96)) are too dark for a name.
+- **The icons.** The skull is the disc's: `action_dead_zone.tif` (64 x 64, `HUD_TXR.ZED` on every map), the HUD voice
+  element's icon for the dead zone (research 170 R170.9, 227), a skull and crossbones. No eye icon is on the disc: every
+  texture library's names were read (2026-11-13) -- of the eye-like names, `eyepiece.tif` (`RUN/UI/UI_TXR.ZED`) is a
+  scope's ring, `brown_eye.tif` / `blue_eye.tif` (the maps' `FLIB_TXR`) character eyeball textures. So the eye is drawn
+  (`roundChatEyeIcon`), at load, in the frame and colours of the disc's spectators channel icon
+  `action_tune_spectators.tif`, labelled an adaptation.
+- **Replays.** Relayed chat never reaches a recording: the recorder takes only what goes through the room's broadcast,
+  and the relays send per connection (`viewer/src/replay/fold.ts`'s `chat: 'transient'` is a classification only). The
+  lines therefore do not reach replays, as the main controller's default asks (RC.R3), until the owner rules otherwise.
+- **Tests.** match `test/gameChatRound.test.ts` (the full table, the limit), `test/matchGame.test.ts`,
+  `test/forgeGame.test.ts`; central `test/bridge.test.ts` (SVC-19's in-round half replaced by the round's rule);
+  viewer `test/roundTextLine.test.ts`, `test/matchMount.test.ts`, `test/headset.test.ts`, `test/roundChatHud.test.ts`,
+  `test/roundChatIcons.test.ts`; the owner's picture, `e2e/zz-round-chat-picture.spec.ts` (on request).
+
 ## 6. Placeholders and readings
 
 | name | value | what it stands in for | what would settle it | status |
@@ -698,6 +747,21 @@ face every HUD string uses, `font_text_01`), re-armed at each round's start by `
 `FUN_002011f0` (D:L60615-60708), its rows acted on by `FUN_002041e0` (D:L61644-61918), and closed by `FUN_00205200`
 (D:L62146-62212). **It is code-drawn**: no `.rdr`; its labels are code literals or HudCLOC strings by id
 (`FUN_00361b40`), so the builder is code, as the brief expected.
+
+**When it is forced closed (LATER 1542, 2026-11-24; reading, pending review).** Only by the HUD's reset `FUN_001fb790`
+(D:L57668-57733), whose two callers are CMission::OnMissionStart `FUN_002a7d40` -- online only, under `DAT_0045a0c1`
+(D:L149755), and immediately before the round start `FUN_001fb420` (D:L149757-149758), so the close comes before
+`FUN_00202370` re-arms the menu -- and the unload `FUN_002ac0e0` (D:L151994). Inside the reset WEAPON EXCHANGE closes
+first, itself online only (`DAT_0045a0c1`, D:L57683; `FUN_00240d50` -> SetState 0, D:L57684), then this menu (`FUN_00205200` and `FUN_00202210`, D:L57716-57717), then
+the Chat menu (`FUN_00235300(menu, 0)`, D:L57725). The other closes are the player's own (`FUN_002041e0`, D:L61665,
+61670, 61873, 61908). The mid-round respawn (`FUN_00547350` D:L412682-412757, RemoteRespawn `FUN_00598b90`
+D:L454977-455344) calls no HUD close, so an open menu stays open over a respawn. r0004: the reset, both closes and the
+round start are unchanged twins; OnMissionStart's twin `r0004:0x002a94f0` is changed but keeps the two calls in order
+(`r0004:0x002a98b4`, `r0004:0x002a98c0`, by the ELF's direct calls; the r0004 export was not on the reading host). The
+port: the match mount's `roundClear` and `/testroom`'s `clearAir` close WEAPON EXCHANGE, then this menu (and on
+`/testroom` TAUNTS), before `startMenu.roundStart()`; `respawned` closes neither (`viewer/test/later1542ForcedClose.test.ts`).
+The respawn press itself is refused while either menu is open in the original (HUD mode 0 only, `FUN_00592560`
+D:L451673-451676): LATER 1543.
 
 ### 8.2 The row table (`FUN_00202520` D:L61191-61335)
 

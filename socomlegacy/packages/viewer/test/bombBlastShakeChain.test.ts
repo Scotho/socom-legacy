@@ -96,6 +96,7 @@ function page() {
     trigger: () => false, magazine: () => null, mounted: () => false, icon: () => null, fireMode: () => null, weapon: () => null,
     reload: () => false, thermal: () => false, turret: () => null, mountTaken: () => null, commandSeq: () => null,
     heldPulls: () => 0,                                   // TRIGGER-SWAP fold: no turret hold to hand over
+    placingClip: () => false,                             // LATER 1427 review F1: no bomb clip on the own body
   } } satisfies Pick<MatchActions, 'pageHands'>;
   const throws = mountThrowables({
     scene, walk, fly, play, loadouts, view: () => null, map: () => null, net: () => null, firearm: () => firearm!,

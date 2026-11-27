@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EffectCondition, EffectOp, EffectProgram } from '@s2u/scene';
-import { EffectRun, type EffectHost } from '../src/effectRunner';
+import { EffectRun, isForgeScriptProgram, type EffectHost } from '../src/effectRunner';
 
 /** The zAnim sequencer the effects run on (socomlegacy/docs/research/89 §1): control flow, waits, loops, timed commands. */
 
@@ -263,9 +263,10 @@ describe('the effect sequencer', () => {
       random: () => 0.5,
     };
     const cond: EffectCondition = { kind: 'valve', valve: 'count', operation: 4, operand: 3 };
-    const run = new EffectRun(program({ ops: [
+    // PR #5 B1 (the owner, 2026-11-21: the loop condition applies to Forge only): run as a Forge layout's own program.
+    const run = new EffectRun({ ...program({ ops: [
       { op: 'while', forever: false, conditions: [cond] }, mark(1), { op: 'valve', valve: 'count', operation: 0x0c, operand: 1 }, { op: 'endWhile' }, mark(2),
-    ] }), h);
+    ] }), name: 'forge_map_script_run' }, h);
     for (let i = 0; i < 6; i++) run.update(0.1);
     expect(log).toEqual(['m1', 'm1', 'm1', 'm2']);
     expect(run.finished).toBe(true);
@@ -273,12 +274,48 @@ describe('the effect sequencer', () => {
 
   it('a conditional WHILE whose condition fails at once skips its body', () => {
     const h = host();                                   // `test` answers false
-    const run = new EffectRun(program({ ops: [
+    const run = new EffectRun({ ...program({ ops: [
       { op: 'while', forever: false, conditions: [{ kind: 'valve', valve: 'x', operation: 2, operand: 1 }] }, mark(1), { op: 'endWhile' }, mark(2),
-    ] }), h);
+    ] }), name: 'forge_object_1_run' }, h);
     run.update(0);
     expect(h.log).toEqual(['m2']);
     expect(run.finished).toBe(true);
+  });
+
+  // PR #5 B1 (seat-forge; the owner, 2026-11-21: "approved on the loop condition applying to forge only"): the decoder
+  // fills a disc program's WHILE conditions too, and no census yet says which retail programs a tested condition would
+  // change, so a DISC program's conditional WHILE keeps the port's earlier reading -- taken as false, its body skipped --
+  // until the retail case is settled on the simulation track (`isForgeScriptProgram`, effectRunner.ts).
+  it("a disc program's conditional WHILE is still taken as false, even where its condition holds (B1)", () => {
+    const log: string[] = [];
+    const h: EffectHost = { begin: (op) => { if (op.op === 'call') log.push(op.anim); }, test: () => true, random: () => 0.5 };
+    const run = new EffectRun(program({ ops: [
+      { op: 'while', forever: false, conditions: [{ kind: 'valve', valve: 'x', operation: 2, operand: 1 }] }, mark(1), { op: 'endWhile' }, mark(2),
+    ] }), h);                                           // named 't': a disc program's name
+    run.update(0);
+    expect(log).toEqual(['m2']);
+    expect(run.finished).toBe(true);
+  });
+
+  it("the endless WHILE (flag 1) runs for disc and Forge programs alike, as before", () => {
+    const log: string[] = [];
+    const h: EffectHost = { begin: (op) => { if (op.op === 'call') log.push(op.anim); }, test: () => false, random: () => 0.5 };
+    for (const name of ['t', 'forge_map_script_run']) {             // a disc program's name, then a Forge program's
+      log.length = 0;
+      const run = new EffectRun({ ...program({ ops: [{ op: 'while', forever: true }, mark(1), { op: 'endWhile' }] }), name }, h);
+      for (let i = 0; i < 3; i++) run.update(0.1);
+      expect(log.length, name).toBeGreaterThanOrEqual(2);
+      expect(run.finished, name).toBe(false);
+    }
+  });
+
+  it('isForgeScriptProgram: the four kinds of Forge program scriptPrograms names, never a disc name', () => {
+    for (const name of ['forge_map_script_run', 'forge_object_3_run', 'forge_trigger_1_run', 'forge_switch_12_run']) {
+      expect(isForgeScriptProgram(name), name).toBe(true);
+    }
+    for (const name of ['t', 'objectives', 'lightning_flashes', 'forge_object_3', 'forge_object_3_fx1', 'xforge_map_script_run']) {
+      expect(isForgeScriptProgram(name), name).toBe(false);
+    }
   });
 
   it('a called sequence of activation 2 waits for its CALL_SEQUENCE; a self-pause keeps the run alive', () => {
@@ -294,12 +331,78 @@ describe('the effect sequencer', () => {
     };
     const run = new EffectRun(p, h);
     run.update(0);
-    expect(h.log).toEqual(['m2']);                     // the uncalled activation-2 sequence runs at once
+    // Research 448: the uncalled activation-2 sequence (`gate`) idles -- FUN_0026ae20 (D:L115457-115509) starts only
+    // the activation-1 sequences and FUN_00269da0 (D:L114845-114910) runs nothing in state 1.
+    expect(h.log).toEqual([]);
     expect(run.paused).toBe(true);
     expect(run.finished).toBe(false);                  // paused: alive
     run.paused = false;
     run.update(1.1);
-    expect(h.log).toEqual(['m2', 'm1']);
+    expect(h.log).toEqual(['m1']);
+  });
+
+  describe('research 448: an activation-2 sequence runs only when started by name (FUN_00269b00)', () => {
+    // The disc's shape: MP6's flame_in_barrel -- every sequence `NA`, no CALL_SEQUENCE, the light in a 0x104 sequence
+    // behind a forever loop that keeps the animation alive.
+    const barrel = (): EffectProgram => ({
+      name: 'flame_in_barrel', root: 1, flags: 33, nodes: ['NA', 'barrel_fire1'],
+      sequences: [
+        { name: 'NA', activation: 1, ops: [mark(1)] },
+        { name: 'NA', activation: 1, ops: [{ op: 'while', forever: true }, { op: 'endWhile' }] },
+        { name: 'NA', activation: 2, ops: [mark(6), { op: 'while', forever: true }, mark(7), { op: 'endWhile' }] },
+      ],
+    });
+
+    it('an uncalled activation-2 sequence never runs, then or later', () => {
+      const h = host();
+      const run = new EffectRun(barrel(), h);
+      run.update(0);
+      for (let t = 0; t < 100; t++) run.update(1 / 30);
+      expect(h.log).toEqual(['m1']);
+      expect(run.finished).toBe(false);                // the activation-1 forever loop keeps it alive
+    });
+
+    it('an animation whose only sequences are activation 2 and uncalled ends at once (no sequence running)', () => {
+      const h = host();
+      const run = new EffectRun({
+        name: 'cricket_sound01', root: 1, flags: 33, nodes: ['NA', 'dcrik01'],
+        sequences: [{ name: 'cricket', activation: 2, ops: [mark(1)] }],
+      }, h);
+      run.update(0);
+      expect(h.log).toEqual([]);
+      expect(run.finished).toBe(true);
+    });
+
+    it('a start by name from outside the program (EffectRun.callSequence; no host calls it today) still starts an idle one', () => {
+      const h = host();
+      const run = new EffectRun({
+        name: 'gate', root: 0, flags: 0, nodes: ['NA'],
+        sequences: [
+          { name: 'hold', activation: 1, ops: [{ op: 'pauseAnimation', anim: 'NA' }] },
+          { name: 'gateopen', activation: 2, ops: [mark(1)] },
+        ],
+      }, h);
+      run.update(0);
+      expect(h.log).toEqual([]);
+      run.paused = false;
+      run.callSequence('gateopen');
+      run.update(0);
+      expect(h.log).toEqual(['m1']);
+    });
+
+    it("an Anim_Params guard sequence (offsets +0x10/+0x12/+0x14: EffectProgram.guards) keeps the port's own run from the start", () => {
+      // Not this head's: the guards' own timing (FUN_0026d870's one 1.0 s step, research 106 §2) is unchanged here.
+      const h = host();
+      const run = new EffectRun({
+        name: 'shell_eject', root: 1, flags: 674, nodes: ['NA'], guards: [1],
+        sequences: [
+          { name: 'NA', activation: 1, ops: [mark(1)] },
+          { name: 'NA', activation: 2, ops: [mark(2)] },
+        ],
+      } as EffectProgram, h);
+      run.update(0);
+      expect(h.log).toEqual(['m1', 'm2']);
+    });
   });
 
   it('FAIL stops the whole animation', () => {

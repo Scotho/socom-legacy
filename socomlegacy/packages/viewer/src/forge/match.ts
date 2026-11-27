@@ -10,6 +10,8 @@ import { pinnedMatchSocket, type PinnedSocketUrl } from '../connectHost';
 import type { EffectData } from '../effectData';
 import type { GameLobbyHandOff } from '../gameLobbyHost';
 import type { LoadedMap } from '../loadMap';
+import type { SimKits } from '../loadout';
+import { holdGraphicsRecoveryNotice } from '../graphicsLost';
 import { mountMatch, type MatchAssets, type MountedMatch } from '../matchMount';
 import type { LoadingScreen } from '../loadingAssets';
 import { NetClient, type NetWalk } from '../net/client';
@@ -20,10 +22,12 @@ import { assetSourceFor, type SourceRequest } from '../discSource';
 import type { SoundData } from '../soundData';
 import { frontEndSoundData, makeUiSoundHost, readUiSoundFiles } from '../uiSoundHost';
 import type { ViewerRequest, ViewerResponse } from '../worker';
-import { DEFAULT_SETTINGS, type NpcBehaviour, type NpcMarker } from './layout';
+import { ARMORY_COLUMNS, ARMORY_TYPES_PER_SIDE, type ArmoryCharacter, type Side } from '@s2u/scene';
+import { DEFAULT_SETTINGS, type CharacterRoster, type NpcBehaviour, type NpcMarker } from './layout';
 import type { LentScriptAssets } from './scriptAssets';
 import type { ContentPlacement } from './matchMap';
 import type { ForgeLobbyHandOff } from './lobbyClient';
+import type { GameLobbyEvent } from './lobby/deps';
 import { matchHandOff } from './lobbyPage';
 import { forgeMatchSounds, setForgeMatchSounds } from './matchState';
 import { ForgeNpcs, forgePlayNpcSeats, soloSideOption } from './npcs';
@@ -52,6 +56,17 @@ const WELCOME_MS = 5000;
 export interface ForgeMatch {
   /** The match's own end (its seat ended for good): the forge goes back to building. */
   ended(): boolean;
+  /**
+   * H460 fix round 2 (a browser adaptation, product track): the room came back to its lobby after a FULL GAME
+   * (`startForgeLobbyMatch`'s rule, `../lobbyMatch` `event`'s). Play's match (`startForgeMatch`) never does: false.
+   */
+  returned(): boolean;
+  /**
+   * H460 fix round 2: the match let go of the lobby's client OPEN (`MountedMatch.release`), with the room's last
+   * `gameLobby` view, for the lobby to take back (`./lobbyClient` `ForgeLobbySession.resume`); null when the mount holds
+   * no open client, and always for Play's match -- the page then closes as before (`close`, a no-op once released).
+   */
+  release(): { client: NetClient; view: GameLobbyEvent } | null;
   close(): void;
 }
 
@@ -225,7 +240,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
   /** FG-21: the player's side (`./npcs` `playerSideOf` of the whole layout's, as `o.map`'s slots were composed for). */
   side?: 'seal' | 'terrorist';
   /**
-   * The Play settings' Spectator (the owner, 2026-11-13: "a setting in the play settings, to play as spectator"; a
+   * The Play settings' Spectator (the Forge's owner (crispy, OT.R112), 2026-11-13: "a setting in the play settings, to play as spectator"; a
    * browser adaptation): this page's hello a watcher's (`watch`), as an online spectator joins -- the room seats no
    * body for it; the NPCs play the round.
    */
@@ -380,6 +395,8 @@ export async function startForgeMatch(target: HTMLElement, o: {
     welcome, roundStart: null,
   } satisfies GameLobbyHandOff;
   let mounted: MountedMatch;
+  // The owner's word (2026-11-25): "Leave the Forge out" -- a loss shows the notice, nothing reloads by itself.
+  const offNotice = holdGraphicsRecoveryNotice();
   try {
     mounted = mountMatch(target, {
       ...(o.normalInput ? { normalInput: o.normalInput } : {}),
@@ -393,6 +410,7 @@ export async function startForgeMatch(target: HTMLElement, o: {
       assets: Promise.resolve({ map: o.map, clips: o.clips, effects: o.effects, sound: o.sound }),
     });
   } catch (e) {
+    offNotice();
     offRules();
     letRulesAudioGo();
     player.stop();
@@ -406,9 +424,12 @@ export async function startForgeMatch(target: HTMLElement, o: {
   let closed = false;
   return {
     ended: () => mounted.ended() !== null,
+    returned: () => false,                                   // H460 fix 2: a Play has no lobby to come back to
+    release: () => null,
     close: () => {
       if (closed) return;
       closed = true;
+      offNotice();                                           // first: no throw below keeps the hold (the glance's F2)
       offRules();
       letRulesAudioGo();
       mounted.close();
@@ -451,9 +472,9 @@ export async function forgeLoadingScreen(source: SourceRequest, path: string): P
  * screen's layout, scripts, strings, fonts, models and bitmaps off the same source as the test room reads them (`../worker`'s
  * `armory`), and its world from the map the forge holds (`LoadedMap.arsenal`: the arsenal and the `mission.rdr` valves, as
  * `../matchArmory` `world` takes them). A map without an arsenal (a campaign mission, the blank floor's library) has no
- * world: the window's ARMORY then does not open.
+ * world: the window's ARMORY then does not open. FN-1b: `layoutRoster`, the roster `map` was composed with (`lobbyArmoryOver`).
  */
-export async function lobbyArmoryData(source: SourceRequest, map: Pick<LoadedMap, 'path' | 'archive' | 'arsenal'>): Promise<ArmoryData> {
+export async function lobbyArmoryData(source: SourceRequest, map: Pick<LoadedMap, 'path' | 'archive' | 'arsenal'>, layoutRoster: CharacterRoster | null = null): Promise<ArmoryData> {
   const worker = new Worker(new URL('../worker.ts', import.meta.url), { type: 'module' });
   try {
     const data = await new Promise<ArmoryData>((resolve, reject) => {
@@ -464,11 +485,58 @@ export async function lobbyArmoryData(source: SourceRequest, map: Pick<LoadedMap
       });
       worker.postMessage({ kind: 'armory', id: 1, source, path: map.path, archive: map.archive } satisfies ViewerRequest);
     });
-    const a = map.arsenal;
-    return { ...data, world: a ? { arsenal: a.table.arsenal, valves: new Map(a.map?.valves ?? []) } : null };
+    return lobbyArmoryOver(data, map.arsenal, layoutRoster);
   } finally {
     worker.terminate();
   }
+}
+
+/**
+ * FN-1a fix round 2 (simulation track; research 424 section 7): the ARMORY data over the map the lobby plays (`arsenal`,
+ * the page's map with the layout's arsenal laid over it, `./arsenalSetting` `mapWithArsenal`) -- the world its arsenal and
+ * its valves, and each roster character's kit the map's kit of the same side and type index (`kits[side][index]`), which
+ * is what the room's `typeKit` reads (`typeLoadout`, over the kits `arsenalWith` laid over). The roster's `index` is
+ * `mapKits`' index on the same `chartype.rdr` and `character.rdr` (`armoryRoster` takes its kit as `kits[side][index]`),
+ * so with no arsenal override every kit is already the map's and the roster is returned as it is. A map kit of another
+ * type or character than the roster names at that index is not taken (the roster's own stands). No arsenal: no world.
+ *
+ * FN-1b (simulation track; research 425 section 4): `layoutRoster`, the layout's character roster as the lobby holds it
+ * (`settings.characters`, a browser adaptation), whose columns `a`'s kits already carry (`./rosterSetting` `withRoster`,
+ * composed before the arsenal as the lobby's match and its room compose them). Each side it names follows those kits by
+ * column, `kits[side][i]` for i under four: its type, character and loadout; a column the base's roster has at that index
+ * keeps its `column`, portrait, model and textures (the base map's, `rosterSetting.ts`' "Not carried"); a column past the
+ * base's is the side's next `ARMORY_COLUMNS` name with no portrait, model or textures; a base column past the kits' count
+ * is dropped. So the screen offers the room's columns (`armoryTypeAllowed` over the room's kits) and each column's kit the
+ * room's `typeKit` gives. A side the roster does not name keeps the rule above. Nothing of a donor's library is read.
+ */
+export function lobbyArmoryOver(data: ArmoryData, a: SimKits | null | undefined, layoutRoster?: CharacterRoster | null): ArmoryData {
+  const world = a ? { arsenal: a.table.arsenal, valves: new Map(a.map?.valves ?? []) } : null;
+  const kits = a?.map?.kits, roster = data.roster;
+  if (!kits || !roster) return { ...data, world };
+  let changed = false;
+  const lent = (side: Side): boolean => (layoutRoster?.[side].length ?? 0) > 0;
+  const characters = roster.characters.flatMap((c): ArmoryCharacter[] => {
+    if (lent(c.side)) return [];
+    const k = kits[c.side][c.index];
+    if (!k || k.type !== c.type || k.character !== c.character || k.loadout.every((id, i) => id === c.loadout[i])) return [c];
+    changed = true;
+    return [{ ...c, loadout: k.loadout }];
+  });
+  (['seal', 'terrorist'] as const).forEach((side, s) => {
+    if (!lent(side)) return;
+    kits[side].slice(0, ARMORY_TYPES_PER_SIDE).forEach((k, index) => {
+      const base = roster.characters.find((c) => c.side === side && c.index === index);
+      const same = base && base.type === k.type && base.character === k.character && k.loadout.every((id, i) => id === base.loadout[i]);
+      characters.push(same && base ? base : {
+        ...(base ?? { column: ARMORY_COLUMNS[s * ARMORY_TYPES_PER_SIDE + index]!, model: null, textures: [], portrait: null }),
+        side, index, type: k.type, character: k.character, loadout: k.loadout,
+      });
+    });
+    const before = roster.characters.filter((c) => c.side === side);
+    const after = characters.filter((c) => c.side === side);
+    if (before.length !== after.length || after.some((c) => !before.includes(c))) changed = true;
+  });
+  return { ...data, roster: changed ? { ...roster, characters } : roster, world };
 }
 
 /**
@@ -510,6 +578,8 @@ export function startForgeLobbyMatch(target: HTMLElement, o: {
   let audio: { game: GameAudio; release: () => void } | null = null;
   let player: PageMatchDeps | null = null;
   let mounted: MountedMatch;
+  // The owner's word (2026-11-25): "Leave the Forge out" -- a loss shows the notice, nothing reloads by itself.
+  const offNotice = holdGraphicsRecoveryNotice();
   try {
     const out = new WebAudioOut();
     const game = new GameAudio(out, undefined, { inline: false });
@@ -529,6 +599,7 @@ export function startForgeLobbyMatch(target: HTMLElement, o: {
       assets: Promise.resolve({ map: o.map, clips: o.clips, effects: o.effects, sound: o.sound }),
     });
   } catch (e) {
+    offNotice();
     player?.stop();
     audio?.release();
     o.handOff.client.close();
@@ -536,19 +607,72 @@ export function startForgeLobbyMatch(target: HTMLElement, o: {
   }
   const held = audio;
   const heldPlayer = player;
+  // The glance's F1 (2026-11-25): a throw after the mount (the load report, the return listener) returns no match, so
+  // nothing would ever close it -- the hold and the mount let go here, as the close does, then the throw goes on.
+  const failAfterMount = (e: unknown): never => {
+    offNotice();
+    try { mounted.close(); } catch { /* the throw that matters is the first */ }
+    heldPlayer.stop();
+    held.release();
+    throw e;
+  };
   // FG-40: the match is loaded here -- the page composed the map and read its clips, effects and sound before the
   // hand-off -- so its load is reported now, on the lobby's client (`loaded`, ONL-18b: the room holds round 1 until every
   // launched page's comes, else for the barrier's ceiling, `LOAD_BARRIER_TIMEOUT_PLACEHOLDER`), as `../lobbyMatch` reports
   // the game lobby's at its loading screen's release. After the mount, so round 1's events (the spawn that carries the
   // ARMORY's type and kit) reach the match's own listener. Without it the seat sat in the hold on the page's pre-spawn
   // default kit (FG-30c).
-  o.handOff.client.reportLoaded();
+  try { o.handOff.client.reportLoaded(); } catch (e) { failAfterMount(e); }
+  // H460 fix round 2 (the main controller, 2026-11-15; a browser adaptation, product track): the room's return to its
+  // lobby after a FULL GAME, by `../lobbyMatch` `event`'s own rule -- a `roundOver` whose `matchOver` is true, or a welcome
+  // whose join result says so, then a `gameLobby` not launched (the server's `onMatchReturn`, `match/src/forgeGame.ts`);
+  // a `roundStart` or an `abandoned` clears it (an abandon keeps its leave: the seat's end, `ended`). The Forge's own
+  // listener on the handed client, added after the mount, removed at the close and the release; it keeps the last view.
+  // A stand-in client with no listeners (the FG-40 / RB-10 / F7 unit tests' hand-offs) hears nothing: never returned.
+  // H460 fix round 3 (the fresh review's finding 1): `hear` is the one rule, seeded first from the hand-off's events in
+  // their order -- as `../lobbyMatch` seeds its `gameOver` from the hand-off -- then the live listener, so a slow page
+  // that hands off in GAME COMPLETE's hold (the final `roundOver` heard by the session, the room not back yet) returns
+  // at the live `gameLobby` not launched; a hand-off whose events already end with that return has returned at once
+  // (the page goes back at its next frame, `release` answering that view).
+  let gameOver = false;
+  let returned = false;
+  let view: GameLobbyEvent | null = null;
+  const hear = (ev: ServerEvent): void => {
+    if (ev.type === 'roundOver') gameOver = ev.matchOver;
+    else if (ev.type === 'welcome') gameOver = ev.join?.result?.matchOver === true;
+    else if (ev.type === 'roundStart' || ev.type === 'abandoned') { gameOver = false; returned = false; }
+    else if (ev.type === 'gameLobby') {
+      view = ev;
+      if (!ev.launched && gameOver) { gameOver = false; returned = true; }
+    }
+  };
+  let offReturn: () => void = () => {};
+  try {
+    for (const ev of o.handOff.events) hear(ev);
+    offReturn = o.handOff.client.on?.(hear) ?? ((): void => {});
+  } catch (e) { failAfterMount(e); }
   let closed = false;
   return {
     ended: () => mounted.ended() !== null,
+    returned: () => returned,
+    release: () => {
+      if (closed) return null;
+      closed = true;
+      offNotice();                                          // first: no throw below keeps the hold (the glance's F2)
+      offReturn();
+      const client = mounted.release();                     // the mount's teardown; an open client answered, not closed
+      heldPlayer.stop();
+      held.release();
+      const last = view;
+      if (client && last) return { client, view: last };
+      client?.close();                                      // no view to hand back with it: closed, as `close` would
+      return null;
+    },
     close: () => {
       if (closed) return;
       closed = true;
+      offNotice();                                          // first (the glance's F2)
+      offReturn();
       mounted.close();
       heldPlayer.stop();
       held.release();

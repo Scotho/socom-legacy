@@ -17,8 +17,8 @@ Read on this host through `parseZdb` and `zdbMember`, `Zar.parse`, then `parseTe
 (`viewer/src/hudBitmaps.ts`, which uses `decodeTexture` and the HUD's own palette). Every one of the 22
 `RUN/MP*.ZDB` archives supplies `HUD2_TXR.ZED/textures/ret_scope_01.tif/texdat` and `ret_scope_02.tif/texdat`:
 128 by 128 pixels, record `bilinear=true`, bind packet `gs.bilinear=true`, `gs.mipmaps=false`.
-The two scope maps therefore use linear minification and magnification without mipmaps. Other reticle maps keep
-their existing nearest filters; this task does not assert their original filtering. Disabling the optional UI
+The two scope maps therefore use linear minification and magnification without mipmaps. Other reticle maps take
+their records' filters, linear (B-77, research 321 section 7.9; reading, pending review). Disabling the optional UI
 sampling experiment restores each scope's linear filters and keeps its UV window.
 
 The decoded scope 01 stroke is two texels wide, not the one texel previously described in research 84:

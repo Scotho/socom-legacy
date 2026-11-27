@@ -66,6 +66,29 @@ JoinGame -- the world id, the join type, the password of that type -- as `/lobby
 (`GAME_JOIN_NO_DME_ADAPTATION`; 0, #425, with no socket); `CheckJoinMP` (`FUN_0027e2b0` D:L126377-126404) writes
 `mp_join_game` 10 once the room's `welcome` came; `JoinGameServer` (`FUN_0027e380`) answers 1 once seated.
 
+*2026-11-24, AS-17 (atlas leads L72, L98; reading (r0004), pending review; the spec is r0004, OT.R97):* (1) r0004's
+JoinGame (`r0004:0x00315640`) writes its valves through r4 0x316450 (D4:L218354 on); MaxPlayersValve is the record's total
+`+0x24` less its spectator slots `+0x19e` ('D'[4]), 16 bits (r4 0x3164a8-0x3164e8, read from the r0004 image), where r0001's
+`FUN_002f83b0` (D:L197193-197205) copied the total; CREATE GAME's success still writes none (LATER 232). (2) r0004's
+`ConnectToGameServer` (`r0004:0x0027f740`, D4:L133677-133686; r4 0x27f744-0x27f7dc) opens on a prologue: under the
+animation "create_game" (strcmp, r4 0x27f75c), PLAYLISTVAR (`CUIVarManager::Add`, longevity 1) not an array (zrdr type 4,
+`FUN_003860f0` D:L279743-279747) or one of 0 entries (its +2 count) runs `CZOnlineLobby::RejoinRoom` (r4 0x3005e0, the
+twin of `FUN_002e3730` D:L184739-184754: state 11 queued when the lobby is up and a room's world id is held) and answers
+0 -- no socket, the chat panel not emptied; else `FUN_001f3bb0` (D4:L59335-59344) writes `CREATE_GAME_INPUT_PAUSE_S_READING`
+through the pointer at 0x434eb8+8 (null-guarded) to +0x900 (r4 0x1f3bb0, as r0001 D:L54349-54358), the menu shell's input-suspend timer (`MenuShell.suspendInput`,
+`packages/ui/src/screens/menuShell.ts`), and r0001's body follows. Any other animation runs r0001's body unchanged.
+Unit-tested (`packages/ui/test/screens/gameLobbyR4JoinCreate.test.ts`); no capture.
+*2026-11-24, AS-17's non-author second read (patches-contrib; reading (r0004), pending review):* the 0.75 is an instruction
+immediate (`lui v0,0x3f40` at r4 0x27f7c8, `mtc1 v0,f12` at r4 0x27f7d0; no data word holds 0x3f400000). It pauses only
+`CGameMenu::HandlePad` (r4 0x386910): `CGameMenu::Tick` (`FUN_003836a0`, D4:L284427-284434) counts +0x900 down by the frame
+time and skips the pad handler until it reaches 0, while fades and the rest of the update keep running; seconds is inferred
+(the frame clock not traced). Already in r0001: the countdown freezes while a menu switch is pending and the fade stands at
+128. JoinGame is not r4 0x316450's only caller: r0004's random join (AUTOPLAY, `FUN_00316220`, D4:L218325; r0001's
+`DoJoinRandomGame`, which wrote no valves) ranks the games by total less spectator slots less +0x22 (D4:L218313-218316) and
+then writes every valve through it; a third site, `FUN_002ffb90` (D4:L205038, the game list display's twin), makes the same
+subtraction (found by search, not read). The port's random join (`randomGameFound`, `RANDOM_JOIN_SETTINGS_READING`, research
+265 §2) still follows r0001 -- not changed by AS-17 (a LATER row).
+
 ## 2. The lobby (R165.4 - R165.7)
 
 ONSTART: `net_monitor`, `Session_master_migration` (a watcher: `WHILE not IsSessionMaster WAIT 1`, then the host's
@@ -160,6 +183,7 @@ follow-up, 2026-10-05). CRgame's CROSS is ungated
 | `SWITCH_CLOSED_AT_COUNTDOWN_READING` (`packages/match/src/gameLobby.ts`) | SWITCH TEAMS and READY refused from the countdown's start to the launch, for every seat | `launch_10sec_anim` (the countdown's start) runs `ForceMPLaunch` then `DisableButton(Glswitchteams)`, `(weaponselect)`, `(PlayerReady)`, and `CountDown` disables the same three on every console once `mp_x_sec_clock` is under 11; neither `SwitchSides` (`FUN_0027d100` D:L125818-125831), the host's move (`FUN_002c4290` D:L165518-165569) nor `IsSwitchTeamsOK` (`FUN_002f8ce0` D:L197461-197476) tests the countdown (§8) | a capture of a lobby's countdown with a switch pressed |
 | `READY_GATE_SEATS_READING` (`packages/match/src/gameLobby.ts`) | the session master's READY alone waits 30 s; a joiner's only its 5 s repeat | `SetupSessionMaster` holds PlayerReady `WHILE mp_45_sec_clock != 0`, `SetupNormalJoiner` holds nothing from the briefing room; `ReadyToLoad` (`FUN_0027caf0` D:L125595-125611) tests only its repeat (§8) | a capture of a joiner's READY taken at once (ONL-32's two-instance lobby) |
 | `MISSION_VARS_ASYNC_ADAPTATION` (`gameLobbyCommands.ts`) | the mission's `UiVars` added when the page's read of the map's `READERM.ZAR` resolves, and only while the lobby still stands on that mission in the same game (the world id the read started in); D:L123856's test (the seat held, or the creator the master) is the call's, not the resolution's -- *corrected 2026-11-11, LOBBY-MAP-STALE (§9): the resolution tested the seat too, and dropped the next map's entries when they landed in the rotation's 4021 gap* | an adaptation (2026-11-06, LOBBY-MAPNAME, §9): `FUN_002acc10` reads `mission.rdr` synchronously inside `AdvanceMPMission` (D:L123881); the page reads the archive asynchronously (the shared ARMORY's kept read, `frontEnd.ts`' `armoryRead`), so `MPgamename` is empty for the frames the read takes | not a stand-in: the same entries and the same Add; a capture of the lobby's first frames (ONL-32) would show how long the original's title takes, if anyone asks |
+| `CREATE_GAME_INPUT_PAUSE_S_READING` (`gameLobbyCommands.ts`) | 0.75 s | 2026-11-24, AS-17 (L98; reading (r0004), pending review): an instruction immediate, not a data word (no data word holds 0x3f400000): `lui v0,0x3f40` at r4 0x27f7c8 and `mtc1 v0,f12` at r4 0x27f7d0, passed by r0004's `ConnectToGameServer` to `FUN_001f3bb0` (jal at r4 0x27f7d4; D4:L133677-133686, D4:L59335-59344) on a create whose PLAYLISTVAR is a non-empty array; it pauses only `CGameMenu::HandlePad` (r4 0x386910) until `CGameMenu::Tick`'s countdown of +0x900 by the frame time reaches 0 (`FUN_003836a0` D4:L284427-284434) -- fades and the rest of the update run on; seconds inferred (the frame clock not traced); read from the r0004 image, not measured running | a capture of r0004: a valid create, the menu's input pause after it |
 | `INPUT_STRING_CALLED_READING` (`packages/ui/src/screens/screenScripts.ts`) | an animation with none of its own read the latest binding's argument | the former reading mistook `DAT_00414be8` for the screen; it is the current animation instance | **retired 2026-10-23 (MLS-PASS)**: CALL flag 1 copies the caller's inputs; per-instance lookup replaces the fallback, reviewed reading at `864603c5f` ([research 363](363-native-ui-call-inputs.md) §§1-3) |
 
 Adaptations, named and not ledger suffixes: `GAME_LOBBY_SERVER_MASTER_ADAPTATION`, `GAME_JOIN_NO_DME_ADAPTATION`,
@@ -305,3 +329,9 @@ drawing it; a failed read asked for again at the same map's welcome -- the stub 
 the test holds the lobby's ask, not the page's kept read; a left game's read adding nothing to the next game on the same
 mission), unit tests with a stub read -- no socket, no page, no browser. A live playtest of a joined seat across a
 rotation, not run, would confirm the fix end to end (open). Confidence: **reading, pending review**.
+
+**OT.R129 (2026-11-14).** R165.6's 5 s (`ReadyToLoad`, cited in §0's row; the page's `REPEAT_MS`, the room's
+`READY_REPEAT_MS_READING`) and §8's gate stand as the original's readings. By the owner's ruling OT.R129 the port lays
+them aside -- with SWITCH TEAMS' 5 s and the lobby's 10 s waits -- from a match's return to the same game's lobby until
+its next launch (`LOBBY_AFTER_MATCH_FREE_OWNER`, match `src/gameLobby.ts` and ui `src/screens/gameLobbyCommands.ts`; research
+309 §10, its OT.R129 paragraph); a lobby no match has come back to keeps them.

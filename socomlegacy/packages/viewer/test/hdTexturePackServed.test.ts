@@ -7,6 +7,8 @@ import {HdServedPack,HD_ROOT,lazyHdPackDecoders} from '../src/hdTexturePackServe
 import {HdMenuDecoder,type HdDecodeWorkerPort} from '../src/hdMenuTextures';
 import {PackApplier,type HdSwitch,type TextureChoiceKeeper} from '../src/packs/pagePacks';
 import {sha256} from '../src/texturePack';
+import {decodeKtx2} from '../src/hdPackBlocks';
+import {writeKtx2} from '../../../tools/hdPackKtx2';
 
 const image=(w:number,h:number,px:number[])=>({width:w,height:h,data:new Uint8ClampedArray(Array.from({length:w*h},()=>px).flat())});
 const hashOf=(d:Uint8ClampedArray)=>sha256(new Uint8Array(d.buffer,d.byteOffset,d.byteLength));
@@ -127,5 +129,38 @@ describe('PR #729 Codex P2 (matchMount.ts:900): a disposed pack ends its lazy de
     await packs.dispose();
     expect(calls).toEqual(['enabled:true','dispose']);
     v=null;
+  });
+});
+
+/** WM-PACK-2 RUNTIME (a browser adaptation): a served KTX2 payload decoded for its check, its blocks uploaded. */
+describe('WM-PACK-2 runtime: a ktx2 entry served',()=>{
+  const blocks=Uint8Array.from({length:4*8},(_,i)=>[0x1f,0xf8,0xe0,0x07,0x1b,0xe4,0x55,0xaa][i&7]!);   // BC1, c0 > c1: opaque
+  async function servedKtx2(){
+    const leaf=image(2,2,[40,90,30,255]),k=writeKtx2('bc1',8,8,[blocks]),hd=decodeKtx2(k);
+    const manifest={format:'s2u-hd-texture-pack',version:1,localOnly:true,game:'SCUS-97275',name:'HD test',method:'test',totalBytes:hd.data.length,
+      entries:[{key:await hashOf(leaf.data),width:2,height:2,file:'0.ktx2',format:'ktx2',outWidth:8,outHeight:8,bytes:hd.data.length,sha256:await hashOf(hd.data as Uint8ClampedArray),tier:'A',source:'x-y-00001113.dds'}]};
+    const mbytes=new TextEncoder().encode(JSON.stringify(manifest)),id=await sha256(mbytes);
+    const files=new Map<string,Uint8Array>([[HD_ROOT+'current.json',new TextEncoder().encode(JSON.stringify({version:1,packId:id}))],[`${HD_ROOT}${id}/manifest.json`,mbytes],[`${HD_ROOT}${id}/0.ktx2`,k]]);
+    const fetcher=async(url:string)=>{const f=files.get(url);return f?new Response(f.slice().buffer as ArrayBuffer):new Response('',{status:404});};
+    return {leaf,hd,fetcher};
+  }
+  const ALL=new Set(['bc1','bc2','bc3','bc7'] as const);
+  it('the default decode, and the page decoder (its worker or the main thread): checked, then uploaded as its blocks',async()=>{
+    for(const decoders of [{},new HdMenuDecoder(()=>null,async()=>undefined)]){
+      const {leaf,fetcher}=await servedKtx2(),registry=new HdTextureRegistry(),t=new DataTexture(leaf.data,2,2);registry.register(t,leaf);
+      const pack=new HdServedPack(fetcher,()=>undefined,registry,null,decoders,{runtime:{blocks:()=>ALL}});
+      await pack.setEnabled(true);await pack.runtime.settled();
+      expect(pack.runtime.applied).toBe(1);expect((t as unknown as {isCompressedTexture?:boolean}).isCompressedTexture).toBe(true);
+      const m=t.mipmaps[0];if(!m||!('data' in m))throw new Error('the texture has no compressed level 0');   // three's mipmaps union, narrowed
+      expect(Array.from(m.data)).toEqual(Array.from(blocks));expect(pack.runtime.appliedBytes).toBe(32);
+      await pack.setEnabled(false);expect(t.image.width).toBe(2);expect(t.isDataTexture).toBe(true);
+    }
+  });
+  it('a device without BC: the same pack, the RGBA path, its decode as the texels',async()=>{
+    const {leaf,hd,fetcher}=await servedKtx2(),registry=new HdTextureRegistry(),t=new DataTexture(leaf.data,2,2);registry.register(t,leaf);
+    const pack=new HdServedPack(fetcher,()=>undefined,registry,null,{},{runtime:{blocks:()=>new Set()}});
+    await pack.setEnabled(true);await pack.runtime.settled();
+    expect((t as unknown as {isCompressedTexture?:boolean}).isCompressedTexture).toBeUndefined();
+    expect(Array.from(t.image.data as unknown as Uint8ClampedArray)).toEqual(Array.from(hd.data));
   });
 });

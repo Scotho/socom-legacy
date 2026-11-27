@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { RdrNode } from '@s2u/archive';
 import { engineCodes, faceNames, glyphWidth, lookupGlyph, readTextFace, readTextFaces } from '../../src/index';
 import { FONTS } from './fixtures';
 
@@ -48,7 +49,32 @@ describe('a face as FUN_00359c40 loads it (D:L255324-255480)', () => {
     const g = f.glyphs.get(96)!;
     expect(g.elements.map((e) => e.lr)).toEqual([[127, 50], [126, 50]]);
     expect(g.baseline).toBe(2);
-    expect(readTextFaces(FONTS).map((x) => x.glyphs.size)).toEqual([7, 1]);
+    expect(readTextFaces(FONTS).map((x) => x.glyphs.size)).toEqual([8, 1]);   // font_t's 7 codes and the 0xb2 alias of its C
+  });
+
+  // R4P-324 (web research 111 §9; HASH_C_GLYPH_ALIAS_READING): r0004's loader 0x003796b0 parses a `Code` record of C
+  // a second time into glyph 0xb2 (0x37979c-0x3797cc), with C's texture (0x3797d8) and baseline (0x3797e0-0x3797f8), the
+  // common tail that writes the kerning and colour not reached (0x3799c4-0x379a80): kerning 0, no colour, advance -1.
+  it('R4P-324: a Code record of C (0x43) also makes glyph 0xb2 -- its elements, texture and baseline; kerning 0, no colour, advance -1', () => {
+    const c = f.glyphs.get(0x43)!;
+    expect(f.glyphs.get(0xb2)).toEqual({ ...c, code: 0xb2, lKerning: 0, rKerning: 0, advance: -1, color: null });
+    const rec = (extra: RdrNode[]): RdrNode =>
+      ['Code', ['67'], 'texture', ['2'], 'baseline', ['3'], 'lKerning', ['4'], 'rKerning', ['5'], 'Elems', [['UL', ['1', '2'], 'LR', ['9', '20']]], ...extra];
+    const face = (records: RdrNode[]) => readTextFace([['faces', ['s', ['textures', ['a.tif', 'b.tif'], 'charoffsets', records]]]], 's');
+    const one = face([rec(['color', ['150', '150', '150']])]);
+    expect(one.glyphs.get(0x43)).toMatchObject({ texture: 1, baseline: 3, lKerning: 4, rKerning: 5, color: [150, 150, 150] });
+    expect(one.glyphs.get(0xb2)).toEqual({ code: 0xb2, texture: 1, baseline: 3, lKerning: 0, rKerning: 0, advance: -1, color: null, elements: one.glyphs.get(0x43)!.elements });
+    expect(one.glyphs.get(0xb2)!.elements).not.toBe(one.glyphs.get(0x43)!.elements);   // parsed again, not shared
+    const two = face([rec([]), ['Code', ['67'], 'texture', ['1'], 'baseline', ['1'], 'Elems', [['UL', ['30', '2'], 'LR', ['40', '20']]]]]);
+    expect(two.glyphs.get(0xb2)!.elements.map((e) => e.ul)).toEqual([[1, 2], [30, 2]]);   // a second C appends to it too
+    expect(two.glyphs.get(0xb2)).toMatchObject({ texture: 0, baseline: 1, lKerning: 0, rKerning: 0, color: null });
+    expect(lookupGlyph(one, 0xb2)).toEqual({ glyph: one.glyphs.get(0xb2), fallback: 'none' });
+  });
+
+  it('R4P-324: the short form makes no alias (the alias is on the Code path only, 0x379760); no other letter is aliased', () => {
+    const s = readTextFace([['faces', ['s', ['texture', ['s.tif'], 'charoffsets', [['67', ['0', '0'], ['10', '20']], ['C', ['0', '0'], ['10', '20']]]]]]], 's');
+    expect([...s.glyphs.keys()]).toEqual([0x43]);
+    expect([...f.glyphs.keys()].sort((a, b) => a - b)).toEqual([32, 35, 65, 66, 67, 96, 166, 0xb2]);   // B (66) makes no 0xb8 here
   });
 
   it('the short form (no Code, D:L256806-256820): an int node its value, a string its first byte, any other node 0 (SHORT_GLYPH_CODE_READING)', () => {

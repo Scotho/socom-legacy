@@ -23,7 +23,7 @@
       "note": "docs/research/88-feel-parity.md",
       "tests": [
         { "file": "packages/viewer/test/walk.test.ts", "name": "ten seconds of full forward holds 65.0 a second; back 37.0; the strafes 65; the boost does nothing", "data": "none" },
-        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "backing up ramps to seal_run_bw's 37: 37 x 5 / 60 on the first tick, 37 from tick 12", "data": "none" }
+        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "backing up ramps to seal_run_bw's 37: 37 x 5 x 1.5 / 60 on the first tick, 37 from tick 12", "data": "none" }
       ]
     },
     {
@@ -50,46 +50,63 @@
     },
     {
       "id": "movement.speed.ramp",
-      "claim": "The stick ramps at upper_z_accel 5 a second: 90 % of the run on tick 11 (0.183 s), full from tick 12, 59.042 units covered in the first second from rest.",
+      "claim": "The stick ramps at upper_z_accel 5 a second, and a ground move reads it half a tick ahead (LATER 1164, RAMP_LEAD, research 446: the original moves each frame whole at its stepped value): 90 % of the run on tick 11 (0.183 s), full from tick 12, 59.538 units covered in the first second from rest.",
       "level": "reading",
       "source": "FUN_00586c10 (the mover header); dynamics.rdr lower/upper_z_accel 2, 5",
       "note": "docs/research/88-feel-parity.md",
       "tests": [
         { "file": "packages/viewer/test/walk.test.ts", "name": "the ramp: the stick moves at most upper_z_accel 5 a second, so 90 % of the run is reached on tick 11 (0.18 s)", "data": "none" },
-        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "one second of full forward from rest covers 59.042: twelve ticks of the ramp, then 65 a second", "data": "none" }
+        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "one second of full forward from rest covers 59.538: twelve ticks of the ramp, then 65 a second", "data": "none" }
       ]
     },
     {
       "id": "movement.speed.ramp-light-push",
-      "claim": "The ramp's limit is lower + (upper - lower)(1 - (1 - |target|)^8) with lower 2 and upper 5: a 0.1 push moves 4.018 a second on its first tick, a 0.5 push 5.404, and half a stick is reached on tick 7.",
+      "claim": "The ramp's limit is lower + (upper - lower)(1 - (1 - |target|)^8) with lower 2 and upper 5, the move reading it half a tick ahead (LATER 1164): a 0.1 push moves 6.026 a second on its first tick, a 0.5 push 8.106, and half a stick is reached on tick 6.",
       "level": "reading",
       "source": "FUN_00586c10; dynamics.rdr lower/upper_x_accel and lower/upper_z_accel (DAT_0044c294..2a0)",
       "note": "docs/research/88-feel-parity.md",
       "tests": [
-        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "a light push ramps at lower_accel 2 + 3 (1 - (1 - |t|)^8): the first tick of 0.1 is 4.018 a second, of 0.5 is 5.404", "data": "none" }
+        { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "a light push ramps at lower_accel 2 + 3 (1 - (1 - |t|)^8): the first tick of 0.1 is 6.026 a second, of 0.5 is 8.106", "data": "none" }
       ]
     },
     {
       "id": "movement.speed.stop",
-      "claim": "A stick let go (within 0.03 of rest) stops the SEAL on the same tick, from any speed.",
+      "claim": "A stick let go (within 0.03 of rest) stops the SEAL from any speed: at once when let go on a game frame's end, a tick later when let go between two frames' ends (IDLE-FRAME, MISSION R8.1 as amended; a pad's stick).",
       "level": "reading",
       "source": "FUN_00586f00 / FUN_00586570 (DAT_003f3428 = 0.03)",
       "note": "docs/research/88-feel-parity.md",
       "tests": [
-        { "file": "packages/viewer/test/walk.test.ts", "name": "a stick let go stops at once, from full or half (FUN_00586f00 idles it; FUN_00586570 skips the ramp at rest)", "data": "none" },
+        { "file": "packages/viewer/test/walk.test.ts", "name": "a stick let go on a game frame's end stops at once, from full or half; let go between two frames' ends, a tick later (IDLE-FRAME; FUN_00586570 standing, FUN_00586f00 crouched)", "data": "none" },
         { "file": "packages/viewer/test/feelParity.test.ts", "name": "the mover and the camera's geometry are within tolerance of the console", "data": "none" }
       ]
     },
     {
       "id": "movement.speed.snap",
-      "claim": "An axis past 0.9 (forward) or 0.78 (lateral) whose wish moves faster than 9 (7.8) a second takes the wish at once and starts a 0.2 s pose cross-fade.",
+      "claim": "An axis past 0.9 (forward) or 0.78 (lateral) whose wish moves faster than 9 (7.8) a second takes the wish at once and starts a 0.2 s pose cross-fade. The lateral constants are bracketed by capture (Q17 legs B and B', 2026-11-14): `at` between a held 0.7645 (ramps) and 0.7962 (snaps), `rate` between 7.52 and 8.48 a second; 0.78 and 7.8 themselves are the code's reading inside the brackets. A known divergence: the original divides by the frame's measured time (+0x2e0), the port by GAME_FRAME_DT (LATER 1052).",
       "level": "reading",
-      "source": "FUN_00586c10 D:L445037-445055 (0x3e4ccccd)",
-      "note": "docs/research/80-the-jump.md",
+      "source": "FUN_00586c10 D:L445017-445035 (the snap; 0x3e4ccccd its cross-fade)",
+      "note": "docs/research/208-the-game-frame.md",
+      "owed": "the forward axis's 0.9 / 9 are not bracketed (Q17's forward rows not run); the short frame's snap and half ramp step (LATER 1052) are not ported, and whether a console (not PCSX2) runs short frames is unread",
       "tests": [
+        { "file": "packages/viewer/test/throttleCapture.test.ts", "name": "the brackets: `at` between a held 0.7645 (ramps) and 0.7962 (snaps); `rate` between 7.52 a second (ramps) and 8.48 (snaps)", "data": "none" },
         { "file": "packages/viewer/test/walkSpeed.parity.test.ts", "name": "the snap: forward past 0.9 at more than 9 a second, lateral past 0.78 at more than 7.8, on both sides of each edge", "data": "none" },
         { "file": "packages/viewer/test/stickSnap.test.ts", "name": "names a snap only for an axis past its threshold whose wish moves faster than the rate", "data": "none" },
         { "file": "packages/viewer/test/stickSnap.test.ts", "name": "forward, forward-left, forward: the release cross-fades over 0.2 s in the same play, the phase kept, no pose pop", "data": "fixture" }
+      ]
+    },
+    {
+      "id": "movement.speed.custom-preset-ramp",
+      "claim": "The CUSTOM preset's DEAD ZONE at its left stop (0.01 against RECRUIT's 0.3) changes a quick reversal (A2): a 0.5475 push reads 0.764 against 0.495, so the snap takes it whole and full speed comes a median 63.5 ms after the last edge against RECRUIT's 285.5 (minimum speeds 49.69 and 0.00). From rest the rise is the same sixth a frame at RECRUIT and at CUSTOM with ACCELERATION unchanged; whether the move stick's ramp takes the preset's ACCELERATION word is not established. Reading with a known divergence (LATER 1072): the port's caught share is about half where the rig's is 75-80 %, its caught runs ramp on continuously (R8), and at CUSTOM its snapped runs show the right macro's 0.768 for a tick where the rig's show -0.833. The rig's rows are scored by its own script.",
+      "level": "reading",
+      "source": "FUN_00586c10 (the ramp and the snap); the DEAD ZONE slider FUN_00389e70 D:L281942-281957; the rig's q17-reversals-slider0 (A2, calibrations) and q17-reversals A2-flick",
+      "note": "docs/research/208-the-game-frame.md",
+      "owed": "the rig's leg A2-ACC (ACCELERATION moved alone, ordered); LATER 1072's divergence; a harness scorer of the A2 rows",
+      "tests": [
+        { "file": "packages/viewer/test/throttleFrame.test.ts", "name": "from rest, the same sixth a game frame at both presets (ACCELERATION at the same knob in both); only the end value differs (full forward, and raw 0.5)", "data": "none" },
+        { "file": "packages/viewer/test/throttleFrame.test.ts", "name": "A2 at CUSTOM / DEAD ZONE minimum, CAUGHT: full speed inside one game frame of the rig's 54-72 ms (the port ramps on continuously, R8, LATER 1072); minimum speed within 1 of 49.7", "data": "none" },
+        { "file": "packages/viewer/test/throttleFrame.test.ts", "name": "A2 at CUSTOM / DEAD ZONE minimum, SNAPPED: the cluster exists, and full speed comes no later than the rig's latest snap, 19 ms", "data": "none" },
+        { "file": "packages/viewer/test/throttleFrame.test.ts", "name": "A2 at RECRUIT, CAUGHT: full speed a median inside one game frame of the rig's caught-cluster median 287 ms (275-303); minimum speed under one ramp tick's", "data": "none" },
+        { "file": "packages/viewer/test/throttleFrame.test.ts", "name": "A2 at RECRUIT, SNAPPED: minimum speed within 1 of the rig's 32.2 (the macro's 0.495 taken whole)", "data": "none" }
       ]
     },
     {
@@ -282,7 +299,7 @@
         { "file": "packages/viewer/test/walk.test.ts", "name": "the head line lowers with the stance: a crouch passes under a lintel at 16 that stops a running SEAL (the posed head + 2: 17.761 running, 15.122 crouch-walking, 6.996 crawling; FUN_0054aa30 D:L415442-415443)", "data": "none" },
         { "file": "packages/viewer/test/walk.test.ts", "name": "the crouch-run head line: a lintel at 18.23 stops a standing walk (16.707 + 2) and passes a full run and a crouch run (15.761 + 2; FUN_0054aa30 D:L415441-415443, FUN_00584c60)", "data": "none" },
         { "file": "packages/viewer/test/crouchRunHeadLineDisc.test.ts", "name": "a crouch run (stick 1) passes under the lintel (underside 18.23 over the feet) -- the posed run head + 2 is 17.76 at most", "data": "disc" },
-        { "file": "packages/viewer/test/crouchRunHeadLineDisc.test.ts", "name": "a partial-push crouch run (0.86) is still stopped by the lintel (POSED_HEAD_READING takes 16.530 there); at 0.9 it passes", "data": "disc" },
+        { "file": "packages/viewer/test/crouchRunHeadLineDisc.test.ts", "name": "a partial-push crouch run (0.86) passes under the lintel on the interpolated head (16.216); at 0.9 it passes", "data": "disc" },
         { "file": "packages/viewer/test/crouchRunHeadLineDisc.test.ts", "name": "POSED_HEAD_READING is the port's animator over MOTION_P.ZAR: the head node's greatest height over each cycle", "data": "disc" }
       ]
     },
@@ -420,7 +437,7 @@
       "source": "FUN_005af590 D:L466641-466728 (DAT_0044c260); disc READERC.ZAR dynamics.rdr land_hard_fall_rate",
       "note": "docs/research/80-the-jump.md",
       "tests": [
-        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "a fall over land_hard_fall_rate 115 lands hard: off a 26 deck at 109.8 none, off a 30 deck at 117.6 Jump land hard", "data": "none" },
+        { "file": "packages/viewer/test/jump.parity.test.ts", "name": "a fall over land_hard_fall_rate 115 lands hard: off a 23 deck at 109.8 none, off a 26 deck at 117.6 Jump land hard (LATER 1176)", "data": "none" },
         { "file": "packages/viewer/test/movementTables.parity.test.ts", "name": "the jump's and the landing's table (physics.ts sealTuning, a second transcription the mover reads) is the same pinned dynamics.rdr", "data": "none" }
       ]
     },
@@ -793,6 +810,20 @@
       ]
     },
     {
+      "id": "movement.camera.pass-one-sided",
+      "claim": "The pass's main probe and its four side probes count a hull face only entered from its front: a one-sided camera face the boom meets from behind (MP72's gray tent valance from inside) neither pulls the eye in nor sets the 1.5 s hold.",
+      "level": "reading",
+      "source": "FUN_0029bf70 D:L143385, D:L143549; FUN_0031e0a0 D:L220094 -> FUN_002d4780 -> FUN_002d2890 D:L174831-174837; FUN_0031de90 D:L219997 -> FUN_002d3cf0 -> FUN_002d3030 type-2 branch D:L175246, side mode D:L175277-175282; FUN_00316e30 D:L215827-215828",
+      "note": "docs/research/382-wall-camera.md",
+      "tests": [
+        { "file": "packages/viewer/test/cameraPassFrontOnly.test.ts", "name": "the main probe: a face behind the camera met from behind (its normal toward the eye) does not pull the boom in nor set the hold", "data": "none" },
+        { "file": "packages/viewer/test/cameraPassFrontOnly.test.ts", "name": "a side probe: a face 0.5 beside the eye met from behind (its normal away from the eye) does not shift the eye nor set the hold", "data": "none" },
+        { "file": "packages/viewer/test/shotConeViewLine.test.ts", "name": "LATER 1057: a wall behind the camera met from behind (its normal toward the eye) pulls neither the page's eye nor the room's reproduction", "data": "none" },
+        { "file": "packages/viewer/test/cameraPassTentDisc.test.ts", "name": "walking in under tent_gray's front valance and back out, standing: the boom stays 26.80 and the hold 0 at every tick", "data": "disc" }
+      ],
+      "owed": "Reading, pending review; no capture. A trace of the original reading DAT_003de268 and cam+0x4c as a standing SEAL's boom leaves a one-sided camera face from behind (not at the r0004 gray tent, whose own 0x2d8500 quads are camera-class) would make it proven; whether FUN_0032ad20's two-sided collider (D:L227610-227611) is any hull owner's is unread (research 382 s8)."
+    },
+    {
       "id": "movement.camera.fov",
       "claim": "The console projects 70 by 49 degrees; the PS2 presentation matches, the native one keeps the vertical 49 and widens with the window (78 at 16:9).",
       "level": "proven",
@@ -878,7 +909,7 @@
       "note": "docs/research/281-mp6-scaffold.md",
       "tests": [
         { "file": "packages/viewer/test/traversal.test.ts", "name": "PAR-21a C1: a crate face met, then a coplanar plain wall met on a later move -- the plain wall is the contact, no climb offered (RED: the crate kept)", "data": "none" },
-        { "file": "packages/viewer/test/traversal.test.ts", "name": "PAR-21a C2: an inside corner of two crate faces -- turned 20, 30 or 90 degrees, only side records meet them, the weapon line's contact holds and the climb is offered", "data": "none" },
+        { "file": "packages/viewer/test/traversal.test.ts", "name": "PAR-21a C2: an inside corner of two crate faces -- turned 20 or 90 degrees, only side records meet them, the weapon line's contact holds and the climb is offered", "data": "none" },
         { "file": "packages/viewer/test/traversal.test.ts", "name": "PAR-21a C2: a crate's outside corner walked into on its edge: the disc arm's 'span' keeps it, 'any' clears it; the segment body clears it", "data": "none" },
         { "file": "packages/viewer/test/climbFacing.test.ts", "name": "(e2) PAR-21a C2: held in the inside corner with prop01, both faces met, nothing is offered (RED before C2: offered)", "data": "fixture" },
         { "file": "packages/viewer/test/parity/mp6Scaffold.parity.test.ts", "name": "(c) from under the deck, facing +z, nothing is offered: held 3.5 off noclimb_invis, the walk meets only noclimb_invis (appflags 0), its contact, which offers nothing", "data": "fixture" }

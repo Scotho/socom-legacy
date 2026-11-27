@@ -250,6 +250,7 @@ describe('padBinding: the settings beside the bindings', () => {
     r.b.restoreDefaults();
     expect(r.kinds().slice(-2)).toEqual(['end', 'restored']);
     expect(profile()).toEqual(defaultController());
+    expect(profile()!.deadZone).toBe(0.05);                     // WM-PAD-DEADZONE: Restore defaults writes the default, 5 percent
   });
 
   // PP-5 (OT.R67; PP.R1: "bind prone and crouch as two separate keybinds, as those who use emulators do"): Crouch (the

@@ -15,7 +15,7 @@ import type { NavigationData } from '../src/bots/navigation';
 function scene(rifle: WeaponRecord, enemyX: number) {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 400, cellsX: 6, cellsZ: 6, originX: -1200, originZ: -1200 };
   const floor: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25,
-    ptcount: 4, cameratype: 0, points: Float32Array.from([-1200, 0, -1200, 1200, 0, -1200, 1200, 0, 1200, -1200, 0, 1200]) };
+    ptcount: 4, cameratype: 0, points: Float32Array.from([-1200, 0, 1200, 1200, 0, 1200, 1200, 0, -1200, -1200, 0, -1200]) };
   const ground = packGround(params, [floor], [{ modelName: 'worldmodel', path: floor.path, first: 0, count: 1 }]);
   const slots: SpawnSlot[] = [0, 1].flatMap((side) => Array.from({ length: 8 }, (_, index) => ({ side, index,
     position: [side ? 450 : enemyX, 0, index * 40], onFloor: true, step: side ? 6 : 2,

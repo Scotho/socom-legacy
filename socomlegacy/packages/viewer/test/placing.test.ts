@@ -137,7 +137,7 @@ const GRID_PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cell
 function slabs(list: readonly (readonly [number, number])[]): Grid {
   const polys: WorldPoly[] = list.map(([y, material], i) => ({
     modelName: 'worldmodel', path: `worldmodel/s${i}`, region: 0, ditype: 3, material, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-2000, y, -2000, 2000, y, -2000, 2000, y, 2000, -2000, y, 2000]),
+    points: Float32Array.from([-2000, y, 2000, 2000, y, 2000, 2000, y, -2000, -2000, y, -2000]),
   }));
   return buildGrid(GRID_PARAMS, [], [], polys, polys.map((p, i) => ({ modelName: 'worldmodel', path: `${p.path}0`, first: i, count: 1 })));
 }

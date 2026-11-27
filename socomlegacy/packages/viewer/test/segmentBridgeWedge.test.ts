@@ -29,7 +29,7 @@ const quad = (pts: number[], ditype: number, path: string): WorldPoly => ({
  */
 function finWorld(top: number): Grid {
   const polys = [
-    quad([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200], 3, 'worldmodel/floor'),
+    quad([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200], 3, 'worldmodel/floor'),
     quad([50, 0, 0, -50, 0, 0, -50, top, 0, 50, top, 0], 2, 'worldmodel/fin'),
   ];
   const owners = polys.map((p, first) => ({ modelName: p.modelName, path: p.path, first, count: 1 }));

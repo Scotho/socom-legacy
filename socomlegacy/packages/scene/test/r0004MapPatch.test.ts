@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  applyR0004Ops, bitsToFloat, buildGrid, collisionOwners, DEFAULT_GRID_PARAMS, floatToBits, IDENTITY, levelNameOf, NODE_GENERIC,
-  NODE_INSTANCE, NODE_MODEL, packSurfaceWord, polyFrom, probeGround, R0004_MAP_EDITS, r0004EditsFor, worldCollision,
+  applyR0004MapPatch, applyR0004Ops, bitsToFloat, buildGrid, collisionOwners, DEFAULT_GRID_PARAMS, floatToBits, IDENTITY, levelNameOf, NODE_GENERIC,
+  NODE_INSTANCE, NODE_MODEL, packSurfaceWord, polyFrom, probeGround, R0004_MAP_EDITS, R0004_REJECTED_BY_RULING, r0004EditsFor, worldCollision,
   type CollisionPoly, type R0004Op, type SceneNode,
 } from '../src/index';
 import { chopF32 } from '../src/grid';
@@ -185,6 +185,30 @@ describe('R4B-09: the operations', () => {
     const [r] = applyR0004Ops(w.models, 'mp0', [op({ op: 'word', pcs: ['t'], node: ['room', 'chair', 'seat'], and: 0xfffc03ff, or: 0x5000 })]);
     expect(r!.shared).toEqual(['chair/seat']);
     expect(w.chairModel.children[0]!.collision[0]!.material).toBe(20);
+  });
+});
+
+describe('OT.R127: r0004\'s invisible wall at Crossroads\' two gray tent fronts (r4 0x2d8500) is not applied', () => {
+  // The owner, 2026-11-14 (playtest 20261114-4874): an intended improvement over the original, which stops a standing
+  // player at both tents' front eaves (rig Q21). The reading stays in the table; the port does not apply it.
+  const mp72 = (): { models: SceneNode[]; root: SceneNode } => {
+    const root = node('worldmodel', { type: NODE_MODEL });
+    return { models: [root], root };
+  };
+  it('MP72 builds every other new node of the table, and not 0x2d8500\'s', () => {
+    const { models, root } = mp72();
+    const report = applyR0004MapPatch(models, 'MP72');
+    const named = root.children.map((c) => c.name);
+    expect(named).not.toContain('r0004@0x2d8500');
+    expect(named).toEqual(['r0004@0x2d731c', 'r0004@0x2d7478', 'r0004@0x2d78d4', 'r0004@0x2d7a28', 'r0004@0x2d7f28', 'r0004@0x2d87d0', 'r0004@0x2d8a80', 'r0004@0x2e91f0']);
+    const rejected = report.applied.filter((a) => a.rejected);
+    expect(rejected.map((a) => [a.op, a.pcs[0], a.changed, a.rejected])).toEqual([['addNode', '0x2d8500', 0, 'OT.R127']]);
+    expect(report.applied).toHaveLength(R0004_MAP_EDITS.mp72!.ops.length);
+  });
+  it('rejects nothing on any other map, and the table keeps the node as read (two quads, y 60-80)', () => {
+    expect(R0004_REJECTED_BY_RULING).toEqual([{ map: 'mp72', pc: '0x2d8500', ruling: 'OT.R127' }]);
+    const wall = R0004_MAP_EDITS.mp72!.ops.find((o) => o.pcs[0] === '0x2d8500');
+    expect(wall?.op === 'addNode' ? wall.polys.map((p) => [bitsToFloat(p.points[1]!), bitsToFloat(p.points[7]!)].map(Math.round)) : null).toEqual([[60, 80], [60, 80]]);
   });
 });
 

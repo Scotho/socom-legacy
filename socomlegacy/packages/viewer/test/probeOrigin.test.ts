@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FsAssetSource } from '@s2u/archive/node';
-import { buildGrid, type Grid, type WorldPoly } from '@s2u/scene';
+import { buildGrid, probeGround, type Grid, type WorldPoly } from '@s2u/scene';
 import {
   AIR_PROBE_ROOT_READING, CROUCH_RUN_PROBE_ROOT_READING, PROBE_LIFT_FLOOR_R0004, probeLiftFor, PROBE_LIFT_PRONE_READING, PROBE_LIFT_TRANSITION_READING, PRONE_ROOT,
   probeLiftOf, RUNNING_JUMP_ROOT, STANCE, STANDING_JUMP_PROBE_ROOT_READING, Walker,
@@ -27,8 +27,8 @@ function world(polys: WorldPoly[]): Grid {
 }
 /** A floor at 0 and a plank `h` over it with no face (a floor polygon alone) from z -50 to -150: only the pick reaches it. */
 const plankWorld = (h: number): Grid => world([
-  quad([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200], 3, 'worldmodel/floor'),
-  quad([-50, h, -150, 50, h, -150, 50, h, -50, -50, h, -50], 3, 'worldmodel/plank'),
+  quad([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200], 3, 'worldmodel/floor'),
+  quad([-50, h, -50, 50, h, -50, 50, h, -150, -50, h, -150], 3, 'worldmodel/plank'),
 ]);
 const STILL = { forward: 0, right: 0, boost: false };
 
@@ -161,16 +161,21 @@ describe.skipIf(!HAVE_MP64)(`MP64_RESPAWN_181_READING (research 80 s7): respawn 
   // 2.30 more across in its second (velocity 0; not traced), then falls straight to the floor under the record, about
   // 6.5 from it, still under water (research 80 s7). (Before LATER 833 the push was carried as 251 u/s and the body
   // flew to a rest about 89 east, (1474.96, 15.105, 2438.84) -- the launch LATER 833 removed.)
-  it('placed on inv_di at 18.16, off the face in the first tick, at rest at (1391.30, 9.321, 2438.80) under water', async () => {
+  // LATER 1148 (research 444; research 80 s7): the push off the face is the first game frame's end, the third tick after
+  // the placing (the first frame after a placing spans three ticks, `GROUND_FRAME_TICKS_READING`): the two ticks before it
+  // hold (the frame end would take off), so the body takes off two ticks later than before and rests where it did.
+  // A regression pin of the port's own values (research 80 s7), not a reading of the original.
+  it('placed on inv_di at 18.16, off the face at the end of the first game frame (the third tick), at rest at (1391.30, 9.321, 2438.80) under water', async () => {
     const map = await loadSimMap(new FsAssetSource(DISC_DIR), 'RUN/MP64.ZDB');
     const r = map.respawns.find((q) => q.index === 181 && q.side === 0)!;
     expect(r.position[1]).toBeCloseTo(9.32, 2);
     const w = new Walker(map.grid);
     expect(w.place(r.position[0], r.position[1] + 1 + probeLiftOf('stand'), r.position[2])).toBe(true);
     expect(w.state.y).toBeCloseTo(18.162, 3);
+    for (let i = 0; i < 2; i++) { w.tick(STILL); expect(w.airborne, `tick ${i + 1}`).toBe(false); }
     w.tick(STILL);
     expect(w.airborne).toBe(true);
-    for (let i = 1; i < 240; i++) w.tick(STILL);
+    for (let i = 3; i < 240; i++) w.tick(STILL);
     expect(w.airborne).toBe(false);
     expect(w.state.x).toBeCloseTo(1391.30, 1);
     expect(w.state.y).toBeCloseTo(9.321, 2);
@@ -186,8 +191,15 @@ describe.skipIf(!HAVE_MP8)(`MP8_RESPAWN_326_READING (research 80 s7): respawn 0/
   // The record (1065.85, 102.86, 484.24) stands on `land35/g3341` (mat 19, normal y 0.054). The body slides off and takes
   // the near-vertical push on both builds; under the standing window the air pick takes `land35/g3343` (normal y 0.611) and
   // it rests at 111.92, where the former +6.5 let it fall to 18.83. Whether the original's GetIntersect hits the record's
-  // near-vertical floor (VU0 microcode, 0x2dd130 vcallms 0x70) is unread.
-  it('placed at 102.86, rests at (1067.64, 111.92, 479.97), grounded and dry', async () => {
+  // near-vertical floor (VU0 microcode, 0x2dd130 vcallms 0x70) is unread. LATER 1148 (research 444; research 80 s7): the
+  // floor tested once a game frame at its end, with no lower bound on the pick (`FUN_005b5d40`), the body slides on the
+  // record's face, leaves it on its 17th tick and falls about 84 to `land36/g3344` (normal y 0.982), not the 111.92 rest
+  // on `land35/g3343`. A regression pin of the port's own values (research 80 s7), not a reading of the original.
+  // LATER 1194B (the walls trial, 2026-11-21; re-measured on the hub at agent/walls a6af3e96f4): with the walls met once a
+  // game frame the slide off the record's face leaves in frame steps (feet (1066.05, 104.26, 483.93) at tick 4, (1067.69,
+  // 102.36, 481.35) at 16, (1069.04, 92.94, 477.66) at 32, falling to 19.38 by tick 68) and rests at (1068.951, 19.376,
+  // 476.936), still on land36/g3344, grounded and dry -- was (1065.58, 18.965, 475.77). The port's own values.
+  it('placed at 102.86, rests on land36/g3344 at (1068.95, 19.376, 476.94), grounded and dry', async () => {
     const map = await loadSimMap(new FsAssetSource(DISC_DIR), 'RUN/MP8.ZDB');
     const r = map.respawns.find((q) => q.index === 326 && q.side === 0)!;
     expect(r.position[1]).toBeCloseTo(102.86, 2);
@@ -196,9 +208,10 @@ describe.skipIf(!HAVE_MP8)(`MP8_RESPAWN_326_READING (research 80 s7): respawn 0/
     expect(w.state.y).toBeCloseTo(102.86, 2);
     for (let i = 0; i < 240; i++) w.tick(STILL);
     expect(w.airborne).toBe(false);
-    expect(w.state.x).toBeCloseTo(1067.64, 1);
-    expect(w.state.y).toBeCloseTo(111.92, 1);
-    expect(w.state.z).toBeCloseTo(479.97, 1);
+    expect(w.state.x).toBeCloseTo(1068.95, 1);
+    expect(w.state.y).toBeCloseTo(19.376, 2);
+    expect(w.state.z).toBeCloseTo(476.94, 1);
+    expect(probeGround(map.grid, w.state.x, w.state.z).some((h) => h.poly.path === 'worldmodel/land36/g3344' && Math.abs(h.y - w.state.y) < 0.01)).toBe(true);
     expect(wadingDepth(map.grid, [w.state.x, w.state.y, w.state.z])).toBe(0);
   }, 120_000);
 });

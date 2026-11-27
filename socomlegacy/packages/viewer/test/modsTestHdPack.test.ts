@@ -242,3 +242,20 @@ describe('ML-12: the MODS screen\'s temporary button (TEST_HD_PACK_BUTTON_ADAPTA
       'hdTexturePackServed.ts', 'hdTexturePackStore.ts', 'packs/registry.ts']);
   });
 });
+
+describe('LATER 1135: a failed download is told apart from a bad file, and the next try resumes', () => {
+  it('a payload request failing every time is DOWNLOAD_FAILED with the resume words; the second try installs', async () => {
+    const pack = await servedPack(), hd = memoryHdStore(), api = createPackRegistry(registryOptions(hd));
+    const good = server(pack.files).fetcher;
+    const isPayload = (u: string): boolean => !/current\.json$|manifest\.json$/.test(u);
+    const failing = (async (u: string, i?: RequestInit) => { if (isPayload(u)) throw new TypeError('Failed to fetch'); return good(u, i); }) as typeof good;
+    const err = await api.hd.installFrom(servedHdSource(failing, undefined, { sleep: async () => {} })).catch((e: unknown) => e) as { code?: string; message?: string };
+    expect(err.code).toBe('DOWNLOAD_FAILED');
+    expect(err.message).toMatch(/^The HD pack could not be downloaded \(.+, after several tries\)\. What was fetched is kept: try again to resume\.$/);
+    expect(await api.hd.list()).toBeNull();
+    const asked: string[] = [];
+    const result = await api.hd.installFrom(servedHdSource((async (u: string, i?: RequestInit) => { asked.push(u); return good(u, i); }) as typeof good, undefined, { sleep: async () => {} }));
+    expect(result).toMatchObject({ id: `hd:${pack.id}`, kind: 'hd', stored: true });
+    expect(asked.some((u) => /manifest\.json$/.test(u))).toBe(true);   // the pointer and the manifest are read again to check the pack
+  });
+});

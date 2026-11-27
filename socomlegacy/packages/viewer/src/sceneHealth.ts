@@ -193,8 +193,12 @@ export type BlastSkipGroup = 'healthy-group' | 'target-subtree';
  *   does, and it leaves every other DEMOLITION base's result as it was (the sweep, `bombPlantSweep.parity.test.ts`).
  *   Beyond the bases it widens 36 of the disc's 534 destructibles' skips (`blastSkipWiden.parity.test.ts`, pinned), and
  *   changes the answer for two others: MP73's `destroy_comm_wall` (shield 21; a sphere of 192 lines 180 -> 190) and MP9's
- *   `big_shack_destroy` (shield 45; 164 -> 187). Neither is reachable today: only MPBOMB's 50 beats those shields, and
- *   neither map plays DEMOLITION. Single-player M53 `access1` and M62 `destroy_plane` widen with no line changed.
+ *   `big_shack_destroy` (shield 45; 164 -> 187). Only MPBOMB's 50 beats those shields. MP73 plays no DEMOLITION; MP9
+ *   does (missionlist TYPE 2 -- X14 corrected "neither map plays DEMOLITION"), and its SEAL base's plant site (where the
+ *   Terrorists plant) lies inside the shack's box: from that site's node and an unwalked ring about it the bomb's line
+ *   reaches the shack under both readings alike (119 of 121 points, `mp9ShackBlast.parity.test.ts`), so the choice
+ *   changes nothing there that this instrument shows. Single-player M53 `access1` and M62
+ *   `destroy_plane` widen with no line changed.
  * Settles it: H371's capture (whether Night Stalker's terrorist tent burns), or the `+0x30` / byte `+1` node traced to
  * the record's program reference.
  */
@@ -216,16 +220,20 @@ export function blastSkipPath(d: Pick<SceneDestructible, 'targetPath' | 'root' |
 }
 
 /**
- * BLAST_REACH_LINE_SIDES_READING (research 386 §3.2 and §8; review 3 F1): the sides of a blast's line to a destructible
- * (`blastLine`). By the reading it is one-sided, as the line to a head is (`./net/blast` `blastSeen`): `FUN_003c80e0`'s ray
- * queues through the same `FUN_0031dd90` batch (`FUN_003c7ee0` D:L319056), which `FUN_002d3030` runs in the hull
- * colliders' mode 0x20 (D:L175276-175281; research 281 §4.3) [reading: kept two-sided here, a known departure, because
- * the one-sided line re-pins reviewed scene sweeps -- B194's base reach on every Demolition map (`blastSkipWiden`,
- * `bombPlantSweep`), Vigilance's access4 and access5 opening from their witness (AD-5, `accessBarriers`) and the room's
- * one-faced barrier fixtures (`roomBarriers`) -- which is the controller's to size; a capture of a grenade behind a
- * one-faced surface at a barrier (H421) settles it].
+ * BLAST_REACH_LINE_SIDES_READING (research 386 §3.2 and §8; research 430 s3.1; research 281 §4.3; LATER 1087 (b)): the
+ * sides of a blast's line to a destructible (`blastLine`) -- ONE-SIDED, as the line to a head is (`./net/blast`
+ * `blastSeen`). `FUN_003c80e0`'s ray queues through `FUN_0031dd90` (`FUN_003c7ee0` D:L319056, record type 2), drained by
+ * `FUN_002d3cf0` into the batched `FUN_002d3030`, which takes the crossing mode per collider (D:L175277-175282): 0x30
+ * (two-sided) only for a collider with `+0x80` bit 1 -- the particle box of `FUN_0032ad20` and the SEAL's body, never map
+ * geometry -- and 0x20 (one-sided) for the hull's (`FUN_00316e30` clears bit 1, D:L215827-215828). So a map face stops the
+ * line only when met from its front. Settled by the second reader's hand decode of the VU0 microcode and its fresh review
+ * (`reviews/later1087-decode-review.md`, PASS WITH FINDINGS, high); the controller's ruling (A) of 2026-11-15 (two-sided
+ * until this reading) superseded. Re-pinned with it, each with its A/B: B194's base reach (`bombPlantSweep`,
+ * `blastSkipWiden`, `mp9ShackBlast`), Vigilance's access4 and access5 from their witness (`accessBarriers`), the room's kerb
+ * fixture (`roomBarriers`), WM-29's x 0.7 (`roomBlastRestStart`). Owed for proven: the rig (MP6's bar, the agent-mail spot
+ * note `later1087-rig-spot-coreA.md`; `sceneLineOneSided.devdisc.test.ts` holds the reading).
  */
-export const BLAST_REACH_LINE_SIDES_READING = 'two-sided' as 'two-sided' | 'one-sided';
+export const BLAST_REACH_LINE_SIDES_READING = 'one-sided' as const;
 
 /**
  * `reachGate` on the segment from `from` to `to` over `grid` (`REACH_HITS_READING`): `penetration` gives a polygon's
@@ -235,9 +243,9 @@ export const BLAST_REACH_LINE_SIDES_READING = 'two-sided' as 'two-sided' | 'one-
 export function blastLine(grid: Grid, from: V3, to: V3, targetPath: string, radius: number, penetration: (p: WorldPoly) => number, ignore?: string): boolean {
   // `segmentHits` asks `accept` of each owner's polygons in its surface order: the count is that order. LATER 416: the
   // blast ray queues through `FUN_0031dd90` as a round's segment does (`FUN_003c7ee0` D:L319056), so the batch's class
-  // admits what the round's does (`roundAdmits`: the camera-only faces passed). BLAST_REACH_LINE_SIDES_READING: two-sided.
+  // admits what the round's does (`roundAdmits`: the camera-only faces passed). BLAST_REACH_LINE_SIDES_READING: one-sided (LATER 1087).
   const order = new Map<WorldPoly, number>();
-  const hits = segmentHits(grid, from, to, (p) => { order.set(p, order.size); return roundAdmits(p); }, undefined, BLAST_REACH_LINE_SIDES_READING === 'one-sided');
+  const hits = segmentHits(grid, from, to, (p) => { order.set(p, order.size); return roundAdmits(p); }, undefined, 'blast');   // BLAST_REACH_LINE_SIDES_READING (the one mode since LATER 1252)   // WM-29
   const first = new Map<CollisionOwner, SegmentHit>();
   for (const h of hits) {
     if (under(h.owner.path, targetPath)) continue;

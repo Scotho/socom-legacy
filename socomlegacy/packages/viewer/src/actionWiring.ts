@@ -302,7 +302,7 @@ export function observeCommands<C, F>(
 
 /**
  * The mounted gun's interval between rounds, as the room's cadence takes it (`match/src/room.ts` `turretRound`, BL-1): the
- * record's fastest enabled mode (`FUN_005c09f0`: `FireWait`, x 0.8 in burst and automatic), never above `FireWait` --
+ * record's fastest enabled mode (r0004 0x5c76f0: `FireWait` x 0.8 in burst and automatic), never above single's x 1.2 --
  * `./net/fireGate` `fastestWait`, the one copy the room's gate and the page's share (P3-room, the review's F2); null
  * without a record (the room fires none either).
  */

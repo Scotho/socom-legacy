@@ -83,6 +83,7 @@ export const SERVER_FIRST: readonly string[] = [
   'ws', 'health', 'rooms', 'maps', 'replays', 'account', 'lobby', 'clan', 'texts', 'modern', 'metrics', 'hosts', 'api', 'dev', '.well-known',
   'experimental-packs',
   'client-errors',   // the client error beacon (part B): central's intake, on the box only (the Worker's /api/client-error is under 'api')
+  'operator',   // central's operator surface (OPS-B1): on the box only, its own bearer; an operations adaptation
 ];
 
 /** Static files the site serves under the base besides the build's own (`RESERVED_ROUTE_SEGMENTS`): the startup page's. */

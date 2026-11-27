@@ -138,16 +138,16 @@ describe('the connection line, and the retry', () => {
     }
   });
 
-  it('reconnects a reached match at once, then 2, 4 ... 10 s, and 2, 4 ... 60 s to a server never reached', () => {
-    expect([0, 1, 2, 3, 4, 5].map((n) => retryDelayMs(n, true))).toEqual([0, 2000, 4000, 8000, 10000, 10000]);
+  it('reconnects a reached match at once, then 1.5 s apart 16 times, then 10 s (LATER 359), and 2, 4 ... 60 s to a server never reached', () => {
+    expect([0, 1, 2, 3, 16, 17, 30].map((n) => retryDelayMs(n, true))).toEqual([0, 1500, 1500, 1500, 1500, 10000, 10000]);
     expect([0, 1, 2, 3, 4, 5, 9].map((n) => retryDelayMs(n, false))).toEqual([2000, 4000, 8000, 16000, 32000, 60000, 60000]);
   });
 
   // 2026-09-30, the owner's play test: Online = Local with no server on 8787 read only "server unreachable".
-  it('a local server never reached: retried every 3 s (no backoff); once reached, at once then 2 ... 10 s', () => {
+  it('a local server never reached: retried every 3 s (no backoff); once reached, at once then 1.5 s ... 10 s (LATER 359)', () => {
     expect(LOCAL_RETRY_MS).toBe(3000);
     expect([0, 1, 2, 5, 20].map((n) => retryDelayMs(n, false, true))).toEqual([3000, 3000, 3000, 3000, 3000]);
-    expect([0, 1, 4].map((n) => retryDelayMs(n, true, true))).toEqual([0, 2000, 10000]);
+    expect([0, 1, 4, 17].map((n) => retryDelayMs(n, true, true))).toEqual([0, 1500, 1500, 10000]);
     // 0 is "not scheduled yet": a wait of 0 at clock 0 must still come due, or the page reschedules forever.
     expect(retryDueAt(0, 0)).toBeGreaterThan(0);
     expect(retryDueAt(1_000, 0)).toBe(1_000);

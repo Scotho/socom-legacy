@@ -17,6 +17,7 @@ import { liveLoadouts } from './loadouts';
 import { launcherState } from '../../modern/launcherState';
 import { liveMic } from './mic';
 import { liveOptions, type OverlayButtonBinding } from './options';
+import { OVERLAY_HOME_BUTTON, overlayButtonName, readOverlayButton, saveOverlayButton } from '../../overlayButtonSetting';   // the saved value alone: no overlay under console/ (MU2-10c)
 import { livePad } from './pad';
 import { liveProfile } from './profile';
 import { noteServerDetail } from '../../modern/report/serverDetail';
@@ -36,6 +37,16 @@ import { liveDiscShare } from '../../discShare';
 import { readShareHostToken } from '../../discShareView';
 import { discShareSignal } from '../../discShareSignal';
 import { accountServiceBase } from '../../connectHost';
+
+/**
+ * B-84 (a browser adaptation): the launcher's own Overlay button row -- the same saved setting the overlay reads
+ * (`../../overlayButtonSetting`), so a pad that cannot open the overlay can still rebind it. Names follow the first
+ * connected pad, as at hand.
+ */
+function pageOverlayButton(pads?: PadSource): OverlayButtonBinding {
+  const padId = (): string => { try { return connectedPads(pads ?? globalThis.navigator ?? {})[0]?.id ?? ''; } catch { return ''; } };
+  return { home: OVERLAY_HOME_BUTTON, read: readOverlayButton, save: saveOverlayButton, name: (b) => overlayButtonName(b, padId()) };
+}
 
 /**
  * The console launcher's adapters (slice 2): what the server and the emulator report, through the page's own readers
@@ -65,7 +76,7 @@ export function liveAdapters(doc: Document, win: Window): Adapters & { dispose()
   const custom = liveCustomMatches(doc, notify, { base: lobbyBase(win), page: win, missions: () => rooms.missions() });
   // CX-15: Watch opens the viewer over this page; its lock's words read the disc.
   const replays = liveReplays(notify, { session, doc, disc: () => disc.state() });
-  const options = liveOptions(notify, { pad, signedIn: () => session.state() === 'signed-in', kept: { info: () => disc.kept(), forget: () => disc.forgetKept() }, share: true });
+  const options = liveOptions(notify, { pad, signedIn: () => session.state() === 'signed-in', kept: { info: () => disc.kept(), forget: () => disc.forgetKept() }, share: true, overlayButton: pageOverlayButton() });
   // CX-LOADOUTS: the Armory's loadouts, over the page's session and the disc this page opened (the disc store's readers).
   const loadouts = liveLoadouts(notify, { session, launcher: launcherState(doc), win });
   // CX-PERSONA: the Profile's Persona and Service record over the page's session, card and settings.
@@ -149,7 +160,7 @@ export function overlayAdapters(innerDoc: Document, pageWin: Window, deps: Overl
   const notify = (): void => { for (const cb of [...subs]) cb(); };
   const session = deps.session;
   const disc = overlayDisc(deps.state, notify, deps.servedTree);
-  const pad = livePad(notify, { source: deps.pads });
+  const pad = livePad(notify, { source: deps.pads, heldSpent: true });   // WM.R7: held at the open, spent (`settle`)
   const mic = liveMic(notify);
   const card = liveCard();
   const signIn = liveSession(notify, { session });
@@ -170,7 +181,7 @@ export function overlayAdapters(innerDoc: Document, pageWin: Window, deps: Overl
     } catch { return []; }
   };
   const options = liveOptions(notify, { pad, launcher: deps.state,
-    ...(import.meta.env.DEV && deps.servedTree?.() ? { readDefaults: () => readGlobalValves(new HttpAssetSource(`${import.meta.env.BASE_URL}maps/`)) } : {}), pads: padKeys, signedIn: () => session.state() === 'signed-in', ...(deps.overlayButton ? { overlayButton: deps.overlayButton } : {}), videoPicture: deps.videoPicture ?? false });
+    ...(import.meta.env.DEV && deps.servedTree?.() ? { readDefaults: () => readGlobalValves(new HttpAssetSource(`${import.meta.env.BASE_URL}maps/`)) } : {}), pads: padKeys, signedIn: () => session.state() === 'signed-in', overlayButton: deps.overlayButton ?? pageOverlayButton(deps.pads), videoPicture: deps.videoPicture ?? false });
   const frameWin = innerDoc.defaultView ?? pageWin;
   const remap = liveRemap(frameWin, pad, { pads: deps.pads, now: () => pageWin.performance.now() });
   const controls = liveControls(pad, { touch: touchDevice, keyboard: () => import.meta.env.DEV });

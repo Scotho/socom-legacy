@@ -4,7 +4,7 @@ import { bridgeEdges, bridgeFaces } from '../../src/forge/geometry/ops';
 import { box, plane, type PrimitiveOptions } from '../../src/forge/geometry/primitives';
 
 /**
- * A level editor's Bridge (`src/forge/geometry/ops` `bridgeFaces`, `bridgeEdges`; a browser adaptation, the owner 2026-11-18):
+ * A level editor's Bridge (`src/forge/geometry/ops` `bridgeFaces`, `bridgeEdges`; a browser adaptation, the Forge's owner (crispy, OT.R112), 2026-11-18):
  * two faces joined by a tunnel of new faces, the two removed; two edges joined by one face. Each new face takes its
  * source's object (group) and, on a hull, its collision words by its own facing (`floorOrWall`).
  */

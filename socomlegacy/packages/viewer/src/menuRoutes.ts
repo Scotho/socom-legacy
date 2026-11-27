@@ -30,11 +30,34 @@ import {
  *   with `replaceState(history.state, '', pathname + search + hash)`, keeping the path and this module's state key, so
  *   neither undoes the other.
  *
+ * - **Back cannot leave a game** (`HISTORY_TRAP_IN_GAME_ADAPTATION`): while `inGame` answers true, a Back or a Forward
+ *   is refused -- the entry put back, nothing switched, `refused` told.
+ *
  * At `<base>/testroom` the page never reaches this module (`./pageEntry` loads the viewer there, OT.R19).
  */
 
 /** The key this module keeps in `history.state` (beside any other the page keeps there). */
 export const MENU_ROUTE_STATE_KEY = 's2uMenuRoute';
+
+/**
+ * HISTORY_TRAP_IN_GAME_ADAPTATION (ROUTE-GUARD, v0.4.32; product track, a browser adaptation -- the original has no
+ * address bar and no browser Back): while a game is on -- `MenuRoutesOptions.inGame`, which the front end answers from its
+ * own game state (`./historyTrap` `gameHeld`: the game lobby's socket joined, `GameSocketHost.joined`, from its welcome through
+ * the GAME LOBBY; then `LobbyMatch.phase` 'loading' or 'match'), whichever engine mounts the match -- the browser's Back
+ * and Forward are refused: a Back puts the game's entry back on top (`pushState`, so the next Back is refused again and
+ * the page is never left by it), a Forward sends the browser back as a guarded Forward is, nothing is switched, and the
+ * page says so (`refused`: `./historyTrap`'s notice, the page's own line, never the game's). Without it a Back in the
+ * GAME LOBBY was a PREVIOUS_SCREEN out of it that skipped its `exit_lobby` (FlushMenuHistory, the #362 confirm, #363 and
+ * `DisconnectFromGameServer`), leaving the screen with the seat still held; one in the load or the match waited and was
+ * driven at the return. On an Xbox, holding the pad's View button is Edge's Back. The game's own leaves -- TRIANGLE's
+ * `exit_lobby` through its confirm, ABORT, the game's end, a final close, the session lost -- are the game's own
+ * switches, never refused; each ends the game (the socket closed, the match over), so the guard falls with it, and the
+ * router is then exactly as without it; a Back already owed when the game came on is dropped, never driven. The page's
+ * stop removes the listener and the notice (`stopped`). Armed only once a game socket is welcomed, which only the front
+ * end's is, after the launcher's START hand-off (`./console/history.ts`'s `LauncherNav`): the launcher's history is never
+ * touched. Changes nothing the game does.
+ */
+export const HISTORY_TRAP_IN_GAME_ADAPTATION = "while a game is joined, loading or in a match, the browser's Back and Forward are refused and the page says so" as const;
 
 /** An entry's route: its index among this page's entries, and the route key of every entry up to it. */
 export interface MenuRouteState {
@@ -65,6 +88,12 @@ export interface MenuRoutesOptions {
   guards?: RouteGuards;
   /** False once the front end is gone: the adapter stops (no write, its listener removed). */
   alive?: () => boolean;
+  /** `HISTORY_TRAP_IN_GAME_ADAPTATION`: a game is on, so the browser's Back and Forward are refused; absent, never. */
+  inGame?: () => boolean;
+  /** `HISTORY_TRAP_IN_GAME_ADAPTATION`: told at each refused Back or Forward (the page's notice). */
+  refused?: () => void;
+  /** `HISTORY_TRAP_IN_GAME_ADAPTATION`: told once at the page's stop (`stop`), so the notice goes with it. */
+  stopped?: () => void;
 }
 
 /** A segment no route has: what a path outside the base, or one that will not decode, reads as. */
@@ -181,6 +210,7 @@ export class MenuRouter {
     this.stopped = true;
     this.pending = null;
     this.o.win.removeEventListener('popstate', this.onPop);
+    this.o.stopped?.();
   }
 
   private live(): boolean {
@@ -210,12 +240,17 @@ export class MenuRouter {
     this.machine.host.dispatch(switchCommand(target));
   }
 
+  /** `HISTORY_TRAP_IN_GAME_ADAPTATION`: a game is on. */
+  private trapped(): boolean { return this.o.inGame?.() === true; }
+
   /** After each frame: drive the manager towards a Back / Forward entry, else mirror its stack into the address. */
   sync(): void {
     if (!this.live()) return;
     const obs = this.observe();
     if (!obs) return;
     const key = routeKey(obs);
+    // HISTORY_TRAP_IN_GAME_ADAPTATION: a Back or Forward owed from before the game came on is given up, never driven.
+    if (this.pending && this.trapped()) { this.abandon(key); return; }
     if (this.pending && this.drive(obs, key)) return;
     // A pass-through on top is no screen of its own: the key drops it, so the address is its parent's (`/` while the
     // boot's cinematics play, BOOT-04; `/main` across dlgMPswitch, whose key is the menu's -- no write either way).
@@ -303,6 +338,7 @@ export class MenuRouter {
     const ignore = this.ignore;
     this.ignore = null;
     if (st && ignore !== null && st.depth === ignore) return;
+    if (this.trapped()) { this.refuse(st); return; }
     if (!st) {
       // An entry made without this module (a fragment link): the next entry, showing where the manager is.
       this.depth += 1;
@@ -323,6 +359,22 @@ export class MenuRouter {
     this.trail = st.trail;
     if (this.current && same(target, this.current)) { this.pending = null; return; }
     this.pending = { target, last: null };
+  }
+
+  /**
+   * `HISTORY_TRAP_IN_GAME_ADAPTATION`: the browser's move refused while a game is on -- a Forward sent back (as a guarded
+   * Forward is, its `popstate` ignored once); a Back, or a move to an entry this module did not make, answered by the
+   * game's entry pushed back on top (one `pushState`: no second `popstate`), the address the game's. Nothing switched.
+   */
+  private refuse(st: MenuRouteState | null): void {
+    this.pending = null;
+    if (st && st.depth > this.depth) {
+      this.ignore = this.depth;
+      this.o.win.history.go(this.depth - st.depth);
+    } else {
+      this.write('push', this.current ? routeSegments(this.current) : this.plan.segments);
+    }
+    this.o.refused?.();
   }
 }
 

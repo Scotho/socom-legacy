@@ -4,6 +4,7 @@ import { applySceneDeath, applySnapshotWorld, JOIN_SILENT_READING, revisionNewer
 import { SeatToldBoard } from '../net/seatTold';
 import { SeatClanBoard } from '../net/seatClans';
 import type { VoiceDown } from '../net/voiceWire';
+import type { PageShot } from '../net/shotLedger';
 import {
   BodyFlag, epochNewer, INTERP_DELAY_MS, TICK_HZ, VIEW_SINCE_PROTOCOL,
   type BodyState, type ClientEvent, type CombatReport, type CraneWire, type DoorWire, type EnvWire, type HostageWire, type Role, type ServerEvent, type Team,
@@ -221,6 +222,11 @@ export class ReplayClient implements NetClientSurface {
   /** OBF-20 (`NetClient.requestFloor`): a replay watcher sends no Chat menu request, so its floor stays 0. */
   requestFloor(_kind: 'taunt' | 'communication'): number { return 0; }
   queue = 0;
+  /** SEAT_CLAIM_ADAPTATION: a replay is no room -- no claim offered (`NetClient.seats`). */
+  readonly seats = null;
+  readonly seatComing = false;
+  readonly seatedByClaim = false;
+  seatClaim(_on: boolean): void { /* no room: nothing claimed */ }
   rtt = 0;
   readonly corrections = { small: 0, snapped: 0, largest: 0, facing: 0, largestFacing: 0 };
   /** Settles once the segment is open or refused. */
@@ -934,6 +940,8 @@ export class ReplayClient implements NetClientSurface {
   roomSecondsDead(): number | null { return null; }
   lastSeq(): number { return 0; }
   combatReport(): { events: CombatReport[]; dropped: number } { return { events: [], dropped: 0 }; }
+  /** SHOT-LEDGER, an adaptation (a playtest instrument; it never changes the game): a replay records no page shots. */
+  notePageShot(_shot: PageShot): void { /* a watcher sends no rounds */ }
   /** NU-3c (`NetClient.healthOf`): a recording holds no `health` event (research 321 section 4.2.1), so a replay's bar stays empty. */
   healthOf(_id: number): number | null { return null; }
 }

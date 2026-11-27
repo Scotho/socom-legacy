@@ -182,9 +182,9 @@ describe('mountActions: the action button and its pages, one part', () => {
         node: 'lever', path: LEVER, at: [0, 0, 10], type: 'SWITCH', typeCode: 2, valve: '', anims: [], team: null,
         range: 1000, elevation: -1, points: 0, ...o,
       };
-      // FC2 (ours): the action page now asks `world.actionUsed` (his USED_SWITCH_PROMPT_ADAPTATION); the stand-in answers
-      // as `WorldState.actionUsed` does when nothing was used this round.
-      return { grid, meta: { actions: [record] }, valve: () => 0, actionUsed: () => false, revision: 0 };
+      // FC2 (ours): the action page asks `world.actionRefusal` (LATER 976: FUN_002b46f0's gate, and the Forge's
+      // USED_SWITCH_PROMPT_ADAPTATION); the stand-in answers as `WorldState.actionRefusal` does when nothing runs or was used.
+      return { grid, meta: { actions: [record] }, valve: () => 0, actionUsed: () => false, actionRefusal: () => null, revision: 0 };
     };
     const offer = (o: { bitmap: string; descriptor: string }) => {
       const r = rig({ world: () => world(o) as never });
@@ -396,7 +396,10 @@ describe("PAR-59 (research 215 s8): the MGL turret's trigger -- the claim the ro
     run(1 / 60, true);
     expect(sent).toEqual([expect.objectContaining({ type: 'fire', viewTick: 3, shownTick: 1.5 })]);
     (client as unknown as { shownTick(): number | null }).shownTick = () => null;
-    run(1.1, false);
+    // FIREWAIT3 re-pin: was run(1.1) -- r0001's 1 s wait. r0004's GetFireDelay (0x5c76f0) scales the MGL's FireWait 1 by 1.2
+    // in its mode 1 (research 84 s6; keyjob-firewait-classes-read s2 (1): the turret is a kit slot, mode 1): 1.2 s, 72 page
+    // frames, so 1.1 s + 1 frame (67) sits inside it; 1.25 s (75) is past it.
+    run(1.25, false);
     run(1 / 60, true);                                               // a new pull, past the wait
     expect(sent).toHaveLength(2);
     expect('shownTick' in sent[1]!).toBe(false);
@@ -416,6 +419,19 @@ describe("PAR-59 (research 215 s8): the MGL turret's trigger -- the claim the ro
     expect(acts.pageHands.heldPulls()).toBe(sent.length);
     acts.trigger(false);
     expect(acts.pageHands.heldPulls()).toBe(0);
+  });
+
+  // LATER 1427 review F1: the bomb's own plant and manual drop play `Place claymore` outside the core (`BombPage`'s
+  // `startOwnClip`); the part hands the page's ask (`BombPage.ownPlacingClip`) to the firearm through `actionHands`.
+  it("LATER 1427 review F1: pageHands.placingClip is the bomb page's own placing clip, forwarded by actionHands", () => {
+    const { acts } = seated('PKM TURRET');
+    const own = vi.spyOn(acts.bomb, 'ownPlacingClip').mockReturnValue(false);
+    const hands = actionHands(() => acts);
+    expect(acts.pageHands.placingClip()).toBe(false);
+    expect(hands.placingClip()).toBe(false);
+    own.mockReturnValue(true);
+    expect(acts.pageHands.placingClip()).toBe(true);
+    expect(hands.placingClip()).toBe(true);
   });
 
   // TRIGGER-SWAP fold's review F1: a press the release clip took (LATER 109, TURRET_RELEASE_ACTIONS_PLACEHOLDER) is the
@@ -446,7 +462,7 @@ describe("PAR-59 (research 215 s8): the MGL turret's trigger -- the claim the ro
     expect((sent[0] as { shownTick?: number }).shownTick).toBe((sent[0] as { viewTick: number }).viewTick);
   });
 
-  it("mounted on MGL FRAG TURRET, a press sends the turret's claim (the PKM's command) and draws the room's round of the 230 record; held, nothing more -- SINGLE, one round a pull (FUN_005c0940, FUN_005c0ae0 D:L476438-476439); a new pull waits out FireWait 1 s (D:L476446-476448)", () => {
+  it("mounted on MGL FRAG TURRET, a press sends the turret's claim (the PKM's command) and draws the room's round of the 230 record; held, nothing more -- SINGLE, one round a pull (FUN_005c0940, FUN_005c0ae0 D:L476438-476439); a new pull waits out FireWait 1 s x 1.2 (r0004 0x5c76f0; D:L476446-476448)", () => {
     const { sent, drawn, run, place } = seated('MGL FRAG TURRET');
     run(1 / 60, true);
     // TURRET-CONE P2: the claim is the page's own round -- from the firepoint at the aim, down the gun's line (no spread set)
@@ -461,7 +477,16 @@ describe("PAR-59 (research 215 s8): the MGL turret's trigger -- the claim the ro
     run(1 / 60, false);
     run(0.5, true);                                                  // a pull inside FireWait: held, it fires at the wait's end
     expect(sent).toHaveLength(2);
-    run(0.5, true);
+    // FIREWAIT3 re-pin: was run(0.5) -- r0001's 1 s wait (1 + 1 + 30 + 30 = 62 frames from the second claim). r0004's x 1.2
+    // in mode 1 (0x5c76f0, research 84 s6; the classes read s2 (1)): 1.2 s, 72 frames, so the second half-second ends inside
+    // the wait; 0.7 s (42 frames, 74 in all) is past it.
+    // FIREWAIT check F1 (the discriminating step): 34 frames more is 66 frames from the second claim, 1.1 s -- past r0001's
+    // FireWait 1 s (60 frames, `FUN_005c09f0` D:L476313-476341, where the held pull would have fired) and inside r0004's
+    // 1 s x 1.2 = 1.2 s (72 frames; 0x5c76f0 mode 1, research 84 s6; the classes read and its review s1 claim 3e: the MGL
+    // FRAG TURRET's mode word 1, no ReloadAfterShot, so no pump lock). Still held, still refused: no third claim yet.
+    run(34 / 60, true);
+    expect(sent).toHaveLength(2);
+    run(8 / 60, true);                                               // 74 frames in all, past r0004's 72: it fires
     expect(sent).toHaveLength(3);
     expect(drawn).toEqual([230, 230, 230]);
   });
@@ -472,7 +497,9 @@ describe("PAR-59 (research 215 s8): the MGL turret's trigger -- the claim the ro
     run(1 / 60, true);
     expect(sent).toHaveLength(0);
     client.state = 'open';
-    run(1.1, true);                                                  // held on, past the cadence's wait: the pull is still unspent
+    // FIREWAIT3 re-pin: was run(1.1) -- r0001's 1 s. The cadence's wait is r0004's FireWait 1 x 1.2 in mode 1 (0x5c76f0,
+    // research 84 s6; the classes read s2 (1)): 72 frames, past 1.1 s's 66; 1.25 s (75) is past it.
+    run(1.25, true);                                                 // held on, past the cadence's wait: the pull is still unspent
     expect(sent).toHaveLength(1);
   });
 
@@ -644,7 +671,7 @@ describe('one action part: /testroom mounts it and builds none of its pages itse
   it("PF-34: /testroom lends the action part its drops (the prompt's drop ahead), makes them once and clears them with the air; the prompt, the claim and the hold's frames are the part's", () => {
     expect(src('main.ts')).toMatch(/const drops = new WorldDrops\(dropModels\(/);
     expect(src('main.ts')).toMatch(/drops: \{ ahead: \(\) => drops\.promptAt\(walk\.feet\(\), walk\.snapshot\(\)\?\.yaw \?\? 0\), candidates: /);   // PAR-34 group 7: the count beside it
-    expect(src('main.ts')).toMatch(/clearAir: \(\) => \{ throws\.roundStart\(\); drops\.reset\(\); startMenu\.roundStart\(\); regionCull\.reset\(\); \},/);   // LATER 12: the air through the throwables' round start (LATER 415 F2: the region cull's too)
+    expect(src('main.ts')).toMatch(/clearAir: \(\) => \{ throws\.roundStart\(\); drops\.reset\(\); exchangePart\.reset\(\); startMenu\.reset\(\); taunts\.reset\(\); startMenu\.roundStart\(\); regionCull\.reset\(\); \},/);   // LATER 12: the air through the throwables' round start (LATER 415 F2: the region cull's too; LATER 1542: the round's reset closes WEAPON EXCHANGE, START and TAUNTS, held by later1542ForcedClose.test.ts)
     expect(src('matchActions.ts')).toMatch(/pickup: \(\) => \{ const did = dropAhead\(\); const sent = did !== null && \(d\.net\(\)\?\.pickup\(did\) \?\? false\); if \(sent\) walk\.pickupClaimed\?\.\(\); return sent; \},/);   // NU-5 review F3
     expect(src('matchActions.ts')).toMatch(/wiring\.lifecycle\.elapse\(dt, d\.drops\?\.candidates\?\.\(\) \?\? \(dropAhead\(\) !== null\)\);/);   // PAR-34: once per candidate class
     expect(src('main.ts')).not.toMatch(/pickup: \(\)|lifecycle\.elapse/);
@@ -652,11 +679,14 @@ describe('one action part: /testroom mounts it and builds none of its pages itse
   // ACT-1 (ruling ACT.R1, research 250 s1): the front end mounts the same part with the same deps' shape -- `drops` since
   // PAR-4 (H120), after `win` as main.ts's; the `turret` block and `hostages` since ACT-2/ACT-5 -- and builds none of its pages itself either.
   it('matchMount.ts calls mountActions with the same deps shape main.ts does -- doors, traversal, grenade, remote, bombView\'s seven (PB-1: the own body and the sound lent), win -- and makes no RoomEvents, ActionPage, TurretPage, BombPage or ActionWiring of its own', () => {
-    const shape = /mountActions\(\{\s+walk, fly, doors, traversal, grenade(?:: throws\.grenade)?, remote, play, firearm,[^\n]*\n\s+net: \(\) => net, map: \(\) => (?:loaded|map), view: \(\) => view, world: \(\) => [^\n]+\n\s+craneToggle: \(valve\) => cranes\.toggleLocal\(valve\),\n\s+gatePress: \(action, seq\) => gates\.press\(action, seq\), cranePress: \(valve, seq\) => cranes\.press\(valve, seq\),[^\n]*\n\s+bombView: \{\n\s+roundAudio(?:: sound\.roundAudio)?, hud, remotePlayers: remote, effects(?:: firearm\.effects)?, worldBomb: (?:throws\.)?grenade\.worldBomb\(\),\n\s+ownBody: ownBombBody\(play, (?:throws\.)?throwPose, walk, \(\) => firearm\.item\(\) === 'pistol'\),[^\n]*\n\s+sound: bombSound\((?:gameAudio|sound\.audio)\),[^\n]*\n\s+pulse: worldPulse\(\(\) => (?:pageWorld|world\?\.world \?\? null)(?:, \(\) => map\?\.forgeSiteOutlines \?\? \[\])?\),[^\n]*\n\s+\},\n\s+win: /;
+    const shape = /mountActions\(\{\s+walk, fly, doors, traversal, grenade(?:: throws\.grenade)?, remote, play, firearm,[^\n]*\n\s+net: \(\) => net, map: \(\) => (?:loaded|map), view: \(\) => view, world: \(\) => [^\n]+\n\s+craneToggle: \(valve\) => cranes\.toggleLocal\(valve\),\n\s+gatePress: \(action, seq\) => gates\.press\(action, seq\), cranePress: \(valve, seq\) => cranes\.press\(valve, seq\),[^\n]*\n\s+gateLever: \(action, read\) => gates\.present\(action, read\),[^\n]*\n\s+bombView: \{\n\s+roundAudio(?:: sound\.roundAudio)?, hud, remotePlayers: remote, effects(?:: firearm\.effects)?, worldBomb: (?:throws\.)?grenade\.worldBomb\(\),\n\s+ownBody: ownBombBody\(play, (?:throws\.)?throwPose, walk, \(\) => firearm\.item\(\) === 'pistol'\),[^\n]*\n\s+sound: bombSound\((?:gameAudio|sound\.audio)\),[^\n]*\n\s+pulse: worldPulse\(\(\) => (?:pageWorld|world\?\.world \?\? null)(?:, \(\) => map\?\.forgeSiteOutlines \?\? \[\])?\),[^\n]*\n\s+valve: \(name, v\) => \{ (?:pageWorld\?\.|world\?\.world\.)setKeptValve\(name, v\); \},[^\n]*\n\s+\},\n\s+win: /;
     // PB-9b (research 284 s8): an eighth, the bases' pulse on the page's world (`worldPulse`); the title keeps its registry name.
     // P8 (SWITCH_PREDICT_ADAPTATION): the gates' and the hooks' press lent beside the crane's offline toggle, in both.
+    // LATER 307: the gate page's present lent as gateLever (the lever's handles turned on its action), in both.
     // Forge (a browser adaptation, `forge/siteOutlines`): matchMount's pulse also lights the forge sites' donor outlines;
     // main.ts never loads a forge map, so it keeps worldPulse's default (none). The deps' keys are the same in both.
+    // PR #5 (crispy's import, 0ed80a521b): a ninth, `valve` -- the game's round valves on the page's world for a Forge map
+    // script (`matchActions.ts` `gameValves`, research 452) -- lent by both pages, each to its own world's `setKeptValve`.
     for (const f of ['main.ts', 'matchMount.ts']) {
       expect(src(f), f).toMatch(shape);
       expect(src(f), f).not.toMatch(/new (RoomEvents|ActionPage|TurretPage|BombPage|ActionWiring|TurretTrigger)\(/);
@@ -703,6 +733,16 @@ describe('mountActions: the VICTORY DANCE (research 303)', () => {
     expect(sent).toHaveLength(1);                                    // one request until the room answers
     acts.roomEvents.emit({ type: 'victoryOffer', status: 'unsupported-order' });
     expect(acts.pick()).toBeNull();
+  });
+  // RAISE-1577 fix forward (RAISEGATE-WRITER-BP-r0004, a capture: R1 held across a round end re-arms as a fresh edge,
+  // 03 -> 00 -> 02 -> 01): the dance's release lets the trigger go but keeps a held R1's level (`MatchFirearm.rearm`),
+  // where `held()` cleared it and the rifle stayed down into the next round while R1 stayed held (PC 4).
+  it("RED: the dance's release re-arms the firearm's held trigger (`rearm`), not `held()`, which dropped its level", () => {
+    const calls: string[] = [];
+    const firearm = { held: () => { calls.push('held'); }, rearm: () => { calls.push('rearm'); }, fire: { subscribe: () => () => {} } };
+    const { acts } = danceRig({ firearm } as unknown as Partial<MatchActionsDeps>);
+    acts.roomEvents.emit({ type: 'victory', id: 1, serial: 2, clip: 'victory_funky', elapsed: 0 });
+    expect(calls).toEqual(['rearm']);
   });
   it("the room's answer for this seat plays on the body and the mover, the ticks run past `seq`; another seat's is not this part's", () => {
     const { acts, calls } = danceRig();
@@ -786,7 +826,7 @@ describe("PAR-34 group 7 (research 234 s7, PICKUP_HOLD_PER_CLASS_READING): both 
 describe("LATER 109: the trigger held through the own release's reversed clip", () => {
   const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const FLOOR: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) };
   const OWNERS: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const DEG = Math.PI / 180, AFTER = 40;
   const clip = (name: string, keys: number): MotionClip => {
@@ -1282,8 +1322,8 @@ describe('CPS collision step 3: one switch cast per prompt', () => {
       node: 'lever', path: LEVER, at: [0, 0, 10], type: 'SWITCH', typeCode: 2, valve: '', anims: [], team: null,
       range: 1000, elevation: -1, points: 0, bitmap: '',
     };
-    // FC2 (ours): `actionUsed` as `WorldState.actionUsed` answers when nothing was used this round (his new call).
-    return { grid, meta: { actions: [record] }, valve: () => 0, actionUsed: () => false, revision: 0 };
+    // FC2 (ours): `actionRefusal` as `WorldState.actionRefusal` answers when nothing runs or was used (LATER 976).
+    return { grid, meta: { actions: [record] }, valve: () => 0, actionUsed: () => false, actionRefusal: () => null, revision: 0 };
   }
   /** The rig on the lever's world, the feet at z 30, the look ray from each eye in turn (the last one kept) 30 along -z. */
   function lit(eyes: [number, number, number][], world: object = leverWorld()) {
@@ -1332,5 +1372,37 @@ describe('CPS collision step 3: one switch cast per prompt', () => {
     const cast = vi.spyOn(scene, 'segmentHits');
     expect(acts.prompt(true)).toEqual([{ prompt: 'action' }]);
     expect(cast).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('R4P-R2 review 2 F2: the part both pages mount tells the walk the turret set (WalkMode.turretSet)', () => {
+  it('the walk is given the turret set: false on foot, true while held and while the own reversed clip runs, false after', () => {
+    const DEG = Math.PI / 180;
+    const place = {
+      id: 0, root: 'worldmodel/syn_turret', name: 'syn_turret', origin: [0, 0, 0], facing: 0,
+      parts: { turret: 'syn/turret', gun: 'syn/turret/gun', firepoint: 'syn/turret/gun/firepoint' },
+      gunOrigin: [0, 0, 0], firepointOrigin: [0, 0, -5], limits: { yaw: [-70 * DEG, 70 * DEG], pitch: [-45 * DEG, 45 * DEG] },
+      mountRange: 22, mountAngleCos: Math.cos(35 * DEG), weapon: null, ammoInit: 750,
+    };
+    const map = { turrets: [place] } as unknown as LoadedMap;
+    const client = { state: 'open', role: 'player', id: 1, send: () => {}, lastSeq: () => 0 };
+    const { acts, walk } = rig({ map: () => map, net: () => ({ client }) as unknown as NetPage });
+    let tell = null as ((ev: unknown) => void) | null;
+    acts.follow({ on: (l: (ev: unknown) => void) => { tell = l; return () => {}; } } as never);
+    const set = (walk as unknown as { turretSet?: (() => boolean) | null }).turretSet;
+    expect(set, 'the walk was given the turret set').toBeTypeOf('function');
+    expect(set!()).toBe(false);
+    tell!({ type: 'turret', id: 0, occupant: 1, ammo: 750 });
+    expect(acts.turrets.mounted(), 'held').toBe(0);
+    expect(set!()).toBe(true);
+    // The own reversed clip running (`TurretPage.releaseTravelling`, its own test: `r4pR2TurretCycleReview.test.ts`), held no more.
+    const page = acts.turrets as unknown as { ownRelease: unknown; held: number | null };
+    tell!({ type: 'turret', id: 0, occupant: null, ammo: 750 });
+    expect(acts.turrets.mounted(), 'released').toBeNull();
+    page.ownRelease = { seq: 0, travel: null, laid: null, ends: 17, yaw: null };
+    expect(acts.turrets.releaseTravelling()).toBe(true);
+    expect(set!()).toBe(true);
+    page.ownRelease = null;
+    expect(set!()).toBe(false);
   });
 });

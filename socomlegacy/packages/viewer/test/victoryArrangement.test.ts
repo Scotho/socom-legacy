@@ -12,7 +12,7 @@ import { findVictoryArrangement, requireVictoryPlacement } from '../e2e/victoryA
 const actor: VictoryActor = { alive: true, ready: true, team: 'seal', position: [0, 0, 0] };
 function floor(x0 = -100, x1 = 100, z0 = -100, z1 = 100, y = 0) {
   const poly: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1]) };
+    points: Float32Array.from([x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z0]) };
   return buildGrid({ atomCount: 8192, posts: 16, cellDim: 50, cellsX: 4, cellsZ: 4, originX: -100, originZ: -100 }, [], [], [poly]);
 }
 

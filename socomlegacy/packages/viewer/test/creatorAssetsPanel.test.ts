@@ -244,14 +244,19 @@ describe('assets shell registrant with a mock editor (actual page integration ow
     await vi.waitFor(() => expect(r.handles.length).toBeGreaterThan(0)); r.event('dragover', r.viewport);
     await vi.waitFor(() => expect(r.handles.some(handle => vi.mocked(handle.show).mock.calls.length > 0)).toBe(true));
     const ghost = r.handles.find(handle => vi.mocked(handle.show).mock.calls.length > 0)!;
-    if (reason === 'leave') r.event('dragleave', r.viewport);
-    else if (reason === 'escape') r.host.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    // PR #5 (crispy's rewrite, OT.R112): out of the view the ghost is put away and the drag kept (it may still drop on the
+    // Outliner); the staged piece is released when the drag ends (`dragend`, `finish`), no longer at the leave itself.
+    if (reason === 'leave') {
+      r.event('dragleave', r.viewport);
+      expect(ghost.hide).toHaveBeenCalled(); expect(ghost.dispose).not.toHaveBeenCalled();
+      r.event('dragend', r.row());
+    } else if (reason === 'escape') r.host.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     else if (reason === 'hidden') r.instance.visibility?.(false); else r.abort.abort();
     expect(ghost.hide).toHaveBeenCalled(); expect(ghost.dispose).toHaveBeenCalledOnce();
     expect(vi.mocked(ghost.hide).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(ghost.dispose).mock.invocationCallOrder[0]!);
     expect(r.place).not.toHaveBeenCalled(); expect(r.accepted).not.toHaveBeenCalled(); r.instance.dispose();
   });
-  it('keeps the ghost across viewport-child transitions and releases it only on a true viewport exit', async () => {
+  it("keeps the ghost across viewport-child transitions, hides it only on a true viewport exit and releases it at the drag's end", async () => {
     const r = rig(), input = document.createElement('div'), sibling = document.createElement('div');
     r.viewport.append(input, sibling); r.event('dragstart', r.row());
     await vi.waitFor(() => expect(r.handles.length).toBeGreaterThan(0)); r.event('dragover', input);
@@ -261,7 +266,9 @@ describe('assets shell registrant with a mock editor (actual page integration ow
     expect(ghost.hide).not.toHaveBeenCalled(); expect(ghost.dispose).not.toHaveBeenCalled();
     r.event('dragover', sibling); expect(ghost.show).toHaveBeenLastCalledWith([25, 0, 50], .73, true);
     sibling.dispatchEvent(new MouseEvent('dragleave', { bubbles: true, relatedTarget: r.host }));
-    expect(ghost.hide).toHaveBeenCalled(); expect(ghost.dispose).toHaveBeenCalledOnce();
+    // PR #5: the true exit hides the ghost and keeps the drag; its end releases the staged piece (see the case above).
+    expect(ghost.hide).toHaveBeenCalled(); expect(ghost.dispose).not.toHaveBeenCalled();
+    r.event('dragend', r.row()); expect(ghost.dispose).toHaveBeenCalledOnce();
     expect(r.place).not.toHaveBeenCalled(); r.instance.dispose();
   });
   it('uses drag depth to preserve null-relatedTarget transitions between viewport children', async () => {
@@ -276,7 +283,9 @@ describe('assets shell registrant with a mock editor (actual page integration ow
     expect(ghost.hide).not.toHaveBeenCalled(); expect(ghost.dispose).not.toHaveBeenCalled();
     r.event('dragover', sibling); expect(ghost.show).toHaveBeenLastCalledWith([25, 0, 50], .73, true);
     sibling.dispatchEvent(new MouseEvent('dragleave', { bubbles: true, relatedTarget: null }));
-    expect(ghost.hide).toHaveBeenCalled(); expect(ghost.dispose).toHaveBeenCalledOnce(); r.instance.dispose();
+    // PR #5: the last child left hides the ghost and keeps the drag; its end releases the staged piece.
+    expect(ghost.hide).toHaveBeenCalled(); expect(ghost.dispose).not.toHaveBeenCalled();
+    r.event('dragend', r.row()); expect(ghost.dispose).toHaveBeenCalledOnce(); r.instance.dispose();
   });
   it('finishes all teardown when one staged ghost hide throws', async () => {
     const r = rig(); r.focus();

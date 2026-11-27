@@ -3,6 +3,7 @@
 - Date: 2026-10-05 (web sprint 28). PF-17: `motion.rdr`'s `NoFire` read into the motion table and judged at the
   command the round names, on the page and in the room (ruling PF.R36); PF-18: the flinch as room state and the
   reload's lock as the clip's life (ruling PF.R37, s2); PF-19 adds its section (s3) and its rows of s4 and s5.
+  R4P-211 (2026-11-23, r0004's fire gate) adds s6 and its rows of s5 -- reading, pending review.
 - Status: **reading, pending review.** Every value below is a read of the decompilation (`D:L<n>` of
   `socom2_game.elf.decomp.c` r0001) or of the disc's `motion.rdr`, as research 194 A02 gives it and as reread here;
   nothing here is a capture. Research 194 grades its comparator from an executed retail instruction (`scalar.txt`); under
@@ -373,7 +374,11 @@ knock path of `blast()`; `knockOutcome` reads the body the tick it lands, and th
 
 | name | where | status |
 |---|---|---|
-| `NOFIRE_LEAF_AGGREGATE_READING` | viewer `net/fireCapability.ts` | `'top'`: the port plays one clip at a time on the stack and reads it; the original's loop over the top entry's leaves (D:L462695-462705) overwrites its result each leaf (the last leaf's answer stands, not an AND). Owed: the leaf order of a blended top (the crate/medium climb's two nodes) and a capture at a clip boundary |
+| `NOFIRE_LEAF_AGGREGATE_READING` | viewer `net/fireCapability.ts` | `'top'`: the port plays one clip at a time on the stack and reads it; the original's loop over the top entry's leaves (D:L462695-462705) overwrites its result each leaf (the last leaf's answer stands, not an AND). R4P-211 (s6; reading, pending review): `fireAllowed` takes a top's ordered leaves where a caller gives them (`PlayingMotion.leaves`) -- the answer from refused, each leaf replacing it, an empty top refused (r0004 D4:L503765-503777, `FUN_0058fec0` D4:L487564-487582); `motionOf` gives none yet. Owed: the leaf order of a blended top (the crate/medium climb's two nodes) and a capture at a clip boundary (C11) |
+| `R4_TRAVERSAL_NOFIRE_READING` | viewer `net/fireCapability.ts` | reading, pending review (R4P-211, s6): the clips of r0004's six traversal actions refused outright before the timing (`CanFire` 0x5adae0, D4:L503736-503751): `seal_climbcrate`, `seal_climb_medium`, `seal_stand2hang`, `seal_climb_over`, `seal_step_up`, `seal_stand2ladder`, and the anim set's `seal_p_climbcrate`, `seal_p_climb_medium`, `seal_p_stand2hang`, with `seal_p_stand2ladder` (in `motion.rdr`, the golden `motion-rdr.json`; review 1's F6). The reading: the action-to-clip mapping by name and the leaves each action plays. Owed: `motion.rdr`'s NoFire on those leaves and their pistol variants through the repository's reader; capture C11 (a press during each traversal, r0001 against r0004) |
+| `FIRE_PLACED_CHARGE_HAND_READING` | viewer `net/fireCapability.ts` | reading, pending review (R4P-211, s6; *was* `FIRE_C4_HAND_READING`, `{ itemClass: 0x97, handByte: 4 }` read as C4 alone -- replaced at review 1's F1): `{ itemClass: 0x97, handByte: 4 }`, the PLACED-CHARGE CLASS -- the gate compares `FUN_003d1e10` of the kit's current item (D:L462690-462691), `FUN_003d1a60` of the id byte `+0x7c` (D:L324460-324465), which files every id 0x97-0xaa under 0x97 (D:L324345-324346; the port's `weaponCategory`): C4 0x97, the satchel 0x98, the claymore 0x99, MPBOMB 0x9a, the PMN 0x9e. r0001 asks the class only under the action predicates `FUN_00587f50` / `FUN_00587f10` (the jump, the landings; D:L462687-462693) -- not in `fireAllowed` (`NOFIRE_EQUIPMENT_CLASS_READING`, `ACTION_GATE_C4_AIR_READING`); r0004 also enters the compare with the hand byte `+0xf79` at 4 (D4:L503756-503766), the byte 4 read as the raised launcher (`FUN_005a6d30` D:L462119). OPEN: no caller tells `fireAllowed` the held id and hand byte (the placing start asks no fire gate in the port); owed: that wiring (research 392 s3 (a)) and the class-0x97 hand-state-4 case in capture C11. Owner: LATER 1482, seat-shots |
+| `R4_PLACE_NOFIRE_READING` | -- | *note only* (R4P-211, s6): the claymore's and the PMN's `Place claymore` and `Pistol place claymore` leaves, which is last, and the phase on a re-press; and the claymore's r0004 outcome on a re-press inside its 1.3 s (r0004 0x5c5550 has no `+0x87c` test on the claymore's branch, D4:L517003-517028; whether a re-press reaches it is open). The page places once (`GrenadeThrower.startPlacing` refuses while `placing`), pinned by `r4p211FireGate.test.ts` -- green from its first commit, a pin, not R4B-08a's red. R4B-08a and L48 stay OPEN: r0004's action-start check before both pushes (`MINE_PLACE_ACTION_GATE_R0004_READING`, r4 0x5ba680, research 392 s3) is not ported. Owed: capture C22 (the re-press at 0.3, 0.7 and 1.1 s, both mines, both builds). Owner: LATER 1483, seat-shots |
+| `R4_PEEK_TOSS_FIRE_READING` | -- | *note only* (R4P-211, s6; review 1's F2): r0004's throw term in `CanFire` (`IsThrowing(actor, 0)`, D4:L503648-503650, D4:L503688) holds the pistol peek tosses; the port carries it in the common gate's top (`Walker.throwOnTop`: `gateTop`, the climb's and the dance's offers) but NOT in `fireAllowed` -- a throw term there would refuse honest throws, since the room's throw start (`room.ts` `takeThrowStart`, its 'nofire') and the page's release (`grenadeCore.ts` `startThrow`'s `noFireRefuses`) read the same `fire`. A firearm's round during a toss is refused by the port's own item gate (the hand holds the throwable), not pinned here. Settles: capture C11's peek-toss trials (the fire gate's return and the throw request under a pistol peek toss) and a read of which of the throw's own requests ask the throw term at their own frame. Owner: LATER 1484, seat-shots |
 | `NOFIRE_ABSENT_READING` | viewer `net/fireCapability.ts` | `'open'`: a clip with no `NoFire` (the loader's 0) never refuses; the comparator's strict `phase > 0` refuses only the push's own instant, which the port's landing (pushed after its tick's clock ran) would hold for a whole tick. Owed: a capture of a round at a soft landing's first frame |
 | `NOFIRE_STATE_READING` | viewer `traversal.ts` | the ladder moves (state 5) and the hang moves (state 4, research 86) refuse whatever the clip; the climbs onto obstacles and the dive are left to their clips (bare); the peek (state 3) fires. Owed: a read of the state each move writes (`actor+0x174`) or a capture |
 | `NOFIRE_PHASE_READING` | viewer `net/fireCapability.ts` | `'stack'`: the phase is the stack's, the run `t / (playback x (n - 1) / n)` forward and `(n - 1) / n - run` backwards (`Walker.clipVelocity`'s convention), as `NoInterrupt`'s (`FUN_00587c20` D:L445553-445570 reads the same `+0x1c`); not `t / seconds`. Owed: a read of `+0x1c`'s writer (`FUN_0028c4f0`) against the one-shot's end |
@@ -386,3 +391,49 @@ knock path of `blast()`; `knockOutcome` reads the body the tick it lands, and th
 | `KNOCK_COVER_RELOAD_READING` | viewer `net/blast.ts` (server) | `'refused'`: a reload inside `Prone cover` is dropped `'proneCover'` by the room and refused by `WalkMode.knockCovered()` on the page; the reload's gates as read (`FUN_005c2a90`, bit 0x4) do not name bit 0x2 (D:L441018-441020). Owed: a capture of a reload pressed under a blast, prone |
 | `PRONE_COVER_CAMERA_READING` | -- | *note only*: what the camera does through `Prone cover`'s 3.78 s is not read; the port's camera follows the mover as for any action. Owed: a capture |
 | `RELOAD_STANDIN_HOLD_READING` | -- | *note only*: the crouched and prone shotgun reload, pump and `Rifle m203 reload` hold the mover on the rifle's still clips' `NoInterrupt` and `playback` (research 150 §5 owed (1)), kept at the owner's hold (HUMAN_TASKS H77); under it the lock (the family's clip) can end before the hold, and the rest is refused `'nofire'` (s2.2). Owed: the family's own clip as the hold once H77 is reopened |
+
+## 6. r0004's fire gate (R4P-211)
+
+Added 2026-11-23 (task R4P-211 of the r0004 parity sprint plan; items R4-FIRE-GATE, R4B-08a; leads L48, L152, L368).
+**Reading, pending review.** Sources: the plan's reading `docs/atlas/readings/r4p-phase2-reads-211.md` (Codex, a
+reading pending review), citing the r0004 export (`D4:L<line>`) and r0001 (`D:L<line>`); the r0004 export is not on the
+implementer's host, so its lines are cited as the reading gives them, not re-read here. Nothing is measured running.
+
+- **Six traversal actions refuse outright** (r0001 `FUN_005a7de0` / r0004 0x5adae0, D4:L503736-503751): Climb crate
+  (0x2a), Climb medium, Stand -> Hang (0x21), Climb over, Step up, Stand -> Ladder (0x2c), each asked of the actor's
+  action through the action query (r0004 0x57d220, D4:L478054-478068: the action or its anim-set equivalent), before
+  the timing and whatever the clip's `NoFire`. r0001 has no such test (D:L462679-462686). The port: the move's clip
+  (`TraversalHooks.clip`) against `R4_TRAVERSAL_NOFIRE_READING` in `fireAllowed`, so the page (`WalkMode.fireAllowed`)
+  and the room (`aim()`'s `AimFrame.fire`) refuse alike, and the grenade's release asking the same gate
+  (`GrenadeSource.fireAllowed`) with them. With the disc's table loaded every one of these clips already carried a bare
+  `NoFire` (s1) or a refusing state (`NOFIRE_STATE_READING`, the ladder mount), so the change shows where no table is
+  loaded, or where a leaf's NoFire would open.
+- **The last leaf decides** (D:L462695-462707, `FUN_0058a8c0`; r0004 D4:L503765-503777, `FUN_0058fec0`
+  D4:L487564-487582): the timing's answer starts at refused, and each leaf of the top, in linked order, replaces it --
+  a later allow after an earlier refusal stands, and an empty top refuses. The same in both builds (L152). The port's
+  `fireAllowed` takes the leaves where a caller gives them (`PlayingMotion.leaves`); `motionOf` plays one clip and gives
+  none (`NOFIRE_LEAF_AGGREGATE_READING` stays `'top'`).
+- **A placed charge in hand state 4** (D4:L503756-503766; review 1's F1): the gate compares the CLASS of the kit's
+  current item -- `FUN_003d1e10` (D:L462690-462691) returns `FUN_003d1a60` of the id byte `+0x7c` (D:L324460-324465),
+  every id 0x97-0xaa filed under 0x97 (D:L324345-324346; the port's `weaponCategory`): C4, the satchel, the claymore,
+  MPBOMB and the PMN alike. r0001 asks that class only under its action predicates `FUN_00587f50` / `FUN_00587f10` (the
+  jump, the landings; D:L462687-462693), which `fireAllowed` does not model; r0004 keeps the compare and also enters it
+  with the hand byte `+0xf79` at 4 (`FIRE_PLACED_CHARGE_HAND_READING`, *was* `FIRE_C4_HAND_READING`, read as C4 alone).
+  OPEN: no caller passes the held id: the port's placing start asks no fire gate (`grenadeCore.ts` `startPlacing`;
+  research 392 s3 (a)), so the term is the shared function's and changes no play yet.
+- **The pistol peek tosses** (L368; r0004 `IsThrowing(actor, 0)`, 0x5ad9f0, D4:L503648-503650, D4:L503688): the
+  throw term holds all four peek tosses, the pistol's two among them, so `Walker.throwOnTop` stops excusing the two lean
+  tosses in the pistol hand -- the gate's top (`gateTop`), the climb's offer (`climbOffered`) and the dance's
+  (`victoryHoldRefuses`) refuse them; the pistol's standing throw stays excused in both builds (*was*: since LATER 1442 it plays the rifle's `Throw grenade` and refuses too). LATER 509 (r0001's
+  term 4) is re-filed "r0001, superseded by r0004". A firearm's round during a throw is the port's own item gate (the
+  hand holds the throwable), unchanged: the throw term is not modelled in `fireAllowed` (`R4_PEEK_TOSS_FIRE_READING`).
+- **The claymore and PMN placing** (r0001 0x5be9a0 / r0004 0x5c5550, D4:L517000-517071): the 1.3 s timer is the same in
+  both builds; a re-press inside it places once on the page (research 392 s2), pinned for the claymore at 0.3, 0.7 and
+  1.1 s. r0004's action-start check before both pushes is not ported (`MINE_PLACE_ACTION_GATE_R0004_READING`, research
+  392 s3: the placing asks no fire gate on either side and the room hears only the placing's end); the claymore's own
+  r0004 outcome on a re-press is `R4_PLACE_NOFIRE_READING`. **R4B-08a and L48 stay OPEN**: the re-press tests are pins,
+  green from their first commit, not R4B-08a's red.
+- **Tests:** `packages/viewer/test/r4p211FireGate.test.ts` (new); the LATER 509 pins flipped in `traversal.test.ts`,
+  `walk.test.ts` and `central/test/victory.test.ts`. Kinds: unit tests and source inspection only -- no dev-disc test,
+  rendered browser run, playtest or capture comparison. What proves it at parity: the disc read of `motion.rdr` NoFire
+  for the six actions' leaves, capture C11 (weapons) and capture C22 (weapons).

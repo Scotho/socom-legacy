@@ -1,4 +1,5 @@
 import type { Side } from '@s2u/scene';
+import { streamerChatShows } from './streamerMode';
 import type { GameAudio } from './audio';
 import { TACTICAL_COMMANDS, tacticalAllowed, type CommunicationChoice } from './communications';
 import type { BannerLine, Hud } from './hud';
@@ -175,7 +176,9 @@ export function mountChat(d: MatchChatDeps): MatchChat {
     const own = ev.sender === d.net()?.client.id;
     const result = vocal ? d.audio.playStream(vocal.sound, own ? null : ev.at) : ev.command === null ? 'text' : 'unsupported';
     // HUD colour 3 (64,128,64,100): the table at 0x440ca0 read by `FUN_002b7530` (research 302 §3; `commandLine`).
-    d.hud.postMessage([commandLine(text)]);
+    // STREAMER-P1 (a browser adaptation, `./streamerMode`): another player's typed MESSAGE asks Chat from others at 'match';
+    // refused, not posted (and no count line: the round's HUD is what a stream shows). The game's recorded orders stay.
+    if (own || ev.text === null || streamerChatShows('match', { name: ev.name })) d.hud.postMessage([commandLine(text)]);
     heard.push({ sender: ev.sender, request: ev.request, text: plainBotText(text), sound: vocal?.sound ?? null, result });
     if (heard.length > HEARD_KEPT) heard.shift();
   };

@@ -138,14 +138,22 @@ const OFF_THE_TOOLBAR: Readonly<Record<string, readonly [string, string]>> = {
 };
 
 /**
- * Map T5-T10: a toolbar or tools-row button by its word (its text, else its aria-label: an icon-only tool's word),
- * drawn. A button his toolbar dropped throws its row and where it went.
+ * A button's word: its text less what is hidden from a reader (`aria-hidden`: a tool's billboard badge, page.ts
+ * `markBadge`, whose glyph -- 'Ss' on Spawn SEAL -- is not its name).
+ */
+const wordOf = (b: HTMLElement): string => [...b.childNodes]
+  .filter((n) => !(n instanceof Element && n.getAttribute('aria-hidden') === 'true'))
+  .map((n) => n.textContent ?? '').join('').trim();
+
+/**
+ * Map T5-T10: a toolbar or tools-row button by its word (its text less its badge, `wordOf`, else its aria-label: an
+ * icon-only tool's word), drawn. A button his toolbar dropped throws its row and where it went.
  */
 export function toolbarButton(doc: Document, label: string): HTMLButtonElement {
   const off = OFF_THE_TOOLBAR[label];
   if (off) throw new EditorMapError(off[0], `his toolbar has no ${label} button: ${off[1]}`);
   const b = [...doc.querySelectorAll<HTMLButtonElement>('.fx-top button.fx-tool, .fx-tools-row button.fx-tool')]
-    .find((x) => drawn(x) && (x.textContent?.trim() === label || x.getAttribute('aria-label') === label));
+    .find((x) => drawn(x) && (wordOf(x) === label || x.getAttribute('aria-label') === label));
   if (!b) throw new EditorMapError('T5-T10', `no toolbar button '${label}' is on the page`);
   return b;
 }

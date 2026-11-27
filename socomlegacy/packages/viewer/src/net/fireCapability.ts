@@ -1,6 +1,8 @@
+import { weaponCategory } from '@s2u/scene';
 import { PISTOL_ANIMS, SEAL_ANIMS } from '../locomotion';
 import { ACTION_CLIPS, HOLD_CLIPS, type MoverActionName, type TraversalHooks, type Walker } from '../mover';
 import type { MotionEntry, MotionTable } from '../motionTable';
+import { PISTOL_CLIMB_CLIPS, TRAVERSAL_CLIP } from '../traversal';
 
 /**
  * The fire's permission from the body's playing motion (PF-17; research 194 A02, 218 s1; ruling PF.R36), headless and
@@ -41,13 +43,31 @@ export interface PlayingMotion {
   stateRefused?: boolean;
   /** The clip's own `NoFire` where the motion carries its row (the victory dance's, research 303); absent, the table's. */
   noFire?: number | null;
+  /**
+   * R4P-211 (`NOFIRE_LEAF_AGGREGATE_READING`): the top's leaves in their linked order, where a caller knows a blended top;
+   * each leaf's own `NoFire`, absent the table's. Absent: the one clip is the one leaf (the port's `motionOf` today).
+   */
+  leaves?: readonly { clip: string; noFire?: number | null }[];
+}
+
+/**
+ * R4P-211: what the kit holds, as the gate's placed-charge term reads it -- the kit's current item's id (`+0x7c`, whose
+ * class the gate takes through `FUN_003d1e10`, the port's `weaponCategory`) and the actor's hand byte `+0xf79` (1 the
+ * rifle, 2 the pistol, 4 the raised launcher: `../weaponLine`, `FUN_005a6d30` D:L462119).
+ */
+export interface FireHeld {
+  itemId: number;
+  handByte: number;
 }
 
 /**
  * NOFIRE_LEAF_AGGREGATE_READING (218 s5): which of the playing leaves the gate reads. `FUN_005a7de0`'s loop over the top
  * entry's blended leaves (D:L462695-462705) overwrites its result each leaf -- the last leaf's answer stands, not an
  * AND. The port plays one clip at a time on the stack (`Walker.action`, the hold, the move's clip), so it reads that
- * one ('top'). Owed: the leaf order of a blended top (the crate/medium climb's two nodes) and a capture at a boundary.
+ * one ('top'). R4P-211 (r0004 0x5adae0, D4:L503765-503777, `FUN_0058fec0` D4:L487564-487582; reading, pending review):
+ * `fireAllowed` takes a top's ordered leaves where a caller gives them (`PlayingMotion.leaves`): the answer starts at
+ * refused and each leaf replaces it, so the last leaf decides and an empty top refuses; `motionOf` gives none yet. Owed:
+ * the leaf order of a blended top (the crate/medium climb's two nodes) and a capture at a boundary (C11).
  */
 export const NOFIRE_LEAF_AGGREGATE_READING = 'top' as const;
 
@@ -58,6 +78,42 @@ export const NOFIRE_LEAF_AGGREGATE_READING = 'top' as const;
  * frame has moved on. Owed: a capture of a round at a soft landing's first frame.
  */
 export const NOFIRE_ABSENT_READING = 'open' as const;
+
+/**
+ * R4_TRAVERSAL_NOFIRE_READING (R4P-211, research 218 s6; reading, pending review): the clips of the six traversal actions
+ * r0004's `CanFire` (0x5adae0) refuses outright, before the timing and whatever their `NoFire` (D4:L503736-503751, through
+ * the action query r0004 0x57d220, D4:L478054-478068: the action or its anim-set equivalent): Climb crate (0x2a), Climb
+ * medium, Stand -> Hang (0x21), Climb over, Step up and Stand -> Ladder (0x2c) -- the port's `TRAVERSAL_CLIP` for each,
+ * and the Seal anim set's pistol versions it holds (`PISTOL_CLIMB_CLIPS`: the crate, the medium, Stand -> Hang), with
+ * `seal_p_stand2ladder` (in `motion.rdr`, the golden `motion-rdr.json`; the review's F6 -- the port's ladder mount plays
+ * the rifle's clip, so it changes nothing today). r0001
+ * has no such test (D:L462679-462686). The reading is the action-to-clip mapping by name (a move's clip standing for the
+ * actor's action `+0x534`) and the leaves each action plays; owed: `motion.rdr`'s NoFire on those leaves and their
+ * pistol variants through the repository's reader, and capture C11 (a press during each traversal, r0001 against r0004).
+ */
+export const R4_TRAVERSAL_NOFIRE_READING: readonly string[] = Object.freeze([
+  TRAVERSAL_CLIP.climbLow, TRAVERSAL_CLIP.climbMed, TRAVERSAL_CLIP.toHang, TRAVERSAL_CLIP.over, TRAVERSAL_CLIP.stepUp,
+  TRAVERSAL_CLIP.toLadder,
+  PISTOL_CLIMB_CLIPS[TRAVERSAL_CLIP.climbLow]!, PISTOL_CLIMB_CLIPS[TRAVERSAL_CLIP.climbMed]!, PISTOL_CLIMB_CLIPS[TRAVERSAL_CLIP.toHang]!,
+  'seal_p_stand2ladder',
+]);
+const TRAVERSAL_REFUSED: ReadonlySet<string> = new Set(R4_TRAVERSAL_NOFIRE_READING);
+
+/**
+ * FIRE_PLACED_CHARGE_HAND_READING (R4P-211, research 218 s5-s6; reading, pending review; *was* the C4-only constant,
+ * the review's F1 of bbf2fc03d3): the gate's charge term compares the CLASS of the kit's current item --
+ * `FUN_003d1e10` (D:L462690-462691) returns `FUN_003d1a60` of the id byte `+0x7c` (D:L324460-324465), which files every
+ * id 0x97-0xaa under 0x97 (D:L324345-324346; the port's `weaponCategory`): C4 0x97, the satchel 0x98, the claymore
+ * 0x99, MPBOMB 0x9a and the PMN 0x9e are one class. r0001 asks that class only under its two action predicates
+ * (`FUN_00587f50` / `FUN_00587f10`, the jump and the landings, D:L462687-462693; not in `fireAllowed`:
+ * `ACTION_GATE_C4_AIR_READING`'s and `NOFIRE_EQUIPMENT_CLASS_READING`'s); r0004 keeps that compare and also enters it
+ * with the hand byte `+0xf79` at 4 (D4:L503756-503766). The port's reading: the byte 4 is the raised launcher
+ * (`FUN_005a6d30` D:L462119; `../weaponLine`'s mounts). No caller tells `fireAllowed` what the kit holds yet (the
+ * placing start asks no fire gate in the port, `../grenadeCore` `startPlacing`; research 392 s3 (a)), so the term is the
+ * shared function's alone. Owed: the placing start asking the gate with the held id and the hand byte, and the
+ * class-0x97 hand-state-4 case in capture C11.
+ */
+export const FIRE_PLACED_CHARGE_HAND_READING = Object.freeze({ itemClass: 0x97, handByte: 4 } as const);
 
 /** Each mover action's clip (`SEAL_ANIMS`; the fall plays the in-air clip). */
 const ACTION_CLIP_NAMES: Readonly<Record<MoverActionName, string>> = {
@@ -72,6 +128,9 @@ const ACTION_CLIP_NAMES: Readonly<Record<MoverActionName, string>> = {
   rifleToLauncher: SEAL_ANIMS.rifleToLauncher, pistolToLauncher: SEAL_ANIMS.pistolToLauncher,
   // NU-5 X1 / research 324 P2: the pick-up's `Swap rifle`, `NoFire ()` bare -- no round through it (research 211).
   swapRifleExchange: SEAL_ANIMS.swapRifleExchange, swapRifleClaim: SEAL_ANIMS.swapRifleClaim,
+  // LATER 1188: a hostage's flashbang cower (a hostage's action alone: no player's mover, no round through it).
+  cowerStand: SEAL_ANIMS.cowerStand, cowerStand2: SEAL_ANIMS.cowerStand2,
+  cowerCrouch: SEAL_ANIMS.cowerCrouch, cowerCrouch2: SEAL_ANIMS.cowerCrouch2,
 };
 
 /**
@@ -116,17 +175,36 @@ export function motionOf(walker: Walker, moves: TraversalHooks | null | undefine
   return m ? { clip: m.clip, phase: m.phase, reversed: m.reversed, stateRefused: m.stateRefused } : null;
 }
 
+/** One leaf's answer (`FUN_0058a8c0`): forward `phase > NoFire`, reversed `phase < 1 - NoFire`; no `NoFire`, open. */
+function leafAllows(phase: number, reversed: boolean, noFire: number | null): boolean {
+  if (noFire === null) return true;                               // NOFIRE_ABSENT_READING
+  return reversed ? phase < 1 - noFire : phase > noFire;
+}
+
 /**
- * Whether a firearm's round may leave over `motion` (`FUN_005a7de0`'s firearm branch, `FUN_0058a8c0`): refused in a
- * state the gate refuses, else by the clip's `NoFire` -- forward `phase > NoFire`, reversed `phase < 1 - NoFire`. No
- * motion, no table, or a clip without `NoFire`: open (`NOFIRE_ABSENT_READING`).
+ * Whether a firearm's round may leave over `motion` (`FUN_005a7de0`'s firearm branch, `FUN_0058a8c0`): the hard
+ * refusals first -- a placed charge (class 0x97) in hand state 4 (`FIRE_PLACED_CHARGE_HAND_READING`, `held`), a state the gate refuses, one of r0004's six
+ * traversal actions (`R4_TRAVERSAL_NOFIRE_READING`) -- then the timing: each leaf's `NoFire` in order, forward
+ * `phase > NoFire`, reversed `phase < 1 - NoFire`, the last leaf's answer standing and an empty top refused
+ * (`NOFIRE_LEAF_AGGREGATE_READING`); with no leaves told, the clip's own. No motion, no table, or a clip without
+ * `NoFire`: open (`NOFIRE_ABSENT_READING`).
  */
-export function fireAllowed(motion: PlayingMotion | null, table: ReadonlyMap<string, Pick<MotionEntry, 'noFire'>> | null): boolean {
+export function fireAllowed(motion: PlayingMotion | null, table: ReadonlyMap<string, Pick<MotionEntry, 'noFire'>> | null, held: FireHeld | null = null): boolean {
+  if (held && held.handByte === FIRE_PLACED_CHARGE_HAND_READING.handByte
+    && weaponCategory(held.itemId) === FIRE_PLACED_CHARGE_HAND_READING.itemClass) return false;   // D4:L503756-503766
   if (!motion) return true;
   if (motion.stateRefused) return false;
+  if (TRAVERSAL_REFUSED.has(motion.clip)) return false;           // R4P-211: r0004 D4:L503736-503751, before the timing
+  if (motion.leaves) {
+    let allowed = false;                                          // the loop's answer starts at 0 (D4:L503765-503777)
+    for (const leaf of motion.leaves) {
+      const noFire = leaf.noFire !== undefined ? leaf.noFire : table?.get(leaf.clip)?.noFire ?? null;
+      allowed = leafAllows(motion.phase, motion.reversed, noFire);
+    }
+    return allowed;
+  }
   const noFire = motion.noFire !== undefined ? motion.noFire : table?.get(motion.clip)?.noFire ?? null;
-  if (noFire === null) return true;
-  return motion.reversed ? motion.phase < 1 - noFire : motion.phase > noFire;
+  return leafAllows(motion.phase, motion.reversed, noFire);
 }
 
 /** The body's playing motion and the round's permission over it: what `AimFrame` records at each command. */

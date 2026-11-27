@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ConsoleController } from '../../src/console/grammar';
 import { attachInput, type PadLike } from '../../src/console/input';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
-import { CATS, HOME_CATEGORY, createState, type Adapters, type ConsolePageReads } from '../../src/console/state';
+import { CATS, HOME_CATEGORY, createState, homeItems, type Adapters, type ConsolePageReads } from '../../src/console/state';
 
 // Browser launcher adaptation: the hardware boundary is simulated; the input and menu controller are real.
 const originalPads = Object.getOwnPropertyDescriptor(window.navigator, 'getGamepads');
@@ -79,8 +79,13 @@ describe('launcher controller menu feedback', () => {
   it('analog navigation alone pulses the controller that moved the stick', () => {
     const untouched = pad(0), p = pad(4, undefined, [0, 1]);
     const { c, step } = rig([untouched, p]);
+    // On Online's list (three rows or more): Home's pad rows stop at two since 2026-11-19 (Discord and GitHub are not the
+    // pad's), so the held stick's two moves are walked where both move.
+    const online = CATS.findIndex((x) => x.id === 'online');
+    c.S.cat = online;
+    expect(homeItems('online', c.S, c.A).length).toBeGreaterThanOrEqual(3);
     step(0); step(401);
-    expect(c.S.item[HOME_CATEGORY]).toBe(2);
+    expect(c.S.item[online]).toBe(2);
     expect(p.vibrationActuator.playEffect).toHaveBeenCalledTimes(2);
     expect(untouched.vibrationActuator.playEffect).not.toHaveBeenCalled();
   });

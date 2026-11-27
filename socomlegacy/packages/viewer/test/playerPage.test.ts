@@ -302,3 +302,26 @@ describe('LCM-16 review fold: the error title and the empty older page', () => {
     expect(document.activeElement).toBe(rows[rows.length - 1]);
   });
 });
+
+// DAY-STILLS-2 (product track, a browser adaptation: the original has no Day maps): the player page's head (the most-played
+// map, the `/maps` entry's `variant`) and each recent match's thumbnail (the row's `variant`, DAY-VARIANT-STATS) ask the
+// variant's still at `/api/maps/<STEM>/<variant>/still.png`; a plain entry or row the stem's route as before.
+describe("DAY-STILLS-2: the player page asks a Day entry's and a Day row's still", () => {
+  it("the head's most-played Day map and a Day row ask the Day still; a plain row the stem's", async () => {
+    const c = central();
+    const fetch = async (url: string): Promise<PageResponse> => {
+      const path = url.split('?')[0]!;
+      if (path.endsWith('/maps')) return res(200, { name: 'Ghostline', maps: [{ map: 'MP5', variant: 'day', mapName: 'Abandoned (Day)', matches: 90 }, ...MAPS.maps] });
+      const r = await c.fetch(url);
+      if (!path.endsWith('/matches')) return r;
+      const body = await r.json() as { matches: { match: Record<string, unknown> }[] };
+      body.matches[0]!.match = { ...body.matches[0]!.match, map: 'MP5', mapName: 'Abandoned (Day)', variant: 'day' };
+      return res(200, body);
+    };
+    const root = await mount('Ghostline', { asked: c.asked, fetch });
+    expect(root.querySelector('img.project-hero-still')?.getAttribute('src')).toBe('/api/maps/MP5/day/still.png');
+    const thumbs = [...root.querySelectorAll<HTMLElement>('.project-match-row-thumb')].map((t) => t.style.getPropertyValue('--project-match-row-still'));
+    expect(thumbs[0]).toBe('url("/api/maps/MP5/day/still.png")');
+    expect(thumbs[1]).toBe(`url("/api/maps/${matchRow(2).match.map}/still.png")`);
+  });
+});

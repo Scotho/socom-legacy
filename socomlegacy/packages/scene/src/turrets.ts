@@ -311,6 +311,36 @@ export function turretScopeHidden(placements: readonly Pick<TurretPlacement, 'ro
 const ownGeo = (entry: string, stem: string): boolean => entry.replace(/^.*[\\/]/, '').toUpperCase() === `${stem.toUpperCase()}_GEO.ZED`;
 
 /**
+ * LATER 1003 (research 215 s4, s9; reading, pending review): which libraries a map's instances resolve through. The original
+ * looks an instance's model up in every library it has REGISTERED, first registered first (`FUN_00310da0` D:L212317-212372
+ * -> `FUN_00320f10` D:L221752-221773, the list at 0x45c3c0), and loads libraries by name (`FUN_003199c0`, "run/%s/%s%s.zed"
+ * at D:L217466); which ones a map registers, and in what order, is unread. The port joins every `*_GEO.ZED` embedded in the
+ * map's archive, its own graph first, then the archive's order, a name already present kept (`turretSceneModels`). On the
+ * disc's 22 maps no two libraries of one archive name the same model (census cc3, table X3), so the order decides nothing
+ * there; a library the original would not register could still resolve a name the original leaves unresolved.
+ */
+export const LIBRARY_REGISTRY_READING = 'every embedded *_GEO.ZED, own graph first, then archive order, first name kept' as const;
+
+/**
+ * LATER 1003 [placeholder]: a turret's gun in the hull stands where its model puts it, AT REST. In the original the walk
+ * pushes each node's matrix (`FUN_002d3030` D:L175103-175108), so the gun's polygons turn with the gun; the port's hull is
+ * static. The moving collider on the room is its own row (LATER 1003's phase 2).
+ */
+export const TURRET_GUN_STATIC_PLACEHOLDER = 'the gun at rest' as const;
+
+/**
+ * LATER 1003: the models a map's COLLISION hull is built from -- the map's own graph with the libraries joined
+ * (`LIBRARY_REGISTRY_READING`), as the original copies an instance's model whole, children and polygons, wherever it
+ * resolves (`FUN_00317d90` D:L216395-216438 -> `FUN_00316820` D:L215638-215791). Every hull builder takes it (viewer
+ * `simMap.ts` and `loadMap.ts`'s `hull`, match `forgeSimMap.ts`), so a placed turret's gun and a ledge turret collide
+ * (census cc3 X3: 697 polygons under 58 instances on 15 maps, of them the turrets' 34 + 8). The same models go to the
+ * polygons and the owners (`mapCollision`), so the owners index the polygons.
+ */
+export function hullModels(zdb: Uint8Array, toc: ZdbEntry[], stem: string, mapModels: SceneNode[], note: (line: string) => void = () => {}): SceneNode[] {
+  return turretSceneModels(zdb, toc, stem, mapModels, note);
+}
+
+/**
  * The map's models with every embedded GEO library's prototypes joined by name, the map's own first and then the
  * libraries in the archive's order, a name already present kept (research 177 s2: `TURR_GEO`, `TLMG_GEO`, `TLRM_GEO` hold
  * the parts). A library that will not parse is skipped with a note.

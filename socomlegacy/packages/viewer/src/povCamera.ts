@@ -236,6 +236,9 @@ export class PovCamera {
     this.peekValue = easePeek(this.peekValue, body.peek, POV_TICK);   // the owner's own ease (`./traversal`)
     this.camera.peek = this.peekValue;
     this.camera.nearAspect = nearAspect;
+    // JUMP_OVERHEAD_CAMERA_ADAPTATION is the player's OWN camera's (research 90 s10.1): a watched camera keeps the
+    // original's frame, so its gate stays shut (LATER 1401; a drawn offset alone never opened it on the walk either).
+    this.camera.jumping = false;
     this.camera.tick(body.feet, body.yaw, body.pitch, body.root, POV_TICK, body.posed);
     const next = { body, peek: this.peekValue };
     this.prev = this.cur ?? next;
@@ -255,9 +258,9 @@ export class PovCamera {
     // view is then 'scope'; the dead fall back, PV.R6, the caller's), the state past 12 read as 0 (`./net/codec`
     // `viewState`, research 402 s3).
     if (!lensOf(viewState(cur.body.view))) {
-      const third = this.camera.view(a);
-      const eye: Vec3 = [third.eye[0] + d[0], third.eye[1] + d[1], third.eye[2] + d[2]];
-      const target: Vec3 = [third.target[0] + d[0], third.target[1] + d[1], third.target[2] + d[2]];
+      const third = this.camera.view(a, d);                     // lifted by `d` and rechecked there (`PlayerCamera.view`'s `lift`)
+      const eye: Vec3 = [third.eye[0], third.eye[1], third.eye[2]];
+      const target: Vec3 = [third.target[0], third.target[1], third.target[2]];
       const dx = target[0] - eye[0], dy = target[1] - eye[1], dz = target[2] - eye[2];
       return {
         eye, target, yaw: (Math.atan2(-dx, -dz) * 180) / Math.PI, pitch: (Math.atan2(dy, Math.hypot(dx, dz)) * 180) / Math.PI,
@@ -268,7 +271,7 @@ export class PovCamera {
     // owner's trails by up to one command's turn, and no lerp toward n+1 fixes that without leading a 60 Hz owner (header).
     const look = cur.body;
     const yaw = (look.yaw * Math.PI) / 180, pitch = (look.pitch * Math.PI) / 180;
-    const local = scopeEye(cur.body.stance, cur.body.root, cur.peek, proneEyeTerms(cur.body.floorNormalY));
+    const local = scopeEye(cur.body.stance, cur.body.root, cur.peek, proneEyeTerms(cur.body.floorNormalY, look.pitch));   // PRONE_EYE_LOOK
     const headAt = (feet: Vec3): Vec3 => headEye(this.grid, feet, toWorld(feet, look.yaw, local));
     const ahead: Vec3 = [-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
     const simFeet = lerp(prev.body.feet, cur.body.feet);         // the feet a tick behind (mover.ts:4038-4041)

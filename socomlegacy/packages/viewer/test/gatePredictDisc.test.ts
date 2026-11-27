@@ -34,7 +34,11 @@ function pull(page: GateSet, room: GateSet, action: number, seq: number, seconds
 
 for (const stem of ['MP11', 'MP62']) {
   describe.skipIf(!has(stem))(`P8: the lever's lead-in and the predicted slide on ${stem}${has(stem) ? '' : ` (SOCOM_DISC with RUN/${stem}.ZDB absent)`}`, () => {
-    it("every lever's lead-in is its program's 0.24 s wait, to the frame, for the open and the close", () => {
+    // LATER 1381 (LEVER-TIMING): the lead-in now holds through the handle's 0.5 s turn as the room does (the original's
+    // stepper holds a timed command; the r0004 capture LEVER-1381-PC3b). Its floor is the read's 0.24 + 0.5; its ceiling
+    // is 0.807 + 2 room ticks, the two causes left: the tick's round-up and the presser's frame count
+    // (GATE_LEVER_PRESSER_HOLD_READING); LATER 1426 took the third, the WAIT's dropped rest (research 89 s1.1).
+    it("every lever's lead-in holds through the handle's turn (0.24 s wait + 0.5 s turn), for the open and the close", () => {
       const map = load(stem);
       const levers = (map.gates ?? []).flatMap((g) => g.levers.map((l) => [g, l] as const));
       expect(levers.length).toBeGreaterThan(0);
@@ -42,8 +46,8 @@ for (const stem of ['MP11', 'MP62']) {
         const [open, close] = leadIns(g, l);
         for (const lead of [open, close]) {
           expect(lead, `${l.node}`).not.toBeNull();
-          expect(lead!).toBeGreaterThanOrEqual(0.24 - 1e-9);
-          expect(lead!).toBeLessThanOrEqual(0.24 + DT + 1e-9);
+          expect(lead!).toBeGreaterThanOrEqual(0.24 + 0.5 - 1e-9);
+          expect(lead!).toBeLessThanOrEqual(0.807 + 2 / 60 + 1e-9);
         }
       }
     });

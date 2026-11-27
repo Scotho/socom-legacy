@@ -1,5 +1,12 @@
+import { releaseRenderObjects } from './renderRelease';
+import { remoteBodyAction, remoteLauncherInHand, firstLauncher, REMOTE_RESPAWN_REBUILD_READING, escorteeTilts, remoteTiltStep, LANDING_CLIP_ACTIONS, stepFlinch, pushOver } from './remotePoseRules';
+export { remoteBodyAction, REMOTE_LAUNCHER_HAND_READING, remoteLauncherInHand, firstLauncher, REMOTE_RESPAWN_REBUILD_READING, escorteeTilts, HOSTAGE_PRONE_TILT_READING, remoteTiltStep, LANDING_CLIP_ACTIONS, stepFlinch, pushOver, type HostageProneTilt } from './remotePoseRules';
+import { deathPose, flinchPose } from './motionPose';
+export { deathPose, flinchPose } from './motionPose';
+import { remoteKitOf, remoteFootfall, footfallsHeard, type RemoteStep } from './remotePresentation';
+export { remoteKit, remoteKitOf, remoteSwap, remoteFootfall, footfallsHeard, FOOTFALL_CAP_READING, FOOTFALL_NEAREST_READING, FOOTFALL_UNBOUND_PLACEHOLDER, type RemoteStep } from './remotePresentation';
 import { Matrix4, Vector3, type Object3D, type PerspectiveCamera, type Scene } from 'three';
-import { itemClass, type WeaponPoint } from '@s2u/scene';
+import { type WeaponPoint } from '@s2u/scene';
 import type { LoadedBody } from './body';
 import { buildBody, type BodyView } from './bodyView';
 import type { Lighting } from './lighting';
@@ -7,122 +14,28 @@ import type { LoadedMap } from './loadMap';
 import { snapshotOf } from './net/body';
 import { BinocularPose } from './binocularPose';
 import { ThrowPose } from './throwPose';
-import { corpseShownS, flinchRefused, pushPopped, type FlinchGateBody } from './net/deaths';
+import { corpseShownS } from './net/deaths';
 import type { AnimStats, TraversalPose } from './animator';
-import { ACTION_CLIPS, ACTION_FAMILY, ACTION_SECONDS, groundGrid, probeLiftOf, type PlaySnapshot, type SwapProgress } from './mover';
+import { ACTION_CLIPS, ACTION_FAMILY, ACTION_SECONDS, groundGrid, probeLiftOf, type PlaySnapshot } from './mover';
 import { GAME_FRAME_DT, probeGround, probeWater, selectFloor, type Grid } from '@s2u/scene';
 import { rippleOf } from './traversal';
 import { FALL_IN_WATER, RippleKeeper, type TraversalEffects } from './traversalPage';
-import { rootTiltStart, stepRootTilt, tiltTopOfSnapshot, tiltWindowOf, type RootTiltState } from './rootTilt';
+import { rootTiltStart, type RootTiltState } from './rootTilt';
 import { AXIS_DEAD, CIV_ANIM_SET, HOSTAGE_TOP_SPEED_READING, oneShotSeconds, SEAL_ANIMS } from './locomotion';
 import { fadeStep } from './net/escortee';
 import { BodyFlag, TICK_HZ, type BodyState, type Rules, type Team } from './net/protocol';
-import { FLINCH_CUT_COMMANDS, noInterruptCommands } from './net/flinchReload';
-import { Play, reloadCut, type PlayClips, type PlayEvent } from './play';
+import { Play, type PlayClips, type PlayEvent } from './play';
 import type { ReloadItem, ReloadStance } from './reloadClip';
 import { cloneHeld } from './sights';
 import { bodyForTeam, escorteeBody, hitBodiesOfPage, type HitBodyOfPage } from './teamBody';
 import { bodyNearest, bodyRecords, rayNearest, rayRecords, stanceVolumes, type HitBody, type RecordSink, type StanceVolumes, type V3 as Vec3 } from './net/hitVolumes';
 import { HIT_POSE_MOUNT_READING } from './net/hitPose';
-import { launcherCarryMatrix, type Mount } from './heldItem';
-import { handedAt, handOffOf, type Firearm } from './kit';
+import { launcherCarryMatrix } from './heldItem';
+import type { Firearm } from './kit';
+import { wireKit } from './loadout';
 
-/**
- * The other player's weapons by the replicated weapon (`BodyState.weapon`: 0 the primary, 1 the secondary), where the
- * local kit leaves them once its swap has ended (`./kit`: `FUN_005a60d0(seal, 2, 0)` carries the rifle while the pistol
- * is in the hand; `FUN_005a75d0` holsters the pistol).
- */
-export function remoteKit(weapon: 0 | 1): { item: Firearm; mounts: { rifle: Mount; pistol: Mount } } {
-  return weapon === 1 ? { item: 'pistol', mounts: { rifle: 'carry', pistol: 'hand' } } : { item: 'rifle', mounts: { rifle: 'hand', pistol: 'holster' } };
-}
 
-/**
- * The swap clip a replicated body is playing -- the standing, crouched or prone swap action, or the moving overlay, as
- * `Walker.swapProgress` reads them -- its direction (the clip backwards is the pistol back to the rifle) and its
- * progress 0..1 on the snapshot's own clock; null when none plays.
- */
-export function remoteSwap(snap: PlaySnapshot): { to: Firearm; action: SwapProgress['action']; overlay: boolean; progress: number } | null {
-  const a = snap.action;
-  if (a && (a.name === 'swapStand' || a.name === 'swapCrouch' || a.name === 'swapProne') && a.seconds) {
-    return { to: a.reversed ? 'rifle' : 'pistol', action: a.name, overlay: false, progress: Math.min(1, a.t / a.seconds) };
-  }
-  const o = snap.overlay;
-  if (o && o.clip === SEAL_ANIMS.swapMoving && o.seconds > 0) {
-    return { to: o.reversed ? 'rifle' : 'pistol', action: null, overlay: true, progress: Math.min(1, o.t / o.seconds) };
-  }
-  return null;
-}
 
-/**
- * PAR-84 (research 230 section 5.2.10, build step 7), NU-6 R1 (research 324 §4, §6 R1; the gameplay controller's ruling
- * of 2026-10-14 after the review): the action another page draws a body by -- every action the room's body carries, the
- * launcher's raise and still lower (`rifleToLauncher`, `pistolToLauncher`) among them. The original sends no Push
- * Blend for the two (`LAUNCHER_RAISE_NETWORK_LOG_READING` false: no `network_log` on their rows, `FUN_002bbaf0`
- * D:L160789-160790), but each copy plays them itself from the character message's item: the field selects the
- * launcher's slot (D:L162369-162373 -> `FUN_005c8a20` D:L481436 -> `FUN_005c50b0` class 4, D:L478996-478998), the copy's
- * own raise tick runs the selector (`FUN_005c1660` D:L476734 -> `FUN_005a64c0` -> `FUN_005a6d30` D:L461886), which
- * installs the set and pushes the raise (D:L462105, D:L462113, D:L462116) without sending it on (`FUN_00588bc0` sends
- * only for an actor whose `IsRemote` answers 0, D:L446408-446414); the lower the same way back (`FUN_005a6b70`
- * D:L461875). So the room's mover action stands in for the copy's own clip, as the swap's already does (research 324
- * §1.3). Was (PAR-84, until NU-6 R1): "another console draws its copy's own ground, so another page drops the two and
- * plays the body's ground as the room sends it (idle under the clip). Every other action is kept."
- *
- * NU-5 X1 (research 323 §1.5; research 324 §1.4, §6 P2): but the exchange's `Swap rifle` (`swapRifleExchange`) is
- * dropped -- the taker's own console alone pushes it (`FUN_00588bc0` D:L458209-458211; a copy with a model on the node
- * takes the other branch, D:L458217-458235) and it is sent to no other: SOLDIER's `Swap rifle` row carries no
- * `network_log` (`FUN_002bbaf0` D:L160789-160790; read over the tracked `READERC.ZAR`, `roomPickups.test.ts`;
- * `PICKUP_CLIP_NETWORK_LOG_READING`, research 324 §7). The
- * launcher claim's (`swapRifleClaim`) is kept: every console pushes it itself (D:L458199-458206).
- */
-export function remoteBodyAction(action: PlaySnapshot['action']): PlaySnapshot['action'] {
-  return action?.name === 'swapRifleExchange' ? null : action;
-}
-
-/**
- * REMOTE_LAUNCHER_HAND_READING (NU-6 P3 with R1; research 324 §1.6, §4, §6 P3): a rocket launcher is drawn in another
- * body's hand while the body's item is a launcher's (the room's `p.held`, the slot left 0 or 1) and on through the still
- * lower's clip to its end: the raise re-parents the launcher node to the hand at its push (`FUN_005a6d30`
- * D:L462120-462126), the lower re-parents nothing (`FUN_005a6b70` D:L462045-462092), and the driver's end test puts it
- * back under `spinehi` at the gear's offset at the reversed clip's end (`FUN_00582540` D:L443057-443071 ->
- * `FUN_005a60d0(.., firearm, 4)` D:L461769-461820; `REMOTE_LAUNCHER_MOUNT_READING`). In the hand it hangs on the hand's
- * held node at its origin, as the page's own raised launcher does (`./rocket` `draw`; the launcher clips' own `launcher`
- * track is not played: `HOLSTER_TRACK_READING`), and the firearm is stowed meanwhile, as the page's own is
- * (`Play.setRifleStowed`, `./matchThrow` `stowRifle`). Its model is the item's own. [reading: the decompilation's path,
- * not measured running. The stick's moving lower (PAR-83, `room.ts` `launcherStick`) rides no body action, so another
- * page puts the launcher back at the item's change; that clip's own end mount is not read. Which id the original's item
- * field carries for a raised launcher -- the launcher's or its round's -- is `REMOTE_LAUNCHER_ITEM_PLACEHOLDER`'s
- * (research 324 §1.6, note only): either way the copy raises it. Capture NU6-4 settles both]
- */
-export const REMOTE_LAUNCHER_HAND_READING = 'the item, and through the still lower' as const;
-
-/**
- * NU-6 P3 (`REMOTE_LAUNCHER_HAND_READING`): the rocket launcher in a body's hand -- the item's id when the item is of the
- * rocket launcher class (`@s2u/scene` `itemClass`), the one already in the hand (`inHand`) while the still lower's clip
- * (a launcher action reversed) plays, else null.
- */
-export function remoteLauncherInHand(item: number, action: PlaySnapshot['action'], inHand: number | null): number | null {
-  if (item !== NO_ITEM && itemClass(item) === 'rocketLauncher') return item;
-  const lowering = action !== null && action.reversed && (action.name === 'rifleToLauncher' || action.name === 'pistolToLauncher');
-  return lowering ? inHand : null;
-}
-
-/**
- * The other player's weapons from its snapshot, hand-off included: while a swap clip plays they hang as the local
- * `Kit` hangs them on the same clip and progress (the multiplayer merge review's hole 3) -- the rifle on the `swap`
- * mount posed by the clip, `m_item` the pistol from the start going out (`FUN_005a7260`) and until the end coming back
- * (`FUN_005a70f0`), the pistol into the hand (`FUN_005a7730`) or the holster (`FUN_005a75d0`) as the clip passes its
- * `HAND_OFF_READING` phase -- so the hand-off is drawn mid-clip, not when the replicated weapon changes at the swap's
- * start. No new field on the wire: the clip, its clock and its direction already ride the body (`BodyState.action*`,
- * `overlay*`, `ActionReversed` / `OverlayReversed`). Before the hand-off the pistol is where the settled kit keeps it
- * (the holster; the local kit's spawn mount on the hips is not replicated).
- */
-export function remoteKitOf(snap: PlaySnapshot & { weapon: 0 | 1 }): ReturnType<typeof remoteKit> {
-  const swap = remoteSwap(snap);
-  if (!swap || swap.progress >= 1) return remoteKit(swap ? (swap.to === 'pistol' ? 1 : 0) : snap.weapon);
-  const handed = handedAt(swap.to, swap.progress, handOffOf(swap));
-  const pistol: Mount = swap.to === 'pistol' ? (handed ? 'hand' : 'holster') : (handed ? 'holster' : 'hand');
-  return { item: 'pistol', mounts: { rifle: 'swap', pistol } };
-}
 
 /**
  * The other players, drawn 1:1 (web sprint 3, M5): each is the map's own character -- its character type's (web sprint
@@ -161,16 +74,6 @@ export type SideKit = (team: Team, kit: readonly number[] | null, type?: number)
 /** No item (`EMPTY_ITEM`): a body whose kit is not known says so in `BodyState.weapon`. */
 const NO_ITEM = 255;
 
-/**
- * NU-6 P2 (research 324 §1.1, §1.6): the kit's first rocket launcher, the one the body's `launcher` node carries --
- * `FUN_005c6a40` / `FUN_005c6da0` take the first slot whose item is of the rocket launcher class (`FUN_003d1cb0`, class
- * 0x91, D:L479823; `@s2u/scene` `itemClass`, `FUN_003d1a60`'s ranges) and set the node's model to that slot's instance
- * (D:L479872-479876) -- or null for a kit with none (no side read).
- */
-export function firstLauncher(kit: readonly number[] | null): number | null {
-  for (const id of kit ?? []) if (itemClass(id) === 'rocketLauncher') return id;
-  return null;
-}
 
 /** NU-6 P2: the launcher a body draws -- its id, its model's copy (null when the map has none), on which node. */
 interface DrawnLauncher { id: number; object: Object3D | null; place: 'carry' | 'hand' }
@@ -199,19 +102,6 @@ export const REMOTE_KIT_APPLY_READING = 'spawn' as const;
  */
 export const REMOTE_PROBE_STANCE_READING = 'drawn' as 'drawn';
 
-/**
- * REMOTE_RESPAWN_REBUILD_READING (NU-12 B2; research 328 §1.1, §6): another console rebuilds a copy at its owner's
- * respawn mid-match, as at the round's reload (`FUN_00223680` D:L75920-75931 over every actor, a copy's kit taken at
- * D:L455072-455081): the player record's state field (`FUN_002be150` D:L162349-162350) reaches `FUN_00544210`
- * (D:L410551-410563), which sets `+0xfcf` on a dead (2 or 3) to alive (1) change when the controller's `+0x34` answers
- * true; the actor's update (`FUN_00547350` D:L412722-412726) then runs `FUN_00598b90(copy, 1)` -- the rebuild
- * (`FUN_00599b60` D:L455158), whose first play is `Stand` with no blend (research 328 §1.3). So the page rebuilds the
- * copy's animation (`Play.respawn`) at its seat's `spawn` and, where no spawn is counted, at a dead-to-alive change.
- * [reading: one inference -- `+0x34` as the copy's controller's, and `FUN_00547350` as the actor's per-frame update
- * reached through the vtable; settled by `+0x34` read, or capture NU12-2] Was (research 328 before its review's F2): "the
- * respawn's network path is not read; built as the round's until read".
- */
-export const REMOTE_RESPAWN_REBUILD_READING = 'rebuilt' as const;
 
 /**
  * NU-12 B2 (research 328 §5 B2; the build brief's F3): a body as the client draws it at the view tick, with the count of
@@ -356,49 +246,8 @@ type RemoteSnapshot = ReturnType<typeof snapshotOf>;
  * Fall, Land and get-up (the No_weapon set's `GLOBAL` include: `seal_fallforward01` .. `seal_getupbackwards01`) and its
  * flight, as the room's snapshot carries them, over the stance's clip.
  */
-/**
- * PRONE-TILT-2 (5) (research 217 s7.10; reading, pending review): whether a hostage's root runs the tilt on the page. Its
- * body is the SEAL's actor (`CSealEx`, the one vtable holding `FUN_005506a0`), so `FUN_00548090` runs for it; every clip of
- * its No_weapon set (`civ_*`) has no `Normalize`, so it writes only while a knock's `GLOBAL` clip owns the body (a
- * reaction or a get-up: `Land forward` / `Land backwards` (0.5, 0.9), `Prone cover` bare), as the room's `HostageFollow`
- * walker does while `thrown`. Otherwise the hostage lies level.
- */
-export function escorteeTilts(snap: { action: { name: string } | null }): boolean {
-  const f = snap.action ? ACTION_FAMILY[snap.action.name as keyof typeof ACTION_FAMILY] : undefined;
-  return f === 'reaction' || f === 'getUp';
-}
 
-/** `HOSTAGE_PRONE_TILT_READING`'s alternatives. */
-export type HostageProneTilt = 'unprone' | 'ai-stance';
-/**
- * PRONE-TILT-2 review F1 (research 217 s7.10; reading, pending review): whether a knocked hostage's tilt takes the prone
- * ease (0.2 a game frame, `FUN_00548090` D:L413265-413272, posture word 2). `'unprone'`: no -- page and room alike (the room's
- * `HostageFollow` walker is never prone). The knock pops the body's stack to its base (`FUN_0058a4d0`, D:L442089) and
- * `FUN_005807d0` pushes the fall, for a living body, at posture word 0 when its controller is not remote (vtable +0x34,
- * `CRemoteCtrl::IsRemote`, research 193 s9, false), else at the caller's word (D:L442094-442102); the hostage's
- * No_weapon set has no prone motion (research 189 #13), so its get-down is no prone play. [reading: that the hostage's AI
- * controller answers `IsRemote` false where the room runs it (the 0 branch), and that `+0x174` follows the stack's top
- * word (research 92's inference), are not read.] `'ai-stance'`: the AI's stance (`extraction.ts`'s
- * `ai.stance`) as the posture, the ease when it is prone -- not built for the room. Settled by a PCSX2 read of a
- * get-down hostage's `+0x174` and root quaternion through a blast on a slope.
- */
-export const HOSTAGE_PRONE_TILT_READING = 'unprone' as HostageProneTilt;
 
-/**
- * PRONE-TILT (research 217 s7): one call of the rule for a body the page draws off the wire -- its top play from the
- * snapshot (`tiltTopOfSnapshot`, the action's length from `ACTION_SECONDS`: PRONE-TILT-2 (4)), the floor normal asked
- * only on a writing tick (`normal`). `hostage`: an escortee's body (`escorteeTilts`).
- */
-export function remoteTiltStep(state: RootTiltState, snap: Pick<PlaySnapshot, 'stance' | 'action' | 'hold' | 'traversal' | 'yaw' | 'airborne'>,
-  normal: () => readonly number[], hostage = false): RootTiltState {
-  const top = tiltTopOfSnapshot(snap, (a) => (ACTION_CLIPS as Readonly<Record<string, { frames: number }>>)[a]?.frames ?? 1,
-    (a) => (ACTION_SECONDS as Readonly<Record<string, number>>)[a] ?? 0);
-  return stepRootTilt(state, {
-    normal, yaw: snap.yaw, span: tiltWindowOf(top.clip), phase: top.phase,
-    prone: snap.stance === 'prone' && !top.diving && !(hostage && HOSTAGE_PRONE_TILT_READING === 'unprone'),
-    proneTransition: top.proneTransition, diving: top.diving, airborne: snap.airborne,
-  });
-}
 
 export function escorteeSnapshot(snap: RemoteSnapshot, transition: { serial: number; t: number; seconds: number } | null): RemoteSnapshot {
   const m = Math.min(1, Math.hypot(snap.vx, snap.vz) / HOSTAGE_TOP_SPEED_READING.forward);
@@ -413,52 +262,6 @@ export function escorteeSnapshot(snap: RemoteSnapshot, transition: { serial: num
 }
 
 /**
- * A clip's key at `seconds` into it, reaching its last key at `run(playback, keys)` seconds and held there: its
- * `motion.rdr` playback (the clip's own seconds; keys / 30 without the entry). Null with the clip not loaded.
- */
-function keyAt(clip: string, seconds: number, clips: PlayClips | null, run: (playback: number, keys: number) => number): TraversalPose | null {
-  const c = clips?.clips.find((k) => k.name === clip);
-  if (!c) return null;
-  const entry = clips?.table?.find(([name]) => name === clip)?.[1];
-  const playback = entry?.playback ?? c.frameCount / 30;
-  const frame = Math.min(c.frameCount - 1, (seconds / run(playback, c.frameCount)) * (c.frameCount - 1));
-  return { clip, frame, loop: false, rootY: null };
-}
-
-/**
- * A death clip at `seconds` into it, as the animator's one-node play (the traversal seam, `./animator`), held on the
- * last key once played. D20 (PAR-23, research 230 section 5.2 item 3): the original pushes the death as an ordinary
- * one-shot (`FUN_005a2490` D:L459804, `FUN_00588bc0(.., 8, 0, 0xd)`), whose play stops at phase (n - 1) / n
- * (`FUN_0028cc10` D:L134482-134495), runs at `dt / (T x (n - 1) / n)` (`FUN_0028c4f0` D:L134236-134275, `FUN_0028ada0`
- * D:L133349-133366) and samples key `phase x n` (`FUN_0028d670` D:L134881-134901): the last key n - 1 at
- * `T x ((n - 1) / n)^2` (`oneShotSeconds`).
- */
-export function deathPose(clip: string, seconds: number, clips: PlayClips | null): TraversalPose | null {
-  return keyAt(clip, seconds, clips, oneShotSeconds);
-}
-
-/**
- * A flinch at `seconds` into it (`flinch`): its key on the death's one-shot clock, or null once at its last key,
- * `T x ((n - 1) / n)^2` (`oneShotSeconds`) -- the body back to its own play -- or with the clip not loaded. PAR-58
- * (research 230 section 5.2 item 3): the flinch is pushed as the death is (`FUN_005a2690` D:L460019 / D:L460042,
- * `FUN_00588bc0(.., 0, 0xd)`), its play's flags 0x4 and 0x2 set after (D:L460021-460024) being none `FUN_0028c4f0`
- * reads (0x8, 0x40); and it pops there: the ground driver's end test (`FUN_00550ef0` D:L418193 -> `FUN_00582540`
- * D:L442925 -> `FUN_0028c6e0` D:L134283-134302, past the stop `(n - 1) / n` by half a tick's step) answers 1 for it
- * (D:L443131-443132: no flinch action is one of its cases, and no callback is set on it) and `FUN_005870e0` pops it
- * (D:L418203), the reload's refusal (0x4) going with it (`Room.flinch`'s window, PTW.R3). The stick's cut before it
- * (D:L418180-418185 with `FUN_00587c20`; PAR-60, research 230 section 5.2.1) ends the victim's own (`room.ts`
- * `flinchCut`, `./walk` `setFlinchPose`); another's body here is cut the same way by the victim's replicated stick
- * (`stepFlinch`; LATER 404, research 230 section 5.2.12: FLINCH_CUT_REMOTE_READING read), else plays to this end. The
- * legs' blend is FLINCH_LAYER_PLACEHOLDER's, a capture's.
- */
-export function flinchPose(clip: string, seconds: number, clips: PlayClips | null): TraversalPose | null {
-  const c = clips?.clips.find((k) => k.name === clip);
-  if (!c) return null;
-  const playback = clips?.table?.find(([name]) => name === clip)?.[1]?.playback ?? c.frameCount / 30;
-  return seconds < oneShotSeconds(playback, c.frameCount) ? keyAt(clip, seconds, clips, oneShotSeconds) : null;
-}
-
-/**
  * FLINCH_LAYER_PLACEHOLDER (research 91 section 21.1): the game starts the flinch as the actor's motion through
  * `FUN_00588bc0(actor, motion, state, 0, 0xd)` (`FUN_005a2690` L460019, L460042), whose layering over the body's other
  * play -- the 0xd and the motion's flags set after it -- is unread; the page draws the clip whole-body through the
@@ -468,91 +271,24 @@ export function flinchPose(clip: string, seconds: number, clips: PlayClips | nul
  * whole-body clip is posed in the scope too, the body hidden: the muzzle the local round's leg starts from (`./fire`,
  * the accuracy pip's `blockedMuzzle` in third person) and the posed root the walk's camera stands on (`FUN_0029a950`)
  * follow it while it plays -- cosmetic (the room's round has no origin from the page), and what the game's posed actor
- * would give if its flinch is whole-body, which is the unread part (`play.test.ts` pins the page's).
+ * would give if its flinch is whole-body, which is the unread part (`play.test.ts` pins the page's). RELOAD-HITPOSE F1
+ * (ONE-CLOCK; a BROWSER ADAPTATION, the page's interpolation having no original -- the room judges a round at the shooter's drawn tick,
+ * `room.ts` `drawnPastOf`): the flinch's CLIP still starts at the event, but its end of a reload clip does not -- it is
+ * stamped with the newest snapshot tick in hand when it came (`NetClient.heardTick`) and released, in order behind a
+ * reload heard before it, once the drawn tick passes that mark (`RemotePlayers.frame`), as the reload itself now is.
  */
 export const FLINCH_LAYER_PLACEHOLDER = 'whole body, from the event' as const;
 
 /**
- * LATER 512's re-look: the landings that play a clip (`Walker`'s landing `clip`: `FUN_005af590`), each an action on the
- * snapshot with its serial -- a new one pops the stack to its base (`FUN_0058a5e0` D:L466897). The knock's landings
- * (`landDeath`, `landBackwards`) are `pushPopped`'s already.
+ * RELOAD-HITPOSE F1 (ONE-CLOCK): an event on another body heard under a mark (`RemotePlayers.reload`, `flinch`, `died`),
+ * waiting for the drawn tick past it -- a reload to start, or a flinch's or a death's end of one.
  */
-const LANDING_CLIP_ACTIONS: ReadonlySet<string> = new Set(['land', 'landHard', 'hit', 'hitStomach']);
+type HeardEvent = ({ kind: 'reload'; posture: ReloadStance | null; seconds: number; family: ReloadItem | null; moving: boolean }
+  | { kind: 'flinch' | 'death' }) & { mark?: number };
 
-/**
- * One frame of a body's flinch (`RemotePlayers.frame`): a dead body's is dropped (its death clip is its play); else the
- * flinch runs `dt` on and, unless `FUN_005a2690` would refuse it now (`./net/deaths` `flinchRefused`,
- * FLINCH_GATE_READING: a ladder or a hang, a knock fall, a swap, the long hits; PF-21), its key is the body's traversal
- * pose (FLINCH_LAYER_PLACEHOLDER) -- over the ground play, a jump, a landing, a climb's step-up or a stance transition
- * alike -- dropped once played through or once refused. The room gates the start (`Room.flinch`), the launcher's raise
- * included, which a remote snapshot does not carry. LATER 404 (research 230 section 5.2.12): and dropped as the
- * victim's own is cut -- the ground driver pops a one-shot top from its second tick after the push
- * (`FLINCH_CUT_COMMANDS`) and past the clip's NoInterrupt (`noInterruptCommands`) when the move axes or the turn stand
- * past 0.1 (`reloadCut`, D:L418182-418185) -- on the victim's replicated stick (the snapshot's ground axes, `cutStick`,
- * and `turnRate`): another console copies the replicated axes into the same fields (D:L418613-418615), unscaled. The
- * clock is the event's arrival (the event carries no tick, FLINCH_LAYER_PLACEHOLDER's note), the stick the last
- * snapshot's.
- */
-export function stepFlinch(
-  r: { flinch: { clip: string; t: number; pushed?: true } | null; under?: { clip: string; t: number } | null; coverLand?: number | null },
-  snap: { alive: boolean; traversal?: TraversalPose | null; action: PlaySnapshot['action'] } & Pick<FlinchGateBody, 'overlay' | 'launcher'>
-    & Partial<Pick<PlaySnapshot, 'cutStick' | 'turnRate' | 'airborne' | 'landedBare' | 'landing'>>,
-  dt: number, clips: PlayClips | null,
-): void {
-  if (!snap.alive) { r.flinch = null; r.under = null; return; }
-  if (!r.flinch) return;
-  r.flinch.t += dt;
-  // A program's push (`pushMotion`: a door's `Open door`) has no `FUN_005a2690` before it -- `ai::ANIMATE` pushes through
-  // `FUN_00588bc0` directly (D:L487256-487260) -- so the flinch's gate is not asked of it; what pops the stack takes it
-  // off (`./net/deaths` `pushPopped`: a knock, a ladder's mount, a climb's start; #485's review F3).
-  // The review's F2: a landing that plays a clip pops the stack to its base too (`FUN_0058a5e0` D:L466897; research 92
-  // section 4), as the room's `flinchLanding` and the page's `flinchDown` drop the door clip and the flinch together. The
-  // folds' re-look: a NEW landing -- the snapshot's `landing` is the last landing since the feet left the floor, a lasting
-  // state -- so a landing clip's action (`LANDING_CLIP_ACTIONS`) whose serial is not the one playing at the push.
-  // (The room's `flinchLanding` acts only on a flinch covered in the air; this pops on any new landing clip -- the same,
-  // since a landing needs the air first: the fix's re-look, (3).)
-  const landNow = snap.action && LANDING_CLIP_ACTIONS.has(snap.action.name) ? snap.action.serial : null;
-  const clipLanding = landNow !== null && landNow !== (r.coverLand ?? null);
-  const popped = r.flinch.pushed ? pushPopped(snap) || clipLanding : flinchRefused(snap);
-  const gone = popped || remoteCut(r.flinch, snap, clips);
-  const pose = gone ? null : flinchPose(r.flinch.clip, r.flinch.t, clips);
-  if (pose) { snap.traversal = pose; return; }
-  // LATER 512 (research 92 section 4): a push's clip run or cut hands back the flinch it covered, on from its frozen time
-  // (`FUN_0028da00` D:L135098-135110); a pop to the base (`pushPopped`: a knock, a ladder, a climb) takes both.
-  const under = r.flinch.pushed && !popped ? r.under ?? null : null;
-  r.under = null;
-  r.coverLand = null;
-  r.flinch = under;
-  const back = under ? flinchPose(under.clip, under.t, clips) : null;
-  if (back) snap.traversal = back; else r.flinch = null;
-}
 
-/**
- * LATER 512: a map program's push (`pushMotion`, a door's `Open door`) on another's body -- over a flinch, which it
- * covers without popping (only the top advances): the flinch kept under it (`under`, its time frozen); over another push,
- * the flinch below both kept; over nothing, none.
- */
-export function pushOver(
-  r: { flinch: { clip: string; t: number; pushed?: true } | null; under?: { clip: string; t: number } | null; coverLand?: number | null },
-  clip: string, coverLand: number | null = null,
-): void {
-  r.under = r.flinch && !r.flinch.pushed ? { clip: r.flinch.clip, t: r.flinch.t } : r.flinch?.pushed ? r.under ?? null : null;
-  r.coverLand = coverLand;                                        // the landing clip playing now is no new landing
-  r.flinch = { clip, t: 0, pushed: true };
-}
 
-/**
- * LATER 404 (research 230 section 5.2.12): whether the victim's replicated stick has cut another body's one-shot top
- * now -- from `FLINCH_CUT_COMMANDS` after its push and past its clip's NoInterrupt, the move axes or the turn past 0.1
- * (`reloadCut`, the victim's own test). No stick on the snapshot (a stand-in): no cut.
- */
-function remoteCut(f: { clip: string; t: number }, snap: Partial<Pick<PlaySnapshot, 'cutStick' | 'turnRate' | 'airborne' | 'landedBare'>>, clips: PlayClips | null): boolean {
-  if (snap.cutStick === undefined || snap.turnRate === undefined) return false;
-  const c = clips?.clips.find((k) => k.name === f.clip);
-  const entry = clips?.table?.find(([name]) => name === f.clip)?.[1];
-  const after = Math.max(FLINCH_CUT_COMMANDS, c && entry?.playback ? noInterruptCommands(entry.playback, c.frameCount, entry.noInterrupt ?? null) : 0) / TICK_HZ;
-  return f.t >= after - 1e-9 && reloadCut({ cutStick: snap.cutStick, turnRate: snap.turnRate, airborne: snap.airborne === true, landedBare: snap.landedBare });
-}
+
 
 /**
  * REMOTE_STEP_STICK_READING (2026-10-02, research 91 section 22.3): `FUN_005a39b0` (460385-460434) picks the step or the
@@ -574,58 +310,6 @@ export const REMOTE_STEP_STICK_READING = 'ground motion forward/right' as const;
  * recovered by the decompiler), the `network_log` bit; settles: capture NU7-3.
  */
 export const REMOTE_THROW_GRUNT_READING = 'the body\'s own clip' as const;
-
-/** The step a remote body's footfall sounds (`GameAudio.onFootstep`'s place and step), or null for none. */
-export interface RemoteStep { at: [number, number, number]; stance: 0 | 1 | 2; stick: number }
-
-/**
- * Another player's footfall heard (ported from Chris's browser-beta-v5, d578f347): `FUN_005a3570` (460266-460378) runs
- * in the actor update with no locality test (`FUN_005506a0` L417909), so a console hears the others' steps -- at the
- * foot (`vtable+0x14`, `FUN_005a39b0`), the crawl prone, whose left foot's call is skipped; the step or the stealth
- * step by the stick (REMOTE_STEP_STICK_READING). Null for any other event, and for the prone left foot.
- */
-export function remoteFootfall(e: PlayEvent, s: Pick<PlaySnapshot, 'feet' | 'stance' | 'ground'>): RemoteStep | null {
-  if (e.kind !== 'footfall') return null;
-  const stance = s.stance === 'prone' ? 2 : s.stance === 'crouch' ? 1 : 0;
-  if (stance === 2 && e.foot === 'left') return null;
-  const at = e.position ?? s.feet;
-  return { at: [at[0], at[1], at[2]], stance, stick: Math.max(Math.abs(s.ground.forward), Math.abs(s.ground.right)) };
-}
-
-/**
- * FOOTFALL_CAP_READING (PF-25, PF.R43; research 179 section 11.20, research 219 section 4): `FUN_005a3570` sounds a step
- * only with the actor's `+0xe0` bit 2 (D:L460295); `FUN_00552850` (D:L418748-418861) sets it per viewer, on the viewer's
- * own actor always (L418860) and on at most `DAT_0064fc78` = 3 (`consts.out`) other actors of its list (`+0xd8`) whose
- * distance squared (the entry's +0x10) is under 250000.0 (500 units; strict). A reading: the console's own build of the
- * list, and its skip of a remote player's flagged actor (`+0x265` bits 0/1, not modelled), are not reproduced here.
- */
-export const FOOTFALL_CAP_READING = { others: 3, range2: 250000 } as const;
-
-/**
- * FOOTFALL_NEAREST_READING (PF-25, PF.R43; research 179 section 11.20): which three -- the page takes the nearest by
- * distance squared to the listener (ties in the snapshot's order). Owed: whether `FUN_00552850`'s `+0xd8` list is
- * sorted by distance; if it is not, the original's three are the list's first three in range, not the nearest.
- */
-export const FOOTFALL_NEAREST_READING = 'nearest' as const;
-
-/**
- * The other bodies whose footfalls the page hears this frame (FOOTFALL_CAP_READING, FOOTFALL_NEAREST_READING): the
- * living ones under 500 units of `listener` (the page's own feet), nearest first, at most three; null -- every living
- * body -- without a listener (the map viewer's watcher, a page not in a body). The page's own steps are never here
- * (`./walkSounds` sounds them unranked: L418860).
- */
-export function footfallsHeard(bodies: readonly Pick<BodyState, 'id' | 'feet' | 'flags'>[], listener: readonly [number, number, number] | null): Set<number> | null {
-  if (!listener) return null;
-  const near: { id: number; d2: number }[] = [];
-  for (const b of bodies) {
-    if (!(b.flags & BodyFlag.Alive)) continue;                       // a dead body takes no slot: PF.R43's choice -- FUN_00552850 has no alive test; whether a corpse stays in +0xd8 is unread
-    const dx = b.feet[0] - listener[0], dy = b.feet[1] - listener[1], dz = b.feet[2] - listener[2];
-    const d2 = dx * dx + dy * dy + dz * dz;
-    if (d2 < FOOTFALL_CAP_READING.range2) near.push({ id: b.id, d2 });
-  }
-  near.sort((a, b) => a.d2 - b.d2);                                   // stable: ties keep the snapshot's order
-  return new Set(near.slice(0, FOOTFALL_CAP_READING.others).map((n) => n.id));
-}
 
 /**
  * A living remote body's footfall to sound (`remoteFootfall`), with its id and its feet (the floor's material there), and
@@ -855,6 +539,8 @@ export class RemotePlayers {
 
   /** PF-25: the page's own feet, the footfall cap's listener (`footfallsHeard`); null hears every living body. */
   private listener: [number, number, number] | null = null;
+  /** LATER 1051: the camera's bound body when not the page's own (`setBound`), the cap's listener then; null, the own. */
+  private bound: number | null = null;
 
   /**
    * NU-4 (research 317 s1.8, s5 B1): the room's rules (the welcome's, `./netPage`), which the corpse rule reads
@@ -869,8 +555,18 @@ export class RemotePlayers {
   private heard: Set<number> | null = null;
 
   /**
+   * LATER 1051 (`footfallsHeard`'s `bound`): the body the camera is bound to when it is not the page's own -- a dead
+   * player's watched teammate, a spectator's followed player (`SpectatorView.boundId()`, through `NetPage.frame`) --
+   * set each frame before `frame`; null, the own body (or none: FOOTFALL_UNBOUND_PLACEHOLDER).
+   */
+  setBound(id: number | null): void {
+    this.bound = id;
+  }
+
+  /**
    * PF-25 (FOOTFALL_CAP_READING): where the page's own body stands, set each frame before `frame` -- the three nearest
-   * others within 500 units of it are heard; null (no body: the watcher, a spectator's free view) hears every one.
+   * others within 500 units of it are heard; null (no body: the watcher, a spectator's free view) hears every one
+   * unless a bound body stands in (`setBound`, LATER 1051).
    */
   setListener(feet: readonly [number, number, number] | null): void {
     this.listener = feet ? [feet[0], feet[1], feet[2]] : null;
@@ -968,16 +664,18 @@ export class RemotePlayers {
    * The volumes `aimDistance`, `aimBodies` and `aimRecords` cast a body on: its bone boxes (BONE-BOXES, research 398 s1).
    * HIT-POSE (research 217 s3.6): a player's drawn skeleton's (`Play.drawnBody`: the copy's animator pose, as the room
    * hits its own live pose of the body, `../../match`
-   * `Room.hitPose`), so the aim point converges on the body drawn; a hostage's (it stays on its idle sets, as the room's
-   * `hostageVolumes`), a body on a turret (`./net/hitPose` `HIT_POSE_MOUNT_READING` 'idle': the room meets a mounted
-   * gunner on its idle set, its poser not fed the turret's clip), a copy not yet played, or a stand-in without it: the
+   * `Room.hitPose`), so the aim point converges on the body drawn; a hostage's too (LATER 831, research 237 s2.5: its
+   * copy's No_weapon pose, as the room's hostage poser judges it, `Room.hostagePose`; the claim point LATER 1141 vouches
+   * and the order's pick meet what the room meets). A body on a turret (`./net/hitPose` `HIT_POSE_MOUNT_READING` 'idle':
+   * the room meets a mounted gunner on its idle set, its poser not fed the turret's clip), a copy not yet played, or a
+   * stand-in without it: the
    * type's stance volumes at the snapshot's feet, yaw and posture -- PRONE-TILT; LEAN-HIT (issue #752): the snapshot's held
    * peek (the wire's -1 / 0 / 1) posing the lean set, as the room's idle path does. PAGE-AIM-ALLOC: the drawn body, or
    * null for the stance volumes' cast (`aimVolumes`, through `bodyNearest` / `bodyRecords`, built only past the cull).
    */
   private aimBody(r: Remote): HitBody | null {
     const mounted = HIT_POSE_MOUNT_READING === 'idle' && (this.mountPose?.(r.id) ?? null) !== null;
-    return typeof r.escortee === 'number' || mounted ? null : r.play.drawnBody?.() ?? null;
+    return mounted ? null : r.play.drawnBody?.() ?? null;
   }
 
   /**
@@ -1064,6 +762,25 @@ export class RemotePlayers {
   }
   private readonly aimRecordsOut: number[] = [];
   private aimRecordsCount = 0;
+
+  /**
+   * SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game). The first record the line makes
+   * on any living drawn body within `reach` -- the same cast `aimRecords` makes (`aimCast`, on the drawn body or the
+   * stance volumes) -- as the body's id, the bone box and its part (`./net/hitVolumes` `NO_PART` for a bone that takes
+   * nothing) and the distance along the line; null, none. What the page expected of a round it sent, for the playtest
+   * report's ledger (`./net/shotLedger` `PageShot`). Reads only: nothing drawn or sent changes.
+   */
+  aimFirst(eye: Vec3, dir: Vec3, reach: number): { id: number; bone: number; part: number; distance: number } | null {
+    let best: { id: number; bone: number; part: number; distance: number } | null = null;
+    for (const r of this.remotes.values()) {
+      const s = r.snap;
+      if (!s?.alive || !r.view.group.visible) continue;
+      this.aimCast(r, s, eye, dir, reach, (part, t, bone) => {
+        if (best === null || t < best.distance) best = { id: r.id, bone, part, distance: t };
+      });
+    }
+    return best;
+  }
   private readonly aimRecordsSink: RecordSink = (_part, t) => { this.aimRecordsOut[this.aimRecordsCount++] = t; };
 
   /** Each side's types' stance volumes, built once a map and its clips (`Room`'s rule: the type's, its side's first's, the SEAL's). */
@@ -1152,6 +869,7 @@ export class RemotePlayers {
     this.characterKeys.delete(id);
     this.remove(id);
     this.keptDeaths.delete(id);                                  // LATER 939: the seat gone for good, its kept death with it
+    this.heardQueue.delete(id);                                  // RELOAD-HITPOSE F1: the seat gone, what was heard for it
   }
 
   /**
@@ -1205,12 +923,15 @@ export class RemotePlayers {
   }
 
   /**
-   * A player's kit (protocol 7: its `spawn`, the welcome's players): five item ids; a drawn body whose kit changed has
-   * its two firearms hung again (REMOTE_KIT_APPLY_READING) -- a `spawn`, the welcome's, and a pick-up's `taken.kit` at
-   * the accept, at once and with no action on the body (research 324 §1.4: `FUN_0059f0c0` on every console).
+   * A player's kit (protocol 7: its `spawn`, the welcome's players): five item ids, or up to 30 -- a launcher claim
+   * appends its round after the kit's last record (R4P-103 fresh review F2: `wireKit`; `FUN_005a4b70` D4:L499303-499309,
+   * the reading agent/spc-atlas dcd314b4bd), so a taker's `taken.kit`, a resumed seat's `spawn`, the welcome's and a
+   * replay's carry six; a drawn body whose kit changed has its two firearms hung again (REMOTE_KIT_APPLY_READING) -- a
+   * `spawn`, the welcome's, and a pick-up's `taken.kit` at the accept, at once and with no action on the body (research
+   * 324 §1.4: `FUN_0059f0c0` on every console).
    */
   setKit(id: number, kit: readonly number[]): void {
-    if (kit.length !== 5) return;
+    if (!wireKit(kit)) return;
     this.kits.set(id, [...kit]);
     const r = this.remotes.get(id);
     if (r && !sameKit(r.kit, kit)) this.hang(r, [...kit]);
@@ -1229,14 +950,18 @@ export class RemotePlayers {
    * and the aim after the same real time at any frame rate, and each body's `Play` (its rifle's lowering countdown,
    * `WeaponRaise`). The clips (the death pose, the flinch, the hands, the
    * binoculars, a hostage's stance change, a victory) are animations and keep the clamped `dt`.
+   *
+   * RELOAD-HITPOSE F1 (ONE-CLOCK): `drawnTick` is the room's tick the bodies are drawn at (`NetClient.shownTick`); each
+   * body's events heard under a mark (`reload`, `flinch`, `died`) are released in order once it passes the mark
+   * (`releaseHeard`). Absent (a caller that names none), every one is released at once; null (no snapshot), none.
    */
-  frame(dt: number, bodies: readonly SpawnedBodyState[], camera: PerspectiveCamera, real = dt): void {
+  frame(dt: number, bodies: readonly SpawnedBodyState[], camera: PerspectiveCamera, real = dt, drawnTick?: number | null): void {
     this.throwCalls = [];
     for (const p of this.pendingVictories.values()) p.elapsed += dt;
     const seen = this.seenThisFrame;                             // CPS bodies: one set, emptied each frame
     seen.clear();
     // PF-25: the cap's choice, once a frame, before any play runs; HX-2: a hostage takes no slot (research 238 s7: unread)
-    this.heard = footfallsHeard(this.escortees.size ? bodies.filter((b) => !this.escortees.has(b.id)) : bodies, this.listener);
+    this.heard = footfallsHeard(this.escortees.size ? bodies.filter((b) => !this.escortees.has(b.id)) : bodies, this.listener, this.bound);
     for (const b of bodies) {
       seen.add(b.id);
       const r = this.remotes.get(b.id) ?? this.add(b.id);
@@ -1275,6 +1000,10 @@ export class RemotePlayers {
       if (spawned) { r.play.respawn?.(); r.binocs.stop(); r.flinch = null; r.hands.stop(); r.wake?.keeper.clear(); }
       // NU-11b H1 (the gameplay seat's condition 1): the seat's spawn ends the death this page heard.
       if (spawned) this.deathsHeard.delete(b.id);
+      // RELOAD-HITPOSE F1: what was heard for the life before the drawn spawn (marked under the drawn tick) goes with it;
+      // the rest -- heard for the new life, not drawn yet -- waits; then what the drawn tick has passed, in order.
+      if (spawned) this.dropHeard(b.id, drawnTick);
+      this.releaseHeard(r, drawnTick);
       // The remote wake (`wade`): every SEAL body's, whether drawn or not (REMOTE_WAKE_HOSTAGE_READING: no hostage's).
       if (!hostage || REMOTE_WAKE_HOSTAGE_READING !== 'none') this.wade(r, r.snap);
       // LATER 512b (research 215 section 8.6, "The flinch at the take"): a body on its turret's pose has been taken,
@@ -1383,13 +1112,18 @@ export class RemotePlayers {
 
   /**
    * Another player flinched (`flinch`, the room's clip: `./net/deaths` `flinchClip`; the owner, 2026-10-02): its body plays
-   * the clip from now, over its own play, until it has run. A dead body or one not drawn yet plays none.
+   * the clip from now, over its own play, until it has run. A dead body or one not drawn yet plays none. RELOAD-HITPOSE
+   * F1 (the delta review's G3): its end of a reload heard under a mark is queued whether or not the copy is drawn yet,
+   * behind a reload queued for it, so a copy first drawn inside that clip has it ended at the flinch's mark, as the room's.
    */
-  flinch(id: number, clip: string): void {
+  flinch(id: number, clip: string, mark?: number | null): void {
     const r = this.remotes.get(id);
-    if (r && r.snap?.alive !== false) {
+    if (!r) { this.queueHeard(id, mark, { kind: 'flinch' }); return; }
+    if (r.snap?.alive !== false) {
       r.flinch = { clip, t: 0 }; r.under = null;                 // LATER 512: `FUN_0058a4d0` pops to the base first
-      r.play.stopRemoteReload?.('flinch');                       // REMOTE-RELOAD F1: a crouched or prone still clip only (`Play.stopRemoteReload`)
+      // REMOTE-RELOAD F1: a crouched or prone still clip only (`Play.stopRemoteReload`); RELOAD-HITPOSE F1: on the drawn
+      // clock under its mark, behind a reload heard before it (`releaseHeard`); with no mark, at once.
+      if (!this.queueHeard(id, mark, { kind: 'flinch' })) r.play.stopRemoteReload?.('flinch');
     }
   }
 
@@ -1399,15 +1133,71 @@ export class RemotePlayers {
    * clip's `seconds`, its `family` and whether it moved (the still clip of the posture, or the family's moving overlay).
    * An event without the room's seconds (an older room) or a body not drawn starts none: the sound alone, as before. A
    * flinch ends a crouched or prone still clip, a death any (`Play.stopRemoteReload`); a knock is not wired (LATER 811).
+   * RELOAD-HITPOSE F1 (ONE-CLOCK; `./netPage` REMOTE_RELOAD_MOTION_READING): `mark` the newest snapshot tick in hand when
+   * the event came (`NetClient.heardTick`) -- the reload waits until the drawn tick passes it (`frame`'s `releaseHeard`)
+   * and starts run on by the drawn ticks past it, so the drawn clip's phase is the one the room's poser is judged at (the
+   * drawn tick); whether the drawn body is alive is asked then. No mark: at once, as before.
    */
-  reload(id: number, take: { posture?: ReloadStance | null; seconds?: number; family?: ReloadItem | null; moving?: boolean }): void {
-    const r = this.remotes.get(id);
+  reload(id: number, take: { posture?: ReloadStance | null; seconds?: number; family?: ReloadItem | null; moving?: boolean }, mark?: number | null): void {
     const seconds = take.seconds;
-    if (!r || r.snap?.alive === false || typeof seconds !== 'number' || !(seconds > 0)) return;
+    if (typeof seconds !== 'number' || !(seconds > 0)) return;
     // A malformed posture or family off the wire is none (the play's own stance, the item's family): the network's bookkeeping.
     const posture = take.posture === 'stand' || take.posture === 'crouch' || take.posture === 'prone' ? take.posture : null;
     const family = take.family && RELOAD_FAMILIES.has(take.family) ? take.family : null;
-    r.play.remoteReload?.(posture, seconds, family, take.moving === true);
+    const e: HeardEvent = { kind: 'reload', posture, seconds, family, moving: take.moving === true };
+    if (this.queueHeard(id, mark, e)) return;
+    const r = this.remotes.get(id);
+    if (r) this.applyHeard(r, e, 0);
+  }
+
+  /**
+   * RELOAD-HITPOSE F1 (ONE-CLOCK): each body's events heard under a mark (`reload`, `flinch`'s reload stop, `died`'s), in
+   * the order heard, until the drawn tick passes each mark (`frame`). Kept by id, through a rebuild of the copy (`remove`);
+   * dropped by the seat's leaving (`forget`), another room (`clear`), a death heard with no mark (`died`) and, for the
+   * life before it, a drawn spawn (`dropHeard`).
+   */
+  private readonly heardQueue = new Map<number, HeardEvent[]>();
+
+  /** F1: `e` queued under `mark`; false with no mark (the caller applies it at once). */
+  private queueHeard(id: number, mark: number | null | undefined, e: HeardEvent): boolean {
+    if (typeof mark !== 'number' || !Number.isFinite(mark)) return false;
+    const q = this.heardQueue.get(id);
+    if (q) q.push({ ...e, mark }); else this.heardQueue.set(id, [{ ...e, mark }]);
+    return true;
+  }
+
+  /**
+   * F1: body `r`'s queued events whose mark the drawn tick has passed (`drawn > mark`, as `NetClient.spawnsAt` counts a
+   * spawn the drawn snapshot is past), in order; a reload run on by `(drawn - mark) / TICK_HZ` seconds. `drawn`
+   * undefined: all of them, at once; null: none.
+   */
+  private releaseHeard(r: Remote, drawn: number | null | undefined): void {
+    const q = this.heardQueue.get(r.id);
+    if (!q || drawn === null) return;
+    let n = 0;
+    while (n < q.length && (drawn === undefined || drawn > q[n]!.mark!)) {
+      const e = q[n++]!;
+      this.applyHeard(r, e, drawn === undefined ? 0 : (drawn - e.mark!) / TICK_HZ);
+    }
+    if (n >= q.length) this.heardQueue.delete(r.id); else if (n) q.splice(0, n);
+  }
+
+  /** F1: a drawn spawn's drop -- what was marked under the drawn tick was the life before it (all of it with no tick). */
+  private dropHeard(id: number, drawn: number | null | undefined): void {
+    const q = this.heardQueue.get(id);
+    if (!q) return;
+    const keep = typeof drawn === 'number' ? q.filter((e) => e.mark! >= drawn) : [];
+    if (keep.length) this.heardQueue.set(id, keep); else this.heardQueue.delete(id);
+  }
+
+  /** F1: one heard event on body `r`'s play -- a reload started (`startAt` seconds on) on a living body; a flinch's or a death's stop. */
+  private applyHeard(r: Remote, e: HeardEvent, startAt: number): void {
+    if (e.kind === 'reload') {
+      if (r.snap?.alive === false) return;
+      // 0 (an event with no mark, or released at its mark): the four-argument call, as before the fold (the review's F1)
+      if (startAt > 0) r.play.remoteReload?.(e.posture, e.seconds, e.family, e.moving, startAt);
+      else r.play.remoteReload?.(e.posture, e.seconds, e.family, e.moving);
+    } else r.play.stopRemoteReload?.(e.kind);
   }
 
   /**
@@ -1424,15 +1214,19 @@ export class RemotePlayers {
     if (r && r.snap?.alive !== false) pushOver(r, clip, a && LANDING_CLIP_ACTIONS.has(a.name) ? a.serial : null);
   }
 
-  /** A kill: the victim's death clip (the server's choice), played from now. */
-  died(id: number, clip: string | null): void {
+  /** A kill: the victim's death clip (the server's choice), played from now; `mark` its reload stop's (RELOAD-HITPOSE F1, `reload`). */
+  died(id: number, clip: string | null, mark?: number | null): void {
     this.ghosts.delete(id);
     this.deathsHeard.add(id);                                    // NU-11b H1: a death heard, so never a ghost at first sight
     this.keptDeaths.delete(id);                                  // LATER 939: this death, not one kept from an earlier rebuild
     const r = this.remotes.get(id);
+    // RELOAD-HITPOSE F1: under its mark, the death's stop waits behind what was heard before it and cuts the reload at the
+    // drawn death (`releaseHeard`); with no mark, at once, and nothing heard before it is started.
+    const queued = this.queueHeard(id, mark, { kind: 'death' });
+    if (!queued) this.heardQueue.delete(id);
     if (r) {
       r.deathClip = clip; r.deadFor = 0; r.fadeAge = 0; r.flinch = null; r.under = null;
-      r.play.stopRemoteReload?.('death');                        // REMOTE-RELOAD: the body is gone, and its reload clip
+      if (!queued) r.play.stopRemoteReload?.('death');           // REMOTE-RELOAD: the body is gone, and its reload clip
     } else if (clip) this.pendingDeaths.set(id, clip);
   }
   private readonly pendingDeaths = new Map<number, string>();
@@ -1760,7 +1554,9 @@ export class RemotePlayers {
 
   /** NU-6 P2: the body's launcher taken off its node. */
   private dropLauncher(r: Remote): void {
-    r.launcher?.object?.removeFromParent();
+    const object = r.launcher?.object ?? null;
+    object?.removeFromParent();
+    releaseRenderObjects(object);                                 // LATER 922: the copy's render objects go with it
     r.launcher = null;
   }
 
@@ -1791,6 +1587,7 @@ export class RemotePlayers {
     this.pendingAges.clear();
     this.pendingDeaths.clear();
     this.keptDeaths.clear();                                     // LATER 939: another room's kept deaths are not this one's
+    this.heardQueue.clear();                                     // RELOAD-HITPOSE F1: nor its heard events
   }
 }
 

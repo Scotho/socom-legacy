@@ -52,11 +52,13 @@ describe('LR-30: the menu keys', () => {
       const p = boot(release);
       const at = (): number => p.ctl.S.item[HOME_CATEGORY]!;
       expect(at()).toBe(0);
+      // Home's pad rows are Play and Server status (the owner, 2026-11-19: Discord and GitHub are not the pad's), so the
+      // four keys are walked inside those two
       key('s');
       expect(at()).toBe(1);
-      key('ArrowDown');
-      expect(at()).toBe(2);
       key('w');
+      expect(at()).toBe(0);
+      key('ArrowDown');
       expect(at()).toBe(1);
       key('ArrowUp');
       expect(at()).toBe(0);

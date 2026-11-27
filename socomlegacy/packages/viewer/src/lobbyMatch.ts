@@ -1,8 +1,13 @@
 import type { AssetSource } from '@s2u/archive';
+import { netEndingLine, netEndingOf, setNetEnding } from './net/netEnding';
 import type { CloseReportPage } from './net/closeReport';
+import type { NetEndPage } from './net/netEndDiag';
+import { LOAD_DIAG_LATE_MS_ADAPTATION, type LoadDiagPage } from './net/loadDiag';
 import { NET_ERRNO_DISCONNECTED_READING, VALVE_TYPE, type ValveStore } from '@s2u/ui';
 import { lessWait, type GameLobbyHandOff } from './gameLobbyHost';
 import { loadingFromDisc, type LoadingScreen } from './loadingAssets';
+import { withVariantTitle } from './variants/loadingTitle';
+import { withDayLoadingPicture, type DayPictures } from './variants/dayPictures';
 import { LoadingJoin, type JoinLanes } from './loadingJoin';
 import { FIRST_FRAME_FALLBACK_MS } from './loadingHold';
 import { LOAD_STATE_FADE_SECONDS } from '@s2u/ui/loading';
@@ -41,10 +46,14 @@ export interface LobbyMatchPorts {
    * build (`frontEnd.ts`, behind its literal gate); absent, nothing is reported.
    */
   closeReport?(socketUrl: string, page: CloseReportPage): void;
+  /** LATER 62 (`./net/netEndDiag` `NETEND_DIAG_ADAPTATION`): the same returns told to the page's beacon, a release build's too; absent, none. */
+  netEnd?(page: NetEndPage): void;
+  /** LATER 753 (`./net/loadDiag` `LOAD_DIAG_ADAPTATION`): a late seat's slow load told to the page's beacon; absent, none. */
+  loadDiag?(page: LoadDiagPage): void;
   /** The loading screen for the mission (`mp2` ...): shown at the hand-off, hidden when the match starts or ends. */
-  screen: { show(mission: string): void; hide(): void };
+  screen: { show(mission: string, variant?: import('@s2u/archive').MapVariant): void; hide(): void };   // DAY-TITLE: the welcome's variant names the title
   /** The map's assets fetched and warmed while the screen shows; settles when they are in (a rejection counts as done, as PR #10's failed warm-up). */
-  load(mission: string): Promise<unknown>;
+  load(mission: string, variant?: 'day' | 'night'): Promise<unknown>;   // DAY-8: the welcome's told variant
   /**
    * IP3 (`LOAD_REPORT_AT_PREPARED_READING`): the match made ready to draw -- the mount's own stage 1: its canvas, the
    * renderer, the world built, compiled and drawn (`./matchMount` `MatchLoader.prepare`); settles at the mount's own
@@ -52,7 +61,7 @@ export interface LobbyMatchPorts {
    * counts as done only once `load` AND this have settled (a rejection still ends the load: never a stuck screen); absent
    * (the test rooms, other callers), the load is done at `load` alone.
    */
-  prepare?(mission: string): Promise<unknown>;
+  prepare?(mission: string, variant?: 'day' | 'night'): Promise<unknown>;
   /**
    * IP3 (the review's F4): the prepared match let go -- the one being made too -- by its own teardown
    * (`./matchMount` `MatchLoader.dropPrepared`). Called when a load ends with no match started (the room's abandon, a
@@ -397,6 +406,8 @@ export class LobbyMatch {
    */
   private prepareGiveUp: (() => void) | null = null;
   private loadInAt: number | null = null;
+  /** LATER 753: the load's prepare given up at its bound (`PREPARE_WAIT_BOUND_ADAPTATION`), for `loadDiag`. */
+  private prepareBoundHit = false;
   /**
    * LATE-WATCH (W19.R12; research 314 §4.2): a watcher let through by a welcome with a round under way -- a late seat's
    * READY loads it into the round in play (ui `GameLobbyCommands.ReadyToLoad`'s late branch, `FUN_0027caf0`
@@ -510,27 +521,39 @@ export class LobbyMatch {
     // ONL-18b: the load reported on the same client, once (`loaded`, the room's barrier for round 1) -- since LOAD-HOLD
     // when the assets are in, the screen then held for the barrier (`lanes`' `barrier`, `CLIENT_ROUND_WAIT_READING`).
     this.join.begin(LOAD_ID, () => { h.client.reportLoaded(); });
-    this.o.screen.show(h.mission);
+    this.o.screen.show(h.mission, h.welcome?.variant);
     const mine = h;
     // IP3 (`LOAD_REPORT_AT_PREPARED_READING`): with a prepare, the load ends once the assets are in AND the match is
     // prepared (its failure ends it too); the load's own failure is still 'failed', settled after the prepare.
     // The review's F1: the prepare's wait bounded (`PREPARE_WAIT_BOUND_ADAPTATION`, `frame`) -- given up, the load ends
     // as a failed prepare's does; 5d's N1: the prepared match kept for the mount (no `unprepare` here).
-    const loading = this.o.load(h.mission);
+    const loading = this.o.load(h.mission, h.welcome?.variant);
     this.loadInAt = null;
     this.prepareGiveUp = null;
+    this.prepareBoundHit = false;
     const prepare = this.o.prepare;
     const preparing = prepare ? new Promise<void>((res) => {
       let waiting = true;
       const giveUp = (): void => { if (!waiting) return; waiting = false; res(); };
       this.prepareGiveUp = giveUp;
       const done = (): void => { if (this.prepareGiveUp === giveUp) this.prepareGiveUp = null; if (waiting) { waiting = false; res(); } };
-      prepare(h.mission).then(done, done);
+      prepare(h.mission, h.welcome?.variant).then(done, done);
     }) : null;
     const loadIn = (): void => { if (this.hand === mine) this.loadInAt = this.now(); };
     loading.then(loadIn, loadIn);
     const settled = preparing ? loading.then((v) => preparing.then(() => v), (e: unknown) => preparing.then(() => { throw e; })) : loading;
-    settled.then(() => { if (this.hand === mine) { this.assets = 'done'; this.assetsAt = this.now(); } }, () => { if (this.hand === mine) this.assets = 'failed'; });
+    settled.then(() => { if (this.hand === mine) { this.assets = 'done'; this.assetsAt = this.now(); this.loadTold(mine, false, prepare !== undefined); } },
+      () => { if (this.hand === mine) { this.assets = 'failed'; this.loadTold(mine, true, prepare !== undefined); } });
+  }
+
+  /** LATER 753 (`./net/loadDiag`): a late seat's load that took `LOAD_DIAG_LATE_MS_ADAPTATION` or more, told; never throws. */
+  private loadTold(h: GameLobbyHandOff, failed: boolean, prepared: boolean): void {
+    if (h.lateJoiner !== true || !this.o.loadDiag) return;
+    const loadMs = this.now() - this.startedAt;
+    if (loadMs < LOAD_DIAG_LATE_MS_ADAPTATION) return;
+    try {
+      this.o.loadDiag({ assetsMs: this.loadInAt !== null ? this.loadInAt - this.startedAt : null, loadMs, boundHit: this.prepareBoundHit, failed, prepared });
+    } catch { /* the instrument never changes the load */ }
   }
 
   /** A score kept for the replay: stamped, and the loading clock set from it. */
@@ -663,7 +686,7 @@ export class LobbyMatch {
       // IP3 (the review's F1): the prepare given up once its wait from the assets' arrival reaches the bound; the load
       // then ends as a failed prepare's does, on a later frame (its settle is a promise's), the prepared match kept (N1).
       const giveUp = this.prepareGiveUp;
-      if (giveUp && this.loadInAt !== null && this.now() - this.loadInAt >= PREPARE_WAIT_BOUND_ADAPTATION) { this.prepareGiveUp = null; giveUp(); }
+      if (giveUp && this.loadInAt !== null && this.now() - this.loadInAt >= PREPARE_WAIT_BOUND_ADAPTATION) { this.prepareGiveUp = null; this.prepareBoundHit = true; giveUp(); }
       if (updateClosed(c)) { this.updating(); return; }  // OBF-4: the host's update, before any other way back
       const ended = this.finalClose(c);
       if (ended !== null) { this.end(returnDialog(ended), null, 'load-final-close'); return; }
@@ -753,6 +776,16 @@ export class LobbyMatch {
   }
 
   /**
+   * LATER 1265 part 2 (`./matchEntryGate`; its pair review's F2): the player's own leave from a match the page cannot draw
+   * -- back as the START menu's ABORT returns (`returnDialog(MATCH_ABORT_DIALOG_ID)`: the abort dialog, why 'aborted'),
+   * never as a lost session (`stop`). Nothing once the match is over.
+   */
+  leaveLoading(): void {
+    if (this.phase !== 'loading' && this.phase !== 'match') return;
+    this.end(returnDialog(MATCH_ABORT_DIALOG_ID), null, 'entry-leave');
+  }
+
+  /**
    * OBF-4 (OBF.R4; an adaptation): the game closed at its match's end for its host's update -- the match closed and the
    * hold let go as any end, the menu state on the game's end (`GAME_ENDED_DIALOG_READING`, dlgNetAbandoned.rdr: what a
    * drained game's 4007 shows) under the page's warning, then the page told (`serverUpdate`: the warning and the reload).
@@ -770,6 +803,10 @@ export class LobbyMatch {
 
   private end(r: { dialog: string | null; why: LobbyMatchReturn['why'] }, client: NetClient | null, path: string): void {
     if (r.why !== 'match-over') this.report(r.why, path, this.client);   // LATER 62: before anything here closes it
+    // LATER 359b, NET-RES-3: a final close this controller ended itself (`finalCloseDialog`, no page's `endGame`) names its
+    // ending from the close code, read before the client is let go, unless the page named one already -- for dlgNetError's
+    // 'You' popup (the second divergence).
+    if (r.why === 'net-error' && netEndingLine() === null) { const e = netEndingOf(this.client?.closeCode ?? client?.closeCode ?? null); if (e !== null) setNetEnding(e); }
     this.handle?.close();
     this.handle = null;
     this.client?.close();
@@ -792,6 +829,13 @@ export class LobbyMatch {
    * code as they stand now, the phase, the late flag, the ms since the level showed -- to the development build's port.
    */
   private report(why: Exclude<LobbyMatchReturn['why'], 'match-over'>, path: string, c: NetClient | null): void {
+    // LATER 62 (`./net/netEndDiag`): the field's diagnostic, with or without a client (its state then 'none').
+    try {
+      this.o.netEnd?.({
+        why, path, state: c?.state ?? 'none', code: c?.closeCode ?? null, phase: this.phase, late: this.hand?.lateJoiner ?? false,
+        sinceMatchMs: this.shownAt !== null ? Math.max(0, Math.round(this.now() - this.shownAt)) : null,
+      });
+    } catch { /* the instrument never changes the return */ }
     const send = this.o.closeReport;
     if (!send || !c) return;
     send(c.url, {
@@ -885,17 +929,26 @@ export const LOBBY_MATCH_ASSETS_ADAPTATION = 'the map archive read while the scr
 export function pageLobbyMatchScreen(
   panel: { cover(): void; show(s: LoadingScreen): void; hide(): void },
   source: AssetSource,
+  /** DAY-PIC-OVERRIDE (`./variants/dayPictures`, a browser adaptation): the Day maps' pictures; absent, the disc's. */
+  dayPictures?: DayPictures,
 ): Pick<LobbyMatchPorts, 'screen' | 'load'> {
   let shown: string | null = null;
+  // DAY-PIC-OVERRIDE review F2: every show and hide a new token; a screen read for an older call paints nothing (a Day
+  // load's picture can arrive up to `DAY_PICTURE_WAIT_MS_ADAPTATION` late, after a hide and another show of the same map).
+  let call = 0;
   return {
     screen: {
-      show: (mission) => {
+      show: (mission, variant) => {
         shown = mission;
+        const mine = ++call;
         panel.cover();
         const path = missionMapPath(mission);
-        if (path) void loadingFromDisc(source, path).then((s) => { if (shown === mission && s.layout) panel.show(s); });
+        // DAY-TITLE (`./variants/loadingTitle`, display only): a told variant's name in the title. DAY-PIC-OVERRIDE
+        // (`./variants/dayPictures`, display only): a Day load's own picture; the night load's the disc's, as before.
+        const pictured = (s: LoadingScreen): Promise<LoadingScreen> => (dayPictures ? withDayLoadingPicture(s, variant, dayPictures) : Promise.resolve(s));
+        if (path) void loadingFromDisc(source, path).then(pictured).then((s) => { if (mine === call && shown === mission && s.layout) panel.show(withVariantTitle(s, variant)); });
       },
-      hide: () => { shown = null; panel.hide(); },
+      hide: () => { shown = null; call++; panel.hide(); },
     },
     load: (mission) => { const path = missionMapPath(mission); return path ? source.read(path) : Promise.resolve(); },
   };

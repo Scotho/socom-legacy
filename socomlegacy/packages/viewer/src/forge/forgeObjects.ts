@@ -1,5 +1,5 @@
 import { Matrix4 } from 'three';
-import type { EffectOp, EffectProgram } from '@s2u/scene';
+import { sequencesReached, type EffectOp, type EffectProgram } from '@s2u/scene';
 import type { ForgeObject as LayoutObject, ScriptStep, ScriptSteps } from '@s2u/creator-contracts';
 import type { SoundEmitter } from '../soundData';
 import type { LoadedMap } from '../loadMap';
@@ -34,7 +34,7 @@ export function withMapScript(map: LoadedMap, script: ScriptSteps | undefined): 
 }
 
 /**
- * A placed scripted effect (the owner, 2026-11-13: "a unified effect object that a user can drag out and customize"; a
+ * A placed scripted effect (the Forge's owner (crispy, OT.R112), 2026-11-13: "a unified effect object that a user can drag out and customize"; a
  * browser adaptation, FG.R2): an ambient object (`ForgeObject`, kind `ambient`) named `FORGE_SCRIPT_OBJECT` -- no disc
  * program has the name, so none plays (`Effects.playAt` finds none) -- its script (`ForgeObject.script`) its whole: the
  * game's own commands, its sounds, its effects and whatever else a script does. `FORGE_SOUND_OBJECT`, the name such an
@@ -47,7 +47,7 @@ export const SOUND_ASSET_PREFIX = `${FORGE_SOUND_OBJECT}:`;
 export const EFFECT_ASSET_PREFIX = '=effect:';
 /**
  * How long a placed single effect or one-shot sound waits before it runs again (its starting script: play, wait, loop):
- * an editor's starting value, no game value -- the player's to change (the owner, 2026-11-13: "just make them loop").
+ * an editor's starting value, no game value -- the player's to change (the Forge's owner (crispy, OT.R112), 2026-11-13: "just make them loop").
  */
 export const FORGE_SCRIPT_LOOP_WAIT_ADAPTATION = 5;
 /** Whether an ambient object is a placed scripted effect (`FORGE_SCRIPT_OBJECT`), not a disc map's ambient effect. */
@@ -84,12 +84,20 @@ export interface AmbientProgram {
 }
 
 /**
+ * Research 448: a disc program's sequences the original starts (`@s2u/scene` `sequencesReached`) -- a sequence of
+ * activation 2 nothing names (MP6's barrel light, MP73's crickets) is neither offered nor sounded.
+ */
+const playedSequences = (p: EffectProgram): EffectProgram['sequences'] => {
+  const reached = sequencesReached(p);
+  return p.sequences.filter((_, i) => reached[i]);
+};
+/**
  * What any program of a map's does (`AmbientProgram`'s own reading, its self-starting flag not asked): a called effect's
  * particles, sounds and light, the programs it calls with it -- an emitter's Does row whichever it plays. Null for a name
  * the map has no program of.
  */
 /**
- * How a map's program repeats, read off its commands and the programs it calls (the owner, 2026-11-14: "generic for all
+ * How a map's program repeats, read off its commands and the programs it calls (the Forge's owner (crispy, OT.R112), 2026-11-14: "generic for all
  * native emitters"): `again` with a LOOP or a WHILE, else `once` -- its `~` sounds (`loops`) still looping by the game's
  * own rule. Null for a name the map has no program of.
  */
@@ -103,7 +111,7 @@ export function programRepeatOf(map: Pick<LoadedMap, 'meta'>, name: string): { a
   const walk = (p: EffectProgram): void => {
     if (seen.has(p.name.toLowerCase()) || seen.size > 16) return;
     seen.add(p.name.toLowerCase());
-    for (const s of p.sequences) for (const o of s.ops) {
+    for (const s of playedSequences(p)) for (const o of s.ops) {          // research 448: what the original starts
       if (o.op === 'loop' || o.op === 'while') again = true;
       if (o.op === 'sound' && o.sound.startsWith('~')) loops = true;
       if (o.op === 'call') { const c = byName.get(o.anim.toLowerCase()); if (c) walk(c); }
@@ -123,7 +131,7 @@ export function programWorkOf(map: Pick<LoadedMap, 'meta'>, name: string): { par
   const walk = (p: EffectProgram): void => {
     if (seen.has(p.name.toLowerCase()) || seen.size > 16) return;
     seen.add(p.name.toLowerCase());
-    for (const s of p.sequences) for (const o of s.ops) { ops.push(o); if (o.op === 'call') { const c = byName.get(o.anim.toLowerCase()); if (c) walk(c); } }
+    for (const s of playedSequences(p)) for (const o of s.ops) { ops.push(o); if (o.op === 'call') { const c = byName.get(o.anim.toLowerCase()); if (c) walk(c); } }
   };
   walk(first);
   return { particles: ops.some((o) => o.op === 'particles'), sound: ops.some((o) => o.op === 'sound'), light: ops.some((o) => o.op === 'light') };
@@ -136,13 +144,13 @@ export function ambientProgramsOf(map: Pick<LoadedMap, 'meta'>): AmbientProgram[
   const closure = (p: EffectProgram, seen = new Set<string>()): EffectProgram[] => {
     if (seen.has(p.name.toLowerCase()) || seen.size > 16) return [];
     seen.add(p.name.toLowerCase());
-    const called = p.sequences.flatMap((s) => s.ops.flatMap((o) => (o.op === 'call' ? [byName.get(o.anim.toLowerCase())] : []))).filter((x): x is EffectProgram => !!x);
+    const called = playedSequences(p).flatMap((s) => s.ops.flatMap((o) => (o.op === 'call' ? [byName.get(o.anim.toLowerCase())] : []))).filter((x): x is EffectProgram => !!x);
     return [p, ...called.flatMap((c) => closure(c, seen))];
   };
   const out: AmbientProgram[] = [];
   for (const p of programs) {
     if ((p.flags & 3) !== 1) continue;
-    const ops = closure(p).flatMap((q) => q.sequences.flatMap((s) => s.ops));
+    const ops = closure(p).flatMap((q) => playedSequences(q).flatMap((s) => s.ops));
     const particles = ops.some((o) => o.op === 'particles'), light = ops.some((o) => o.op === 'light');
     const sounds = [...new Set(ops.flatMap((o) => (o.op === 'sound' ? [o.sound] : [])))];
     const loops: { sound: string; volume: number }[] = [];
@@ -233,7 +241,7 @@ export function forgeScriptEmitters(path: string, at: readonly [number, number, 
  * sounds by more than these (a test of another kind, a sequence of its own that does more), only its `~` loops, played.
  */
 export function scriptOfProgram(program: EffectProgram, from: string): { steps: ScriptStep[]; whole: boolean } {
-  const sounding = program.sequences.filter((s) => s.ops.some((o) => o.op === 'sound'));
+  const sounding = playedSequences(program).filter((s) => s.ops.some((o) => o.op === 'sound'));
   const one = (o: EffectOp): ScriptStep | null => {
     switch (o.op) {
       case 'sound': return { do: 'sound', name: o.sound, from, ...(o.volume !== 1 ? { volume: o.volume } : {}) };
@@ -274,7 +282,7 @@ export function scriptOfProgram(program: EffectProgram, from: string): { steps: 
     return { steps: sounding.flatMap((s) => translate(s.ops) ?? []), whole: true };
   }
   const loops: ScriptStep[] = [];
-  for (const s of program.sequences) for (const o of s.ops) {
+  for (const s of playedSequences(program)) for (const o of s.ops) {
     if (o.op === 'sound' && o.sound.startsWith('~') && !loops.some((l) => l.do === 'sound' && l.name === o.sound)) loops.push({ do: 'sound', name: o.sound, from, ...(o.volume !== 1 ? { volume: o.volume } : {}) });
   }
   return { steps: loops, whole: false };

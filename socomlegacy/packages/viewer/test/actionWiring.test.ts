@@ -7,7 +7,7 @@ import {
 import { DEFUSE_PROMPT_ICON_READING } from '../src/bombPage';
 import { TICK_HZ, type ClientEvent, type ServerEvent } from '../src/net/protocol';
 import { FrameTime } from '../src/frameTime';
-import { fireFrames } from '../src/accuracy';
+import { waitFrames } from '../src/accuracy';
 import { GAME_FRAME_DT, type CollisionOwner, type GridParams, type TurretPlacement, type WorldPoly } from '@s2u/scene';
 import { groundGrid, packGround } from '../src/mover';
 import { TurretPage } from '../src/turretPage';
@@ -273,7 +273,7 @@ describe('the action wiring (wave 4; research 214 s7)', () => {
 
   it("the mounted trigger: a round at the press, then one each turret interval while held (the room's fastest mode: FireWait x 0.8 automatic), none released", () => {
     expect(turretInterval({ fireWait: 0.12, fireModes: [3] })).toBeCloseTo(0.096);
-    expect(turretInterval({ fireWait: 0.12, fireModes: [1] })).toBeCloseTo(0.12);
+    expect(turretInterval({ fireWait: 0.12, fireModes: [1] })).toBeCloseTo(0.144);   // SWAP-FIRE: single's x 1.2 (r0004 0x5c76f0)
     expect(turretInterval(null)).toBeNull();
     const t = new TurretTrigger();
     const shots: boolean[] = [];
@@ -330,7 +330,7 @@ describe("PAR-24: the turret's cadence counts the frame's real seconds (research
 describe('LATER 104: the action button during a predicted release (no game data)', () => {
   const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const FLOOR: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) };
   const OWNERS: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const PLACE = {
     id: 0, name: 'synthetic', origin: [0, 13.5, 0], facing: 0, gunOrigin: [0, 13.5, 0], firepointOrigin: [0, 13.5, -9.7],
@@ -497,7 +497,7 @@ describe('LATER 220: the picker behind the prompts\' common gate', () => {
  * LATER 588 (b) (reading, pending review): the mounted gun's wait on the game-frame clock, as LATER 326 put the kit's
  * (`./fire` `update`): the kit's timer `+0x81c` set to the wait at a round and run down a game frame at a time, clamped
  * at 0 (`FUN_005c0fd0` D:L476643-476647; the gate `FUN_005c0ae0` D:L476446-476448), so a round every ceil(wait / frame)
- * game frames (`./accuracy` `fireFrames`, OBF-19) at any page frame rate. Was: run down a browser frame at a time -- the
+ * game frames (`./accuracy` `waitFrames`, OBF-19) at any page frame rate. Was: run down a browser frame at a time -- the
  * PKM and LMG TURRET (0.096 s, 3 frames: 9.99 a second) at 10.0 at 60 fps and 10.29 at 144.
  */
 describe("LATER 588 (b): the turret's cadence on the game-frame clock", () => {
@@ -510,7 +510,7 @@ describe("LATER 588 (b): the turret's cadence on the game-frame clock", () => {
   it.each([
     [0.096, 60], [0.096, 144], [0.096, 30], [1.0, 60], [1.0, 144], [1.0, 30],
   ] as const)('a %s s gun at %s fps: the rounds of the original\'s whole frames, never sooner, at most a page frame later', (interval, fps) => {
-    const q = fireFrames(interval, 1) * GAME_FRAME_DT, seconds = 30, at = held(interval, fps, seconds);
+    const q = waitFrames(interval) * GAME_FRAME_DT, seconds = 30, at = held(interval, fps, seconds);   // the interval as given
     // Round j no sooner than j x q (the press's round at 0), never a page frame after it.
     const bad = at.findIndex((x, j) => !(x >= j * q - 1e-9 && x <= j * q + 1 / fps + 1e-9));
     expect(bad, `round ${bad} at ${at[bad]} against ${bad * q}`).toBe(-1);

@@ -327,7 +327,7 @@ describe('F1: the dropping scoped round (FUN_005c5340: a pull\'s second round sc
     const trigger = (c: number): boolean => (c >= 2 && c < 7) || (c >= 20 && c < 40);
     const rounds = new Set([2, 4, 6, 20, 26]);
     let pending: number | null = null;                         // the room decides a round once the command after ran
-    let before: number | null = null;
+    let before: number | null = null, dropped = 0;
     for (let c = 1; c < 60; c++) {
       z.set(view(c));
       const s = view(c);
@@ -339,18 +339,33 @@ describe('F1: the dropping scoped round (FUN_005c5340: a pull\'s second round sc
       if (deliver === 'late' && rounds.has(c - 1)) p.shot();   // the event after the next command's body
       if (rounds.has(c)) { pending = c; if (deliver === 'early') p.shot(); }
       const r = p.reticle(), k = ref.state();
-      // Unbloomed after the drop: the reticle only closes from the scoped command on (the dropping round blooms nothing).
-      if (c >= 27 && c < 40) expect(r.size!, `${deliver} at ${c}: unbloomed after the drop`).toBeLessThanOrEqual(before!);
-      if (c >= 27) expect(r.offset, `${deliver} at ${c}: the knock`).toEqual(k.offset);
+      // AS-34 L77 (research 84 s8; reading, pending review): the dropping round blooms AFTER the drop -- Fire (r0004
+      // 0x5cc9d0) runs the drop (0x5cd580-0x5cd5c4: 0x5492c0 stores +0x200 = 1 at 0x5492f0) before Recoil (its call at
+      // 0x5cdbc0; D:L479399-479406, D:L479541-479542), whose gate reads 1. So at 27 the reticle carries the round's
+      // TargetDilateUponFire, the value the lens's own `ShotCone.round` gives (the room's code, not this helper's), and from
+      // 28 it only closes. *Was:* "unbloomed after the drop: the dropping round blooms nothing" (`<= before` from 27).
+      if (c === 27) {
+        dropped = r.size!;
+        expect(dropped, `${deliver} at 27: the dropping round's bloom`).toBeGreaterThan(before! + scope3.stances.stand.dilateFire / 2);
+      }
+      if (c > 27 && c < 40) expect(r.size!, `${deliver} at ${c}: closing after the drop's bloom`).toBeLessThanOrEqual(before!);
+      // The knock: the room cone's at once when the event comes with its command. A command later, the watcher's rounds of
+      // the first pull land one command late (round 6 on command 7, past the trigger's release), so its climb returns to 0
+      // a command before the room's: at 26 the room still holds -0.8 the lens has returned. Since AS-34 L77 the dropping
+      // round knocks on top of that residual, so the two differ by at most one command's return (ReticuleKnockReturn / 60)
+      // until it has run out, then agree (from 45, as the size). *Was:* equal from 27 (the dropping round knocked nothing).
+      if (deliver === 'early' ? c >= 27 : c >= 45) expect(r.offset, `${deliver} at ${c}: the knock`).toEqual(k.offset);
+      else if (c >= 27) expect(Math.abs(r.offset![1] - k.offset[1]), `${deliver} at ${c}: the knock within a command's return`).toBeLessThanOrEqual(scope3.stances.stand.knockReturn / 60 + 1e-9);
       // The size is the room cone's: at once when the event comes with its command; when it comes a command later the
       // watcher blooms every round on the newest command, one command behind the room's own (the trace: 7.167 at 4
       // against the room's at 3), so equal once the bloom has closed.
       if (deliver === 'early' ? c >= 27 : c >= 45) expect(r.size, `${deliver} at ${c}`).toBe(k.size);
       before = r.size ?? k.size;                               // scoped: the room cone's size stands in
     }
+    expect(dropped, `${deliver}: the bloom at the drop came`).toBeGreaterThan(0);
   }
-  it('the shot event before the state-1 command: the reticle after the drop is unbloomed, the knock the room cone\'s', () => runDrop('early'));
-  it('the shot event after the state-1 command: the round is put on the last scoped command, unbloomed', () => runDrop('late'));
+  it('the shot event before the state-1 command: the dropping round blooms after the drop (AS-34 L77), the knock the room cone\'s', () => runDrop('early'));
+  it('the shot event after the state-1 command: the round is put on the last scoped command, its bloom after the drop (AS-34 L77)', () => runDrop('late'));
 });
 
 describe('F1 narrowed: only the drop state 1 moves a round back (matchFirearm: the drop sets 1)', () => {

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildGrid, CLAYMORE, M67, MATERIAL_WATER, type Grid, type GridParams, type KitRound, type KitTable, type Loadout, type ThrowableRecord, type V3, type WorldPoly,
+  buildGrid, CLAYMORE, GAME_FRAME_DT, M67, MATERIAL_WATER, type Grid, type GridParams, type KitRound, type KitTable, type Loadout, type ThrowableRecord, type V3, type WorldPoly,
 } from '@s2u/scene';
 import { aimPick } from '../src/equipment';
 import { GrenadeThrower, type GrenadeSource } from '../src/grenade';
+import { THROW_AIM_ORIGIN_LATCH_READING } from '../src/throwAim';
 import { RocketLauncher, type RocketSource } from '../src/rocket';
 import { KitRounds } from '../src/firearms';
 import type { PlaySnapshot } from '../src/walk';
@@ -21,7 +22,7 @@ const snap = (over: Partial<PlaySnapshot> = {}): PlaySnapshot => ({
 const floor = (): Grid => {
   const f: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/f', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000]),
+    points: Float32Array.from([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000]),
   };
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
   return buildGrid(params, [], [], [f], [{ modelName: 'worldmodel', path: 'worldmodel/f0', first: 0, count: 1 }]);
@@ -149,7 +150,7 @@ describe('the others\' charges on the page (the room\'s `grenade` events)', () =
 describe('C4 on the page (research 94 §C5.1): the Action button at a C4 target, settled', () => {
   /**
    * SUP-03: the target is the scene destructible under the reticle (`c4Target`: `./equipment` `aimPick`, `c4TargetOf`) -- a
-   * synthetic access barrier, a wall across x 130 (z 150..250) on the floor, its block taking C4's 18 -- not a type-less
+   * synthetic access barrier, a wall across x 115 (z 150..250; LATER 1139: was x 130, 30 u off, restaged to 15 u inside the hip gate) on the floor, its block taking C4's 18 -- not a type-less
    * action's node (`C4_TARGET_READING` retired). PF-13: held there 0.2 s (`C4Settle`, `c4PlantAllowed`); `material` the
    * wall's byte (7 STONE; 3 INVISIBLE_DI).
    */
@@ -158,9 +159,9 @@ describe('C4 on the page (research 94 §C5.1): the Action button at a C4 target,
   const barrierGrid = (material = 7): Grid => {
     const f: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/f', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000]),
+      points: Float32Array.from([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000]),
     };
-    wall = { ...f, path: DI, ditype: 2, material, points: Float32Array.from([130, 50, 150, 130, 50, 250, 130, 110, 250, 130, 110, 150]) };
+    wall = { ...f, path: DI, ditype: 2, material, points: Float32Array.from([115, 50, 150, 115, 50, 250, 115, 110, 250, 115, 110, 150]) };
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
     return buildGrid(params, [], [], [f, wall], [
       { modelName: 'worldmodel', path: 'worldmodel/f0', first: 0, count: 1 }, { modelName: 'worldmodel', path: DI, first: 1, count: 1 },
@@ -180,13 +181,22 @@ describe('C4 on the page (research 94 §C5.1): the Action button at a C4 target,
   };
 
   it('C4 Action restores the exact prior duplicate slot while an ordinary throw retains its own slot (research 361 §2)', () => {
-    const { g } = planter(() => ({}));
+    // LANE-KILL B-06: the throw's aim is the body's vector toward the camera's aim point (r0004 `0x5e6690`) and the
+    // release clearance casts 25 u along it (r0004 `0x54e6f0`): with the camera east on the barrier 15 u off (the plant's
+    // reticle) the original refuses the ordinary throw (a standing select refused at 20 u at the default look,
+    // KILL-LATCH-PC2 s2). So the ordinary throw looks along the facing (-z), level, from the standing latch's height
+    // (THROW_AIM_ORIGIN_LATCH_READING.stand); the camera turns back onto the barrier for the plant.
+    let onBarrier = false;
+    const ahead = { eye: [100, 50 + THROW_AIM_ORIGIN_LATCH_READING.stand.up, 200] as V3, far: [100, 50 + THROW_AIM_ORIGIN_LATCH_READING.stand.up, -100] as V3 };
+    const { g } = planter(() => ({}), { aim: () => (onBarrier ? { eye: [100, 62, 200], far: [400, 62, 200] } : ahead) });
     g.setKit(['M67', 'M67', 'C4']);
     g.selectEquipment(2);
     expect(g.heldSlot()).toBe(3);
     expect(g.throwNow(1)?.slot).toBe(3);
     run(g, 2);
     expect(g.stats()).toMatchObject({ slot: 3, left: 2, held: 'M67' });
+    onBarrier = true;
+    run(g, 0.3);                                                 // the reticle settles on the barrier (PF-13: 0.2 s)
     expect(g.plantC4()).toBe(true);
     run(g, 3);
     expect(g.stats()).toMatchObject({ slot: 3, left: 2, held: 'M67' });
@@ -213,7 +223,7 @@ describe('C4 on the page (research 94 §C5.1): the Action button at a C4 target,
     expect(events).toContain('place C4');
     // The wire's `throw` names the struck node and its point (PF.R18: the room checks them), and (LATER 305) the eye the
     // pick's aim ray left at the settle -- the feet then, 12 up.
-    expect(placed).toEqual([{ target: 0, surface: { path: DI, point: [130, 62, 200] }, eye: [100, 62, 200] }]);
+    expect(placed).toEqual([{ target: 0, surface: { path: DI, point: [115, 62, 200] }, eye: [100, 62, 200] }]);
     expect(g.stats().leftByItem.C4).toBe(3);
     run(g, 5.75);                                                   // 5.8 s from the charge down
     expect(g.equipped()).toBe(false);                               // back to the firearm (FUN_005c4b10 to the last slot)
@@ -264,7 +274,7 @@ describe('C4 on the page (research 94 §C5.1): the Action button at a C4 target,
     expect(invisible.g.c4Target()).toBeNull();
     expect(invisible.g.plantC4()).toBe(false);
     const grid = barrierGrid(3);
-    expect(aimPick(grid, [100, 62, 200], [400, 62, 200])).toMatchObject({ path: DI, point: [130, 62, 200], material: 'INVISIBLE_DI' });
+    expect(aimPick(grid, [100, 62, 200], [400, 62, 200])).toMatchObject({ path: DI, point: [115, 62, 200], material: 'INVISIBLE_DI' });
     expect(aimPick(barrierGrid(), [100, 62, 200], [400, 62, 200])).toMatchObject({ path: DI, material: 'STONE' });
     expect(aimPick(grid, [100, 62, 200], [100, 62, 100])).toBeNull();
   });
@@ -332,7 +342,7 @@ describe('the LAW (AT-4) and the RPG-7 on the page (research 94 §C4.1-§C4.4, R
     const rs: number[] = [];
     rpg.r.on('launch', (e) => rs.push((e as { shot: number }).shot));
     rpg.r.selectSlot(1); run(rpg.r, 1.5); rpg.r.pull();
-    run(rpg.r, 3.1); rpg.r.pull();
+    run(rpg.r, 4.7); rpg.r.pull();                                  // LATER 1365: past the RPG's 138 game frames
     expect(rpg.launches).toHaveLength(2);
     expect(rpg.r.refund(rs[0]!)).toBe(true);
     expect(rpg.r.stats().wait, "the later launch's wait stands").toBeGreaterThan(0);
@@ -382,13 +392,13 @@ describe('the LAW (AT-4) and the RPG-7 on the page (research 94 §C4.1-§C4.4, R
     expect(events[0]).toBe('equip true 145');
   });
 
-  it('the RPG-7 is fed one round at a time: its FireWait (3 s) apart, a slot a rocket', () => {
+  it('the RPG-7 is fed one round at a time: its FireWait x 1.2 and its 1 s lock apart (138 game frames), a slot a rocket', () => {
     const { r, launches } = launcher(kit(54, 15, 146, 186, 186));
     expect(r.selectSlot(1)).toBe(true);
     expect(r.count()).toBe(2);
     run(r, 1.5);
     r.pull();
-    run(r, 2.9);
+    run(r, 4.5);
     r.pull();
     expect(launches).toHaveLength(1);
     run(r, 0.2);
@@ -398,12 +408,34 @@ describe('the LAW (AT-4) and the RPG-7 on the page (research 94 §C4.1-§C4.4, R
     expect(Math.hypot(...launches[1]!.velocity)).toBeCloseTo(400, 6);
   });
 
+  // LATER 1365 (simulation track; reading, pending review; research 84 s6): the round's id is the slot's mode (4 and up),
+  // so r0004 0x5c76f0 scales its FireWait 3 s x 1.2 (0x5c7760-0x5c7770): 108 game frames, float32 (`fireFrames`); the RPG
+  // round alone arms the 1 s lock (r0004 0x5cd330-0x5cd338; r0001 `FUN_005c5340` D:L479339-479342) whose 30 frames skip
+  // the wait's run-down (r0004 0x5c7d94-0x5c7e20; r0001 `FUN_005c0fd0` D:L476550-476563): 138. Was 3 s for both. The
+  // launch's `fireWait` carries the same, so the lower hands the firearm the scaled remainder (`./matchThrow`, LATER 1385).
+  it.each([
+    ['the LAW HEAT', kit(54, 15, 145, 185, 185), 108],
+    ['the RPG', kit(54, 15, 146, 186, 186), 138],
+  ] as const)('LATER 1365: %s waits %i game frames after a launch, and its launch says so', (_what, loadout, frames) => {
+    const { r } = launcher(loadout);
+    const waits: number[] = [];
+    r.on('launch', (e) => waits.push(e.fireWait));
+    expect(r.selectSlot(1)).toBe(true);
+    run(r, 1.5);
+    expect(r.pull()).not.toBeNull();
+    expect(r.stats().wait).toBeCloseTo(frames * GAME_FRAME_DT, 12);
+    expect(waits).toHaveLength(1);
+    expect(waits[0]).toBeCloseTo(frames * GAME_FRAME_DT, 12);
+    run(r, 3.1);
+    expect(r.pull()).toBeNull();                                    // was taken at 3 s
+  });
+
   it('the slot key cannot bring the launcher up wading deeper than 8.5 (FUN_005857e0 D:L444332-444360; LAUNCHER_BODY_READING): the source\'s own grid and feet, or its depth hook', () => {
     // A pool whose surface stands `depth` over the feet (50): the depth is `wadingDepth(grid, snapshot.feet)` by default.
     const pool = (depth: number): Grid => {
       const q = (y: number, material: number, path: string): WorldPoly => ({
         modelName: 'worldmodel', path, region: 0, ditype: 3, material, ptcount: 4, cameratype: 0,
-        points: Float32Array.from([-2000, y, -2000, 2000, y, -2000, 2000, y, 2000, -2000, y, 2000]),
+        points: Float32Array.from([-2000, y, 2000, 2000, y, 2000, 2000, y, -2000, -2000, y, -2000]),
       });
       const polys = [q(50, 7, 'worldmodel/f'), q(50 + depth, MATERIAL_WATER, 'worldmodel/pool')];
       const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };

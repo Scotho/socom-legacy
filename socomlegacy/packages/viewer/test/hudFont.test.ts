@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { Zar, parseRdr, rdrGet, type RdrNode } from '@s2u/archive';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { parseZdb } from '@s2u/archive';
-import { DPAD_GLYPH, FONT_SPECIAL_01, FONT_TEXT_01, layoutText, PEN_NUDGE, textWidth, TEXT_V } from '../src/hudFont';
+import {
+  DPAD_GLYPH, FONT_SPECIAL_01, FONT_TEXT_01, HUD_UNKNOWN_GLYPH_READING, layoutText, PEN_NUDGE, textWidth, TEXT_V,
+} from '../src/hudFont';
+import { readTextFaces } from '@s2u/ui';
 import { readHud } from '../src/hudAssets';
 import { GS_SAMPLE_OFFSET } from '../src/hud';
 import { PAD_GLYPH } from '@s2u/scene';
@@ -59,14 +62,18 @@ describe('layoutText', () => {
 });
 
 describe.skipIf(readerc === null)(`FONT_TEXT_01 against READERC.ZAR/fonts.rdr${readerc === null ? ` (${FIXTURES_ABSENT})` : ''}`, () => {
-  it('every transcribed glyph is the archive\'s, and the header too', () => {
+  const textureOne = (): { list: RdrNode[]; face: RdrNode[] } => {
     const zar = Zar.parse(readerc!);
     const key = zar.root.children.find((k) => k.name.toLowerCase() === 'fonts.rdr')!;
     const root = parseRdr(zar.data(key)) as RdrNode[];
-    const face = rdrGet(rdrGet(root[0]!, 'faces')!, 'font_text_01')!;
+    const face = rdrGet(rdrGet(root[0]!, 'faces')!, 'font_text_01')! as RdrNode[];
+    return { list: (rdrGet(face, 'charoffsets') as RdrNode[]).filter((c) => rdrGet(c, 'texture') === '1'), face };
+  };
+
+  it('every transcribed glyph is the archive\'s, and the header too', () => {
+    const { list, face } = textureOne();
     expect(rdrGet(face, 'opacity')).toBe('0.7');
     expect(rdrGet(face, 'xspacing')).toBe('0');
-    const list = rdrGet(face, 'charoffsets') as RdrNode[];
     const firstOf = new Map<number, number[]>();
     for (const c of list) {
       const code = Number(rdrGet(c, 'Code'));
@@ -78,16 +85,102 @@ describe.skipIf(readerc === null)(`FONT_TEXT_01 against READERC.ZAR/fonts.rdr${r
       const [dx] = (rdrGet(e, 'DispPos') as string[]).map(Number);
       firstOf.set(code, [code, ux!, uy!, lx!, ly!, dx!]);
     }
-    expect(FONT_TEXT_01.glyphs).toHaveLength(95);
     for (const g of FONT_TEXT_01.glyphs) expect(g).toEqual(firstOf.get(g[0]));
   });
+
+  it('LATER 1030 (c): is complete -- every texture-1 code of the face, once (the first record of a repeated code: 96)', () => {
+    const { list } = textureOne();
+    expect(list).toHaveLength(167);                        // 95 ASCII + 71 others + code 96's second record
+    const codes = [...new Set(list.map((c) => Number(rdrGet(c, 'Code'))))].sort((a, b) => a - b);
+    expect(codes).toHaveLength(166);
+    expect(FONT_TEXT_01.glyphs.map((g) => g[0]).sort((a, b) => a - b)).toEqual(codes);
+  });
+
+  it('LATER 1030 (c): every field the tuple does not carry is the default the layout assumes, on every texture-1 record', () => {
+    // One element; DispPos.y 0, HorScale 1, VertScale 1, texture 1; baseline 0 but on `!` and `.` (1, not modelled:
+    // the layout's letters stand on the fitted foot row, research 87 §3).
+    const { list } = textureOne();
+    const BASELINE_ONE = [33, 46];
+    for (const c of list) {
+      const code = Number(rdrGet(c, 'Code'));
+      const e0 = rdrGet(c, 'Elems') as RdrNode[];
+      expect(typeof e0[0] === 'string' ? 1 : e0.length, String(code)).toBe(1);
+      const e = (typeof e0[0] === 'string' ? e0 : e0[0]) as RdrNode[];
+      const n = (k: string): number[] => [rdrGet(e, k)].flat().map(Number);
+      expect([n('DispPos')[1], ...n('HorScale'), ...n('VertScale')], String(code)).toEqual([0, 1, 1]);
+      expect(rdrGet(c, 'texture'), String(code)).toBe('1');
+      expect(Number(rdrGet(c, 'baseline')), String(code)).toBe(BASELINE_ONE.includes(code) ? 1 : 0);
+      expect(rdrGet(c, 'color'), String(code)).toBeUndefined();
+    }
+  });
+
+  it('LATER 1030 (c): no texture-1 code is also a pad glyph (texture 2), so a line that asks for them loses no letter', () => {
+    const one = new Set(FONT_TEXT_01.glyphs.map((g) => g[0]));
+    expect(FONT_SPECIAL_01.glyphs.filter((g) => one.has(g[0]))).toEqual([]);
+  });
+});
+
+describe('LATER 1030 (c): the face\'s non-ASCII glyphs and the unknown code (HUD_UNKNOWN_GLYPH_READING)', () => {
+  const at = (code: number, scale = 1) => layoutText(String.fromCodePoint(code), 0, 0, scale);
+  const glyph = (code: number) => FONT_TEXT_01.glyphs.find((g) => g[0] === code)!;
+
+  it('draws the guillemets, A-circumflex, OE and the euro sign from their own cells', () => {
+    expect(at(0xab).glyphs[0]).toMatchObject({ u0: 39, v0: 75, u1: 48, v1: 100 });
+    expect(at(0xbb).glyphs[0]).toMatchObject({ u0: 50, v0: 75, u1: 59, v1: 100 });
+    expect(at(0xc2).glyphs[0]).toMatchObject({ u0: 37, v0: 50, u1: 50, v1: 75 });
+    expect(at(0x152).glyphs[0]).toMatchObject({ u0: 249, v0: 50, u1: 264, v1: 75 });
+    expect(at(0x20ac).glyphs[0]).toMatchObject({ u0: 270, v0: 75, u1: 280, v1: 100 });
+    expect(textWidth('«', 1)).toBe(9);   // int((49 - 39 + 0 - 1) x 1 + 0.5)
+  });
+
+  it('an unknown code draws the glyph of \'A\' + code % 26 and advances by it (FUN_0035a3a0 D:L255755)', () => {
+    expect(HUD_UNKNOWN_GLYPH_READING).toBe("'A' + code % 26; nothing for 0x0D");
+    for (const code of [0x2014, 0x09, 0xbe, 0x100, 0x7f]) {
+      const letter = 0x41 + (code % 26);
+      const g = at(code, 0.9).glyphs, want = at(letter, 0.9).glyphs;
+      expect(g, code.toString(16)).toHaveLength(1);
+      expect({ ...g[0]!, char: '' }, code.toString(16)).toEqual({ ...want[0]!, char: '' });
+      expect(textWidth(String.fromCodePoint(code), 0.9)).toBe(textWidth(String.fromCharCode(letter), 0.9));
+      expect(glyph(letter)).toBeDefined();
+    }
+  });
+
+  it('0x0D draws nothing and moves the pen nothing (FUN_0035a3a0 D:L255701; FUN_00363c20 D:L261347-261355)', () => {
+    expect(at(0x0d).glyphs).toEqual([]);
+    expect(at(0x0d).width).toBe(0);
+    expect(textWidth('A\rB', 1)).toBe(textWidth('AB', 1));
+  });
+
+  it('R4P-324: code 0xb2 draws the C cell, not the stand-in W, so a censored #C whisper reads #C in a round (HASH_C_GLYPH_ALIAS_READING)', () => {
+    // Was: 178 % 26 = 22, 'W' (the review's finding 1). r0004's face loader 0x003796b0 builds 0xb2 from C's Code record.
+    expect({ ...at(0xb2, 0.9).glyphs[0]!, char: '' }).toEqual({ ...at(0x43, 0.9).glyphs[0]!, char: '' });
+    expect(at(0xb2).glyphs[0]).toMatchObject({ u0: 26, v0: 0, u1: 35, v1: 25 });
+    expect(textWidth('#²xyz', 0.9)).toBe(textWidth('#Cxyz', 0.9));
+    expect(FONT_TEXT_01.glyphs.some((g) => g[0] === 0xb2)).toBe(false);   // the archive's table stays the archive's
+  });
+});
+
+describe.skipIf(readerc === null)(`R4P-324: the HUD's 0xb2 is the alias the face loader builds from fonts.rdr${readerc === null ? ` (${FIXTURES_ABSENT})` : ''}`, () => {
+  it('font_text_01 read through @s2u/ui readTextFaces holds 0xb2 with C\'s one element, as the HUD draws it', () => {
+    const zar = Zar.parse(readerc!);
+    const key = zar.root.children.find((k) => k.name.toLowerCase() === 'fonts.rdr')!;
+    const face = readTextFaces(parseRdr(zar.data(key))).find((f) => f.name === 'font_text_01')!;
+    const alias = face.glyphs.get(0xb2)!;
+    expect(alias.elements.map((e) => [...e.ul, ...e.lr])).toEqual([[26, 0, 36, 25]]);
+    expect(at(0xb2).glyphs[0]).toMatchObject({ u0: alias.elements[0]!.ul[0], v0: alias.elements[0]!.ul[1] });
+  });
+  const at = (code: number) => layoutText(String.fromCodePoint(code), 0, 0, 1);
 });
 
 describe('the pad glyphs (FONT_SPECIAL_01, web sprint 5 S4; research 95 §5.4)', () => {
   const R2 = String.fromCharCode(0xbe);
-  it('reads them only on a line that asks: without, 0xbe is an unknown character (the advance of a space, nothing drawn)', () => {
-    expect(layoutText(R2, 0, 0, 0.9).glyphs).toEqual([]);
-    expect(textWidth(R2, 0.9)).toBe(textWidth(' ', 0.9));
+  it('reads them only on a line that asks: without, 0xbe has no letter and draws the stand-in \'A\' + 190 % 26 = I (LATER 1030 c)', () => {
+    // Was: an unknown character, the advance of a space, nothing drawn. HUD_UNKNOWN_GLYPH_READING (FUN_0035a3a0
+    // D:L255755) draws the stand-in letter instead.
+    const g = layoutText(R2, 0, 0, 0.9).glyphs;
+    expect(g).toHaveLength(1);
+    expect(g[0]).toMatchObject({ u0: 92, v0: 0, u1: 97, v1: 25 });
+    expect(textWidth(R2, 0.9)).toBe(textWidth('I', 0.9));
   });
 
   it('places R2 (0xbe) from font_special_01.tif in its own colour, HorScale 0.75 wide, the pen by int((int(35 x 0.75) - 1) x S + 0.5)', () => {

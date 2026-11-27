@@ -36,7 +36,7 @@ vi.mock('three/webgpu', async (importOriginal) => {
     backend = seen.webgpu
       ? { isWebGPUBackend: true, utils: { getPreferredCanvasFormat: () => 'bgra8unorm' }, createRenderPipeline() {} }
       : { isWebGLBackend: true, createRenderPipeline() {} };
-    async init() {} setPixelRatio() {} setSize() {} setClearColor() {}
+    async init() {} setPixelRatio() {} setSize() {} setDrawingBufferSize() {} setClearColor() {}
     getRenderTarget() { return this.target; } setRenderTarget(t: RenderTarget | null) { this.target = t; }
     getDrawingBufferSize(v: { set(x: number, y: number): unknown }) { return v.set(1280, 720); }
     render(scene: unknown) { seen.draws.push({ scene, target: this.target }); }

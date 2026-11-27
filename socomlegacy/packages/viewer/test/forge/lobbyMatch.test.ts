@@ -30,6 +30,7 @@ vi.mock('../../src/audio', () => ({
 vi.mock('../../src/net/loopback', () => ({ LoopbackMatch: class {}, simClipsOfPlay: () => null, simMapOfLoaded: () => null }));
 
 const { startForgeLobbyMatch } = await import('../../src/forge/match');
+const { graphicsRecoveryNoticeHeld, resetGraphicsRecordForTest } = await import('../../src/graphicsLost');
 
 function handOff(): ForgeLobbyHandOff {
   const client = {
@@ -70,5 +71,52 @@ describe('FG-40: the forge lobby\'s match reports its load', () => {
       expect(() => start(handOff())).toThrow('no audio');
       expect(seen.order).toEqual(['close']);
     } finally { seen.throwAudio = false; }
+  });
+});
+
+/**
+ * The owner's word (via the main controller, 2026-11-25): "Leave the Forge out". A Forge custom match holds the graphics
+ * notice for as long as it is mounted (`../../src/graphicsLost` `holdGraphicsRecoveryNotice`): a loss shows the notice and
+ * nothing reloads by itself; the hold goes with the match's close, its release and a mount that throws. The Forge's Play
+ * mount (`startForgePlay`'s `mountMatch`) takes the same hold: both mounts name it.
+ */
+describe("GRAPHICS-RECOVERY: the Forge's mounts hold the notice (the owner's word, 2026-11-25)", () => {
+  it('a custom match holds it while mounted; its close lets it go', () => {
+    resetGraphicsRecordForTest();
+    seen.throwMount = false;
+    const m = start(handOff());
+    expect(graphicsRecoveryNoticeHeld()).toBe(true);
+    m.close();
+    expect(graphicsRecoveryNoticeHeld()).toBe(false);
+  });
+
+  it('a mount that throws holds nothing after it', () => {
+    resetGraphicsRecordForTest();
+    seen.throwMount = true;
+    try {
+      expect(() => start(handOff())).toThrow('no mount');
+      expect(graphicsRecoveryNoticeHeld()).toBe(false);
+    } finally { seen.throwMount = false; }
+  });
+
+  // The glance's F1 (2026-11-25): a throw AFTER a good mount (the load report, the return listener) let the hold go
+  // with the mount, so every later normal match on the page still reloads by itself.
+  it.each(['reportLoaded', 'on'] as const)('a throw from the client\'s %s after the mount lets the hold and the mount go, then rethrows', (which) => {
+    resetGraphicsRecordForTest();
+    seen.order.length = 0;
+    seen.throwMount = false;
+    const h = handOff();
+    const client = h.client as unknown as Record<string, unknown>;
+    client[which] = () => { throw new Error(`no ${which}`); };
+    expect(() => start(h)).toThrow(`no ${which}`);
+    expect(graphicsRecoveryNoticeHeld()).toBe(false);
+    expect(seen.order).toContain('unmount');
+  });
+
+  it("both of forge/match.ts's mounts take the hold (its Play and its custom matches)", async () => {
+    const { readFileSync } = await import('node:fs');
+    const text = readFileSync(new URL('../../src/forge/match.ts', import.meta.url), 'utf8');
+    expect(text.match(/mountMatch\(target,/g)).toHaveLength(2);
+    expect(text.match(/= holdGraphicsRecoveryNotice\(\);/g)).toHaveLength(2);
   });
 });

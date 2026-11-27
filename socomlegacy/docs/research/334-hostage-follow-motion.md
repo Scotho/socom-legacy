@@ -24,7 +24,13 @@ within the trail corridor while each new cell is walkable. This is a **candidate
 (`FUN_005fd790` D:L509862-509875 calls `FUN_0052a090`, D:L394984-395016): missing cells and soils 0,8,9,10
 (mask 0x701) are refused. It does not apply CanTravelLine's uphill-onto-soil11 refusal. The uphill-soil11 regression
 holds this distinction and refuses the subsequent soil9 candidate. If no point exists, `FUN_005fb1c0` D:L508700-508715
-uses leader position minus 0.65 velocity plus the rotated slot offset. The original cell scale is ten world units.
+uses the leader's position **plus** 0.65 times the leader's velocity, on all three axes, then adds the rotated slot
+offset: `FUN_00309180` scales the leader's +0x38 by `DAT_00650c30` (0x3f266666, +0.65) and `FUN_00309240` adds it to the
+leader position held at +0xa4 (copied from the leader's +0x1c, D:L508606-508610), D:L508700-508703 (the helpers
+D:L207463-207469, D:L207510-207515); the slot offset follows (D:L508712-508718). The goal lands ahead of a moving
+leader, not behind it. r0004's twin `FUN_006029a0` builds it the same way (D4:L551354-551357; its constant
+`DAT_0064f3b0`'s value not read here) *(corrected 2026-11-24, NC-3 r11; the port's sign, match `hostageFollow.ts`, is
+seat-shots')*. The original cell scale is ten world units.
 Formation 1's eight slots are (2,2), (3,-2), (4,-3), (5,-2), (6,3), (7,5), (8,-4), (9,-5), read in
 `FUN_005eb910` (D:L500124-500166). Individual FOLLOW assigns slot **zero**, explicitly, through
 `FUN_005fd050` at D:L450398-450399, so the room does not invent a slot from spawn or recruitment order.
@@ -58,8 +64,12 @@ No position is copied from an AI waypoint: horizontal displacement passes throug
 selection. Coincident link points are consumed without changing world position or height. An airborne
 body uses the shared mover's fall independently of AI-location lookup, planning, idle or failure waits
 (`FUN_0059b440` D:L456496-456512; `FUN_005af930` D:L466797-466803). HOLD or rescue stops navigation but
-does not cancel existing fall momentum; the live physical body continues falling. Followers never activate doors
-(`FUN_00567900` action dispatch, research 200 §3.1).
+does not cancel existing fall momentum; the live physical body continues falling. Followers can run a marker's action, a
+door's included: the path-follow tick `FUN_00567900` pushes CAiSAction (state 0xb, `FUN_005f5c00(param_2, 0xb, 0)`) for a bound marker of
+any type but 4 whose action's valve reads 1 (`FUN_005f5c00(param_2, 0xb, 0)`, D:L429522-429535), and for a type-1
+marker whose valve is 0 and whose `$s0` is nonzero (`FUN_005f5c00(actor, 0xb, 0 or 3)`, 0x567f04-0x567fb4; the type-1
+row and `FOLLOW_ACTION_CELL_READING` below); research 200 §3.1 *(corrected 2026-11-24, NC-3 r24; was "Followers never
+activate doors")*.
 Actual displacement per game frame supplies snapshot vx/vy/vz, so existing civilian speed animation can read it.
 
 Follow end/suspension, HOLD, leader release, rescue and death stop movement and clear the route. Reset constructs
@@ -227,8 +237,13 @@ the navigable cell changes (D:L471307-471318), not the last route segment origin
 `FUN_00603950` D:L512765-512771 enters phase5; D:L512898-512928 registers the saved pair as one request, then
 the next alone only when that registration is refused (D:L512917-512926); a search that fails later ends recovery
 in phase6 (D:L512951). `FUN_0052c5c0` D:L396351 onward registers those points as one path's legs. Phase6 waits
-while the request is queued or searching (D:L512950), then prepends all new points except the endpoint already
-retained (D:L512950-512971), then returns to normal route mode3. The request goes through the room's sliced planner
+while the request is queued or searching (D:L512950), then pushes the result's entries 0 to count-2 onto the route
+stack in order (`FUN_00526c10` per entry, D:L512958-512971): the last entry, the request's start end, is never pushed
+(the planner fill `FUN_00510ff0` appends from the found end back and its start cell last, D:L382797-382824,
+D:L382846-382851; one leg read, a multi-leg request's order not read),
+and the far end is dropped only by the push's own duplicate test, which skips a point equal to the stack's top
+(D:L393282-393295) *(corrected 2026-11-24, NC-3 r56; was "all new points except the endpoint already retained")*;
+then it returns to normal route mode3. The request goes through the room's sliced planner
 queue (research 333 §6, HOSTAGE-PATH-SLICE, 2026-10-18; was: "The synchronous planner is still the existing
 scheduling placeholder; separate controller phases preserve request versus adoption frames", and the fallback was
 taken after a failed search too). Targeted tests pin contact priority/time/reset and route retention/fallback.
@@ -499,13 +514,13 @@ exit sets that bit (`FUN_00604490` D:L513029-513040). This suppresses new normal
 climbs during recovery, without cancelling an active body clip. Its `FUN_00567840` command reset
 (D:L429347-429355) clears axes only; it does not clear the separately decaying lateral perturbation.
 
-Obstacle handling precedes the state tick (`FUN_0056e9d0` D:L432512-432513). A refused push of
-state16 while that state is already top increments its counter (`FUN_00556370` D:L420831-420849).
-That branch jumps to D:L420887 without clearing the contact record: a persistent qualifying event
-can increment on successive controller ticks, not only on a new contact edge. Before dispatch,
-`FUN_00603950` D:L512758-512761 exits when the counter is strictly greater than integer15
-(RAM0x651010, recorded in `HOSTAGE_AVOIDANCE_READING.reentryLimit`). Exit preserves a still-active
-direct movement request, as the existing case1 does; a new recovery entry starts a fresh budget.
+Obstacle handling precedes the state tick (`FUN_0056de10`, PreTick, calls `FUN_00556370` then `FUN_005f55e0`,
+D:L432512-432513; `FUN_0056e9d0`, cited by the port, is an address inside it, not a function). A refused push of
+state16 while that state is already top increments its counter (`FUN_00556370` D:L420831-420849). That branch jumps to
+D:L420887 without clearing the contact record: a persistent qualifying event can increment on successive controller
+ticks, not only on a new contact edge. Before dispatch, `FUN_00603950` D:L512758-512761 exits when the counter is
+strictly greater than integer15 (RAM0x651010, recorded in `HOSTAGE_AVOIDANCE_READING.reentryLimit`). Exit preserves a
+still-active direct movement request, as the existing case1 does; a new recovery entry starts a fresh budget.
 
 Phase5 first requires a nonempty completed controller route and saves its original final destination
 (`FUN_00603950` D:L512876-512885). Equal navigable actor/saved-endpoint x/z ends recovery without
@@ -550,12 +565,14 @@ otherwise normal completed route mode3 requests a perpendicular detour. Success 
 failure waits U*1.5+0.5. Its rear/moving/aligned branch remains phase0 (RAM66bbb8=0).
 `FUN_00601f80` D:L511932–512036 decrements phase4 on the entry tick and exits on dead target
 or timer expiry. `FUN_00602d10` D:L512327–512365 clears the contact record on exit.
-The entry contact selects movement mode4 for that tick only (`FUN_0056e9d0` D:L432512–432578). Subsequent phase4 ticks retain movement mode3: route steering executes the detour while FOLLOW decisions stay suspended. Independent body perturbation continues on the entry tick as section11 requires. Contact velocity is the incoming body velocity, before the browser physics wrapper can overwrite a grounded sample with zero.
+The entry contact selects movement mode4 for that tick only (`FUN_0056de10` D:L432512–432578; 0x56e9d0 is an address inside it). Subsequent phase4 ticks retain movement mode3: route steering executes the detour while FOLLOW decisions stay suspended. Independent body perturbation continues on the entry tick as section11 requires. Contact velocity is the incoming body velocity, before the browser physics wrapper can overwrite a grounded sample with zero.
 
 `FUN_00524170` D:L391986–392119 drops a head matching the other actor's raw x/z,
 then tries perpendicular world rays in positive/negative order with radius3*10.
 `FUN_00524660` D:L392125–392158 accepts the first candidate with both travel legs valid,
-and stops at failed distance>=30. `FUN_00537400` D:L403005–403307 supplies changed-cell sampling.
+and stops only when a failed sample's distance is above the limit, radius x 10 = 30 (the callback continues while
+it is at most the limit, D:L392069, D:L392135-392148), so not at exactly 30 *(corrected 2026-11-24, NC-3 r108; was
+"stops at failed distance>=30")*. `FUN_00537400` D:L403005–403307 supplies changed-cell sampling.
 `FUN_00197728/00197740` D:L14514–14535 uses unsigned32 seed and 64-bit LCG
 multiplier0x5851f42d4c957f2d, increment1, high31 output; the float transform uses2^-31.
 The room shares one Yield stream; it does not claim the original global stream's call order.
@@ -597,7 +614,7 @@ moving or invoking correction. Airborne and active clip velocity remain body-own
 
 **CORRECTED 2026-11-12 (research 418; the binding MEASURED, research 404 s30, n = 1):** this section's conclusion that
 no marker binds an action on the EXTRACTION maps ("every marker id is 0xffff after the load",
-`FOLLOW_ACTION_BIND_PLACEHOLDER`) does not hold. The binder `FUN_002a8140` writes each door marker's action id AFTER
+`FOLLOW_ACTION_BIND_PLACEHOLDER`, retired 2026-11-18 by LATER 958) does not hold. The binder `FUN_002a8140` writes each door marker's action id AFTER
 the reset, in a block the decompiled text lists as unreachable (read twice from the bytes, research 418 s22.10), and
 on MP71 the six door markers were read on the running original holding ids 1, 3, 4, 0, 2, 5. So the placeholder
 settles as BOUND; what a following hostage does at a shut door is still a reading (research 418 s22.11, s22.13; LATER
@@ -624,9 +641,9 @@ Fish Hook nav-ai line). Read in `FUN_00567900` and, where the decompilation lost
   (D:L505594 on) admits it on a FOLLOW stack [9, 0x17]: the allowed-next masks' AND 0x1ffffdfe & 0x190f4bc0 = 0x190f49c0
   keeps bit 11 (`AI_STACK_MASKS_READING`).
 - **The second push, D:L429523-429540** (DF-10's review F1, 2026-11-09, `agent-mail/evidence/mega/REVIEW-DF-TASKS-AND-BATCH.md`; filed, not yet built): before the table, for a marker of **any type but 4**, a bound
-  action whose valve reads **1** pushes the same CAiSAction, `FUN_005f5c00(param_2, 0xb, 0)`. Dead today (no marker
-  binds, `FOLLOW_ACTION_BIND_PLACEHOLDER`), but whoever settles the placeholder must carry this branch beside type 1's
-  valve-0 push; `followActionDispatch` (`match/src/hostageFollow.ts`) does not model it.
+  action whose valve reads **1** pushes the same CAiSAction, `FUN_005f5c00(param_2, 0xb, 0)`. Live: the markers bind at
+  load (the correction above), and this branch is the shut-behind block, research 428 s3 (`HOSTAGE_DOOR_SHUT_BEHIND_READING`,
+  not built: its save gate three held on every recorded run, research 428 s1); `followActionDispatch` does not model it.
 - **What MP71 carries** (the repository's AI reader over `RUN/MP71.ZDB` `AIMAPS.MPS`, dev disc): six markers, all type 1
   and all id 0xffff -- base map (238,45), (251,65), (223,83), (217,65); `tophost` (10,4), (15,24) -- one at each of the
   six `DOOR` records (`actions.rdr`: six of type code 0, then six of type 8 -- the three access points and three planks of research 175 §5.4). MP6 places one type-0 marker
@@ -634,22 +651,25 @@ Fish Hook nav-ai line). Read in `FUN_00567900` and, where the decompilation lost
 - **The binding.** The AI maps' load sets every marker's id to DAT_0065ab30, which the ELF holds as 0xffff
   (`FUN_0052bb70` D:L395962); actions take ids 0, 1, ... as they load. So no action answers a marker and the type-1
   handler steers: **a FOLLOW hostage at a shut door neither presses nor waits on it; it walks its route into the
-  leaf, whose collision stops it** -- the port's behaviour since HF (§2, "Followers never activate doors"; the MP6 jail
+  leaf, whose collision stops it** [SUPERSEDED 2026-11-12/18: the binder writes the ids after this reset (the correction
+  above); the port uses the door since LATER 958, research 428] -- the port's behaviour since HF (§2's former "Followers never activate doors", corrected NC-3 r24; the MP6 jail
   door case in `hostageFollow.test.ts`). No writer of an action id into a marker was found in this read, and the case
   that one exists is strong (the fresh review, 2026-11-08): `FUN_0052daa0` -> `FUN_00530bd0` (D:L398970) finds a marker
   **by action id** (word bits 4-19) and is called from eight sites -- D:L157540, 435268, 450957, 489120, 500391, 500463, 500548, 502723, the last inside
   `FUN_005f0180`, the function that aims CAiSAction -- beside `FUN_002b5760` (D:L157531-157546, a callback each action
-  registers). If every marker stays 0xffff, all of them are dead code in retail. Hence `FOLLOW_ACTION_BIND_PLACEHOLDER`,
-  not a reading: the settling read is a writer outside the `& 0xfff0000f | x << 4` idiom this read searched (a u16 store
+  registers). If every marker stays 0xffff, the call sites still run but their success arms are dead in retail: the
+  lookup `FUN_0052daa0` returns 0 when no sub-map answers (D:L397149-397150) and `FUN_002b5760` then skips its write
+  (D:L157541-157545) *(corrected 2026-11-24, NC-3 r123; was "all of them are dead code")*. Hence `FOLLOW_ACTION_BIND_PLACEHOLDER` (retired
+  2026-11-18: bound, the correction above), not a reading: the settling read is a writer outside the `& 0xfff0000f | x << 4` idiom this read searched (a u16 store
   at the marker's +4 or +6, say).
 
 | Name | Kind | What it means; evidence to settle it |
 |---|---|---|
 | `FOLLOW_ACTION_CELL_READING` | reading (DF-10's review, `agent-mail/evidence/mega/REVIEW-DF-TASKS-AND-BATCH.md`) | `match/src/hostageFollow.ts` `followActionDispatch`: type 1 with a bound action whose valve is 0 pushes CAiSAction (0xb); any other table type, no bound action or a nonzero valve, plain steering; types 4 and 7 (0x567ce8, 0x567c60) unread. Disassembly 0x567c28-0x567c54 and 0x567ee8-0x567fb4, D:L429545-429551, D:L157171-157185, D:L506016-506025, D:L502697-502761. Unit-tested on synthetic words; dev-disc on MP6, MP10, MP11, MP71. Settles: the `$s0` test at 0x567f04 transcribed. |
-| `FOLLOW_ACTION_BIND_PLACEHOLDER` | placeholder | `markerAction`: a marker binds the action whose load index equals its id; on the four EXTRACTION maps every marker id is 0xffff after the load (D:L395962), so none binds and the follower steers into a shut leaf. Against it: `FUN_0052daa0` -> `FUN_00530bd0` (D:L398970) finds a marker by action id from eight sites (D:L157540, 435268, 450957, 489120, 500391, 500463, 500548, 502723; the last in `FUN_005f0180`) beside `FUN_002b5760` (D:L157531-157546), all dead in retail if no marker binds. Settles: a writer of an action id into a marker outside the `& 0xfff0000f | x << 4` idiom (a u16 store at +4 or +6) found in the code, or a memory read of MP71's marker table (sub-map 0's list at +0x100, 40-byte records) on a running console after the map loads; a capture of a led hostage at MP71's door_ft_2 shut (H131's session). A settler also carries the second push (D:L429523-429540: any marker type but 4, the bound action's valve 1 -> `FUN_005f5c00(param_2, 0xb, 0)`; §14, DF-10's review F1), which `followActionDispatch` does not model. |
+| `FOLLOW_ACTION_BIND_PLACEHOLDER` (retired 2026-11-18, LATER 958) | retired | settled BOUND (research 418 s22.10, 404 s30); built in match `hostageDoors.ts` `bindDoorMarkers` (research 428 s4). The text that follows is this section's first reading, kept: `markerAction`: a marker binds the action whose load index equals its id; on the four EXTRACTION maps every marker id is 0xffff after the load (D:L395962), so none binds and the follower steers into a shut leaf. Against it: `FUN_0052daa0` -> `FUN_00530bd0` (D:L398970) finds a marker by action id from eight sites (D:L157540, 435268, 450957, 489120, 500391, 500463, 500548, 502723; the last in `FUN_005f0180`) beside `FUN_002b5760` (D:L157531-157546), all dead in retail if no marker binds. Settles: a writer of an action id into a marker outside the `& 0xfff0000f | x << 4` idiom (a u16 store at +4 or +6) found in the code, or a memory read of MP71's marker table (sub-map 0's list at +0x100, 40-byte records) on a running console after the map loads; a capture of a led hostage at MP71's door_ft_2 shut (H131's session). A settler also carries the second push (D:L429523-429540: any marker type but 4, the bound action's valve 1 -> `FUN_005f5c00(param_2, 0xb, 0)`; §14, DF-10's review F1), which `followActionDispatch` does not model. |
 
 The room needs no change for it: on every retail Extraction map the dispatch answers plain steering, which the
-follower already does. DF-10's other cases pin readings already filed (research 175 §3/§5.4, 190, 237, 239) on MP71
+follower already does. [SUPERSEDED: the markers bind at load; the room's follower uses the door since LATER 958, research 428.] DF-10's other cases pin readings already filed (research 175 §3/§5.4, 190, 237, 239) on MP71
 and add no constant: the room's two zones (`roomExtraction.test.ts`, `extractionLayers.test.ts`: the shared edge
 x 1299.579 under half-open membership -- column 133 Safety2's, 134 Safety's -- and **no** stored cell of `tophost` or
 `topboat` over either rectangle, so 175 §5.4's top-floor lookalike cannot arise on the disc), the two type-6 marks at

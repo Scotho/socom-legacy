@@ -12,24 +12,28 @@ import { readForgeAuthoring } from './rulesAuthoring';
  * (`@s2u/creator-contracts` `layout.ts`, the contract `docs/specs/2026-10-25-layout-record-v3.md`): the v2 rows as they
  * were, every row's stable authored id (`ids`), pack content beside the disc's ids (`assets`), the packs it needs
  * (`requires`), a creator mode (`mode`), and a legacy file's unknown objectives members kept inert (`legacyCarry`).
- * `readSaved` reads a v1 file, a v2 record and a v3 record into v3 (`readCreatorRecord`); `recordOfLayout` writes v3;
- * `checkRecord` admits a v2 record (its own check, unchanged) and a v3 record (strict). This module re-exports them
- * beside the page's own helpers (`savedLayoutHasWork`, `autosaveUnreadable`).
+ * `readSaved` reads a v1 file, a v2 record and a v3 record into v3, and a v4 record as v4 (as v3 when its angles are all
+ * whole) (`readCreatorRecord`); `recordOfLayout` writes v3, or v4 when a piece's angle is off the whole degree;
+ * `checkRecord` admits a v2 record (its own check, unchanged) and a v3 or v4 record (strict). This module re-exports them
+ * beside the page's own helpers (`savedLayoutHasWork`, `autosaveUnreadable`). FN-4 (the Forge lane's FN.R5; a browser
+ * adaptation): a record may be v4 too -- v3's fields with a piece's yaw, pitch and roll on a hundredth of a degree
+ * (`RECORD_ANGLE_DENOMINATOR`), written only when one is off the whole degree (`RECORD_VERSION_FINE_ANGLES`).
  *
  * Nothing of the disc is in it: the ids name the player's own disc's prototypes, a pack's content by its reference.
  * A pure module (no DOM, no three): a server validates a `PUT` with the same check.
  */
 export {
-  layoutIds, layoutOfRecord, RECORD_LIMITS, RECORD_POSITION_DENOMINATOR, RECORD_SCHEMA, RECORD_VERSION, recordOfLayout, withIds,
+  layoutIds, layoutOfRecord, RECORD_ANGLE_DENOMINATOR, RECORD_LIMITS, RECORD_POSITION_DENOMINATOR, RECORD_SCHEMA, RECORD_VERSION, RECORD_VERSION_FINE_ANGLES,
+  recordOfLayout, withIds,
 } from '@s2u/creator-contracts';
 export type {
   CreatorLayoutRecord, LayoutRecordV2, NpcRow, PieceRow, RecordAsset, RecordContentBase, RecordIds, SpawnRow,
 } from '@s2u/creator-contracts';
 
-/** A record this build reads: a v2 record (read, migrated) or a v3 record (what `recordOfLayout` writes). */
+/** A record this build reads: a v2 record (read, migrated) or a v3 or v4 record (what `recordOfLayout` writes). */
 export type LayoutRecord = AnyLayoutRecord;
 
-/** Null when `r` is a v2 record or a v3 record within its bounds, else the first reason it is not. */
+/** Null when `r` is a v2 record or a v3 or v4 record within its bounds, else the first reason it is not. */
 export function checkRecord(r: unknown, options?: CheckRecordOptions): string | null {
   return checkCreatorRecord(r, options);
 }

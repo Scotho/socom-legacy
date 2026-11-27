@@ -121,10 +121,10 @@ describe('lodVisible', () => {
   const high = lodBands(FROSTFIRE).get('railstraithi1')!;
   const low = lodBands(FROSTFIRE).get('railstraitlo1')!;
 
-  it('is true exactly where lodOpacity is above zero, last copy or not', () => {
+  it('is true exactly where lodOpacity is above the fade floor, 1/128 (research 439: D:L235437), last copy or not', () => {
     for (const band of [high, low]) {
       for (const last of [false, true]) {
-        for (let u = 0; u <= 500; u += 0.25) expect(lodVisible(band, u, last)).toBe(lodOpacity(band, u * u, last) > 0);
+        for (let u = 0; u <= 500; u += 0.25) expect(lodVisible(band, u, last)).toBe(lodOpacity(band, u * u, last) > 1 / 128);
       }
     }
   });

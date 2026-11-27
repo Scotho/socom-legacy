@@ -80,6 +80,18 @@ export interface ReplayEntry {
    * `matchId`), sent back on the signed-out fetch (`publicReplayAddress`); absent -- the listing's entries, or none named.
    */
   matchId?: string;
+  /**
+   * DAY-STILLS (a browser adaptation: the original has no Day maps): the room's map variant as central's listing names it
+   * (DAY-VARIANT-REPLAYS), kept only when exactly 'day' or 'night'; absent for a plain room. `map` stays the stem.
+   */
+  variant?: 'day' | 'night';
+  /**
+   * E17 (B-83; a browser adaptation): the named match's region and lobby name as central's public entry serves them (its
+   * match view's `match.region` and `match.settings.lobbyName`), for the replay's GAME DETAILS; absent -- the listing's
+   * entries, none named, none known, or an older central.
+   */
+  region?: string;
+  lobbyName?: string;
 }
 
 /** Why the list failed: no answer, no replays kept on this server (404: `REPLAYS_DIR` unset), or another refusal. */
@@ -114,7 +126,7 @@ function resultOf(raw: unknown): ReplayResult {
 
 function entryOf(raw: unknown): ReplayEntry {
   const e = obj(raw);
-  const { id, room, map, rules, startedAt, seconds, players, result, host, mode } = e;
+  const { id, room, map, rules, startedAt, seconds, players, result, host, mode, variant } = e;
   if (host !== undefined && !(isStr(host) && HOST_ID.test(host))) throw new Error('replays: not the shape');
   if (mode !== undefined && !isStr(mode)) throw new Error('replays: not the shape');   // RB-32: a string or absent
   if (!isStr(id) || !ID.test(id) || !isStr(room) || !isStr(map) || !isStr(rules) || !isStr(startedAt)) throw new Error('replays: not the shape');
@@ -130,6 +142,7 @@ function entryOf(raw: unknown): ReplayEntry {
     ...(result === undefined ? {} : { result: resultOf(result) }),
     ...(host === undefined ? {} : { host }),
     ...(isStr(mode) && mode !== '' ? { mode } : {}),
+    ...(variant === 'day' || variant === 'night' ? { variant } : {}),   // DAY-STILLS: an odd value ignored, never thrown
   };
 }
 
@@ -225,13 +238,17 @@ export const STATS_REPLAY_ENTRY_PATH = '/api/stats/replay/';
 
 /**
  * LCM-RP (RB-6): central's public entry checked as a listing's entry is (`entryOf`), with its `matchId` -- a non-empty
- * string kept, null or absent none; else throws.
+ * string kept, null or absent none; else throws. E17: its `region` and `lobbyName` kept when non-empty strings, else
+ * dropped -- the board's stand-ins stay, the answer is never refused for them.
  */
 export function publicReplayEntryOf(raw: unknown): ReplayEntry {
   const e = entryOf(raw);
-  const matchId = obj(raw)['matchId'];
+  const { matchId, region, lobbyName } = obj(raw);
   if (matchId !== undefined && matchId !== null && !(isStr(matchId) && matchId !== '')) throw new Error('replays: not the shape');
-  return isStr(matchId) ? { ...e, matchId } : e;
+  const named = (v: unknown): v is string => isStr(v) && v !== '';
+  return {
+    ...e, ...(isStr(matchId) ? { matchId } : {}), ...(named(region) ? { region } : {}), ...(named(lobbyName) ? { lobbyName } : {}),
+  };
 }
 
 /** LCM-RP: the public entry's answer -- the entry, `missing` (central's 404: unknown, not public, a match not naming it), or `unavailable`. */

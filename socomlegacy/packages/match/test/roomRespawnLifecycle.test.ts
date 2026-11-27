@@ -11,7 +11,7 @@ function flatMap(): SimMap {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const floor: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
   };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const ground = packGround(params, [floor], owners);
@@ -130,7 +130,9 @@ describe('RSP-4: a held respawn game uses its game lobby lifecycle (research 350
     g.steps(2 * TICK_HZ);
     expect(a.of('timeExpired')).toHaveLength(1);
     expect(a.of('roundOver')).toHaveLength(0);
-    g.steps((EXPIRED_PLAY_S + RESULT_S) * TICK_HZ);
+    // L203 (ATLAS's reviewed run-5 capture; room.ts RESPAWN_WINNER_AFTER_EXPIRY_S): the result 14.963 s after an expiry
+    // with under a second left -- stepped to, within the old 16 s bound (was a fixed EXPIRED_PLAY_S + RESULT_S step).
+    for (let i = 0; i < (EXPIRED_PLAY_S + RESULT_S) * TICK_HZ && a.of('roundOver').length === 0; i++) g.steps(1);
     expect(a.of('roundOver')).toEqual([expect.objectContaining({
       round: 1, matchOver: true,
       screens: [{ screen: 'finalRound', seconds: 10 }, { screen: 'gameComplete', seconds: 10 }],
@@ -167,7 +169,11 @@ describe('RSP-4: a held respawn game uses its game lobby lifecycle (research 350
     const serial = g.room.currentMatch().serial;
     const matchTicks = (2 + EXPIRED_PLAY_S + RESULT_S + ENGINE_READ_S + FINAL_ROUND_S + GAME_COMPLETE_S) * TICK_HZ;
     for (let matches = 1; matches <= 2; matches++) {
-      g.steps(matchTicks);
+      // L203: a respawn match is shorter than this sum (the expiry under a second before the deadline, the result 14.963 s
+      // after it): stepped to the next match's start, which must still fall within the old bound.
+      let n = 0;
+      while (n < matchTicks && a.of('roundStart').length < matches) { g.steps(1); n++; }
+      expect(n, 'the next match began within the old match length').toBeLessThan(matchTicks);
       expect(a.of('roundOver')).toHaveLength(matches);
       expect(a.of('roundStart')).toHaveLength(matches);
       expect(a.of('roundStart').at(-1)).toMatchObject({ round: 1, seconds: 2, rounds: 1 });

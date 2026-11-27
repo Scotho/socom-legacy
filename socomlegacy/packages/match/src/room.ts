@@ -4,30 +4,32 @@ import { victoryEligibility, type VictoryEligibility } from '../../viewer/src/vi
 import { chooseVictory } from '../../viewer/src/victoryData';
 import { playedRules, RESPAWN_MAX_ROUNDS, RESPAWN_ROUND_SECONDS } from '../../viewer/src/net/rules';   // LATER 229: the constructor's own call
 import { oneShotSeconds } from '../../viewer/src/locomotion';
+import type { OtherBody } from '../../viewer/src/pushApart';
 import { TauntRequests } from '../../viewer/src/taunts';
 import { CommunicationRequests, tacticalAllowed } from '../../viewer/src/communications';
 import {
-  actorToWorldDir, actorToWorldPoint, AN_M8, applyPicks, armoryTypeAllowed, backblastAxis, BOUNCE_LIFT, DEFAULT_ARMORY_TYPE, CLAYMORE, CLAYMORE_RULES, claymoreCone, countsTowardClaymoreLimit, GAME_FRAME_DT, GameFrameAccumulator, gridCast, HE, ITEM, itemClass, launchGrenade, M67, MARK141,
-  materialTable, maxThrowDistance, maxThrowSpeed, PISTOL_HAND_ANIMS, proximityTripped, releaseSeconds, segmentHit, SOILS, stepGrenade, THROW_AIM_CLAMP, THROW_ANIMS,
-  throwAnim, throwClipSeconds, throwVelocity, UNITS_PER_METRE, CHARGE_HIT_RADIUS_PLACEHOLDER, raySphere, surfaceMaterial, volatileQueues,
-  type Grenade, type HullCast, type HullHit, type KitTable, type Loadout, type Pick, type SpawnSlot, type ThrowableRecord, type WeaponRecord, type WorldPoly,
+  actorToWorldDir, actorToWorldPoint, AN_M8, applyPicks, armoryTypeAllowed, backblastAxis, DEFAULT_ARMORY_TYPE, CLAYMORE, CLAYMORE_RULES, claymoreCone, countsTowardClaymoreLimit, GAME_FRAME_DT, GameFrameAccumulator, gridCast, HE, ITEM, itemClass, launchGrenade, M67, MARK141,
+  materialTable, maxThrowDistance, maxThrowSpeed, PISTOL_HAND_ANIMS, PISTOL_HAND_SWAP_CLIPS, proximityTripped, releaseSeconds, segmentHit, SOILS, stepGrenade, THROW_AIM_CLAMP, THROW_ANIMS,
+  ROOM_START_TIE_RENDER_GRID_ADAPTATION, throwAnim, throwAnimKey, throwClipSeconds, throwVelocity, UNITS_PER_METRE, CHARGE_HIT_RADIUS_PLACEHOLDER, raySphere, surfaceMaterial, volatileQueues,
+  type Grenade, type HullCast, type HullHit, type KitTable, type Loadout, type Pick, type SpawnSlot, type ThrowableRecord, type ThrowStance, type WeaponRecord, type WorldPoly,
 } from '@s2u/scene';
 import { blastLine } from '../../viewer/src/sceneHealth';
 import { gameValves } from '../../viewer/src/gameValves';
 import { apply4 } from '../../viewer/src/doorMath';
-import { C4_KIT_TIMER_SECONDS } from '../../viewer/src/throwCommit';
+import { C4_KIT_TIMER_SECONDS, throwClear, type ThrowAimArg } from '../../viewer/src/throwCommit';
+import { THROW_AIM_CONE_READING } from '../../viewer/src/throwAim';   // B-06 B1: the cone the aims past the clamp reach to
 import { holdFamily, holdOf,
   applyFall, applyHit, bodyOf, fallKills, bulletDamage, DAMAGE_SCALE, quantiseHit, fragmentCount, fragmentDamage, fragmentPart, decodeCommands, encodeSnapshot, feetOriginOf, Frame, frameKind, freshHealth, groundPolygons, isDead, Lobby,
   ACTION_TYPE_CODES, actionAtPick, bareMeta, CraneSet, cranePressSlack, DoorSet, doorInReach, doorPick, GateSet, openDoorClip, type DoorActor, LOOK_KIT_LEAD_PLACEHOLDER, lookContextOf, lookScaleOf, looserLookContext, MoverSim, OPEN_LOOK_CONTEXT, ROOM_SKIP_EFFECTS_READING, under, WorldState, overall, ringFor, roundPath, shortTurn, Traversal, Walker, wrapYaw, type MagazineRing,
-  fallDamageFraction, KNOCK_LANDING_SPEED_FACTOR, MP_HEALTH, PART, type Landing, decodeVoiceUp, encodeVoiceDown,
+  fallDamageFraction, DIVE_LANDING_SPEED_FACTOR, MP_HEALTH, PART, type Landing, decodeVoiceUp, encodeVoiceDown,
   healthTold, PART_HEALTH_INTERVAL_TICKS_READING, partHealthBytes, viewTold, viewState, qSway, dqSway,
   BUILT_AT_PATTERN, Button, HOLD_SHIFT, STANCE_CODES, isSessionToken, MAX_LOADOUT_PICKS, MAX_REWIND_MS, REWIND_CEILING_MS_ADAPTATION, INTERP_DELAY_MS, PROTOCOL_VERSION, SESSION_REPLACED_CLOSE, SNAPSHOT_HZ, TICK_HZ,
   eliminatedHoldS, eliminationWatchS, eliminationWinner, ESCORT_ELIMINATION_HOLD_READING, isMatchOver, MAX_ROUNDS, modeRules, OWNER_LAUNCH_COUNTDOWN_S, timeoutHoldS, type Rules,
-  EYE_HEIGHT, HEAD_EYE_WALL_BACK_PLACEHOLDER, headEye, localCamera, rootY, toWorld, probeLiftOf, headPoint, reloadHoldPeriod, reloadLockSeconds, reloadMoving, reloadSeconds, ShotCone, lookFitsPoint,
+  EYE_HEIGHT, HEAD_EYE_WALL_BACK_PLACEHOLDER, headEye, localCamera, rootY, toWorld, probeLiftOf, headPoint, hipPoint, reloadHoldPeriod, reloadLockSeconds, reloadMoving, reloadSeconds, ShotCone, lookFitsPoint,
   ROOT_POSE_SLACK_PLACEHOLDER, SEAL_ANIMS, type AimFrame, aimRoot,
   BAKED_LOADOUT, kitRecords, typeLoadout, type SimKits,
   afterShotLock, isCarrier, KitRounds, pelletDamage, pelletsOf, reloadDelayOf, reloadFamily, roundFits, shotgunPellets,
-  backblastReaches, c4InReach, c4Line, plantPickFrom, craneActionMiss, craneSurfaceOffRay, C4_PLANT_SECONDS, C4_REFUSED_MATERIAL, C4_START_EYE_FEET_PLACEHOLDER, C4_START_EYE_TICKS_PLACEHOLDER, equipmentKind, equipmentSlotsOf, type EquipmentSlots, EQUIPMENT_SLOTS, LAUNCHER_BODY_READING, wadingDepth, launcherLowerSeconds, launcherRaiseSeconds, rocketRoundOf, serverNameOf, type CraneActionMiss,
+  backblastReaches, actionLine, c4InReach, c4Line, plantPickFrom, craneActionMiss, craneSurfaceOffRay, C4_PLANT_SECONDS, C4_REFUSED_MATERIAL, C4_START_EYE_FEET_PLACEHOLDER, C4_START_EYE_TICKS_PLACEHOLDER, equipmentKind, equipmentSlotsOf, type EquipmentSlots, EQUIPMENT_SLOTS, LAUNCHER_BODY_READING, wadingDepth, launcherLowerSeconds, launcherRaiseSeconds, rocketRoundOf, slotSelectable, serverNameOf, type CraneActionMiss,
   LAUNCHER_RAISE_CLIPS, LAUNCHER_SET_MOVES_READING, playedOutCommand,
   launcherBaseCommand, launcherClipName, launcherMovingLowerCommands, launcherMovingLowerSeconds, launcherStickLowers, SCOPED_STICK, type LauncherUp, type HoldPass,
   isPushedClip, type PushedClip,
@@ -35,25 +37,29 @@ import { holdFamily, holdOf,
   type LoadoutRefusal, type Member, type PlaySnapshot, type RoomPhase, type ScoreRow, type ServerEvent, type SimClips, type SimMap, type SimSkeleton, type Team,
 } from '../../viewer/src/sim';
 import { fourthArmoryTypeOpen } from '@s2u/scene';
+import { countsHit } from '@s2u/scene';                         // R4P-105: the hit filter (r0004 0x3f2670)
 import { itemReticleOf, type ItemReticle } from '../../viewer/src/accuracy';   // ROOM-HAND (LATER 652)
 import { readProfile, type ArmoryProfile } from '../../viewer/src/armoryState';
 import { equipmentLimit, equipmentLimitKit, equipmentLimitValves } from '../../viewer/src/equipmentLimit';
 import { firearmSlotPresent, heldWeaponModels, initialFirearmSlot } from '../../viewer/src/loadout';
 import { WEAPON_LINE_BOTS_READING } from '../../viewer/src/weaponLine';
+import { handGrenade } from '../../viewer/src/weaponRaise';    // GRENADE-LOWERS: the hand's class 'y'
 import { roundStartAdmits, startLines, startWalled, type StartAdmits } from '../../viewer/src/net/startLine';   // LATER 366 (OT.R80): the start lines, one source
 import { detonationOf } from '../../viewer/src/smoke';
 import { bodyRecords, bodyVolumes, NO_PART, placedVolumes, rayBody, rayRecords, stanceVolumes, type BoneBox, type HitBody as PlacedBody, type StanceVolumes, type V3 } from '../../viewer/src/net/hitVolumes';
-import { HIT_POSE_MOUNT_READING, HitPoser } from '../../viewer/src/net/hitPose';
-import { corpseShownS, deathCause, deathClip, DEATH_CAUSE, flinchBodyOf, flinchClip, flinchRefused, VOICE_GATE_S } from '../../viewer/src/net/deaths';
+import { EscorteeTransition, HIT_POSE_MOUNT_READING, HitPoser } from '../../viewer/src/net/hitPose';
+import { CIV_ANIM_SET } from '../../viewer/src/locomotion';
+import { corpseShownS, deathCause, deathClip, DEATH_CAUSE, flinchBodyOf, flinchClip, flinchLoopedTop, flinchRefused, flinchStartRefused, VOICE_GATE_S } from '../../viewer/src/net/deaths';
 import { applyKnock, blastExposed, blastFlashLevel, BLAST_HEAD_OVER_READING, blastLine1, BLAST_LINE1_END_PLACEHOLDER, blastPoint, BLAST_RING_SECONDS, blastSeen, BLAST_RING_VOLUME, KNOCK_COVER_RELOAD_READING, lethalKnockLaid, mountFallRefuses, mountPop, releaseMove, resolveBlast, type Knock } from '../../viewer/src/net/blast';
-import { CHARGE_GROUND_SLACK_PLACEHOLDER, chargeRests } from '../../viewer/src/net/placing';
+import { CHARGE_GROUND_SLACK_PLACEHOLDER, chargeRests, restsOn, worldColumn } from '../../viewer/src/net/placing';
 import { combatHealthSummary } from '../../viewer/src/net/combatHealth';
 import { fireAllowed, fireCapability } from '../../viewer/src/net/fireCapability';
-import { fastestWait, fireCycleTicks, FIRE_GATE_NONE, scheduleAfter, scheduleOpen } from '../../viewer/src/net/fireGate';   // LATER 588 (a)
+import { fastestWait, fireCycleTicks, FIRE_GATE_NONE, launchedRoundWaitTicks, rocketWaitTicks, scheduleAfter, scheduleOpen } from '../../viewer/src/net/fireGate';   // LATER 588 (a)
 import { actionGateWhy } from '../../viewer/src/net/actionGate';
 import { reloadCutAt, reloadCutOf, reloadEnded, reloadLifeSpec, type ReloadLifeSpec } from '../../viewer/src/reloadLock';
+import { STANCE_POP_FRAME_COMMANDS } from '../../viewer/src/reloadClip';
 import { fallCovers, flinchOnTop, landingPops, stillClipClock, stillClipCuttable, stillClipFlight, stillClipSeconds, type StillClipClock } from '../../viewer/src/stillReloadLife';
-import { CLIMB_RELOAD_REFUSED_READING, climbHoldsBody } from '../../viewer/src/traversal';
+import { CLIMB_RELOAD_REFUSED_READING, reloadRefusedBy } from '../../viewer/src/traversal';
 import { flinchCommands, flinchCovered, flinchCutAt, flinchLanded, pushedWindow } from '../../viewer/src/net/flinchReload';
 import { netRefills } from '../../viewer/src/net/netRefill';
 import { versionRefusalText } from '@s2u/ui';
@@ -64,11 +70,14 @@ import type { PlantPick } from '../../viewer/src/net/objective';
 import { allMapsSwitch } from './botGates';
 import { ExtractionAuthority, HOSTAGE_ID_BASE, PENALTY_MINUTE_READING, rescuedRefuses, type Hostage, type HostageKillInfo, type HostagePast } from './extraction';
 import { SEAL_TEAM_MASK, TERRORIST_TEAM_MASK } from './hostageAi';
+import { dangerKind, HOSTAGE_FLEE_RADIUS_READING, type Danger } from './hostageDanger';
 import { crosshairPick, pickSurfaces, ORDER_PICK_REACH_READING, type PickBody } from './hostageOrders';
 import type { CombatReport, DecidedWire, JoinResultWire, JoinWire, MatchStats, TurretMags, TurretWireYaw } from '../../viewer/src/net/protocol';
 import { SEAT_HOLD_MS_ADAPTATION } from '../../viewer/src/net/protocol';
+import type { ShotLedgerFields } from '../../viewer/src/net/protocol';
+import { lineBodyDistance, shotLedgerFields } from '../../viewer/src/net/shotLedger';   // SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game)
 import { LookGate, type LookGateMode } from '../../viewer/src/net/lookGate';
-import { joinWire } from './joinState';
+import { JOIN_ORPHAN_OWNER, joinWire } from './joinState';
 import { guarded } from './shotgunGuard';
 import { bodyApplications, walkOrder } from './bodyWalk';
 import { WorldDrops } from './worldDrops';
@@ -77,11 +86,13 @@ import type { RoomRecorder } from './replay/recorder';
 import type { ReplayRefusal, ReplayRewind } from './replay/format';
 import { objectiveFields, type RoomRuleHost, type RuleEventInput, type RulePlayer, type RuleRoom, type RulesWire } from './creator/rules';   // FCW-31 (RULES_ADAPTATION)
 import { LIMB_SPILL_PIERCING } from '../../viewer/src/net/damage';
-import { actionPoints, carriesTeam, objectivePoints, statKind, teamCarry, type ObjectiveEvent } from '../../viewer/src/net/objectiveScore';
-import { PITCH_HARD } from '../../viewer/src/look';
-import { canMount, clampAim, gunLine, holdStep, mountClipOf, mountShape, MOUNT_WORD_BOUND_TICKS, muzzleAt, ReleaseTravel, SeatSteer, TURRET_RELEASE_WAIT_TICKS, TURRET_RETICLE_STANCE_READING, turretPour, turretReloadCountdown } from '../../viewer/src/net/emplacement';
+import { damagePoints } from '../../viewer/src/net/damagePoints';
+import { actionPoints, BREACH_JOINER_CREDIT_PLACEHOLDER, breachRoundCredit, carriesTeam, creditsTeammates, objectivePoints, statKind, teamCarry, type ObjectiveEvent } from '../../viewer/src/net/objectiveScore';
+import { MAX_PITCH_RATE, PITCH_HARD } from '../../viewer/src/look';
+import { canMount, clampAim, dismountSlot, gunLine, holdStep, mountClipOf, mountHandOf, mountShape, MOUNT_WORD_BOUND_TICKS, muzzleAt, onTurretSet, ReleaseTravel, releaseHandOf, SeatSteer, TURRET_RELEASE_WAIT_TICKS, TURRET_RETICLE_STANCE_READING, turretPour, turretReloadCountdown } from '../../viewer/src/net/emplacement';
 import type { EffectOp, TurretPlacement } from '@s2u/scene';
 import { noticeHeldAt, type KeptNotice } from './noticeHold';      // LATER 261: the host's restart notice, held for a welcome
+import { RoomHitboxTrace, type HitboxTraceSink } from './hitboxTrace';   // HITBOX-TRACE: a dev instrument (null unless the option)
 import { botProfiler } from './bots/botProfile';   // BOP-1: the bot profiler (an instrument; null unless S2U_BOT_PROFILE=1)
 import {
   arrivalBucket, freshSignals, noteCentring, roundResultOf, shownLeadBucket, shownMissOf, type HandOver, type MatchId, type RoomMatchResult, type RoomMatchSeat, type RoomRatingSeat, type RoundSignals,
@@ -187,10 +198,17 @@ export interface RewindTakeSeat {
 /** IP3 (`RoomOptions.onLoadEvent`): one step of the launch's load hold, ticks at `TICK_HZ`. */
 export type RoomLoadEvent =
   | { kind: 'hold'; tick: number; seats: number[]; ceilingTicks: number }
-  | { kind: 'loaded'; seat: number; tick: number; sinceHold: number | null; counted: boolean; pending: number }
+  // LATER 753: `late`, a late seat's load (`awaitingLoad`); `sinceSeatMs`, ms from its seat (`seatedAt`) to this `loaded`.
+  | { kind: 'loaded'; seat: number; tick: number; sinceHold: number | null; counted: boolean; pending: number; late: boolean; sinceSeatMs: number | null }
   | { kind: 'passed'; tick: number; sinceHold: number; by: 'all' | 'ceiling'; waiting: number[] };
 
 export interface RoomOptions {
+  /**
+   * DAY-7b (DAY.R6, no bump; product track, an adaptation): the map's variant this room draws -- `MAP_VARIANTS`'s, from
+   * the game that made it (match `game.ts` `roomVariant`, central `bridge.ts` `roomVariant`). Read only by `hello`: a
+   * page's hello without `variants: true` refused (a CPU seat's excepted), and the welcome's `variant`. Absent: a plain room.
+   */
+  variant?: 'day' | 'night';
   /**
    * NCW-1 (B-count; an instrument's switch, no original): false turns the rewind-outcome instrument off -- no second
    * read of a round at its `viewTick`, no `signals.rewind`, nothing for `takeRewind`. On by default; the scored round is
@@ -269,8 +287,18 @@ export interface RoomOptions {
    * (attacker, target, health taken) once per applied hit from an enemy that took health -- `combat`'s `lastHurt`
    * condition, health only, never armour -- after the room has written it. Its return is ignored and a throw dropped:
    * the room does the same with it absent (`test/roomCombatObserver.test.ts`). Absent: nothing.
+   * WM-DATA task 4 (the MATCH-DATA lane's design item (d); product track, an adaptation): an additive fourth argument,
+   * the hit -- `weapon` as the kill names it (`weaponName`), `part` the struck part's number (`./damage` `PART`; null for
+   * a blast's or a volley's many, as the combat report's), `tick` the room's -- for the match record's damage events. A
+   * three-argument observer is told the same calls.
    */
-  onCombatApplied?: (attackerId: number, targetId: number, healthTaken: number) => void;
+  onCombatApplied?: (attackerId: number, targetId: number, healthTaken: number, hit?: { weapon: string; part: number | null; tick: number }) => void;
+  /**
+   * WM-DATA (a) (protocol 17; a product-track READ, no original): a seat's assists this match and this round from the
+   * match record (`MatchRecorder.assistsOf`, wired by `game.ts`), carried on the `score` rows as `assists` / `roundAssists`.
+   * The room counts none itself and scores none. Absent, or null for a seat, or a throw: that row carries neither field.
+   */
+  assistsOf?: (seatId: number) => { match: number; round: number } | null;
   /**
    * A development build's disc check (a browser adaptation, no original): told when a crane press is dropped `missed`,
    * with the room's faces at that tick (`craneActionMiss`). Absent, the room records nothing and the press is unchanged.
@@ -289,6 +317,12 @@ export interface RoomOptions {
    * its idle clock waits too, until round 1 starts.
    */
   heldLaunch?: boolean;
+  /**
+   * LATER 752 (`LOBBY_PARK_MS_ADAPTATION`; its box's reds): a `heldLaunch` room that is a GAME lobby parks a dropped seat while
+   * it waits (the controller's ruling: game lobbies only). The game lobbies set it (match `game.ts`, central `bridge.ts`); a Forge lobby
+   * (`forgeGame.ts`) does not, so its host's socket ending hands the lobby on at once, as before.
+   */
+  lobbyPark?: boolean;
   /** SVC-07a: the seats' names are their accounts' (the server's, at the hello): a `name` event renames nothing. */
   fixedNames?: boolean;
   /**
@@ -338,6 +372,31 @@ export interface RoomOptions {
    */
   onRemoved?: (seat: number) => void;
   /**
+   * SEAT_CLAIM_ADAPTATION (a service adaptation with no original; the owner's word, 2026-11-24): whether a watcher's
+   * `seatClaim` is taken now -- asked at each claim and each `seats` told. The bridge's and the host's game rooms answer
+   * false in a clan game (its sides are forced by clan, CLAN-JOIN) and before the game's launch (the GAME LOBBY's
+   * columns are the pre-match's). Absent (the maps' rooms, the test room): always.
+   */
+  seatClaims?: () => boolean;
+  /**
+   * SEAT_CLAIM_ADAPTATION: told each seat the queue's promotion makes a player (a watcher's claim, or a playing joiner
+   * past the players), after the room has seated it -- the services mark the account a player (its later hello plays,
+   * the game list counts it) and the pre-match takes its side. Absent: nothing.
+   */
+  onPromoted?: (seat: number, team: Team) => void;
+  /**
+   * SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: told a seat held for a watcher's claim, at the hold (`seatComing`), before it is
+   * taken -- the services count it a player at once (the game list shows the seat taken, a join past it is refused), so
+   * no joiner is admitted to a seat the room has given. Its `onPromoted` follows; a holder gone first leaves the game
+   * as any member does. Absent: nothing.
+   */
+  onSeatHeld?: (seat: number, team: Team) => void;
+  /**
+   * SEAT_CLAIM_ADAPTATION: told a watcher's claim the room queued (no free seat): the services' CPU seats yield to it as
+   * to a queued playing joiner (BTL.R8, `RoomBots.seatQueued`), whose leave then seats it. Absent: nothing.
+   */
+  onClaimQueued?: (seat: number) => void;
+  /**
    * SVC-12d (research 264 §1): a game made through the game list -- the room's id (the game's) for the match's id, and
    * the account each seat names now (null: none). Set (the bridge's game rooms), the reports carry the results when
    * every seat names an account; absent (the maps' rooms), never.
@@ -373,7 +432,17 @@ export interface RoomOptions {
    * events (`ruleEvent`) and each step's end. Absent: no event is built, and no outcome path changes.
    */
   ruleHost?: RoomRuleHost;
+  /**
+   * HITBOX-TRACE (`./hitboxTrace`; a development instrument with no original, product track): where the room's trace of
+   * each body's judged volumes goes, one line each (the server's `S2U_HITBOX_TRACE`, `./hitboxTraceFile`). Absent -- the
+   * default -- no recorder is made and nothing is traced; the room's output is the same either way
+   * (`test/hitboxTraceOutputs.test.ts`).
+   */
+  hitboxTrace?: HitboxTraceSink;
 }
+
+/** DAY-7b: a game's held variant (`roomVariant`, null for a plain room) as the room options' `variant`, absent when none. */
+export function variantOption(variant: 'day' | 'night' | null): { variant?: 'day' | 'night' } { return variant ? { variant } : {}; }
 
 // LATER 229: LATER 153's rule lives beside the page's own rules (`../../viewer/src/net/rules`), so the page keys its
 // standing room by it too (`connectHost.ts` `roomKeyOf`) -- one implementation; re-exported here for its importers.
@@ -473,10 +542,27 @@ export const VOTE_HUMAN_SEATS_ADAPTATION = 'the vote threshold counts the target
 const VOTE_SIDE: Record<Team, 'SEALS' | 'TERRORISTS'> = { seal: 'SEALS', terrorist: 'TERRORISTS' };
 /**
  * The end of a round (research 91 section 18, the maps' `mission_timer2` / `success2` and the MPZANIM screens): at
- * 00:00 "TIME EXPIRED" and 15 s more play; the result 1 s after; the engine reads it 3 s later; then ROUND COMPLETE's
+ * 00:00 "TIME EXPIRED" and 15 s more play; the result 1 s after (the reading of the scripts' waits -- for the RESPAWN
+ * round the port now runs the measured timeline instead, `RESPAWN_EXPIRY_LEFT_S` / `RESPAWN_WINNER_AFTER_EXPIRY_S`
+ * below, L203; no source reads EXPIRED_PLAY_S or RESULT_S any more, tests do); the engine reads it 3 s later; then ROUND COMPLETE's
  * countdown (5 s) before the next round, or FINAL ROUND (10 s) and GAME COMPLETE (10 s, the host's wait) after a match.
  */
 export const EXPIRED_PLAY_S = 15, RESULT_S = 1, ENGINE_READ_S = 3, ROUND_COMPLETE_S = 5, FINAL_ROUND_S = 10, GAME_COMPLETE_S = 10;
+/**
+ * L203 (ATLAS's lead; the main controller's ruling 2026-11-22T20:53Z): a RESPAWN round's time-out, PROVEN by a capture of
+ * the original (r0004), reviewed PASS WITH FINDINGS -- `agent/spc-atlas` `socomlegacy/docs/atlas/captures/
+ * mp5-mp64-runs5-7-r0004.md` run 5 (MP5 natural expiry + two replicates, MP64 cross-check; research 91 s18):
+ * `mp_timer` goes 1 -> 0 at the first update whose remaining time reads under 1000 ms (996 / 995 / 992 ms left), the HUD
+ * at 0:00 in that update -- so the round expires with under `RESPAWN_EXPIRY_LEFT_S` left, about 0.995 s before its exact
+ * deadline, not at it; and `mp_winner` is written `RESPAWN_WINNER_AFTER_EXPIRY_S` of clock after that clear (14.963 s on
+ * MP5, both trials, by the clock word; 14.982 s on MP64 -- 453 updates on both maps, the gap the clock word's, not the
+ * map's) -- the deadline + ~13.97 s. Was: the expiry AT the deadline and the winner at expiry + EXPIRED_PLAY_S +
+ * RESULT_S (16 s), about 2.0 s late, kills scoring in the gap. The record's own caveat (its review's F2): the respawn
+ * mode was logged, not asserted, and the runs had one player at 0-0 (winner 99), so a time-out with two sides scoring
+ * was not run. Record and review at `agent/spc-atlas` f177434599. The classic round's time-out (`mission_timer`'s watch)
+ * and the constants above (read by tests) are unchanged.
+ */
+export const RESPAWN_EXPIRY_LEFT_S = 1, RESPAWN_WINNER_AFTER_EXPIRY_S = 14.963;
 /**
  * SVC-23d: seconds from a round's result (`endRound`) to the start of the screen of `screens` that tests the votes
  * (VOTE_KICK_POINT_READING): the engine's read, then every screen before it.
@@ -508,6 +594,31 @@ export const VOTE_ALL_SHARE = 0.6;
  * reading: the lost argument, and the loop's messages all leaving before the first Reject returns, are not measured.
  */
 export const VOTE_ALL_LINE_PER_SPECTATOR_READING = 'a Spec Vote per spectator whose mark differs';
+/**
+ * SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION (a service adaptation with no original; the owner's word, 2026-11-24: "any chance
+ * you could do a tad delay?"): how long a freed seat is held for an enlisted spectator before it is seated -- the page
+ * shows its "taking you to the game" first (`seatComing`), then the switch. The seat is the holder's alone meanwhile
+ * (`Lobby.reserved`), and its leave frees it for the queue's next.
+ */
+export const SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION = 1500;
+/**
+ * SEAT_CLAIM_REPEAT_MS_ADAPTATION (a service adaptation with no original; a fresh review's finding, 2026-11-25): the
+ * least time between two claims a seat's `seatClaim` changes (a claim, or its withdraw) -- one inside it changes
+ * nothing. Each change is a roster record and a `seats` / `queue` told, so a page flapping its claim would write and
+ * send as fast as it could. Under the spectator view's hold (0.6 s a press, `SEAT_CLAIM_HOLD_S_ADAPTATION`), so no
+ * hold is ever refused (a re-check's finding: 1000 ms refused a second hold 0.7 s after the first); a doubled press on
+ * the GAME LOBBY's button inside it is one.
+ */
+export const SEAT_CLAIM_REPEAT_MS_ADAPTATION = 500;
+/**
+ * VOTE_ALL_SPARES_HELD_SEAT_ADAPTATION (a service adaptation with no original -- the original has no seat held for a
+ * watcher; the owner's word, 2026-11-25: "if the person is already joining because someone left it shouldnt kick them,
+ * but it can kick the others"): VOTE ALL's eject (SVC-23e) passes by a spectator whose seat is held (`Lobby.reserved`,
+ * its `seatComing` told) -- the seat was given before the vote passed, and it is taken when it falls due -- and takes
+ * every other spectator, the watchers and the whole line behind it (queued claims and queued joiners alike). The
+ * holder is given no Spec Vote line either (`VOTE_ALL_LINE_PER_SPECTATOR_READING` counts the spectators the eject takes).
+ */
+export const VOTE_ALL_SPARES_HELD_SEAT_ADAPTATION = 'a held seat\'s holder is not ejected' as const;
 /**
  * SVC-23e: a spectator's join refused after VOTE ALL's eject, MaxSpectatorsValve 0 (`FUN_002b9bd0` D:L159602-159606).
  * The host refuses a spectator's join when the valve (8 when it is absent) is at most the spectators present
@@ -703,13 +814,24 @@ export const ASK_AT_COMMAND_ADAPTATION = 'the immediate asks (door, action, bomb
  * own jitter (0-80 ms in the test); the honest page of `room.test.ts` ("a stalling, bursting connection": 250 and 300 ms
  * stalls, 0-80 ms of jitter) is refused nothing over every seed tried (30 a length on 2026-10-04; 18 ticks refused a
  * round in 3 of 30 at 300 ms). The cost, stated: a lag switch held 400 ms or more lands what an honest hiccup of that
- * length delivers -- at most (this + `FIRE_ARRIVAL_JITTER_TICKS`) / rate + 1 rounds in one tick, the rate the record's in
- * ticks (LATER 326; was `/ cycle`, the rate less a tick: 5 of the M4A1's burst, 9 of the Model 18's: 0.06 x 0.8 s, 2.88
- * ticks; was 13), and a reload's or after-shot's lock may end up to 24
+ * length delivers -- at most (this + `FIRE_ARRIVAL_JITTER_TICKS` + 1) / rate + 1 rounds in one tick, the rate the
+ * record's in ticks and the + 1 its cycle's (the rate less a tick: LATER 336's re-review; was written without it, one
+ * round short where the rate falls just under a whole share of 25 ticks) (LATER 326; was `/ cycle`: 5 of the M4A1's
+ * burst, 9 of the Model 18's: 0.06 x 0.8 s, 2.88 ticks; was 13), and a reload's or after-shot's lock may end up to 24
  * ticks early after such a stall; over any window of W ticks the rounds stay within (W + this +
- * `FIRE_ARRIVAL_JITTER_TICKS`) / rate + 1 -- the weapon's own rate over time, a 400 ms burst at most at once (the
- * review's run was a second's: 6 rounds and more). A smaller number trades honest rounds for a smaller burst: the
- * owner's call (H89 D7), this its default.
+ * `FIRE_ARRIVAL_JITTER_TICKS` + 1) / rate + 1 -- the weapon's own rate over time, a 400 ms burst at most at once (the
+ * review's run was a second's: 6 rounds and more). The same 24 ticks, the honest side (LATER 169, measured): a lock set by
+ * an event its line held L ticks over its best offset, L over 24, ends L - 21 ticks late against the page's, and the
+ * honest round up to L - 24 ticks past the page's end is refused 'reload or empty' (further by any fall of the offset
+ * during the lock beyond its slack, 21 less the lateness it was laid at: a lock laid at the clamp, with none, is the
+ * widest case, not the only one). Since LOCK-END-RELIEF (Phase 1, the owner's word 2026-11-22;
+ * `LOCK_END_RELIEF_ADAPTATION`) the rounds of that window are refused as an early round is -- bloomed, told `stale`,
+ * refunded by the page -- so the burst is not lost: the rest of it lands (was: refused silent and spent, the page's cone
+ * left ahead and every round after them refused 'cone'). The window itself and the forger's bound above are unchanged:
+ * the lock is where it was and a round into it is still refused; a modified client gains a bloom and the refund of a
+ * round the room never took. LATER 336's shift of the schedule with the offset
+ * (`keepSchedule`) keeps all of these: a fall of the offset moves it down only as far as these bounds allow. A smaller
+ * number trades honest rounds for a smaller burst: the owner's call (H89 D7), this its default.
  */
 export const FIRE_STALL_CREDIT_TICKS = 21;
 /**
@@ -731,6 +853,15 @@ export const FIRE_STALL_CREDIT_TICKS = 21;
  * pages see as a full fuse (cooking; the original has none), until LATER 643 puts the throw's age on the wire.
  */
 export const THROW_DATE_BACK_TICKS_ADAPTATION = 60;
+/**
+ * Lag read v4 s6 -- AN OPERATOR'S INSTRUMENT (the product track, no original): the bounds of a page's stall pair on its
+ * app ping (`ClientEvent` `ping`; `Room.pageStalls`). The longest frame gap a page may report, ms (10 minutes), and how
+ * many gaps over 100 ms; a value outside them, or not a whole number, is dropped. Bounds on an instrument, no game value.
+ */
+export const PAGE_STALL_MAX_MS_BOUND_ADAPTATION = 600_000;
+export const PAGE_STALLS_100_BOUND_ADAPTATION = 10_000;
+/** Lag read v4 s6 (an operator's instrument, product track, no original): one seat's latest page stalls as its app ping named them. */
+export interface PageStallsReport { pageStallMaxMs: number; pageStalls100: number }
 /**
  * SVC-23b: the ticks over which a player's best offset between the room's clock and its command clock is kept
  * (`Player.lagFloor`, two halves of this, the older dropped as each fills): 300, 5 s -- longer than the gap between two
@@ -1073,17 +1204,32 @@ export const MOUNT_ONLINE_C4_WINDOW_READING = "none: no equipment from a mounted
  * after the room's last frame from a seat's connection a newer hello of the same account (`hello`'s `as.account`, the
  * bridge's seat account) takes the body back where it stands, alive, under its old id (`handBack`, `resume`), ms. A
  * labelled adaptation with no original (the game has no reconnect: `KEPT_RECONNECT_READING`): the page's retries after
- * a reached match come at once, then 2 and 4 s apart (`../../viewer/src/netPage` `retryDelayMs`), so 10 s holds three attempts
- * and their handshakes, under the heartbeat's 20 s (`./server` `PEER_SILENCE_MS_PLACEHOLDER`), so the old connection
- * still holds the seat through it. Past it, today's takeover: a reconnect's ghost in a classic round in play. A seat
+ * a reached match come at once, then 1.5 s apart for about 25 s (`../../viewer/src/netPage` `retryDelayMs`), after the
+ * page's own 4 s of silence (`LINK_SILENCE_MS_ADAPTATION`), so 20 s holds about ten attempts and their handshakes; the
+ * window is counted from the last frame, so the heartbeat's close at 20-25 s (`./server` `PEER_SILENCE_MS_PLACEHOLDER`)
+ * comes as it ends. LATER 359 (the owner, 2026-11-18, relayed by the main controller: "reconnect within ~20 s, body stays
+ * vulnerable"): 20 s, was 10 s. Past it, today's takeover: a reconnect's ghost in a classic round in play. A seat
  * merely silent but still connected is not stepped (today's stall: frozen until its commands or its hello come, about
  * 1 s in the owner's log); only a parked seat (step 2, `leave`) takes the neutral steps (`PARKED_BODY_NEUTRAL_ADAPTATION`).
  * A page that leaves says `bye` first and is never parked; one whose `bye` never gets out (the browser kills the page
- * before its pagehide's send) stands parked up to the window, 10 s, then leaves as today. A page put in the back-forward
+ * before its pagehide's send) stands parked up to the window, 20 s, then leaves as today. A page put in the back-forward
  * cache fires its pagehide (persisted) too, so it says `bye` and leaves at once, not parked; restored, it rejoins as
  * today (a reconnect's ghost in a classic round in play).
  */
-export const RECONNECT_ALIVE_WINDOW_MS_ADAPTATION = 10_000;
+export const RECONNECT_ALIVE_WINDOW_MS_ADAPTATION = 20_000;
+
+/**
+ * LOBBY_PARK_MS_ADAPTATION (LATER 752; the controller's ruling of 2026-11-19, option A; a labelled adaptation of our
+ * reconnect, NET-RES, with no original -- a lost console is a leave, `KEPT_RECONNECT_READING`): how long a game lobby's
+ * seat (a `RoomOptions.lobbyPark` room -- a game lobby: match `game.ts`'s and central `bridge.ts`'s, never a Forge lobby -- waiting, before its launch's load hold) is held after its socket's unannounced close, from its
+ * last frame, ms. Before it, such a seat left at once, so a member whose lobby socket dropped near the launch came back
+ * after it as a new seat in progress (`seat`'s `joinedInProgress`; game 3783's round-1 ghosts). Held, the return is the
+ * takeover, which keeps its lobby place, side and row (`TAKEOVER_ROW_READING`); a parked seat counts as seated at the
+ * launch, and the load barrier does not wait for it (held away, `pending`'s NET-RES-2 F4 rule); back after round 1 has
+ * begun, a classic round in play seats it a ghost (NET-RES-2b's rule). Shorter than `SEAT_HOLD_MS_ADAPTATION`: a lobby
+ * place held 3 minutes is seen by everyone in the lobby. The page retries a dropped lobby socket within a few seconds.
+ */
+export const LOBBY_PARK_MS_ADAPTATION = 30_000;
 
 /**
  * RECENT_HIT_DEATH_MS_ADAPTATION (NET-RES.R11 (a), the owner's ruling of 2026-10-24 in the deploy seat: "Credit the kill if
@@ -1095,8 +1241,9 @@ export const RECONNECT_ALIVE_WINDOW_MS_ADAPTATION = 10_000;
  * kill, the score and the death, as any kill scores). Anchored on the drop, not on the takeaway: the
  * body's own hold (OT.R59, `RECONNECT_ALIVE_WINDOW_MS_ADAPTATION`) is not the player's choice, so a hit just before the
  * cable is pulled must count however long the frozen body then stands; a hit during that hold counts too (it is after
- * the drop). 10 s, the body's hold mirrored before the drop: the drop is the window's middle -- 10 s back for the hit
- * that provoked it, 10 s forward while the body stands. Credited only in a round (`inRound`: play, expired or decided),
+ * the drop). The body's hold mirrored before the drop: the drop is the window's middle -- 20 s back for the hit that
+ * provoked it, 20 s forward while the body stands. LATER 359 (the owner, 2026-11-18, relayed by the main controller: "yes
+ * on the shot kill without coming back timer change"): it moves with the body's hold, 20 s (was 10 s). Credited only in a round (`inRound`: play, expired or decided),
  * never between rounds (the re-read's N5).
  */
 export const RECENT_HIT_DEATH_MS_ADAPTATION = RECONNECT_ALIVE_WINDOW_MS_ADAPTATION;
@@ -1192,6 +1339,44 @@ export const RECONNECT_HELD_LAUNCHER_ADAPTATION = "a resumed seat's raised launc
 export const TAKEOVER_ROW_READING = 'the row kept' as const;
 
 /**
+ * DEAD_OWNER_MINES_CLEAR_READING (R4P-224, R4-EXP-PLACED; lead L148; research 235 s10; reading, pending review): in a
+ * respawn game, a player dead strictly more than `afterS` seconds loses his placed claymores (0x99) and PMNs (0x9e) --
+ * removed, never set off. r0001's dead controller `FUN_00592560`, online (`DAT_0045a0c1`; every room is a network game,
+ * `NET_CAP_READING`), measures the death's age on the game clock against the body's `+0xfb4` (the room's `diedAt`) and,
+ * past 5.0 with the game's respawn byte `+0xdc` set (`rules === 'respawn'`, as `RoundOverReport.respawn`), calls
+ * `FUN_005b88c0` on the kit (D:L451696-451697) every frame; it clears the placed list 0x4b5220 by the kit owner's word for
+ * item 0x99 and item 0x9e (`FUN_003cceb0` twice, D:L471683-471696), and the clear drops each matching entry at state 3
+ * and frees it with no blast (D:L321661-321679). r0004's twins (the leads ledger's L148): `r0004:0x005bee90` unchanged,
+ * the caller `r0004:0x00597d90` reading the byte at 224 for 220 -- not compared. The original sends the clear on the wire
+ * (`FUN_003c7170`, D:L321674): the room tells every page `chargeGone {pid}` for each charge it removes, and the page
+ * takes its copy away silently (`GrenadeCore.removeRemote`; research 235 s10.3).
+ */
+export const DEAD_OWNER_MINES_CLEAR_READING = { afterS: 5.0, items: [ITEM.CLAYMORE, ITEM.PMN] as readonly number[] } as const;
+
+/**
+ * CHARGE_NODE_DEACTIVATION_READING (R4P-224, R4-EXP-PLACED; lead L131; research 235 s10; reading, pending review): the
+ * placed charges a deactivated node sets off. r0001's PostTick `FUN_003c5310` (D:L316834-316843), for a projectile in
+ * state 1 with a node at `+0xcc`, no detonation request yet (`+0xc4`) and a weapon id of 153 (the claymore) or 151 (C4),
+ * walks from that node up its parents (`+100`) and sets the request at the first whose active bit (`+0x5c` bit 0) is
+ * clear -- the room's `WorldState.isActive` on the charge's node, its own flag and every ancestor's. r0004's
+ * `0x003e7490` adds the PMN (158) to the walk (D4:L342618-342628, the drift audit of 2026-11-23: Codex's read, the
+ * Claude (Opus) check): the PMN's support check. The satchel is never in it. State 1 is `SetProjectile`'s
+ * (D:L320744); only a bounce writes 2 (D:L319683), so a placed charge -- laid with no speed -- keeps 1: here a placed
+ * charge at rest (`Flying.facing`), not set off yet. The request is the trigger the step reads in the same frame.
+ */
+export const CHARGE_NODE_DEACTIVATION_READING = [ITEM.CLAYMORE, ITEM.C4, ITEM.PMN] as readonly number[];
+
+/**
+ * CHARGE_NODE_PATH_READING (R4P-224; research 235 s10; reading, pending review): a placed charge's node (`+0xcc`), the
+ * node the plant hands `SetWord` `FUN_003c5200` (`FUN_005bc730` D:L474023): C4's is the node its target ray struck
+ * (D:L476985), the throw's `surface.path`; the claymore's and the PMN's the world column's entry the charge sits on
+ * (D:L477010) -- here the hull polygon's collision owner (`HullHit.owner`, `GRENADE_CONTACT_NODE_READING`) of the
+ * column's accepted surface (`restsOn`) nearest the charge's point within `CHARGE_GROUND_SLACK_PLACEHOLDER`, the surface
+ * `chargeRests` accepted. None (no owner): no walk, as the original's `+0xcc` of 0.
+ */
+export const CHARGE_NODE_PATH_READING = 'C4 the struck node; the claymore and the PMN the column entry they sit on' as const;
+
+/**
  * ARMORY_SEAT_READING (research 95 §8; web sprint 5, the S3 review's controller ruling under the owner's mandate): the
  * game's ARMORY is the lobby's, before the launch (research 95 §4.1), so a player spawns with what it chose there. The
  * viewer's stand-in (W5.R1) opens on a seat instead: a page that says so in its hello (`armory`) has the screen opened
@@ -1278,6 +1463,39 @@ export const TURRET_JITTER_BLOOM_ADAPTATION = 'a round refused on the event cloc
  * refusal's reason when a round is both early and refused by a later check is that check's (was 'rate').
  */
 export const RIFLE_JITTER_BLOOM_ADAPTATION = 'a rifle round refused on the room clock alone blooms the cone, once a cycle (a pull: once a ray), and is told stale' as const;
+
+/**
+ * [adaptation] LOCK-END-RELIEF (Phase 1; the owner's word 2026-11-22, handoff HANDOFF-lock-end-relief-and-b16 s4; research
+ * 169 s9; LATER 169) -- the network's, with no original (no server refuses the console's round, research 91; it spends
+ * every round it fires, `FUN_005be9a0`, `FUN_005c5340`). A round the weapon's lock refuses on the ROOM's clock alone --
+ * the page's own lock over on the command clock (`frame.count >= reloadUntil`), rounds left, only `lockClock` says not
+ * yet (a lock laid from an event that waited past the stall credit, H89 D7) -- is refused through `refuseRound` as the
+ * early 'rate' round is (RIFLE_JITTER_BLOOM_ADAPTATION): last, after the cone check passed and nothing else refused it;
+ * bloomed once; told `stale` (the page's journal refunds it); the cadence's last round. Was: refused silent, unbloomed and
+ * spent, the page's cone left ahead of the room's and the rest of the burst refused 'cone'. The window itself is
+ * unchanged (the refusals still fall up to lateness less FIRE_ARRIVAL_JITTER_TICKS + FIRE_STALL_CREDIT_TICKS past the
+ * page's end: Phase 2, not ruled), and so is the forger's bound (the lock is where it was; a round into it is still
+ * refused; what a modified client gains is a bloom and the refund of a round the room never took). A round inside the
+ * page's own reload, or on an empty magazine, is not an honest page's and stays as it was (`refusedRound`).
+ */
+export const LOCK_END_RELIEF_ADAPTATION = "a round refused by the lock on the room's clock alone is refused as an early round is: bloomed, told stale (refunded)" as const;
+
+/**
+ * [instrument] LOCK-END-RELIEF (product track; nothing judged reads it): a lock laid (`layLock`) counted by the RAW
+ * lateness of the event that laid it -- the room's clock less its command's count and the line's best offset, before
+ * `eventClock` clamps it to FIRE_STALL_CREDIT_TICKS -- in ticks: at or under FIRE_ARRIVAL_JITTER_TICKS + the credit (24:
+ * no window), then 25-30, 31-42, 43-54, over 54. The once-a-second `lockLate` line (`Room.takeLockLate`, the server's
+ * `logLockLate`), counts only, no seat: Phase 2's gate (how often a real line lays a lock past the clamp).
+ */
+export const LOCK_LATE_BUCKETS = ['le24', '25-30', '31-42', '43-54', 'gt54'] as const;
+export type LockLateBucket = (typeof LOCK_LATE_BUCKETS)[number];
+export function lockLateBucket(late: number): LockLateBucket {
+  if (late <= FIRE_STALL_CREDIT_TICKS + FIRE_ARRIVAL_JITTER_TICKS) return 'le24';
+  if (late <= 30) return '25-30';
+  if (late <= 42) return '31-42';
+  if (late <= 54) return '43-54';
+  return 'gt54';
+}
 
 /**
  * [adaptation] LATER 326 (issue #455, PT195-1; the network's, with no counterpart in the original). One tick of the
@@ -1463,18 +1681,68 @@ const MPBOMB_NAME = 'MPBOMB';
 const SCRIPT_BLASTS_A_TICK = 64;
 /**
  * SCENE_ROUND_OWNER_READING (research 386 §3.2; LATER 63; research 332 §1.1, §1.4): whose a scene program's `FIRE_WEAPON`
- * round is -- Blizzard's outhouse's `C4` at its toilet, Crossroads' bridges' and the bases' `MPBOMB`. `FUN_0025ccb0` makes
- * its owner the console's own SEAL (`FUN_002b3580`, D:L107285) unless the program's context holds a type-9 entry
- * (D:L107286-107297); each console fires its own and hurts its own SEAL with it, so the round that hurts a player is his
- * own, as the bomb's (`MPBOMB_BLAST_OWNER_READING`). A destructible's death starts its program with entries of types 2, 6
- * and 5 only (`FUN_00273a50` D:L121010-121060; research 386 §3.3): no type 9, so its round is the console's own SEAL's
- * [reading: whether a switch's press starts its program with a type-9 entry -- the presser -- is open. Traced since,
- * reading, pending review: `FUN_002b44e0` builds the switch program's context with entries of types 3, 4 and 1, no 9
- * (`FUN_00272bb0`, D:L156826-156827, D:L156837-156838), and its peers reach it through D:L160543. Settled by a capture
- * of a player killed by a Crossroads bridge's blast another player set off: the Shadow rig's queued Q14
- * (`agent-mail/handoffs/shadow-held-next-start-2026-11-14.md`, F127). H421 covers MP1 and MP12 only.]
+ * round is when no press started its run -- Blizzard's outhouse's `C4` at its toilet and the bases' `MPBOMB` (a
+ * destructible's death), a program's `EXECUTE_ACTION`. `FUN_0025ccb0` makes its owner the console's own SEAL
+ * (`FUN_002b3580`, D:L107285) unless the program's context holds a type-9 entry (D:L107286-107297); each console fires
+ * its own and hurts its own SEAL with it, so the round that hurts a player is his own, as the bomb's
+ * (`MPBOMB_BLAST_OWNER_READING`). A destructible's death starts its program with entries of types 2, 6 and 5 only
+ * (`FUN_00273a50` D:L121010-121060; research 386 §3.3; LATER 1038: so in the machine code too, its five calls of
+ * `FUN_00272bb0` ending in a register or `sd zero, 0(sp)`, 0x273dcc-0x273e8c): no type 9, so its round is the console's
+ * own SEAL's. A switch's press is `SCENE_ROUND_PRESSER_READING`'s. [reading. Was, for a switch's round too, until
+ * LATER 1038: the trace of `FUN_002b44e0`'s context as types 3, 4 and 1, no 9 (D:L156826-156838) -- the decompiler's
+ * eight register arguments only; contradicted by Q14 on the original running, research 213 §2.2.]
  */
 export const SCENE_ROUND_OWNER_READING = 'victim' as const;
+/**
+ * SCENE_ROUND_PRESSER_READING (LATER 1038; research 213 §2.2, 386 §8): whose a switch's `FIRE_WEAPON` round is at each
+ * victim -- Crossroads' bridges' `MPBOMB`. The press starts the switch's program with the presser in its context:
+ * `FUN_002b44e0` passes `FUN_00272bb0` the types 3, 4 and 1 in its eight register arguments and, when the presser's id
+ * (`+4`) is not negative, 9 and that id on the stack before the terminator (0x2b45a8-0x2b45bc, reviewed by an
+ * independent decode; a peer's copy of the press passes the presser it names, D:L160543). When the `FIRE_WEAPON` runs,
+ * `FUN_0025ccb0` resolves that id to the player (`FUN_0029e4e0`, D:L107287-107297) and makes him the round's owner
+ * (`+0xac`, D:L107285-107300) -- one owner word, whoever the round reaches -- and `FUN_005a0e70` credits him with the
+ * death (D:L459286-459300), which `FUN_0059ee20` scores as his. The room resolves him at the command (`sceneRound`) and
+ * holds the player, never the id. `enemy` -- a victim of the other side: the presser's kill (proven: Q14, the original
+ * running, MP72, 2026-11-14, "`<the presser>` fragged `<the victim>` with MPBOMB" on both consoles; and Q18 case (a),
+ * r0004, MP72, 2026-11-15, the presser's kills +1 and the victim's deaths +1, no suicide -- `FUN_0059ee20`
+ * D:L458090-458110). `teammate` -- a victim of the presser's own side: the presser's round too, and the friendly-fire
+ * gate does not stop it (`ffRefuses`' `localRound`: online a scene round carries the round's `+4` bit 4, which r0004's
+ * gate passes, r4 0x5b243c-0x5b2448) -- the presser's team kill (`FUN_00545c10`, D:L458112-458113). Proven with
+ * friendly fire OFF (the room's default): Q18 case (b), the original running, r0004, MP72, three clients, 2026-11-15,
+ * the teammate under the arch killed, "`<the presser>` fragged `<the teammate>` with MPBOMB", the presser's team kills
+ * +1, the teammate's deaths +1, no suicide (its files in the private bucket,
+ * `gate-runner/shadow/out/2026-11-15/q10-hitreg/q18-bridge-counters/`; research 213 §2.2). With friendly fire ON the
+ * same, proven at n = 2: Q18-b2 (a new MP72 match, friendly fire enabled through CREATE GAME, an enemy alive so the
+ * round went on), each run the teammate killed, the presser's team kills +1, no suicide (same prefix). *Was (LATER
+ * 1038, built on the reading by the main controller's ruling, seat 67, 2026-11-14, pending Q18 (b)): spared with
+ * friendly fire off.* The score of that team kill: `SCENE_ROUND_TEAM_KILL_SCORE_READING`. The presser under his own
+ * arch is his own either way (`FUN_0059ee20`'s suicide, D:L458084-458085; Q18 (c), not run). `departed` -- the presser
+ * left the room between the command and the blast: the original's death still carries the round's `+0xac` id
+ * (`FUN_005a0e70` passes it to `FUN_00547aa0` whether or not the lookup finds a player, D:L459286-459300), and what
+ * the feed and the counters make of an id no longer in the game is UNREAD. The port takes the projectile's rule for
+ * a departed thrower (m-13 of review 2, `Room.thrower`): no one in the room is credited or charged, the line keeps
+ * his name ('orphan') -- so no player present is scored for a press he did not make, and the victim is charged no
+ * suicide the id-carrying death would not make. A presser already gone when the command runs owns nothing: the
+ * lookup fails and the console's own SEAL is the owner -- each victim his own (`SCENE_ROUND_OWNER_READING`).
+ */
+export const SCENE_ROUND_PRESSER_READING: {
+  readonly enemy: 'presser' | 'victim'; readonly teammate: 'presser' | 'victim'; readonly departed: 'orphan' | 'victim';
+} = { enemy: 'presser', teammate: 'presser', departed: 'orphan' };
+/**
+ * SCENE_ROUND_TEAM_KILL_SCORE_READING (WM-SWITCH; research 213 §2.2): the score a switch's blast books its presser for a
+ * teammate it kills -- the port's ordinary team kill, -2 (`Room.kill`), from `FUN_00545c10`'s round block `+0x3c`
+ * (D:L411864-411865; r0004's twin 0x54a630, its -2 at 0x54a684, read by disassembly), the only team-kill scorer
+ * `FUN_0059ee20` calls (D:L458112-458113). Not a value the room applies apart: the ordinary path books it; this names
+ * the difference. Q18 case (b) (the original running, r0004, MP72, 2026-11-15) read the presser's round score (`+0x5c8`,
+ * a halfword) 0 -> -1 over the press and the kill, where the room books the press's own points, the record's 2
+ * (`FUN_00545530` D:L411589-411591 from `FUN_002bb5b0` D:L160645; PF-14), and the -2: 0. Case (a)'s 0 -> 3 (a kill, +2,
+ * `FUN_00545290` D:L411491) sits one under the room's +4 as well, but its round ended on that kill and its end's awards
+ * are not separable. Q18-b2 (friendly fire on, the round going on, n = 2) read -1 again each run, so the -1 is no
+ * round-end effect: the gap sits in what the press is worth with that kill, not in the -2. Unread: whether the press
+ * scored on the original, and when the rig's before-read was taken against it. Settles it: a read of the round score between the press and the blast, and an ordinary weapon's team
+ * kill's score on the original.
+ */
+export const SCENE_ROUND_TEAM_KILL_SCORE_READING = -2 as const;
 /**
  * MPBOMB_BLAST_HOSTAGE_OWNER_PLACEHOLDER (P20, TB-7; research 332 s5-s6): whose the bomb's blast is at a hostage. Read
  * this far: a hostage's hit is applied where it is local, on the host (research 237 s2.3: its controller `CSealCtrlAi`,
@@ -1504,6 +1772,90 @@ export const THROW_SLACK_READING = 0.1;
 /** The family's sampling (`throwLaunchAllowed`): the power in fiftieths, the aim's clamp in degrees -- each step well inside the slack. */
 const THROW_POWER_STEPS = 50, THROW_AIM_STEPS = 55;
 /**
+ * LANE-KILL B-06 (the main controller's ruling "D", 2026-11-21; research 256 §5.2): [adaptation] how the room asks the
+ * original's release clearance (r0004 `0x54e6f0`, asked by the release request at 0x5c5d6c -- r0001's `FUN_005499e0`
+ * superseded, OT.R97; research 256 s5; the page's `throwClear`) without the power, which is not on the wire: a hand throw passes if ANY
+ * launch of the family matching its velocity (`throwLaunches`: a power, an aim and the stance its range names) clears at
+ * the request's body, in the range's stance or, for a standing posture, the other (OBF-23's crouch-run: the state
+ * crouched on the standing body, `releaseStance`). `'any pair, either stance'`: the leniency is the room's, no original.
+ */
+export const THROW_CLEARANCE_PAIRS_ADAPTATION = 'any pair, either stance' as const;
+/**
+ * [adaptation] The room's B1 leniency below the launch clamp: how low an aim `throwRelease` tries for a pair matching at
+ * the clamp's 0-degree bound. Not the original's (the original computes its own aim, r0004 `0x5e6690`); LATER 1294; the
+ * controller's ruling (ii) and its conditions on the pitch floor, 2026-11-21 (research 256 §5.2, §7). Per throw, from the
+ * camera pitch at the command as the room's cone holds it (`AimFrame.pitch`: the room moves it toward the command's at the
+ * look's rate, as the page's camera does; the lower of the release request's and the throw's): the aims go down
+ * to sin(pitch) - THROW_AIM_FLOOR_MARGIN_ADAPTATION[posture], within the cone's `down`, and not at all when that is at or
+ * above 0. Was a fixed sine (-0.191536, the lowest rest aim the capture logged) until the review of afd246dfe3's B1: a
+ * stick held down to -55..-70 at a tall wall 18-20 u ahead gives the page an aim of -0.32..-0.51, which it lets go.
+ *
+ * Why the camera's line bounds the aim (the derivation, research 256 §5.2): the aim is unit(T - O) (`throwAimVector`),
+ * T on the camera's ray from the placed eye E along d (elevation p, the command's pitch; T a hit on it or its far end).
+ * Let n be the unit normal of the plane holding d and the body's horizontal right axis, its y positive. If O lies on or
+ * under that plane -- (O - E).n <= 0, i.e. (O - E)_up cos p - (O - E)_ahead sin p <= 0 -- then (T - O).n >= 0 for every
+ * T on the line, so T - O lies in the half-space n points into, and every unit vector u there with p in (-90, 0] has
+ * u.y >= sin p (in the plane of d and n, u's angle lies in [p, p + 180], where sin is no less than sin p; a sideways part
+ * only shrinks |u.y|). The cone's clamp (`coneHold`) keeps the sine but raises a pitch past its bound, so standing and
+ * crouched it never lowers it (their cone reaches past the camera's limits); the PRONE cone's 20-degree UP-clamp does lower
+ * it (the camera looks up to 25). That proof holds for p <= 0; for p > 0 "the aim not under 0" rests on the sweep alone.
+ * So the honest aim is no steeper than the camera when O sits under the camera's line: O is the height latched at the
+ * M67's select (`THROW_AIM_ORIGIN_LATCH_READING`: a standing select 13.11 up, a crouched one 8.76, ahead 0; the eye 19.6
+ * up and 24.9 behind at rest standing). The figures below were measured under the earlier fit (standing 8.808 up and
+ * 0.453 ahead, crouched 5.882), retired 2026-11-21 (LANE-KILL B-06). The sweep (`throwRoomLeniency.*.sweep`)
+ * measures it over every pitch of the limits at 2-degree steps: on the synthetic walls the worst aim less sin(pitch) is
+ * +0.00004 standing and +0.00003 crouched, and on the capture's MP6 legs +0.00004 standing -- but CROUCHED AT LEG B FAR
+ * (pitch 12) -0.02656. The cause is the camera's collision pass lifting the eye about 0.7 u there, so the ray's own pitch
+ * is 10.46 degrees (the origin is 7.0-10.3 u under the camera line); not "O over the line". The aim sits under the
+ * command's pitch, inside the margin below, which that pose leaves 0.021 of for the sampling (2026-11-21). PRONE falls
+ * short of the command's sine twice, and neither is a geometric failure of the origin: the cone's 20-degree up-clamp
+ * (-0.0806 at pitch 25, leg B FAR), and the camera pass (-0.024 at pitch 18). (A prone eye 1.98 under the feet occurs only
+ * on the sweep's synthetic floor, which does not stop the camera; on MP6 it is 0.68-8 u above the feet.) The prone margin is
+ * the whole prone cone (`down` 20, the camera's prone limits -20..25): safe because it covers both shortfalls; on MP6 a
+ * tighter bound would hold, and is not taken.
+ */
+export const THROW_AIM_FLOOR_ADAPTATION = 'sin(the command pitch) - the margin, within the cone' as const;
+/** The commands of full-push stick travel THROW_AIM_FLOOR_MARGIN_ADAPTATION's frame sampling covers (its doc). */
+export const THROW_AIM_PITCH_SAMPLING_COMMANDS = 3;
+/**
+ * [adaptation] THROW_AIM_FLOOR_ADAPTATION's margin, in sine, per posture. Standing and crouched, 0.0475: the geometry's 0
+ * (O under the camera's line, above) plus the frame sampling -- the page reads its aim at its own camera, whose pitch may
+ * stand a command or two off the frame the room holds (and the wire rounds the pitch to 0.01 degree) -- covered as
+ * THROW_AIM_PITCH_SAMPLING_COMMANDS commands of RECRUIT's full-push stick (`MAX_PITCH_RATE` 0.950 rad/s, `look.ts:91`;
+ * `pitch_rate` 0.85 x 1.118, `FUN_00594600` D:L452783) at the command rate (TICK_HZ 60): |d sin p| <= |dp|, so
+ * 3 x 0.950 / 60 = 0.0475; it also covers the crouched -0.0263 at MP6's leg B FAR (the camera pass's 0.7 u lift). The
+ * fastest honest preset is 1.462 rad/s (`lookGate.ts:155-159`), where 0.0475 is 1.95 commands, not 3; the value is kept.
+ * A mouse's pitch, faster than the stick, is not covered past that. Prone, 2: the cone (`down` 20), covering the up-clamp's
+ * -0.0806 and the camera pass's -0.024 (above). Both: 0 honest refusals in the full-pitch sweeps (page-cleared throws:
+ * standing 357,402, crouched 294,140, prone 78,974).
+ */
+export const THROW_AIM_FLOOR_MARGIN_ADAPTATION = Object.freeze({
+  stand: (THROW_AIM_PITCH_SAMPLING_COMMANDS * MAX_PITCH_RATE) / TICK_HZ,
+  crouch: (THROW_AIM_PITCH_SAMPLING_COMMANDS * MAX_PITCH_RATE) / TICK_HZ,
+  prone: 2,
+});
+/** THROW_AIM_FLOOR_ADAPTATION: the lowest aim, in radians (never above 0), tried for a throw whose frames look at `pitch`. */
+export function throwAimFloor(pitchDegrees: number, posture: PlaySnapshot['stance']): number {
+  const cone = posture === 'prone' ? THROW_AIM_CONE_READING.prone : THROW_AIM_CONE_READING.stand;
+  const s = Math.sin((pitchDegrees * Math.PI) / 180) - THROW_AIM_FLOOR_MARGIN_ADAPTATION[posture];
+  return Math.min(0, Math.max((-cone.down * Math.PI) / 180, Math.asin(Math.max(-1, s))));
+}
+/**
+ * [adaptation] The room's B1 leniency ACROSS the facing (LANE-KILL B-06, LATER 1294; research 256 §5.2, §7): the yaws, in
+ * degrees off the body's facing, at which each aim `throwRelease` tries is cast through the clearance (`throwClear` takes
+ * the aim's sideways term, `aimVectorOf`); not the original's (the original computes its own aim, r0004 `0x5e6690`). The
+ * velocity carries no sideways term (`throwVelocity` takes the sine alone), so the room cannot recover it: prone, the
+ * page's aim is held at the prone cone's yaw bound (`coneHold`, `THROW_AIM_CONE_READING.prone.yaw`, 45) whenever its
+ * camera looks down past it -- the sweep's 50 at camera pitch 20, whose 25 u ray reached ~17.7 u ahead and cleared a wall
+ * 16-24 u ahead the room's straight ray met. Prone tries straight ahead and both bounds (for one convex wall the clear
+ * yaws, if any, include a bound); standing and crouched straight ahead only -- the sweep's page aims there are all ahead,
+ * and the standing cone's +-85 would clear the forged level throw through a thin wall (the delta review's F1).
+ */
+export const THROW_AIM_SIDE_ADAPTATION = Object.freeze({
+  stand: Object.freeze([0]), crouch: Object.freeze([0]),
+  prone: Object.freeze([0, THROW_AIM_CONE_READING.prone.yaw, -THROW_AIM_CONE_READING.prone.yaw]),
+});
+/**
  * The soonest a hand lets go again (M-8): after a release the throw's clip plays out (`throwClipSeconds` less
  * `releaseSeconds`: `FUN_0028c4f0`, `FUN_005802b0`) and the next throw's clip runs to its own release -- the page's
  * `GrenadeThrower` holds its phase through both. The shortest tail and the shortest wind-up of `GetThrowAnim`'s table
@@ -1531,7 +1883,7 @@ const THROW_ROWS = Object.values(THROW_ANIMS);
  * `playback x (n - 1) / n` ... (1 - 0.87) x 1.2 x 27/28 = 0.150 s" -- not the formula the code takes (the narrow check).*
  */
 export const THROW_TAIL_S = Math.min(...THROW_ROWS.map((a) => throwClipSeconds(a) - releaseSeconds(a)));
-export const THROW_START_WINDOW_S = Math.max(...[...THROW_ROWS, ...THROW_ROWS.flatMap((a) => PISTOL_HAND_ANIMS[a.clip] ?? [])].map((a) => releaseSeconds(a)));
+export const THROW_START_WINDOW_S = Math.max(...[...THROW_ROWS, ...THROW_ROWS.flatMap((a) => (PISTOL_HAND_SWAP_CLIPS.has(a.clip) && PISTOL_HAND_ANIMS[a.clip]) || [])].map((a) => releaseSeconds(a)));
 /** The dead's stick: at rest (the dead take no stick, `FUN_00592560`). */
 const DEAD_STICK = { forward: 0, right: 0, boost: false } as const;
 
@@ -1552,6 +1904,11 @@ interface Flying {
    * `trigger` is set at the next game frame's start (`flyGrenades`, VOLATILE_CHAIN_TIMING_READING).
    */
   queued?: true;
+  /**
+   * R4P-224 (`CHARGE_NODE_PATH_READING`): a placed charge's node (`+0xcc`), the path whose deactivation sets it off
+   * (`CHARGE_NODE_DEACTIVATION_READING`, `nodeWalk`); absent: none.
+   */
+  node?: string;
   /**
    * HOTFIX grenade fuse (THROW_DATE_BACK_TICKS_ADAPTATION): a new projectile's age at its creation, in ticks of the room's
    * clock from its release (`commandAge`, uncapped and signed; `born`, every creation site), and whether it was made
@@ -1594,16 +1951,24 @@ export type FfRefusal = 'spectator' | 'friendly fire' | 'backblast';
  * - Whatever the switch, a hit of item 0x9f (the Backblast) from the victim himself or his side (0x5ac840-0x5ac8fc).
  * - HX-1 (`./extraction` `HOSTAGE_FF_READING`; research 199 s2, 0x5ac720-0x5ac74c): an escortee victim (`victim+0xc8 &
  *   0x20000`, a hostage) lets every hit through, a teammate's too -- `escortee` on the victim, no refusal at once.
+ * - WM-SWITCH (`localRound`; research 213 §2.2): r0004's twin of the handler (0x5b2360) does not take the friendly-fire
+ *   return for a round whose flag byte `+4` has bit 4 set (r4 0x5b243c-0x5b2448; r0001 returns at 0x5ac74c) -- the
+ *   console-local round a scene program's `FIRE_WEAPON` makes online (`FUN_0025ccb0` -> `FUN_003c6ac0`, D:L107308,
+ *   D:L107322; the setter D:L318232-318235; r4 0x25d79c, 0x25d84c). The room's scene round (`fireSceneRounds`) is that
+ *   round: its presser's teammate is hit (proven with friendly fire off: Q18 case (b), the original running, r0004, MP72,
+ *   2026-11-15). The spectator test before the gate and the backblast's rule after it still hold. A grenade, a rocket, a
+ *   claymore, a mine or C4 a player sets off carries no such bit here and meets the gate as before. (The Backblast child
+ *   sets the bit too, `FUN_003d2d70` D:L325639; the room's backblast rule below refuses it all the same.)
  * Not built (research 219 s5, note only): the M67 / HE branch (0x79 / 0x7e dropped from one's own side when an
  * unidentified controller's `+0x42c & 0x400` is set). The departed owner's backblast is read as passing (no owner to
  * test); it goes off the tick after its launch, so the case is near-moot.
  */
-export function ffRefuses<B extends { readonly team: Team }>(attacker: B | null, victim: B | EscorteeVictim, itemId: number, allow: boolean, spectator = false): FfRefusal | null {
+export function ffRefuses<B extends { readonly team: Team }>(attacker: B | null, victim: B | EscorteeVictim, itemId: number, allow: boolean, spectator = false, localRound = false): FfRefusal | null {
   if ('escortee' in victim) return null;                        // HX-1: HOSTAGE_FF_READING
   if (spectator) return 'spectator';
   if (attacker === null) return null;
   const side = attacker === victim || attacker.team === victim.team;
-  if (!allow && attacker !== victim && attacker.team === victim.team) return 'friendly fire';
+  if (!allow && !localRound && attacker !== victim && attacker.team === victim.team) return 'friendly fire';   // WM-SWITCH: r4 0x5b243c
   if (itemId === ITEM.BACKBLAST && side) return 'backblast';
   return null;
 }
@@ -1703,6 +2068,48 @@ function pastOf(h: readonly (Past | HostagePast)[], tick: number): Past | null {
 }
 
 /**
+ * LATER 891 (the bodies seat, 2026-11-18; the port's own netcode, no original -- the room judges what the shooter's page
+ * drew): a player's past at `tick` as the page's `NetClient` draws it (`../../viewer/src/net/client.ts` `drawnAt` and
+ * `bodiesAt`), from the entries the room SENT -- the snapshot ticks, every `every`th (`TICK_HZ / SNAPSHOT_HZ`; `snapshots`
+ * runs after `remember` in the same step, so the entry at a snapshot tick is that snapshot's body). `newer`, the oldest
+ * snapshot entry after `tick`, else the newest; `older`, the one before it when the two bracket `tick`. Every field is
+ * `newer`'s -- its pose (HIT-POSE's kept boxes), posture, tilt, peek, as the page takes the newer snapshot's discrete
+ * fields -- but the feet, lerped, and the yaw, turned the short way (`shortTurn`, `wrapYaw`), as the page blends them.
+ * A moment ON a snapshot tick is that snapshot whole: the page's held snapshot (`shownTick`). No blend where `alive`
+ * differs (both sides then judge the body dead, `rewoundBodies` skips it; the page blends within a life by its spawn
+ * count, NU-12 D6). With no snapshot entry in hand, `pastOf`'s pick. LATER 831: a hostage's history too (`HostagePast`
+ * is a `Past` without the peek and the raise), its rewind the same pick (`Room.hostagePast`).
+ */
+function drawnPastOf(h: readonly Past[], tick: number, every: number): Past | null {
+  // The PRESENT (a moment at or past the newest entry) is a bot's moment, never a page's past it: a page draws
+  // `INTERP_DELAY_MS` behind, a held snapshot at most the newest entry -- where both picks give that entry whole. It is a bot's (`MatchBots` fires with `viewTick` = the room's tick: a bot sees the
+  // room as it stands, not through snapshots): `pastOf`'s pick, as before LATER 891 (the 891 box's botNavBudget red).
+  if (!h.length || tick >= h[h.length - 1]!.tick) return pastOf(h, tick);
+  let newer: Past | null = null, older: Past | null = null;
+  for (let i = h.length - 1; i >= 0; i--) {
+    const e = h[i]!;
+    if (e.tick % every !== 0) continue;
+    if (e.tick > tick) { newer = e; continue; }
+    // The page HOLDS a snapshot in a stall (`drawnAt`'s `older` null) at a whole tick, its `shownTick` that snapshot's; an
+    // interpolating clock almost never lands on one (where it does, the page takes the newer's pose, this the held one's).
+    // So a moment on a snapshot tick is that snapshot, whole (the review's F1: the room's newer entry had not reached the
+    // page). NOT the first frames after a join: there `shownTick` is above `viewTick`, refused, and the room blends.
+    if (e.tick === tick) return e;
+    if (!newer) newer = e; else older = e;
+    break;
+  }
+  if (!newer) return pastOf(h, tick);
+  if (!older || older.alive !== newer.alive) return newer;
+  const f = Math.max(0, Math.min(1, (tick - older.tick) / (newer.tick - older.tick)));
+  const a = older.feet, b = newer.feet;
+  return {
+    ...newer,
+    feet: [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f],
+    yaw: wrapYaw(older.yaw + shortTurn(older.yaw, newer.yaw) * f),
+  };
+}
+
+/**
  * MAP-10b (PF.R31): one placed manual turret as the room holds it -- its placement (`SimMap.turrets`), its occupant's seat
  * or null, its rounds (`TURRET_RELOAD_READING`), its weapon's record (`KitTable.turretRecords`, null without the kit
  * tables), the occupant's last round on its own command clock and on the room's (`fire`'s rule), and whether the
@@ -1720,7 +2127,7 @@ function pastOf(h: readonly (Past | HostagePast)[], tick: number): Past | null {
  */
 interface TurretState {
   place: TurretPlacement; occupant: number | null; ammo: number; record: WeaponRecord | null; round: ThrowableRecord | null;
-  lastFire: number; fireClock: number; ammoDirty: boolean; gunYaw: number;
+  lastFire: number; fireClock: number; ammoDirty: boolean; gunYaw: number; gunPitch: number;
   mags: MagazineRing | null; reloading: boolean; lockUntil: number; lands: boolean;
   /** LATER 219: the occupant's command the turret's own timer was armed on (`armTurret`); -1e9 for one carried or none. */
   lockFrom: number;
@@ -1881,6 +2288,11 @@ class Player {
    */
   hostagesRescued = 0; escorteesKilled = 0; roundRescued = 0;
   /**
+   * LATER 1462: this round's plants (the round block's +0x5c4, `FUN_005455d0` D:L411611-411613; zeroed with the round,
+   * `FUN_00545200` from D:L75817), which BREACH's round-end arm tallies (`BREACH_SEAL_TALLY_READING`).
+   */
+  roundPlanted = 0;
+  /**
    * SVC-12d (`ResultCounters`; research 264 §1): match totals, zeroed with the match (`resetMatch`) but `seatedAt`, the
    * tick the room seated it (`seat`). `playsRound`: the round serial it was seated at the start of (`startRound`) -- a
    * classic seat not seated at its round's start is a ghost of it (`ghostOf`; actor +0xfd2, D:L76148, D:L76717).
@@ -1890,6 +2302,8 @@ class Player {
   joinedInProgress = false; seatedAt = 0; playsRound = -1;
   /** LATER 85 (`LATE_SEAT_ACTOR_READING`): a classic late seat whose console has not loaded -- no body until its `loaded`. */
   awaitingLoad = false;
+  /** LATER 753 (its review's F1): the tick of this seating -- not the kept row's `seatedAt` -- for the load log's `sinceSeatMs`. */
+  seatTick = 0;
   /** LATER 274 (research 322 §5.3): a late seat loaded over the launch's hold -- a ghost of round 1, spawned at round 2. */
   ghostOfNextRound = false;
   /**
@@ -1901,6 +2315,8 @@ class Player {
   lastHurt: { session: string | null; at: number; weapon: number | null } | null = null;
   /** NET-RES.R11 (b): this body left the world alive (`takeAway`, no kill credited): its seat's return keeps its kit. */
   awayAlive = false;
+  /** LATER 752 (its review's F1): taken away while its game lobby waited -- no match body, so no NET-RES.R11 (b) restore. */
+  awayInLobby = false;
   /** NET-RES.R11 (b): the body a returning respawn seat takes its health and kit from at its spawn (`seat`, `spawn`). */
   returnFrom: Player | null = null;
   /**
@@ -1915,6 +2331,11 @@ class Player {
   signals: RoundSignals = freshSignals();
   /** SIMDROP-INSTR: the `fire: cone: *` refusals logged in full this round (`REFUSAL_LINES_PER_ROUND`). */
   refusalsLogged = 0;
+  /**
+   * [adaptation] LATER 876: the last command whose round the page was told refused -- `roundRefused` (`Room.tellRefusedRound`)
+   * or `stale` -- so a pull's rays, which share one seq, tell it once; -1 none yet.
+   */
+  roundTold = -1;
   /**
    * SIMDROP-INSTR (sim drop #3; an instrument): the least offset between the room's wall clock in ticks and a command's
    * number at its arrival, over `LAG_FLOOR_WINDOW_TICKS` (two halves, as `lagFloor`), that `signals.arrivalLate` counts
@@ -2018,6 +2439,28 @@ class Player {
   fireClock: [number, number] = [-1e9, -1e9];
   /** SVC-23b: per weapon, the room's clock its lock (`reloadUntil`'s, on the command clock) ends at. */
   lockClock: [number, number] = [-1, -1];
+  /**
+   * [adaptation] LATER 336 (the network's, with no counterpart in the original -- the game has no server: research 91
+   * §15): per weapon, the offset between the room's clock and the command clock that `fireClock` and `lockClock` are kept
+   * in -- an event's dating less its command's count (`eventClock(p) - p.ran`: the line's best offset, clamped as the
+   * dating is); NaN until the first is kept (`Room.keepSchedule`).
+   */
+  scheduleOffset: [number, number] = [NaN, NaN];
+  /**
+   * [adaptation] LATER 336: per weapon, the ticks `fireClock` may still move down with the offset (`Room.keepSchedule`):
+   * the least, over the rounds laid since the spawn, of how far the last lay stands over that round's earliest dating
+   * (its tick's `serverClock` less FIRE_STALL_CREDIT_TICKS) plus the rates laid since -- kept by its recurrence at each
+   * lay (`Room.scheduleLaid`: its own term, or the last slack plus the pause before it), less the falls since, plus the
+   * rises; Infinity before any lay. Was (the re-review's finding 1): the least over every lay since the spawn, a lay at
+   * the clamp spending it for the life.
+   */
+  scheduleSlack: [number, number] = [Infinity, Infinity];
+  /**
+   * [adaptation] LATER 336's re-review: per weapon, the ticks `lockClock` may still move down with the offset: how far the
+   * lock's lay stood over its tick's earliest dating, less the falls since, plus the rises; Infinity with no lock it still
+   * binds (none laid, or its end within FIRE_ARRIVAL_JITTER_TICKS of `serverClock`: `Room.keepSchedule`).
+   */
+  lockSlack: [number, number] = [Infinity, Infinity];
   /** SVC-23b: the room's clock the last grenade was scheduled at (as `fireClock`). */
   throwClock = -1e9;
   /**
@@ -2047,11 +2490,23 @@ class Player {
   lockTimer: [number, number] = [-1, -1];
   lockKind: [LockKind, LockKind] = [null, null];
   /**
+   * B-18 F1 (research 150 s5, "B-18"): per weapon, the after-shot whose clip is still to be picked at the kit timer's end
+   * (`Room.afterShotPick`): the shot's count and the timer's end (`setLock`'s `lockStart` and `lockTimer`, which name it
+   * while they stand), the timer's seconds, the family and the record's `ReloadTime`. Null: none pending.
+   */
+  afterShotPick: [AfterShotPick | null, AfterShotPick | null] = [null, null];
+  /**
    * PF-18 (ruling PF.R37; research 218 §2): per weapon, the reload's (or the after-shot's) still clip whose cut the room
    * watches on its own mover (`Room.cutAt`): its clip's first command (`lockTimer`'s) and its life; null when none is
    * watched (no clips, a moving start, cut, or played out).
    */
   reloadLife: [ReloadLife | null, ReloadLife | null] = [null, null];
+  /**
+   * B-18 (research 150 section 5, "B-18"; the KILL2 capture): per weapon, the command its `reloadLife` ended on in `run`
+   * (`watchCut`: the clip's end or the stick's cut), -1 none: a stance request still waits for the commands of one game
+   * frame from it (`STANCE_POP_FRAME_COMMANDS`; `watchMoves`' `stillClip`), as the page's `stillClipPopAt`.
+   */
+  reloadLifePopAt: [number, number] = [-1, -1];
   /**
    * PF-18: the last commands' cut axes (`reloadCutOf` after each ran), for a reload decided after its own command ran;
    * PAR-79: with the body in the air after each (`airborne`) or back on the floor on it by a clipless landing (`bare`).
@@ -2115,6 +2570,13 @@ class Player {
   /** The event clock of the last `throwStart` taken (its rate: `THROW_REPEAT_S`, as the throw's). */
   throwStartClock = -1e9;
   /**
+   * LATER 1456 (research 85 §4.3; a network adaptation): the serial of the `hurt`s told this seat's page (`hurt.n`, one
+   * more each, `Room.hurtTo`), and its value at the last cancel (`Room.hitCancels`); a `throwStart` whose echo (`hurt`) is
+   * below `cancelSerial` was sent before the page saw that hurt and is refused. Both zeroed at the spawn.
+   */
+  hurtSerial = 0;
+  cancelSerial = 0;
+  /**
    * THROW-INTERRUPT (the review's F1): the command a throw's clip was last laid on (its hold's start, `Walker.holdStarts`),
    * -1 none; `deathDrop` asks one at or after the request's command. `holdStartsSeen`: the walker's count last read.
    */
@@ -2127,9 +2589,11 @@ class Player {
    * (`grenade.ts` `plantC4`), the cone's history (64 commands) being shorter than the plant's clip (1.098 s). A dropped
    * command's frame never is, so it banks no eye. Null none, or spent by a placing's throw (`placeCharge`). LATER 139: and
    * the cone's frames around that command (`frames`, banked with `eye`, never without it): the look the eye counts on.
+   * LATER 1139: and the hip there (`hipPoint`), which C4's reach is judged from when the plant is this start's
+   * (`placeCharge`): the plant's clip carries the root 1.8 u, and the page judged its prompt at the start.
    */
   placeStart: {
-    seq: number; feet: V3; eye: V3 | null; frames: AimFrame[] | null; at: number; head: V3; serial: number; ran: number; weapon: 0 | 1;
+    seq: number; feet: V3; eye: V3 | null; frames: AimFrame[] | null; at: number; head: V3; hip: V3; serial: number; ran: number; weapon: 0 | 1;
     held: number | null;
     cut?: boolean; handOff?: boolean;
     /**
@@ -2184,6 +2648,12 @@ class Player {
   lastLanding: Landing | null = null;
   /** Each throwable/charge slot's own ring, reset at a spawn (research 361 §1). */
   equipmentSlots: EquipmentSlots = equipmentSlotsOf(BAKED_LOADOUT, null);
+  /**
+   * LATER 1129 (reading, pending review; `./worldDrops` DETONATOR_KEPT_READING): the kit holds the Detonator (0xc1) --
+   * set at a spawn whose kit holds a claymore and by a take that brings one (`FUN_005c74e0` D:L480156-480202 adds it),
+   * never cleared but by the next kit's build: an install over a spent claymore keeps it.
+   */
+  detonator = false;
   /** Derived compatibility totals: no independent pooled ammunition counter. */
   get grenades(): Record<string, number> { return this.equipmentSlots.totals(); }
   /**
@@ -2287,6 +2757,14 @@ class Player {
   /** The mount's steer onto the seat while it runs (`SeatSteer`, TURRET_SEAT_READING), or null. */
   seat: SeatSteer | null = null;
   /**
+   * R4P-R2 (L81, L67; reading, pending review; the second read, 2026-11-24): the hold's mount clip, by the hand class at
+   * the take (`mountHandOf`: the firearm in the hand whatever item is over it; none the rifle's -- r0004 0x5acbb0, D4:L452444,
+   * D4:L503258-503260), and what the take kept (`+0xebc`'s slot: the primary, the secondary or another item), which the
+   * release's choice reads (`dismountSlot`, r0004 0x54a900 D4:L452157-452169).
+   */
+  mountHand: 0 | 1 = 0;
+  mountKept: 'primary' | 'secondary' | 'item' = 'primary';
+  /**
    * LATER 104 (`TURRET_RELEASE_SEQ_ADAPTATION`, research 215 s7.9): the dismount asked and not yet taken -- its `seq`, the
    * page's last command at the press -- taken before the first command above it the room runs (`takeDismount`); else null.
    */
@@ -2371,6 +2849,17 @@ type RoundState =
   | { phase: 'over'; nextAt: number; matchOver: boolean };
 
 /**
+ * DAMAGE_REPORT_AT_WIN_REASONS (WM-DATA-WIN; WM.R24, the owner's "B, every win"; product track, part of
+ * `DAMAGE_REPORT_ADAPTATION`, a browser adaptation with no original -- the game gives a player no damage numbers): the
+ * `decided` reasons at whose decision each player is sent his round report (`Room.reportAtWin`), so his page opens the
+ * damage panel's window through the hold -- every reason the room decides a round for (`DecidedWire['reason']`).
+ * Elimination-only is this set reduced to `['elimination']`. The report at `roundOver` is sent as before (the final
+ * ledger); a time-out draw (no decision) and a respawn room's round (no `decided` phase) keep only it. Nothing the room
+ * simulates or broadcasts reads it.
+ */
+export const DAMAGE_REPORT_AT_WIN_REASONS: ReadonlySet<DecidedWire['reason']> = new Set(['elimination', 'rescue', 'hostageKills', 'bomb', 'timeout']);
+
+/**
  * Research 303 (a network adaptation, no original: the console's request is a local call): the least time between two
  * `victory` requests a seat's page has evaluated, seconds. A press makes one; within this a request is answered with
  * the offer as it stood, so a page flooding requests costs the room a lookup, never an eligibility pass or a dance.
@@ -2398,6 +2887,17 @@ export const VICTORY_OFFER_BUSY_PLACEHOLDER: 'refused' | 'offered' = 'refused';
  * bytes for the placings), or a capture of the prompt beside a corpse while placing.
  */
 export const VICTORY_PLACING_HOLD_READING = 'refused: as the port refused it' as const;
+/**
+ * R4P-R2 (L97; research 215 s4; reading, pending review): three of r0004's added dance refusals the port does not yet
+ * model. r0004's CanVictoryDance (0x582fd0) refuses a live local actor on `+0x105e` bit 0x20 and `+0x1061` bit 0x02
+ * (D4:L481170-481175), needs the kit's selected item to pass r4 0x5c47e0 (D4:L481182-481185), and refuses on a fourth
+ * test the first read left out, `FUN_0058eea0` (D4:L481176-481179; the non-author second read, 2026-11-24). Which port states the
+ * two bits are (r0004's SEAL body moves some fields by 4, `data/r0004/labels/changed-011.check.md`; r0001's `+0x1061`
+ * 0x02 is the walk-off's fall flag, FLE-1) and what 0x5c47e0 answers are not read; the offer's airborne term
+ * (`VICTORY_OFFER_BUSY_PLACEHOLDER`) stands for the first two meanwhile. Settled by a read of those bits' writers in r0004
+ * and of 0x5c47e0, or a capture of r0004 (the queue's Q-R2: the dance asked prone and on a turret after a round win).
+ */
+export const VICTORY_R0004_FLAGS_READING = 'not modelled' as 'not modelled' | 'refused';
 
 /**
  * LATER 171's review (F2) and its re-read (research 303 s4.8): each mover action against the offer's gate, exhaustive over
@@ -2416,6 +2916,8 @@ export const VICTORY_OFFER_ACTION_GATE: Readonly<Record<MoverActionName, 'cited'
   standToCrouch: 'uncited', crouchToProne: 'uncited', standToProne: 'uncited', hit: 'uncited', hitStomach: 'uncited',
   fallForward: 'uncited', fallBackwards: 'uncited', landBackwards: 'uncited', proneCover: 'uncited',
   swapRifleExchange: 'uncited', swapRifleClaim: 'uncited',
+  // LATER 1188: a hostage's flashbang cower -- a hostage's action alone, never on a player's mover; on none of the lists.
+  cowerStand: 'uncited', cowerStand2: 'uncited', cowerCrouch: 'uncited', cowerCrouch2: 'uncited',
   getUp: 'cited', getUpBackwards: 'cited',
   swapStand: 'cited', swapCrouch: 'cited', swapProne: 'cited', rifleToLauncher: 'cited', pistolToLauncher: 'cited',
   landDeath: 'cited',
@@ -2500,7 +3002,8 @@ export function recipientBodies(
     if (m === 0) { out.push(b); continue; }
     let zeroed = variants.zeroed[i];
     if (zeroed === undefined) {
-      zeroed = !b.view && !b.clock && !b.swayX && !b.swayY ? b : { ...b, view: 0, clock: 0, swayX: 0, swayY: 0 };
+      // WM-DATA-17 (protocol 17): the hand byte goes with the view's tail (`VIEW_RECIPIENTS_ADAPTATION`).
+      zeroed = !b.view && !b.clock && !b.swayX && !b.swayY && !b.hand ? b : { ...b, view: 0, clock: 0, swayX: 0, swayY: 0, hand: 0 };
       if (zeroed !== b) variants.copies++;
       variants.zeroed[i] = zeroed;
     }
@@ -2531,7 +3034,7 @@ export class Room {
 
   /**
    * LATER 509: whether the walker's hold refuses the dance's offer -- a reload's (the common gate's term 5), a throw the gate's
-   * throw term holds for the hand (`Walker.throwOnTop`: the pistol's standing throw and lean tosses do not), a placing's
+   * throw term holds for the hand (`Walker.throwOnTop`: every throw, either hand -- R4P-211, D4:L503688, the lean tosses; LATER 1442, the standing throw), a placing's
    * (`VICTORY_PLACING_HOLD_READING`). Was: every hold.
    */
   private victoryHoldRefuses(p: Player): boolean {
@@ -2567,6 +3070,11 @@ export class Room {
     actor.ready = (VICTORY_OFFER_BUSY_PLACEHOLDER === 'offered' || (!w.airborne && (act === null || cited)))
       && !cited && !p.binoculars && !p.scopeView   // LATER 182: FUN_00593500 returns under a scope too (FUN_005b9990, D:L452259)
       && !this.victoryHoldRefuses(p) && !w.overlay && !p.sim.moves?.pose() && p.mounted === null
+      // R4P-R2 (L97; reading, pending review): r0004's CanVictoryDance (0x582fd0, D4:L481170-481175) refuses, beside
+      // `+0xeb8` (mounted, above), the turret set (`+0x528`: the release's reversed clip too, `onTurretSet`) and the stance
+      // word 2 or 6 -- prone here; the dive's 6 is a traversal move (`moves.pose()`, above). Its `+0x105e` 0x20 and
+      // `+0x1061` 0x02 bits and the selectable-item test (r4 0x5c47e0, D4:L481182-481185): VICTORY_R0004_FLAGS_READING.
+      && !onTurretSet(p.mounted !== null, p.release !== null) && w.posture !== 'prone'
       && !this.swapRefused(p, p.sim.seq + 1) && !p.reloadUntil.some((until) => p.ran < until);   // LATER 167: the prompt's gate FUN_005a7de0 asks the reload lock
     const bodies = this.victoryBodies;
     let n = 0;
@@ -2705,6 +3213,18 @@ export class Room {
   /** Protocol 10 (MAP-03): the tick the last `startRound` ran on; null before one (a respawn room's first round: tick 0). */
   private roundStartTick: number | null = null;
   readonly wins = { seal: 0, terrorist: 0 };
+  /**
+   * KILL-B78 (B-78; research 87 s12, 91): the board's copy of the round wins -- the net game object's `+0x120` / `+0x124`,
+   * which the scoreboard's team line prints (`FUN_00229d00` D:L78883-78889 via `FUN_0022cc10` D:L80018-80020, the
+   * getters at ELF 0x22d180 / 0x22d170) and a client receives from the host (`FUN_002c00f0` D:L163113-163114,
+   * `FUN_002c0850` D:L163509-163515). The host takes it from the live counts ENGINE_READ_S (3.0 s) after the round's
+   * end state, on every end state but 4 (`FUN_002a9b30` D:L150629-150672), so `endRound` plus that, whatever won the
+   * round; zeroed with `wins` (`FUN_002a72d0` D:L149257-149266). `scoreEvent` sends it; `roundOver` / `roundStart` keep
+   * the live wins. Reading, reviewed by a second reader; capture owed.
+   */
+  private readonly boardWins = { seal: 0, terrorist: 0 };
+  /** KILL-B78: the result the board's copy was taken for (`boardWins`), once a result. */
+  private boardCopiedFor: JoinResultWire | null = null;
   private state: RoundState;
   private readonly polys;
   private creditStep = 1;
@@ -2747,6 +3267,21 @@ export class Room {
   private readonly escorteeVolumes: readonly (StanceVolumes | null)[];
   /** HX-4a: each escortee body's `character.rdr` character (`SimSkeleton.character`), null when unread. */
   private readonly escorteeCharacters: readonly (string | null)[];
+  /** LATER 831: the escortee hit bodies `escorteeVolumes` was built from, in the same list (`hostageHitBodyOf`). */
+  private readonly escorteeHitBodies: readonly (HitBody | null)[];
+  /**
+   * LATER 831 (HIT-POSE for the hostages; research 237 s2.5): each posed hostage's poser by its id -- the page's `Animator`
+   * on the No_weapon set over its own escortee skeleton (`HitPoser` with `CIV_ANIM_SET`), the stand-to-crouch transition
+   * the page's copy keeps (`EscorteeTransition`), the hit body and the hostage's `HostageFollow` it was made for (a new
+   * one at a round's reset: the poser made anew), and `at`, the stamp of the last tick's pose (0: none).
+   */
+  /** HITBOX-TRACE: the recorder, or null (the default: `RoomOptions.hitboxTrace` absent). */
+  private hitboxTrace: RoomHitboxTrace | null = null;
+  /** HITBOX-TRACE: whether the last hostage volumes the helpers below gave were the posed boxes (read by the trace only). */
+  private volumesPosed = false;
+  /** HITBOX-TRACE: the last order pick's rewound tick and the hostages' volumes it cast on, kept only with a recorder. */
+  private orderTraced: { at: number | null; bodies: { id: number; posed: boolean; volumes: PlacedBody }[] } | null = null;
+  private readonly hostagePosers = new Map<number, { pose: HitPoser; transition: EscorteeTransition; body: HitBody; motion: object; at: number }>();
   /**
    * DOORS (socomlegacy/docs/research/92-doors.md): the map's doors, run here -- a client's `door` event asks, the reach is
    * checked, the swing turns the leaf's polygons in the hull every mover reads -- and sent in every snapshot.
@@ -2834,8 +3369,11 @@ export class Room {
     this.hitBodies = { seal: list(bodies.seal), terrorist: list(bodies.terrorist) };
     this.escorteeVolumes = side(bodies.escortees ?? null);
     this.escorteeCharacters = (bodies.escortees ?? []).map((b) => b?.character ?? null);
+    this.escorteeHitBodies = (bodies.escortees ?? []).map((b) => b ?? null);
     this.doors = new DoorSet(map.doors ?? [], map.ground, {
       animate: (_door, type, actor) => this.doorMotion(type, actor),
+      // LATER 1206: the door program's `ai::MOVE`, waited for on a hostage presser only (`doorMove`).
+      move: (_door, point, facing, actor) => this.doorMove(point, facing, actor),
       // DF-4 (viewer `DOOR_CALL_READING`): the door program's CALL into the map set runs on the room's world, the wire's.
       call: (door, anim) => { this.world.doorCall(door, anim); },
     });
@@ -2851,7 +3389,7 @@ export class Room {
     this.world.on({ blast: (op, path) => { const at = path !== null ? this.world.placeOf(path) : null; if (at && path !== null) this.scriptBlastQueue.push({ op, at, path }); } });
     this.world.applyInitial();
     this.world.on({
-      fire: (op, path) => this.sceneRound(op.weapon, op.f1, op.offset, path),   // research 386 §3.2
+      fire: (op, path, by) => this.sceneRound(op.weapon, op.f1, op.offset, path, by),   // research 386 §3.2; LATER 1038: the presser
       // V13-3c (research 386 §3.5; viewer `SCENE_DEATH_ON_WIRE_READING` 'targetOffOrTold'): each death the room's world
       // ran, told to every page at once -- the one a target's state never shows (MP12's `ant_base1`) among them.
       died: (id) => this.broadcast({ type: 'sceneDeath', id, epoch: this.roundSerial & 0xffff }),
@@ -2900,7 +3438,12 @@ export class Room {
         const w = p.sim.walker.state;
         const posture = p.sim.walker.stance;
         return { id: p.id, feet: [w.x, w.y, w.z] as V3, alive: p.alive, team: p.team === 'seal' ? SEAL_TEAM_MASK : TERRORIST_TEAM_MASK,
-          yaw: w.yaw, velocity: [w.vx, w.vy, w.vz] as V3, topSpeed: stanceBody(posture).bands.forward,
+          // WM-HOSTAGE task 1 (research 435): the follow heading's run test reads the body's pre-wall velocity (+0x38 = +0x64,
+          // D:L413963-413965), not the post-wall one; airborne it falls back to w.vx/w.vz (FOLLOW_LEADER_VELOCITY_AIR_READING).
+          // The same velocity feeds the follower's leaderSpeed (arrival < 10, followThrottle, fallback goal; D:L508611-508613,
+          // :508618) and extraction.ts probeActors / the yield (D:L512276-512277, D:L512085-512088), all +0x38 in the
+          // original: moved toward it, no test covers those effects yet (research 435 s10).
+          yaw: w.yaw, velocity: (((pv) => (pv ? [pv[0], w.vy, pv[1]] : [w.vx, w.vy, w.vz]))(p.sim.walker.preWallVelocity)) as V3, topSpeed: stanceBody(posture).bands.forward,
           stance: posture === 'prone' ? 2 as const : posture === 'crouch' ? 1 as const : 0 as const,
           placement: p.sim.walker.placement };                  // LATER 960: each placing zeroes the body's trail
       }),
@@ -2914,8 +3457,27 @@ export class Room {
       },
       // HX-OBEY: the page's eye (the wire's, always given: `text()`'s shape check), trusted within a bound of the body's
       // camera locus and the walls (`orderPickTrusted`).
-      pick: (issuer, eye, dir, seq, _target, viewTick) => this.orderPickTrusted(issuer, eye, dir, seq, viewTick),
-      dropped: (why, issuer) => this.dropped('hostageOrder', why, this.players.get(issuer)),
+      pick: (issuer, eye, dir, seq, target, viewTick) => {
+        if (!this.hitboxTrace) return this.orderPickTrusted(issuer, eye, dir, seq, viewTick);
+        this.orderTraced = null;                                 // HITBOX-TRACE: the pick's line and its bodies (`orderPick`)
+        const pick = this.orderPickTrusted(issuer, eye, dir, seq, viewTick);
+        const traced = this.orderTraced as Room['orderTraced'];   // set inside the pick: read past TypeScript's narrowing to null
+        this.hitboxTrace.order(this.tick, viewTick ?? null, traced?.at ?? null, issuer, target ?? -1, eye, dir, pick.picked, pick.eye === 'refused', traced?.bodies ?? []);
+        return pick;
+      },
+      dropped: (why, issuer) => { this.hitboxTrace?.dropped(why); this.dropped('hostageOrder', why, this.players.get(issuer)); },
+      // WM-HOSTAGE task 2 (research 428 s5 item 2, s5a): a following hostage's use of a shut door -- the room's own use
+      // (`DoorSet.use`, pick 0, the hostage's id the presser: `doorMotion` plays a clip on a seated player only) and the
+      // same `doorUse` a player's use sends (no wire change, WM.R11); no `interact` rule event (`./hostageDoors`).
+      door: {
+        nodes: () => this.doors.specs.map((d) => d.node),
+        valve: (i) => this.doors.valve(i),
+        use: (i, feet, actor) => {
+          if (!this.doors.use(i, feet, actor, 0)) return false;
+          this.broadcast({ type: 'doorUse', door: i, pick: 0 });
+          return true;
+        },
+      },
     });
     // HX-5 (research 239 s4): a rescue credits its last leader when a SEAL (`RESCUE_CREDIT_READING`, `FUN_00545480`
     // D:L411554-411572: +3, brought out +1, the team carry); a Terrorist leader nothing (`TERRORIST_LEAD_RESCUE_READING`).
@@ -2933,11 +3495,14 @@ export class Room {
       p.escorteesKilled++;
       this.scoreObjective(p, { kind: 'hostageKill', killerTeam: p.team });
     });
+    // LATER 1170 (research 445): the hostages' danger scan reads the room's live frags and C4 (`hostageDangers`).
+    this.extraction?.setDangers(() => this.hostageDangers());
     this.turrets = (map.turrets ?? []).map((place) => ({
       place, occupant: null, ammo: place.ammoInit ?? 0, record: this.turretRecord(place), round: this.turretLaunched(place), lastFire: -1e9, fireClock: -1e9, fireSchedule: FIRE_GATE_NONE, ammoDirty: false,
-      gunYaw: place.facing, mags: null, reloading: false, lockUntil: -1e9, lockFrom: -1e9, released: null, lands: true, mountCount: -1e9, reserved: false, word: false,
+      gunYaw: place.facing, gunPitch: 0, mags: null, reloading: false, lockUntil: -1e9, lockFrom: -1e9, released: null, lands: true, mountCount: -1e9, reserved: false, word: false,
     }));
     this.opts = { ...DEFAULT_OPTIONS, ...opts };
+    if (this.opts.hitboxTrace) this.hitboxTrace = new RoomHitboxTrace(this.opts.hitboxTrace);   // HITBOX-TRACE: only on the option
     this.opts.eqLimit = equipmentLimit(opts.eqLimit);
     // LATER 153: respawn is SUPPRESSION's alone -- `FUN_002a7560` (D:L149405-149431) sets the `Respawn` valve only with the
     // host option and game type 5 (research 91 §1, 192 §2.2) -- so a respawn room on another read type (DEMOLITION,
@@ -3008,7 +3573,7 @@ export class Room {
         const was = overall(p.health);
         const died = applyHit(this.woundable(p), PART.BODY, amount, LIMB_SPILL_PIERCING) && !this.deathless(p);   // CPS cell-alive
         const s = p.sim.walker.state;
-        this.send(p.id, { type: 'hurt', health: [...p.health.hp], from: [s.x, s.y, s.z], part: PART.BODY });
+        this.hurtTo(p, [s.x, s.y, s.z], PART.BODY);
         if (died) this.kill(p, null, null, 'orphan', DEATH_CAUSE.FALL, null, cause);
         else this.hurtVoice(p, was);
       },
@@ -3221,6 +3786,7 @@ export class Room {
     this.lastUnparked = null;
     if (address && (this.banned.get(address) ?? -Infinity) > this.opts.now()) { this.refuse(conn, 'You have been banned from that game. Please choose another.'); return false; }
     if (ev.version !== PROTOCOL_VERSION) { this.refuse(conn, versionRefusalText(ev.version, PROTOCOL_VERSION)); return false; }   // the page's one text (VERSION-ABORT)
+    if (this.opts.variant && ev.variants !== true && conn.cpu !== true) { this.refuse(conn, `This room draws ${this.map.stem} (${this.opts.variant === 'day' ? 'Day' : 'Night'}); update your page.`); return false; }   // DAY-7b: a page that cannot draw it
     if (conn.cpu === true && this.opts.rules !== 'respawn' && !allMapsSwitch()) return false;   // H315 (the owner: "yes respawn only to start"): no CPU in a classic room; P537-L2: CREATE_GAME_ALL_MAPS=1 lifts it (a dev server)
     // S2 round 4: the page's session token (malformed: none). One a live connection of this room holds is a takeover --
     // the page's newer connection (a reconnect before the heartbeat dropped the old socket, a reload, a duplicated tab)
@@ -3233,7 +3799,12 @@ export class Room {
     // A takeover whose hello watches where the seat played, or plays where it watched, is the page's newer connection
     // too, but not the same seat: the old one is replaced and the new one joins afresh (`replace`).
     const watch = ev.watch === true;
-    const takeover = holder !== undefined && session !== null && watch === this.lobby.watching(holder);
+    // SEAT_CLAIM_ADAPTATION: a spectator queued from watching (`Lobby.enlist`) is still the watching hello's seat -- its
+    // service seats it a watcher until its promotion -- so its reconnect keeps its place in the queue.
+    // SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION (a fresh re-check's finding, 2026-11-25): a held seat is its page's whatever the
+    // newer hello's watch says -- its services count it a player from the hold (`onSeatHeld`), so that hello plays.
+    const takeover = holder !== undefined && session !== null
+      && (watch === (this.lobby.watching(holder) || this.lobby.enlisted(holder)) || this.lobby.reserved(holder));
     // OT.R59 (RECONNECT-GHOST): the same account's takeover inside the window takes its body back alive, under its old id.
     const resumed = takeover && this.resumable(holder!, as.account) ? holder! : null;
     // SVC-23e (the review's F1): MaxSpectatorsValve 0 after VOTE ALL's eject -- a watching hello that is no takeover is
@@ -3325,13 +3896,15 @@ export class Room {
     const env = this.world.wireAll(this.roundSerial);
     this.envSent.set(id, { revision: env.revision, epoch: env.epoch });   // NET-WIRE: the welcome's environment, whole
     this.send(id, {
-      type: 'welcome', id, version: PROTOCOL_VERSION, map: this.map.stem, tick: this.tick, role: m.role, team: m.team,
+      // SEAT_CLAIM: a held seat's holder is a spectator still -- told no side until its `promoted` (the lobby counts its side)
+      type: 'welcome', id, version: PROTOCOL_VERSION, map: this.map.stem, tick: this.tick, role: m.role, team: m.role === 'player' ? m.team : null,
       queue: this.lobby.queuePosition(id), name: m.name, players,
       rules: this.opts.rules, round: this.round, rounds: this.opts.maxRounds, ghost: m.role === 'player' && this.seatsGhosts() && resumed === null,
       ...(this.equipmentLimit() !== 0 ? { eqLimit: this.equipmentLimit() } : {}),
       ...(waiting ? { waiting: true } : {}), ...(seat ? { char: seat.nextChar } : resumed !== null ? { char: this.players.get(id)!.nextChar } : {}),
       ...(seat?.arming ? { armory: true } : {}), ...(resumed !== null ? { resumed: true as const } : {}),
       ...(countdown !== null ? { countdown } : {}), server: serverNameOf(this.opts.serverName),
+      ...(this.opts.variant ? { variant: this.opts.variant } : {}),   // DAY-7b (DAY.R6): the room's map variant
       // Protocol 10 (MAP-03): the world whole, the round epoch, the tick the round began (absent while none has: a
       // classic room waiting; a respawn room's first round began at its construction, tick 0), the map's game type.
       env, epoch: this.roundSerial & 0xffff,
@@ -3353,6 +3926,9 @@ export class Room {
     if (resumed !== null) this.send(id, this.resumeEvent(this.players.get(id)!));   // OT.R59: right after its welcome
     if (resumed !== null) this.tellMags(this.players.get(id)!);   // TURRET-AMMO: a resumed occupant's magazines, after its resume
     if (keptKit) this.tellKitHeld(seat!);                         // KIT-HELD: the kept record's picks, after the welcome
+    // SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: a held seat's newer connection (a takeover) is told its seat is coming, as the
+    // older one was; its `promoted` follows at the same due time (`takeOver`)
+    if (m.team !== null && this.lobby.reserved(id)) this.send(id, { type: 'seatComing', team: m.team });
     for (const [dancer, dance] of this.victoryPlaying) this.send(id, {
       type: 'victory', id: dancer, serial: dance.serial, clip: dance.clip, elapsed: (this.tick - dance.start) / TICK_HZ,
     });
@@ -3385,7 +3961,7 @@ export class Room {
    * logs, kept out of the seat's `signals.refused` (central's moderation flag counts it), the profiler and the report.
    */
   private readonly drops = new Map<string, number>();
-  private dropped(kind: string, why: string, p?: Player, logOnly = false): void {
+  private dropped(kind: string, why: string, p?: Player, logOnly = false, seq?: number): void {
     // NCW-2 B-trade (the review's F1): a traded round's refusal under its own word, apart from a living round's.
     if (kind === 'fire' && p && p === this.trading) { why = `trade: ${why}`; this.tradeRefused = true; }
     const key = `${kind}: ${why}`;
@@ -3393,7 +3969,59 @@ export class Room {
     if (logOnly) return;
     if (p) p.signals.refused[key] = (p.signals.refused[key] ?? 0) + 1;   // SVC-12d: the seat's own tally (SVC-23b)
     if (p) botProfiler()?.refusal(p.id, this.conns.get(p.id)?.cpu === true);   // BOP-1: counted, bot vs human
-    if (p) this.combat(p, null, { status: 'rejected', request: kind, reason: why });
+    // SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game): a refused round's row names its seq.
+    if (p) this.combat(p, null, { status: 'rejected', request: kind, reason: why, ...(seq !== undefined ? { seq } : {}) });
+  }
+
+  /**
+   * [adaptation] LATER 876 (B2/S6, the owner 2026-11-21; the network's, no counterpart in the original: no server
+   * refuses the console's round, research 91, and the console spends every round it fires -- `FUN_005be9a0`'s ray loop,
+   * `FUN_005c5340`, as `refuseRound` cites them): a round the room refuses -- dropped under `why` as before (`dropped`) --
+   * and its page told so (`tellRefusedRound`). Nothing is given back on the hand: the round stays spent on the page (S6),
+   * and the room spends only a round it takes (`fireAt`), so its own magazine is as it was. Not so the turret (the
+   * review's F6): `turretDropped` and the mounted 'no frame' set `ammoDirty`, and `tellAmmo` hands the predicted turret
+   * round back (TURRET-AMMO F5; needed, or the turret's trigger can die).
+   */
+  private refusedRound(p: Player, seq: number, why: string): void {
+    this.dropped('fire', why, p, false, seq);
+    this.tellRefusedRound(p, seq, why);
+  }
+
+  /**
+   * [adaptation] LATER 876 (B2/S6/S7, the owner 2026-11-21): the shooter's page told `{ type: 'roundRefused', request: 'fire',
+   * seq, why }`, `why` the drop log's word (a traded round's under `trade: `, as `dropped` keys it, and under the page's
+   * own seq, `tradingSeq`, not the death's it was judged on -- the review's F1), once a seq (a pull's rays share one) and
+   * never for a seq already told `stale` (`roundTold`). "Once a seq" is "not twice running" (the review's F4):
+   * `roundTold` holds one seq, so a forger alternating seqs gets one tell per `fire` it sends -- one small frame out per
+   * message in, bounded by the socket's text rate and its strike (`server.ts`'s `RATE.text`), as `stale` already is.
+   * The count is seqs with a refused ray (the review's F2): a pull that partly fired, its later ray refused, is told;
+   * and a seq told here may later be told `stale` too -- a shotgun pull split at the cone's edge (a ray refused `cone: *`,
+   * a later one early or near through `refuseRound`), or a later ray 'too many waiting' while earlier ones go stale --
+   * which still refunds on the page what the room owes it. The page counts it and draws nothing
+   * (`../../viewer/src/net/client` `case 'roundRefused'`); an older page ignores it (its switch's `default`). Not the
+   * type `refused`: that is the hello's refusal, which an older page takes as the end of its connection.
+   */
+  private tellRefusedRound(p: Player, seq: number, why: string): void {
+    const traded = p === this.trading;
+    const told = traded ? this.tradingSeq : seq;                 // the review's F1: the page's own seq, not `diedSeq`
+    if (p.roundTold === told) return;
+    p.roundTold = told;
+    this.send(p.id, { type: 'roundRefused', request: 'fire', seq: told, why: traded ? `trade: ${why}` : why });
+  }
+
+  /**
+   * [adaptation] LATER 1407 (the controller's rulings 1-2, 2026-11-24; the network's, no counterpart in the original: its
+   * thrower's console decides alone and nothing refuses a launched grenade, `FUN_002c17b0` D:L163740-163770): a `throw`
+   * the room refuses after the page launched its copy is told to the thrower alone by the EXISTING
+   * `{ type: 'stale', request: 'throw', seq }` -- no new message, the same fields `decide`'s stale bound, the mount's
+   * refusal (LATER 206), `placeCharge` (LATER 929) and `launchRocket` (LATER 503) already send -- so the page retires its
+   * copy (viewer `grenadeCore.ts` `giveBack`). The page refunds by its own state (no refund dead: the `not alive` case).
+   * A hand throw's alone (`kindOf` 'throwable', as `throwGrenade` judges): `timed`'s and `settle`'s refusals of C4's
+   * `throw` stay untold, as LATER 929 keeps C4's (its page would refund the charge and keep its copy), and a rocket's or a
+   * carrier's round's are theirs (LATER 503, P4) -- the review's F2.
+   */
+  private tellRefusedThrow(p: Player, seq: number): void {
+    this.send(p.id, { type: 'stale', request: 'throw', seq });
   }
 
   // ---- the combat report (INT.R5, research 127: a playtest instrument with no original) ----
@@ -3404,6 +4032,8 @@ export class Room {
    * refusal of his while it is set goes under `trade: <reason>` (`dropped`) and sets `tradeRefused`.
    */
   private trading: Player | null = null;
+  /** LATER 876, the review's F1: the page's own seq of the traded round `trading` decides (its tell's; the judgement's is `diedSeq`). */
+  private tradingSeq = -1;
   private tradeRefused = false;
   /**
    * NCW-2 B-trade (the review's F3): the living body whose command `run` is running now, and the command it had last
@@ -3413,6 +4043,100 @@ export class Room {
   private ownRun: { p: Player; before: number } | null = null;
   private rejectionTick = -1;
   private readonly rejections = new Map<Player, number>();
+  /**
+   * DAMAGE_REPORT_ADAPTATION (WM-DATA task 3, WM.R10; product track, a browser adaptation with no original -- the game
+   * gives a player no damage numbers): the room's damage ledger, by victim then attacker, `hits` the applied hits that
+   * took health and `health` their DMG points summed -- intake item 2, option (C), merged on the owner's pick
+   * (INTAKE 144, as the main controller read it): per hit `damagePoints` (`viewer/src/net/damagePoints.ts`), the fall of the victim's HUD bar x 100 and at
+   * a kill the bar that was left, so a kill from full is 100 (`DAMAGE_LIFE_POINTS_ADAPTATION`); the panel draws it as it is.
+   * The raw part health `taken` the observer (`onCombatApplied`, the match record's DMG) receives is unchanged. Fed in
+   * `combat()` beside the `onCombatApplied` observer, on its condition
+   * (an enemy's applied hit, health only, never armour; a teammate's and one's own left out), for the round (cleared at
+   * its start, `startRound`). The report at the round's end (the owner's ruling, 2026-11-15, through the lane seat): each
+   * player's own, told with `send` to his page alone after the `roundOver` -- never broadcast, so never to a watcher or a
+   * recording; nothing at a hit. WM-DATA task 3b (the owner's amendment, through the lane seat): in a room playing
+   * RESPAWN rules only, the report is also per life -- `damageLifeTaken` (by victim, then attacker) and `damageLifeDealt`
+   * (by attacker, then victim), fed on the same condition, told to the victim alone from `kill` once the kill and the
+   * score are told (`reportLifeDamage`, `life: true`), his two books then cleared (so the next report is the next
+   * life's); cleared too at the round's start. A classic room keeps no life book and `kill` tells it nothing more.
+   * WM-DATA-WIN (WM.R24, the owner's "B, every win"): a classic round's report is also sent at a win's decision -- each
+   * entry into `decided` whose reason is in `damageAtWin` (`DAMAGE_REPORT_AT_WIN_REASONS`), `reportAtWin` -- so a
+   * page opens its panel through the hold; WM.R10 (nothing until the round is over) knowingly set aside for that
+   * window only, the live round unchanged. Reads nothing back into the simulation.
+   */
+  private readonly damageRound = new Map<number, Map<number, { hits: number; health: number }>>();
+  private readonly damageLifeTaken = new Map<number, Map<number, { hits: number; health: number }>>();
+  private readonly damageLifeDealt = new Map<number, Map<number, { hits: number; health: number }>>();
+  /** WM-DATA-WIN: the reasons whose decision sends the round's report (`DAMAGE_REPORT_AT_WIN_REASONS`). */
+  private readonly damageAtWin: ReadonlySet<DecidedWire['reason']> = DAMAGE_REPORT_AT_WIN_REASONS;
+  /** WM-DATA task 3b: the next departed id (`depart`): a leaver's rows move to it, below every seat's, so a joiner on his id starts clean. */
+  private departedDamageId = -1;
+  private damageTook(attacker: number, victim: number, health: number): void {
+    const add = (book: Map<number, Map<number, { hits: number; health: number }>>, key: number, entry: number): void => {
+      let by = book.get(key);
+      if (!by) book.set(key, by = new Map());
+      const t = by.get(entry);
+      if (t) { t.hits++; t.health += health; } else by.set(entry, { hits: 1, health });
+    };
+    add(this.damageRound, victim, attacker);
+    if (this.opts.rules !== 'respawn') return;                  // WM-DATA task 3b: the life books, a respawn room's only
+    add(this.damageLifeTaken, victim, attacker);
+    add(this.damageLifeDealt, attacker, victim);
+  }
+  private resetDamage(): void { this.damageRound.clear(); this.damageLifeTaken.clear(); this.damageLifeDealt.clear(); this.departedDamageId = -1; }
+  /**
+   * WM-DATA task 3b (review finding 1 of task 3): a seat taken over under a new id (`takeOver`) keeps its rows -- every
+   * book's row of `old` and every entry naming `old` move to `id`, summed into any already there.
+   */
+  private rekeyDamage(old: number, id: number): void {
+    const merge = (by: Map<number, { hits: number; health: number }>, key: number, t: { hits: number; health: number }): void => {
+      const u = by.get(key);
+      if (u) { u.hits += t.hits; u.health += t.health; } else by.set(key, t);
+    };
+    for (const book of [this.damageRound, this.damageLifeTaken, this.damageLifeDealt]) {
+      const own = book.get(old);
+      if (own) {
+        book.delete(old);
+        let into = book.get(id);
+        if (!into) book.set(id, into = new Map());
+        for (const [k, t] of own) merge(into, k, t);
+      }
+      for (const by of book.values()) {
+        const t = by.get(old);
+        if (t) { by.delete(old); merge(by, id, t); }
+      }
+    }
+  }
+  /** WM-DATA task 3: a book's entries in a fixed order -- the most health first, then the lower id. */
+  private damageEntries(by: Map<number, { hits: number; health: number }> | undefined): [number, { hits: number; health: number }][] {
+    return [...(by ?? [])].sort(([a, x], [b, y]) => y.health - x.health || a - b);
+  }
+  /** WM-DATA task 3: each player's report -- the round's damage taken and dealt -- to his own page alone. */
+  private reportRoundDamage(): void {
+    for (const p of this.players.values()) {
+      if (this.ghostOf(p)) continue;
+      const taken = this.damageEntries(this.damageRound.get(p.id)).map(([from, t]) => ({ from, hits: t.hits, health: t.health }));
+      const dealtBy = new Map<number, { hits: number; health: number }>();
+      for (const [victim, by] of this.damageRound) { const t = by.get(p.id); if (t) dealtBy.set(victim, t); }
+      const dealt = this.damageEntries(dealtBy).map(([to, t]) => ({ to, hits: t.hits, health: t.health }));
+      this.send(p.id, { type: 'damageReport', round: this.round, taken, dealt });
+    }
+  }
+  /** WM-DATA-WIN: at a win's decision, each player's round report so far, when its reason is in `damageAtWin`. */
+  private reportAtWin(reason: DecidedWire['reason']): void {
+    if (this.damageAtWin.has(reason)) this.reportRoundDamage();
+  }
+  /**
+   * WM-DATA task 3b: the victim's life report -- what this life took, by enemy attacker, and dealt, by enemy -- to his
+   * page alone (`send`), then his two life books cleared. Called by `kill` in a respawn room only, after the kill is final.
+   */
+  private reportLifeDamage(victim: Player): void {
+    const taken = this.damageEntries(this.damageLifeTaken.get(victim.id)).map(([from, t]) => ({ from, hits: t.hits, health: t.health }));
+    const dealt = this.damageEntries(this.damageLifeDealt.get(victim.id)).map(([to, t]) => ({ to, hits: t.hits, health: t.health }));
+    this.damageLifeTaken.delete(victim.id);
+    this.damageLifeDealt.delete(victim.id);
+    this.send(victim.id, { type: 'damageReport', round: this.round, life: true, taken, dealt });
+  }
   /**
    * One combat report (`CombatReport`), when the room's `combatReport` option is on; else nothing at all. An
    * `applied` report goes to the attacker and the target (once, when they are one player); a miss and a refusal -- a
@@ -3429,7 +4153,18 @@ export class Room {
       && (sum(data.healthBefore) > sum(target.health.hp) || sum(data.armourBefore) > sum(target.health.armour))) {
       target.lastHurt = { session: this.sessions.get(attacker.id) ?? null, at: this.opts.now(), weapon: data.weapon ?? null };
       const taken = sum(data.healthBefore) - sum(target.health.hp);   // LCM-6a: the observer, health only (an adaptation)
-      if (taken > 0 && this.opts.onCombatApplied) try { this.opts.onCombatApplied(attacker.id, target.id, taken); } catch { /* the observer's own */ }
+      if (taken > 0 && this.opts.onCombatApplied) try {
+        // WM-DATA task 4: the hit as the fourth argument -- the weapon named as `kill` names it (`weaponName(record.id,
+        // record.name)`, the record the hit was dealt with: the attacker's firearm, else the kit table's firearm, round
+        // or throwable, else the baked throwable of that id), the part, the tick
+        const id = data.weapon;
+        const record = id == null ? undefined : attacker.records.find((r) => r.id === id) ?? this.kits?.table.records.get(id)
+          ?? this.kits?.table.rounds.get(id)?.record ?? this.kits?.table.throwables?.get(id)?.record
+          ?? [...BAKED_THROWN.values()].find((b) => b.record.id === id)?.record;
+        const weapon = id == null ? '' : this.weaponName(id, record?.name ?? '');
+        this.opts.onCombatApplied(attacker.id, target.id, taken, { weapon, part: data.part ?? null, tick: this.tick });
+      } catch { /* the observer's own */ }
+      if (taken > 0) this.damageTook(attacker.id, target.id, damagePoints(data.healthBefore, target.health.hp));   // WM-DATA task 3: the damage report's ledger (DAMAGE_REPORT_ADAPTATION); intake item 2 (C): DMG points
     }
     if (!this.opts.combatReport) return;
     const friendly = data.reason === FRIENDLY_FIRE;
@@ -3457,7 +4192,7 @@ export class Room {
       friendlyFire: attacker !== null && target !== null && attacker !== target && attacker.team === target.team,
       point: data.point ?? null, direction: data.direction ?? null,
     };
-    const e: CombatReport = { ...base, ...combatHealthSummary(base) };
+    const e: CombatReport = { ...base, ...combatHealthSummary(base), ...shotLedgerFields(data) };
     const to = new Set<Player>();
     if (attacker) to.add(attacker);
     if (toTarget) to.add(target);
@@ -3514,6 +4249,8 @@ export class Room {
   lastResumed: number | null = null;
   /** RECONNECT-GHOST's instrument (OT.R59): ms since the room's last frame from the connection the last hello took over, else null. */
   lastSilentMs: number | null = null;
+  /** LATER 752 (its re-reviews' F1s): `retire` ran -- the room was dropped; no close parks in it after. */
+  private parksEnded = false;
   /**
    * OT.R59 (step 2): the seats parked by a close the room heard -- each to its window's end (`until`) or the round's end --
    * and the server's hook for the park's end (`whenUnparked`).
@@ -3539,6 +4276,9 @@ export class Room {
   private takeOver(old: number, id: number, session: string, name: string): { member: Member; changes: LobbyChange[] } | null {
     const changes = this.lobby.rekey(old, id);
     if (!this.lobby.member(id)) return null;
+    // SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: a seat held for the old id is the new one's, taken at the same due time.
+    const due = this.claimDue.get(old);
+    if (due !== undefined) { this.claimDue.delete(old); this.claimDue.set(id, due); }
     // The new hello's name when it differs and no other member holds it (a rename made in the other window, or a
     // guest's new draw), else the seat's own: never a "(2)" (`Lobby.renameIfFree`).
     changes.push(...this.lobby.renameIfFree(id, name));
@@ -3546,6 +4286,7 @@ export class Room {
     const gone = this.players.get(old);
     this.bomb?.rekey(old, id);                                  // XR-05: the seat's bomb goes with it (a ghost's lies where it stood)
     this.extraction?.rekey(old, id);                            // HX-4a: its leads, its unit (seat + 0x20) and its count go with it
+    this.rekeyDamage(old, id);                                  // WM-DATA task 3b: its damage report's rows go with it (DAMAGE_REPORT_ADAPTATION)
     // ONL-18b (research 221 §3): a seat still loading in the launch's hold is waited for under its new id.
     if (this.state.phase === 'waiting' && this.state.hold?.pending.delete(old)) this.state.hold.pending.add(id);
     // The same person: its scoreboard row goes with the seat (kills, deaths, score, the round's score), as its type, its
@@ -3626,7 +4367,7 @@ export class Room {
       // others' pages still hold the ones they heard, so the seat is not renumbered at a resume (only at `resetMatch`).
       taunt: this.tauntRequests.last(p.id), communication: this.communicationRequests.last(p.id),
       health: [...p.health.hp], armour: [...p.health.armour], loadout: [...p.loadout],
-      rounds: [p.mags[0].state().slots, p.mags[1].state().slots], pouch: p.grenades, equipmentSlots: p.equipmentSlots.state(), weapon: p.weapon, held: p.held,
+      rounds: [p.mags[0].state().slots, p.mags[1].state().slots], pouch: p.grenades, equipmentSlots: p.equipmentSlots.state(), ...(p.detonator ? { detonator: true as const } : {}), weapon: p.weapon, held: p.held,
       turret: p.mounted, ...(p.seat && p.mounted !== null ? { steer: { ticks: p.seat.steered(), toward: p.seat.toward } } : {}),
       // LATER 154: the mount's window end in the page's numbering (`seatOff`), so a resume inside the release's wait waits
       // to the room's own count, not 1.25 s from the welcome.
@@ -3654,6 +4395,7 @@ export class Room {
     const gone = this.players.get(old);
     if (gone) this.kept.set(session, this.recordOf(gone));
     this.release(old);
+    this.rekeyDamage(old, this.departedDamageId--);   // WM-DATA task 3b: the replaced seat's rows and entries move to a departed id; a joiner on its id starts clean
     const left = this.lobby.leave(old);
     // solo: the page's own room seats its one player a SEAL, or the forge's NPC seat its side (SOLO_ROUND_PLACEHOLDER)
     const joined = this.lobby.join(id, name, this.opts.random, watch, this.opts.solo ? (this.opts.soloSide?.(id) ?? 'seal') : undefined, forced, this.opts.botReplacementSlots?.() ?? {});
@@ -3698,13 +4440,18 @@ export class Room {
   /**
    * NET-RES-2b (NET-RES.R5, R7; was OT.R59's living seat in a round in play only): an account's seat with its session, a
    * member of the room, alive or dead, its last frame within `SEAT_HOLD_MS_ADAPTATION`, in a launched match -- a round
-   * in any phase, or the launch's load hold; not a room waiting in its lobby (a game lobby's seat, a classic room waiting
-   * for both sides), where no match is there to resume and a held host would stop the lobby's hand-over (SVC-07b).
+   * in any phase, or the launch's load hold -- or, LATER 752 (`LOBBY_PARK_MS_ADAPTATION`), a game lobby's seat before
+   * its launch. Not a classic room without a game lobby waiting for both sides. A parked lobby host keeps the role while
+   * parked: the game's hand-over (SVC-07b) follows the park's end (`whenUnparked`), as a launched host's does.
    */
   private parkable(id: number): boolean {
+    if (this.parksEnded) return false;                           // LATER 752: a dropped room (`retire`) takes no more
     const heard = this.heard.get(id);
-    if (this.state.phase === 'waiting' && this.state.hold === undefined) return false;
+    if (this.state.phase === 'waiting' && this.state.hold === undefined && !this.opts.lobbyPark) return false;   // LATER 752: game lobbies only
     if (this.lobby.watching(id)) return false;                  // NET-RES-2's review F2: a watcher leaves at once
+    // SEAT_CLAIM_ADAPTATION: so does a watcher's claim, queued or its seat held -- a watcher's seat still (its service
+    // seats it one until its promotion): a dead connection keeps no place in the line and takes no seat
+    if (this.lobby.enlisted(id)) return false;
     return this.lobby.member(id) !== undefined && this.accounts.get(id) != null && this.sessions.has(id)
       && heard !== undefined && this.opts.now() - heard <= SEAT_HOLD_MS_ADAPTATION;
   }
@@ -3731,7 +4478,9 @@ export class Room {
     this.botAppearances.delete(id);
     this.envSent.delete(id);
     this.healthSent.delete(id);
-    this.parked.set(id, { until: heard + SEAT_HOLD_MS_ADAPTATION, body, drop: heard, end: null });
+    // LATER 752: a game lobby's seat before its launch is held `LOBBY_PARK_MS_ADAPTATION`, a launched one `SEAT_HOLD_MS_ADAPTATION`.
+    const lobby = this.state.phase === 'waiting' && this.state.hold === undefined;
+    this.parked.set(id, { until: heard + (lobby ? LOBBY_PARK_MS_ADAPTATION : SEAT_HOLD_MS_ADAPTATION), body, drop: heard, end: null });
     const p = this.players.get(id);
     if (p && body === null) this.takeAway(p, heard);
   }
@@ -3754,6 +4503,7 @@ export class Room {
       this.kill(p, by, weapon, by === null ? 'orphan' : 'weapon', DEATH_CAUSE.BULLET);
     }
     p.awayAlive = p.alive;                                       // NET-RES.R11 (b): left alive, its kit kept for its return
+    p.awayInLobby = this.state.phase === 'waiting' && this.state.hold === undefined;   // LATER 752: a lobby body, not a match's
     if (p.mounted !== null) this.releaseTurret(this.turrets[p.mounted]!);
     else if (p.reserved !== null) this.releaseTurret(this.turrets[p.reserved.turret]!);
     if (p.alive) this.bomb?.dropped(p.id, p.team, this.bombActor(p).feet(), 'leave');
@@ -3779,9 +4529,22 @@ export class Room {
   }
 
   /**
-   * OT.R59 (step 2; the review's F1): the room is going (its game ended and the room dropped, a room that threw, a drained
-   * room, the server's stop): every pending park ends 'left' -- the server's hook alone, once (the room is not stepped
-   * again, so no `depart`) -- and a park a hello took and the server has not yet settled is settled.
+   * LATER 752 (its re-reviews' F1s): the room dropped (`server.ts` `dropRoom`: a rotation's old room, a game's end, a
+   * Forge lobby's drop) -- its parks end, and no later close parks in it (a park in a room no step runs would never
+   * expire; the server's own closes are announced anyway, `conn.close` sets `bye`). Not `endParks` alone: a rotation ends
+   * the parks before a step that may still refuse (central `rotateMap`), and the old room then plays on, parking as before.
+   */
+  retire(): void {
+    this.parksEnded = true;
+    this.endParks();
+  }
+
+  /**
+   * OT.R59 (step 2; the review's F1): every pending park ends 'left' -- the server's hook alone, once -- and a park a
+   * hello took and the server has not yet settled is settled. Called as the room goes (its game ended and the room
+   * dropped, through `retire`; a room that threw; a drained room; the server's stop), where it is not stepped again, so no
+   * `depart`; and by a rotation before its last refusable step (LATER 752), where a refused rotation keeps the room live
+   * and parking.
    */
   endParks(): void {
     this.settleUnparked();
@@ -3849,6 +4612,7 @@ export class Room {
     if (gone) this.noteLeaver(gone);                           // SVC-12d: before its seat's account is gone
     const tagged = this.clans.has(id);                         // AD-13: dropped with the seat (`drop`), told below
     this.drop(id);
+    this.rekeyDamage(id, this.departedDamageId--);   // WM-DATA task 3b: the leaver's rows and entries move to a departed id; a joiner on his id starts clean
     // HX-4a (`LEADER_RELEASE_READING`; FUN_005998b0 D:L455500-455536): the leaver's hostages released and the UnitTick's
     // HOLD with no seat left (the issuer null), after its seat is gone -- so the unit has no living member.
     this.extraction?.release(id);
@@ -3867,12 +4631,14 @@ export class Room {
     this.sessions.delete(id);
     this.accounts.delete(id);
     this.conns.delete(id);
+    this.claimAt.delete(id); this.claimDue.delete(id);           // SEAT_CLAIM: its repeat floor and hold go with it (a takeover's hold moved first)
     this.botAppearances.delete(id);
     this.envSent.delete(id);
     this.healthSent.delete(id);
     for (const sent of this.healthSent.values()) sent.delete(id);   // NU-3c: a seat gone is told to no one again
     this.clientIndex.delete(id);
     this.heard.delete(id);
+    this.pageStallsBySeat.delete(id);                            // lag read v4 s6 (an instrument)
     const asked = this.mounts.findIndex((m) => m.id === id);     // LATER 124: a waiting mount goes with the seat (its id may
     if (asked >= 0) this.mounts.splice(asked, 1);                // be the next seat's, `freeId`)
     this.players.delete(id);
@@ -3931,6 +4697,7 @@ export class Room {
    */
   private seat(id: number, team: Team): Player {
     const p = new Player(id, team, this.newSim(this.conns.get(id)?.cpu === true), this.opts.now());
+    p.sim.walker.bodies = this.seatBodies(id);                   // LATER 711: slid against the other seats (research 426)
     this.watchMoves(p);                                          // PAR-28: its mover's climbs and ladders
     const session = this.sessions.get(id), record = session !== undefined ? this.kept.get(session) : undefined;
     const kept = record && this.opts.now() - record.at <= KEPT_RECONNECT_READING ? record : undefined;
@@ -3952,6 +4719,7 @@ export class Room {
     // first round started (the room left `waiting`); respawn, a tick after the match's start. Research 350 §1: a held
     // respawn room has no match while waiting; only an unheld one's first match begins with its first seat.
     p.seatedAt = this.tick;
+    p.seatTick = this.tick;                                     // LATER 753: never restored from a kept row
     p.awaitingLoad = this.lateMembers.has(id);                  // LATER 85: a late member's seat (a promotion too, F3)
     if (this.opts.rules !== 'classic' && this.state.phase !== 'waiting' && this.matchStartTick === null) this.matchStartTick = this.tick;
     p.joinedInProgress = this.state.phase !== 'waiting' && (this.opts.rules === 'classic' || this.tick > this.matchStartTick!);
@@ -3964,7 +4732,9 @@ export class Room {
     // (no free heal or refill); a classic seat returns a ghost and the next round's start gives every seat its full kit.
     // RC2 (one rule; to the owner): left alive and uncredited -> back alive at a respawn point with that kit;
     // dead, dead at load or credited dead -> back dead, a fresh Action past the gate revives it with a fresh kit (RC1).
-    if (held?.body?.away && this.opts.rules === 'respawn') {
+    // LATER 752 (the review's F1): not a body taken away in the waiting lobby -- its return seats as a member who stayed
+    // does (the launch's stored ARMORY record, the match's own spawn), not with the lobby body's kit.
+    if (held?.body?.away && this.opts.rules === 'respawn' && !held.body.awayInLobby) {
       if (held.body.awayAlive) p.returnFrom = held.body;
       else p.deadOnReturn = true;
     }
@@ -4032,6 +4802,26 @@ export class Room {
    * (`MoverSim.ai`): its stance transitions are never cut by the stick (`FUN_00587c20` D:L445536-445545), the player's in
    * either stance mode are.
    */
+  /**
+   * LATER 711 (research 426; reading, pending review): the other live seats' bodies a seat's walker is slid against
+   * (`Walker.bodies`, `FUN_0054f7e0`'s contact slide) -- players and bots alike, each at its feet now, with its stance
+ * word (`Walker.stance`, the original's `+0x174`) and whether its controller is an AI's (`MoverSim.ai`, for the 0.65 pair).
+   * Hostages are not offered (`PUSH_APART_HOSTAGE_PLACEHOLDER`). Nothing new goes on the wire.
+   */
+  private seatBodies(id: number): () => readonly OtherBody[] {
+    const out: OtherBody[] = [];
+    return () => {
+      out.length = 0;
+      if (!this.players.get(id)?.alive) return out;               // a dead seat's body is not slid (the offline caller skips state 8, D:L417295; state 8 read as death, research 423)
+      for (const [qid, q] of this.players) {
+        if (qid === id || !q.alive) continue;
+        const w = q.sim.walker;
+        out.push({ x: w.state.x, y: w.state.y, z: w.state.z, stance: w.stance, ai: q.sim.ai });
+      }
+      return out;
+    };
+  }
+
   private newSim(ai: boolean): MoverSim {
     const w = new Walker(this.map.grid);
     if (this.clips) w.actionRoots = this.clips.roots;
@@ -4046,19 +4836,37 @@ export class Room {
     // SEGMENT-BODY part 4 (`WEAPON_LINE_BOTS_READING`): an AI seat's body casts no weapon line -- the AI controller's
     // vtable +0x2c answers 0 (D:L416630-416633) -- a respawn's new mover included (`spawn` passes the seat's `ai`).
     if (ai) w.weaponLineCast = WEAPON_LINE_BOTS_READING === 'cast';
+    w.bodyPush = !ai;                                            // LATER 711 step (2), not built: the muzzle push is a person's (research 426 s3)
+    w.bodyAi = ai;                                               // LATER 711: two AI bodies slide on 0.65 of the radii
     return sim;
   }
 
   private broadcastChanges(changes: LobbyChange[], except?: number): void {
     if (changes.length) this.scoreDirty = true;
     const enteredDead: number[] = [];                            // RC4: promotions that entered dead at load
-    for (const c of changes) {
+    const all = [...changes];                                    // SEAT_CLAIM: a held seat taken at once adds its promotion
+    for (const c of all) {
       if (c.kind === 'joined') {
         const m = this.lobby.member(c.id)!;
         if (c.role === 'player') this.broadcast({ type: 'joined', id: c.id, name: m.name, team: c.team!, ...this.botMark(c.id), ...(this.botCharacter(c.id) ? { character: this.botCharacter(c.id)! } : {}) }, except);
-      } else if (c.kind === 'left') this.broadcast({ type: 'left', id: c.id });
-      else if (c.kind === 'renamed') this.broadcast({ type: 'renamed', id: c.id, name: c.name });
+      } else if (c.kind === 'left') {
+        this.broadcast({ type: 'left', id: c.id });
+        all.push(...this.heldSeatsOnEmptySides());               // SEAT_CLAIM: a side this leave emptied takes its held seats now
+      } else if (c.kind === 'renamed') this.broadcast({ type: 'renamed', id: c.id, name: c.name });
       else if (c.kind === 'queue') this.send(c.id, { type: 'queue', position: c.position });
+      // SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: a seat held for an enlisted spectator -- told now, taken in `step` when due.
+      else if (c.kind === 'reserved') {
+        this.send(c.id, { type: 'seatComing', team: c.team });
+        // A classic room's side with nobody seated takes its held seat on the spot (a fresh review's finding,
+        // 2026-11-25): the hold is the page's notice, never the round's cost -- a side left empty abandons the round on
+        // the leave itself (`abandonIfSideEmpty`), calls a countdown off and abandons at the next round's start, where
+        // a playing joiner in the same place is seated at once. Its promotion follows in this same pass. The solo room
+        // is left out as `abandonIfSideEmpty` leaves it out: its one-player match never abandons on an empty side
+        // (SOLO_ROUND_PLACEHOLDER).
+        if (this.opts.rules === 'classic' && !this.opts.solo && !this.sideSeated(c.team)) { all.push(...this.lobby.confirm(c.id)); continue; }
+        this.claimDue.set(c.id, this.opts.now() + SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION);
+        this.opts.onSeatHeld?.(c.id, c.team);                    // the services count the seat a player's from the hold
+      }
       else if (c.kind === 'promoted') {
         this.players.delete(c.id);
         // PL-8: a classic round in play seats it as a ghost (`addPlayer`), and it is told so, as the welcome tells a
@@ -4072,10 +4880,12 @@ export class Room {
         this.send(c.id, {
           type: 'promoted', team: c.team, ghost, char: seat.nextChar, ...(this.waitingWith(null) ? { waiting: true } : {}), ...(seat.arming ? { armory: true } : {}),
           ...(countdown !== null ? { countdown } : {}),
+          ...(c.claim ? { claim: true as const } : {}),           // SEAT_CLAIM_ADAPTATION: a watcher's claim's seat, said by the room
         });
         if (keptKit) this.tellKitHeld(seat);
         this.broadcast({ type: 'joined', id: c.id, name: this.lobby.member(c.id)!.name, team: c.team, ...this.botMark(c.id) }, c.id);
         if (seat.deadAtLoad) { this.tellLoadDeath(seat); enteredDead.push(c.id); }   // RC4: after `promoted`, a player seat's
+        this.opts.onPromoted?.(c.id, c.team);                    // SEAT_CLAIM_ADAPTATION: the services mark the seat a player
       }
     }
     if (changes.length) this.recordRoster();
@@ -4085,6 +4895,122 @@ export class Room {
     for (const id of enteredDead) this.voiceLateEntry(id);       // RC4: then its late joiner's entry, as at a load
     this.abandonIfSideEmpty();
     this.callOffCountdown();
+    this.tellSeats();                                            // SEAT_CLAIM_ADAPTATION: the seats a watcher could take
+  }
+
+  /** SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: the held seats' due times (`Lobby.reserved`), by member; `takeHeldSeats` seats them. */
+  private readonly claimDue = new Map<number, number>();
+
+  /** SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: each held seat past its due time taken (`Lobby.confirm`), once a step. */
+  private takeHeldSeats(): void {
+    if (this.claimDue.size === 0) return;
+    const now = this.opts.now();
+    for (const [id, due] of [...this.claimDue]) {
+      if (!this.lobby.reserved(id)) { this.claimDue.delete(id); continue; }   // it left (its seat freed again)
+      if (now < due) continue;
+      this.claimDue.delete(id);
+      this.broadcastChanges(this.lobby.confirm(id));
+    }
+  }
+
+  /** SEAT_CLAIM_REPEAT_MS_ADAPTATION: when each seat's `seatClaim` last changed its claim (`seatClaim`), by member. */
+  private readonly claimAt = new Map<number, number>();
+
+  /**
+   * SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION (a fresh re-check's finding, 2026-11-25): a classic room's seats held for a side
+   * with nobody seated on it, taken now (`Lobby.confirm`, their `promoted` changes returned for the caller's pass) -- the
+   * side's last seated player gone inside the hold (a leave, a kick, a vote) would otherwise abandon the round there and
+   * then (`abandonIfSideEmpty`) with its replacement 1.5 s away. The seat held onto an empty side is the hold's own case.
+   */
+  private heldSeatsOnEmptySides(): LobbyChange[] {
+    // the solo room: none, as `abandonIfSideEmpty` -- its one-player match never abandons on an empty side
+    // (SOLO_ROUND_PLACEHOLDER)
+    if (this.opts.rules !== 'classic' || this.opts.solo || this.claimDue.size === 0) return [];
+    const out: LobbyChange[] = [];
+    for (const id of [...this.claimDue.keys()]) {
+      const team = this.lobby.member(id)?.team;
+      if (!this.lobby.reserved(id) || !team || this.sideSeated(team)) continue;
+      this.claimDue.delete(id);
+      out.push(...this.lobby.confirm(id));
+    }
+    return out;
+  }
+
+  /** Whether a side has a seated player (a held seat's holder is none yet). */
+  private sideSeated(team: Team): boolean {
+    for (const p of this.players.values()) if (p.team === team) return true;
+    return false;
+  }
+
+  /** SEAT_CLAIM_ADAPTATION: the claims' gate as the watchers were last told it (`seats`' `claim`); null before any step. */
+  private claimsTold: boolean | null = null;
+
+  /**
+   * SEAT_CLAIM_ADAPTATION: the claims' gate is the services' (`RoomOptions.seatClaims`: a game's launch opens it, its
+   * return to its lobby closes it) and changes with no change of the roster -- read once a step, and told (`seats`)
+   * when it has changed, so no watcher is left offered a claim the room no longer takes (a fresh review's finding,
+   * 2026-11-25).
+   */
+  private tellClaimsGate(): void {
+    const open = this.seatClaimsOpen();
+    if (open === this.claimsTold) return;
+    this.claimsTold = open;
+    this.tellSeats();
+  }
+
+  /** SEAT_CLAIM_ADAPTATION: what each watcher and enlisted spectator was last told (`seats`), so only a change is sent. */
+  private readonly seatsTold = new Map<number, string>();
+
+  /** SEAT_CLAIM_ADAPTATION: whether the room takes a watcher's claim now (`RoomOptions.seatClaims`; absent, always). */
+  private seatClaimsOpen(): boolean {
+    return this.opts.seatClaims?.() ?? true;
+  }
+
+  /**
+   * SEAT_CLAIM_ADAPTATION (a service adaptation with no original -- the original keeps a watcher a spectator for good,
+   * research 314 R314.1, R314.7; the owner's word, 2026-11-24): a watcher's `seatClaim`. `on`: the lobby's `enlist` --
+   * a free seat is held for it (`seatComing`) and taken after SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION (`promoted`, marked
+   * `claim`; seated as any promotion is: a ghost in a classic round in play -- no ARMORY: a watching hello's page is
+   * not one of `armoryPages`), else the back of the queue (`queue`); `off`: `withdraw`, a watcher again (`queue` 0).
+   * Nothing from a seat that is not a watcher (or not enlisted, for `off`), nor while claims are closed, nor inside
+   * SEAT_CLAIM_REPEAT_MS_ADAPTATION of the seat's last change.
+   */
+  private seatClaim(id: number, on: boolean): void {
+    const now = this.opts.now();
+    const last = this.claimAt.get(id);
+    if (last !== undefined && now - last < SEAT_CLAIM_REPEAT_MS_ADAPTATION) return;
+    if (on) {
+      if (!this.seatClaimsOpen()) return;
+      const changes = this.lobby.enlist(id);
+      if (!changes) return;
+      this.claimAt.set(id, now);
+      this.broadcastChanges(changes);
+      if (this.lobby.queuePosition(id) > 0) this.opts.onClaimQueued?.(id);   // queued (no seat held for it): a CPU may yield
+      return;
+    }
+    const changes = this.lobby.withdraw(id);
+    if (!changes) return;
+    this.claimAt.set(id, now);
+    this.send(id, { type: 'queue', position: 0 });
+    this.broadcastChanges(changes);
+  }
+
+  /**
+   * SEAT_CLAIM_ADAPTATION: each watcher and each spectator queued from watching told the seats a claim could take and
+   * whether claims are taken (`seats`), when either changed for it -- after every roster change, and at each round's
+   * start (a game's launch opens its claims). A player or a playing joiner is told nothing.
+   */
+  private tellSeats(): void {
+    const open = this.lobby.openSeats();
+    const claim = this.seatClaimsOpen();
+    const key = `${open}/${claim ? 1 : 0}`;
+    for (const id of this.seatsTold.keys()) if (!this.lobby.watching(id) && !this.lobby.enlisted(id)) this.seatsTold.delete(id);
+    for (const m of this.lobby.spectators()) {
+      if (!this.lobby.watching(m.id) && !this.lobby.enlisted(m.id)) continue;
+      if (this.seatsTold.get(m.id) === key || !this.conns.has(m.id)) continue;
+      this.seatsTold.set(m.id, key);
+      this.send(m.id, { type: 'seats', open, claim });
+    }
   }
 
   /**
@@ -4094,7 +5020,7 @@ export class Room {
    * room's play and its connections' bytes are the same with it or without it.
    */
   private recordRoster(): void {
-    this.opts.recorder?.players(this.tick, [...this.lobby.players(), ...this.lobby.spectators()].map((m) => ({ id: m.id, name: m.name, team: m.team, role: m.role, char: this.players.get(m.id)?.char ?? 0, ...this.botMark(m.id), ...(this.botCharacter(m.id) ? { character: this.botCharacter(m.id)! } : {}) })));
+    this.opts.recorder?.players(this.tick, [...this.lobby.players(), ...this.lobby.spectators()].map((m) => ({ id: m.id, name: m.name, team: m.role === 'player' ? m.team : null, role: m.role, char: this.players.get(m.id)?.char ?? 0, ...this.botMark(m.id), ...(this.botCharacter(m.id) ? { character: this.botCharacter(m.id)! } : {}) })));
   }
 
   /**
@@ -4289,6 +5215,7 @@ export class Room {
       }
       case 'ping':
         if (isNum(ev.t)) this.send(id, { type: 'pong', t: ev.t, tick: this.tick });
+        this.storePageStalls(id, ev);                             // lag read v4 s6: stored only, after the unchanged pong
         return;
       // SVC-20b-relay (constraint 4): talk on / off, the only floor requests; the radio's ON / OFF and ACTIVE CHANNEL.
       case 'voiceTalk': if (typeof ev.on === 'boolean') this.voiceTalk(id, ev.on); return;
@@ -4314,7 +5241,8 @@ export class Room {
       case 'fire':
         // `viewTick` is the page's interpolation clock (`NetClient.viewTick`), a fraction of a tick: a finite number, never
         // an integer check -- that dropped every page's round (the owner's play test of 2026-10-01; `past` interpolates).
-        if (isInt(ev.seq) && isNum(ev.viewTick) && isV3(ev.from) && isV3(ev.dir) && isV3(ev.eye) && isV3(ev.aim)) this.timed(id, raw as Timed['ev']);
+        // LATER 1141 (protocol 19): `at`, when sent, is a point (a browser adaptation's field: `ShotCone.check`).
+        if (isInt(ev.seq) && isNum(ev.viewTick) && isV3(ev.from) && isV3(ev.dir) && isV3(ev.eye) && isV3(ev.aim) && (ev.at === undefined || isV3(ev.at))) this.timed(id, raw as Timed['ev']);
         else this.dropped('fire', 'shape', this.players.get(id));
         return;
       case 'reload':
@@ -4333,6 +5261,9 @@ export class Room {
       }
       case 'vote':
         if (isInt(ev.target) && typeof ev.remove === 'boolean') this.vote(id, ev.target, ev.remove);
+        return;
+      case 'seatClaim':                                           // SEAT_CLAIM_ADAPTATION: a watcher asks to play, or withdraws
+        if (typeof ev.on === 'boolean') this.seatClaim(id, ev.on);
         return;
       case 'voteAll':                                             // SVC-23e: VOTE ALL ON:OFF, its state
         if (typeof ev.on === 'boolean') this.voteAll(id, ev.on);
@@ -4370,7 +5301,8 @@ export class Room {
         if (this.victoryPlaying.has(id)) return;
         // LATER 172: the shape, then the mount (tallied once: a mounted or releasing request was also tallied 'shape').
         if (!(typeof ev.kind === 'string' && isInt(ev.seq) &&
-          (ev.slot === undefined || (isInt(ev.slot) && ev.slot >= 2 && ev.slot <= 4)))) { this.dropped('throwStart', 'shape', this.players.get(id)); return; }
+          (ev.slot === undefined || (isInt(ev.slot) && ev.slot >= 2 && ev.slot <= 4)) &&
+          (ev.hurt === undefined || (isInt(ev.hurt) && ev.hurt >= 0)))) { this.dropped('throwStart', 'shape', this.players.get(id)); return; }   // LATER 1456: `hurt`
         if (this.mountedRefused(id, 'throwStart', ev.seq)) return;
         this.timed(id, raw as Timed['ev']);
         return;
@@ -4458,7 +5390,13 @@ export class Room {
     }
     const n = ++p.arrivals;                                      // LATER 249: its arrival, in the page's send order
     if (!p.pending.length && due(p, ev)) { this.decide(p, ev, n); return; }
-    if (p.pending.length >= PENDING_MAX) { this.turretFireOwed(p, ev); return this.dropped(ev.type, 'too many waiting', p); }
+    if (p.pending.length >= PENDING_MAX) {
+      this.turretFireOwed(p, ev);
+      this.dropped(ev.type, 'too many waiting', p);
+      if (ev.type === 'fire') this.tellRefusedRound(p, ev.seq, 'too many waiting');   // LATER 876
+      else if (ev.type === 'throw' && this.kindOf(ev.kind) === 'throwable') this.tellRefusedThrow(p, ev.seq);   // LATER 1407: a hand throw's alone
+      return;
+    }
     p.pending.push({ ev, at: this.tick, n });
   }
 
@@ -4486,6 +5424,8 @@ export class Room {
         p.pending.shift();
         this.turretFireOwed(p, head.ev);
         this.dropped(head.ev.type, 'its command never ran', p);
+        if (head.ev.type === 'fire') this.tellRefusedRound(p, head.ev.seq, 'its command never ran');   // LATER 876
+        else if (head.ev.type === 'throw' && this.kindOf(head.ev.kind) === 'throwable') this.tellRefusedThrow(p, head.ev.seq);   // LATER 1407: a hand throw's alone
         continue;
       }
       break;
@@ -4511,9 +5451,10 @@ export class Room {
     if (p.sim.seq - ev.seq > FIRE_ARRIVAL_JITTER_TICKS) {
       // An order, and an immediate ask (LATER 116), has nothing on the page to reconcile (no `stale` told): tallied only.
       if (ev.type === 'fire' || ev.type === 'reload' || ev.type === 'throw') this.send(p.id, { type: 'stale', request: ev.type, seq: ev.seq });
+      if (ev.type === 'fire') p.roundTold = ev.seq;              // LATER 876: told (`stale`), no `roundRefused` for it after
       if (ev.type === 'throwStart') p.throwStart = null;
       this.turretFireOwed(p, ev);                                // the re-read's N1: the page's `stale` refund misses a turret round
-      return this.dropped(ev.type, 'stale', p);
+      return this.dropped(ev.type, 'stale', p, false, ev.type === 'fire' ? ev.seq : undefined);   // SHOT-LEDGER: a round's seq
     }
     if (ev.type === 'hostageOrder') {
       // LATER 220's fifth head (research 369 §2): a hostage's orders (0x4000, 0x8000) are built by `FUN_00593d00`
@@ -4544,7 +5485,7 @@ export class Room {
     }
     // LATER 109 (F-A; TURRET_RELEASE_ACTIONS_PLACEHOLDER, the clips' NoFire): a round named inside the release's span is
     // refused at its decision, whenever it arrived -- not by the room's own travel at its arrival.
-    if (ev.type === 'fire' && this.releaseRefused(p.id, 'fire', ev.seq)) return;
+    if (ev.type === 'fire' && this.releaseRefused(p.id, 'fire', ev.seq)) return this.tellRefusedRound(p, ev.seq, 'releasing');   // LATER 876
     // LATER 206 (ASK_AT_COMMAND_ADAPTATION, LATER 173's family; the port's own): a throwable judged at its arrival on the
     // present body, decided at a command run mounted -- the page sent it before it heard the mount -- is refused here by
     // that command's frame (`mountedAt`), the page told `stale` as LATER 173's rounds are. After the stale bound above: a
@@ -4580,6 +5521,8 @@ export class Room {
 
   private stepRoom(): void {
     this.opts.beforeStep?.();
+    this.takeHeldSeats();                                        // SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: a held seat due
+    this.tellClaimsGate();                                       // SEAT_CLAIM_ADAPTATION: the claims' gate, when it changed
     this.tick++;
     const now = this.opts.now();
     // The credit this step: a tick, or the wall time when that is more (a stall's dropped ticks). LOW-12 of the review of
@@ -4632,16 +5575,21 @@ export class Room {
     for (const p of this.players.values()) this.corpse(p);
     this.tickVictories();
     for (const p of this.players.values()) this.remember(p);
-    this.extraction?.remember(this.tick, HISTORY);             // HX-1: the hostages' past, for the shooter's rewind
     this.doors.step(1 / TICK_HZ);
     this.gates.step(1 / TICK_HZ);                                 // MAP-07: the lever gates' slides
     this.cranes.step(1 / TICK_HZ);
     this.world.step(1 / TICK_HZ);
     this.scriptBlasts();                                         // FORGE_SCRIPT_BLAST_ADAPTATION: the tick's script blasts
     this.fireSceneRounds();                                      // research 386 §3.2: the scene's FIRE_WEAPON rounds due
+    this.clearDeadOwnersMines();                                 // R4P-224: DEAD_OWNER_MINES_CLEAR_READING
     this.flyGrenades();
     this.bomb?.step();                                          // XR-05: events before the clock (DEM_SAME_TICK_READING)
     this.extraction?.step();                                    // HX-1: the AI, the one-shots, SEALcheck before the clock
+    // HX-1: the hostages' past, for the shooter's rewind. LATER 831: after the AI's move (it was before it, a tick behind
+    // the snapshot this step sends), as a player's entry follows its run -- the entry at a snapshot tick is that snapshot's
+    // body (`drawnPastOf`), its pose posed on it (`hostagePose`)
+    this.rememberHostages();
+    if (this.hitboxTrace) this.traceBodies();                    // HITBOX-TRACE: a dev instrument; reads, judges nothing
     this.tellAmmo();                                             // MAP-10b: each occupant its rounds, once a tick
     this.clock();
     this.ruleHost?.endStep();                                    // FCW-31: the tick's rule events handled (RULES_ADAPTATION)
@@ -4654,6 +5602,12 @@ export class Room {
     if (this.opts.heldLaunch && this.state.phase === 'waiting') for (const p of this.players.values()) p.lastActive = now;
     // solo: no idle kick, as the original (IDLE_KICK_ADAPTATION is a network room's alone)
     else if (!this.opts.solo) this.idle(now);
+    // KILL-B78: the board's copy ENGINE_READ_S after the end state (`FUN_002a9b30` D:L150629-150646), published at once
+    // (`FUN_002c00f0` in the same call, D:L150667): the `score` goes out this tick, never coalesced.
+    if (this.lastResult && this.boardCopiedFor !== this.lastResult && this.tick - this.lastResult.at >= ENGINE_READ_S * TICK_HZ) {
+      this.boardCopiedFor = this.lastResult; this.boardWins.seal = this.wins.seal; this.boardWins.terrorist = this.wins.terrorist;
+      this.scoreDirty = true; this.scoreSentAt = -Infinity;
+    }
     if (this.scoreDirty && this.tick - this.scoreSentAt >= SCORE_EVERY_TICKS_PLACEHOLDER) {
       this.scoreDirty = false;
       this.scoreSentAt = this.tick;
@@ -4765,7 +5719,7 @@ export class Room {
       const s = p.sim.walker.state, b = this.startBody(p);
       p.placeStart = {
         seq, feet: [s.x, s.y, s.z], eye: null, frames: null, at: this.eventClock(p), head: headEye(this.map.grid, b.feet, headPoint(b), () => true),
-        serial: w.holdStarts, ran: p.ran, weapon: p.sim.weapon, held: p.held,
+        hip: hipPoint(b), serial: w.holdStarts, ran: p.ran, weapon: p.sim.weapon, held: p.held,
       };
     }
   }
@@ -4907,11 +5861,37 @@ export class Room {
    * A dead SEAL's body, a tick on the room's clock: it goes on falling and playing its death (a thrown corpse lands, and
    * `Land forward` / `Land backwards` hold: `Walker.dead`) with the stick at rest and the facing it died with -- the
    * other screens draw it from the snapshots, and the page's locked walk ticks its own the same (`WalkMode.frame`).
+   * Not under the round screens (`roundScreensUp`): there the corpse is held as the living are.
    */
   private corpse(p: Player): void {
     if (p.alive || !p.sim.walker.dead) return;
+    if (this.roundScreensUp()) return;                         // LATER 580's review F1: none under the screens
     p.sim.walker.turn = 0;
     p.sim.walker.tick(DEAD_STICK);
+  }
+
+  /**
+   * LATER 580 (research 81 s13, research 122 s14; reading, pending review): whether the round screens are up -- from
+   * ENGINE_READ_S after the result (`lastResult.at`) to the next round's start (`startRound` clears `lastResult`). A
+   * client's mission tick (`FUN_002aa490`), on the host's +0x113 (r0001; +0x117 at r0004) at 4 or 6 after its 3.0 s
+   * wait (D:L151127-151131), runs the mission's end (`FUN_002aa910`) and pushes MPExitState over CoreState
+   * (`FUN_002cf380`, D:L151134); the state machine (`FUN_002ce9e0`) ticks only the stack's top (D:L171877-171888), so
+   * the round is not ticked until the next round's restart pops it (`FUN_00223680`, D:L75935-75936). Those are r0001's
+   * lines; at r0004 (the review of LATER 580, its sections 1-2; reading, pending review) the same logic stands at
+   * 0x2abf30 (the mission tick: the host's state byte is +0x117 there, at 4 or 6 -> 0x2ab5d0, the end 0x2ac270, the
+   * push 0x2ec290 at 0x2ac0a8), 0x2eb8f0 (the stack's update: one call, the top state's slot +0x14) and 0x223680
+   * (MPExitState's tick, the pop at 0x22383c); the entity scheduler (0x4a1620, every actor pass: UnitTick ...
+   * entity_post_tick) runs only from CCoreState's tick (0x1ebed0, the call at 0x1ebff4), so no actor is ticked under
+   * the screens, the dead included. So `run` steps no living body's mover here -- no walk, turn, jump, fall or posture,
+   * a body in the air held where it is -- while its commands are still consumed and counted (`seq`, `ran`, the credit,
+   * `lagFloor`); `corpse` steps no dead one (F1); and a held body's snapshot carries no velocity (`body`, the own
+   * state; F6), so the other screens draw it standing as the room holds it -- the port's choice: what the original's
+   * other consoles draw for a body frozen mid-run is unread at r0004 (the 580 delta review's D4). The next round respawns
+   * every body. Not held: the room's hostage AI runs on under the screens and still reads a held body's LAST velocity
+   * (its follow heading, the leader's speed, the yield; the extraction body list) -- named, unchanged (D2).
+   */
+  private roundScreensUp(): boolean {
+    return this.state.phase === 'over' && this.lastResult !== null && this.tick - this.lastResult.at >= ENGINE_READ_S * TICK_HZ;
   }
 
   /**
@@ -4966,7 +5946,9 @@ export class Room {
         this.settle(p);
         continue;
       }
-      this.ownRun = { p, before: p.sim.seq };                    // NCW-2 B-trade (F3): a death in this run keeps `before`
+      // LATER 580 (`roundScreensUp`): under the round screens the command is counted above and its mover not stepped.
+      if (this.roundScreensUp()) { p.sim.seq = cmd.seq; this.settle(p); continue; }
+      this.ownRun = { p, before: p.sim.seq };                  // NCW-2 B-trade (F3): a death in this run keeps `before`
       p.trigger = (cmd.buttons & Button.Trigger) !== 0;
       p.aiming = (cmd.buttons & Button.Aim) !== 0;
       p.boost = (cmd.buttons & Button.Boost) !== 0;
@@ -5041,7 +6023,11 @@ export class Room {
       if (travelled) { sw.state.x = travelled[0]; sw.state.y = travelled[1]; sw.state.z = travelled[2]; sw.state.vx = 0; sw.state.vz = 0; }   // LATER 109: the travel's place, walls off
       if (releaseEnds) p.release = null;                       // LATER 109 (F-B): let go after the end's command ran
       if (holding && p.mounted !== null) holdStep(this.turrets[p.mounted]!.place, sw);
-      if (p.mounted !== null) this.turrets[p.mounted]!.gunYaw = sw.state.yaw;   // PB-2c: the gun's yaw, the occupant's aim
+      if (p.mounted !== null) {                                // PB-2c: the gun's yaw, the occupant's aim
+        const g = this.turrets[p.mounted]!;
+        g.gunYaw = sw.state.yaw;
+        g.gunPitch = sw.state.pitch;                           // TURRET_FREE_GUN_PITCH: and its pitch, kept at the release
+      }
       this.noteThrowHold(p, c.seq);                            // THROW-INTERRUPT (the review's F1): a throw's clip laid on it
       const looked = p.sim.looked;
       if (looked.clampedYaw) this.dropped('look', 'turn');
@@ -5051,7 +6037,15 @@ export class Room {
       if (p.placeStart?.seq === c.seq && p.cone.frame(c.seq)) { p.placeStart.eye = this.orderOrigin(p, c.seq); p.placeStart.frames = p.cone.framesAround(c.seq); }   // LATER 139: its look too
       // PAR-83: the launcher's stick lower on the command's own stick (`Walker.cutStick`), after its jump was asked above.
       if (p.sim.walker.cutAsked) this.launcherStick(p, c.seq, p.sim.walker.cutStick);
+      const lived = [p.reloadLife[0] !== null, p.reloadLife[1] !== null];
       this.watchCut(p);                                        // PF-18: the reload clip's cut on this mover
+      for (const x of [0, 1] as const) if (lived[x] && p.reloadLife[x] === null) p.reloadLifePopAt[x] = p.ran;   // B-18: the life's end
+      // B-18 F1: the after-shot's clip picked on the command before its first (the kit timer's end), after it ran: its
+      // stance, speed and dive. Once: the record goes as it fires, and a command runs here once (no re-run in the room).
+      for (const x of [0, 1] as const) {
+        const k = p.afterShotPick[x];
+        if (k !== null && p.ran >= k.timer - 1) { const st = p.sim.walker.state; this.afterShotPick(p, x, p.sim.walker.posture, [st.vx, st.vy, st.vz]); }
+      }
       if (this.victoryPlaying.has(p.id) && !p.sim.walker.victoryMotion) this.stopVictory(p.id);
       // XR-05: the plant's and the defuse's holds, counted here (never from a turret: MAP-10b's `c`); LATER 220: behind the
       // prompts' common gate on this command, as `actionGateShut` judges it (no event's arrival order here: -1, `decide`'s).
@@ -5115,9 +6109,10 @@ export class Room {
    * The fall's damage (`FUN_005ac1f0` L464866-464960; research 151). The landing is the one the room's own mover
    * measured for this player -- its contact speed, the one quantity the landing's class, its sound (the page's
    * `GameAudio.onLand` by `@s2u/sound`'s `landingClass`; the hurt voice is not the landing's but the `hurt` below, the
-   * damage reaction's, research 205 §2.2) and its damage are all read from -- a blast knock's landing
-   * (`Landing.knocked`: `Fall forward` / `Fall backwards` on the ground) at the speed x 1.2 (`FUN_00580360` L441929,
-   * `KNOCK_LANDING_SPEED_FACTOR`). The game runs it on the victim's own console (the
+   * damage reaction's, research 205 §2.2) and its damage are all read from -- a dive's landing (`Landing.dived`: a dive
+   * carried off an edge, `dive_to_prone` in play at the contact) at the speed x 1.2 (R4P-104: r0004 0x585980-0x585994,
+   * `FUN_00580360` D:L441929, `DIVE_LANDING_SPEED_FACTOR`), a blast knock's at its plain speed (r0004 0x5b5aa8-0x5b5aac;
+   * D:L466836). The game runs it on the victim's own console (the
    * controller's `+0x34` false, L464928-464931); here the room is every player's console, so the page sends nothing for
    * a fall and nothing it could forge: the room's mover lands as the page's did, on the same commands (`MoverSim`).
    * A landing that took health (`applyFall`: `max x f` off every part, no armour) tells the victim's page as a round's
@@ -5129,18 +6124,43 @@ export class Room {
    * "fall damage makes the fall damage sound but deals no damage": the page's bar learns its health from `hurt` alone.
    */
   private fallDamage(p: Player, landing: Landing): void {
-    const speed = landing.knocked ? landing.speed * KNOCK_LANDING_SPEED_FACTOR : landing.speed;
+    const speed = landing.dived ? landing.speed * DIVE_LANDING_SPEED_FACTOR : landing.speed;
     const f = fallDamageFraction(speed);
     if (!(f > 0)) return;
     const healthBefore = [...p.health.hp], armourBefore = [...p.health.armour];
     const was = overall(p.health);
     const died = applyFall(this.woundable(p), speed) && !this.deathless(p);   // CPS cell-alive: the deathless seat takes none
     const s = p.sim.walker.state, feet: V3 = [s.x, s.y, s.z];
-    this.send(p.id, { type: 'hurt', health: [...p.health.hp], from: feet, part: PART.BODY });
+    this.hurtTo(p, feet, PART.BODY);
     // The report's raw damage: what the loop takes before the clamp at 0 (`max x f` over the six parts); no armour step.
     this.combat(p, p, { request: 'fall', status: 'applied', part: PART.BODY, rawDamage: MP_HEALTH.reduce((n, m) => n + m * f, 0), healthBefore, armourBefore, killed: died, point: feet });
     if (died) this.kill(p, null, null, 'fall', DEATH_CAUSE.FALL);
     else this.hurtVoice(p, was);   // every page, the faller's too: its landing plays no voice (research 205 section 2.2)
+  }
+
+  /**
+   * LATER 1456 (research 85 §4.3; a network adaptation, additive, no bump): `p`'s page told `hurt` -- its health per part
+   * now, from where, the part -- with the seat's next serial `n` (`Player.hurtSerial`), which the page echoes on its
+   * `throwStart`. Every `hurt` the room sends goes through here.
+   */
+  private hurtTo(p: Player, from: V3, part: number): void {
+    this.send(p.id, { type: 'hurt', health: [...p.health.hp], from, part, n: ++p.hurtSerial });
+  }
+
+  /**
+   * R4P-248 (lead L258; reading, pending review): a health drop that left `victim` alive -- every path that tells its page
+   * `hurt` with less health (a round, a blast's fragments, a fall, a rule's damage) reaches it through `hurtVoice`, before
+   * the voice's gate. r0004's SetHealth (twin `0x0054c300`) calls `0x5bf4f0` on the kit on every such change
+   * (D4:L453015), clearing the pending release (`+1` 0x02, `+0x87c`, D4:L513359-513361): the throw, placing or plant not
+   * yet out is cancelled, and for the bomb (0x9a) the plant's target too (D4:L513365-513393). The page cancels its own on
+   * the `hurt` (viewer `grenadeCore.ts` `hitCancel`) and sends no `throw`; here the release request goes, so a later
+   * death drops nothing for it (`deathDrop`), and the bomb's placement, the room's own, ends unplanted
+   * (`BombAuthority.hitCancel`). r0001 has none of this (its clears: D:L471752, D:L475503, D:L476897, D:L480877).
+   */
+  private hitCancels(victim: Player): void {
+    victim.throwStart = null;
+    victim.cancelSerial = victim.hurtSerial;                     // LATER 1456: a request echoing an older hurt is refused
+    this.bomb?.hitCancel(victim.id);
   }
 
   /**
@@ -5151,7 +6171,9 @@ export class Room {
    * `VOICE_GATE_S`. Every page is told (`hurtVoice`), the body's own too, and plays it at the body.
    */
   private hurtVoice(victim: Player, was: number): void {
-    if (!victim.alive || !(overall(victim.health) < was) || this.tick < victim.voiceGateUntil) return;
+    if (!victim.alive || !(overall(victim.health) < was)) return;
+    this.hitCancels(victim);
+    if (this.tick < victim.voiceGateUntil) return;
     victim.voiceGateUntil = this.tick + Math.round(VOICE_GATE_S * TICK_HZ);
     this.broadcast({ type: 'hurtVoice', id: victim.id });
   }
@@ -5211,7 +6233,7 @@ export class Room {
     // LATER 173: the mount clip the seat's steer plays (`Stand -> Turret` / `Pistol stand -> Turret`, `seal_stand2turret` /
     // `seal_p_stand2turret`: a bare `NoFire ()` in motion.rdr, the only mount clips there) refuses every round through its
     // play (`FUN_005a7de0` D:L462612-462705, the clip on top) -- the steer is not the walker's, so `fireCapability` sees none.
-    const fire = cap.fire && fireAllowed(p.seat ? { clip: mountClipOf(w), phase: p.seat.phase, reversed: false } : null, table);
+    const fire = cap.fire && fireAllowed(p.seat ? { clip: mountClipOf(p.mountHand), phase: p.seat.phase, reversed: false } : null, table);   // R4P-R2: the take's clip
     this.opts.recorder?.command?.(this.tick, p.id, cmd);
     // TURRET-CONE (research 215 s8.2): mounted, the cone runs the turret record at its stance row whatever the body's --
     // TURRET_RETICLE_STANCE_READING's 'stand' (`../../viewer/src/net/emplacement.ts`), as the page's `gunFrame` runs the kit.
@@ -5222,9 +6244,14 @@ export class Room {
     p.cone.setItem(handItem !== null && p.mounted === null && p.held === null ? this.itemReticleFor(handItem) : null);
     this.handRan(p, cmd.seq);
     p.cone.tick(cmd, {
-      feet: [s.x, s.y, s.z], velocity: [s.vx, s.vy, s.vz], airborne: walker.airborne, posture: walker.posture,
-      stance: walker.stance, moveRoot: this.aimRootOf(p), peek: moves?.peek() ?? 0, weapon: w,   // JUMP-AIM-ROOT
+      // AS-34 (STANDING_JUMP_RISE_READING): the standing jump's seal_jump root rise, for the cone's bloom alone (`rise`; the
+      // page's `airBloomFeed`); the frame's velocity stays the mover's. The running jump's carried vector is not fed: the
+      // room's sum is the larger.
+      feet: [s.x, s.y, s.z], velocity: [s.vx, s.vy, s.vz], rise: walker.carriedAir.rise, airborne: walker.airborne, posture: walker.posture,
+      stance: walker.stance, stanceInUse: walker.stanceInUse, moveRoot: this.aimRootOf(p), peek: moves?.peek() ?? 0, weapon: w,   // JUMP-AIM-ROOT
+      peeking: moves?.peeking() ?? 0,                            // LATER 1178 (ii): the held lean, the throw gate's
       groundNormalY: walker.floorNormal[1],                      // PRONE-TILT-2 (2): the prone eye's +0x1348 (FUN_0029ae50)
+      aimProne: walker.aimProne,                                 // LATER 597: the eye's word 2 (FUN_0029ae50 D:L142591); the dive's 6, false
       swapping: walker.swapProgress() !== null, motion, fire, turret: p.mounted, ...(p.mounted !== null ? { coneStance: TURRET_RETICLE_STANCE_READING } : {}),
       gate: walker.gateTop(w === 1),                             // LATER 220: the prompts' common gate's walker terms, the hand's
       // LATER 476: the throttle's own scale -- a scoped command's at the scope's least magnification (CONE_SCOPE_LEVEL_READING).
@@ -5236,12 +6263,12 @@ export class Room {
    * JUMP-AIM-ROOT (the ghost-bullet report on live v0.4.18, game 4180; research 80 s7, 2026-11-11; reading, pending
    * review): the root the body's camera stands on now (`aimRoot`): a traversal move's, else a crouched body's posed root
    * in the jump and, the fold's blend-out (shadow's capture of the original, research 80 s7), whenever it stands above
-   * the crouch root -- the room's own `HitPoser` (HIT-POSE: the page's `Animator` on the room's snapshot of the body,
+   * the crouch root, and (LATER 661, 2026-11-18) a prone body's posed root whatever it plays -- the room's own `HitPoser` (HIT-POSE: the page's `Animator` on the room's snapshot of the body,
    * A = B), which the page's camera rides through its own animator (`play.ts` `setPosedRoot`; research 80 s0: the
    * original's camera reads the posed root, `FUN_0029a950` via `FUN_002869d0`) -- else null. The page's start body
    * (`WalkMode.startBody`) takes the same rule on its own animator's root. `JUMP_AIM_ROOT_CLOCK_READING`: the pose the
    * poser kept at the last tick's end (`remember`), the command's own tick not yet posed. No poser (no motion), a poser
-   * of another life (`sim`), a standing or prone body, a still crouch: as before.
+   * of another life (`sim`), a standing body, a still crouch: as before.
    */
   private aimRootOf(p: Player): number | null {
     const w = p.sim.walker, poser = p.poser;
@@ -5357,17 +6384,24 @@ export class Room {
     const after = p.sim.seq;
     const sim = this.newSim(p.sim.ai);
     sim.seq = after;
-    const at: V3 = place ? place.at : slot ? [slot.position[0], slot.position[1] + SPAWN_LIFT, slot.position[2]] : [0, 0, 0];
+    // L208: a spawn seeds at the record's CELL y + 1 (`SpawnSlot.cellY`), as r0004's TeleportTo; the slot's floor y only
+    // where the file stores no cell (seat-kill's read, kill/keyjob-l208-mp8-mp64-read.md; reading, pending review).
+    const at: V3 = place ? place.at : slot ? [slot.position[0], (slot.cellY ?? slot.position[1]) + SPAWN_LIFT, slot.position[2]] : [0, 0, 0];
     // The facing: step k points along (sin 45k, -cos 45k); `Pose.yaw` faces (-sin yaw, -cos yaw).
     const yaw = place ? place.yaw : slot ? wrapYaw(-slot.step * 45) : 0;
-    // PL-2: the floor is picked as the walking tick picks it -- the probe from the feet + `probeLiftOf('stand')`, the
-    // tick's one origin (`FUN_005b0840`; research 86 s6.5) (`FUN_005b0420` ->
-    // `FUN_005b5d40` L470230-470240: the highest hit at or under origin + 1; research 86 s6.3) -- on the record lifted a
-    // unit (`FUN_002b8100` L158793). From the eye (feet + 16.4) it stood four Frostfire records on an object 12 up.
-    // The page's respawn (`walk.ts` `respawn`) places from the same origin.
-    sim.walker.place(at[0], at[1] + probeLiftOf('stand'), at[2]);
+    // PL-2 (superseded by L208 below): the floor was picked at the seed column from the feet + `probeLiftOf('stand')`, the
+    // tick's one origin (research 86 s6.3, s6.5), on the record lifted a unit (`FUN_002b8100` L158793). The page's respawn
+    // (`walk.ts` `respawn`) seeds the same way.
+    // L208 (ATLAS mp64-spawn-r0004.md finding 1; seat-kill's reads): r0004 seeds the body at the RECORD lifted a unit with
+    // no pick at the seed column -- the first frame's head-line put-out, move and probe decide its floor (`Walker.seed`).
+    // An explicit placement (`place`: the rule spawner's respawns, `rebuildWaiting`'s rebuild in place) is no record: it
+    // keeps the pick from the point + the standing lift, as before L208 (its gate's roomDamageReport red: a respawn placed
+    // 20 u up hung there when seeded).
+    if (place) sim.walker.place(at[0], at[1] + probeLiftOf('stand'), at[2]);
+    else sim.walker.seed(at[0], at[1], at[2]);
     sim.walker.state.yaw = yaw;
     p.sim = sim;
+    sim.walker.bodies = this.seatBodies(p.id);                   // LATER 711: slid against the other seats (research 426)
     p.spawnClock = this.serverClock;                             // LATER 157: the skip report held to the ticks since the spawn
     p.pressLock = null;                                          // LATER 72: a new body holds no reload's press
     this.watchMoves(p);                                          // PAR-28: the new mover's climbs and ladders
@@ -5412,17 +6446,22 @@ export class Room {
     p.lastThrow = -1e9;
     p.throwClock = -1e9;
     p.throwStart = null; p.throwStartClock = -1e9; p.throwHoldSeq = -1; p.holdStartsSeen = p.sim.walker.holdStarts; p.placeStart = null;
+    p.hurtSerial = 0; p.cancelSerial = 0;                        // LATER 1456: the page's echo clears at its spawn
     p.dismount = null;                                           // LATER 104: none pending on a new body
     p.release = null;                                            // LATER 109: no reversed clip on a new body
     p.releaseSpan = null;
     p.lastFire = [-1e9, -1e9];
     p.fireSchedule = [FIRE_GATE_NONE, FIRE_GATE_NONE];          // LATER 588 (a): a new body's chain starts fresh
     p.fireClock = [-1e9, -1e9];
+    p.scheduleOffset = [NaN, NaN];                               // LATER 336: laid afresh with the new body's clocks
+    p.scheduleSlack = [Infinity, Infinity];
+    p.lockSlack = [Infinity, Infinity];
     p.weapon = initialFirearmSlot(this.kits?.table ?? null, p.loadout);
     sim.weapon = p.weapon; sim.walker.hand = p.weapon;
     p.cone = new ShotCone(p.records[p.weapon]);
     p.lastLanding = null;
     p.equipmentSlots = equipmentSlotsOf(p.loadout, this.kits?.table ?? null); // each slot's fresh ring, research 361 §1
+    p.detonator = EQUIPMENT_SLOTS.some((i) => p.loadout[i] === CLAYMORE.id);   // LATER 1129: FUN_005c74e0 at the new kit
     p.rounds = new KitRounds(this.kits?.table ?? null, p.loadout);   // M4: every round slot full
     p.rocketWaitUntil = -1;
     p.held = null; p.heldNext = null; p.heldReadyAt = -1; p.firearmReadyAt = -1;
@@ -5434,6 +6473,7 @@ export class Room {
     p.lockTimer = [-1, -1];
     p.lockKind = [null, null];
     p.reloadLife = [null, null];                                 // PF-18: no clip and no flinch on a new body
+    p.reloadLifePopAt = [-1, -1];                                // B-18: nor a life's end to wait a frame past
     p.flinchFrom = -1; p.flinchUntil = -1; p.flinchAir = -1; p.flinchGatesReload = true; p.flinchCutFrom = -1;
     p.flinchKeptFrom = -1; p.flinchKeptUntil = -1;                // N1: no cut flinch's span on a new body
     p.flinchUnder = null;                                         // LATER 363: nor a covered flinch
@@ -5449,7 +6489,7 @@ export class Room {
     if (back) {
       p.returnFrom = null;
       p.health = back.health; p.char = back.char; p.loadout = back.loadout; p.records = back.records;
-      p.mags = back.mags; p.rounds = back.rounds; p.equipmentSlots = back.equipmentSlots;
+      p.mags = back.mags; p.rounds = back.rounds; p.equipmentSlots = back.equipmentSlots; p.detonator = back.detonator;   // LATER 1129
       p.weapon = initialFirearmSlot(this.kits?.table ?? null, p.loadout);
       sim.weapon = p.weapon; sim.walker.hand = p.weapon;
       p.cone = new ShotCone(p.records[p.weapon]);
@@ -5458,7 +6498,16 @@ export class Room {
     // D:L416869-416870), so the new body holds the kit's two firearm models (`heldWeaponModels`, by `slotModel`).
     sim.walker.heldModels = heldWeaponModels(this.kits?.table ?? null, p.loadout);
     p.lastHurt = null;                                           // NET-RES.R11 (a): a new body has taken no damage
-    this.broadcast({ type: 'spawn', id: p.id, ...this.botMark(p.id), at: [s.x, s.y, s.z], yaw, after, kit: [...p.loadout], char: p.char, ...(this.botCharacter(p.id) ? { character: this.botCharacter(p.id)! } : {}) });
+    // L208 (the first review's F3; LATER 1419; the root-fix review's F3: last, on the finished body -- its hand, held models,
+    // alive and moves set): a record spawn's first game frame runs now, not on the seat's first command, as r0004's first
+    // update after its TeleportTo runs with no command; no seat, bot or snapshot sees the unrun seed, and the spawn told
+    // carries the frame's result, which the page seeds at and runs the same still frame on (`WalkMode.respawn`).
+    sim.walker.runSeedFrame();
+    const spawned: Extract<ServerEvent, { type: 'spawn' }> = { type: 'spawn', id: p.id, ...this.botMark(p.id), at: [s.x, s.y, s.z], yaw, after, kit: [...p.loadout], char: p.char, ...(this.botCharacter(p.id) ? { character: this.botCharacter(p.id)! } : {}) };
+    // L208: the seed a record spawn ran its first frame from goes to the OWN page alone (it re-runs that frame,
+    // `WalkMode.respawn`); every other page, the valves and the recording are told the event as before.
+    if (place) this.broadcast(spawned);
+    else { this.broadcast(spawned, p.id); this.send(p.id, { ...spawned, seed: [at[0], at[1], at[2]] }); }
     if (back) this.send(p.id, this.resumeEvent(p));              // NET-RES.R11 (b): the page's health, kit, rounds and pouch
     if (kind === 'respawn') this.voiceRespawn(p.id);             // SVC-20c: event 0x23's ask, the remembered +0xc4
     this.ruleEvent({ name: 'player.spawn', player: p.id, ...(this.ruleSpawner !== null ? { id: this.ruleSpawner } : {}) });   // FCW-31
@@ -5508,6 +6557,24 @@ export class Room {
   private inRound(): boolean {
     return this.state.phase === 'play' || this.state.phase === 'expired' || this.state.phase === 'decided';
   }
+
+  /**
+   * ROUND-CHAT (V21.R15a; a browser adaptation beside OT.R48, read by the relays' `chatLine`, `gameChat.ts`'s
+   * `roundChatReaches`): whether a round is being played (`inRound`) and whether this member's body is alive -- false for
+   * a spectator, a member with no body, or a dead one. Null for an id that is no member of the room.
+   */
+  chatState(roomId: number): { inRound: boolean; alive: boolean } | null {
+    const member = this.lobby.member(roomId);
+    if (!member) return null;
+    return { inRound: this.inRound(), alive: member.role !== 'spectator' && this.players.get(roomId)?.alive === true };
+  }
+
+  /**
+   * ROUND-CHAT review F5 (V21.R15a): whether the room is in a round, for the relays' choice of rule -- the room's own
+   * state, never read through the sender's membership, so a sender with no member (a seat rekeyed or left while its
+   * socket still routes `chat`) never falls back to the lobby's ALL scope in a round.
+   */
+  chatInRound(): boolean { return this.inRound(); }
 
   // ---- the weapon select's picks (protocol 7; web sprint 4 M9, W4.R6) ----
 
@@ -5710,11 +6777,92 @@ export class Room {
    * stalled: its count (`Player.ran`) plus the player's best recent offset between the room's clock and its command
    * clock (`Player.lagFloor`, `LAG_FLOOR_WINDOW_TICKS`), held within `FIRE_STALL_CREDIT_TICKS` of `serverClock` and never
    * after it. Any dating in that range keeps the window bound, since the schedule (`fireClock`, `throwClock`) only moves
-   * forward by the cycle; the dating decides only what an honest burst keeps.
+   * forward by the cycle -- or with the offset, a fall bounded so the bound still holds (LATER 336, `keepSchedule`); the
+   * dating decides only what an honest burst keeps.
    */
   private eventClock(p: Player): number {
     const floor = Math.min(p.lagFloor.cur, p.lagFloor.prev);
     return Math.min(this.serverClock, Math.max(this.serverClock - FIRE_STALL_CREDIT_TICKS, p.ran + floor));
+  }
+
+  /**
+   * [adaptation] LATER 336 (the network's, with no counterpart in the original -- the game has no server: research 91
+   * §15; the schedule is LATER 326's, advanced by the record's rate): weapon `w`'s schedule on the room's clock
+   * (`fireClock`, `lockClock`) moved with the offset the dating moved by; returns the dating (`eventClock`). Both were laid
+   * from events dated with the offset then (`Player.scheduleOffset`: the dating less the command's count); when a
+   * catch-up steps it (a hitch's long frame run in one go: measured +1 to -4 ticks at 250 ms), an honest round dated with
+   * the new one read that much early against them and was refused 'rate' and bloomed (`refuseRound`).
+   *
+   * A rise moves the schedule by the dating's own rise, clamp included (a line falling D behind for good: the dating rises
+   * FIRE_STALL_CREDIT_TICKS at most, and so does the schedule -- was: the raw offset's D, the next rounds refused). A fall
+   * moves it down only within the least of `Player.scheduleSlack` and `Player.lockSlack`, so that FIRE_STALL_CREDIT_TICKS's
+   * stated cost holds as it stands. The arithmetic (the re-review's finding 1: the exact slack, not the least over every
+   * lay), `F` the last lay of `fireClock` re-dated into the offset now, `K` its slack, `S_k` the room's clock at round k,
+   * `c` the cycle (the rate less a tick), 3 FIRE_ARRIVAL_JITTER_TICKS, 21 FIRE_STALL_CREDIT_TICKS:
+   * - held: K <= F - (S_k - 21) - (j - k) rate for every round k laid since the spawn, j the last. At round n's lay,
+   *   F_n = max(firedAt_n, F_(n-1) + rate) = F_(n-1) + rate + m, m >= 0 the pause before it; its own term
+   *   F_n - (S_n - 21) >= 0 since firedAt_n >= S_n - 21 (`eventClock`); each older term is the last lay's plus m; so
+   *   K_n = min(own_n, K_(n-1) + m) keeps it (`scheduleLaid`). A shift moves F and K by the same step; a fall is at most
+   *   max(0, K), so K >= 0 and F_(n-1) >= S_k - 21 + (n - 1 - k) rate at every round n's check, for every k;
+   * - a round n fired has firedAt_n >= F_(n-1) + c - 3 and firedAt_n <= S_n, so (n - 1 - k) rate <= S_n - S_k + 24 - c,
+   *   the bound with no shift: over W ticks at most (W + 24 - c) / rate + 2 = (W + 21 + 4) / rate + 1 rounds, as
+   *   FIRE_STALL_CREDIT_TICKS states it, and in one tick (S_n = S_k) (21 + 4) / rate + 1: 5 of the M4A1's (rate 5.76:
+   *   4.34 + 1), 9 of the Model 18's (2.88: 8.68 + 1). Only positions enter it, so a pause returns the slack a lay at the
+   *   clamp took (was: spent for the life, the next hitch's step refused 'rate');
+   * - a lock laid at dating C >= S_lay - 21, its end C + L, holds `lockSlack` = C - (S_lay - 21), moved with each shift:
+   *   while it binds, a fall leaves lockClock >= S_lay - 21 + L, and a round dated at most at its own tick is taken only
+   *   from firedAt + 3 >= lockClock: none before S_lay + L - 24, 24 ticks before the lock's end on the room's clock. It
+   *   stops binding once lockClock <= serverClock + 3: then S_lay - 21 + L <= serverClock + 3, so every later round
+   *   already stands at or after S_lay + L - 24, whatever a shift does to the lock after. Not while an after-shot's clip
+   *   is still to be added (`afterShotPick`: L grows to L' with C unmoved): the slack is kept, so lockClock >= S_lay - 21
+   *   + L' holds for the longer lock as laid (was: dropped at the timer's end, the longer lock then moved by
+   *   `scheduleSlack` alone, up to its lead over the dating more -- the delta review's finding 1, one tick measured);
+   * A fall the slack does not cover is dropped, not carried: the schedule then stands where the room laid it, ahead of the
+   * dating by the part dropped, until a pause of fire lays it at its dating again. The slack returns only by a pause:
+   * a lay after a gap m over the chain gets K + m (`scheduleLaid`), so in an unbroken chain at the page's own pace it
+   * returns by the chain's own rounding alone (0.24 tick a round for the M4A1 named every 6 commands), and a second hitch
+   * inside the same held burst still finds little.
+   */
+  private keepSchedule(p: Player, w: 0 | 1): number {
+    const at = this.eventClock(p), offset = at - p.ran;
+    const was = p.scheduleOffset[w];
+    // Past the lock's reach (it can no longer be early: the bound below), unless its after-shot clip is still to be added
+    // (`afterShotPick`): the slack then binds the lengthened lock, its start unmoved (LATER 336's delta review, finding 1).
+    const pick = p.afterShotPick[w];
+    const lengthens = pick !== null && p.lockKind[w] === 'afterShot' && p.lockStart[w] === pick.at && p.lockTimer[w] === pick.timer;
+    if (!lengthens && p.lockClock[w] <= this.serverClock + FIRE_ARRIVAL_JITTER_TICKS) p.lockSlack[w] = Infinity;
+    if (Number.isFinite(was) && offset !== was) {
+      const slack = Math.max(0, Math.min(p.scheduleSlack[w], p.lockSlack[w]));
+      const step = offset > was ? offset - was : -Math.min(was - offset, slack);
+      if (p.fireClock[w] > -1e8) p.fireClock[w] += step;         // -1e9: none laid since the spawn
+      if (p.lockClock[w] >= 0) p.lockClock[w] += step;           // -1: no lock laid
+      p.scheduleSlack[w] += step;
+      p.lockSlack[w] += step;
+    }
+    p.scheduleOffset[w] = offset;
+    return at;
+  }
+
+  /**
+   * [adaptation] LATER 336: a round's lay of weapon `w`'s `fireClock` at `at` on the room's clock, `chain` the last lay
+   * plus the rate -- its slack (`keepSchedule`): the least of its own term and the last slack plus the pause before it.
+   */
+  private scheduleLaid(p: Player, w: 0 | 1, at: number, chain: number): void {
+    p.scheduleSlack[w] = Math.min(at - (this.serverClock - FIRE_STALL_CREDIT_TICKS), p.scheduleSlack[w] + (at - chain));
+  }
+
+  /**
+   * [adaptation] LATER 336: `setLock` on the room's clock at the event's dating, in the offset the lock is dated with
+   * (`keepSchedule`), its slack (`Player.lockSlack`) taken from that dating -- the lock it replaces binds no more.
+   */
+  private layLock(p: Player, w: 0 | 1, count: number, timer: number, clip: number, kind: Exclude<LockKind, null>): void {
+    const at = this.keepSchedule(p, w);
+    // LOCK_LATE_BUCKETS (an instrument): the laying event's raw lateness, before `eventClock`'s clamp.
+    // Not rounded: 24.4 ticks is past the clamp (the re-review's N2; a rounding would file it under 'le24').
+    const late = this.serverClock - (p.ran + Math.min(p.lagFloor.cur, p.lagFloor.prev));
+    if (Number.isFinite(late)) { const k = lockLateBucket(late); this.lockLateSecond[k] = (this.lockLateSecond[k] ?? 0) + 1; }
+    setLock(p, w, count, timer, clip, kind, at);
+    p.lockSlack[w] = at - (this.serverClock - FIRE_STALL_CREDIT_TICKS);
   }
 
   /**
@@ -5726,6 +6874,8 @@ export class Room {
     return {
       feet: [s.x, s.y, s.z], yaw: s.yaw, posture: p.sim.walker.posture, moveRoot: this.aimRootOf(p), peek: p.sim.moves?.peek() ?? 0,
       groundNormalY: p.sim.walker.floorNormal[1],
+      aimProne: p.sim.walker.aimProne,                           // LATER 597: the dive's eye stands (headPoint)
+      pitch: s.pitch,                                            // PRONE_EYE_LOOK: the prone eye rises looking down
       rootSlack: p.cone.frame(p.sim.seq)?.rootSlack ?? ROOT_POSE_SLACK_PLACEHOLDER,
     };
   }
@@ -5738,11 +6888,15 @@ export class Room {
    * page's cast down from the hand (`grenade.ts` `placeCharge`): for it the path runs from the head down to the hand's
    * height over the body, across at it, then down to the charge. Null: it may leave from there.
    */
-  private startRefused(b: StartBody, from: readonly number[], placed = false, admits?: StartAdmits): 'far' | 'walled' | null {
-    const exact = headPoint(b);
+  private startRefused(b: StartBody, from: readonly number[], placed = false, admits?: StartAdmits, walls = true): 'far' | 'walled' | null {
+    // PRONE_EYE_LOOK: the start tolerance is the port's own (START_REACH_PLACEHOLDER), and the original's starts leave from
+    // the hand or firepoint, which do not rise with the look (seat-kill's paths read: r0004's throw clearance 0x54e6f0) --
+    // so the head here is LEVEL whatever body or frame comes in; the raised eye is only the aim pick's line.
+    const exact = headPoint({ ...b, pitch: 0 });
     const reach = START_REACH_PLACEHOLDER + b.rootSlack;
     const off = placed ? Math.hypot(from[0]! - b.feet[0], from[2]! - b.feet[2]) : Math.hypot(from[0]! - exact[0], from[1]! - exact[1], from[2]! - exact[2]);
     if (!(off <= reach)) return 'far';
+    if (!walls) return null;                                     // LANE-KILL B-06: a hand throw (`throwGrenade`), the reach alone
     const to: V3 = [from[0]!, from[1]!, from[2]!];
     // PF-05 (defence in depth): the head stands off the body's axis (FUN_0029ae50: 2.5 ahead, 4.9 prone), and a body
     // pressed to a wall at BODY_RADIUS 3.5 has it past the face. PF-16's prone fan keeps a body crawled into a wall 8.0
@@ -5830,14 +6984,14 @@ export class Room {
     // ROOM_HAND_TRUST_ADAPTATION's open lever, LATER 641). A choice of the port's: a turret's round is not the hand's and
     // is not refused here (the mount takes the slot, `FUN_005463c0` D:L412218). Before the alive check: a dead seat's
     // traded round with an item up was no round either. The item is the one AT the round's command (`handAt`).
-    if (this.handAt(p, ev.seq) !== null && (p.cone.frame(ev.seq)?.turret ?? null) === null) return this.dropped('fire', 'hand', p);
+    if (this.handAt(p, ev.seq) !== null && (p.cone.frame(ev.seq)?.turret ?? null) === null) return this.refusedRound(p, ev.seq, 'hand');
     if (!p.alive || this.state.phase === 'over') {
       // NCW-2 B-trade: a round the dead shooter's page sent before it could know of the death is decided as if he lived,
       // on his last command run alive (`tradeFrame`); any other refused, as before.
       const traded = this.state.phase === 'over' ? null : this.tradeFrame(p, ev.seq);
-      if (!traded) return this.dropped('fire', 'not alive', p);
+      if (!traded) return this.refusedRound(p, ev.seq, 'not alive');
       // The review's F1: a refusal of it under `trade: <reason>` (`dropped`); decided and refused counted per seat.
-      this.trading = p; this.tradeRefused = false;
+      this.trading = p; this.tradingSeq = ev.seq; this.tradeRefused = false;
       try { this.fireAt(p, { ...ev, seq: p.diedSeq }, traded, undefined); } finally { this.trading = null; }
       const t = p.signals.trade ??= { decided: 0, refused: 0 };
       if (this.tradeRefused) t.refused++; else t.decided++;
@@ -5847,15 +7001,16 @@ export class Room {
     const seat = p.mounted !== null ? this.turrets[p.mounted] : undefined;
     if (!frame) {                                                // not a command this body ran
       if (seat) seat.ammoDirty = true;                           // TURRET-AMMO F5: a dropped turret round re-syncs the page
-      return this.dropped('fire', 'no frame', p);
+      return this.refusedRound(p, ev.seq, 'no frame');
     }
     // LATER 173: a round named while the mount's clip plays (its `NoFire`, recorded in the frame by `aim`) is refused before
     // anything is spent -- `turretRound` spends first -- and the page told (`stale`): its rifle round, sent before it heard the
     // mount, refunded (`sentFires`); a turret round re-synced (`turretFireOwed`). The original fires nothing through the clip.
     if (seat && (frame.turret ?? null) !== null && !frame.fire) {
       this.send(p.id, { type: 'stale', request: 'fire', seq: ev.seq });
+      p.roundTold = ev.seq;                                      // LATER 876: told (`stale`), no `roundRefused` for it after
       this.turretFireOwed(p, ev);
-      return this.dropped('fire', 'nofire', p);
+      return this.dropped('fire', 'nofire', p, false, ev.seq);
     }
     // LATER 107 (MOUNT_ROUND_AT_COMMAND_ADAPTATION): a round named on a command run before the mount (its frame holds no
     // turret) is the hand's, on the hand's path with its record lent to the cone; the turret's record given back after.
@@ -5876,10 +7031,11 @@ export class Room {
       // spends, as LATER 173's check above refuses it while mounted (the turret's count untouched: nothing owed it).
       if (!frame.fire) {
         this.send(p.id, { type: 'stale', request: 'fire', seq: ev.seq });
-        return this.dropped('fire', 'nofire', p);
+        p.roundTold = ev.seq;                                    // LATER 876: told (`stale`), no `roundRefused` for it after
+        return this.dropped('fire', 'nofire', p, false, ev.seq);
       }
       const held = this.turrets[was];
-      if (!held || held.occupant !== null) return this.dropped('fire', 'released', p);
+      if (!held || held.occupant !== null) return this.refusedRound(p, ev.seq, 'released');
       const ammo = held.ammo;
       if (held.record) p.cone.setWeapon(held.record);
       this.fireAt(p, ev, frame, held);
@@ -5939,13 +7095,14 @@ export class Room {
    * refunds it, `../../viewer/src/netPage` `case 'stale'` -- the network's bookkeeping, as a refused reload, LATER 194).
    * Returns the refusal's word.
    */
-  private refuseRound(p: Player, seq: number, w: 0 | 1, count: number, pellets: number, why: string, ride: Player['volley']): string {
-    p.cone.round(seq);
+  private refuseRound(p: Player, seq: number, w: 0 | 1, count: number, pellets: number, why: string, ride: Player['volley'], depth?: number | null): string {
+    p.cone.round(seq, depth);                                    // LATER 1141: bloomed at the round's own f, as the page did
     if (ride) { ride.rays++; return ride.why ?? why; }
     p.lastFire[w] = count;
     p.volley = pellets > 1 ? { w, count, rays: 1, hit: new Set(), refused: true, why } : null;
     p.throwStart = null;
     this.send(p.id, { type: 'stale', request: 'fire', seq });
+    p.roundTold = seq;                                           // LATER 876: told (`stale`), no `roundRefused` for it after
     return why;
   }
 
@@ -5958,13 +7115,14 @@ export class Room {
     const aimed = turret ? this.turretRound(p, turret, frame, ev) : null;
     if (turret && !aimed) return;
     // M7: no round from the firearm while a rocket launcher is the item in the hand, nor before it has come back up.
-    if (!aimed && (p.held !== null || frame.count < p.firearmReadyAt)) return this.dropped('fire', 'launcher', p);
+    if (!aimed && (p.held !== null || frame.count < p.firearmReadyAt)) return this.refusedRound(p, ev.seq, 'launcher');
     // ROOM_RAISE_TRUST_ADAPTATION (P13, AR-3): no raise refusal here -- the rifle's raise envelope is the page's (LATER 180).
     const w = frame.weapon;
-    if (!aimed && !firearmSlotPresent(p.loadout, w)) return this.dropped('fire', 'no firearm', p);
+    if (!aimed && !firearmSlotPresent(p.loadout, w)) return this.refusedRound(p, ev.seq, 'no firearm');
     const record = aimed?.record ?? p.records[w];
-    // BL-1: the rate is the weapon's fastest enabled mode -- `FUN_005c09f0` (476313-476335): `FireWait` in mode 1,
-    // `FireWait` x 0.8 in burst and automatic (research 84 s6) -- less a tick for the page's frame-quantised clock. The
+    // BL-1: the rate is the weapon's fastest enabled mode -- r0004 0x5c76f0 (r0001 `FUN_005c09f0`, 476313-476335):
+    // `FireWait` x 1.2 in single (SWAP-FIRE: proven for mode 1 by atlas's capture; was x 1 in r0001), x 0.8 in burst and
+    // automatic (research 84 s6; modes 4 and up reading) -- less a tick for the page's frame-quantised clock. The
     // server does not know the page's mode; a slower mode only fires slower.
     const fastest = fastestWait(record);                         // `../../viewer/src/net/fireGate`: the page mirrors it
     // M4: a shotgun's pull is `NumProjectilesFired` rays at one command, one shell (`FUN_005be9a0` L475580-475677):
@@ -5977,35 +7135,48 @@ export class Room {
     const firedAt = this.eventClock(p);                          // SVC-23b: the round's time on the room's clock
     let early = false;                                           // RIFLE_JITTER_BLOOM_ADAPTATION: refused last, below
     let near = false;                                            // REFUSED_ROUND_CONE_ADAPTATION: one tick inside the cycle
+    let lockLate = false;                                        // LOCK_END_RELIEF_ADAPTATION: refused last, below
     if (!ofVolley && !aimed) {
       const gap = frame.count - p.lastFire[w];
       // Further inside than one tick: refused, and not bloomed (LATER 105 (b), a spray). One tick inside waits for the
       // cone check below and blooms there (`near`).
-      if (gap < cycle - REFUSED_ROUND_BLOOM_TICKS) return this.dropped('fire', 'rate', p);
+      if (gap < cycle - REFUSED_ROUND_BLOOM_TICKS) return this.refusedRound(p, ev.seq, 'rate');
       // LATER 588 (a) (reading, pending review): the console's period held over the chain (`fireGate` `scheduleOpen`:
       // 2 x `fireFrames` ticks, less FIRE_SCHEDULE_SLACK_ADAPTATION) -- the gap above holds a round only to the wait. A
       // round under it is refused without a bloom: the page's kit mirrors both bounds (`../../viewer/src/fire`
       // `pullRound`), so an honest page's round should not meet it -- after a refusal only the room makes (cone, muzzle or
       // early through `refuseRound`, nofire, reload or empty) the two can drift, the room the more lenient: tested by
       // `roomFireCadence.test.ts` 'AR-7 (P16)' (research 84 s11).
-      if (!scheduleOpen(p.fireSchedule[w], record, frame.count)) return this.dropped('fire', 'rate', p);
+      if (!scheduleOpen(p.fireSchedule[w], record, frame.count)) return this.refusedRound(p, ev.seq, 'rate');
       near = gap < cycle;
-      // SVC-23b: the same cycle and lock on the room's own clock, whatever commands the rounds name.
+      // SVC-23b: the same cycle and lock on the room's own clock, whatever commands the rounds name -- LATER 336: both in
+      // the offset this round is dated with (`keepSchedule`, a fall bounded; was: the offset of the round that laid them).
+      this.keepSchedule(p, w);
       early = firedAt < p.fireClock[w] + cycle - FIRE_ARRIVAL_JITTER_TICKS;
       // NCW-2 B-trade (Codex's P1 on PR #698): a traded round's magazine is the one the death found (`tradeRounds`).
       const left = p === this.trading ? p.tradeRounds[w] : p.mags[w].rounds();
-      if (frame.count < p.reloadUntil[w] || firedAt + FIRE_ARRIVAL_JITTER_TICKS < p.lockClock[w] || left <= 0) {
-        return this.dropped('fire', 'reload or empty', p);
-      }
-      if (w === 0 && frame.count < p.roundWaitUntil) return this.dropped('fire', 'rate', p);   // M4: a launched round's FireWait
+      // Inside the page's own lock on the command clock, or dry: not an honest page's round -- refused and spent, as ever.
+      if (frame.count < p.reloadUntil[w] || left <= 0) return this.refusedRound(p, ev.seq, 'reload or empty');
+      // LOCK_END_RELIEF_ADAPTATION: the lock on the room's clock alone -- refused last (below), as an early round.
+      lockLate = firedAt + FIRE_ARRIVAL_JITTER_TICKS < p.lockClock[w];
+      if (w === 0 && frame.count < p.roundWaitUntil) return this.refusedRound(p, ev.seq, 'rate');   // M4: a launched round's FireWait
     }
-    if (frame.swapping) return this.dropped('fire', 'swapping', p);   // M-3: `FUN_005a7de0` (452383) refuses mid-swap
+    if (frame.swapping) return this.refusedRound(p, ev.seq, 'swapping');   // M-3: `FUN_005a7de0` (452383) refuses mid-swap
     // PF-17 (PF.R36): the playing motion's `NoFire` at the command the round names (`FUN_005a7de0` D:L462612-462705).
-    if (!frame.fire) return this.dropped('fire', 'nofire', p);
-    if (frame.binoculars) return this.dropped('fire', 'binoculars', p);   // `FUN_005be9a0` 475305: nothing in view state 4
+    if (!frame.fire) return this.refusedRound(p, ev.seq, 'nofire');
+    if (frame.binoculars) return this.refusedRound(p, ev.seq, 'binoculars');   // `FUN_005be9a0` 475305: nothing in view state 4
     if (aimed?.round) return this.turretLaunch(p, aimed.round, aimed.from, aimed.dir, ev.seq);   // PAR-59: the MGL's round, no line
     let from: V3, dir: V3;
     let centring: number | null = null;                          // SEC-F1: the claim's offset from the cone's centre, below
+    let depth: number | null | undefined;                        // LATER 1141: the round's depth ratio, for its bloom below
+    // The rewind: the others where the shooter saw them, at most the seat's cap back (NCW-2 B-bound, OT.R105:
+    // `rewindCapTicks` of its measured round trip -- MAX_REWIND_MS with none, at most REWIND_CEILING_MS_ADAPTATION).
+    // NCW-2 B-shown (a browser adaptation, `shownOf`): at the round's displayed tick when it carries a valid one, else at
+    // its `viewTick` as before -- the same cap either way. Read here, before the cone (LATER 1141's full review M1: the
+    // bodies that vouch for a near `at` are the rewound ones), and by the hit test below.
+    const earliest = this.tick - rewindCapTicks(p.pingExact);
+    const shown = this.shownOf(ev, earliest);
+    const at = shown?.at ?? Math.max(earliest, Math.min(this.tick, ev.viewTick));
     if (aimed) ({ from, dir } = aimed);                          // TURRET_ROUND_LINE_READING: the room's muzzle, the claim's line
     else {
       from = ev.from;
@@ -6016,16 +7187,44 @@ export class Room {
       const d = ev.dir;
       const len = Math.hypot(d[0], d[1], d[2]);
       if (!(len > 0.5 && len < 1.5)) {
-        if (start) return this.dropped('fire', `muzzle ${start}`, p);
-        return this.dropped('fire', 'dir', p);
+        if (start) return this.refusedRound(p, ev.seq, `muzzle ${start}`);
+        return this.refusedRound(p, ev.seq, 'dir');
       }
       dir = [d[0] / len, d[1] / len, d[2] / len];
       // OWNER-3: the eye, the aim inside the cone, and the round down the eye's ray. LATER 305: the hull the cone reproduces
       // a claimed eye on for the view line (`ShotCone.setGrid`), as it stands now.
-      p.cone.setGrid(this.map.grid);
+      // LATER 1141: and the map's materials, so the aim point's hull test keeps what the page's eye query keeps.
+      p.cone.setGrid(this.map.grid, this.map.defaultMaterial ?? '');
+      // LATER 1141 (F2, a browser adaptation): every body this round could strike at the rewound tick (`rewoundBodies`' set, and also a player dead NOW who stood alive then -- a superset: the other players,
+      // bots among them, and the targetable hostages), as they stood at the round's rewound tick (`at`, the hit test's) --
+      // alive then, whatever since: the bodies that may vouch for an `at` nearer than the hull (`ShotCone.aimPoint`,
+      // `AT_BODY_REACH_ADAPTATION`). The full review's M1: the room's present (alive now) refused an honest round at a
+      // body the room had killed inside the page's view lag.
+      // The controller's ruling (a) on the delta re-review's S-1: each body's volumes are the hit test's own at `at` --
+      // `rewoundBodies`' construction: the live skeleton's posed boxes (HIT-POSE, `pastBoxes`) or the stance's set with its
+      // tilt and held peek (`bodyVolumes`, as `bodyRecords` poses them), the placeholder's capsules without a skeleton --
+      // so the page's `at` on a leaning head, a tilted prone body or an outstretched arm is measured on what it struck.
+      const vouch: PlacedBody[] = [];
+      for (const o of this.players.values()) {
+        if (o === p) continue;
+        const then = this.past(o, at);
+        if (!then?.alive) continue;
+        const boxes = pastBoxes(then);
+        vouch.push(boxes ? placedVolumes(then.feet, then.yaw, boxes) : bodyVolumes(then.feet, then.yaw, then.posture, this.volumesOf(o), then.tilt, then.peek ?? 0));
+      }
+      for (const h of this.extraction?.hostages ?? []) {
+        if (!this.extraction!.targetable(h)) continue;
+        const then = this.hostagePast(h, at);                  // LATER 831: the drawn pick, the posed boxes where kept
+        if (!then?.alive) continue;
+        vouch.push(this.hostagePastVolumes(h, then));
+      }
+      p.cone.setBodies(vouch);
       // SHOTGUN-PELLET-CONE (LATER 934): a pull's later ray against the cone its earlier rays bloomed (`FUN_005be9a0`
       // D:L475604 -> `FUN_005c5340` -> `FUN_005c3360` D:L479542: the bloom between the pellets' draws).
-      const verdict = p.cone.check(ev.seq, { eye: ev.eye, aim: ev.aim, from, dir }, ofVolley);
+      // LATER 1141 (protocol 19): the round's aim point `at`, when it names one (`ShotCone.check`, `claimDepth`).
+      const claim = { eye: ev.eye, aim: ev.aim, from, dir, ...(ev.at ? { at: ev.at } : {}) };
+      depth = p.cone.depthOf(claim);
+      const verdict = p.cone.check(ev.seq, claim, ofVolley);
       // REFUSED_ROUND_CONE_ADAPTATION (LATER 326): the console bloomed this round (`FUN_005c3360`). The room's muzzle
       // check has no original. Inside the cone, bloom and keep the reason; outside, do not bloom. Not a volley's later
       // ray: those skip the rate and are counted only when taken (`v.rays`), so a bloom there would be unbounded -- K
@@ -6033,23 +7232,28 @@ export class Room {
       // LATER 510, as LATER 170's early path (`refuseRound`): a refused pull's later rays (at most its pellets) bloom.
       if (start) {
         if (verdict === null && (!ofVolley || v!.refused === true)) {
-          return this.dropped('fire', this.refuseRound(p, ev.seq, w, frame.count, pellets, `muzzle ${start}`, ofVolley ? v : null), p);
+          return this.dropped('fire', this.refuseRound(p, ev.seq, w, frame.count, pellets, `muzzle ${start}`, ofVolley ? v : null, depth), p, false, ev.seq);
         }
-        return this.dropped('fire', `muzzle ${start}`, p);
+        return this.refusedRound(p, ev.seq, `muzzle ${start}`);
       }
       if (verdict !== null) {
         this.noteRefusal(p, ev, frame, `fire: cone: ${verdict}`);   // SIMDROP-INSTR: recorded and logged, nothing judged
-        return this.dropped('fire', `cone: ${verdict}`, p);
+        return this.refusedRound(p, ev.seq, `cone: ${verdict}`);
       }
       // SEC-F1 (OT.R98 step 1; product track, a statistic -- it decides nothing): read at the cone the claim was checked
       // against, before this round's bloom; counted below only if the round is taken.
-      centring = p.cone.centring(ev.seq, { eye: ev.eye, aim: ev.aim, from, dir });
+      centring = p.cone.centring(ev.seq, claim);
     }
     // LATER 170 (3): a refused pull's later ray, at most its pellets (`ofVolley`'s bound) -- bloomed and refused as the first.
     const refusedRay = ofVolley && v!.refused === true;
+    if (lockLate && !aimed) {
+      // LOCK_END_RELIEF_ADAPTATION: the lock's refusal on the room's clock alone, as the early round's below. Nothing spent.
+      // A first ray only (`lockLate` is set outside a volley): it opens the refused pull its later rays ride.
+      return this.dropped('fire', this.refuseRound(p, ev.seq, w, frame.count, pellets, 'reload or empty', null, depth), p, false, ev.seq);
+    }
     if ((early || near || refusedRay) && !aimed) {
       // RIFLE_JITTER_BLOOM_ADAPTATION (LATER 105) or one tick inside the cycle (LATER 326). Nothing spent or scheduled.
-      return this.dropped('fire', this.refuseRound(p, ev.seq, w, frame.count, pellets, 'rate', refusedRay ? v : null), p);
+      return this.dropped('fire', this.refuseRound(p, ev.seq, w, frame.count, pellets, 'rate', refusedRay ? v : null, depth), p, false, ev.seq);
     }
     if (ofVolley) v!.rays++;
     else if (!aimed) {
@@ -6060,7 +7264,9 @@ export class Room {
       // each); the tolerance a round has is unchanged (`early`: `cycle` less FIRE_ARRIVAL_JITTER_TICKS), so a page firing
       // on the console's whole frames (never
       // faster than the rate, `../../viewer/src/fire` `update`) is never early, and a faster one is held to the rate.
-      p.fireClock[w] = Math.max(firedAt, p.fireClock[w] + rate);
+      const chain = p.fireClock[w] + rate;
+      p.fireClock[w] = Math.max(firedAt, chain);
+      this.scheduleLaid(p, w, p.fireClock[w], chain);            // LATER 336: the fall the schedule may still take
       if (p === this.trading) p.tradeRounds[w]--;                // B-trade: from the rounds kept at the death, never the rings
       else p.mags[w].fire();
       p.throwStart = null;                                       // THROW-INTERRUPT (F1): its own round taken ends its request
@@ -6069,32 +7275,35 @@ export class Room {
       // fire as a reload does (`FUN_005a7ab0`): the weapon's lock runs on to their end, on the command clock.
       const lock = afterShotLock(record.id, record, p === this.trading ? p.tradeRounds[w] : p.mags[w].rounds(), record.id);
       if (lock !== null) {
+        // B-18 F1 (research 150 s5, "B-18"; reading, reviewed (the cited ranges; the life's start command is an agreement with the page; the unmodelled refusal states are AFTER_SHOT_REFUSED_STATES_READING); capture owed): the clip is picked when the kit's timer runs
+        // out, from the stance and the speed then (`FUN_005c0fd0` D:L476549-476563 -> `FUN_005c3000` -> `FUN_005a82e0(actor,
+        // 1)` D:L462845-462900), not at the shot: the lock is the timer's alone here, its clip part and the clip's life laid
+        // by `afterShotPick` on the command before the clip's first (`run`). Was: both from the shot's frame.
         const family = reloadFamily({ item: w ? 'pistol' : 'rifle', id: record.id, afterShot: true });
-        const clip = this.clips ? reloadSeconds(this.clips.clips, this.clips.table, frame.posture, reloadMoving(...frame.velocity), family, record.reloadTime ?? 0) ?? 0 : 0;
-        setLock(p, w, frame.count, lock, clip, 'afterShot', firedAt);
-        this.lockLife(p, w, frame.posture, reloadMoving(...frame.velocity), family, clip);   // PF-18
+        this.layLock(p, w, frame.count, lock, 0, 'afterShot');   // at `firedAt`, the offset kept above (LATER 336)
+        p.reloadLife[w] = null;
+        p.afterShotPick[w] = { at: frame.count, timer: p.lockTimer[w], lock, family, reloadTime: record.reloadTime ?? 0 };
+        // A timer shorter than the round's decision (`afterShotLock`'s 0.01 s default: its end on the shot's own command)
+        // ran out before the room knew the round: picked now, from the shot's frame, the nearest the room holds.
+        if (p.ran >= p.lockTimer[w] - 1) this.afterShotPick(p, w, frame.posture, frame.velocity);
       }
     }
     if (centring !== null) noteCentring(p.signals, centring);   // SEC-F1: an accepted round on foot, into the round's signals
-    if (!aimed) p.cone.round(ev.seq);                            // a turret round's is `turretRound`'s (TURRET-CONE)
+    if (!aimed) p.cone.round(ev.seq, depth);                     // a turret round's is `turretRound`'s (TURRET-CONE); LATER 1141: f
     const reach = record.maximumRange * UNITS_PER_METRE;
-    // The rewind: the others where the shooter saw them, at most the seat's cap back (NCW-2 B-bound, OT.R105:
-    // `rewindCapTicks` of its measured round trip -- MAX_REWIND_MS with none, at most REWIND_CEILING_MS_ADAPTATION).
-    const earliest = this.tick - rewindCapTicks(p.pingExact);
-    // NCW-2 B-shown (a browser adaptation, `shownOf`): at the round's displayed tick when it carries a valid one,
-    // else at its `viewTick` as before -- the same cap either way.
-    const shown = this.shownOf(ev, earliest);
-    const at = shown?.at ?? Math.max(earliest, Math.min(this.tick, ev.viewTick));
+    // The rewind (`earliest`, `shown`, `at`: read above, before the cone).
     const extra = this.rewoundBodies(p, from, dir, reach, at);
+    if (this.hitboxTrace) this.traceRound(p, ev.viewTick, at, from, dir, extra);   // HITBOX-TRACE: reads, judges nothing
     // PEN-MATERIAL: each world surface cuts the round by its own material's PENETRATION (`FUN_003c8920`: the byte
     // `FUN_002dc1d0` D:L319383, `DAT_0044f358` D:L319388, +0x24 D:L319473-319476, the cut D:L319510-319516; byte 0 the
     // map's DefaultMaterial), as the page's walk and `sceneBlast` take it. Was: a flat 0.5 for every surface.
     const penetration = (m: number | undefined): number => surfaceMaterial(m ?? 0, this.map.defaultMaterial ?? '').penetration;
     const path = roundPath(this.map.grid, [...from], dir, reach, penetration, record.piercing, extra);
     // NCW-1 (B-count; an instrument, nothing below reads it): the round classed against its own `viewTick`, a read only.
+    let rewindClass: RewindClass | null = null;                  // SHOT-LEDGER: the class, for the combat report's row below
     if (this.opts.rewindOutcome !== false) {
       const bodyIds = (struck: readonly { tag?: unknown }[]): number[] => struck.flatMap((s2) => s2.tag !== undefined ? [(s2.tag as { id: number }).id] : []);
-      this.noteRewind(p, ev.viewTick, at, ofVolley ? v : !aimed && pellets > 1 ? p.volley : null, ofVolley, bodyIds(path.struck), (when) => {
+      rewindClass = this.noteRewind(p, ev.viewTick, at, ofVolley ? v : !aimed && pellets > 1 ? p.volley : null, ofVolley, bodyIds(path.struck), (when) => {
         const probe = this.rewoundBodies(p, from, dir, reach, when);
         return probe.length ? bodyIds(roundPath(this.map.grid, [...from], dir, reach, penetration, record.piercing, probe).struck)[0] ?? null : null;
       }, shown);                                                 // NCW-17: the page's displayed tick beside it (B-shown: `at`)
@@ -6171,9 +7380,20 @@ export class Room {
     }
     for (const { f, t } of met.sort((a, b) => a.t - b.t)) this.chargeHit(f, (bulletDamage(record, t) ?? 0) / DAMAGE_SCALE, id);
     // INT.R5 (research 127): the combat report's account of the round -- nothing below changes for it.
-    const report = { request: 'fire', weapon: record.id, direction: dir } as const;
+    // SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game): with the report on, each of the round's
+    // rows names its seq, the rewound tick, its lead and class, and the first world surface's distance along it (null none).
+    const worldHit = path.struck.find((s2) => s2.tag === undefined);
+    const ledger = this.opts.combatReport
+      ? { seq: ev.seq, rewindTick: at, rewindLead: shown?.lead ?? null, rewindClass, worldAt: worldHit ? worldHit.distance : null }
+      : {};
+    const report = { request: 'fire', weapon: record.id, direction: dir, ...ledger } as const;
     this.countShot(p, !ofVolley, undefined);                     // PF-26: the shot (HIT_COUNT_READING); its hit below
-    if (!first) { this.combat(p, null, { ...report, status: 'miss', point: [end[0]!, end[1]!, end[2]!] }); return; }
+    if (!first) {
+      // SHOT-LEDGER: a miss names the nearest rewound body's distance from the round's line at `at` (`ledgerMissBy`).
+      const missBy = this.opts.combatReport ? { missBy: this.ledgerMissBy(p, from, dir, reach, at) } : {};
+      this.combat(p, null, { ...report, ...missBy, status: 'miss', point: [end[0]!, end[1]!, end[2]!] });
+      return;
+    }
     // BONE-BOXES (owner ruling OT.R119; research 398 s0, s3-s5; reading, pending review): each body record in the walk's
     // order goes to the victim's handler (D:L319417-319418); `bodyApplications` keeps the ones its part routine damages --
     // a limb's and then the first head or trunk hit of each body, which remembers the round (`+0x1048`, FUN_005ab850
@@ -6232,11 +7452,15 @@ export class Room {
       else bodyRecords(from, dir, reach, past.feet, past.yaw, past.posture, this.volumesOf(q), past.tilt, past.peek ?? 0, push(q.id, false));
     }
     // HX-1 (research 237 s2): after the players, the hostages -- the same PERSON records, where the shooter saw them
-    // (their own past), on their own skeleton's boxes at their stance (HX-2's `volumesOf({ escortee })`).
+    // (their own past), on their own skeleton's boxes at their stance (HX-2's `volumesOf({ escortee })`). LATER 831
+    // (research 237 s2.5): as the shooter's page drew them (`hostagePast`, `drawnPastOf`), on the live skeleton's posed
+    // boxes where the room kept them (`pastBoxes`), else the stance's idle set.
     for (const h of this.extraction?.hostages ?? []) {
       if (!this.extraction!.targetable(h)) continue;
-      const past = pastOf(h.history, at);
+      const past = this.hostagePast(h, at);
       if (!past || !past.alive) continue;
+      const boxes = pastBoxes(past);
+      if (boxes) { rayRecords(from, dir, reach, placedVolumes(past.feet, past.yaw, boxes), push(h.id, true)); continue; }
       // PRONE-TILT-2 (5). The peek is the past's, as the page's `s.peek ?? 0` (`RemotePlayers.aimCast`): a hostage's
       // past has none, so 0 (P34 (A1), `roomLiteralArgs.test.ts`).
       bodyRecords(from, dir, reach, past.feet, past.yaw, past.posture, this.hostageVolumes(h), past.tilt, past.peek ?? 0, push(h.id, true));
@@ -6263,6 +7487,40 @@ export class Room {
         return { id, hostage: false, part, raised: past?.raised ?? null, weight: past?.pose && past.poseAt ? past.pose.fireWeightAt(past.poseAt) : null };
       }),
     };
+  }
+
+  /**
+   * SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game): a missed round's nearest miss -- the least
+   * distance (world units) from the round's line, `from` along `dir` within `reach`, to any body as the room rewound it to
+   * `at`: the other players alive then and the targetable hostages, on the volumes the hit test meets there (the posed
+   * bone boxes, else the stance's set with its tilt and held peek; `fireAt`'s `vouch`), measured by `bodyPointDistance`
+   * (`../../viewer/src/net/shotCone`). Per body the line is searched within `LEDGER_MISS_SPAN` of its feet's foot on the
+   * line, in `LEDGER_MISS_STEP` steps, then narrowed (an instrument's estimate, within a hundredth of a unit of the
+   * sampled least). Null with no such body. Called only with the combat report on, after the judgement; it reads only.
+   */
+  private ledgerMissBy(p: Player, from: V3, dir: V3, reach: number, at: number): number | null {
+    const bodies: { feet: readonly number[]; body: PlacedBody }[] = [];
+    for (const o of this.players.values()) {
+      if (o === p) continue;
+      const then = this.past(o, at);
+      if (!then?.alive) continue;
+      const boxes = pastBoxes(then);
+      bodies.push({ feet: then.feet, body: boxes ? placedVolumes(then.feet, then.yaw, boxes) : bodyVolumes(then.feet, then.yaw, then.posture, this.volumesOf(o), then.tilt, then.peek ?? 0) });
+    }
+    for (const h of this.extraction?.hostages ?? []) {
+      if (!this.extraction!.targetable(h)) continue;
+      const then = this.hostagePast(h, at);
+      if (!then?.alive) continue;
+      // `hostagePastVolumes`' two branches inline, without its HITBOX-TRACE `volumesPosed` write: this instrument writes nothing.
+      const boxes = pastBoxes(then);
+      bodies.push({ feet: then.feet, body: boxes ? placedVolumes(then.feet, then.yaw, boxes) : bodyVolumes(then.feet, then.yaw, then.posture, this.hostageVolumes(h), then.tilt, then.peek ?? 0) });
+    }
+    let best: number | null = null;
+    for (const { feet, body } of bodies) {
+      const d = lineBodyDistance(from, dir, reach, feet, body);
+      if (d !== null && (best === null || d < best)) best = d;
+    }
+    return best;
   }
 
   /**
@@ -6293,9 +7551,9 @@ export class Room {
    * scored walk's own and it is never a miss at the scored rewind -- `shownMiss` reads 0 for it, a tripwire; the round its
    * `viewTick` would have lost and the picture lands is NCW-1's class `d` (no hit at the `viewTick`, struck at `at`).
    */
-  private noteRewind(p: Player, viewTick: number, at: number, pull: Player['volley'], ofVolley: boolean, atStruck: number[], probe: (tick: number) => number | null, shown: { lead: number; at: number } | null = null): void {
+  private noteRewind(p: Player, viewTick: number, at: number, pull: Player['volley'], ofVolley: boolean, atStruck: number[], probe: (tick: number) => number | null, shown: { lead: number; at: number } | null = null): RewindClass | null {
     const prior = ofVolley ? pull?.rewind : undefined;
-    if (prior?.counted) return;
+    if (prior?.counted) return null;
     const age = prior?.age ?? this.tick - viewTick;
     const e = prior?.e ?? age > HISTORY - 1;
     const view = Math.min(this.tick, viewTick);
@@ -6304,10 +7562,13 @@ export class Room {
     const shownRead = shown === null ? {} : { shownFirst: shown.at === at ? atStruck[0] ?? null : probe(shown.at) };
     if (!e) rays.push({ viewFirst: view === at ? atStruck[0] ?? null : probe(view), atStruck, ...shownRead });
     const lead = prior ? prior.lead : shown?.lead;               // NCW-17: a pull's lead its first ray's
-    if (!pull) { this.countRewind(p, e ? 'e' : rewindClassOf(rays), age, e ? undefined : lead, rays); return; }
-    if (prior) return;
+    // SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game): a single round's class is returned
+    // for the combat report's row; a shotgun pull's is settled later (`settleRewind`), so null.
+    if (!pull) { const cls = e ? 'e' : rewindClassOf(rays); this.countRewind(p, cls, age, e ? undefined : lead, rays); return cls; }
+    if (prior) return null;
     pull.rewind = { rays, age, e, counted: false, ...(lead !== undefined ? { lead } : {}) };
     this.rewindOpen.push({ p, pull });
+    return null;
   }
 
   /**
@@ -6383,6 +7644,17 @@ export class Room {
   /** NCW-17: of them, the rounds with a displayed tick by seat and lead bucket, and the seat's misses at the claim. */
   private readonly shownSecond = new Map<number, { lead: Map<string, number>; miss: number }>();
 
+  /** LOCK_LATE_BUCKETS: the locks laid since the last call, by their raw lateness's bucket; null when none was laid. */
+  takeLockLate(): Partial<Record<LockLateBucket, number>> | null {
+    const out = this.lockLateSecond;
+    if (!Object.keys(out).length) return null;
+    this.lockLateSecond = {};
+    return out;
+  }
+
+  /** LOCK_LATE_BUCKETS: the counts since `takeLockLate` last ran (an instrument; nothing judged reads it). */
+  private lockLateSecond: Partial<Record<LockLateBucket, number>> = {};
+
   /**
    * NCW-1 (B-count; an instrument): the rounds classed since the last call, by seat and `class:bucket`, each seat with its
    * newest heartbeat round trip (`rttMs`, raw; null none yet) and the score row's smoothed `ping` -- for the server's
@@ -6425,6 +7697,124 @@ export class Room {
    */
   private hostageVolumes(h: Hostage): StanceVolumes | null {
     return this.volumesOf({ escortee: h.character });
+  }
+
+  /** LATER 831: a hostage's escortee hit body, picked as `volumesOf({ escortee })` picks its volumes (never a SEAL's), or null. */
+  private hostageHitBodyOf(h: Hostage): HitBody | null {
+    const i = this.escorteeCharacters.indexOf(h.character);
+    return (i >= 0 ? this.escorteeHitBodies[i] : null) ?? this.escorteeHitBodies[0] ?? null;
+  }
+
+  /**
+   * HX-1, LATER 831: the hostages' past this tick (`ExtractionAuthority.remember`), each entry with the pose its poser
+   * kept (`hostagePose`), on the hostages' bodies as this tick's snapshot carries them (`ExtractionAuthority.bodies`,
+   * read only when an escortee hit body has motion).
+   */
+  private rememberHostages(): void {
+    const ext = this.extraction;
+    if (!ext) return;
+    const states = this.escorteeHitBodies.some((b) => b?.motion) ? new Map(ext.bodies().map((b) => [b.id, b])) : null;
+    ext.remember(this.tick, HISTORY, states ? (h) => this.hostagePose(h, states.get(h.id) ?? null) : undefined);
+  }
+
+  /**
+   * LATER 831 (HIT-POSE for the hostages; research 237 s2.5; reading, pending review): a hostage's live pose this tick --
+   * the page's `Animator` on its escortee skeleton with the No_weapon set (`HitPoser` made with `CIV_ANIM_SET`, as
+   * `RemotePlayers.addEscortee`'s `Play`), stepped by a tick (`HIT_POSE_CLOCK_READING`) on the body the room sends of it
+   * (`body`, `ExtractionAuthority.bodies`), turned as the page's copy turns it (`HitPoser.stepEscortee`:
+   * `escorteeSnapshot`'s rule and its stand-to-crouch transition, `HOSTAGE_HIT_POSE_TRANSITION_READING`), with the
+   * follower's root tilt -- its pose kept (`HitPoser.keep`, a ring of `HISTORY` poses) and returned with its stamp. A
+   * targetable hostage with a body in the snapshot and an escortee hit body with motion; else null (the idle sets) and
+   * its poser dropped. Made anew for a new hit body or a new `HostageFollow` (a round's reset), as the page rebuilds.
+   */
+  private hostagePose(h: Hostage, body: BodyState | null): { pose: HitPoser; poseAt: number } | null {
+    const hit = body && h.motion && this.extraction!.targetable(h) ? this.hostageHitBodyOf(h) : null;
+    if (!hit?.motion || !body || !h.motion) { this.hostagePosers.delete(h.id); return null; }
+    let s = this.hostagePosers.get(h.id);
+    if (!s || s.body !== hit || s.motion !== h.motion) {
+      s = { pose: new HitPoser(hit.skeleton, hit.motion, HISTORY + 1, CIV_ANIM_SET), transition: new EscorteeTransition(hit.motion), body: hit, motion: h.motion, at: 0 };
+      this.hostagePosers.set(h.id, s);
+    }
+    s.pose.stepEscortee(1 / TICK_HZ, body, h.motion.rootTilt, s.transition);
+    s.at = s.pose.keep();
+    return { pose: s.pose, poseAt: s.at };
+  }
+
+  /** LATER 831: a hostage's past at `tick` as the shooter's page drew it (`drawnPastOf`, the snapshot ticks the room sent). */
+  private hostagePast(h: Hostage, tick: number): Past | null {
+    return drawnPastOf(h.history, tick, Math.round(TICK_HZ / SNAPSHOT_HZ));
+  }
+
+  /**
+   * LATER 831: a hostage's body where it stands now -- its live pose's boxes (the last tick's, `hostagePose`) at its feet
+   * and yaw, else its stance's idle set with its root tilt (PRONE-TILT-2 (5)).
+   */
+  private hostageLiveVolumes(h: Hostage): PlacedBody {
+    const s = this.hostagePosers.get(h.id);
+    // A poser of another life (the round's reset gives a new `HostageFollow`; the review's F3): the idle set until the next
+    // `rememberHostages` makes it anew.
+    const boxes = s?.at && s.motion === h.motion ? s.pose.boxesAt(s.at) : null;
+    this.volumesPosed = boxes !== null;                          // HITBOX-TRACE: read by the trace only
+    return boxes ? placedVolumes(h.at, h.yaw, boxes) : bodyVolumes(h.at, h.yaw, this.extraction!.posture(h), this.hostageVolumes(h), h.motion?.rootTilt);
+  }
+
+  /**
+   * LATER 831: a hostage's body at a past (`hostagePast`) -- the posed boxes kept with it (`pastBoxes`) at its feet and yaw,
+   * else its stance's idle set with its tilt (and its peek: a hostage's past has none, so 0). The order pick
+   * (`hostageOrderVolumes`), the round's vouch and HITBOX-TRACE all take it from here (lifted unchanged out of the two:
+   * `test/hitboxTraceOutputs.test.ts` holds the room's bytes to the base's).
+   */
+  private hostagePastVolumes(h: Hostage, past: Past): PlacedBody {
+    const boxes = pastBoxes(past);
+    this.volumesPosed = boxes !== null;                          // HITBOX-TRACE: read by the trace only
+    return boxes ? placedVolumes(past.feet, past.yaw, boxes) : bodyVolumes(past.feet, past.yaw, past.posture, this.hostageVolumes(h), past.tilt, past.peek ?? 0);
+  }
+
+  /**
+   * The order pick's hostage body at `at` (LATER 853's rewound tick; null, the present): its past's volumes
+   * (`hostagePastVolumes`), null when it was dead then; with no past or no tick, its live volumes (`hostageLiveVolumes`).
+   * Lifted unchanged out of `orderPick`, which casts on it; HITBOX-TRACE writes what it returns.
+   */
+  private hostageOrderVolumes(h: Hostage, at: number | null): PlacedBody | null {
+    const past = at !== null ? this.hostagePast(h, at) : null;
+    if (past && !past.alive) return null;
+    return past ? this.hostagePastVolumes(h, past) : this.hostageLiveVolumes(h);
+  }
+
+  /**
+   * HITBOX-TRACE (`./hitboxTrace`; a dev instrument, product track): each tick, each targetable hostage's volumes as an
+   * order judged later with the view tick `tick - stride` casts on (`hostageOrderVolumes`: the snapshot entries on both
+   * sides of that tick are in its history by now, so the pick is final), and each living player's as the order pick casts
+   * on it now (`liveVolumes`, with its held peek). Called only with a recorder; it reads and judges nothing.
+   */
+  private traceBodies(): void {
+    const t = this.hitboxTrace!, at = this.tick - Math.round(TICK_HZ / SNAPSHOT_HZ);
+    for (const h of this.extraction?.hostages ?? []) {
+      if (!this.extraction!.targetable(h)) continue;
+      const v = this.hostageOrderVolumes(h, at);
+      if (v) t.body(at, h.id, 'hostage', h.ai.state ?? -1, this.volumesPosed, v);
+    }
+    for (const q of this.players.values()) {
+      if (!q.alive) continue;
+      const w = q.sim.walker;
+      t.body(this.tick, q.id, 'player', w.posture, !!(q.hitAt && q.poser), this.liveVolumes(q, [w.state.x, w.state.y, w.state.z], q.sim.moves?.peeking() ?? 0));
+    }
+    t.endTick();
+  }
+
+  /**
+   * HITBOX-TRACE: a round's rewind -- the first body record its walk made (`rewoundBodies`' order) and every targetable
+   * hostage's volumes at its tick `at` (`hostagePastVolumes`, the vouch's). Called only with a recorder; reads only.
+   */
+  private traceRound(p: Player, viewTick: number | undefined, at: number, from: V3, dir: V3, extra: readonly ExtraSurface[]): void {
+    const bodies: { id: number; posed: boolean; volumes: PlacedBody }[] = [];
+    for (const h of this.extraction?.hostages ?? []) {
+      if (!this.extraction!.targetable(h)) continue;
+      const then = this.hostagePast(h, at);
+      if (then?.alive) { const volumes = this.hostagePastVolumes(h, then); bodies.push({ id: h.id, posed: this.volumesPosed, volumes }); }
+    }
+    const first = extra[0]?.tag as { id: number } | undefined;
+    this.hitboxTrace!.round(this.tick, viewTick ?? null, at, p.id, from, dir, first?.id ?? null, bodies);
   }
 
   /**
@@ -6471,13 +7861,15 @@ export class Room {
     }
     for (const h of this.extraction?.hostages ?? []) {
       if (!this.extraction!.targetable(h)) continue;
-      const past = at !== null ? pastOf(h.history, at) : null;
-      if (past && !past.alive) continue;
-      const hit = rayBody(eye, d, reach, past
-        ? bodyVolumes(past.feet, past.yaw, past.posture, this.hostageVolumes(h), past.tilt)
-        : bodyVolumes(h.at, h.yaw, this.extraction!.posture(h), this.hostageVolumes(h), h.motion?.rootTilt));
+      // LATER 831: the drawn pick (`hostagePast`), the posed boxes where kept; at the present, the live pose's
+      // (`hostageOrderVolumes`, the trace's read too)
+      const volumes = this.hostageOrderVolumes(h, at);
+      if (!volumes) continue;
+      if (this.hitboxTrace) (this.orderTraced ??= { at, bodies: [] }).bodies.push({ id: h.id, posed: this.volumesPosed, volumes });
+      const hit = rayBody(eye, d, reach, volumes);
       if (hit) bodies.push({ id: h.id, distance: hit.t });
     }
+    if (this.hitboxTrace) this.orderTraced ??= { at, bodies: [] };
     const far: V3 = [eye[0] + d[0] * reach, eye[1] + d[1] * reach, eye[2] + d[2] * reach];
     return crosshairPick(bodies, pickSurfaces(this.map.grid, eye, far, this.map.defaultMaterial ?? ''));
   }
@@ -6565,6 +7957,10 @@ export class Room {
    */
   private hostageBulletHit(p: Player, h: Hostage, part: number, distance: number, record: WeaponRecord, volley: boolean): void {
     if (!this.extraction!.targetable(h) || this.hostageRefuses(p, record.id, h)) return;
+    // LATER 1185 (`FUN_00572330`): the hit counter, its shooter seated (a kind-2 entity); the AI's frame stamp keeps one a frame.
+    const ps = p.sim.walker.state;
+    h.ai.shotBy(record.id, this.players.get(p.id) === p ? [ps.x, ps.y, ps.z] : null);
+    const was = overall(h.health);                                // LATER 1186: the health before, for the flinch's test
     let died = false;
     if (volley) {
       if (!p.volley || p.volley.hit.has(h.id)) return;
@@ -6583,6 +7979,28 @@ export class Room {
       died = applyHit(h.health, part, damage, piercing);
     }
     if (died) this.hostageKilled(h, p, { weapon: this.weaponName(record.id, record.name), how: 'weapon', cause: deathCause('bullet', part), clip: deathClip('bullet', part, this.extraction!.posture(h), this.opts.random, 'teammate') });
+    else this.hostageFlinch(h, part, was);
+  }
+
+  /**
+   * LATER 1186 (research 447 s3.2, s9.1; reading, pending review): a hostage a round left alive flinches, as a player does
+   * (`flinch`): the part-damage applier's non-fatal branch (`FUN_005a54d0` D:L461394-461408) flinches a body whose health
+   * dropped, its controller local -- on the host a hostage's -- and the cause neither a blast (4) nor a fall (7) (a bullet
+   * here); the clip from the global table by part and stance (`FUN_005a0270`, the players' lists: `HOSTAGE_FLINCH_READING`),
+   * through `FUN_005a2690`'s gate (`flinchRefused`: a knock's fall or landing, a climb's clip), which pushes it to every console
+   * as a Push Blend 0xf (D:L460025; `FUN_00588ab0` -> `FUN_002bbaf0`): every page is told `flinch` with the hostage's id
+   * (`../../viewer/src/net/protocol` `flinch`, its meaning widened). The hostage has no reload, so no window is held; what its
+   * AI's motion does under the clip -- its follow, its stance, a climb the original pops (D:L460018) -- is unread
+   * (`HOSTAGE_FLINCH_MOTION_PLACEHOLDER`, research 238): it moves on. A bullet (`hostageBulletHit`) and a thrown round's
+   * direct impact (`hostageDirectHit`, cause 5 as `FUN_005abbc0` D:L464731 passes) call it; a blast (4) and a fall (7) never.
+   */
+  private hostageFlinch(h: Hostage, part: number, was: number): void {
+    if (!h.alive || !(overall(h.health) < was)) return;
+    // FUN_005a2690's gate as the player's (`flinchRefused`): the knock's falls and landings refuse it by their action, a
+    // get-up does not (the review's F2); a climb's clip by the traversal's.
+    if (flinchRefused({ action: h.motion?.action ?? null, overlay: null, traversal: h.motion?.traversalPose ?? null })) return;
+    const clip = flinchClip(part, this.extraction!.posture(h), this.opts.random);
+    this.broadcast({ type: 'flinch', id: h.id, clip });
   }
 
   /**
@@ -6605,7 +8023,7 @@ export class Room {
    */
   private bulletHit(
     p: Player, victimId: number, part: number, struck: { distance: number; point: readonly number[] }, record: WeaponRecord, volley: boolean, from: V3,
-    report: { readonly request: 'fire'; readonly weapon: number; readonly direction: V3 },
+    report: { readonly request: 'fire'; readonly weapon: number; readonly direction: V3 } & ShotLedgerFields,   // SHOT-LEDGER: its fields ride on each row
   ): void {
     const victim = this.players.get(victimId);
     const onBody = { ...report, part, distance: struck.distance, point: [struck.point[0]!, struck.point[1]!, struck.point[2]!] as V3 };
@@ -6637,7 +8055,7 @@ export class Room {
     const was = overall(victim.health);
     const healthBefore = [...victim.health.hp], armourBefore = [...victim.health.armour];
     const died = applyHit(this.woundable(victim), part, laid, piercing) && !this.deathless(victim);   // CPS cell-alive
-    this.send(victimId, { type: 'hurt', health: [...victim.health.hp], from: [...from], part });
+    this.hurtTo(victim, [...from], part);
     this.combat(p, victim, { ...onBody, status: 'applied', rawDamage: laid, healthBefore, armourBefore, killed: died });
     if (died) this.kill(victim, p, this.weaponName(record.id, record.name), 'weapon', deathCause('bullet', part), deathClip('bullet', part, victim.sim.walker.stance, this.opts.random), undefined, part);
     else this.flinch(victim, part, was);
@@ -6671,18 +8089,24 @@ export class Room {
     // inside it before it knew (`../../viewer/src/net/flinchReload`).
     const held = this.flinchState(victim, clip);
     this.broadcast({ type: 'flinch', id: victim.id, clip, ...(held ? { from: victim.flinchFrom, until: victim.flinchUntil } : {}) });
+    victim.poser?.pose.stopReload('flinch');                     // RELOAD-HITPOSE: as the pages end it (`Play.stopRemoteReload`)
   }
 
   /**
    * PF-21 (research 217 s4): whether `FUN_005a2690` (D:L459887-460017) refuses the victim's flinch now
    * (`flinchRefused`): its mover's action, overlay and traversal clip, and the launcher's raise or lower on its own clock
-   * (`heldReadyAt` / `firearmReadyAt`, `Rifle -> Launcher` / `Pistol -> Launcher` playing).
+   * (`heldReadyAt` / `firearmReadyAt`, `Rifle -> Launcher` / `Pistol -> Launcher` playing). R4P-227 (research 179 s11.4;
+   * reading, pending review): the START's own two refusals beside them (`flinchStartRefused`) -- a looped locomotion on top
+   * (`FLINCH_LOOPED_GATE_READING`, D:L460011, D:L460033-460035) and a mounted gun (`FLINCH_MOUNTED_READING`, `+0xeb8`,
+   * D:L460017, D:L460040). Asked here only, at the hit; never per frame of a flinch playing (`flinchRefused`).
    */
   private flinchRefusedOn(victim: Player): boolean {
     const w = victim.sim.walker;
-    return flinchRefused({
-      action: w.action, overlay: w.overlay, traversal: victim.sim.moves?.pose() ?? null,
+    const traversal = victim.sim.moves?.pose() ?? null;
+    return flinchStartRefused({
+      action: w.action, overlay: w.overlay, traversal,
       launcher: victim.ran < Math.max(victim.heldReadyAt, victim.firearmReadyAt),
+      looped: flinchLoopedTop(w, traversal), mounted: victim.mounted !== null,
     });
   }
 
@@ -6723,6 +8147,43 @@ export class Room {
   private lockLife(p: Player, w: 0 | 1, posture: AimFrame['posture'], moving: boolean, family: ReloadLifeSpec['family'], seconds: number): void {
     const spec = reloadLifeSpec(this.clips?.clips ?? null, this.clips?.table ?? null, posture, moving, family, seconds);
     p.reloadLife[w] = spec && !spec.moving ? { ...stillClipClock(p.lockTimer[w]), spec } : null;
+    for (const e of p.cutLog) this.cutAt(p, w, e.count, e.push, e.airborne, e.bare);
+  }
+
+  /**
+   * B-18 F1 (research 150 s5, "B-18"; reading, reviewed (the cited ranges; the life's start command is an agreement with the page; the unmodelled refusal states are AFTER_SHOT_REFUSED_STATES_READING); capture owed; PTW.R3 with `../../viewer/src/fireCore`
+   * `beginAfterShot` and `../../viewer/src/matchFirearm` on `afterShot`): weapon `w`'s after-shot clip, picked when the kit's
+   * timer runs out -- `FUN_005c0fd0` D:L476549-476563 -> `FUN_005c3000` -> `FUN_005a82e0(actor, 1)` with the stance and
+   * the speed of that moment (D:L462845-462900): `posture` and `velocity` of the command before the clip's first. The
+   * fire lock is extended by the clip's length (`FUN_005a7ab0` holds the fire while it plays, D:L462522-462555) and its
+   * still clip's life laid (`lockLife`). Under a `dive_to_prone` top `FUN_005b4340(actor, 3)` refuses and no clip is
+   * pushed (D:L469334-469335), the timer zeroed all the same (D:L476561): no life, and the lock ends at the timer (was:
+   * the clip's length after it; the round mode's path still is, `AFTER_SHOT_DIVE_FIRE_LOCK_READING`). The record goes here either way; one no longer
+   * named by the weapon's lock (`lockStart`, `lockTimer`: a swap, a take, a spawn or a new round cleared or replaced it,
+   * as the page's `Fire.cancelReload` / `setWeapon` clear `afterShotPending`) picks nothing.
+   */
+  private afterShotPick(p: Player, w: 0 | 1, posture: AimFrame['posture'], velocity: readonly number[]): void {
+    const k = p.afterShotPick[w];
+    p.afterShotPick[w] = null;
+    if (k === null || p.lockKind[w] !== 'afterShot' || p.lockTimer[w] !== k.timer || p.lockStart[w] !== k.at) return;
+    const moves = p.sim.moves;
+    if (moves instanceof Traversal && moves.inDive()) return;
+    if (!this.clips) return;
+    const moving = reloadMoving(velocity[0]!, velocity[1]!, velocity[2]!);
+    const clip = reloadSeconds(this.clips.clips, this.clips.table, posture, moving, k.family, k.reloadTime) ?? 0;
+    const extra = lockTicks(k.lock, clip) - lockTicks(k.lock, 0);
+    p.reloadUntil[w] += extra;
+    p.lockClock[w] += extra;
+    this.lockLife(p, w, posture, moving, k.family, clip);   // PF-18
+    // The life's clock from the command the clip is pushed after (the timer's last, `timer - 1`): an AGREEMENT WITH THE PAGE
+    // and with the reload's `lockLife` convention (a reload's runs from the command it is named on, the page's from the tick
+    // its `afterShot` follows, `matchFirearm.ts` `stillReload.start(..., walk.ticks())`), not a reading of the original: the
+    // original's frame order between the kit's post-tick push and `FUN_00552ec0`'s read, and whether 0.5 s is 30 or 31
+    // decrements under the strict `< 0` test, are owed to the capture. The commands already run past it (a late decision)
+    // are asked from `cutLog`.
+    const life = p.reloadLife[w];
+    if (life === null) return;
+    p.reloadLife[w] = { ...life, start: k.timer - 1 };
     for (const e of p.cutLog) this.cutAt(p, w, e.count, e.push, e.airborne, e.bare);
   }
 
@@ -6935,7 +8396,7 @@ export class Room {
     }
     died = lethal && !this.deathless(victim);
     if (part < 0) return;
-    this.send(victim.id, { type: 'hurt', health: [...victim.health.hp], from: [...from], part });
+    this.hurtTo(victim, [...from], part);
     this.combat(p, victim, {
       ...report, status: 'applied', part: hits.length === 1 ? part : null, hitLocations: hits, rawDamage: laid * hits.length, healthBefore, armourBefore, killed: died,
     });
@@ -7089,6 +8550,20 @@ export class Room {
   }
 
   /**
+   * LATER 1206 (research 428 s8.4-s8.5; reading, pending review): the door program's `ai::MOVE` gave the presser's
+   * controller its goal (`DoorHooks.move`). It blocks only on an AI's controller (`FUN_005d5d00`'s vtable +0x38 test,
+   * D:L488983-488989; research 377 s6): a seated player (`CSealCtrl` / `CRemoteCtrl`) and the page's own press answer
+   * null, and the program runs on at once. A hostage presser (an id from `HOSTAGE_ID_BASE`; its `CSealCtrlAi`) is told the
+   * goal through its follower (`HostageFollow.doorMove`), and the program waits on its arrival (`DOOR_MOVE_ARRIVE_READING`)
+   * or the timeout (`DOOR_MOVE_TIMEOUT_READING`). A hostage with no follower body answers null: nothing walks it.
+   */
+  private doorMove(point: readonly [number, number, number], facing: readonly [number, number, number], actor: DoorActor): (() => boolean) | null {
+    if (typeof actor !== 'number' || actor < HOSTAGE_ID_BASE) return null;
+    const motion = this.extraction?.hostage(actor)?.motion;
+    return motion ? motion.doorMove(point, facing) : null;
+  }
+
+  /**
    * PF-14 (TEAM_SCORE_READING; research 214 s5, 192 s3.6 G26): each side's team score, the objectives' carry
    * (`FUN_00544d60(scorer, 1)`, the game's +0x7c SEALs / +0x80 Terrorists): +1 per living player of the scorer's side,
    * the scorer included, on every objective event. Zeroed with the round (where the round scores are); on the `score`
@@ -7115,8 +8590,13 @@ export class Room {
     p.score += points; p.roundScore += points;
     const kind = statKind(event, type);
     if (kind === 'primary') p.primaryObjs++; else if (kind === 'bonus') p.bonusObjs++;   // HX-5's two count apart ('none')
+    // R4P-252 (OBJECTIVE_TEAMMATE_CREDIT_READING): the online BREACH defuse and BREACH or DEMOLITION detonation call
+    // FUN_00545d80 (D:L411645, D:L411691): every other (D:L411928) living (D:L411929) player sharing a team bit with the
+    // actor (D:L411930) +1 primary objective (+0x32, the method's arg-1 branch D:L411649 / D:L411695, through the member
+    // pointers 0x64fd68 / 0x64fd48). The room is the online game.
+    if (creditsTeammates(event, type)) for (const q of this.players.values()) if (q !== p && q.alive && q.team === p.team) q.primaryObjs++;
     // SVC-12d: the planter's +0x38 (FUN_005455d0 D:L411611-411613), the defuser's +0x36 (FUN_00545650 D:L411642).
-    if (event.kind === 'plant') p.bombsPlanted++; else if (event.kind === 'defuse') p.bombsDefused++;
+    if (event.kind === 'plant') { p.bombsPlanted++; p.roundPlanted++; } else if (event.kind === 'defuse') p.bombsDefused++;
     if (carriesTeam(event)) this.teamScore[p.team] += teamCarry(p.team, this.players.values());
     this.scoreDirty = true;
     this.scoreSentAt = -Infinity;                                // MEDIUM-3: a point scored goes out at the next tick, never coalesced
@@ -7152,7 +8632,7 @@ export class Room {
    * `terrorist_callstrike_1` -- the struck surface the page's aim named (as C4's, PF-13): alive; a SWITCH record (a door
    * goes by `door`, the bomb's tents by XR-05's); the struck node at or under the record's (`no action`); the record's own
    * strict reach from the point (`actionAtPick`, `FUN_005aa240` D:L463895/463898: `reach`); the head's line to the point
-   * clear (`c4Line`: `walled` / `missed`); not used this round (`used`; `FUN_002b5510` clears it); then its program on the
+   * clear (`c4Line`: `walled` / `missed`); a Forge switch not used this round (`used`; LATER 976); then its program on the
    * room's silent world (`executeAction`; `busy` while it runs, `FUN_002b44e0` D:L156787). On success the use is marked,
    * every page told (`action`: it runs the program as presentation, PF.R26) and its points scored (PF-14). Its FIRE_WEAPONs
    * hurt nobody (BRIDGE_FIRE_WEAPON_READING, ruling PF.R32: the world's host ignores them).
@@ -7192,8 +8672,8 @@ export class Room {
     const lag = Math.max(0, Math.min(MAX_REWIND_MS / 1000, (this.tick - p.viewTick) / TICK_HZ));
     const slack = crane >= 0 ? cranePressSlack(this.cranes.specs[crane]!, lag) : 0;
     let line = crane >= 0
-      ? c4Line(this.map.grid, head, surface, this.map.defaultMaterial ?? '', eyes, slack)
-      : c4Line(this.map.grid, head, surface, this.map.defaultMaterial ?? '', eyes);
+      ? actionLine(this.map.grid, head, surface, this.map.defaultMaterial ?? '', eyes, slack)
+      : actionLine(this.map.grid, head, surface, this.map.defaultMaterial ?? '', eyes);
     // The fallback reads the head's line only, not the camera eyes: `c4Line` keeps the head's first-hit rule whether or
     // not an eye looks (LATER 139), so it adds to a crane's press only the moved face within the slack, never an eye's.
     if (!line.clear && crane >= 0 && line.why === 'missed') {
@@ -7221,30 +8701,39 @@ export class Room {
       // #337 takeover, point 4: the record's points once a round -- the host's two callers of `FUN_00545530` (D:L160566 in
       // `FUN_002bb310`, D:L160645 in `FUN_002bb5b0`) score only while the record's `+0x3f` bit 1 is clear and points are
       // non-zero, then set it; the third (D:L160668, `FUN_002bb770`) is a peer applying the host's score message, unguarded;
-      // `FUN_002b5510` clears the bit at the round. The room is the host. Kept apart from `markUsed`,
-      // which would also refuse the hook's next press (`executeAction`'s once-a-round use, XR-04).
+      // `FUN_002b5510` clears the bit at the round. The room is the host. Kept apart from `markUsed` (the
+      // generic switches' score bit), as the crane's press never takes that path.
       if (!this.craneScored.has(ev.action)) {
         this.craneScored.add(ev.action);
         this.scoreObjective(p, { kind: 'action', points: actionPoints(a) });
       }
       return;
     }
-    // MAP-07: a gate lever toggles all round. The snapshot's door tail carries the slide; marking it used would jam it open.
+    // MAP-07: a gate lever toggles all round. The snapshot's door tail carries the slide; it scores nothing (points 0), so it marks no use.
     if (this.gates.has(ev.action)) {
       // Refused while the lever's program runs (`GateSet.use`: FUN_002b44e0 D:L156787), and a refused press is not the
       // pull the close log names.
       if (!this.gates.use(ev.action)) return this.dropped('action', 'busy', p);
       const gateIndex = this.gates.indexOf(ev.action);
       if (gateIndex !== undefined) this.gatePull.set(gateIndex, { id, action: ev.action, seq: ev.seq });
+      this.broadcast({ type: 'action', action: ev.action, by: id });   // LATER 307: every page presents it (PF.R26), no slide
       this.ruleEvent({ name: 'interact', player: id, id: a.valve });   // FCW-31
       return;
     }
-    if (this.world.actionUsed(ev.action)) return this.dropped('action', 'used', p);
-    if (!this.world.executeAction(a.valve)) return this.dropped('action', 'busy', p);
+    // LATER 976: a disc switch's second use is the original's to allow (`FUN_002b44e0` r0001 / 0x2b5ef0 r0004: refused while
+    // its program runs -- r0004 keeps a NETWORKED use refused there and re-runs it at the program's end, which the room does
+    // not (research 213 s4, the deferred use: not built) -- or a
+    // `one_shot` record after a completed run -- `executeAction`'s `busy`); a Forge switch is once a round (the owner's
+    // USED_SWITCH_PROMPT_ADAPTATION, FG.R2). `markUsed` is the score's once (the record's `+0x3f` bit 1).
+    const refused = this.world.actionRefusal(ev.action);
+    if (refused) return this.dropped('action', refused, p);
+    if (!this.world.executeAction(a.valve, undefined, false, undefined, id)) return this.dropped('action', 'busy', p);   // LATER 1038: the presser
+    const scored = this.world.actionUsed(ev.action);
     this.world.markUsed(ev.action);
     this.broadcast({ type: 'action', action: ev.action, by: id });
     this.ruleEvent({ name: 'interact', player: id, id: a.valve });   // FCW-31
-    this.scoreObjective(p, { kind: 'action', points: actionPoints(a) });   // PF-14: FUN_00545530, once (beside markUsed)
+    // PF-14: FUN_00545530, once a round -- only while the record's `+0x3f` bit 1 is clear (D:L160627-160646).
+    if (!scored) this.scoreObjective(p, { kind: 'action', points: actionPoints(a) });
   }
 
   // ---- the manual turrets (MAP-10b; ruling PF.R31; research 215, 177 s2-s6, 193 s2.2/s4.3) ----
@@ -7344,7 +8833,8 @@ export class Room {
     this.releaseTurret(t);
     // LATER 109 (TURRET_RELEASE_TRAVEL_READING): the mount clip reversed (`FUN_005a6eb0` D:L462136-462170), stepped from this
     // command on (`run`); none in a room without the clips.
-    p.release = ReleaseTravel.start(mountShape(this.clips?.clips ?? null, this.clips?.table ?? null, p.sim.weapon));
+    // R4P-R2 (L67, L87): the reversed clip of the slot the release chose (`dismountHand`; r0004 0x5aca70 D4:L503204-503207).
+    p.release = ReleaseTravel.start(mountShape(this.clips?.clips ?? null, this.clips?.table ?? null, this.dismountHand(p)));
     p.releaseSpan = p.release ? { from: dseq + 1, to: dseq + p.release.ends(1 / TICK_HZ) - 1 } : null;   // LATER 109 (F-A)
   }
 
@@ -7510,7 +9000,19 @@ export class Room {
     // The mount clip's steer onto the seat (`FUN_005463c0` D:L412260-412316; `FUN_005b3340`, the one-shot branch of
     // `FUN_0057a330` D:L439017-439020 -- not `FUN_005b2d20`, the looped one's: research 215 s7.1): the hand's clip's refPt,
     // toward the gun's yaw at the mount (PB-2c: `FUN_005463c0` D:L412268-412297; was the placement's rest facing).
-    p.seat = SeatSteer.start(t.place, mountShape(this.clips?.clips ?? null, this.clips?.table ?? null, p.sim.weapon), [s.x, s.y, s.z], t.gunYaw);
+    // R4P-R2 (L81; reading, pending review; the second and third reads, 2026-11-24): the clip by the hand class `+0xf79` at
+    // the take -- here the firearm slot in the hand, an item over it or not (the select writes only 1 and 2, 0x5ac050
+    // D4:L502932-502964), the same rule the other side's page draws by (its slot) -- passed to r0004's 0x5acbb0
+    // (D4:L452444): the pistol's for the pistol (D4:L503258-503260), the rifle's otherwise (`mountHandOf`). Class 3 is the
+    // launcher route (an item taken from the raised launcher, D4:L503129) or a release's fallback to the kept item
+    // (D4:L452168-452169) -- not "the firearm slot absent": the first is not built (MOUNT_AFTER_LAUNCHER_ITEM_READING; the
+    // seat steer's shape and the NoFire gate read `mountHand` too, so on that route they follow the slot's clip),
+    // and a kit with no firearm takes its slot's clip (ITEM_ALONE_MOUNT_CLIP_READING). The item, the page's ROOM-HAND word
+    // at that command (`handAt`; ROOM_HAND_TRUST_ADAPTATION), is what the take keeps for the release (`dismountHand`).
+    const item = this.handAt(p, seq);
+    p.mountHand = mountHandOf(p.sim.weapon);
+    p.mountKept = item !== null ? 'item' : p.sim.weapon === 1 ? 'secondary' : 'primary';
+    p.seat = SeatSteer.start(t.place, mountShape(this.clips?.clips ?? null, this.clips?.table ?? null, p.mountHand), [s.x, s.y, s.z], t.gunYaw);
     // TURRET-STEER-SEQ (LATER 96): `after`, the command before `seq` in the page's numbering (an older page's and the bound's:
     // the room's count at the send, `sim.seq`; a worded take in `run`: M - 1): the steer steps on each command `run` runs above it.
     const after = seq - 1;
@@ -7611,12 +9113,12 @@ export class Room {
    */
   private turretRound(p: Player, t: TurretState, frame: AimFrame, ev: { seq: Extract<ClientEvent, { type: 'fire' }>['seq']; dir: Extract<ClientEvent, { type: 'fire' }>['dir'] }): { record: WeaponRecord; round: ThrowableRecord | null; from: V3; dir: V3 } | null {
     const record = t.record;
-    if (!record) return this.turretDropped(p, t, 'no turret weapon');
+    if (!record) return this.turretDropped(p, t, 'no turret weapon', ev.seq);
     // TURRET-CONE's re-review R1: a command run before this mount is no turret round of it -- since LATER 107 one of an
     // earlier hold (a dismount and a remount); the hand's go `fire`'s hand path (MOUNT_ROUND_AT_COMMAND_ADAPTATION).
-    if (frame.count <= t.mountCount) return this.turretDropped(p, t, 'before the mount');
+    if (frame.count <= t.mountCount) return this.turretDropped(p, t, 'before the mount', ev.seq);
     // `fire`'s own two gates, before anything is spent: mid-swap (M-3) and the binoculars (view state 4).
-    if (frame.swapping || frame.binoculars) return this.turretDropped(p, t, frame.swapping ? 'swapping' : 'binoculars');
+    if (frame.swapping || frame.binoculars) return this.turretDropped(p, t, frame.swapping ? 'swapping' : 'binoculars', ev.seq);
     // LATER 207: a round named on the last hold's commands, decided after its release (the dismount path,
     // `DISMOUNT_ROUND_AT_COMMAND_ADAPTATION`), is judged on that hold's magazines and timer (`released`), not the summed
     // count -- the weapon's magazine empty at d refuses it as it would have mounted; nothing armed or put in for it.
@@ -7625,7 +9127,7 @@ export class Room {
     // TURRET-AMMO: while the reload's timer runs the trigger is not read, and on the frame it stops either (`FUN_005c0fd0`
     // D:L476549-476563: `bVar11 = false` for any frame entered non-zero, the landing's included; the review's fold, F1).
     // Past it the reload lands first if the tick's tell has not yet (`landTurret`).
-    if (frame.count <= (after?.lockUntil ?? t.lockUntil)) return this.turretDropped(p, t, 'reload');
+    if (frame.count <= (after?.lockUntil ?? t.lockUntil)) return this.turretDropped(p, t, 'reload', ev.seq);
     if (t.reloading) this.landTurret(t);
     // LATER 207's re-look B-F1: a landing the release met still pending lands on the kept ring first, as mounted it would
     // have (`FUN_005c2a90` at the timer's end, D:L476553-476560); heard by none -- the hold is over.
@@ -7635,18 +9137,19 @@ export class Room {
       // (D:L476616-476622) -- not on class 230, whose `FUN_003d1e20` is 0 (D:L476590, D:L324477-324479). The pull fires
       // nothing. The put-in is `FUN_005c2a90`'s, so the others hear its `ReloadSound` (F4, `turretReloadHeard`).
       if (ring && !after && itemClass(record.id) !== 'turret2' && ring.reload()) this.turretReloadHeard(t);
-      return this.turretDropped(p, t, 'empty');
+      return this.turretDropped(p, t, 'empty', ev.seq);
     }
     // P3-room (AR-4; reading, pending review): the hand's two bounds (`fireAt`), one source (`../../viewer/src/net/fireGate`).
-    // The gap (BL-1, LATER 326): the fastest enabled mode's wait (`FUN_005c09f0` D:L476323-476341) x TICK_HZ, less a tick.
+    // The gap (BL-1, LATER 326): the fastest enabled mode's wait (r0004 0x5c76f0, single x 1.2 -- SWAP-FIRE; r0001
+    // `FUN_005c09f0` D:L476323-476341) x TICK_HZ, less a tick.
     // The schedule (LATER 588 (a)): the console's period over the chain -- the turret's kit runs the same fire timer
     // `+0x81c` a game frame at a time (`FUN_005c0fd0` D:L476643-476647; the gate `FUN_005c0ae0` D:L476446-476448; the
     // page's `TurretTrigger`, LATER 588 (b)): 2 x `fireFrames` ticks, less FIRE_SCHEDULE_SLACK_ADAPTATION. Under either:
     // refused 'rate', no bloom. Was: a private copy of the gap alone (a forged PKM TURRET every 5 commands: 12 a second).
     const cycle = fireCycleTicks(record);
     const firedAt = this.eventClock(p);
-    if (frame.count - t.lastFire < cycle) return this.turretDropped(p, t, 'rate');
-    if (!scheduleOpen(t.fireSchedule, record, frame.count)) return this.turretDropped(p, t, 'rate');
+    if (frame.count - t.lastFire < cycle) return this.turretDropped(p, t, 'rate', ev.seq);
+    if (!scheduleOpen(t.fireSchedule, record, frame.count)) return this.turretDropped(p, t, 'rate', ev.seq);
     // TURRET-CONE (TURRET_ROUND_LINE_READING): the claim's line inside the cone about the gun's own line at the command's
     // clamped aim, the neighbouring commands' blended (`ShotCone.checkLine`) -- the page rolled it (`TurretPage.round`).
     const d = ev.dir, len = Math.hypot(d[0], d[1], d[2]);
@@ -7655,10 +9158,10 @@ export class Room {
     if (firedAt < t.fireClock + cycle - FIRE_ARRIVAL_JITTER_TICKS) {
       // TURRET_JITTER_BLOOM_ADAPTATION: early on the event clock alone -- the console fired and bloomed it; once a cycle.
       if (dir && verdict === null) { t.lastFire = frame.count; p.cone.round(ev.seq); }
-      return this.turretDropped(p, t, 'rate');
+      return this.turretDropped(p, t, 'rate', ev.seq);
     }
-    if (!dir) return this.turretDropped(p, t, 'dir');
-    if (verdict !== null) return this.turretDropped(p, t, `cone: ${verdict}`);
+    if (!dir) return this.turretDropped(p, t, 'dir', ev.seq);
+    if (verdict !== null) return this.turretDropped(p, t, `cone: ${verdict}`, ev.seq);
     t.lastFire = frame.count;
     t.fireSchedule = scheduleAfter(t.fireSchedule, record, frame.count);   // P3-room (LATER 588 (a)): on a period, or a new chain
     t.fireClock = Math.max(firedAt, t.fireClock + cycle);
@@ -7688,8 +9191,8 @@ export class Room {
    * set the tell when it spent it. A mounted 'nofire' never reaches `turretRound` since LATER 173: `fire` refuses a mounted
    * frame with no fire first, nothing spent, and owes the tell itself (`turretFireOwed`; research 215 s8, s8.2).
    */
-  private turretDropped(p: Player, t: TurretState, why: string): null {
-    this.dropped('fire', why, p);
+  private turretDropped(p: Player, t: TurretState, why: string, seq: number): null {
+    this.refusedRound(p, seq, why);                              // LATER 876: and its page told (`roundRefused`)
     t.ammoDirty = true;
     return null;
   }
@@ -7827,15 +9330,34 @@ export class Room {
       // there (`MoverSim.prepare`), as the page's `taps + 1`; the form `swapRefused` uses (its review's F1: was `seq + 1`).
       || p.sim.seq < p.movingLowerUntil;
     p.sim.walker.launcherSetOn = () => flinchOnTop(p.launcherSet, p.sim.seq);   // LATER 504: the set kneels the room's mover too
+    // R4P-R2 (L106; reading, pending review): the turret set on the room's mover -- mounted, or the release's reversed clip
+    // (`onTurretSet`) -- which refuses the walk-off's `Jump fall` (r0004 0x583400, D4:L481315; D4:L538271-538273 names the set).
+    p.sim.walker.turretSetOn = () => onTurretSet(p.mounted !== null, p.release !== null);
+    p.sim.walker.launcherMountOn = () => p.held !== null;         // WEAPON-LINE: the launcher the mount until its put-away
+    // GRENADE-LOWERS (viewer `Walker.handGrenadeUp`; PC 2's L1578-PROBE-WEAPONS, GRENADE-LOWER-r0004; reading, pending review):
+    // no weapon line while the seat's hand (ROOM-HAND, at the command running) holds a hand grenade, as the page's walk
+    p.sim.walker.handGrenadeUp = () => handGrenade(this.handAt(p, p.sim.seq));
     // LATER 512c (research 92 section 4, "LATER 512c's reading"; PTW.R3 with `../../viewer/src/walk` `oneShotOnTop`): the
     // flinch's slot -- the flinch, a door's `Open door` over it (`doorMotion`), the flinch handed back at its pop
     // (`flinchUncover`) -- on top on command `sim.seq`, read after the tick's pop (`[flinchFrom, flinchUntil)`), not while
     // the fall covers it (`flinchAir`): a stance request waits under it (`FUN_00552ec0` D:L418927-418930).
-    p.sim.walker.oneShotOnTop = () => {
+    const flinchSlot = (): boolean => {
       const seq = p.sim.seq;
       if (p.flinchFrom < 0 || seq < p.flinchFrom || seq >= p.flinchUntil) return false;
       return !(p.flinchAir >= 0 && seq >= p.flinchAir);
     };
+    // B-18 (research 150 section 5, "B-18"; the cases it names proven or reading one by one in research 150 (KILL2 capture: the gate and the one-frame pop proven, the rest reading); PTW.R3 with
+    // `../../viewer/src/walk` `stillClipOnTop`): or the hand's still reload or after-shot clip on its life (`reloadLife`)
+    // for the command run now (`ran`, as `jumpRefused` asks it) -- neither looped nor a transition, so the request waits
+    // (D:L418927-418930) until `watchCut` ends the life at its end or the stick's cut (`FUN_00550ef0` D:L418174-418203).
+    // Not under a move (`busy`, as `jumpRefused`).
+    // And for one game frame past the life's end (`reloadLifePopAt`, `STANCE_POP_FRAME_COMMANDS`; the KILL2 capture proves one game frame, 2 commands is its arithmetic; per weapon here, single on the page: research 150, B-18 known edges).
+    const stillClip = (): boolean => {
+      const life = p.reloadLife[p.sim.weapon], at = p.reloadLifePopAt[p.sim.weapon];
+      const popped = at >= 0 && p.ran > at && p.ran - at < STANCE_POP_FRAME_COMMANDS;
+      return ((life !== null && p.ran >= life.start) || popped) && !p.sim.moves?.busy();
+    };
+    p.sim.walker.oneShotOnTop = () => flinchSlot() || stillClip();
     // The door-open body hold (the owner, 2026-11-07: "u shouldnt be able to open then move right away"; research 92
     // section 2, "The body under the door clip"; reading, pending review; PTW.R3 with `../../viewer/src/walk` `pushedTop`):
     // a door's push (`doorMotion`) on top on command `sim.seq` -- the slot above, a push's (`flinchGatesReload` false) --
@@ -7844,12 +9366,13 @@ export class Room {
     // its `NoInterrupt`, `FUN_00587c20` D:L445550-445556), which `flinchCut` ends the window at after the command.
     p.sim.walker.pushedOnTop = () => {
       const clip = p.flinchClip, seq = p.sim.seq;
-      if (clip === null || p.flinchGatesReload || !p.sim.walker.oneShotOnTop?.()) return null;
+      if (clip === null || p.flinchGatesReload || !flinchSlot()) return null;   // B-18: the flinch's slot alone, not the reload's life
       const window = { start: p.flinchAt, until: p.flinchUntil, ...(p.flinchCutFrom >= 0 ? { cutFrom: p.flinchCutFrom } : {}) };
       return { clip, t: (seq - p.flinchAt) / TICK_HZ, cuttable: flinchCutAt(window, seq) };
     };
     const moves = p.sim.moves;
     if (!(moves instanceof Traversal)) return;
+    moves.handRefusesClimb = () => this.handRefusesClimb(p);   // R4P-243 (L367; PTW.R3 with the page's `setHandRefusesClimb`)
     moves.on((e) => {
       if (p.sim.moves !== moves) return;
       if (e.type === 'climbStart' || e.type === 'ladderMount') {
@@ -7866,10 +9389,35 @@ export class Room {
     });
   }
 
+  /**
+   * R4P-R2 (L67; reading, pending review): the slot r0004's release chooses (`dismountSlot`: the secondary when it kept the
+   * secondary or the kit has no primary, else the primary, else the kept slot; 0x54a900 D4:L452157-452169). Review 1 F1:
+   * a slot present is the loadout's (`firearmSlotPresent`, as the page reads it) -- `records` is never null (an absent
+   * firearm takes `NO_FIREARM_RECORD_PLACEHOLDER`), so the first build read every kit as having both.
+   */
+  private dismountChoice(p: Player): 'primary' | 'secondary' | 'saved' {
+    return dismountSlot(p.mountKept, firearmSlotPresent(p.loadout, 0), firearmSlotPresent(p.loadout, 1));
+  }
+
+  /** R4P-R2 (L67, L87): the hand the release's reversed clip is of (`releaseHandOf`, the pages' own function). */
+  private dismountHand(p: Player): 0 | 1 {
+    return releaseHandOf(p.mountKept, firearmSlotPresent(p.loadout, 0), firearmSlotPresent(p.loadout, 1));
+  }
+
   /** A turret freed (a dismount, its occupant's death or leave, the round's start): every page told. */
   private releaseTurret(t: TurretState, tell = true): void {
     const p = t.occupant !== null ? this.players.get(t.occupant) : undefined;
-    if (p && p.mounted === t.place.id) { p.mounted = null; p.cone.setWeapon(p.records[p.weapon]); }   // TURRET-CONE: the hand's again (D:L412005)
+    // R4P-R2 review 1 F1: the release's reversed clip told every page with the release (`releaseHand`), so each draws the
+    // room's choice (`dismountHand`) -- a held turret's only; a reservation's release draws none.
+    const releaseHand = p && p.mounted === t.place.id ? this.dismountHand(p) : null;
+    if (p && p.mounted === t.place.id) {
+      p.mounted = null; p.cone.setWeapon(p.records[p.weapon]);   // TURRET-CONE: the hand's again (D:L412005)
+      // R4P-R2 (L67; reading, pending review): r0004's release (0x54a900, D4:L452157-452169) selects a firearm, not the slot
+      // kept at the mount (r0001 D:L412005): an item kept there is put away from the command after (the ROOM-HAND word's
+      // own convention, `handTake`), unless the kit has no firearm to choose (`dismountSlot`'s 'saved'). Every release of a
+      // held turret runs it (the original's `FUN_00545ee0` from the press, the knock, a death alike).
+      if (p.mountKept === 'item' && this.dismountChoice(p) !== 'saved') this.handTake(p, null, p.sim.seq + 1);
+    }
     if (p) { p.dismount = null; p.seatOff = null; }              // LATER 104: none pending past the release
     if (p && p.reserved?.turret === t.place.id) p.reserved = null;   // A1: a reservation dropped (a refusal, a death, a leave, a resume)
     t.occupant = null;
@@ -7886,7 +9434,7 @@ export class Room {
     // LATER 207: the hold's magazines and timer kept for a round named on its last commands (`turretRound`).
     t.released = t.mags ? { mags: t.mags, lockUntil: t.lockUntil, reloading: t.reloading, lands: t.lands } : null;   // the re-look's B-F1: its landing too
     t.mags = null; t.reloading = false; t.lockUntil = -1e9; t.lockFrom = -1e9; t.lands = true;
-    if (tell) this.broadcast({ type: 'turret', ...turretWire(t) });
+    if (tell) this.broadcast({ type: 'turret', ...turretWire(t), ...(releaseHand !== null ? { releaseHand } : {}) });
   }
 
   /**
@@ -7992,7 +9540,7 @@ export class Room {
   }
 
   /** Research 386 §3.2: the scene programs' `FIRE_WEAPON` rounds waiting out their fuse (`sceneRound`), by the tick they go off. */
-  private readonly sceneRounds: { tick: number; kind: string; point: V3 }[] = [];
+  private readonly sceneRounds: { tick: number; kind: string; point: V3; presser: Player | null; name: string }[] = [];
   /** PF-34 (ruling PF.R54; research 234 s6): the world drops -- a classic death's weapons and bundle, the claims, the walks. */
   private readonly worldDrops = new WorldDrops({
     broadcast: (ev) => this.broadcast(ev), send: (id, ev) => this.send(id, ev), refused: (why, id) => this.dropped('pickup', why, this.players.get(id)),
@@ -8044,6 +9592,102 @@ export class Room {
     return this.cast ??= gridCast(this.map.grid, this.map.defaultMaterial ?? '');
   }
 
+  /**
+   * LANE-KILL B-06: whether the original's release clearance (`throwClear`, r0004 `0x54e6f0`; OT.R97) passes at the
+   * request's body `request` for the launch (`power`, `aim`: a sine, or the aim vector in the actor frame) in the stance `s` (`throwRelease` asks each stance
+   * THROW_CLEARANCE_PAIRS_ADAPTATION names). The body's snapshot as the page's: the request's feet, facing and speed across the
+   * ground, and its HELD lean (`peeking`, LATER 1178 (ii)'s review F1; r0004 casts the lean's ray from the lean's own
+   * hand, research 256 s5); `stanceState` left out, the stance tried being the state itself.
+   */
+  private throwCleared(request: AimFrame, s: PlaySnapshot['stance'], power: number, aim: ThrowAimArg): boolean {
+    const snap = {
+      feet: [request.feet[0], request.feet[1], request.feet[2]] as [number, number, number], yaw: request.yaw,
+      vx: request.velocity[0], vz: request.velocity[2], peek: Math.sign(request.peeking) as -1 | 0 | 1, stance: s,
+    };
+    return throwClear(this.map.grid, snap, power, aim);
+  }
+
+  /**
+   * LANE-KILL B-06's START-TIE ([adaptation]: SVC-23b's wall lines, which had no original, re-anchored to the hand; the
+   * lane's decision, 2026-11-21; research 256 §5.2): whether the sent start `from` is tied to a hand the body really has
+   * for the launch (`power`, `aimSin`) in one of the stances `stances` -- the line from some candidate release hand to
+   * `from` crosses no wall (every polygon, two-sided, as `startWalled`). The candidates, each in the actor frame and
+   * carried to the world by a body's frame (`actorToWorldPoint`; the release request's and the throw's own, both the
+   * server's mover): `GetThrowAnim`'s TABLE point for the pair (`throwAnim(...).offset`, which a page without a posed
+   * body sends), and the page's POSED release hand for that clip, the frame before, the release frame and the frame after
+   * (`ROOM_START_TIE_RENDER_GRID_ADAPTATION`: the page's samples on the 1/60 s render grid, kept apart from the re-read
+   * `POSED_RELEASE_HAND_READING` until LATER 1428's page half, ruling B; a clip with no entry, the table point alone).
+   * A held lean (`peeking`) asks the lean toss of its side too, as the page's `stance` does. No distance value: an honest page sends one of these itself, so
+   * one line is about zero long (the posed hand within a frame's travel); a start past a wall the body faces leaves
+   * every candidate on the body's side.
+   */
+  private throwTied(frames: readonly AimFrame[], from: readonly number[], stances: readonly PlaySnapshot['stance'][], power: number, aimSin: number): boolean {
+    const to: V3 = [from[0]!, from[1]!, from[2]!];
+    for (const f of frames) {
+      const speedSq = f.velocity[0] * f.velocity[0] + f.velocity[2] * f.velocity[2];
+      const asked: ThrowStance[] = [...stances];
+      if (f.peeking !== 0) asked.push(f.peeking > 0 ? 'peek-right' : 'peek-left');
+      for (const s of asked) {
+        const a = throwAnim(power, aimSin, s, speedSq), key = throwAnimKey(a);
+        for (const hand of [a.offset, ...(key ? ROOM_START_TIE_RENDER_GRID_ADAPTATION[key] ?? [] : [])]) {
+          if (segmentHit(this.map.grid, actorToWorldPoint(f.feet, f.yaw, hand), to) === null) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * LANE-KILL B-06: a hand throw's release, past the reach and the launch: `walled` when no launch matching the throw `ev`
+   * from its frame `frame` (`throwLaunches`) is tied to a hand (`throwTied`, the start-tie, the adaptation); `unclear`
+   * when no tied launch passes the original's clearance (`throwCleared`, r0004 `0x54e6f0`) at the release request's body
+   * `request`, under THROW_CLEARANCE_PAIRS_ADAPTATION: the range's stance, then the request's posture -- and, standing,
+   * the crouched state too (OBF-23's crouch-run). Null: it goes.
+   *
+   * The review of c5629fb494, B1 (the controller's option A, 2026-11-21; part of THROW_CLEARANCE_PAIRS_ADAPTATION's
+   * leniency): the velocity holds only the launch's CLAMPED elevation (`THROW_AIM_CLAMP`, 0..55 degrees, r0004
+   * 0x5c9640-0x5c9680), while the page ties its hand and casts its clearance along the body's real aim (r0004 `0x5e6690`),
+   * which pressed to a tall wall stands 72-76 degrees up. So a matching pair whose elevation sits at a clamp bound (within
+   * the search's step) is also tried at every aim past that bound, on the same step, up to the stance's cone
+   * (`THROW_AIM_CONE_READING`: prone its prone set, any other posture the standing set): above 55 to its `up`, below 0 to
+   * its `down` but no lower than THROW_AIM_FLOOR_ADAPTATION (the controller's ruling (ii), 2026-11-21: the delta review's
+   * F1, a forged level throw through a thin wall taken by a steep-down aim). Each tied aim's clearance is cast at the
+   * request's posture's yaws (THROW_AIM_SIDE_ADAPTATION: prone, ahead and the prone cone's +-45 too; the tie takes no
+   * yaw). Refused only when no tried aim ties and clears. No aim filter: the room's own aim is owed (LATER 1294).
+   */
+  private throwRelease(request: AimFrame, frame: AimFrame, ev: Extract<ClientEvent, { type: 'throw' }>): 'walled' | 'unclear' | null {
+    const asked: readonly PlaySnapshot['stance'][] = request.posture === 'stand' ? ['stand', 'crouch'] : [request.posture];
+    const frames = request === frame ? [frame] : [request, frame];
+    const step = (THROW_AIM_CLAMP[1] - THROW_AIM_CLAMP[0]) / THROW_AIM_STEPS, deg = Math.PI / 180;
+    const cone = request.posture === 'prone' ? THROW_AIM_CONE_READING.prone : THROW_AIM_CONE_READING.stand;
+    const sides = THROW_AIM_SIDE_ADAPTATION[request.posture];
+    const floor = throwAimFloor(Math.min(request.pitch, frame.pitch), request.posture);
+    let tied = false;
+    const go = throwLaunches(frame.feet, frame.yaw, frame.posture, ev.from, ev.velocity, (power, aimSin, stance) => {
+      const stances = [stance, ...asked.filter((s) => s !== stance)];
+      // B1: the recovered aim, then, at a clamp bound, the aims past it to the cone's limit (that limit included).
+      const aims = [aimSin], elevation = Math.asin(aimSin);
+      const past = (bound: number, limit: number): void => {
+        const n = Math.ceil(Math.abs(limit - bound) / step - 1e-9), dir = Math.sign(limit - bound);
+        for (let k = 1; k <= n; k++) aims.push(Math.sin(bound + dir * Math.min(k * step, Math.abs(limit - bound))));
+      };
+      if (elevation >= THROW_AIM_CLAMP[1] - step - 1e-9) past(THROW_AIM_CLAMP[1], cone.up * deg);
+      // Below 0: down to THROW_AIM_FLOOR_ADAPTATION (the commands' pitch less its margin), within the cone.
+      if (elevation <= THROW_AIM_CLAMP[0] + step + 1e-9) past(THROW_AIM_CLAMP[0], floor);
+      for (const a of aims) {
+        if (!this.throwTied(frames, ev.from, stances, power, a)) continue;
+        tied = true;
+        const c = Math.sqrt(Math.max(0, 1 - a * a));
+        for (const side of sides) {
+          const aim: ThrowAimArg = side === 0 ? a : [Math.sin(side * deg) * c, a, -Math.cos(side * deg) * c];
+          if (stances.some((s) => this.throwCleared(request, s, power, aim))) return true;
+        }
+      }
+      return false;
+    });
+    return go ? null : tied ? 'unclear' : 'walled';
+  }
+
   /** An item's record by its name: the kit table's, else the baked transcriptions' (`BAKED_THROWN`); null for none. */
   private itemByName(name: string): { id: number } | null {
     const item = this.kits?.table.arsenal.byName.get(name);
@@ -8077,24 +9721,41 @@ export class Room {
     if (p.throwStart && (ev.start === undefined || ev.start === p.throwStart.seq)) p.throwStart = null;
     if (this.victoryPlaying.has(p.id)) return;
     const t = this.throwable(ev.kind);
-    if (!p.alive || this.state.phase === 'over') return this.dropped('throw', 'not alive', p);
+    // LATER 1407: each refusal an honest page reaches, told to the thrower (`tellRefusedThrow`) and tallied (`dropped`);
+    // `unknown kind` and `slot` (a forged or old page's) stay untold.
+    const told = (why: string): void => { this.tellRefusedThrow(p, ev.seq); this.dropped('throw', why, p); };
+    if (!p.alive || this.state.phase === 'over') return told('not alive');
     if (!t) return this.dropped('throw', 'unknown kind', p);
     if (pending && (pending.kind !== ev.kind || (ev.slot !== undefined && pending.slot !== undefined && ev.slot !== pending.slot))) return this.dropped('throw', 'slot', p);
     const slot = p.equipmentSlots.eligible(ev.kind, ev.slot ?? pending?.slot);
-    if (slot === null) return this.dropped('throw', 'none left', p);
+    if (slot === null) return told('none left');
     const frame = p.cone.frame(ev.seq);
-    if (!frame) return this.dropped('throw', 'no frame', p);     // not a command this body ran
+    if (!frame) return told('no frame');                         // not a command this body ran
     const repeat = THROW_REPEAT_S * TICK_HZ - 1;
-    if (frame.count - p.lastThrow < repeat) return this.dropped('throw', 'rate', p);
+    if (frame.count - p.lastThrow < repeat) return told('rate');
     const at = this.eventClock(p);
-    if (at < p.throwClock + repeat - FIRE_ARRIVAL_JITTER_TICKS) return this.dropped('throw', 'rate', p);   // SVC-23b
+    if (at < p.throwClock + repeat - FIRE_ARRIVAL_JITTER_TICKS) return told('rate');   // SVC-23b
     // NET-CAP (research 312 §10): online, the sixth live projectile refuses the next use, before the release request's own
     // tests (`FUN_005c0ae0` D:L476470-476491 answers before `FUN_005be9a0` runs, `FUN_005c0fd0` D:L476569, D:L476637-476638).
-    if (this.netCapRefused(p, t.record.id)) return this.dropped('throw', 'net cap', p);
-    // SVC-23b: the hand within reach of the server's head at the command and on its side of the walls, as the muzzle.
-    const start = this.startRefused(frame, ev.from);
-    if (start) return this.dropped('throw', `hand ${start}`, p);
-    if (!throwLaunchAllowed(frame.feet, frame.yaw, frame.posture, ev.from, ev.velocity)) return this.dropped('throw', 'launch', p);
+    if (this.netCapRefused(p, t.record.id)) return told('net cap');
+    // SVC-23b: the hand within reach of the server's head at the command (`hand far`): SVC-23b's own, no original
+    // (`START_REACH_PLACEHOLDER`, research 101). Its wall lines from the head and the axis (`startWalled`) are not asked of
+    // a hand throw since LANE-KILL B-06 (the main controller's ruling "D", 2026-11-21; reading, pending review): the posed
+    // hand of a standing throw (4.24 right, 6.4 ahead of the feet) passes a wall the body stands square to at its right
+    // shoulder, so the room dropped as 'hand walled' a throw the original lets go. In their place, after the launch, the
+    // START-TIE (`throwTied`, an ADAPTATION: SVC-23b's two-sided lines, every polygon, measured from where the hand really
+    // is) and the original's own clearance (`throwCleared`), which casts a lean like any state (r0004; LATER 1178 (ii)).
+    const start = this.startRefused(frame, ev.from, false, undefined, false);
+    if (start) return told(`hand ${start}`);
+    if (!throwLaunchAllowed(frame.feet, frame.yaw, frame.posture, ev.from, ev.velocity)) return told('launch');
+    // The release request's clearance (r0004 `0x54e6f0`, asked at 0x5c5d6c before the throw clip is pushed; r0001's
+    // `FUN_005499e0` superseded, OT.R97; research 256 §5, D12): the page's own transcription (`throwClear`), at the request's body
+    // -- the `throwStart` this throw names (an older page names none, and a request gone from the cone falls back the
+    // same: the throw's own frame). The power is not on the wire: THROW_CLEARANCE_PAIRS_ADAPTATION. A start tied to no
+    // hand is `hand walled` (the start-tie), a tied one the clearance refuses `unclear`.
+    const release = this.throwRelease(pending ? p.cone.frame(pending.seq) ?? frame : frame, frame, ev);
+    if (release === 'walled') return told(`hand ${release}`);
+    if (release === 'unclear') return told('unclear');
     p.lastThrow = frame.count;
     p.throwClock = Math.max(at, p.throwClock + repeat);
     p.equipmentSlots.spend(ev.kind, slot);
@@ -8194,6 +9855,9 @@ export class Room {
   private takeThrowStart(p: Player, ev: Extract<ClientEvent, { type: 'throwStart' }>): void {
     p.throwStart = null;
     if (!p.alive || this.state.phase === 'over') return this.dropped('throwStart', 'not alive', p);
+    // LATER 1456 (research 85 §4.3): sent before the page heard the hurt that cancelled it -- the page cancelled it there;
+    // unstamped (an older page, a bot, none heard since the resume) is kept.
+    if (ev.hurt !== undefined && ev.hurt < p.cancelSerial) return this.dropped('throwStart', 'hurt', p);
     const t = this.throwable(ev.kind);
     if (!t || this.kindOf(ev.kind) !== 'throwable') return this.dropped('throwStart', 'unknown kind', p);
     const slot = p.equipmentSlots.eligible(ev.kind, ev.slot);
@@ -8222,14 +9886,69 @@ export class Room {
     return { owner: p, name: this.lobby.member(p.id)?.name ?? '', kind, g, ...(facing ? { facing } : {}), pid: this.pidSerial++ };
   }
 
-  /** PF-22: `ffRefuses` for a hit of `itemId` from `attacker` (the live owner, or null) on `victim`, by the room's switch. */
-  private refuses(attacker: Player | null, victim: Player, itemId: number): FfRefusal | null {
-    return ffRefuses(attacker, victim, itemId, this.opts.allowFriendlyFire === true, this.lobby.member(victim.id)?.role === 'spectator');
+  /**
+   * PF-22: `ffRefuses` for a hit of `itemId` from `attacker` (the live owner, or null) on `victim`, by the room's switch;
+   * `localRound` a scene round's (WM-SWITCH: the round's `+4` bit 4, which the gate passes).
+   */
+  private refuses(attacker: Player | null, victim: Player, itemId: number, localRound = false): FfRefusal | null {
+    return ffRefuses(attacker, victim, itemId, this.opts.allowFriendlyFire === true, this.lobby.member(victim.id)?.role === 'spectator', localRound);
   }
 
   /** m-13 of review 2: a projectile's thrower if it is still in the room (the same player, not a later one given its id). */
   private thrower(f: Flying): Player | null {
     return this.players.get(f.owner.id) === f.owner ? f.owner : null;
+  }
+
+  /**
+   * R4P-224 (`CHARGE_NODE_PATH_READING`): the node a claymore or a PMN set down at `at` sits on -- the collision owner of
+   * the world column's accepted surface (`restsOn`) nearest `at` within `CHARGE_GROUND_SLACK_PLACEHOLDER`, the entry
+   * `chargeRests` accepted (`FUN_005c1970` D:L477010); undefined when none names one.
+   */
+  private chargeNode(at: V3): string | undefined {
+    let best: { owner?: string; d: number } | null = null;
+    for (const h of worldColumn(this.hullCast(), at)) {
+      if (!restsOn(h)) continue;
+      const d = Math.abs(h.point[1] - at[1]);
+      if (d <= CHARGE_GROUND_SLACK_PLACEHOLDER && (best === null || d < best.d)) best = { owner: h.owner, d };
+    }
+    return best?.owner;
+  }
+
+  /**
+   * R4P-224 (`CHARGE_NODE_DEACTIVATION_READING`; `FUN_003c5310` D:L316834-316843, r0004 `0x003e7490` D4:L342618-342628):
+   * at a game frame's start, each placed claymore, C4 and PMN at rest with no trigger yet whose node (`Flying.node`) or an
+   * ancestor of it is inactive (`WorldState.isActive`) is set off -- its trigger, read by this frame's step. The pages are
+   * told as a trip is (`detonate {pid, by: null}`, the existing message; `detonateRemote` sets off their copies), but C4,
+   * whose going off `flyFrame` tells already.
+   */
+  private nodeWalk(): void {
+    for (const f of this.flying) {
+      if (f.node === undefined || f.facing === undefined || f.g.state !== 'rest' || f.g.trigger) continue;
+      if (!CHARGE_NODE_DEACTIVATION_READING.includes(f.g.record.id) || this.world.isActive(f.node)) continue;
+      f.g.trigger = true;
+      if (f.kind !== 'C4') this.broadcast({ type: 'detonate', pid: f.pid, by: null });
+    }
+  }
+
+  /**
+   * R4P-224 (`DEAD_OWNER_MINES_CLEAR_READING`; `FUN_00592560` D:L451696-451697, `FUN_005b88c0` D:L471683-471696,
+   * `FUN_003cceb0` D:L321661-321679): in a respawn game, each tick, the placed claymores and PMNs of every player dead
+   * strictly more than 5.0 s (`diedAt`, the body's `+0xfb4`) are removed -- out of the list, never set off. By the player
+   * object, as `claymoresDown` (the clear's owner word, `+0xac`). Each told to every page, the spectators and the recorder
+   * as `chargeGone {pid}` -- the clear's send on the wire (`FUN_003c7170`, D:L321674) -- so their copies go silently too.
+   */
+  private clearDeadOwnersMines(): void {
+    if (this.opts.rules !== 'respawn' || !this.flying.length) return;
+    const { afterS, items } = DEAD_OWNER_MINES_CLEAR_READING;
+    const dead = new Set([...this.players.values()].filter((q) => !q.alive && q.diedAt >= 0 && (this.tick - q.diedAt) / TICK_HZ > afterS));
+    if (!dead.size) return;
+    for (let i = this.flying.length - 1; i >= 0; i--) {
+      const f = this.flying[i]!;
+      if (!dead.has(f.owner) || !items.includes(f.g.record.id)) continue;
+      f.g.state = 'removed';
+      this.flying.splice(i, 1);
+      this.broadcast({ type: 'chargeGone', pid: f.pid });        // FUN_003c7170 D:L321674: the clear sent on the wire
+    }
   }
 
   /**
@@ -8243,6 +9962,43 @@ export class Room {
    */
   private claymoresDown(p: Player): number {
     return this.flying.filter((f) => f.owner === p && f.facing !== undefined && countsTowardClaymoreLimit(f.g)).length;
+  }
+
+  /**
+   * R4P-243 (ATLAS L367; reading, pending review; capture IQ-179 queued; research 313 s8.24; `../../viewer/src/traversal`
+   * `Traversal.handRefusesClimb`): the item in hand on the command run now is one `slotSelectable` (`FUN_005bdc30`, r0004's
+   * isSelectableItem 0x5c47e0) refuses -- the launcher up (`held`) with no round in its ring, the Detonator (`hand`,
+   * 0xc1) with no claymore down -- so the climb, the step-up and the ladder are not offered (r0004 `FUN_00598d30`
+   * D4:L493145-493148, D4:L493164-493168). A launcher up passes the body test at any depth (its set is the launcher's,
+   * research 236 s3): no wading term. The firearm in hand, and a throwable slot thrown empty, refuse nothing: the port's
+   * reading, OPEN in s8.24 (capture Q-243a / IQ-179).
+   */
+  private handRefusesClimb(p: Player): boolean {
+    if (p.held !== null) {
+      const round = rocketRoundOf(p.held), ring = round === null ? null : p.rounds.ring(round);
+      return !slotSelectable(p.held, { claymoresDown: 0, roundsFor: () => ring?.rounds() ?? 0, wadingDepth: () => 0 });
+    }
+    const item = this.handAt(p, p.sim.seq);
+    return item === ITEM.DETONATOR && !slotSelectable(item, { claymoresDown: this.claymoresDown(p), roundsFor: () => 0 });
+  }
+
+  /**
+   * LATER 1170 (research 445 s2, s6, s7): the objects the hostages' danger scan can meet -- every live projectile of a kind
+   * it takes (`dangerKind`: the M67 and HE frags, C4; the satchel never qualifies, `HOSTAGE_SATCHEL_FUSE_PLACEHOLDER`, and a
+   * remote one is not in the host's list, `HOSTAGE_DANGER_REMOTE_SATCHEL_READING`), not detonated or removed: its id, its
+   * place, its fuse left, its blast radius (`Explosion_Radius` x 10), its thrower while seated (a departed one no longer
+   * resolves) and the thrower's team mask (`+200`).
+   */
+  private hostageDangers(): Danger[] {
+    const out: Danger[] = [];
+    for (const f of this.flying) {
+      const kind = dangerKind(f.g.record.id);
+      if (!kind || kind === 'satchel' || f.g.state === 'detonated' || f.g.state === 'removed') continue;
+      const owner = this.players.get(f.owner.id) === f.owner ? f.owner : null;
+      out.push({ pid: f.pid, kind, pos: [f.g.pos[0], f.g.pos[1], f.g.pos[2]], fuse: f.g.fuse, radius: f.g.record.explosionRadius || HOSTAGE_FLEE_RADIUS_READING.none,
+        owner: owner?.id ?? null, ownerTeam: f.owner.team === 'seal' ? SEAL_TEAM_MASK : TERRORIST_TEAM_MASK });
+    }
+    return out;
   }
 
   /**
@@ -8293,7 +10049,17 @@ export class Room {
     // (`FUN_005c0ae0` D:L476470-476491 answers before `FUN_005be9a0`'s placing branches run). Never C4: its plant is the
     // Action button's (`FUN_00592d50` D:L452030-452055 -> `FUN_005c0020(..., 0x97)`), which goes straight to
     // `FUN_005be9a0` when `FUN_003d1e20` answers 0, as it does for C4 (D:L475985-475994): `FUN_005c0ae0` is never asked.
-    if (t.record.id !== ITEM.C4 && this.netCapRefused(p, t.record.id)) return this.dropped('throw', 'net cap', p);
+    // LATER 929 (H2 of the mines investigation of 2026-11-12; product track, the telling only): the refusals a placed
+    // charge's honest page reaches after it set its copy down and spent it -- the net cap, the four down, the wading, the
+    // ground, the hand's reach and wall -- are told to the placer (`stale`, request 'throw', its seq), as `launchRocket`'s
+    // are (LATER 503), so the page takes its copy back and gives the charge back (viewer `grenadeCore.ts` `giveBack`). The
+    // rules themselves are unchanged. C4-TOLD (an online adaptation, product track; the original has no server refusal): C4's own
+    // refusals -- the action gate, the target, the hand, the reach, the line, the surface -- are told the same way.
+    const told = (why: string): void => {
+      this.send(p.id, { type: 'stale', request: 'throw', seq: ev.seq });
+      this.dropped('throw', why, p);
+    };
+    if (t.record.id !== ITEM.C4 && this.netCapRefused(p, t.record.id)) return told('net cap');
     // LATER 220's third head (research 369 §2): C4's offer (0x40000) is built past the prompts' common gate (D:L452383; its
     // press D:L452029): judged on the command the press read -- the one before its placing's start the room saw, else the
     // command the plant names (decided once it has run: `timed`; `n` its arrival, LATER 249's order) -- refused by why, the
@@ -8302,16 +10068,16 @@ export class Room {
     if (t.record.id === ITEM.C4) {
       // The review's F1: an honest plant's start is out of the cone by now -- its verdict banked at the start (`bankPlaceGate`).
       const shut = start !== null && start.gate !== undefined ? start.gate : this.actionGateShut(p, start !== null ? start.seq - 1 : ev.seq, n);
-      if (shut !== null) return this.dropped('throw', shut, p);
+      if (shut !== null) return told(shut);
     }
     const s = p.sim.walker.state, feet: V3 = [s.x, s.y, s.z];
     let pos: V3 = [...ev.from];
     if (t.record.id === ITEM.C4) {
       // SUP-03, PF-13: the target is the bound destructible at the node the page's aim struck that takes the charge
       // (`FUN_002739b0`; C4_ACCEPT_DAMAGE_READING: the charge's Explosion_Damage) -- never a type-less action's node
-      // (research 210 s8) -- the point in reach (C4_REACH_READING), seen from the head, not on INVISIBLE_DI (005c1970).
+      // (research 210 s8) -- the point in the hip's reach (c4InReach, LATER 1139), seen from the head, not on INVISIBLE_DI (005c1970).
       const target = ev.target, surface = ev.surface, damage = t.record.explosionDamage;
-      if (target === undefined || !surface || this.world.health.c4TargetAt(surface.path, damage) !== target) return this.dropped('throw', 'no c4 target', p);
+      if (target === undefined || !surface || this.world.health.c4TargetAt(surface.path, damage) !== target) return told('no c4 target');
       // LATER 122 (#398's review F1): the kit's 99 s fallback (`C4_KIT_TIMER_SECONDS`, `C4_FALLBACK_PLACEHOLDER`) -- the
       // hold off before its callback (`cut`), the throw C4_KIT_TIMER_SECONDS after the hold's start -- runs
       // `FUN_005c1970`'s same block (D:L476883-476905): no reach or line from where the SEAL is by then, the charge at the
@@ -8328,50 +10094,59 @@ export class Room {
       const fallback = start?.cut === true && since >= timer - FIRE_ARRIVAL_JITTER_TICKS
         && since <= timer + C4_START_EYE_TICKS_PLACEHOLDER + FIRE_ARRIVAL_JITTER_TICKS
         && this.eventClock(p) - start.at >= timer - FIRE_STALL_CREDIT_TICKS - FIRE_ARRIVAL_JITTER_TICKS;
-      if (fallback && start!.handOff) return this.dropped('throw', 'c4 hand', p);
-      if (!c4InReach(fallback ? start!.feet : feet, surface.point)) return this.dropped('throw', 'c4 reach', p);
+      if (fallback && start!.handOff) return told('c4 hand');
+      // LATER 1139 (research 440 s8.4): one hip gate, |point - hip|^2 < C4_HIP_REACH_SQ (`FUN_005be9a0` D:L475400-475405),
+      // judged at the plant's start as the page judged its prompt -- the start's hip when the start is this plant's (the
+      // fallback, or its own clip's window: `own`), else the body's now.
+      const own = start !== null && this.eventClock(p) - start.at <= Math.ceil(C4_PLANT_SECONDS * TICK_HZ) + C4_START_EYE_TICKS_PLACEHOLDER + FIRE_ARRIVAL_JITTER_TICKS
+        && Math.hypot(feet[0] - start.feet[0], feet[1] - start.feet[1], feet[2] - start.feet[2]) <= C4_START_EYE_FEET_PLACEHOLDER;
+      if (!c4InReach(fallback || own ? start!.hip : hipPoint(this.startBody(p)), surface.point)) return told('c4 reach');
       let line: ReturnType<typeof c4Line>;
       // LATER 139: the start's camera eye only where its look passed through the point (`lookFitsPoint` on its frames).
       if (fallback) line = c4Line(this.map.grid, start!.head, surface, this.map.defaultMaterial ?? '', start!.eye && start!.frames && lookFitsPoint(start!.frames, surface.point) ? [start!.eye] : []);
       else {
-        // The line from the head as `startRefused` stands it (PF-05: kept on the body's side of a wall along `headEye`).
+        // The line from the head along `headEye` (PF-05: kept on the body's side of a wall). Not `startRefused`'s level head:
+        // this C4 line's head rises with the look, the aim pick's eye (PRONE_EYE_LOOK; kill/keyjob-prone-eye-paths.md row 4).
         const b = this.startBody(p);
         // LATER 144: and the camera's eye at the placing's start (the page's aim), beside the send's -- for its own clip only:
         // the throw's arrival within the plant's clip plus C4_START_EYE_TICKS_PLACEHOLDER and FIRE_ARRIVAL_JITTER_TICKS of the
         // hold, on the room's event clock (`eventClock`), never the page's seq (the narrow re-review's F-A); the body within
         // C4_START_EYE_FEET_PLACEHOLDER of the hold's feet (the clip holds the mover).
-        const own = start?.eye && this.eventClock(p) - start.at <= Math.ceil(C4_PLANT_SECONDS * TICK_HZ) + C4_START_EYE_TICKS_PLACEHOLDER + FIRE_ARRIVAL_JITTER_TICKS
-          && Math.hypot(feet[0] - start.feet[0], feet[1] - start.feet[1], feet[2] - start.feet[2]) <= C4_START_EYE_FEET_PLACEHOLDER;
+        const ownEye = own && start!.eye !== null;
         // LATER 139: a camera eye counts only where its look passes through the point (the swept locus), at the send or the placing's start.
         // LATER 305: and the page's own eye at the placing's start (where it picked), where it counts (`pageEye`: added,
         // never in place of the room's) -- held on the start's banked frames, not `eyeAt(start.seq)`: the cone keeps 64
         // commands and the plant's clip runs ~66 (1.098 s), so that command is gone from it by the throw.
         const eyes = [
           ...(p.cone.lookAt(ev.seq, surface.point) ? [this.orderOrigin(p, ev.seq)] : []),
-          ...(own && start!.frames && lookFitsPoint(start!.frames, surface.point) ? [start!.eye!] : []),
-          ...(own ? this.pageEye(p, start!.frames, ev.eye, surface.point) : []),
+          ...(ownEye && start!.frames && lookFitsPoint(start!.frames, surface.point) ? [start!.eye!] : []),
+          ...(ownEye ? this.pageEye(p, start!.frames, ev.eye, surface.point) : []),
         ];
         line = c4Line(this.map.grid, headEye(this.map.grid, b.feet, headPoint(b), () => true), surface, this.map.defaultMaterial ?? '', eyes);   // LATER 121, 144: the camera's eyes
       }
-      if (!line.clear) return this.dropped('throw', `c4 ${line.why}`, p);
-      if (line.material === C4_REFUSED_MATERIAL) return this.dropped('throw', 'c4 surface', p);
+      if (!line.clear) return told(`c4 ${line.why}`);
+      if (line.material === C4_REFUSED_MATERIAL) return told('c4 surface');
       // FUN_005c1970 D:L476979-476985: launch at the validated target-ray point (research 209 §16).
       pos = [...surface.point];
-    } else if (this.claymoresDown(p) >= CLAYMORE_RULES.maxPlaced) return this.dropped('throw', 'charges down', p);
+    } else if (this.claymoresDown(p) >= CLAYMORE_RULES.maxPlaced) return told('charges down');
     // PAR-96 B3: the count before the water, as the claymore's and the PMN's fire (`FUN_005be9a0` D:L475307-475308, then
     // D:L475310-475320): the reason tallied is the first that refuses.
-    else if (wadingDepth(this.map.grid, feet) > CLAYMORE_RULES.maxWaterDepth) return this.dropped('throw', 'wading', p);
-    else if (!chargeRests(this.hullCast(), ev.from, s.y, s.y + EYE_HEIGHT)) return this.dropped('throw', 'ground', p);
+    else if (wadingDepth(this.map.grid, feet) > CLAYMORE_RULES.maxWaterDepth) return told('wading');
+    else if (!chargeRests(this.hullCast(), ev.from, s.y, s.y + EYE_HEIGHT)) return told('ground');
     // SVC-23b: under the hand -- within reach across from the feet -- along the page's own path from the head (after the
     // ground's check, so a point no surface holds is refused for that).
     if (t.record.id !== ITEM.C4) {
       const start = this.startRefused(this.startBody(p), ev.from, true);
-      if (start) return this.dropped('throw', `hand ${start}`, p);
+      if (start) return told(`hand ${start}`);
     }
     p.equipmentSlots.spend(ev.kind, slot);
     const g = launchGrenade(pos, [0, 0, 0], t.record);
     g.state = 'rest';
     const f = this.born(this.flyer(p, ev.kind, g, [facing[0] / l, facing[1] / l, facing[2] / l]), this.commandAge(p, ev.seq));   // HOTFIX grenade fuse
+    // R4P-224 (CHARGE_NODE_PATH_READING): the node the plant hands `SetWord` (`FUN_005bc730` D:L474023) -- C4's struck
+    // node (D:L476985), the claymore's and the PMN's column entry (D:L477010).
+    const node = t.record.id === ITEM.C4 ? ev.surface?.path : this.chargeNode(pos);
+    if (node !== undefined) f.node = node;
     this.flying.push(f);
     this.broadcast({ type: 'grenade', id, kind: ev.kind, from: [...pos], velocity: [...ev.velocity], pid: f.pid }, id);
     this.send(id, { type: 'placed', pid: f.pid, kind: ev.kind, from: [...pos] });       // PF-36: OWN_PID_READING
@@ -8387,12 +10162,14 @@ export class Room {
     const p = this.players.get(id);
     if (!p) return;
     if (!p.alive || this.state.phase === 'over') return this.dropped('throw', 'not alive', p);
-    // FUN_005c74e0 (D:L480156-480202): the Detonator is the kit's only with a claymore in it. INT.R5: tallied by why, as
+    // LATER 1129 (reading, pending review): the Detonator is the kit's once a claymore has been in it -- FUN_005c74e0
+    // (D:L480156-480202) adds 0xc1 and nothing removes it (`detonator`; was: a claymore in a slot now, which an install
+    // over a spent claymore broke, research 85 §9.7.1). INT.R5: tallied by why, as
     // the other refusals (they were silent). P38-room (research 85 §9.7.1): no `FireWait` between its fires -- the
     // original's Detonator branch of `FUN_005be9a0` (D:L475477-475478) calls `FUN_005c0130` alone and sets no fire
     // timer (`+0x81c` is written only at D:L475488 and D:L475517); its limits between presses are the page's -- one fire
     // a press (`+0x818` against `FUN_005c0940`, D:L476439) and the claymore's re-select (`FUN_005c8a20(0x99)`, D:L476031).
-    if (!EQUIPMENT_SLOTS.some((i) => p.loadout[i] === CLAYMORE.id)) return this.dropped('throw', 'no claymore', p);
+    if (!p.detonator) return this.dropped('throw', 'no claymore', p);
     const s = p.sim.walker.state;
     for (const f of this.flying) {
       if (f.owner !== p || f.g.record.id !== CLAYMORE.id || f.g.state !== 'rest') continue;
@@ -8478,14 +10255,14 @@ export class Room {
     // LATER 249: the after-shot keeps the decision's arrival -- `decide` set `p.armedBy` (one arrival a round, `timed`).
     ring.fire();
     this.countShot(p, true, undefined);                          // PF-26: a launched round, one shot (PF.R20)
-    p.roundWaitUntil = count + Math.round(round.fireWait * TICK_HZ) - 1;
+    p.roundWaitUntil = count + launchedRoundWaitTicks(round.fireWait);   // SWAP-FIRE: the round mode's x 1.2 (`fireGate`)
     const lock = afterShotLock(carrier, round, ring.rounds(), carrier);
     if (lock !== null) {
       // P4: the clip by the body its command left (`fireAt`'s after-shot: `frame.posture`, `frame.velocity`).
       const moving = reloadMoving(...frame.velocity);
       const family = reloadFamily({ item: 'rifle', id: carrier, afterShot: true, roundMode: true });
       const clip = this.clips ? reloadSeconds(this.clips.clips, this.clips.table, frame.posture, moving, family) ?? 0 : 0;
-      setLock(p, 0, count, lock, clip, 'afterShot', this.eventClock(p));
+      this.layLock(p, 0, count, lock, clip, 'afterShot');        // LATER 336: in the offset the lock is dated with
       this.lockLife(p, 0, frame.posture, moving, family, clip);   // PF-18
     }
     const dir: V3 = [ev.velocity[0] / mv, ev.velocity[1] / mv, ev.velocity[2] / mv];   // `launchGrenade` scales by MV
@@ -8542,7 +10319,7 @@ export class Room {
     if (at < p.rocketWaitUntil) return told('wait');             // LATER 501: at its command's count; LATER 511: told
     ring.fire();
     this.countShot(p, true, undefined);                          // PF-26: a rocket, one shot (PF.R20)
-    p.rocketWaitUntil = at + Math.round(Math.max(round.fireWait, round.reloadAfterShot ? round.reloadDelayAfterShot : 0) * TICK_HZ) - 1;
+    p.rocketWaitUntil = at + rocketWaitTicks(roundId, round);   // LATER 1365: FireWait x 1.2 + the RPG's lock (`fireGate`)
     const dir: V3 = [ev.velocity[0] / mv, ev.velocity[1] / mv, ev.velocity[2] / mv];
     const age = this.commandAge(p, ev.seq);                      // HOTFIX grenade fuse: the rocket's and its backblast's
     const f = this.born(this.flyer(p, ev.kind, launchGrenade([...ev.from], dir, round.record)), age);
@@ -8718,7 +10495,16 @@ export class Room {
    * `GrenadeThrower.fly` does, so the two step the same frames; a blast's damage. M7:
    * an armed PMN is tripped by any living actor inside its `ProximityDistance` first (`proximityTripped`,
    * `FUN_00543930`; `PMN_FRIENDLY_READING`: its owner and his team too), and a round that goes off on impact meets the
-   * bodies as well as the hull (`bodyCast`).
+   * bodies as well as the hull (`bodyCast`). WM-HOSTAGE 3 (research 433 s2; `PMN_HOSTAGE_TRIP_READING`): the actors are
+   * the living players and every targetable hostage (`ExtractionAuthority.targetable`: alive, not yet faded out) at its
+   * feet (`Hostage.at`, the body's `+0x1c`) -- the trip test's one caller is the seal body's update (`FUN_00550ef0`
+   * D:L418452), which a hostage runs (research 193 s8.1), and it returns first for a dead body (D:L418112-418113); the
+   * rig saw hostages standing and following set it off (rig Q25 R2, F1, F2). A rescued hostage inside its fade is still
+   * an actor here; whether the original's fading body trips one is unread (research 433). Correction 7 (research 433):
+   * the actors are taken afresh at each game frame (`living`), so a body a blast kills in one frame trips nothing on the
+   * next frames of the same step -- the original's dead-body return runs at every frame's update. Within one frame the
+   * walk takes the bodies alive at its start; where the original's body updates fall against the projectile tick inside a
+   * frame is unread (research 433).
    * HOTFIX grenade fuse (research 85 §6.1): the frames are the step's credit (`creditStep`), not one tick a step -- the
    * wall time the bodies are credited (LOW-12, research 223 §2.2: a stall the server loop drops past five periods counted
    * once, at its first step, the steps after it nothing), so the fuse and the flight keep the clock the bodies move on,
@@ -8745,7 +10531,11 @@ export class Room {
     const late = this.flying.filter((f) => f.late !== undefined);
     if (frames === 0 && !late.length) return;
     const hull = this.hullCast();
-    const origins = [...this.players.values()].filter((q) => q.alive).map((q) => { const w = q.sim.walker.state; return [w.x, w.y, w.z] as const; });
+    const living = (): (readonly [number, number, number])[] => {      // correction 7: at each frame, the bodies alive then
+      const origins = [...this.players.values()].filter((q) => q.alive).map((q) => { const w = q.sim.walker.state; return [w.x, w.y, w.z] as const; });
+      for (const h of this.extraction?.hostages ?? []) if (this.extraction!.targetable(h)) origins.push([h.at[0], h.at[1], h.at[2]] as const);   // PMN_HOSTAGE_TRIP_READING
+      return origins;
+    };
     const alone = new Set<Flying>();
     for (const f of late) {
       const { own, alone: only } = this.dateBack(f.late!);
@@ -8757,7 +10547,7 @@ export class Room {
       // else the step's.
       const newborn: Flying[] = [];
       for (let k = 0; k < n; k++) {
-        const was = this.flying.length, flown = newborn.length;
+        const was = this.flying.length, flown = newborn.length, origins = living();
         this.flyFrame(f, hull, origins);
         for (let i = 0; i < flown; i++) this.flyFrame(newborn[i]!, hull, origins);
         for (let i = was; i < this.flying.length; i++) { const nb = this.flying[i]!; delete nb.late; newborn.push(nb); }
@@ -8772,6 +10562,8 @@ export class Room {
         delete f.queued;
         if (f.g.state === 'rest') f.g.trigger = true;
       }
+      this.nodeWalk();                                           // R4P-224: CHARGE_NODE_DEACTIVATION_READING
+      const origins = living();
       for (const f of this.flying) if (!alone.has(f)) this.flyFrame(f, hull, origins);
     }
     for (let i = this.flying.length - 1; i >= 0; i--) if (this.flying[i]!.g.state === 'removed') this.flying.splice(i, 1);
@@ -8862,7 +10654,7 @@ export class Room {
       // HX-1: after the players, the hostages where they stand (their own capsules at their stance).
       for (const h of this.extraction?.hostages ?? []) {
         if (!this.extraction!.targetable(h)) continue;
-        const hit = rayBody(a, dir, reach, bodyVolumes(h.at, h.yaw, this.extraction!.posture(h), this.hostageVolumes(h), h.motion?.rootTilt));   // PRONE-TILT-2 (5)
+        const hit = rayBody(a, dir, reach, this.hostageLiveVolumes(h));   // PRONE-TILT-2 (5); LATER 831: the live pose's where held
         if (!hit) continue;
         const point: V3 = [a[0] + dir[0] * hit.t, a[1] + dir[1] * hit.t, a[2] + dir[2] * hit.t];
         hits.push({ point, normal: [-dir[0], -dir[1], -dir[2]], material: person, t: hit.t / reach });
@@ -8900,8 +10692,10 @@ export class Room {
     if (raw === null || !(raw > 0)) { this.combat(thrower, q, { ...report, status: 'miss', reason: raw === null ? 'beyond range' : 'no damage' }); return; }
     // PF-26: a direct hit, once a flight (PF.R20) -- counted only when this is the flight's FIRST body: a flight whose first
     // body was refused (a teammate's, the thrower's own, beyond range) and whose next is a living enemy counts no hit
-    // (HIT_COUNT_READING, research 216 s5; the review of 2026-10-05).
-    if (f.struck.size === 1) this.countShot(f.owner, false, q, true, body.part);
+    // (HIT_COUNT_READING, research 216 s5; the review of 2026-10-05). R4P-105: and only when the round's own record counts
+    // a hit (`countsHit`, HIT_STAT_CLASSES_READING; r0004 0x3f2670 at 0x5ab858): a launched round (171-184) or a thrown
+    // item (121-140) counts none, a rocket (185-189) still does; the damage below is applied either way (0x5ab888).
+    if (f.struck.size === 1 && countsHit(r.id)) this.countShot(f.owner, false, q, true, body.part);
     // PF-22: the hit packet's bytes (`quantiseHit`, FUN_002bd220 D:L161655-161672; a direct hit goes through FUN_005a5a80).
     const { damage: dmg, piercing } = quantiseHit(raw, this.thrown(f.kind)?.piercing ?? 0);
     const scale = this.ruleHitEvent(thrower, q, r, dmg);         // FCW-31: before the damage is applied (`hit.scale`; 1 without a host)
@@ -8909,7 +10703,7 @@ export class Room {
     const was = overall(q.health);
     const healthBefore = [...q.health.hp], armourBefore = [...q.health.armour];
     const died = applyHit(this.woundable(q), body.part, laid, piercing) && !this.deathless(q);   // CPS cell-alive
-    this.send(q.id, { type: 'hurt', health: [...q.health.hp], from: [...f.g.launch], part: body.part });
+    this.hurtTo(q, [...f.g.launch], body.part);
     this.combat(thrower, q, { ...report, status: 'applied', rawDamage: laid, healthBefore, armourBefore, killed: died });
     if (died) {
       const how: KillHow = q === f.owner ? 'suicide' : thrower ? 'weapon' : 'orphan';
@@ -8925,7 +10719,8 @@ export class Room {
   /**
    * HX-1: a launched round striking a hostage -- `directHit`'s rule (the round's `GetDamage` bullet branch at the part,
    * once a body a round, the packet's integer) with the hostage's gate (`HOSTAGE_FF_READING`: never refused) and its
-   * table; a departed thrower's round kills uncounted (`WORLD_KILL_UNCOUNTED_READING`). No flinch, no count, no report.
+   * table; a departed thrower's round kills uncounted (`WORLD_KILL_UNCOUNTED_READING`). No count, no report. LATER 1186 (the
+   * review's F1): alive, it flinches as a bullet's hit does (`hostageFlinch`; cause 5, `FUN_005abbc0` D:L464731).
    */
   private hostageDirectHit(f: Flying, body: HostageBodyHit): void {
     const r = f.g.record, dmg0 = r.impactDamage ?? 0, h = body.hostage, thrower = this.thrower(f);
@@ -8933,16 +10728,21 @@ export class Room {
     f.struckHostages.add(h.id);
     if (body.part === NO_PART && IMPACT_NO_PART_READING === 'nothing') return;   // BONE-BOXES: a no-damage bone's box first
     if (this.hostageRefuses(thrower, r.id, h)) return;
+    // LATER 1185 (`FUN_00572330`): the hit counter -- nothing for the grenades or the charges (`HOSTAGE_SHOT_EXCLUDED_READING`),
+    // nothing when the thrower no longer resolves.
+    const ts = thrower?.sim.walker.state;
+    h.ai.shotBy(r.id, ts ? [ts.x, ts.y, ts.z] : null);
     const distance = Math.hypot(body.point[0] - f.g.launch[0], body.point[1] - f.g.launch[1], body.point[2] - f.g.launch[2]);
     const raw = bulletDamage({ impactDamage: dmg0, damageModifier: r.damageModifier ?? 0, effectiveRange: r.effectiveRange / UNITS_PER_METRE, maximumRange: r.maximumRange / UNITS_PER_METRE }, distance);
     if (raw === null || !(raw > 0)) return;
     const { damage, piercing } = quantiseHit(raw, this.thrown(f.kind)?.piercing ?? 0);
+    const was = overall(h.health);                                // LATER 1186: the health before, for the flinch's test
     if (applyHit(h.health, body.part, damage, piercing)) {
       this.hostageKilled(h, thrower, {
         weapon: this.weaponName(r.id, r.name), how: thrower ? 'weapon' : 'orphan', cause: deathCause('bullet', body.part),
         clip: deathClip('bullet', body.part, this.extraction!.posture(h), this.opts.random, 'teammate'), ...(thrower ? {} : { killerName: f.name }),
       });
-    }
+    } else this.hostageFlinch(h, body.part, was);
   }
 
   /**
@@ -8986,7 +10786,7 @@ export class Room {
    * D:L319096-319143), run first and skipping the body when refused (`blastLine1`, to `BLAST_LINE1_END_PLACEHOLDER` over
    * the feet: the PENETRATION product, one-sided); then LINE 2, the body's own to the posed head (`FUN_005ac070`
    * D:L464841-464853 -> `FUN_005a0e70`; `blastExposed`, to `BLAST_HEAD_OVER_READING` over the feet), vetoed by the first
-   * face that is cover. Both from the impact's lift (`sightFrom`). The caller skips both for `IgnoreExplosionDI`. Was:
+   * face that is cover. Both from the round's lifted point (`+0x48`, LATER 992) with no further offset (WM-29, research 430: `FUN_005ac070` and `FUN_003c7ee0` copy it word for word). The caller skips both for `IgnoreExplosionDI`. Was:
    * line 2 alone, to `HEAD_OVER` (18.3 / 11.1 / 1.7) -- a body whose head cleared a sill or a low wall took the blast the
    * original stops on line 1 (research 400 s3.1: 29% / 36% of Desert Glory's hurt cases, 8% / 10% of Frostfire's).
    */
@@ -8995,9 +10795,9 @@ export class Room {
     const end: V3 = [feet[0], feet[1] + BLAST_LINE1_END_PLACEHOLDER[posture], feet[2]];
     // FORGE_SCRIPT_BLAST_ADAPTATION (the merge, ours): a Forge script explosion's own object is passed on both lines
     // (`blastSource`; undefined for every other blast, so these are NADE-BLAST's two calls unchanged).
-    if (!blastLine1(this.map.grid, sightFrom(point, end), end, radius, def, this.blastSource)) return false;
+    if (!blastLine1(this.map.grid, point, end, radius, def, this.blastSource)) return false;   // WM-29: from the lifted point
     const head: V3 = [feet[0], feet[1] + BLAST_HEAD_OVER_READING[posture], feet[2]];
-    return blastExposed(this.map.grid, sightFrom(point, head), head, def, this.blastSource);   // LATER 416; R4B-10
+    return blastExposed(this.map.grid, point, head, def, this.blastSource);   // LATER 416; R4B-10
   }
 
   /**
@@ -9022,6 +10822,8 @@ export class Room {
       const seen = record.ignoreExplosionDI === true || this.blastLines(lifted, feet, posture, record.explosionRadius);   // NADE-BLAST
       const out = resolveBlast(h.health, { feet, posture, yaw: h.yaw }, lifted, { record, piercing: t.piercing, fragments: t.fragments, flash: record.id === FLASHBANG_ID }, this.opts.random, seen, point);
       if (out?.knock) h.motion?.knock(out.knock);
+      // LATER 1188: a flashbang past the gate and the line: the cower test (`FUN_005a5250` -> ctrl vtable +0x50).
+      if (record.id === FLASHBANG_ID && seen) this.extraction!.flashCower(h, lifted, record.explosionRadius);
       if (!out?.died) continue;
       this.hostageKilled(h, thrower, {
         weapon: this.weaponName(t.record.id, t.record.name), how: thrower ? 'weapon' : 'orphan', cause: deathCause('blast', out.part),
@@ -9034,7 +10836,7 @@ export class Room {
    * PF-36 (PF.R56; research 235 s4): after the players, the resting `Volitile` charges a blast of `t` at `point`
    * reaches -- `blast()`'s (`self` its own round, never its own target) and, since P20, the bomb's (`bombBlast`): the
    * explosion's target walk (`FUN_003c7dd0` 0x3c7e74-0x3c7e8c) calls each one's interface once `FUN_003c80e0` finds
-   * it visible: one line from the players' lift (`sightFrom`; the players take two since NADE-BLAST, `blastLines`), skipped
+   * it visible: one line from the players' lift (WM-29: no further offset; the players take two since NADE-BLAST, `blastLines`), skipped
    * for IgnoreExplosionDI as theirs are (PF-35).
    * The damage at it is GetDamage's explosion base, `Explosion_Damage + Damage_Modifier` by the radius falloff
    * (`fragmentDamage` over its x14; D:L318708-318736), at its 1.0 minimum (VOLATILE_MIN_DAMAGE_READING): the claymore's
@@ -9050,7 +10852,7 @@ export class Room {
       if (!(distance < t.record.explosionRadius)) continue;
       if (facing && t.record.id === ITEM.BACKBLAST && !backblastReaches(point, facing, to, t.record.explosionRadius)) continue;
       const lifted = blastPoint(point);                          // LATER 992: the walk's line from +0x48; the list and GetDamage from the node
-      if (t.record.ignoreExplosionDI !== true && !blastSeen(this.map.grid, sightFrom(lifted, to), to, this.blastSource)) continue;   // LATER 416
+      if (t.record.ignoreExplosionDI !== true && !blastSeen(this.map.grid, lifted, to, this.blastSource)) continue;   // LATER 416; WM-29
       const base = fragmentDamage(t.record.explosionDamage + (t.record.damageModifier ?? 0), t.record.explosionRadius, distance) / DAMAGE_SCALE;
       this.chargeHit(f2, base, ownerOf(f2)?.id ?? null);
     }
@@ -9075,7 +10877,7 @@ export class Room {
   /**
    * MAP-06 (SCENE_BLAST_REACH_PLACEHOLDER, ruling PF.R11), a blast of `r` at `point` on the scene's destructibles --
    * `blast()`'s and the bomb's (`bombBlast`): each whose bounds come inside the radius, through `FUN_003c80e0`'s reach
-   * gate on the line to its midpoint (`blastLine`, from the players' lift, `sightFrom`: the radius squared times each
+   * gate on the line to its midpoint (`blastLine`, from the players' lift with no further offset (WM-29): the radius squared times each
    * other surface's material PENETRATION, `surfaceMaterial` with the map's default, against the line's length squared).
    * AD-5: what each takes is `blastAt`'s reading of `FUN_003c7490`/`FUN_003c7600` -- the rating plus modifier against
    * the shield, the falloff to the midpoint, the shield again, x14, `cone`'s factor at the midpoint (the claymore's 1/32,
@@ -9089,7 +10891,7 @@ export class Room {
     const penetration = (p: WorldPoly): number => surfaceMaterial(p.material, this.map.defaultMaterial ?? '').penetration;
     const lifted = blastPoint(point);                            // LATER 992: line 1 from +0x48; GetDamage's falloff from the node (`point`)
     return this.world.health.blastAt(point, rating, r.explosionRadius, (to, target) =>
-      r.ignoreExplosionDI === true || blastLine(this.map.grid, sightFrom(lifted, to), to, target, r.explosionRadius, penetration, this.blastSource), { piercing, cone });
+      r.ignoreExplosionDI === true || blastLine(this.map.grid, lifted, to, target, r.explosionRadius, penetration, this.blastSource), { piercing, cone });   // WM-29
   }
 
   /**
@@ -9097,9 +10899,10 @@ export class Room {
    * blast of `t` at `point` reaches: the gate, the cones about `facing`, the line to the head, the fragments, the ring,
    * the knock, the kill (the doc above `blast`). `ownerOf` the blast's owner at the victim (the round's `+0xac`, which
    * `FUN_005a0e70` D:L459286-459300 credits): a projectile's live thrower, the same at every victim; the bomb's, the
-   * victim himself (`MPBOMB_BLAST_OWNER_READING`). `name` the departed thrower's, told with an orphan kill.
+   * victim himself (`MPBOMB_BLAST_OWNER_READING`). `name` the departed thrower's, told with an orphan kill. `localRound`
+   * a scene round's (`fireSceneRounds`; WM-SWITCH): the friendly-fire gate passes it (`ffRefuses`).
    */
-  private blastPlayers(t: { record: ThrowableRecord; piercing: number; fragments: boolean }, point: V3, ownerOf: (q: Player) => Player | null, facing: V3 | undefined, name: string): void {
+  private blastPlayers(t: { record: ThrowableRecord; piercing: number; fragments: boolean }, point: V3, ownerOf: (q: Player) => Player | null, facing: V3 | undefined, name: string, localRound = false): void {
     for (const q of [...this.players.values()]) {
       if (!q.alive) continue;
       const thrower = ownerOf(q);
@@ -9110,7 +10913,7 @@ export class Room {
       const report = { request: 'blast', weapon: t.record.id, distance, point };
       // PF-22: the gate (`ffRefuses`): the thrower's side at the hit; a departed thrower's blast lands on anyone; the
       // backblast never on its firer or his side. Friendly fire is told the thrower inside the radius, as before.
-      const refused = this.refuses(thrower, q, t.record.id);
+      const refused = this.refuses(thrower, q, t.record.id, localRound);
       if (refused !== null) {
         if (refused === 'friendly fire' && distance < t.record.explosionRadius) this.combat(thrower, q, { ...report, status: 'rejected', reason: FRIENDLY_FIRE });
         continue;
@@ -9132,7 +10935,12 @@ export class Room {
       const was = overall(q.health);
       const wounded = this.woundable(q);   // CPS cell-alive: the deathless seat's blast spends a copy
       // FRAG-COUNT-STANCE: the count reads the raw stance word (`FUN_0058a720(actor, 0)`, D:L459455), `walker.stance`.
-      let out = resolveBlast(wounded, { feet, posture, yaw: s.yaw, stance: q.sim.walker.stance }, lifted, kind, this.opts.random, seen, point);
+      // B15-DIVE-COUNT (LATER 1341; reading, pending review): the count's two tests (byte 1 -> -1, 2 -> -3; r0004
+      // 0x5a7558-0x5a7590) read the byte +0x174, which is 6 (standing) from the dive's press (r0004 0x5839b4-0x5839bc)
+      // to its end (the pop to 2, r0004 0x5563f8-0x556454), and the count is read before the knock (0x5a6e04 vs
+      // 0x5a70c0): a diver is counted standing. `stance` feeds only the count (`resolveBlast`); the posture is untouched.
+      const diving = q.sim.moves instanceof Traversal && q.sim.moves.state().kind === 'dive';
+      let out = resolveBlast(wounded, { feet, posture, yaw: s.yaw, stance: diving ? 'stand' : q.sim.walker.stance }, lifted, kind, this.opts.random, seen, point);
       if (!out) {
         // Chris's `blast-occluded` and `no-blast-damage`, as misses: the blast reached the radius and harmed no one.
         // The thrower's own body only: another's would tell the thrower of a SEAL behind cover in the radius, which
@@ -9158,7 +10966,7 @@ export class Room {
         type: 'blast', ring: out.ring ? { seconds: BLAST_RING_SECONDS, volume: BLAST_RING_VOLUME } : null,
         knock: k ? { velocity: [k.velocity[0], k.velocity[1], k.velocity[2]], fall: k.fall } : null, after: q.sim.seq, flash,
       });
-      if (out.fragments > 0) this.send(q.id, { type: 'hurt', health: [...q.health.hp], from: point, part: out.part });
+      if (out.fragments > 0) this.hurtTo(q, point, out.part);
       if (!out.died) this.hurtVoice(q, was);   // a blast's health drop: the voice, no flinch (cause 4, L461402)
       if (out.died) {
         const how: KillHow = q === thrower ? 'suicide' : thrower ? 'weapon' : 'orphan';
@@ -9228,9 +11036,12 @@ export class Room {
    * (+0x8c, D:L107312-107316; -1 the record's own), counted online too (`FUN_003c9fb0` D:L320127-320129, research 332
    * §1.2): queued, it goes off at the first tick the fuse has run (`fireSceneRounds`) -- out of the death that fired it, as
    * the original's round goes off on a later frame. A weapon the kit table does not hold, or a node no placement carries,
-   * fires nothing. The weapon is matched case aside (the command names `c4`, the arsenal `C4`).
+   * fires nothing. The weapon is matched case aside (the command names `c4`, the arsenal `C4`). `by` the run's presser
+   * (LATER 1038, `SCENE_ROUND_PRESSER_READING`), null for none: resolved here, when the command runs, as `FUN_0025ccb0`
+   * does (`FUN_0029e4e0`, D:L107287-107297), and held as the player with his name -- one no longer in the room owns
+   * nothing.
    */
-  private sceneRound(weapon: string, fuse: number, offset: readonly number[] | undefined, path: string | null): void {
+  private sceneRound(weapon: string, fuse: number, offset: readonly number[] | undefined, path: string | null, by: number | null = null): void {
     const kind = this.sceneWeapon(weapon);
     if (kind === null) return;
     const world = path === null ? null : this.world.meta.fireNodes?.get(path);
@@ -9238,7 +11049,9 @@ export class Room {
     const off = offset ?? [0, 0, 0];
     const point: V3 = world ? apply4(world as number[], off[0]!, off[1]!, off[2]!) : [off[0]!, off[1]!, off[2]!];
     const seconds = fuse === -1 ? this.thrown(kind)!.record.fuse : fuse;
-    this.sceneRounds.push({ tick: this.tick + Math.max(1, Math.ceil(seconds * TICK_HZ)), kind, point });
+    const presser = by === null ? null : this.players.get(by) ?? null;
+    const name = presser ? this.lobby.member(presser.id)?.name ?? '' : '';
+    this.sceneRounds.push({ tick: this.tick + Math.max(1, Math.ceil(seconds * TICK_HZ)), kind, point, presser, name });
   }
 
   /** The arsenal's name for a `FIRE_WEAPON`'s weapon (`sceneRound`), case aside; null when the kit table has none. */
@@ -9252,8 +11065,9 @@ export class Room {
   /**
    * Research 386 §3.2 (LATER 63): each scene round whose fuse has run goes off -- its explosion meets the bodies, the
    * hostages, the resting charges and the scene as the bomb's does (`bombBlast`; research 332 §1.3), each player's hurt his
-   * own (`SCENE_ROUND_OWNER_READING`) -- and every page is told it (`sceneRound`) for its effects and sound. A destructible
-   * it kills scores its action to no one (no owner).
+   * own (`SCENE_ROUND_OWNER_READING`) or, for a press's round, the presser's at every victim
+   * (`SCENE_ROUND_PRESSER_READING`, LATER 1038) -- and every page is told it (`sceneRound`) for its effects and sound. A
+   * destructible it kills scores its action to no one (no owner).
    */
   private fireSceneRounds(): void {
     for (let i = 0; i < this.sceneRounds.length;) {
@@ -9264,7 +11078,19 @@ export class Room {
       if (!t) continue;
       this.broadcast({ type: 'sceneRound', kind: r.kind, at: [...r.point] });   // the effects at the unlifted point (D:L319246)
       const point = r.point;                                     // LATER 992: a FIRE_WEAPON round lifts too (D:L320105) -- in the consumers
-      this.blastPlayers(t, point, (q) => q, undefined, '');
+      // LATER 1038 (SCENE_ROUND_PRESSER_READING): the presser resolved at the command owns the round -- at a victim of
+      // the other side and at a teammate alike (the kill's accounting follows in `blastPlayers`; the friendly-fire gate
+      // passes a scene round, WM-SWITCH: its `+4` bit 4, r4 0x5b243c-0x5b2448, proven for a teammate with friendly fire
+      // off by Q18 (b)); still the same player in the room, or departed ('orphan': no one's, his name kept, as a
+      // projectile's departed thrower); no presser, each victim his own (SCENE_ROUND_OWNER_READING).
+      const rp = r.presser;
+      const live = rp !== null && this.players.get(rp.id) === rp ? rp : null;
+      const ownerOf = (q: Player): Player | null => {
+        if (rp === null) return q;
+        if (live === null) return SCENE_ROUND_PRESSER_READING.departed === 'orphan' ? null : q;
+        return (live.team !== q.team ? SCENE_ROUND_PRESSER_READING.enemy : SCENE_ROUND_PRESSER_READING.teammate) === 'presser' ? live : q;
+      };
+      this.blastPlayers(t, point, ownerOf, undefined, r.name, true);
       this.blastHostages(t, point, undefined, null);
       this.blastCharges(t, point, undefined, (f2) => this.thrower(f2));
       this.actionDied(this.sceneBlast(point, t.record, t.piercing), null);
@@ -9337,7 +11163,13 @@ export class Room {
     // a climb's clip or the hang on the body at the command (its frame's motion) -- `FUN_005b4340(actor, 3)` D:L477404,
     // under a `UseVelY` top D:L469517, in state 4 D:L469460-469461 -- refused before any magazine moves.
     const move = frame ? frame.motion?.clip : p.sim.moves?.pose()?.clip;
-    if (CLIMB_RELOAD_REFUSED_READING === 'refused' && climbHoldsBody(move)) return this.dropped('reload', 'climb', p);
+    // LATER 562: a ladder's clips too (`reloadRefusedBy`; r0004 0x5ba680's state-5 / posture-5 refusal, research 86 s2.8).
+    // The page told (`stale`, as the airborne refusal above): a page whose pose let the reload through while the room's
+    // frame holds a climb or ladder clip restores the magazine its prediction took (the network's bookkeeping, LATER 562).
+    if (CLIMB_RELOAD_REFUSED_READING === 'refused' && reloadRefusedBy(move)) {
+      this.send(p.id, { type: 'stale', request: 'reload', seq });
+      return this.dropped('reload', 'climb', p);
+    }
     // PF-18 (PF.R37): inside the flinch's clip (`flinchState`): `FUN_005b4340(actor, 3)` D:L469494-469504, asked by
     // `FUN_005c2a90` D:L477394-477407 -- refused before any magazine moves.
     if (p.flinchGatesReload && seq >= p.flinchFrom && seq < p.flinchUntil) return this.dropped('reload', 'flinch', p);   // not a door clip's (#485 F1)
@@ -9369,7 +11201,7 @@ export class Room {
     // before it sends this reload at its `reloadStart` (`NetPage.fireEvent`): the reload begins at the command it names,
     // so the room's lock has no timer part. Adding `reloadDelayOf(record)` here again started the Spas 12's and the
     // JACKHAMMER's lock and still clip 30 commands after the page's, the 870's 60 (`roomReloadDelay.test.ts`).
-    setLock(p, w, count, 0, seconds, 'reload', this.eventClock(p));
+    this.layLock(p, w, count, 0, seconds, 'reload');             // LATER 336: in the offset the lock is dated with
     p.pressLock = null;                                          // LATER 72: the clip's lock takes the climb's over
     this.lockLife(p, w, posture, reloadMoving(v[0], v[1], v[2]), family, seconds);   // PF-18: the lock is the clip's life
     // A1 (LATER 218): a rifle reload named before a worded take and decided after it -- its clip cut at the take.
@@ -9389,10 +11221,12 @@ export class Room {
       type: 'reloadSound', id: p.id, weapon: record.id, at: [st.x, st.y, st.z],
       ...(late ? {} : { posture, moving: reloadMoving(v[0], v[1], v[2]), family, seconds }),
     }, p.id);
+    if (!late) p.poser?.pose.startReload(posture, seconds, family, reloadMoving(v[0], v[1], v[2]));   // RELOAD-HITPOSE: as the pages start it
   }
 
+  /** LATER 891: a player's past at `tick` as the shooter's page drew it (`drawnPastOf`, the snapshot ticks the room sent). */
   private past(q: Player, tick: number): Past | null {
-    return pastOf(q.history, tick);
+    return drawnPastOf(q.history, tick, Math.round(TICK_HZ / SNAPSHOT_HZ));
   }
 
   // ---- deaths and score (research 91 sections 3, 8) ----
@@ -9490,6 +11324,7 @@ export class Room {
     const voiced = this.tick >= victim.voiceGateUntil;
     this.broadcast({ type: 'kill', killer: killer?.id ?? null, victim: victim.id, weapon, how: line, clip, ...(killerName !== undefined ? { killerName } : {}), cause, voiced });
     this.broadcast(this.scoreEvent());                         // the rows change: the scoreboard follows (research 91 §11)
+    if (this.opts.rules === 'respawn') this.reportLifeDamage(victim);   // WM-DATA task 3b: to the victim alone, the kill final (DAMAGE_REPORT_ADAPTATION)
     this.voiceDeath(victim.id);                                  // SVC-20c: the flag cleared; 0x22's ask without respawn or for a ghost
     if (this.ruleHost) {
       // FCW-31: the death, the kill it was (another's), and -- classic, where a death is the round's end for its body -- the
@@ -9543,8 +11378,9 @@ export class Room {
       if (st.launchAt === undefined || this.tick >= st.launchAt) this.firstRound();
     } else if (st.phase === 'play') {
       if (!classic) {
-        if (this.tick < st.endsAt) return;
-        this.state = { phase: 'expired', resultAt: this.tick + (EXPIRED_PLAY_S + RESULT_S) * TICK_HZ };
+        // L203 (RESPAWN_EXPIRY_LEFT_S): the round expires at the first tick with under a second left, as `mp_timer` clears.
+        if (st.endsAt - this.tick >= RESPAWN_EXPIRY_LEFT_S * TICK_HZ) return;
+        this.state = { phase: 'expired', resultAt: this.tick + Math.round(RESPAWN_WINNER_AFTER_EXPIRY_S * TICK_HZ) };
         this.broadcast({ type: 'timeExpired' });
         return;
       }
@@ -9559,6 +11395,7 @@ export class Room {
       if (outcome) {
         this.wins[outcome.winner]++;
         this.state = { phase: 'decided', resultAt: this.tick + resultHoldS(outcome.kind, this.map.gameType ?? 5) * TICK_HZ, winner: outcome.winner, endsAt: st.endsAt, reason: 'bomb' };   // LATER 149: BREACH's detonation 23 s
+        this.reportAtWin('bomb');                              // WM-DATA-WIN: DAMAGE_REPORT_AT_WIN_REASONS, sent, never broadcast
         return;
       }
       if (mode.plantedStopsClock && this.bomb?.planted) return;
@@ -9576,6 +11413,7 @@ export class Room {
         const hold = winner === 'seal' && this.map.gameType === 3 ? ESCORT_ELIMINATION_HOLD_READING : eliminatedHoldS(this.map.stem);
         this.state = { phase: 'decided', resultAt: this.tick + hold * TICK_HZ, winner, endsAt: st.endsAt, reason: 'elimination' };
         this.broadcast({ type: 'eliminated', winner });
+        this.reportAtWin('elimination');                       // WM-DATA-WIN: DAMAGE_REPORT_AT_WIN_REASONS, sent, never broadcast
         return;
       }
       // HX-1 (research 237 s3; 190 s4.2 C2): EXTRACTION's branches 3 and 4 of the same loop, after the elimination's --
@@ -9587,6 +11425,7 @@ export class Room {
         this.wins[ext.winner]++;
         this.state = { phase: 'decided', resultAt: this.tick + ext.hold * TICK_HZ, winner: ext.winner, endsAt: st.endsAt, reason: ext.reason };
         this.broadcast({ type: 'eliminated', winner: ext.winner, reason: ext.reason });
+        this.reportAtWin(ext.reason);                          // WM-DATA-WIN: DAMAGE_REPORT_AT_WIN_REASONS, sent, never broadcast
         return;
       }
       // `mission_timer` at 00:00: `abort` -- `round_count` += 1, `mp_winner` = 99, a draw, no message, no hold -- on
@@ -9600,6 +11439,7 @@ export class Room {
         if (mode.timeoutWinner && hold !== null) {
           this.state = { phase: 'decided', resultAt: this.tick + hold * TICK_HZ, winner: mode.timeoutWinner, endsAt: st.endsAt, reason: 'timeout' };
           this.broadcast({ type: 'timedOut', winner: mode.timeoutWinner });
+          this.reportAtWin('timeout');                         // WM-DATA-WIN: DAMAGE_REPORT_AT_WIN_REASONS, sent, never broadcast
         } else this.endRound(mode.timeoutWinner);
       }
     } else if (st.phase === 'expired') {
@@ -9655,18 +11495,20 @@ export class Room {
   }
 
   /**
-   * HX-1 (research 237 s3): the minute -- on an observed rise of `mp_penalty` (`PENALTY_COALESCE_READING`: one minute
-   * however many rises since the last look; D:L150711-150716) the round's total loses `PENALTY_MINUTE_READING.cut` 60 s
-   * when above it, else becomes `floor` 1 s (`FUN_002a6960` D:L148936-148949); the clock's end is the round's start plus
-   * the total, so a total already spent ends a round in play at once (the time-out's draw); every page told the total
-   * (`roundTime`) and the clock (`score`). In a decided round's hold too: the host's update keeps running (only `start`
-   * and `mission_timer` stopped).
+   * HX-1 (research 237 s3): the minute -- for each rise of `mp_penalty` since the last look (`PENALTY_COALESCE_READING`:
+   * one minute per hostage a SEAL kills, the rig's V1 measured; WM-HOSTAGE 3, research 433 s6) the round's total loses
+   * `PENALTY_MINUTE_READING.cut` 60 s when above it, else becomes `floor` 1 s (`FUN_002a6960` D:L148936-148949), one
+   * step a rise; the clock's end is the round's start plus the total, so a total already spent ends a round in play at
+   * once (the time-out's draw); every page told the total once (`roundTime`) and the clock (`score`). In a decided
+   * round's hold too: the host's update keeps running (only `start` and `mission_timer` stopped).
    */
   private penaltyMinute(): void {
     const st = this.state;
-    if (!this.extraction || (st.phase !== 'play' && st.phase !== 'decided') || !this.extraction.takePenalty()) return;
+    if (!this.extraction || (st.phase !== 'play' && st.phase !== 'decided')) return;
+    const rises = this.extraction.takePenalties();
+    if (rises <= 0) return;
     const { cut, floor } = PENALTY_MINUTE_READING;
-    this.roundTotalS = this.roundTotalS > cut ? this.roundTotalS - cut : this.roundTotalS > 0 ? floor : 0;
+    for (let i = 0; i < rises; i++) this.roundTotalS = this.roundTotalS > cut ? this.roundTotalS - cut : this.roundTotalS > 0 ? floor : 0;
     st.endsAt = (this.roundStartTick ?? 0) + this.roundTotalS * TICK_HZ;
     this.broadcast({ type: 'roundTime', seconds: this.roundTotalS });
     this.scoreDirty = true;
@@ -9721,6 +11563,7 @@ export class Room {
   private loaded(id: number): void {
     // LATER 85 / 266: a late console's load publishes its actor dead (`FUN_00543d50`, research 322 §5.3).
     const late = this.players.get(id);
+    const wasLate = late?.awaitingLoad === true;                 // LATER 753: the instrument's `late`, read before it clears
     this.lateMembers.delete(id);
     // KIT-HELD: the page's load -- the front end's match page after the lobby's hand-off -- is told its seat's held kit,
     // on a `loaded` the room accepts only: a late seat's first (`awaitingLoad`), or a seat's first in the launch's hold,
@@ -9752,10 +11595,12 @@ export class Room {
     const tell = (): void => {   // IP3 (`onLoadEvent`): told after the count, so `pending` is what is left
       // The load-log flood (2026-11-04): a CPU seat's controller sends `loaded` every step (`MatchBots.step`); only a
       // seat's first since the hold began is a step of the hold -- none before a hold, no repeat -- told.
-      if (this.loadHoldAt === null || this.loadTold.has(id)) return;
+      // LATER 753: a late seat's first `loaded` is told too, hold or not (a CPU seat is never late).
+      if ((this.loadHoldAt === null && !wasLate) || this.loadTold.has(id)) return;
       if (this.opts.onLoadEvent) this.loadTold.add(id);
-      const hold = st.phase === 'waiting' ? st.hold : undefined;   // `loadHoldAt` is set here; its null arm is the type's
-      this.opts.onLoadEvent?.({ kind: 'loaded', seat: id, tick: this.tick, sinceHold: this.loadHoldAt === null ? null : this.tick - this.loadHoldAt, counted, pending: hold ? hold.pending.size : 0 });
+      const hold = st.phase === 'waiting' ? st.hold : undefined;
+      const sinceSeatMs = late ? Math.max(0, Math.round(((this.tick - late.seatTick) * 1000) / TICK_HZ)) : null;
+      this.opts.onLoadEvent?.({ kind: 'loaded', seat: id, tick: this.tick, sinceHold: this.loadHoldAt === null ? null : this.tick - this.loadHoldAt, counted, pending: hold ? hold.pending.size : 0, late: wasLate, sinceSeatMs });
     };
     if (st.phase !== 'waiting' || !st.hold || !st.hold.pending.delete(id)) { tell(); return; }
     const session = this.sessions.get(id);
@@ -9772,6 +11617,7 @@ export class Room {
   private enterDeadAtLoad(p: Player): void {
     const slot = this.pick(p, 'start');
     const at: V3 = slot ? [slot.position[0], slot.position[1] + SPAWN_LIFT, slot.position[2]] : [0, 0, 0];
+    // Not seeded (L208 covers a LIVING spawn's first update): a dead-at-load actor never runs one, so its pick stays.
     p.sim.walker.place(at[0], at[1] + probeLiftOf('stand'), at[2]);
     p.sim.walker.state.yaw = slot ? wrapYaw(-slot.step * 45) : 0;
     p.deadAtLoad = true;
@@ -9910,6 +11756,28 @@ export class Room {
   }
 
   /**
+   * WM-51 (WM.R21, the owner's team swap queue -- a departure from the original on his word, `SWAP_QUEUE_OWNER` in
+   * `gameLobby.ts`): two waiting players on opposite sides exchange sides together (`Lobby.tradeTeams`: the counts kept),
+   * each seated afresh on its new side as `swapSides` seats them (`left` to the others for both, then each seated and
+   * `joined`). Only while the room waits; false otherwise, or when the lobby refuses the trade.
+   */
+  tradeTeams(a: number, b: number): boolean {
+    if (this.state.phase !== 'waiting' || !this.players.has(a) || !this.players.has(b) || !this.lobby.tradeTeams(a, b)) return false;
+    for (const id of [a, b]) {
+      this.players.delete(id);
+      this.broadcast({ type: 'left', id }, id);
+    }
+    for (const id of [a, b]) {
+      const team = this.lobby.member(id)!.team!;
+      this.start(this.seat(id, team));
+      this.broadcast({ type: 'joined', id, name: this.lobby.member(id)!.name, team, ...this.botMark(id) }, id);
+    }
+    this.scoreDirty = true;
+    this.recordRoster();                                         // REPLAY-TEAM-SWAP: the replay's roster on the new sides
+    return true;
+  }
+
+  /**
    * CLAN-SWAP (research 309 §5): "Alternate teams"' swap in the game's lobby a match returned to -- every player to the
    * other side together (`Lobby.swapSides`; the host's `FUN_002c0040` D:L162973-162982), spectators kept, each seated
    * afresh on its new side as SWITCH TEAMS seats one (`switchTeam`: `left` to the others, the seat, `joined`): every body
@@ -10028,6 +11896,7 @@ export class Room {
 
   private resetMatch(): void {
     this.round = 0; this.wins.seal = 0; this.wins.terrorist = 0;
+    this.boardWins.seal = 0; this.boardWins.terrorist = 0;     // KILL-B78: the board's copy with them (`FUN_002a72d0` D:L149257-149266)
     for (const p of this.players.values()) {
       p.kills = 0; p.deaths = 0; p.score = 0;
       p.shotsFired = 0; p.shotsHit = 0; p.headshots = 0; p.teamKills = 0; p.suicides = 0;   // PF-26: the match's counters
@@ -10055,6 +11924,10 @@ export class Room {
     if (newMatch && !keepLoadDeaths) this.joinedLate.clear();   // RC4: a new match's rebuild, no longer a late entry
     this.opts.beforeRoundStart?.(newMatch);
     if (newMatch) { this.resetMatch(); this.newMatchId(); this.matchStartTick = this.tick; this.opts.recorder?.matchReset?.(this.tick); }   // LATER 349
+    // R4P-235 (L362, reading, pending review): a game's load clears every player's kick vote (persona +0x48), spectator
+    // mark (+0x49) and VOTE ALL (+0x4a) -- r0004's CheckStateSwitch, loading state, D4:L174132-174148 (r4 0x2c5b98-0x2c5bec).
+    // A new match only: the original never enters the loading state between rounds (research 263, R4P-235).
+    if (newMatch) { this.votes.clear(); this.votesAll.clear(); this.voteAllMarks.clear(); }
     this.round++;
     this.roundSerial++;
     this.roundLeavers = [];                                      // SVC-12d
@@ -10079,6 +11952,7 @@ export class Room {
     this.resetTurrets();                                         // MAP-10b: freed, their rounds restored (FUN_003aa9d0)
     // A seat still in its ARMORY is spawned too: the round's start closes the screen (W5.R1, ARMORY_SEAT_READING).
     this.teamScore.seal = 0; this.teamScore.terrorist = 0;     // PF-14: the round's carry (TEAM_SCORE_READING)
+    this.resetDamage();                                         // WM-DATA task 3: the damage report's ledger, the round's from zero
     const passedBy: number[] = [];                               // LATER 85: the seats this start passes by (`ghosts`)
     for (const p of this.players.values()) {
       p.signals = freshSignals();                                // SVC-12d: its signals from zero
@@ -10086,7 +11960,7 @@ export class Room {
       p.refusalsLogged = 0;                                      // SIMDROP-INSTR: the round's refusal lines from zero
       p.frameAt = -1;                                            // SIMDROP-INSTR: the round's largest gap from its first frame
       p.roundFromMs = this.opts.now();                           // NCW-6: the seat's wall time in the round from its start
-      p.roundScore = 0; p.roundKills = 0; p.roundDeaths = 0; p.roundRescued = 0; p.arming = false;
+      p.roundScore = 0; p.roundKills = 0; p.roundDeaths = 0; p.roundRescued = 0; p.roundPlanted = 0; p.arming = false;
       if (!keepLoadDeaths || !p.deadAtLoad) p.diedAt = -1;
       // LATER 85: a late seat still loading stays without a body -- a ghost of the round (the review's F2: not in it for the
       // results, `ghostOf`), named to the pages (`ghosts`, F1); every other seat is in this round, spawned.
@@ -10109,6 +11983,7 @@ export class Room {
     // reset's move back to 17 plays no YES.
     this.extraction?.tellAll();
     this.opts.onRoundStart?.(this.round);
+    this.tellSeats();                                            // SEAT_CLAIM_ADAPTATION: a game's launch opens its claims
     this.broadcast(this.scoreEvent());
   }
 
@@ -10120,7 +11995,7 @@ export class Room {
    * a fresh source re-read; research 348 §2 records that limit.
    */
   private endRound(decided?: Team | null): void {
-    if (this.extraction) this.hostagePrimaryObjectives();
+    this.roundPrimaryObjectives(this.map.gameType ?? 0);       // R4P-252: FUN_00224d10 for every player at the end (D:L76026-76028)
     const side = { seal: 0, terrorist: 0 };
     // Research 348 §2: `objectives/success2` compares the round points before the MP exit state's bonuses.
     for (const p of this.players.values()) side[p.team] += p.roundScore;
@@ -10153,6 +12028,7 @@ export class Room {
     this.lastResult = { ...over, at: this.tick };                // PF-28: a joiner's result panel (RESULT_CLOCK_READING)
     if (matchOver) this.ruleEvent({ name: 'match.end', fields: { winner: this.wins.seal > this.wins.terrorist ? 'seal' : this.wins.terrorist > this.wins.seal ? 'terrorist' : 'none' } });
     this.broadcast({ type: 'roundOver', ...over });
+    this.reportRoundDamage();                                    // WM-DATA task 3: each player's own, sent, never broadcast
     this.broadcast(this.scoreEvent());
     this.opts.onRoundOver?.(this.roundReport(winner, matchOver, over.stats));   // SVC-12c / SVC-12d (FUN_00223970)
     this.voteKickAt = this.tick + voteKickDelayS(screens) * TICK_HZ;   // SVC-23d: VOTE_KICK_POINT_READING's screen
@@ -10296,15 +12172,48 @@ export class Room {
   }
 
   /**
-   * HX-5 (`PRIMARY_OBJECTIVE_READING`, `FUN_00224d10` D:L76467's EXTRACTION arm): at a round's end, +1 primary objective
-   * to each living SEAL when the SEALs' brought out this round, every SEAL's summed, is above 1, and to each living
-   * Terrorist when no SEAL is alive.
+   * GetRoundResult's first output (`FUN_00224d10` D:L76467, called for each player at the round's end D:L76026 and added
+   * to the round block's +0x5be D:L76028, YOUR STATS' +0x576 D:L76055): +1 primary objective by the game type (+0x111,
+   * D:L76539), from the living SEALs, the living Terrorists and the living escortees (+200 & 0x20000) and the SEALs'
+   * brought out this round (+0x5a8, every SEAL's, living or dead) it counts first (D:L76506-76536).
+   * - SUPPRESSION (5; R4P-252, D:L76541-76550): a living SEAL when no Terrorist lives, a living Terrorist when no SEAL lives.
+   * - EXTRACTION (4; HX-5, `PRIMARY_OBJECTIVE_READING`, D:L76551-76560): a living SEAL when the brought out is above 1, a
+   *   living Terrorist when no SEAL lives.
+   * - ESCORT (3; R4P-252, D:L76561-76570): a living SEAL when an escortee lives or the brought out is above 0, a living
+   *   Terrorist when no escortee lives.
+   * - BREACH (1, D:L76571-76573; LATER 1462, `breachRoundCredit`): a Terrorist only, living or dead, as his own console
+   *   computes it -- alive with no SEAL alive, or his console's tally of the SEALs' +0x5c4 (bombs planted, `roundPlanted`)
+   *   0, which online is his own plants, none (`BREACH_SEAL_TALLY_READING`): every Terrorist +1, a SEAL never. The room
+   *   is the online game, as R4P-252's teammate credit takes it (`scoreObjective`). Every Terrorist seat present, a
+   *   reconnected or passed-by one included, but a true mid-round joiner -- seated after the round's start -- held at no
+   *   credit (`BREACH_JOINER_CREDIT_PLACEHOLDER`). DEMOLITION (2) and any other type give none.
+   * `gameType` the map's (0 when it names none, as `scoreObjective` and the round's report read it).
    */
-  private hostagePrimaryObjectives(): void {
-    let sealsAlive = 0, broughtOut = 0;
-    for (const p of this.players.values()) if (p.team === 'seal') { broughtOut += p.roundRescued; if (p.alive) sealsAlive++; }
+  private roundPrimaryObjectives(gameType: number): void {
+    if (gameType === 1) {
+      const seats = [...this.players.values()];
+      // BREACH_JOINER_CREDIT_PLACEHOLDER (LATER 1462's ruling): a seat seated after the round's start (`seatedAt`, carried
+      // by a takeover's row, so a reconnected seat is no joiner) takes no credit; every other Terrorist seat does.
+      const start = this.roundStartTick ?? 0;
+      for (const p of seats) {
+        if (!BREACH_JOINER_CREDIT_PLACEHOLDER && p.seatedAt > start) continue;
+        if (breachRoundCredit(p, seats, true)) p.primaryObjs++;
+      }
+      return;
+    }
+    if (gameType !== 3 && gameType !== 4 && gameType !== 5) return;
+    let sealsAlive = 0, terroristsAlive = 0, broughtOut = 0;
     for (const p of this.players.values()) {
-      if (p.alive && (p.team === 'seal' ? broughtOut > 1 : sealsAlive === 0)) p.primaryObjs++;
+      if (p.team === 'seal') { broughtOut += p.roundRescued; if (p.alive) sealsAlive++; } else if (p.alive) terroristsAlive++;
+    }
+    const escorteesAlive = this.extraction?.hostages.filter((h) => h.alive).length ?? 0;
+    for (const p of this.players.values()) {
+      if (!p.alive) continue;
+      const seal = p.team === 'seal';
+      const holds = gameType === 5 ? (seal ? terroristsAlive === 0 : sealsAlive === 0)
+        : gameType === 4 ? (seal ? broughtOut > 1 : sealsAlive === 0)
+          : (seal ? escorteesAlive > 0 || broughtOut > 0 : escorteesAlive === 0);
+      if (holds) p.primaryObjs++;
     }
   }
 
@@ -10313,9 +12222,11 @@ export class Room {
    * shotgun's shell once whatever its rays (`first`: the volley's opening ray), a launched round once, a rocket once
    * (`launchRound`, `launchRocket`); a shot whose ray met a living player's body the room did not refuse -- an enemy's,
    * friendly fire being off (W3.R11), and within the weapon's reach (counted after `bulletDamage` / `pelletDamage`) --
-   * is a hit (+0x548), once a shell; a launched round's or a rocket's direct hit on one (`directHit`, `flight`) once a
-   * flight. The original's writers of the round block's +0x590 / +0x594 were not traced (only the ratio's,
-   * `FUN_00223970` D:L76064-76069). A blast counts neither.
+   * is a hit (+0x548), once a shell; a rocket's direct hit on one (`directHit`, `flight`) once a flight -- a launched
+   * round's or a thrown item's never (R4P-105: `directHit` asks `countsHit`, HIT_STAT_CLASSES_READING, r0004 0x3f2670).
+   * The writers are traced since (research 216 s9): the hit r0004 0x54a2c0, behind 0x3f2670; the shot 0x5499e0, whose
+   * own filter (0x3f4070) also refuses launched rounds and rockets -- the port still counts their shots (PF.R20, held for
+   * the controller's ruling; research 216 s9 names the departure). A blast counts neither. Signals follow the counters.
    */
   private countShot(p: Player, first: boolean, met: Player | undefined, flight = false, part = -1): void {
     if (first) { p.shotsFired++; p.shellHit = false; p.signals.shots++; }
@@ -10355,7 +12266,8 @@ export class Room {
   // - The log (VOTE-LOG, Trello d3xR0sr2; a host instrument, no original, as the `[gate]` line): one `[vote]` line per
   //   vote cast or withdrawn, per vote ignored and per kick, keyed by the game's id (`handOver.roomId`, central's), the
   //   seats named by their JSON-quoted lobby names and ids -- never an address (`addresses` is the ban's only).
-  // - No expiry, cooldown or prompt: a standing flag until retracted or its voter leaves (the leaver's slot record
+  // - No expiry, cooldown or prompt: a standing flag until retracted, its voter leaves or the next game loads (R4P-235;
+  //   r0004's CheckStateSwitch, r4 0x2c5b98-0x2c5bec, `startRound(true)` here) (the leaver's slot record
   //   freed, `FUN_002c5750` D:L166323-166324; a joiner's flags cleared, `FUN_002c5830` D:L166376-166377). Here `drop`
   //   forgets the leaver's votes and those on it.
   // - When (R4B-08, OT.R97; research 379 §2): VOTE_KICK_AT_ONCE_READING -- r0004 removes the target on the vote that
@@ -10387,6 +12299,26 @@ export class Room {
   private readonly banned = new Map<string, number>();
   /** Each connection's last frame, the clock's milliseconds: a watcher's idle clock (`idle`). */
   private readonly heard = new Map<number, number>();
+  /**
+   * Lag read v4 s6 -- AN OPERATOR'S INSTRUMENT (the product track, no original): each seat's latest page stalls from its
+   * app ping (`pageStallMaxMs`, `pageStalls100`; the page's `net/stallMeter.ts`). Stored only: never read for play, for
+   * a refusal or for any message; the server's `rtt` line names it (`pageStalls`).
+   */
+  private readonly pageStallsBySeat = new Map<number, Readonly<PageStallsReport>>();
+  /** A ping's stall pair, kept only when both are integers within their bounds; anything else dropped, never logged raw. */
+  private storePageStalls(id: number, ev: Record<string, unknown>): void {
+    const max = ev.pageStallMaxMs, over = ev.pageStalls100;
+    if (!boundedCount(max, PAGE_STALL_MAX_MS_BOUND_ADAPTATION) || !boundedCount(over, PAGE_STALLS_100_BOUND_ADAPTATION)) return;
+    if (!this.conns.has(id)) return;
+    this.pageStallsBySeat.set(id, { pageStallMaxMs: max, pageStalls100: over });
+  }
+  /**
+   * Lag read v4 s6 (an operator's instrument, product track, no original): `id`'s latest stored page stalls for the
+   * server's `rtt` line, or null. Read-only.
+   */
+  pageStalls(id: number): Readonly<PageStallsReport> | null {
+    return this.pageStallsBySeat.get(id) ?? null;
+  }
   private watcherIdle = 0;
   private readonly addresses = new Map<number, string>();
 
@@ -10521,7 +12453,8 @@ export class Room {
     const marks = this.voteAllMarks.get(id) ?? new Set<number>();
     this.voteAllMarks.set(id, marks);
     // VOTE_ALL_LINE_PER_SPECTATOR_READING: the spectators present whose mark differs, each marked, each a Spec Vote.
-    const over = this.lobby.spectators().map((s) => s.id).filter((s) => marks.has(s) !== on);
+    // VOTE_ALL_SPARES_HELD_SEAT_ADAPTATION: a held seat's holder is on its way in -- not voted on, not ejected.
+    const over = this.lobby.spectators().map((s) => s.id).filter((s) => !this.lobby.reserved(s) && marks.has(s) !== on);
     for (const s of over) { if (on) marks.add(s); else marks.delete(s); }
     for (let i = 0; i < over.length; i++) {
       if (on) this.votesAll.add(id); else this.votesAll.delete(id);
@@ -10535,7 +12468,11 @@ export class Room {
   private ejectSpectators(): void {
     this.spectatorsShut = true;
     this.broadcast({ type: 'spectatorsEjected' });
+    // VOTE_ALL_SPARES_HELD_SEAT_ADAPTATION: the seats held at the eject, kept -- a leave among the ejected may hold a seat
+    // for the line's next, who is ejected with the rest (the list is the eject's, taken before any leave)
+    const spared = new Set(this.lobby.spectators().filter((s) => this.lobby.reserved(s.id)).map((s) => s.id));
     for (const s of [...this.lobby.spectators()]) {
+      if (spared.has(s.id)) continue;
       const conn = this.conns.get(s.id);
       this.send(s.id, { type: 'kicked', reason: 'vote' });
       this.leave(s.id);
@@ -10636,15 +12573,22 @@ export class Room {
   }
 
   scoreEvent(): ServerEvent {
+    // WM-DATA (a): the match record's assists, read (never counted here); a reader's throw drops the fields, not the score
+    const assistsOf = this.opts.assistsOf;
+    const assists = (id: number): { assists: number; roundAssists: number } | Record<string, never> => {
+      if (!assistsOf) return {};
+      try { const a = assistsOf(id); return a ? { assists: a.match, roundAssists: a.round } : {}; } catch { return {}; }
+    };
     const rows: ScoreRow[] = [...this.players.values()].map((p) => ({
       id: p.id, name: this.lobby.member(p.id)?.name ?? '', team: p.team, kills: p.kills, deaths: p.deaths, score: p.score,
       alive: p.alive, ping: p.ping, ...this.botMark(p.id),
       roundKills: p.roundKills, roundDeaths: p.roundDeaths, roundScore: p.roundScore,   // the round block (additive): the round lists
+      ...assists(p.id),                                          // WM-DATA (a), protocol 17: absent without a match record
       ...(this.clans.has(p.id) ? { clan: this.clans.get(p.id)! } : {}),   // CLAN-TAG-ROUND: additive (research 275 §2.1)
     }));
     const timeLeft = this.timeLeft();
     return {
-      type: 'score', rows, timeLeft, spectators: this.lobby.spectators().map((m) => m.name), wins: { ...this.wins },
+      type: 'score', rows, timeLeft, spectators: this.lobby.spectators().map((m) => m.name), wins: { ...this.boardWins },   // KILL-B78: the board's copy
       teamScore: { ...this.teamScore },                          // PF-14: additive (TEAM_SCORE_READING)
       ...(this.clockHeldS !== null && timeLeft !== null ? { clockHeld: true as const } : {}),   // LATER 152: additive; never on a clockless score (the review's F1)
     };
@@ -11111,9 +13055,9 @@ export class Room {
     for (const [id, conn] of this.conns) {
       const p = this.players.get(id);
       const own = p && p.alive ? (() => {
-        const s = p.sim.walker.state;
+        const s = p.sim.walker.state, still = this.roundScreensUp();   // LATER 580's review F6: a held body stands
         // Protocol 11: the facing after the acked command (the look gate's), which the page reconciles as the position.
-        return { ack: p.sim.seq, x: s.x, y: s.y, z: s.z, vx: s.vx, vy: s.vy, vz: s.vz, facing: { yaw: s.yaw, pitch: s.pitch } };
+        return { ack: p.sim.seq, x: s.x, y: s.y, z: s.z, vx: still ? 0 : s.vx, vy: still ? 0 : s.vy, vz: still ? 0 : s.vz, facing: { yaw: s.yaw, pitch: s.pitch } };
       })() : null;
       const sent = this.envSent.get(id);
       const named: EnvWire | undefined = sent && sent.revision === env.revision && sent.epoch === env.epoch ? undefined : env;
@@ -11125,7 +13069,9 @@ export class Room {
   }
 
   private body(p: Player): BodyState {
-    const s: PlaySnapshot = p.sim.body();
+    const body: PlaySnapshot = p.sim.body();
+    // LATER 580's review F6: under the round screens a held body, living or dead, is sent with no velocity.
+    const s: PlaySnapshot = this.roundScreensUp() ? { ...body, vx: 0, vy: 0, vz: 0 } : body;
     // Protocol 7: the item in the hand by id -- the slot's item on the body's kit (the character message's current item,
     // `FUN_005c89d0`, research 94 §A6), so the others draw, fire and hear what this body carries.
     const slot = p.sim.weapon;
@@ -11139,6 +13085,11 @@ export class Room {
       // still run its number, `run`). A CPU's view and sway are 0 (its controller sends none). Whole here, as the
       // recorder keeps it; who gets it zeroed is `snapshots`' pass (`recipientBodies`, PV.R9).
       view: p.alive ? p.view : 0, clock: p.sim.seq & 15, swayX: p.alive ? p.swayX : 0, swayY: p.alive ? p.swayY : 0,
+      // WM-DATA-17 (protocol 17; HAND_WIRE_ADAPTATION, viewer `net/protocol.ts` `BodyState.hand`): the item the page's
+      // ROOM-HAND word puts in the hand at the seat's last run command (`handAt`, the clock's `sim.seq`), 0 while the
+      // launcher is up (`held`, which `item` above names) and for a dead body. Carried for the player's view alone;
+      // nothing the room simulates reads it. Zeroed for the other side with the tail (`recipientBodies`).
+      hand: p.alive && p.held === null ? (this.handAt(p, p.sim.seq) ?? 0) : 0,
     });
   }
 
@@ -11196,7 +13147,8 @@ export class Room {
   joinWire(): JoinWire {
     return joinWire({
       tick: this.tick,
-      flying: this.flying.map((f) => ({ pid: f.pid, owner: f.owner.id, kind: f.kind, g: f.g, ...(f.facing ? { facing: f.facing } : {}) })),
+      // LATER 931 B-F1: the owner only while the thrower is that live seat (`thrower`); a departed player's are no one's.
+      flying: this.flying.map((f) => ({ pid: f.pid, owner: this.thrower(f)?.id ?? JOIN_ORPHAN_OWNER, kind: f.kind, g: f.g, ...(f.facing ? { facing: f.facing } : {}) })),
       result: this.state.phase === 'over' ? this.lastResult : null,
       // The load's death has alpha zero (322 §5.3): hydrate it through the existing invisible-ghost path, no corpse.
       seats: [...this.players.values()].map((p) => ({ id: p.id, alive: p.alive, diedAt: p.deadAtLoad ? -1 : p.diedAt, deathClip: p.deathClip, deathCause: p.deathCause })),
@@ -11212,6 +13164,20 @@ export class Room {
   /** For `/metrics`. */
   stats(): { players: number; spectators: number; tick: number; round: number; rules: Rules } {
     return { players: this.players.size, spectators: this.lobby.spectators().length, tick: this.tick, round: this.round, rules: this.opts.rules };
+  }
+
+  /**
+   * The memory line's seat counts (an operator's instrument, product track, no original; LAG-READ-20261117-v4 s6;
+   * `MatchServer.roomLoads`): of the lobby's seated players (`lobby.players()`, spectators never), `bots` those whose
+   * connection is a CPU's (`Conn.cpu`), `humans` every other (a parked human seat, its connection gone, still a human).
+   * A pure read: nothing is changed.
+   */
+  seatCounts(): { bots: number; humans: number } {
+    let bots = 0, humans = 0;
+    for (const m of this.lobby.players()) {
+      if (this.conns.get(m.id)?.cpu === true) bots++; else humans++;
+    }
+    return { bots, humans };
   }
 
   /**
@@ -11232,7 +13198,7 @@ export class Room {
     readonly lockKind: readonly [LockKind, LockKind];
     readonly loadout: Loadout; readonly records: readonly [WeaponRecord, WeaponRecord]; readonly char: number; readonly nextChar: number;
     readonly queue: readonly Command[]; readonly queued: ReadonlySet<number>; readonly grenades: Readonly<Record<string, number>>;
-    readonly equipmentSlots: EquipmentSlots;
+    readonly equipmentSlots: EquipmentSlots; readonly detonator: boolean;
     readonly ran: number; readonly credit: number; readonly pending: readonly unknown[]; readonly rounds: KitRounds;
     readonly flinchFrom: number; readonly flinchUntil: number; readonly spawnedIn: number; readonly away: boolean;
     /** The death's tick (+0xcc's stamp, -1 alive since the lobby); read by the late-load respawn gate and OBF-16's test. */
@@ -11250,9 +13216,15 @@ export class Room {
   }
 }
 
-/** A turret on the wire (`TurretWire`), with the gun's yaw (`TurretWireYaw`: RESUME-MOUNTED, PB-2c's review F1). */
+/**
+ * A turret on the wire (`TurretWire`), with the gun's yaw (`TurretWireYaw`: RESUME-MOUNTED, PB-2c's review F1) and, when it
+ * is not level, its pitch (TURRET_FREE_GUN_PITCH: the original's freed gun keeps its whole world matrix, pitch included: FUN_003a7350 copies the gun part's matrix into +0x2c0 each turret tick (D:L299409-299411), and the round's reset FUN_003aa9d0 restores the rounds and +0x3c0 only (D:L301337-301338); R2-FIRE-3 s9).
+ */
 function turretWire(t: TurretState): TurretWireYaw {
-  return { id: t.place.id, occupant: t.occupant, ammo: t.ammo, gunYaw: t.gunYaw, ...(t.reserved ? { reserved: true as const } : {}) };
+  return {
+    id: t.place.id, occupant: t.occupant, ammo: t.ammo, gunYaw: t.gunYaw, ...(t.gunPitch !== 0 ? { gunPitch: t.gunPitch } : {}),
+    ...(t.reserved ? { reserved: true as const } : {}),
+  };
 }
 
 /**
@@ -11260,7 +13232,15 @@ function turretWire(t: TurretState): TurretWireYaw {
  * left turned off its placement's facing (`TurretState.gunYaw`), so a joiner's next mount steers toward it as the room's.
  */
 function welcomeTurret(t: TurretState): boolean {
-  return t.occupant !== null || t.gunYaw !== t.place.facing;
+  return t.occupant !== null || t.gunYaw !== t.place.facing || t.gunPitch !== 0;   // TURRET_FREE_GUN_PITCH: or left pitched
+}
+
+/**
+ * Lag read v4 s6 (an operator's instrument, product track, no original): a whole number from 0 to `bound` (a page stall
+ * field); a string, NaN, a fraction or an object is not.
+ */
+function boundedCount(v: unknown, bound: number): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= bound;
 }
 
 /** A finite number. */
@@ -11295,6 +13275,19 @@ function due(p: Player, ev: Timed['ev']): boolean {
 export function throwLaunchAllowed(
   feet: readonly number[], yaw: number, posture: 'stand' | 'crouch' | 'prone', from: readonly number[], velocity: readonly number[],
 ): boolean {
+  return throwLaunches(feet, yaw, posture, from, velocity, () => true);
+}
+
+/**
+ * LANE-KILL B-06: `throwLaunchAllowed`'s search, each launch of the family within the slack of `velocity` handed to
+ * `visit` as its power, its aim's sine and the stance its range is the original's for (`maxThrowDistance`: the standing
+ * range is state 0's, the other a crouched or prone state's -- D:L477069-477075); true at the first `visit` that answers
+ * true, false when none does (or none matches).
+ */
+export function throwLaunches(
+  feet: readonly number[], yaw: number, posture: 'stand' | 'crouch' | 'prone', from: readonly number[], velocity: readonly number[],
+  visit: (power: number, aimSin: number, stance: 'stand' | 'crouch' | 'prone') => boolean,
+): boolean {
   const r = (yaw * Math.PI) / 180, c = Math.cos(r), sn = Math.sin(r);
   // The world into the actor frame (x right, y up, z behind): the inverse of `actorToWorldPoint`.
   const dx = from[0]! - feet[0]!, dz = from[2]! - feet[2]!;
@@ -11303,29 +13296,17 @@ export function throwLaunchAllowed(
   const distances = posture === 'stand' ? [maxThrowDistance('stand'), maxThrowDistance('crouch')] : [maxThrowDistance('crouch')];
   for (const distance of distances) {
     const slack = maxThrowSpeed(distance, hand[1]).speed * THROW_SLACK_READING;
+    // The standing range is the list's first only for a standing posture (the list above): state 0's.
+    const stance = posture === 'stand' && distance === distances[0] ? 'stand' : posture === 'stand' ? 'crouch' : posture;
     for (let i = 0; i <= THROW_POWER_STEPS; i++) {
       for (let j = 0; j <= THROW_AIM_STEPS; j++) {
         const aim = THROW_AIM_CLAMP[0] + ((THROW_AIM_CLAMP[1] - THROW_AIM_CLAMP[0]) * j) / THROW_AIM_STEPS;
         const l = throwVelocity(i / THROW_POWER_STEPS, Math.sin(aim), hand, distance).velocity;
-        if (Math.hypot(l[0] - v[0]!, l[1] - v[1]!, l[2] - v[2]!) <= slack) return true;
+        if (Math.hypot(l[0] - v[0]!, l[1] - v[1]!, l[2] - v[2]!) <= slack && visit(i / THROW_POWER_STEPS, Math.sin(aim), stance)) return true;
       }
     }
   }
   return false;
-}
-
-/**
- * IMPACT_SIGHT_READING (M4, research 94 §C4.3): where a blast's line to a head (`FUN_005ac070`) starts. A launched
- * round goes off where it struck (`HandleImpact` 0x3c8920: the hit point, on the surface), so a line from there finds
- * that surface at once and no one would be reached; the line starts `BOUNCE_LIFT` (0.1, the lift a bounce leaves a
- * projectile at, 0x3c8f50) toward the head. A grenade at rest, already 0.1 off its floor, is not changed in effect.
- */
-const IMPACT_SIGHT_READING = BOUNCE_LIFT;
-function sightFrom(point: V3, head: V3): V3 {
-  const d: V3 = [head[0] - point[0], head[1] - point[1], head[2] - point[2]], l = Math.hypot(...d);
-  if (!(l > IMPACT_SIGHT_READING)) return point;
-  const k = IMPACT_SIGHT_READING / l;
-  return [point[0] + d[0] * k, point[1] + d[1] * k, point[2] + d[2] * k];
 }
 
 /**
@@ -11338,7 +13319,7 @@ function lockTicks(timer: number, clip: number): number {
 }
 
 /** The body a start is measured from (SVC-23b): an `AimFrame`, or the mover now (`Room.startBody`). */
-type StartBody = { feet: V3; yaw: number; posture: AimFrame['posture']; moveRoot: number | null; peek: number; groundNormalY?: number; rootSlack: number };
+type StartBody = { feet: V3; yaw: number; posture: AimFrame['posture']; moveRoot: number | null; peek: number; groundNormalY?: number; aimProne?: boolean; pitch?: number; rootSlack: number };
 
 /** Which kind set a weapon's lock (the kit timer's flag bit, `kit+2 & 2`: after-shot or reload). */
 type LockKind = 'reload' | 'afterShot' | null;
@@ -11348,6 +13329,9 @@ type LockKind = 'reload' | 'afterShot' | null;
  * PAR-79: its clock covered by the fall and handed back (`StillClipClock`, the page's `StillReloadLife` holds the same).
  */
 interface ReloadLife extends StillClipClock { spec: ReloadLifeSpec }
+
+/** B-18 F1: an after-shot's clip still to be picked (`Player.afterShotPick`, `Room.afterShotPick`). */
+interface AfterShotPick { at: number; timer: number; lock: number; family: ReloadLifeSpec['family']; reloadTime: number }
 
 /**
  * PF-18: the commands' cut axes kept (`Player.cutLog`): a reload is decided once the command after it has run, a late

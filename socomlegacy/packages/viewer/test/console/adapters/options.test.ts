@@ -4,16 +4,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CardSlots } from '@s2u/card';
 import type { ValveEntry } from '@s2u/ui';
 import { bootConsole, type ConsolePage } from '../../../src/console/app';
-import { liveOptions, type LiveOptions, CONSOLE_KEYS, DETAIL_DISTANCE_ROW, DEVICE_DETECTED_ROW, DEVICE_MEMORY_ROW, DEVICE_NOT_RIGHT_ROW, NAME_TAGS_ROW, PERF_LINE_COPIED_MS_ADAPTATION, PERF_LINE_ROW, RANGE_READOUT_ROW, RENDER_SCALE_ROW, SHADOWS_ROW, SHOW_FPS_ROW, VIDEO_PICTURE_ROW, VIDEO_PRESET_ROW, VIDEO_RESTORE_ROW, VIDEO_ROW_IDS } from '../../../src/console/adapters/options';
+import { liveOptions, type LiveOptions, AMBIENCE_VOLUME_ROW, CONSOLE_KEYS, DETAIL_DISTANCE_ROW, DEVICE_DETECTED_ROW, DEVICE_MEMORY_ROW, DEVICE_NOT_RIGHT_ROW, CLAN_TAGS_ROW, LIGHTWEIGHT_MATCH_ROW, NAME_TAGS_ROW, JOIN_LEAVE_LINE_ROW, PERF_LINE_COPIED_MS_ADAPTATION, PERF_LINE_ROW, RANGE_READOUT_ROW, RENDER_SCALE_ROW, SHADOWS_ROW, SHOW_FPS_ROW, VIDEO_PICTURE_ROW, VIDEO_PRESET_ROW, VIDEO_RESTORE_ROW, VIDEO_ROW_IDS, VIDEO_SHAPE_ROW } from '../../../src/console/adapters/options';
+import { MODS_LINK_ROW, TEXTURE_PACK_ROW, TEXTURES_SECTION } from '../../../src/console/texturePackSetting';
 import { NAME_TAGS_KEY } from '../../../src/nameTags';
+import { CLAN_TAGS_KEY } from '../../../src/clanTagOption';
+import { AMBIENCE_VOLUME_KEY } from '../../../src/ambienceVolume';
 import { RANGE_READOUT_KEY } from '../../../src/rangeReadout';
+import { JOIN_LEAVE_LINE_KEY } from '../../../src/joinLeaveLine';
 import { FPS_SHOWN_KEY } from '../../../src/matchFps';
 import { PRESET_VALUES, VIDEO_SCHEMA, videoSettingsKeeperV2, type VideoSettingsV2 } from '../../../src/videoSettings';
 import { DETAIL_DISTANCE_KEY } from '../../../src/detailDistance';
 import { GRAPHICS_BACKEND_APPLY_NOTE, GRAPHICS_BACKEND_KEY } from '../../../src/graphicsBackend';
 import { PICTURE_KEY, pagePicture, type VideoPicture } from '../../../src/picture';
+import { pageShape, SHAPE_KEY } from '../../../src/shape';
 import { VIDEO_PICTURE_CAPTIONS } from '@s2u/ui';
 import { GRAPHICS_DEMOTED_KEY } from '../../../src/graphicsDemotion';
+import { LIGHTWEIGHT_MATCH_KEY } from '../../../src/lightweightMatchOptIn';
 import { IOS_STORAGE_NOTE, setInstallPromptForTest, type InstallSurface } from '../../../src/pwa/install';
 import { sampleAdapters } from '../../../src/console/sampleAdapters';
 import { optCategories, type Adapters, type ConsoleState } from '../../../src/console/state';
@@ -119,7 +125,7 @@ describe('the options adapter: the real set', () => {
     for (const gone of ['Internal resolution', 'Aspect ratio', 'Frame rate', 'Picture smoothing', 'Show ping in rooms', 'Connection test', 'Master volume']) {
       expect(labels).not.toContain(gone);
     }
-    expect(options.categories().find((c) => c.id === 'audio')!.rows.map((r) => r.label)).toEqual(['Music volume', 'Sound volume', 'Dialog volume', 'Headset volume', 'Sound mode']);
+    expect(options.categories().find((c) => c.id === 'audio')!.rows.map((r) => r.label)).toEqual(['Music volume', 'Sound volume', 'Dialog volume', 'Headset volume', 'Sound mode', 'Ambience volume']);   // LATER 1177(b): the browser's ambience volume last
     // CX-52's two rows (B114), moved to Appearance by LR-5 with their keys (`../appearance.test.ts`).
     expect(options.categories().find((c) => c.id === 'appearance')!.rows.map((r) => r.label).slice(-4)).toEqual(['Launcher sounds', 'Launcher sound volume', 'Interface size', 'Scanline overlay']);   // LR-13: the two from App after them
   });
@@ -225,7 +231,7 @@ describe('the options adapter: the real set', () => {
   it('the browser\'s: Use microphone in game writes the setup page\'s key; Button mapping is the console\'s own screen', async () => {
     const { ctl, options } = boot();
     open(ctl, 'communication');
-    expect(rollers().map(([l]) => l)).toEqual(['External whispers', 'Use microphone in game', 'Microphone']);
+    expect(rollers().map(([l]) => l)).toEqual(['External whispers', 'Use microphone in game', 'Microphone', 'Streamer mode']);   // STREAMER-P1: the master row last
     ctl.S.opt.row = 1;
     ctl.press('left');
     expect(localStorage.getItem('s2u.startup.v1.mic.enabled')).toBe('off');
@@ -429,7 +435,7 @@ describe('Display: Graphics (VS-2: the schema\'s renderer row, through the video
   it('Automatic / WebGL2 / WebGPU, Automatic by default; a choice saves through the keeper, which an observer (a prepared match) hears', () => {
     const { options } = boot();
     const row = rowOf(options);
-    expect(row).toMatchObject({ label: 'Graphics', values: ['Automatic', 'WebGL2', 'WebGPU'], def: 0 });
+    expect(row).toMatchObject({ label: 'Renderer', values: ['Automatic', 'WebGL2', 'WebGPU'], def: 0 });   // VIDEO-SHAPE C1: the plain name
     expect(row.about).toBe(VIDEO_SCHEMA.find((r) => r.key === 'graphics')!.effect);
     expect(row.locked).toBeUndefined();
     expect(row.note).toContain(GRAPHICS_BACKEND_APPLY_NOTE);
@@ -523,13 +529,13 @@ describe('Display: Graphics (VS-2: the schema\'s renderer row, through the video
 // Display offers the page's picture -- the one VIDEO MODE's strip sets -- through the page's one keeper (`./picture`).
 // B206 ML-6 (plan 2026-11-06-mods-loader, ML.R11, R12; OT.R110): the HD (GoE SouL) value is removed with the picture and
 // HD-HOLD -- the row offers Modern and PS2, and the HD pack is chosen in Home > Experiments > Mods.
-describe('Display: Video (OT.R79, a browser adaptation)', () => {
+describe('Display: Sharpness, the picture (OT.R79, a browser adaptation)', () => {
   const videoRow = (options: ReturnType<typeof boot>['options']) => options.categories().find((c) => c.id === 'display')!.rows.find((r) => r.id === VIDEO_PICTURE_ROW)!;
   it('offers Modern and PS2 (ML-6: no HD value), Modern by default; the about names no HD picture', () => {
     const { options } = boot();
     const row = videoRow(options);
-    expect(row).toMatchObject({ label: 'Video', def: 0 });
-    expect(row.values).toEqual(['Modern', 'PS2']);
+    expect(row).toMatchObject({ label: 'Sharpness', def: 0 });                      // VIDEO-SHAPE: the row's name; its storage the picture's
+    expect(row.values).toEqual(['Modern', 'PS2 pixels']);
     expect(VIDEO_PICTURE_CAPTIONS).toEqual(['MODERN', 'PS2']);
     expect(JSON.stringify(row)).not.toMatch(/GoE SouL/);
     expect(options.value(VIDEO_PICTURE_ROW)).toBe(0);
@@ -581,14 +587,86 @@ describe('Display: Video (OT.R79, a browser adaptation)', () => {
   });
 });
 
+// VIDEO-SHAPE phase A (player report Q-01; the owner's accepted model, 2026-11-21; product track, a browser adaptation):
+// Display's Shape row, right after Sharpness -- Fill the window / 4:3 / 4:3 stretched, through the page's one shape keeper
+// (`../../../src/shape` `pageShape`, the match follows it live); locked at 4:3 under PS2 pixels; the ceiling row's values
+// say the size drawn for the shape and this window.
+describe('Display: Shape (VIDEO-SHAPE, a browser adaptation)', () => {
+  const display = (options: ReturnType<typeof boot>['options']) => options.categories().find((c) => c.id === 'display')!.rows;
+  const shapeRow = (options: ReturnType<typeof boot>['options']) => display(options).find((r) => r.id === VIDEO_SHAPE_ROW)!;
+  beforeEach(() => { localStorage.clear(); pageShape().get(); });
+  afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); pageShape().get(); });
+
+  it('right after Sharpness: Fill the window by default, its three words and its about; nothing written by drawing it', () => {
+    const { options } = boot();
+    const ids = display(options).map((r) => r.id);
+    expect(ids.indexOf(VIDEO_SHAPE_ROW)).toBe(ids.indexOf(VIDEO_PICTURE_ROW) + 1);
+    const row = shapeRow(options);
+    expect(row).toMatchObject({ label: 'Shape', def: 0, values: ['Fill the window', '4:3', '4:3 stretched'] });
+    expect(row.locked).toBeUndefined();
+    expect(row.about).toBe('4:3 frames the world as PS2 pixels does, with bars at the sides; 4:3 stretched fills a widescreen, as a 4:3 console on a widescreen television. Both show the same amount of the world.');
+    expect(row.note).toBe('Saved to this browser. Applies now, in a match too.');
+    expect(options.value(VIDEO_SHAPE_ROW)).toBe(0);
+    expect(localStorage.getItem(SHAPE_KEY)).toBeNull();
+  });
+
+  it("a press writes the page's shape and is heard; the reset empties the key and reads Fill again", () => {
+    const { options } = boot();
+    const heard: string[] = [];
+    const stop = pageShape().observe((s) => heard.push(s));
+    options.set(VIDEO_SHAPE_ROW, 0);                                                    // a press on the shape shown: saved
+    expect(localStorage.getItem(SHAPE_KEY)).toBe('fill');
+    options.set(VIDEO_SHAPE_ROW, 1);
+    expect([localStorage.getItem(SHAPE_KEY), pageShape().get(), options.value(VIDEO_SHAPE_ROW)]).toEqual(['4:3', '4:3', 1]);
+    options.set(VIDEO_SHAPE_ROW, 2);
+    expect([localStorage.getItem(SHAPE_KEY), pageShape().get(), options.value(VIDEO_SHAPE_ROW)]).toEqual(['4:3-stretched', '4:3-stretched', 2]);
+    options.set(VIDEO_SHAPE_ROW, 3);                                                    // no fourth value: nothing changes
+    expect(localStorage.getItem(SHAPE_KEY)).toBe('4:3-stretched');
+    options.reset(VIDEO_SHAPE_ROW);
+    expect([localStorage.getItem(SHAPE_KEY), pageShape().get(), options.value(VIDEO_SHAPE_ROW)]).toEqual(['', 'fill', 0]);
+    expect(heard).toEqual(['4:3', '4:3-stretched', 'fill']);
+    stop();
+  });
+
+  it('under PS2 pixels: shown at 4:3 and locked with the reason; a press or a reset writes nothing; back to Modern, the saved shape', () => {
+    const { options } = boot();
+    options.set(VIDEO_SHAPE_ROW, 2);
+    options.set(VIDEO_PICTURE_ROW, 1);                                                  // PS2 pixels
+    expect(shapeRow(options).locked).toBe('PS2 pixels draws the 4:3 frame');
+    expect(options.value(VIDEO_SHAPE_ROW)).toBe(1);
+    options.set(VIDEO_SHAPE_ROW, 0);
+    options.reset(VIDEO_SHAPE_ROW);
+    expect(localStorage.getItem(SHAPE_KEY)).toBe('4:3-stretched');
+    options.set(VIDEO_PICTURE_ROW, 0);
+    expect(shapeRow(options).locked).toBeUndefined();
+    expect(options.value(VIDEO_SHAPE_ROW)).toBe(2);
+  });
+
+  it('the ceiling row\'s values say the size drawn for the shape and this window ("1440p (1920 x 1440)")', () => {
+    const { options } = boot();
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(2560);
+    vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(1440);
+    const before = window.devicePixelRatio;
+    Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: 1 });
+    try {
+      const ceiling = () => display(options).find((r) => r.id === 'video-ceiling')!.values;
+      expect(ceiling()).toEqual(['720p (1280 x 720)', '1080p (1920 x 1080)', '1440p (2560 x 1440)', 'Native (2560 x 1440)', 'Device (2560 x 1440)']);
+      options.set(VIDEO_SHAPE_ROW, 1);
+      expect(ceiling()).toEqual(['720p (960 x 720)', '1080p (1440 x 1080)', '1440p (1920 x 1440)', 'Native (1920 x 1440)', 'Device (1920 x 1440)']);
+      options.set(VIDEO_SHAPE_ROW, 2);
+      expect(ceiling()).toEqual(['720p (960 x 720)', '1080p (1440 x 1080)', '1440p (1920 x 1440)', 'Native (1920 x 1440)', 'Device (1920 x 1440)']);
+    } finally { Object.defineProperty(window, 'devicePixelRatio', { configurable: true, value: before }); }
+  });
+});
+
 // VS-2 (the video settings plan, product track; every row a browser adaptation with no original): Display's "This browser"
 // rows drawn from `VIDEO_SCHEMA` (`../../../src/videoSettings`) through the page's v2 keeper, under the spec §4.2's groups.
 describe('Display: the video rows from VIDEO_SCHEMA (VS-2, a browser adaptation)', () => {
   afterEach(() => { vi.useRealTimers(); });
   const display = (options: ReturnType<typeof boot>['options']) => options.categories().find((c) => c.id === 'display')!.rows;
   const rowOf = (options: ReturnType<typeof boot>['options'], id: string) => display(options).find((r) => r.id === id);
-  const BROWSER = [VIDEO_PRESET_ROW, RENDER_SCALE_ROW, 'video-ceiling', 'video-frame-cap', SHOW_FPS_ROW, SHADOWS_ROW, DETAIL_DISTANCE_ROW, 'video-antialias', 'graphics-backend', VIDEO_PICTURE_ROW, NAME_TAGS_ROW, RANGE_READOUT_ROW, VIDEO_RESTORE_ROW, DEVICE_MEMORY_ROW, DEVICE_DETECTED_ROW, PERF_LINE_ROW];
-  const CUSTOM = [VIDEO_PRESET_ROW, RENDER_SCALE_ROW, 'video-ceiling', 'video-frame-cap', SHOW_FPS_ROW, SHADOWS_ROW, DETAIL_DISTANCE_ROW, 'video-antialias', 'video-filtering', 'graphics-backend', 'video-power', VIDEO_PICTURE_ROW, NAME_TAGS_ROW, RANGE_READOUT_ROW, 'video-colour-filter', VIDEO_RESTORE_ROW, DEVICE_MEMORY_ROW, DEVICE_DETECTED_ROW, PERF_LINE_ROW];
+  const BROWSER = [VIDEO_PRESET_ROW, RENDER_SCALE_ROW, 'video-ceiling', 'video-frame-cap', SHOW_FPS_ROW, SHADOWS_ROW, DETAIL_DISTANCE_ROW, 'video-antialias', 'graphics-backend', VIDEO_PICTURE_ROW, VIDEO_SHAPE_ROW, CLAN_TAGS_ROW, NAME_TAGS_ROW, RANGE_READOUT_ROW, JOIN_LEAVE_LINE_ROW, 'video-colour-filter', VIDEO_RESTORE_ROW, DEVICE_MEMORY_ROW, DEVICE_DETECTED_ROW, PERF_LINE_ROW, TEXTURE_PACK_ROW, MODS_LINK_ROW];   // WM-R20-FOLDS (b): the colour filter under every preset
+  const CUSTOM = [VIDEO_PRESET_ROW, RENDER_SCALE_ROW, 'video-ceiling', 'video-frame-cap', SHOW_FPS_ROW, SHADOWS_ROW, DETAIL_DISTANCE_ROW, 'video-antialias', 'video-filtering', 'graphics-backend', 'video-power', VIDEO_PICTURE_ROW, VIDEO_SHAPE_ROW, CLAN_TAGS_ROW, NAME_TAGS_ROW, RANGE_READOUT_ROW, JOIN_LEAVE_LINE_ROW, 'video-colour-filter', VIDEO_RESTORE_ROW, DEVICE_MEMORY_ROW, DEVICE_DETECTED_ROW, PERF_LINE_ROW, TEXTURE_PACK_ROW, MODS_LINK_ROW];
   const tail = (options: ReturnType<typeof boot>['options']) => { const ids = display(options).map((r) => r.id); return ids.slice(ids.indexOf(VIDEO_PRESET_ROW)); };
 
   it('the rows in the schema\'s order under the groups Quality, Display, Detail, Renderer, Picture, This device; the Custom-only rows under Custom only', () => {
@@ -596,15 +674,33 @@ describe('Display: the video rows from VIDEO_SCHEMA (VS-2, a browser adaptation)
     expect(tail(options)).toEqual(BROWSER);
     expect(display(options).filter((r) => r.section !== undefined).map((r) => [r.id, r.section])).toEqual([
       [VIDEO_PRESET_ROW, 'This browser'], [RENDER_SCALE_ROW, 'Display'], [SHADOWS_ROW, 'Detail'], ['graphics-backend', 'Renderer'], [VIDEO_PICTURE_ROW, 'Picture'], [DEVICE_MEMORY_ROW, 'This device'],
+      [TEXTURE_PACK_ROW, TEXTURES_SECTION],   // WM-PACKS-SETTING (a browser adaptation): the Textures rows last
     ]);
     videoSettingsKeeperV2().set({ preset: 'custom' });
     expect(tail(options)).toEqual(CUSTOM);
     for (const r of VIDEO_SCHEMA) expect(rowOf(options, VIDEO_ROW_IDS[r.key])!.about, String(r.key)).toBe(r.effect);
   });
 
+  it("WM-R20-FOLDS (a), (b): the Colour filter row is drawn under every preset; a filter chosen there survives another preset chosen, and Restore defaults (\"Every row above back to Automatic\") clears it", async () => {
+    const { options } = boot();
+    const FILTER = 'video-colour-filter';
+    options.set(VIDEO_PRESET_ROW, 3);                                                   // Quality
+    expect(rowOf(options, FILTER)).toBeDefined();
+    options.set(FILTER, 2);                                                             // Deuteranopia
+    expect(videoSettingsKeeperV2().get()).toMatchObject({ preset: 'quality', colourFilter: 'deuteranopia' });
+    for (const i of [0, 1, 2, 4]) {                                                     // Automatic, Performance, Balanced, Lite
+      options.set(VIDEO_PRESET_ROW, i);
+      expect(rowOf(options, FILTER), String(i)).toBeDefined();
+      expect([videoSettingsKeeperV2().get().colourFilter, options.value(FILTER)], String(i)).toEqual(['deuteranopia', 2]);
+    }
+    expect(rowOf(options, VIDEO_RESTORE_ROW)).toMatchObject({ hint: 'Every row above back to Automatic' });
+    expect(await options.action(VIDEO_RESTORE_ROW)).toMatch(/Automatic/);
+    expect([videoSettingsKeeperV2().get().colourFilter, options.value(FILTER)]).toEqual(['off', 0]);
+  });
+
   it('Preset: Automatic by default, Custom offered only when the rows differ; choosing a preset writes its values; a deviation flips it to Custom', () => {
     const { options } = boot();
-    expect(rowOf(options, VIDEO_PRESET_ROW)).toMatchObject({ label: 'Preset', values: ['Automatic', 'Performance', 'Balanced', 'Quality'], def: 0 });
+    expect(rowOf(options, VIDEO_PRESET_ROW)).toMatchObject({ label: 'Preset', values: ['Automatic', 'Performance', 'Balanced', 'Quality', 'Lite'], def: 0 });
     expect(options.value(VIDEO_PRESET_ROW)).toBe(0);
     options.set(VIDEO_PRESET_ROW, 1);
     const v = videoSettingsKeeperV2().get();
@@ -612,11 +708,13 @@ describe('Display: the video rows from VIDEO_SCHEMA (VS-2, a browser adaptation)
     expect(options.value(SHADOWS_ROW)).toBe(0);                                         // Performance: shadows Off (VS.R3)
     options.set(SHADOWS_ROW, 2);
     expect(videoSettingsKeeperV2().get().preset).toBe('custom');
-    expect(rowOf(options, VIDEO_PRESET_ROW)!.values).toEqual(['Automatic', 'Performance', 'Balanced', 'Quality', 'Custom']);
-    expect(options.value(VIDEO_PRESET_ROW)).toBe(4);
+    expect(rowOf(options, VIDEO_PRESET_ROW)!.values).toEqual(['Automatic', 'Performance', 'Balanced', 'Quality', 'Lite', 'Custom']);
+    expect(options.value(VIDEO_PRESET_ROW)).toBe(5);
     options.set(VIDEO_PRESET_ROW, 3);
     expect(videoSettingsKeeperV2().get()).toMatchObject({ preset: 'quality', ...PRESET_VALUES.quality });
-    expect(rowOf(options, VIDEO_PRESET_ROW)!.values).toHaveLength(4);
+    expect(rowOf(options, VIDEO_PRESET_ROW)!.values).toHaveLength(5);
+    options.set(VIDEO_PRESET_ROW, 4);                                                   // WM-5a: Lite, a preset like the others
+    expect(videoSettingsKeeperV2().get()).toMatchObject({ preset: 'lite', frameCap: 30, shadows: 'off' });
     options.reset(VIDEO_PRESET_ROW);
     expect(videoSettingsKeeperV2().get().preset).toBe('auto');
   });
@@ -624,7 +722,7 @@ describe('Display: the video rows from VIDEO_SCHEMA (VS-2, a browser adaptation)
   it('Render scale: a 50-100 % slider by 5; its steps staged and written through the keeper once, 400 ms after the last (#726\'s pattern); locked under PS2', () => {
     vi.useFakeTimers();
     const { ctl, options } = boot();
-    expect(rowOf(options, RENDER_SCALE_ROW)).toMatchObject({ label: 'Render scale', values: ['50%', '55%', '60%', '65%', '70%', '75%', '80%', '85%', '90%', '95%', '100%'], def: 10 });
+    expect(rowOf(options, RENDER_SCALE_ROW)).toMatchObject({ label: 'Resolution scale', values: ['50%', '55%', '60%', '65%', '70%', '75%', '80%', '85%', '90%', '95%', '100%'], def: 10 });
     open(ctl, 'display');
     expect(document.querySelector(`#stage [data-id="${RENDER_SCALE_ROW}"]`)?.className ?? '').toMatch(/slider/);
     const heard: VideoSettingsV2[] = [];
@@ -641,7 +739,7 @@ describe('Display: the video rows from VIDEO_SCHEMA (VS-2, a browser adaptation)
     expect(videoSettingsKeeperV2().get().renderScalePct).toBe(95);
     stop();
     localStorage.setItem(PICTURE_KEY, 'ps2');
-    expect(rowOf(options, RENDER_SCALE_ROW)!.locked).toBe('PS2 picture: 640 x 448');
+    expect(rowOf(options, RENDER_SCALE_ROW)!.locked).toBe('PS2 pixels: 640 x 448');
   });
 
   it('dispose writes a staged render scale step, and draws nothing into the console being torn down (review F1)', () => {
@@ -717,6 +815,17 @@ describe('Display: the video rows from VIDEO_SCHEMA (VS-2, a browser adaptation)
     expect(videoSettingsKeeperV2().get()).toMatchObject({ preset: 'auto', overlay: 'off', frameCap: 0 });
   });
 
+  it("VIDEO-SHAPE (the controller's taste call C1, VIDEO-SETTINGS.md \"Plain names\"): Max resolution, Resolution scale, Renderer, Graphics chip -- words only, the ids and keys unchanged", () => {
+    const { options } = boot();
+    videoSettingsKeeperV2().set({ preset: 'custom' });                                 // Custom: every row drawn, Graphics chip included
+    const label = (id: string) => rowOf(options, id)!.label;
+    expect([label('video-ceiling'), label(RENDER_SCALE_ROW), label('graphics-backend'), label('video-power')]).toEqual(['Max resolution', 'Resolution scale', 'Renderer', 'Graphics chip']);
+    expect(VIDEO_ROW_IDS).toMatchObject({ ceiling: 'video-ceiling', renderScalePct: RENDER_SCALE_ROW, graphics: 'graphics-backend', power: 'video-power' });
+    expect(rowOf(options, VIDEO_RESTORE_ROW)!.note).toMatch(/Antialias, Renderer and Graphics chip: /);
+    const words = display(options).map((r) => r.label);
+    for (const old of ['Resolution ceiling', 'Render scale', 'Graphics', 'Power preference']) expect(words, old).not.toContain(old);
+  });
+
   it('This device: Device memory as an estimate (the Xbox class: the browser\'s 1 GB); Detected names the class and what Automatic chose', () => {
     history.replaceState(null, '', '/');                                             // an address override left by an earlier test's page
     const nav = navigator as unknown as Record<string, unknown>;
@@ -760,6 +869,38 @@ describe('Display: Teammate names Off / On on the card, Name tags Original / Mod
     options.reset(NAME_TAGS_ROW);
     expect([options.value(NAME_TAGS_ROW), localStorage.getItem(NAME_TAGS_KEY)]).toEqual([1, 'modern']);
   });
+  // PSR-5 (R4P.R11, a browser adaptation): clan tags in the in-play name labels, Shown / Hidden, Shown by default.
+  it('Clan tags in names: Shown / Hidden, Shown by default; sits before Name tags in This browser; the row round-trips the browser key', () => {
+    const { options } = boot();
+    const row = rowOf(options, CLAN_TAGS_ROW);
+    expect(row).toMatchObject({ label: 'Clan tags in names', values: ['Shown', 'Hidden'], def: 0 });
+    expect(row.locked).toBeUndefined();
+    expect(row.about).toMatch(/browser/i);
+    expect(row.about).toMatch(/scoreboard/i);
+    expect(row.note).toMatch(/this browser/i);
+    const ids = options.categories().find((c) => c.id === 'display')!.rows.map((r) => r.id);
+    expect(ids.indexOf(CLAN_TAGS_ROW)).toBe(ids.indexOf(NAME_TAGS_ROW) - 1);
+    expect(options.value(CLAN_TAGS_ROW)).toBe(0);
+    options.set(CLAN_TAGS_ROW, 1);
+    expect([options.value(CLAN_TAGS_ROW), localStorage.getItem(CLAN_TAGS_KEY)]).toEqual([1, 'hidden']);
+    options.reset(CLAN_TAGS_ROW);
+    expect([options.value(CLAN_TAGS_ROW), localStorage.getItem(CLAN_TAGS_KEY)]).toEqual([0, 'shown']);
+  });
+  it("LATER 1177(b): Ambience volume, 50-100% in tens (the owner's floor), 100% by default (the original mix); the row round-trips the browser key", () => {
+    const { options } = boot();
+    const row = options.categories().find((c) => c.id === 'audio')!.rows.find((r) => r.id === AMBIENCE_VOLUME_ROW)!;   // Audio's, not Display's
+    expect(row).toMatchObject({ label: 'Ambience volume', section: 'This browser', def: 5 });
+    expect(row.values).toEqual(['50%', '60%', '70%', '80%', '90%', '100%']);
+    expect(row.about).toMatch(/browser addition/);
+    expect(row.note).toMatch(/this browser/i);
+    expect(options.value(AMBIENCE_VOLUME_ROW)).toBe(5);
+    options.set(AMBIENCE_VOLUME_ROW, 0);
+    expect([options.value(AMBIENCE_VOLUME_ROW), localStorage.getItem(AMBIENCE_VOLUME_KEY)]).toEqual([0, '50']);
+    localStorage.setItem(AMBIENCE_VOLUME_KEY, '20');   // v0.4.26's 20%: shown at the floor
+    expect(options.value(AMBIENCE_VOLUME_ROW)).toBe(0);
+    options.reset(AMBIENCE_VOLUME_ROW);
+    expect([options.value(AMBIENCE_VOLUME_ROW), localStorage.getItem(AMBIENCE_VOLUME_KEY)]).toEqual([5, '100']);
+  });
 });
 
 // HUD-ALIVE C (OT.R117; product track, a browser adaptation): Display's "This browser" row Range readout, Off / On, Off by
@@ -783,6 +924,28 @@ describe('Display: Range readout Off / On in this browser, Off by default (HUD-A
   });
 });
 
+// PRS-888 (JOIN-LEAVE-LINE; product track, a browser adaptation): Display's "This browser" row Join/leave lines, Off / On,
+// ON by default -- the owner's ruling (tracker D7, 2026-11-24 08:13Z: "Yes, on by default"); the original posts no such
+// line (`../../../src/joinLeaveLine`), so Off is the game's own behaviour, one press away.
+describe('Display: Join/leave lines Off / On in this browser, On by default (PRS-888, the owner, D7)', () => {
+  const rowOf = (options: ReturnType<typeof boot>['options'], id: string) => options.categories().find((c) => c.id === 'display')!.rows.find((r) => r.id === id)!;
+  it('Off / On, On by default; the row round-trips the browser key; it sits after Range readout', () => {
+    const { options } = boot();
+    const row = rowOf(options, JOIN_LEAVE_LINE_ROW);
+    expect(row).toMatchObject({ label: 'Join/leave lines', values: ['Off', 'On'], def: 1 });
+    expect(row.locked).toBeUndefined();
+    expect(row.about).toMatch(/joins|leaves/);
+    expect(row.note).toMatch(/this browser/i);
+    const ids = options.categories().find((c) => c.id === 'display')!.rows.map((r) => r.id);
+    expect(ids.indexOf(JOIN_LEAVE_LINE_ROW)).toBe(ids.indexOf(RANGE_READOUT_ROW) + 1);
+    expect(options.value(JOIN_LEAVE_LINE_ROW)).toBe(1);
+    options.set(JOIN_LEAVE_LINE_ROW, 0);
+    expect([options.value(JOIN_LEAVE_LINE_ROW), localStorage.getItem(JOIN_LEAVE_LINE_KEY)]).toEqual([0, 'off']);
+    options.reset(JOIN_LEAVE_LINE_ROW);
+    expect([options.value(JOIN_LEAVE_LINE_ROW), localStorage.getItem(JOIN_LEAVE_LINE_KEY)]).toEqual([1, 'on']);
+  });
+});
+
 // CPS-5 (product track, a browser adaptation with no original): Display's "Copy performance line" -- the page's one line
 // (`../../../src/perfLine` `pagePerfLine`) written to the clipboard on Cross or a click; where the clipboard refuses, the
 // line itself in the row's aside, to select by hand. The overlay over a match draws the same rows.
@@ -795,10 +958,10 @@ describe('Display: Copy performance line (CPS-5, a browser adaptation)', () => {
   const row = (options: ReturnType<typeof make>['options']) => options.categories().find((c) => c.id === 'display')!.rows.find((r) => r.id === PERF_LINE_ROW)!;
   afterEach(() => { vi.useRealTimers(); });
 
-  it('is an action row, last under "This browser": Copy', () => {
+  it('is an action row, last under "This browser" (before the Textures rows of WM-PACKS-SETTING): Copy', () => {
     const { options } = make(null);
     const ids = options.categories().find((c) => c.id === 'display')!.rows.map((r) => r.id);
-    expect(ids.at(-1)).toBe(PERF_LINE_ROW);
+    expect(ids.slice(-3)).toEqual([PERF_LINE_ROW, TEXTURE_PACK_ROW, MODS_LINK_ROW]);
     expect(row(options)).toMatchObject({ label: 'Copy performance line', action: 'Copy' });
     expect(row(options).values).toBeUndefined();
     expect(row(options).about).toMatch(/frame times/);
@@ -938,5 +1101,123 @@ describe('SS-1 D5, F2: pagehide writes the staged tuner', () => {
       vi.advanceTimersByTime(TUNER_SAVE_SETTLE_MS_ADAPTATION * 2);
       expect(writes.n - n).toBe(oneWrite);
     } finally { vi.useRealTimers(); }
+  });
+});
+
+/**
+ * WM-5a (the weekend mega sprint; product track, a browser adaptation; the controller's rulings C and D, seat 8f): a press
+ * on Home's Video row is the player's choice and is saved even when it is the picture shown by default; the row's reset
+ * clears the saved picture, so the device class's default reads again -- it never writes the default into the key.
+ */
+describe("WM-5a: Home's Video row -- a press saves, a reset clears", () => {
+  beforeEach(() => { localStorage.clear(); });
+  afterEach(() => { localStorage.clear(); });
+  const key = (): string => localStorage.getItem(PICTURE_KEY) ?? '';
+
+  it('a press on the picture already shown by default saves it (C)', () => {
+    const { options } = boot();
+    expect(key()).toBe('');
+    options.set(VIDEO_PICTURE_ROW, 0);                                                   // Modern, the standard class's default
+    expect(key()).toBe('modern');
+  });
+
+  it('the reset on an Xbox-class page with Modern saved leaves the key empty and reads PS2 (D)', () => {
+    const { options } = boot();
+    localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox');                                       // the Xbox pick: the Xbox class
+    localStorage.setItem(PICTURE_KEY, 'modern');
+    options.reset(VIDEO_PICTURE_ROW);
+    expect(key()).toBe('');
+    expect(pagePicture().get()).toBe('ps2');
+    expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('xbox');
+  });
+
+  it('the reset on a standard-class page with PS2 saved leaves the key empty and reads Modern (D)', () => {
+    const { options } = boot();
+    localStorage.setItem(PICTURE_KEY, 'ps2');
+    options.reset(VIDEO_PICTURE_ROW);
+    expect(key()).toBe('');
+    expect(pagePicture().get()).toBe('modern');
+  });
+});
+
+/**
+ * LW-DEFAULT (a browser adaptation, no original; product track): Display's "Match engine" row -- built only on the Xbox
+ * class or with the Xbox pick (the mount's own test), absent elsewhere; its press writes '1' or '0' to the engine's key
+ * and nothing else, its reset empties the key (the class's default is never written).
+ */
+describe("LW-DEFAULT: Display's Match engine row, the Xbox class's only", () => {
+  beforeEach(() => { localStorage.clear(); history.replaceState(null, '', '/'); });
+  afterEach(() => { localStorage.clear(); history.replaceState(null, '', '/'); });
+  const ids = (options: ReturnType<typeof boot>['options']) => options.categories().find((c) => c.id === 'display')!.rows.map((r) => r.id);
+  const rowOf = (options: ReturnType<typeof boot>['options']) => options.categories().find((c) => c.id === 'display')!.rows.find((r) => r.id === LIGHTWEIGHT_MATCH_ROW);
+  const others = () => Object.keys(localStorage).filter((k) => k !== LIGHTWEIGHT_MATCH_KEY).sort().map((k) => [k, localStorage.getItem(k)]);
+
+  it('absent on a non-Xbox class: not drawn, and a set or reset by its id writes nothing', () => {
+    const { options } = boot();
+    expect(ids(options)).not.toContain(LIGHTWEIGHT_MATCH_ROW);
+    options.set(LIGHTWEIGHT_MATCH_ROW, 0);
+    options.reset(LIGHTWEIGHT_MATCH_ROW);
+    expect(localStorage.getItem(LIGHTWEIGHT_MATCH_KEY)).toBeNull();
+  });
+
+  it('present on the Xbox class, after the Sharpness and Shape rows; Standard by default (the default is off), its words', () => {
+    const { options } = boot();
+    localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox');
+    const at = ids(options);
+    expect(at.indexOf(VIDEO_SHAPE_ROW)).toBe(at.indexOf(VIDEO_PICTURE_ROW) + 1);           // VIDEO-SHAPE: Shape right after Sharpness
+    expect(at.indexOf(LIGHTWEIGHT_MATCH_ROW)).toBe(at.indexOf(VIDEO_SHAPE_ROW) + 1);
+    expect(rowOf(options)).toMatchObject({ label: 'Match engine', values: ['Lightweight (Xbox)', 'Standard'], def: 1 });
+    expect(rowOf(options)!.locked).toBeUndefined();
+    expect(rowOf(options)!.note).toBe('Saved to this browser. Applies from the next match.');
+    expect(options.value(LIGHTWEIGHT_MATCH_ROW)).toBe(1);
+  });
+
+  it("set writes only its key ('1' / '0'); reset empties it; get follows the key", () => {
+    const { options } = boot();
+    localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox');
+    const before = others();
+    options.set(LIGHTWEIGHT_MATCH_ROW, 0);
+    expect([localStorage.getItem(LIGHTWEIGHT_MATCH_KEY), options.value(LIGHTWEIGHT_MATCH_ROW)]).toEqual(['1', 0]);
+    options.set(LIGHTWEIGHT_MATCH_ROW, 1);
+    expect([localStorage.getItem(LIGHTWEIGHT_MATCH_KEY), options.value(LIGHTWEIGHT_MATCH_ROW)]).toEqual(['0', 1]);
+    options.reset(LIGHTWEIGHT_MATCH_ROW);
+    expect([localStorage.getItem(LIGHTWEIGHT_MATCH_KEY), options.value(LIGHTWEIGHT_MATCH_ROW)]).toEqual(['', 1]);
+    expect(others()).toEqual(before);
+    localStorage.setItem(LIGHTWEIGHT_MATCH_KEY, '1');                                   // another writer: the row reads it
+    expect(options.value(LIGHTWEIGHT_MATCH_ROW)).toBe(0);
+  });
+
+  it('an address flag is not the saved choice: the row shows the key, and the flag is never written', () => {
+    localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox');
+    history.replaceState(null, '', '/?lightweightmatch=1');
+    const { options } = boot();
+    expect(options.value(LIGHTWEIGHT_MATCH_ROW)).toBe(1);
+    expect(localStorage.getItem(LIGHTWEIGHT_MATCH_KEY)).toBeNull();
+  });
+});
+
+describe('B-26 T1: the pad dead zone row says it is a drift guard and where stick feel lives', () => {
+  it('the row names the Stick preset under Options > Controller > Layout and aiming, once', async () => {
+    const { options } = boot();
+    const row = options.categories().find((c) => c.id === 'controller')!.rows.find((r) => r.id === 'pad-dead')!;
+    expect(row.about).toMatch(/drift guard/i);
+    expect(row.about).toMatch(/Stick preset \(Recruit \/ Sailor \/ Seal \/ Custom\)/);
+    expect(row.about).toMatch(/Options > Controller > Layout and aiming/);
+    expect(row.about!.match(/Stick preset/g)).toHaveLength(1);
+    const { PAD_DEAD_ZONE_ABOUT } = await import('../../../src/console/render/remap');
+    expect(PAD_DEAD_ZONE_ABOUT).toMatch(/Stick preset/);   // the remap screen's row reads the same words
+  });
+});
+
+describe('B-73: the Vibration row says when the pad has no motor', () => {
+  const vib = (noMotor: boolean | undefined) => {
+    const options = liveOptions(() => {}, { signedIn: () => false, pads: () => [], ...(noMotor === undefined ? {} : { noVibrationMotor: () => noMotor }) });
+    booted.push(options);
+    return options.categories().find((c) => c.id === 'controller')!.rows.find((r) => r.id === 'VIBRATION_CONTROLLER')!;
+  };
+  it('a connected pad with no actuator: the note says so; with one, or no pad, it does not', () => {
+    expect(vib(true).note).toContain('This browser cannot drive your controller’s vibration.');
+    expect(vib(false).note).not.toMatch(/vibration\./);
+    expect(vib(undefined).note).not.toMatch(/vibration\./);
   });
 });

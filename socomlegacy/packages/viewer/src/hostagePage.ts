@@ -40,12 +40,6 @@ export const ESCORTEE_PROMPTS: Readonly<Record<HostageCommand, { text: string; a
  */
 export const HOSTAGE_YES_AUDIENCE_PLACEHOLDER = 'everyone, at the body';
 
-/**
- * The YES an order plays: CHRSND 0x37 at 1.0 (D:L450379, D:L450537), which mp_fem1-3 name `^CO_0343` (their only
- * cues: YES, DAMAGE, DEATH -- research 189 s2, 199 s8). Reading.
- */
-export const HOSTAGE_YES_CUE_READING = { cue: 0x37, sound: '^CO_0343' } as const;
-
 /** What the page offers: the hostage, the order, its text, the HUD prompt and its bitmap. */
 export interface HostageOffer { hostage: number; cmd: HostageCommand; text: string; prompt: ActionPrompt; icon: string }
 

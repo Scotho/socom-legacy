@@ -117,6 +117,13 @@ export const PICKUP_REACH_SQ = 400;
  * for an actor with no offset. The posed muzzle stands about 12.7 over the feet standing (research 217 §1.3's table), so
  * the original's reach is likely shorter across and longer downward than this. Settles it: an RDRAM read of
  * `actor+0x14b0` at a pickup (capture B item 5), standing, crouched and prone.
+ *
+ * AS-26 L15 (research 214 §6; reading, pending review): the measure from the fire point is built -- `pickupReach(bomb,
+ * feet, yaw, posture)` takes the feet plus the stance's `PLANT_PICK_FIREPOINT_READING` (the `+0x14b0` table the plant's
+ * reach already uses), still 3D and under 400 (`FUN_005aa110` D:L463803-463824, re-read at the source for AS-26). It stays a
+ * placeholder because the room's call (`match/src/bomb.ts`'s ground pickup) passes the feet alone -- its owner's one-line
+ * change, outside AS-26's claim -- so the room still takes this zero vector. r0004: unchanged by the atlas's mask, not
+ * re-read.
  */
 export const PICKUP_POINT_OFFSET_PLACEHOLDER: readonly [number, number, number] = [0, 0, 0];
 /** The defuse's reach from the planted bomb: horizontal 15, vertical 20 (`DAT_00650688` / `DAT_00650690`; D:L452589-452598). */
@@ -239,12 +246,15 @@ export const FIRST_REQUEST_WINS_READING = 'lower seat id' as const;
 export const MPBOMB_BLAST_OWNER_READING = 'victim' as const;
 
 /**
- * Whether the feet are within the automatic pickup's reach of the bomb: the squared 3D distance from the feet plus
- * `PICKUP_POINT_OFFSET_PLACEHOLDER` under 400 (`PICKUP_REACH_SQ`).
+ * Whether the feet are within the automatic pickup's reach of the bomb: the squared 3D distance under 400
+ * (`PICKUP_REACH_SQ`) from the feet plus `PICKUP_POINT_OFFSET_PLACEHOLDER` -- or, AS-26 L15 (reading, pending review),
+ * given the body's `yaw` (degrees) and stance, from its fire point: the feet plus `+0x14b0` (`FUN_005aa110`
+ * D:L463807-463814), the stance's `PLANT_PICK_FIREPOINT_READING` turned by the yaw (`plantReachFrom`).
  */
-export function pickupReach(bomb: readonly number[], feet: readonly number[]): boolean {
+export function pickupReach(bomb: readonly number[], feet: readonly number[], yaw?: number, posture?: Stance): boolean {
   const o = PICKUP_POINT_OFFSET_PLACEHOLDER;
-  const dx = feet[0]! + o[0] - bomb[0]!, dy = feet[1]! + o[1] - bomb[1]!, dz = feet[2]! + o[2] - bomb[2]!;
+  const from = yaw !== undefined && posture ? plantReachFrom(feet, yaw, posture) : [feet[0]! + o[0], feet[1]! + o[1], feet[2]! + o[2]];
+  const dx = from[0]! - bomb[0]!, dy = from[1]! - bomb[1]!, dz = from[2]! - bomb[2]!;
   return dx * dx + dy * dy + dz * dz < PICKUP_REACH_SQ;
 }
 

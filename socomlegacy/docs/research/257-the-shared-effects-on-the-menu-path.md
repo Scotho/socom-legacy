@@ -97,7 +97,8 @@ itself and the cause to 0xfd (D:L464955-464959). The message is the death's, onc
   before the room told anyone of a fall's death (`room.ts`'s note: "until 2026-10-03 the room applied the damage and
   told no one"). Class 3 is the contact speed at or over the death speed (`landingClass`, `mover.ts:863`), the same 237.5
   units a second at which `fallDamageFraction` (`net/damage.ts:165`) is 1 and `applyFall` empties every part: in a match
-  every such landing is also the room's fall death, so the line came twice. A knock's landing (x 1.2) or a wounded
+  every such landing is also the room's fall death, so the line came twice. A dive's landing (x 1.2; R4P-104, reading,
+  pending review: r0004 0x585900, 0x585980-0x585994 -- a knock's landing is plain, 0x5b5aa8-0x5b5aac) or a wounded
   SEAL's lighter fall that kills is the room's line alone, as it should be.
 - **No room** (`/testroom`'s `&nomatch` free walk, `main.ts`'s `net` null): no death is decided; the landing's line is
   the only one, and the SEAL walks on (research 87 s14).

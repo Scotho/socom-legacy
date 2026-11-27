@@ -88,9 +88,52 @@ Grades as in the brief.
 | 33 | Net tick | receive pump in a thread every HSYNC/20 s = 50 ms, or 1 s while the poll reports an error (`FUN_002ce930` D:L171841-171859); send pass once per game frame | STRONG | 60 Hz server loop | DBD |
 | 34 | Join admission | the host answers a joiner with `Game Signal` (20 B) codes: too many players/spectators, closed clan… (D:L161282-161492) | STRONG | lobby/room refusals | PARTIAL (other agents) |
 | 35 | Idle kick | none in the original | STRONG (port research 91 §17.2) | 4 min (owner ruling W3.R13) | DBD (ruled) |
-| 36 | Reliability flag | online fields with flag 0x40 or 0x50 map to rt flags 4 / 4\|2 (`FUN_0061d478`). LAN fields and positions carry 0. Full objects always go with 0x50. | STRONG (code), BELIEVED (what rt 2/4 mean) | WebSocket (all reliable) | DBD |
+| 36 | Reliability flag | online fields with flag 0x40 or 0x50 map to rt flags 4 / 4\|2 (`FUN_0061d478`: 0x10 -> 2, 0x40 -> 4, 0x80 -> 1). LAN fields and positions carry 0. Full objects always go with 0x50. rt 4 = reliable (re-sent until acked), rt 2 = sequenced (a stale one dropped); 4\|2 acts as 4; r0004 adds a receive-side headroom drop. Re-read 2026-11-24, see the note under this table. | STRONG (code); the meaning of rt 2/4: reading, pending review (was BELIEVED); which branch runs online: OPEN QUESTION | WebSocket (all reliable) | DBD |
 | 37 | Bandwidth setting | `FUN_00623330(0x2000,0x8000)` online, `(0x8000,0x8000)` LAN | PROVEN (values), UNRESOLVED (units/consumer) | none | UNSOURCED meaning |
 | 38 | `NetTickSleepTime` (Harry r0004 0x475afc) | an r0001 candidate is `DAT_0044d698` = HSYNC/20, set at D:L171848 | BELIEVED (address match) | n/a | -- |
+
+**Row 36, re-read 2026-11-24** (atlas-parity, Claude Opus; reading, pending review; both builds named):
+
+- **The mapping, r0001.** `FUN_0061d478` (D:L528580-528607) builds the rt flag byte from the game's send flag: 0x10
+  sets 2, 0x40 sets 4, 0x80 sets 1. So 0x40 -> 4 and 0x50 -> 4|2. Its one caller is `FUN_00615660` (D:L523440).
+  r0004: the twin `0x00624c38` (D4:L572161-572190) is identical (the revision map ATL-2; match.json exact).
+- **What rt 2 and 4 mean, r0001.** The SCE-RT datagram header names them: "2 sequenced, 4 reliable, 8 a keep-alive,
+  0x10 close, 0x20 an ack" (s2d@3d38845b src/lib/medius/rt_udp.c:164). The export bears that out:
+  - the send ring `FUN_006400a8` (D:L554764-554900) re-sends a reliable entry each time `interval x attempts` has
+    elapsed, a linear backoff, until it is acked;
+  - the ack handler `FUN_00641308` (D:L555510-555565) clears it;
+  - the duplicate check `FUN_00641ba0` (D:L555880-555958) drops a reliable packet already queued or at or below the
+    last one delivered (connection `+0x84`, which the delivery path takes as the last sequence handed on, D:L554016;
+    the drop at D:L555952-555955), and drops a sequenced-only (2) packet whose sequence
+    is not newer than the last one taken (connection `+0x80`). Every reliable-path test keys on bit 4 (`& 4`, or
+    `(flags & 6) == 6 || flags & 4`), so an rt 4|2 (0x50) field behaves exactly as rt 4;
+  - the receive queue `FUN_00641490` (D:L555568-555674) inserts reliable packets in sequence order, wrapping at
+    0x7fffffff, and queues the ack afterwards (`FUN_00641b08`).
+  Positions go with 0: neither sequenced nor reliable.
+- **r0004.** The function names below are the atlas's proposed labels, not a source's.
+  - The ack handler: the twin `0x00649638` (D4:L599649-599704) is unchanged.
+  - The duplicate check: the twin `0x00649f08` is exact.
+  - The ack record: `0x00649e70` (r0001 `FUN_00641b08`, 4 bytes longer) holds the same 12 bytes; only the send call
+    under it now takes the connection as its first argument (`0x00647d28`, not read).
+  - The send ring: `0x006483a8` (D4:L598892-599028) is 8 bytes shorter, but only its branches were reordered; the
+    truth table is the same, so reliable retry is unchanged.
+  - The receive queue: `0x006497c0` (D4:L599707-599824) is 108 bytes longer and adds a headroom gate. When the
+    connection's `+0x3c - +0x40` is below 0x5ab (1451 bytes; inferred: the queue's free space, about one datagram):
+    - a reliable packet returns before the insert and before the ack, so it is dropped unacked (and, inferred from
+      the send ring, comes back on the sender's retry), on each of its three insert paths but one: at the head of the
+      queue, ahead of a later queued reliable packet, the next expected one (sequence `+0x84` + 1, D4:L599755) is
+      exempt -- it fills the gap. A middle insert (D4:L599767) and a tail append (D4:L599787, an empty queue or no
+      later reliable packet queued) meet the gate like any other, the next expected one included;
+    - an unreliable or sequenced-only packet is dropped silently, and `+0x80` does not advance (D4:L599802).
+
+    r0001 has no headroom gate; in the queue only a failed insert (a helper returning non-zero) drops a packet, again
+    before the ack (D:L555615-555648); the duplicate check upstream drops as above. Method: each pair diffed with the addresses masked, then the
+    differing lines read.
+- **OPEN QUESTION.**
+  - Which DME branch carries a match online: `DAT_0045a1b4` selects it, and its value online is not read.
+  - The untranslated 0x40 path (`rt_msg_client_send_target`) is unread. The mapping above holds on the branch through
+    `FUN_00615660`; whether the other branch honours 0x40 is not known.
+  - For the port: until both are settled, which online fields the original re-sends is a reading on one branch only.
 
 ## 1. Sources and method
 
@@ -192,9 +235,10 @@ The rates that matter for play:
 Notes on the policies:
 - The position policy is `{100 or 200, mode 2, FUN_002bd270, 0}`. Mode 2 is a threshold compare, so the 4-byte
   callback pointer is read as a float threshold of about 4e-39. Position is therefore sent on any change, and
-  `FUN_002bd270`, a "|Δ| > 4.0" test (D:L161677-161712) whose only references are these two policy records, is never
-  called. (`scan_refs.py 2bd270 2bd274` finds only 0x40043c and 0x400538.) This is STRONG as a code read. That the
-  authors meant mode 5 is an inference.
+  `FUN_002bd270`, a "|Δ| > 4.0" test that also returns 1 for a nonzero |Δ| up to 4.0 when both stick bytes (+0x7a,
+  +0x7c) are zero (D:L161677-161712), whose only references are these two policy records, is never called.
+  (`scan_refs.py 2bd270 2bd274` finds only 0x40043c and 0x400538.) This is STRONG as a code read. That the authors
+  meant mode 5 is an inference.
 - The 48-byte loadout field (0x441100) is registered twice (D:L162708-162710) and is serialized twice. The capture shows
   both copies (`net_schema.txt`, 0 trailing bytes).
 - `FUN_00623330` sets two limits, 0x2000/0x8000 online and 0x8000/0x8000 on LAN (D:L210323-210329). They are stored at
@@ -720,3 +764,75 @@ dead shooter's round named fewer than `tradeWindowTicks` commands past his last 
 round trip in ticks, capped at `TRADE_WINDOW_CAP_MS_ADAPTATION` = `MAX_REWIND_MS`; research 223 §4) on that command's
 frame; the victim's rules are the room's own (a dead victim's hit a miss), and a kill it makes is the dead shooter's, as
 `FUN_005a1b80` records the attacker as the killer on the victim's console (D:L459597-459607).
+
+## 13. Readings: another player's shots shown from a count (R4P-253, 2026-11-23; reading, pending review)
+
+§4.1's field `0x8b` (wire order 33) taken into the page. The two functions, re-read at the source for R4P-253 (r0001,
+`D:L` as above; no decompiled text quoted):
+
+- **The count.** IncrementalUpdateRemoteSeal `FUN_002be150`, when the field's id or -1 arrives and the record's byte
+  `+0x8b` differs from the copy's last (`+0x220`): the copy's count `+0x224` (word 0x89) gains the byte's change
+  (the two bytes as unsigned, subtracted), then is clamped -- above 10 it is set to 10, below 1 to 1 -- and the byte is
+  stored (D:L162443-162455). A saturating clamp: what the change carried past ten is lost, never replayed later; the
+  floor of 1 means any change (a byte that wrapped at 200, §4.1, gives a negative change) replays at least one shot.
+- **One unit is a pull, not a ray** (review 1, F1). The shooter's console bumps the byte through `FUN_002bbf10` from
+  CZKit::Fire only while the kit's pellet index `+0x880` is 0 (D:L479495); the local pull loop `FUN_005be9a0` sets the
+  index to 0 and steps it once a pellet, calling CZKit::Fire per pellet (D:L475586, D:L475676; D:L475590-475677). A
+  four-pellet pull adds one to the count.
+- **The drain.** CRemoteCtrl::PreTick `FUN_005e6400` (§12.5), while the count is nonzero, takes one and fires the
+  copy's kit once with the copy's aim (`FUN_005c6510` -> CZKit::Fire `FUN_005c5340`, D:L497481-497495): one pull a
+  tick, on the receiving console's game frame -- one CZKit::Fire, so one muzzle and one step of the kit's round count
+  `+0x878` (D:L479284, stamped on the projectile's `+0xb8` at D:L479362: the tracer's every-fourth). The count is taken
+  even when the muzzle lookup `FUN_005df370` fails (note only; the port always shows).
+- **The report is made inside the fire.** CZKit::Fire calls `FUN_003d2c50` (D:L479450), which plays the item's close,
+  medium or far handle by the listener's distance (research 81, "the additional projectile path"), only when the
+  round's item differs from the weapon's (the test at D:L479449); the weapon's own fire is a virtual call from the same
+  function (D:L479493-479494), whose target -- research 81's `FUN_003d2d70` distance pick by its description -- is not
+  resolved here. Either way the watcher hears a replayed pull when the copy's kit fires, not when the record arrives.
+- r0004 keeps both (`r0004:0x002bfdb0` unchanged; `r0004:0x005edbd0` changed in a constant only; LEADS L398, the
+  parity-ready queue's R4P-253).
+
+**In the port** (`viewer/src/netPage.ts`; the controller's ruling for R4P-253: the per-shot wire stays, an adaptation
+of transport, not of behaviour). The room still sends one `shot` per ray with its resolved path, and nothing on the
+wire names a ray's pull (no tick, seq or pellet index: `match/src/room.ts` builds the event from the shooter, item,
+`from`, `to`, normal, material, body, through and end). So the page groups them (`queueShot`, a page-side grouping, the
+room unchanged): a ray joins its shooter's newest pull when it names the same item from the same `from` (one command's
+muzzle: each ray of a volley reads the same frame's muzzle in `viewer/src/fireCore.ts` `ray`, and the room keeps
+the page's `from`, `match/src/room.ts` `fireAt` -- read, not measured; a ray whose `from` differs starts a pull of
+its own), within one game frame of the pull's first ray, while the pull
+holds fewer than the record's `NumProjectilesFired` (`pelletsOf`). Each pull is one entry of the count; the page shows
+one a game frame per shooter (`drainShots`, from `NetPage.frame`: a `GameFrameAccumulator` on `GAME_FRAME_DT`,
+525/15734 s, fed the frame's `dt` times the replay's scale -- not the room's 60 Hz `TICK_HZ`, not the draw frame). A
+pull is shown whole in its frame: its first ray as before (muzzle, tracer, `tracerTo`, the report, the passing sound,
+the threat release), its other rays their impacts and through-surfaces alone (`roundImpact`), so a remote shotgun pull
+plays one report and steps the every-fourth tracer count (`TRACER_REMOTE_COUNT_READING`) once. Before R4P-253 each ray
+played whole (four reports at once); the original's copy fires one pellet a pull, so it draws one projectile where the
+port draws every ray's impact: the room's rays kept, all shown in the pull's game frame -- this seat's choice (its
+brief), not a ruling's words; it keeps every hit shown, as the controller's ruling requires (no shot's hit result
+changes, only when it is shown).
+The hit and the impact of each ray, the item's record, the page's own damage (`hurt`), the kills and the hurt voice are
+unchanged; the last three are not shots and come on arrival, and the page's own `impact` is not queued.
+
+A browser adaptation (review 1, F2): while the tab is hidden or the page's frame is held (`displayHeld`, the PK-3
+pause; **the held half is NOT WIRED YET** -- `displayHeld` has no caller, `./main`'s frame returns early under PK-3
+without telling the page, a filed follow-up; only the hidden half is live), no `frame` runs and no game frame drains, so another player's shots are shown on arrival there (the effects
+skip their runs in a hidden tab, `./matchFirearm`'s `pageHidden`; the reports play), and a hide shows the shots still
+waiting at once -- none waits to play as a burst on return. A player who leaves takes his waiting shots with him (F3:
+the copy and its count go together). The port's own, not read from the original (F5): a welcome (a join, or a replay
+seek's fold) drops the waiting shots; whether the copy's count survives a round, a respawn or a rejoin is unread.
+The pellet count comes from the watching page's record of the shot's item (`shotRecord`; review 2, finding 3): every
+page that builds a NetPage (`./main`'s live, loopback and both replay pages, `./matchMount`'s lobby match) spreads
+`./matchNet` `matchNetDeps`, whose `recordOf` answers any item of the map's arsenal table by id, shotguns included; the
+one-pellet slot fallback, which would show a pull's rays one a frame, is reached only before the map's table is loaded
+or on a test page without the dep. Held by `viewer/test/remoteShotQueue.test.ts`.
+
+| name | value | source | status |
+|---|---|---|---|
+| `REMOTE_SHOT_QUEUE_CAP_READING` | `10` | `FUN_002be150` D:L162443-162455: the copy's count `+0x224` clamped to 1..10, one unit a pull (`FUN_002bbf10` at the first pellet, D:L479495); with the page's grouping the floor is never reached, and a pull arriving while ten wait is dropped with its rays (not shown: no muzzle, tracer, impact or report). Which ten is the port's (the count carries no path): the first ten pulls the room sent | reading, pending review |
+| `REMOTE_SHOT_DRAIN_PER_TICK_READING` | `1` | `FUN_005e6400` D:L497481-497495: one taken and the kit fired once a PreTick -- one pull, its rays in that frame; the port's tick is `GAME_FRAME_DT` | reading, pending review |
+
+Open, *note only*: whether the copy's count is cleared at a round's start or a respawn is not read (the page keeps
+the queue across them; at most ten game frames of shots); the grouping's rule (same item, same `from`, one game frame)
+is the port's, for a wire that names no pull; a capture settles the whole: the original online, a remote
+player firing a fifteen-round burst inside one update interval, the muzzle flashes and tracers the watching console
+draws counted and spaced (LEADS L398).

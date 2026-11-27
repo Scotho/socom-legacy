@@ -1,6 +1,6 @@
 import { NARROW_PX } from '../fit';
 import { githubOnRow } from '../discord';
-import { pageList } from '../grammar';
+import { padRows, pageList } from '../grammar';
 import { morph } from '../morph';
 import type { MotionDir } from '../motion';
 import { CATS, homeItems, type Adapters, type ConsoleState, type Screen } from '../state';
@@ -238,7 +238,8 @@ export function renderFrame(doc: Document, s: ConsoleState, a: Adapters): void {
   if (header && s.mode !== 'overlay') keepClock(doc, () => clock24(a));   // LR-1: the clock between draws
   const stage = $('stage');
   // LR-1 (LR.R3): read at every draw, so the last place is always the one drawn before this press.
-  const bump = edgeBump(doc, s, s.screen === 'home' ? homeItems(CATS[s.cat]?.id ?? '', s, a).length : 0);
+  // The owner, 2026-11-19: the pad's last row is its end (`padRows`: Discord and GitHub are not the pad's), so Down there bumps.
+  const bump = edgeBump(doc, s, s.screen === 'home' ? padRows(homeItems(CATS[s.cat]?.id ?? '', s, a)) : 0);
   const dir = screenDir(doc, s.screen);                               // RB-4: the stage's way, for an exit that opts in
   if (stage) morph(stage, s.screen === 'home' ? homeHtml(s, a, narrow, bump, githubRow) : s.screen === 'rooms' ? roomsHtml(s, a) : s.screen === 'replays' ? replaysHtml(s, a)
     : s.screen === 'remap' ? remapHtml(s, a)                                            // CX-14: the button mapping screen

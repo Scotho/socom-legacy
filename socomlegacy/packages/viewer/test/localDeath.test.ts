@@ -36,7 +36,7 @@ import { DEATH_CAM_SPIN_ADAPTATION, DEATH_EYE_REACH, DEATH_ORBIT_RATE, DEATH_TIL
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
 };
 const OWNERS: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
 const ground = () => packGround(PARAMS, [FLOOR], OWNERS);
@@ -270,11 +270,14 @@ describe('the page\'s own death by a blast, offline (the loopback room)', () => 
     // The scoreboard: the suicide's -2, no +1 (dead at the end), no +5 (the losing side) (`FUN_00223970` L76146-76165).
     await ctx.run(1);
     const score = ctx.events.filter((e) => e.type === 'score').at(-1) as Extract<ServerEvent, { type: 'score' }>;
-    expect(score.wins).toEqual({ seal: 0, terrorist: 1 });
+    // KILL-B78: the board's wins are the host's copy, taken 3.0 s after the end state (`FUN_002a9b30` D:L150629-150672;
+    // research 87 s12): the old tally beside `roundOver`, the new from the copy on (below).
+    expect(score.wins).toEqual({ seal: 0, terrorist: 0 });
     expect(score.rows).toEqual([expect.objectContaining({ id, team: 'seal', kills: 0, deaths: 1, score: -2, alive: false })]);
     expect(ctx.walk.isDead()).toBe(true);                          // still down through the result
     // ROUND COMPLETE after the engine's 3 s: the SEALs LOSER, the Terrorists WINNER, the one row under the SEALs.
     await ctx.run(ENGINE_READ_S * TICK_HZ + 30);
+    expect((ctx.events.filter((e) => e.type === 'score').at(-1) as Extract<ServerEvent, { type: 'score' }>).wins).toEqual({ seal: 0, terrorist: 1 });
     expect(ctx.net.screenUp()).toBe(true);
     const screen = ctx.hud.state().model.roundScreen!;
     expect(screen).toMatchObject({ kind: 'roundComplete', winner: 'terrorist', wins: { seal: 0, terrorist: 1 } });

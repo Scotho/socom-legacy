@@ -1,6 +1,7 @@
 import type { ServerEvent } from '../../../viewer/src/sim';
 import { TICK_HZ, type MatchStats, type ScoreRow } from '../../../viewer/src/net/protocol';
 import { DEATH_CAUSE } from '../../../viewer/src/net/deaths';
+import { PARTS } from '../../../viewer/src/net/damage';
 import { BOMB_STATE } from '../../../viewer/src/net/objective';
 import type { RoomRecorder } from '../replay/recorder';
 import type { RoundOverReport } from '../room';
@@ -11,7 +12,7 @@ import type { HandOver, RoomMatchResult, RoomRoundResult } from './roomResults';
  * MS-3 (the match stats plan, `docs/plans/2026-11-07-match-stats-tracking.md`; MS.R3, MS.R4, MS.R6): the **match record**
  * -- one match told to central in three kinds of part, `open` / `round` / `close`, beside the results path and never
  * through it (`HandOver`, `ResultGame`, BTL.R10 and `handOverOf`'s no-account rule are untouched, MS.R4). Every match is
- * recorded -- counted, respawn, under five, password, with CPUs (MS.R3) -- and sent only when central's hello advertised
+ * recorded -- counted, respawn, under the minimum (the token underFive), password, with CPUs (MS.R3) -- and sent only when central's hello advertised
  * `matchRecords: true` (the process told so at its start, `game.ts`).
  *
  * **Product track, an adaptation throughout** (OT.R53; OT.R27: the original has no match history, research 155 §3): it
@@ -40,6 +41,31 @@ export const MATCH_EVENTS_PER_ROUND_MAX_ADAPTATION = 500;
  */
 export const ASSIST_MIN_DAMAGE_ADAPTATION = 1;
 
+/**
+ * WM-DATA task 4 (the MATCH-DATA lane's design item (d); product track, an adaptation): the most damage events one
+ * round's part carries; past it the oldest are dropped and `damageDropped` says how many (as the events', MS.R6).
+ * Central's intake refuses a part over it (`central/src/stats/matchRecords.ts`, its own copy until it imports this one).
+ */
+export const MATCH_DAMAGE_EVENTS_PER_ROUND_MAX_ADAPTATION = 1000;
+
+/**
+ * WM-DATA task 4 (an adaptation): a damage event's `part` where the room's hit names no one part -- a blast's or a
+ * volley's fragments (the combat report's `part` null, its `hitLocations` many): one past the last part (`PARTS`), so
+ * every event is a count as central requires and none is given a part it did not strike.
+ */
+export const MATCH_DAMAGE_PART_MANY_ADAPTATION = PARTS;
+
+/**
+ * WM-DATA task 4 (an adaptation): the most bytes (UTF-8, serialised) a round part this recorder builds may take -- the
+ * record's own bound, 256 KiB less 4 KiB, kept under the two bounds it travels through: the supervisor's pipe
+ * (`pipe.ts` `PIPE_MATCH_RECORD_MAX_BYTES`, `parseUp` refuses a part past it) and the host's link to central
+ * (`host/src/link.ts` `CONTROL_MAX_MESSAGE_BYTES`, its envelope `{ v, ...part }` a few bytes more). Neither is imported
+ * here (the public export keeps this file and leaves `host/` and `pipe.ts` out); `test/matchRecordDamage.test.ts` pins
+ * this under both with margin. A part past it drops its oldest damage events until it fits, each counted in
+ * `damageDropped` -- a reader sees the count, never a silent cut.
+ */
+export const MATCH_ROUND_PART_BYTES_MAX_ADAPTATION = 258_048;
+
 /** A seat in the record: the account id as a string, or `cpu:<n>` for a CPU (its seat id in the room). */
 export type RecordSeat = string;
 
@@ -58,10 +84,26 @@ export interface MatchRecordOpen {
    * is open (no `REPLAYS_DIR`, or the next match's file not yet opened: then the close names it). Additive.
    */
   replayId?: string;
+  /**
+   * DAY-VARIANT-STATS (product track; the owner's ruling "the Day variants are first maps everywhere"): the room's map
+   * variant (`RoomOptions.variant`, DAY-7b) beside `map`, which stays the stem; absent for a plain room. Additive: central
+   * keeps it as `settings.variant` only for a `MAP_VARIANTS` pair (`central/src/stats/matchRecords.ts`).
+   */
+  variant?: 'day' | 'night';
 }
 export interface MatchRecordRound {
   t: 'matchRecord'; part: 'round'; game: number; match: MatchRecordOpen['match'];
   round: number; winner: number | null; reason: string; ms: number;
+  /**
+   * WM-DATA task 4: the round's start tick (the stream's `roundStart` tick, `roundStartTick`), for the EVENTS tab's
+   * "+mm:ss into the round"; and its damage events (`MatchDamage`, oldest first) with `damageDropped`, how many the cap
+   * (`MATCH_DAMAGE_EVENTS_PER_ROUND_MAX_ADAPTATION`) or the byte bound (`MATCH_ROUND_PART_BYTES_MAX_ADAPTATION`) cut,
+   * oldest first. This recorder always sets all three (`damage` [] and `damageDropped` 0 when none): central keeps an
+   * absent key NULL, an old host's "not recorded", apart from a new host's "none". Optional on the wire (additive; an
+   * older central ignores them). The shape is central's `MATCH_ROUND_DAMAGE_SHAPE_ADAPTATION` (agent/wm-data-store).
+   */
+  startTick?: number;
+  damage?: MatchDamage[]; damageDropped?: number;
   /**
    * PR #753's third pass P2-b: `roundsWon` / `roundsLost`, the seat's rounds as the room counts them at this round's end
    * (`room.ts`'s round end, SEAT_ROUNDS_READING: a seat at the end that played the round -- no classic ghost, no leaver).
@@ -94,6 +136,14 @@ export interface MatchRecordClose {
 }
 export type MatchRecordPart = MatchRecordOpen | MatchRecordRound | MatchRecordClose;
 
+/**
+ * WM-DATA task 4: one applied enemy hit that took health -- the room's tick, the attacker and the victim as a kill names
+ * its killer and victim (`seatOf`), the weapon as the kill names it (at most 64 characters), the struck part's number
+ * (`./damage` `PART`, or `MATCH_DAMAGE_PART_MANY_ADAPTATION`), the health taken as the room counted it (never rounded).
+ * The attacker is null where none is named (the room's observer always names one; the shape is central's).
+ */
+export interface MatchDamage { tick: number; attacker: RecordSeat | null; victim: RecordSeat; weapon: string; part: number; health: number }
+
 /** A kill's `killer` is null where the room names none (a fall, the world, an orphaned grenade: `kill`'s `killer: null`). */
 export type MatchEvent =
   | { kind: 'kill'; tick: number; killer: RecordSeat | null; victim: RecordSeat; weapon: string; part: string; how: string }
@@ -123,6 +173,9 @@ export const MATCH_ROUND_REASONS_ADAPTATION = ['elimination', 'rescue', 'hostage
 /** A side as the record numbers it: the room's `sideOf` (`room.ts`: SEALs 0, Terrorists 1). */
 export const sideNumber = (team: 'seal' | 'terrorist'): number => (team === 'seal' ? 0 : 1);
 
+/** DAY-VARIANT-STATS: the open's `variant`, absent for a plain room. */
+const variantOf = (v: 'day' | 'night' | null): { variant?: 'day' | 'night' } => (v === 'day' || v === 'night' ? { variant: v } : {});
+
 /** What the recorder asks of the game it records (`game.ts` `matchSource`; a test's fake). */
 export interface RoomStreamSource {
   /** The game's id (`handOver.roomId`, `MatchId.room`). */
@@ -130,6 +183,8 @@ export interface RoomStreamSource {
   /** The room's match now (`Room.currentMatch()`): its serial and start. */
   match(): { serial: number; startedAt: number };
   map(): string;
+  /** DAY-VARIANT-STATS: the room's map variant (`RoomOptions.variant`), or null for a plain room; absent, none. */
+  variant?(): 'day' | 'night' | null;
   gameType(): number;
   settings(): MatchRecordOpen['settings'];
   lobbyName(): string;
@@ -165,6 +220,9 @@ export class MatchRecorder {
   private roundStartTick = 0;
   private events: MatchEvent[] = [];
   private dropped = 0;
+  /** WM-DATA task 4: the round's damage events (oldest first) and how many the cap dropped. */
+  private damage: MatchDamage[] = [];
+  private damageDropped = 0;
   private reason: string | null = null;
   private over: { round: number; winner: 'seal' | 'terrorist' | null; tick: number } | null = null;
   private rows: ScoreRow[] = [];
@@ -218,7 +276,7 @@ export class MatchRecorder {
       snapshot: (tick) => { this.lastTick = tick; },
       event: (tick, ev) => { try { this.event(tick, ev); } catch { /* PT.R2's containment: never into the room's broadcast */ } },
       players: (_tick, players) => { for (const p of players) if (p.bot === true) this.bots.add(p.id); },
-      matchReset: () => onMatchReset?.(),
+      matchReset: () => { onMatchReset?.(); this.forgetAssists(); },   // WM-DATA (a): after its close, as the room's rows
       replayId: (id) => { this.fileNow = id; if (id !== null && this.opened) this.matchReplay = id; },
       close: () => undefined,
     };
@@ -257,6 +315,7 @@ export class MatchRecorder {
       settings: { ...this.room.settings() }, lobbyName: this.room.lobbyName(), host: this.room.host(),
       seats: named,
       ...(this.fileNow !== null ? { replayId: this.fileNow } : {}),
+      ...variantOf(this.room.variant?.() ?? null),                     // DAY-VARIANT-STATS: only when the room has one
     };
   }
 
@@ -273,8 +332,10 @@ export class MatchRecorder {
    * LCM-6a: the room's `onCombatApplied` (an enemy's applied hit that took `healthTaken` health from `targetId`): the
    * attacker's damage, and his share of the victim's life for an assist. A self-hit, no health, or a seat the last
    * `score` puts on the victim's own side counts nothing (the room tells enemies only; this holds it here too).
+   * WM-DATA task 4: with the hit (the observer's fourth argument), one damage event in the round's list as well -- only
+   * an entry central would accept (`damageEvent`); an old three-argument caller records none.
    */
-  combatApplied(attackerId: number, targetId: number, healthTaken: number): void {
+  combatApplied(attackerId: number, targetId: number, healthTaken: number, hit?: { weapon: string; part: number | null; tick: number }): void {
     if (!(healthTaken > 0) || attackerId === targetId || this.sameSide(attackerId, targetId)) return;
     let life = this.lives.get(targetId);
     if (!life) { life = new Map(); this.lives.set(targetId, life); }
@@ -282,6 +343,11 @@ export class MatchRecorder {
     life.set(attackerId, { taken: (life.get(attackerId)?.taken ?? 0) + healthTaken, seat });
     this.totalsOf(seat).damage += healthTaken;
     this.roundDamage.set(seat, (this.roundDamage.get(seat) ?? 0) + healthTaken);
+    const e = hit ? damageEvent(hit, seat, this.seatOf(targetId), healthTaken) : null;
+    if (e) {
+      if (this.damage.length >= MATCH_DAMAGE_EVENTS_PER_ROUND_MAX_ADAPTATION) { this.damage.shift(); this.damageDropped++; }   // the oldest go
+      this.damage.push(e);
+    }
   }
 
   /** LCM-6a: whether the last `score` puts both seats on one side (unknown: not); asked at the hit only. */
@@ -312,6 +378,28 @@ export class MatchRecorder {
       this.totalsOf(seat).assists++;
       this.roundAssists.set(seat, (this.roundAssists.get(seat) ?? 0) + 1);
     }
+  }
+
+  /**
+   * WM-DATA (a) (protocol 17; a product-track READ of LCM-6a's count, never a second one): room seat `id`'s assists this
+   * match and this round, by its record seat (`seatOf`: a takeover's two room ids one seat, one count) -- what the room's
+   * `score` rows carry (`RoomOptions.assistsOf`). Credited at the death (`died`, at the stream's `kill`), so the `score`
+   * the room broadcasts right after the kill reads it. Read without a side effect (no seat is added to the totals).
+   */
+  assistsOf(id: number): { match: number; round: number } {
+    const seat = this.seatOf(id);
+    return { match: this.totals.get(seat)?.assists ?? 0, round: this.roundAssists.get(seat) ?? 0 };
+  }
+
+  /**
+   * WM-DATA (a): an abandon or a match reset zeroes the room's own rows (`Room.resetMatch`), so the assists the rows read
+   * go too -- after the reset's own close has read them (`onAbandoned` / `onMatchReset`, the totals' only reader until the
+   * next match's first round clears them anyway). The damage and the other counters are left as they stand.
+   */
+  private forgetAssists(): void {
+    for (const t of this.totals.values()) t.assists = 0;
+    this.roundAssists = new Map();
+    this.lives = new Map();
   }
 
   /** Round `n`'s part: its winner, reason and length, each seat's round rows, its events (`emptied`: a leave emptied a side). */
@@ -356,8 +444,10 @@ export class MatchRecorder {
       t: 'matchRecord', part: 'round', game: this.room.game, match: { ...this.matchId() },
       round: n, winner: winner === null ? null : sideNumber(winner), reason, ms, seats, events: this.events, eventsDropped: this.dropped,
       ...(joined.length > 0 ? { joined } : {}),
+      startTick: this.roundStartTick, damage: this.damage, damageDropped: this.damageDropped,   // WM-DATA task 4
     };
-    this.events = []; this.dropped = 0; this.over = null;
+    fitUnderLink(part);                                                  // WM-DATA task 4: the link's byte bound
+    this.events = []; this.dropped = 0; this.over = null; this.damage = []; this.damageDropped = 0;
     return part;
   }
 
@@ -428,6 +518,7 @@ export class MatchRecorder {
       case 'roundStart':
         if (ev.round === 1) { this.totals = new Map(); this.id = null; this.started = true; }   // a match's first round: its counters from zero
         this.roundStartTick = tick; this.events = []; this.dropped = 0; this.reason = null; this.over = null;
+        this.damage = []; this.damageDropped = 0;                        // WM-DATA task 4: the round's damage events
         this.hostages = new Map(); this.rescued = new Map(); this.rescuedIds = new Set();
         this.roster = null; this.rosterDue = true; this.ghosts = new Set(ev.ghosts ?? []);   // PR #753 P2-b: the roster at the next score
         this.lives = new Map(); this.roundAssists = new Map(); this.roundDamage = new Map();   // LCM-6a: a new life for every seat
@@ -466,7 +557,7 @@ export class MatchRecorder {
       case 'timeExpired': this.reason ??= 'time'; return;
       // MS-3 review F1: the match dropped (`Room.abandon`: `resetMatch`, then this, then the zeroed `score`) -- closed now,
       // its rows as they stood, its end this moment; the zeroed rows after it belong to no open match
-      case 'abandoned': this.onAbandoned?.(); return;
+      case 'abandoned': this.onAbandoned?.(); this.forgetAssists(); return;   // WM-DATA (a): after its close, as the room's rows
       case 'roundOver':
         this.over = { round: ev.round, winner: ev.winner, tick };
         this.takeStats(Object.entries(ev.stats ?? {}).map(([id, stats]) => ({ id: Number(id), stats })));
@@ -481,6 +572,43 @@ export class MatchRecorder {
         return;
     }
   }
+}
+
+/** WM-DATA task 4: central's rules for a damage event (`MATCH_ROUND_DAMAGE_SHAPE_ADAPTATION`, agent/wm-data-store `round()`). */
+const isCount = (x: number): boolean => Number.isSafeInteger(x) && x >= 0;
+const isRecordSeat = (x: string): boolean => x.length > 0 && x.length <= 32;
+
+/**
+ * WM-DATA task 4: the damage event of one hit, or null where central would refuse it (one bad entry refuses the whole
+ * part there) -- a tick or part not a count, a health not finite, a seat off 1..32 characters. A weapon past 64
+ * characters is cut to 64 (central's bound, as a kill's).
+ */
+function damageEvent(hit: { weapon: string; part: number | null; tick: number }, attacker: RecordSeat, victim: RecordSeat, health: number): MatchDamage | null {
+  const part = hit.part ?? MATCH_DAMAGE_PART_MANY_ADAPTATION;
+  if (!isCount(hit.tick) || !isCount(part) || !(Number.isFinite(health) && health >= 0) || !isRecordSeat(attacker) || !isRecordSeat(victim)) return null;
+  return { tick: hit.tick, attacker, victim, weapon: String(hit.weapon).slice(0, 64), part, health };
+}
+
+const utf8 = new TextEncoder();
+const utf8Bytes = (s: string): number => utf8.encode(s).byteLength;
+
+/**
+ * WM-DATA task 4: a round part held under `MATCH_ROUND_PART_BYTES_MAX_ADAPTATION` -- its oldest damage events dropped
+ * until it fits, each counted in `damageDropped`. Nothing else in the part is cut; a part over the bound with no damage
+ * left is sent as it is.
+ */
+function fitUnderLink(part: MatchRecordRound): void {
+  const budget = MATCH_ROUND_PART_BYTES_MAX_ADAPTATION;
+  let over = utf8Bytes(JSON.stringify(part)) - budget;
+  if (over <= 0 || !part.damage || part.damage.length === 0) return;
+  const d = part.damage;
+  let cut = 0;
+  // each entry dropped from the front takes its own bytes and its comma (the last one left takes none: `[x]` -> `[]`)
+  while (over > 0 && cut < d.length) { over -= utf8Bytes(JSON.stringify(d[cut])) + (cut < d.length - 1 ? 1 : 0); cut++; }
+  let kept = d.slice(cut), dropped = (part.damageDropped ?? 0) + cut;
+  part.damage = kept; part.damageDropped = dropped;
+  // the dropped count's own digits may have grown: one more from the front until the whole part is measured under
+  while (kept.length > 0 && utf8Bytes(JSON.stringify(part)) > budget) { kept = kept.slice(1); dropped++; part.damage = kept; part.damageDropped = dropped; }
 }
 
 /** The room's `RoomMatchResult` in a round's report, when it handed one over (`handOverOf`, at the match's end). */
@@ -499,6 +627,7 @@ export function matchRecording(source: RoomStreamSource, send: (part: MatchRecor
   const guard = (work: () => void): void => { try { work(); } catch { /* the record's own trouble: a gap in its rows */ } };
   const abandoned = (): void => guard(() => { if (recorder.isOpen) send(recorder.close('abandoned')); });
   const recorder: MatchRecorder = new MatchRecorder(source, abandoned, abandoned);
+  let live = false;                                                     // SA-7a: a match record opened in this room
   return {
     recorder,
     stream: recorder.stream,
@@ -507,6 +636,7 @@ export function matchRecording(source: RoomStreamSource, send: (part: MatchRecor
         if (round !== 1 || !enabled() || !recorder.streamed) return;   // no stream (not the room's observer): no record
         // MS-3 review F4: an open match was closed at its reset (`matchReset`, before this round's) or its abandon
         send(recorder.open());
+        live = true;                                                    // SA-7a: the record is kept or sent: the rows carry its assists
       });
     },
     onRoundOver(report: RoundOverReport): void {
@@ -521,9 +651,21 @@ export function matchRecording(source: RoomStreamSource, send: (part: MatchRecor
     end(): void {
       guard(() => { if (recorder.isOpen) send(recorder.close('abandoned')); });
     },
-    /** LCM-6a: the room's `onCombatApplied` (`game.ts` hands it over), its failure contained as the stream's (PT.R2). */
-    combatApplied(attackerId: number, targetId: number, healthTaken: number): void {
-      guard(() => recorder.combatApplied(attackerId, targetId, healthTaken));
+    /** LCM-6a: the room's `onCombatApplied` (`game.ts` hands it over), its failure contained as the stream's (PT.R2); WM-DATA task 4: its hit. */
+    combatApplied(attackerId: number, targetId: number, healthTaken: number, hit?: { weapon: string; part: number | null; tick: number }): void {
+      guard(() => recorder.combatApplied(attackerId, targetId, healthTaken, hit));
+    },
+    /**
+     * WM-DATA (a): the room's `assistsOf` (`game.ts`, `bridge.ts` hand it over); a failure contained (PT.R2) as null: no field.
+     * SA-7a (SA.R20): null -- no field on any row -- until a match record has opened in this room (`live`: `enabled()` at
+     * round 1's start, central's hello flag or its own intake), so a room whose record is neither kept nor sent carries no
+     * assists on either path, and the in-process bridge's replay and the match process's are byte for byte the same. Once
+     * live it stays so for the room: GAME COMPLETE's rows after the complete close still read the match's count, a reset's
+     * zeroes the next match's, and the column never comes and goes between two scores.
+     */
+    assistsOf(id: number): { match: number; round: number } | null {
+      if (!live) return null;
+      try { return recorder.assistsOf(id); } catch { return null; }
     },
   };
 }

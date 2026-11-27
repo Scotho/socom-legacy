@@ -122,8 +122,8 @@ polygon's material resolved by `surfaceMaterial` (byte 0 the default). A count i
 n)" the same map without the G1 edits where they differ. Every placed node is counted (the room's world state may switch
 some off at a time, e.g. a destructible's `healthy` / `whats_left` parts). Pinned by
 `packages/central/test/blastSeeThroughCensus.devdisc.test.ts` (dev-disc; it skips without the disc), both columns: with
-G1 through `simMapFromBytes`, r0001 through the archive's graph before `applyR0004MapPatch` (`worldCollision`), and the
-two totals rows. The DLC maps (MP54,
+G1 through `simMapFromBytes`, r0001 through the archive's graph before `applyR0004MapPatch` (`worldCollision`; over
+`hullModels`, the libraries joined, since LATER 1003: the dated block below), and the two totals rows. The DLC maps (MP54,
 MP63, MP74) are not on the disc and are not counted. ITEM (PICKUP) and PARTICLE_SYSTEM (bit 3) carry no face on any map,
 and no map's `DefaultMaterial` is a see-through one, so no byte-0 face changes (MP64's root names `stone` in lower case,
 which the port's table lookup does not find: UNKNOWN, a shelter either way).
@@ -147,17 +147,45 @@ which the port's table lookup does not find: UNKNOWN, a shelter either way).
 | MP62 | GRASS | 6380 -> 6399 | 0 | 337 (r0001 340) | 544 | 0 |
 | MP64 | stone | 13093 -> 13096 | 0 | 258 (r0001 255) | 663 | 0 |
 | MP71 | STONE | 8919 -> 8920 | 0 | 255 of 271 (r0001 254 of 270) | 7 | 0 |
-| MP72 | ASPHALT | 9820 -> 9838 | 4 | 843 (r0001 829) | 0 | 0 |
+| MP72 | ASPHALT | 9820 -> 9836 (OT.R127: r0004's 9838 less 0x2d8500's two quads) | 4 | 841 (r0004 843; r0001 829) | 0 | 0 |
 | MP73 | SAND | 14158 -> 14162 | 4 | 366 (r0001 362) | 1 | 0 |
 | MP81 | METAL_THICK | 4202 -> 4204 | 8 | 422 | 4 | 0 |
 | MP82 | SNOW | 18464 -> 18482 | 4 | 238 (r0001 224) | 0 | 0 |
 | MP83 | SNOW | 15605 -> 15613 | 28 | 427 | 0 | 0 |
-| all 22 | | | 308 (r0001 308) | 6326 (r0001 6226) | 1544 (r0001 1544) | 78 (r0001 78) |
+| all 22 | | | 308 (r0001 308) | 6324 (r0004 6326; r0001 6226) | 1544 (r0001 1544) | 78 (r0001 78) |
 
 *(2026-11-13, CLT-2, research 422: the room's hull now carries the clutter after the worldmodel. The polygon totals
 above are the worldmodel's; with the clutter MP1 9291, MP5 7477, MP10 10742, MP61 5590 (its INVISIBLE_DI 174: + `table_wood`'s
 9) and MP82 19452 (INVISIBLE_DI 311: + `birch_near` 60, `gate_barricade_pole` 10, `_up` 3), so the room's INVISIBLE_DI
-total is 6408; no other see-through count moves. The r0001 column is the worldmodel's alone and stands.)*
+total is 6408; no other see-through count moves. 2026-11-14, OT.R127: MP72 less r0004 0x2d8500's two quads, 6324 and 6406. The r0001 column is the worldmodel's alone and stands.)*
+
+*(2026-11-19, LATER 1003, research 215 s9: the hulls now take the archive's libraries joined (`hullModels`), so the
+placed turrets' guns and the ledge turrets are in them. Per map, polygons + / INVISIBLE_DI + (with G1 and r0001 alike):
+
+| map | polygons | INVISIBLE_DI |
+|---|---|---|
+| MP5 | +30 | +6 |
+| MP9 | +56 | +12 |
+| MP10 | +28 | +6 |
+| MP11 | +42 | +9 |
+| MP51 | +56 | +12 |
+| MP52 | +143 | +9 |
+| MP53 | +48 | +9 |
+| MP61 | +42 | +9 |
+| MP62 | +40 | +9 |
+| MP64 | +42 | +9 |
+| MP71 | +28 | +6 |
+| MP72 | +30 | +6 |
+| MP73 | +40 | +9 |
+| MP82 | +42 | +9 |
+| MP83 | +30 | +6 |
+
+The other 7 maps are unchanged. The INVISIBLE_DI totals become 6450 the worldmodel's (r0001 6352), and 6532 with the
+clutter; no other see-through count moves. The join reaches the mission maps too (the census above counts the MP maps): on M83 the wrecked
+helicopter `worldmodel/broken_bell430` resolves its library prototype `bell430_destroyed` and gains its collision; two of
+its walls (`fuse_back/di_badbak/g123_1`) are among the walls whose climb column writes the fifth slot (`climbCut.disc`
+wideWalls 122 -> 124). The polygons are the census cc3 table X3's 697. `central/test/
+blastSeeThroughCensus.devdisc.test.ts` holds the new figures.)*
 
 What the faces are (the owners carrying the most, from the same read): INVISIBLE_DI is the hull's invisible collision --
 map-edge and ramp walls (MP2's `bigtank/di_invis`, `rmp*`), rails (`raildi`), tents (MP72's `tent_beige`, `tent_gray`),

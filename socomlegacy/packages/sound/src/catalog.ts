@@ -178,9 +178,10 @@ export interface ZAnimSetsLike {
     anims: {
       name: string;
       names: string[];
-      params?: { flags: number; rootNodeIndex: number };
+      params?: { flags: number; rootNodeIndex: number; seqOffsets?: number[] };
       nodeRefs?: { name: string }[];
-      sequences: { offset?: number; commands: { offset: number; set: number; cmd: number; size?: number }[] }[];
+      /** `word`: the `_zsequence` word (activation at bits 1-7; research 448), absent on a hand-built sequence. */
+      sequences: { offset?: number; name?: string; word?: number; commands: { offset: number; set: number; cmd: number; size?: number }[] }[];
     }[];
   }[];
 }
@@ -197,6 +198,11 @@ export interface ZAnimSoundCommand {
   sound: string; flags: number; node: string | null; offset?: [number, number, number];
   /** With flag 0x10 (`ZANIM_SOUND_VOLUME`), the command's own volume (the f32 at +8); absent: 1.0. */
   volume?: number;
+  /**
+   * LATER 1209: the seconds of the timed `WAIT`s ahead of the command in its sequence (`waitOf`'s base; `FUN_0025ed50`);
+   * absent: none -- `frag_start`'s `.THROW_OBJECT` at 0.2.
+   */
+  at?: number;
 }
 
 /** A play-sound command's volume: its own with flag 0x10, else the game's 1.0 (`FUN_002659c0`). */
@@ -212,6 +218,8 @@ export interface ZAnimSoundInfo {
   activation: number;
   sounds: ZAnimSoundCommand[];
   calls: string[];
+  /** LATER 1209: each call's seconds into its sequence (the timed `WAIT`s ahead of it), beside `calls`; absent: all 0. */
+  callsAt?: number[];
   stops: string[];
 }
 
@@ -270,12 +278,27 @@ export function zanimSounds(archives: readonly ZAnimSetsLike[], payload?: ZAnimP
   const out = new Map<string, ZAnimSoundInfo>();
   for (const [name, { set, anim }] of resolveZAnims(archives)) {
     const info: ZAnimSoundInfo = { set, anim: name, activation: (anim.params?.flags ?? 0) & 3, sounds: [], calls: [], stops: [] };
-    for (const q of anim.sequences) {
+    const reached = rawSequencesReached(set, anim, payload);
+    const callsAt: number[] = [];
+    for (const [qi, q] of anim.sequences.entries()) {
+      if (!reached[qi]) continue;                    // research 448: a sequence the original never starts plays nothing
+      let t = 0;                                     // LATER 1209: each sequence runs from the animation's start
+      const branches: { from: number; longest: number }[] = [];   // the review's F1: CALLBACK_WAIT_BRANCH_READING
       for (const c of q.commands) {
         if (c.set !== 0) continue;
-        if (c.cmd === ZANIM_PLAY_SOUND) {
+        if (c.cmd === ZANIM_IF) branches.push({ from: t, longest: t });
+        else if ((c.cmd === ZANIM_ELSEIF || c.cmd === ZANIM_ELSE) && branches.length > 0) {
+          const b = branches[branches.length - 1]!;
+          b.longest = Math.max(b.longest, t); t = b.from;
+        } else if (c.cmd === ZANIM_ENDIF && branches.length > 0) {
+          const b = branches.pop()!;
+          t = Math.max(b.longest, t);
+        } else if (c.cmd === ZANIM_WAIT) {
+          const w = waitOf(payload?.(set, name, c.offset, c.size ?? 20) ?? null);
+          if (w) t += w.base;                        // CALLBACK_WAIT_RANGE_READING: a random range's base alone
+        } else if (c.cmd === ZANIM_PLAY_SOUND) {
           const cmd = soundCommand(set, anim, c.offset, payload);
-          if (cmd) info.sounds.push(cmd);
+          if (cmd) { if (t > 0) cmd.at = t; info.sounds.push(cmd); }
         } else if (c.cmd === ZANIM_START_ANIM || c.cmd === ZANIM_STOP_ANIM) {
           const b = payload?.(set, name, c.offset, 8) ?? null;
           if (!b || b.length < 8) continue;
@@ -283,21 +306,82 @@ export function zanimSounds(archives: readonly ZAnimSetsLike[], payload?: ZAnimP
           if (!target || target === 'NA') continue;
           // CALL_ANIMATION (45, `FUN_0025d550`: the name at +7) naming a sound rather than an animation --
           // `grenade_hit_asphalt` calls `.GREN_ASPHALT` -- is taken as that sound.
-          if (c.cmd === ZANIM_START_ANIM && SIGIL.test(target)) info.sounds.push({ sound: target, flags: 0, node: null });
-          else (c.cmd === ZANIM_START_ANIM ? info.calls : info.stops).push(target);
+          if (c.cmd === ZANIM_START_ANIM && SIGIL.test(target)) info.sounds.push({ sound: target, flags: 0, node: null, ...(t > 0 ? { at: t } : {}) });
+          else if (c.cmd === ZANIM_START_ANIM) { info.calls.push(target); callsAt.push(t); }
+          else info.stops.push(target);
         }
       }
     }
+    if (callsAt.some((t) => t > 0)) info.callsAt = callsAt;
     out.set(name, info);
   }
   return out;
 }
 
+/** `CALL_SEQUENCE` (set 0, command 50): the sequence's name, the byte at +4, an index into the animation's name table (research 448). */
+const ZANIM_CALL_SEQUENCE = 50;
+
+/**
+ * Research 448 (reading, pending review), on the raw sequences `@s2u/scene`'s `sequencesReached` reads decoded: the start
+ * runs the activation-1 sequences (word bits 1-7 = 1; `FUN_0026ae20` D:L115457-115509), the runtime the `Anim_Params`
+ * offsets' (damage, activation, execution, cleanup), and any other only when a start by name reaches it (`FUN_00269b00`
+ * D:L114701-114760) -- here a `CALL_SEQUENCE` in a sequence itself reached, to its fixed point. A hand-built sequence
+ * with no word is taken as reached (the older readings').
+ */
+function rawSequencesReached(set: string, anim: ZAnimLike, payload?: ZAnimPayload): boolean[] {
+  const offsets = (anim.params?.seqOffsets ?? []).filter((o) => o > 0);
+  const reached = anim.sequences.map((q) => q.word === undefined || ((q.word >>> 1) & 0x7f) === 1 || (q.offset !== undefined && offsets.includes(q.offset)));
+  for (let grew = true; grew;) {
+    grew = false;
+    const named = new Set<string>();
+    anim.sequences.forEach((q, i) => {
+      if (!reached[i]) return;
+      for (const c of q.commands) {
+        if (c.set !== 0 || c.cmd !== ZANIM_CALL_SEQUENCE) continue;
+        const b = payload?.(set, anim.name, c.offset, 8) ?? null;
+        const n = b && b.length >= 5 ? anim.names[b[4]!] : undefined;   // one byte at +4 (`FUN_0025d270` D:L107348)
+        if (n) named.add(n);
+      }
+    });
+    anim.sequences.forEach((q, i) => { if (!reached[i] && q.name !== undefined && named.has(q.name)) { reached[i] = true; grew = true; } });
+  }
+  return reached;
+}
+
 /** How deep a chain of starts is followed (a guard: the retail chains are one or two deep). */
 const CALL_DEPTH = 8;
 
-/** A sound a zAnim plays and the command's volume (`commandVolume`: 1 unless flag 0x10 gives its own). */
-export interface ZAnimPlay { sound: string; volume: number }
+/**
+ * A sound a zAnim plays, the command's volume (`commandVolume`: 1 unless flag 0x10 gives its own) and, LATER 1209, its
+ * `delay`: the seconds after the zAnim's start it sounds -- the timed `WAIT`s ahead of it and of each start that led to
+ * it (`ZAnimSoundCommand.at`, `ZAnimSoundInfo.callsAt`); absent, at once.
+ */
+export interface ZAnimPlay { sound: string; volume: number; delay?: number }
+
+/**
+ * CALLBACK_WAIT_RANGE_READING (LATER 1209): a timed `WAIT` with a random range (flag 0x20: `base` + up to `range`,
+ * `FUN_0025ed50`) counts its `base` alone in a callback's delay -- the census of the disc's callback zAnims (research 81
+ * s16) names where a range stands ahead of a sound. Owed: the draw's form (uniform over the range, as the effects'
+ * runner reads it) carried into the delay.
+ */
+export const CALLBACK_WAIT_RANGE_READING = 'base' as const;
+
+/**
+ * CALLBACK_WAIT_BRANCH_READING (LATER 1209, the review's F1): a timed `WAIT` inside an IF / ELSEIF / ELSE branch counts in
+ * that branch alone -- each branch starts at the IF's time (the original runs one branch, `FUN_00269da0`) -- and after
+ * ENDIF the time goes on from the longest branch's end: which branch the original takes is decided at run time (its
+ * conditions are not evaluated here). Disc cases: `lightning_flashes`' `.DIST_THUNDER` in an ELSEIF, `gate_openclose`'s
+ * second `.SWITCH_SMALL` in an ELSE (research 81 s16); neither reached through a callback today.
+ */
+export const CALLBACK_WAIT_BRANCH_READING = 'longest' as const;
+
+/**
+ * CALLBACK_ONE_PER_NAME_READING (older than LATER 1209; named at its review's F5): a callback plays each sound name once,
+ * the first command's (`callbackPlays`), so a zAnim that plays one name several times sounds it once -- the satchel's three
+ * `.MK138_SAT_CHRG` 0.05 s apart (0, 0.05, 0.1) one at 0; `destroy_*_base`'s five plays two. The original plays each
+ * command. Owed: the page's callback list keeping repeats (with their delays), checked against the voice budget.
+ */
+export const CALLBACK_ONE_PER_NAME_READING = 'first of a name' as const;
 
 /**
  * The zAnim callbacks' sounds with their volumes: `motion.rdr`'s `zanim_callback (name (jump_whoosh) time (0.4))`
@@ -310,16 +394,20 @@ export interface ZAnimPlay { sound: string; volume: number }
 export function callbackPlays(archives: ZAnimSetsLike | readonly ZAnimSetsLike[], payload?: ZAnimPayload): Map<string, ZAnimPlay[]> {
   const infos = zanimSounds(Array.isArray(archives) ? archives : [archives as ZAnimSetsLike], payload);
   const out = new Map<string, ZAnimPlay[]>();
-  const collect = (name: string, into: ZAnimPlay[], seen: Set<string>, depth: number): void => {
+  const collect = (name: string, into: ZAnimPlay[], seen: Set<string>, depth: number, base: number): void => {
     const info = infos.get(name);
     if (!info || seen.has(name) || depth > CALL_DEPTH) return;
     seen.add(name);
-    for (const s of info.sounds) if (!into.some((p) => p.sound === s.sound)) into.push({ sound: s.sound, volume: commandVolume(s) });
-    for (const c of info.calls) collect(c, into, seen, depth + 1);
+    for (const s of info.sounds) {
+      if (into.some((p) => p.sound === s.sound)) continue;
+      const delay = base + (s.at ?? 0);
+      into.push(delay > 0 ? { sound: s.sound, volume: commandVolume(s), delay } : { sound: s.sound, volume: commandVolume(s) });
+    }
+    info.calls.forEach((c, i) => collect(c, into, seen, depth + 1, base + (info.callsAt?.[i] ?? 0)));
   };
   for (const name of infos.keys()) {
     const plays: ZAnimPlay[] = [];
-    collect(name, plays, new Set(), 0);
+    collect(name, plays, new Set(), 0, 0);
     if (plays.length > 0) out.set(name, plays);
   }
   return out;

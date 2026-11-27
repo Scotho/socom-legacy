@@ -178,6 +178,7 @@ vi.mock('three/webgpu', async (importOriginal) => {
     async init() {} setClearColor() {}
     setPixelRatio(r: number) { this.ratio = Number.isFinite(r) ? r : 1; }
     setSize(w: number, h: number) { this.width = w; this.height = h; }
+    setDrawingBufferSize(w: number, h: number, r: number) { this.setPixelRatio(r); this.setSize(w, h); }
     getRenderTarget() { return this.target; } setRenderTarget(t: RenderTarget | null) { this.target = t; }
     getDrawingBufferSize(v: { set(x: number, y: number): unknown }) { return v.set(Math.floor(this.width * this.ratio), Math.floor(this.height * this.ratio)); }
     initRenderTarget() {}

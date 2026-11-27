@@ -31,6 +31,9 @@ vi.mock('../../src/forge/archives', () => ({ Archives: class {
   clips = async () => null;
   list = async () => ({ entries: [], problems: [] });
   load = archiveLoad;
+  census = async () => null;
+  props = async () => null;
+  scriptNames = async () => null;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 const started = vi.hoisted(() => ({ options: [] as Record<string, unknown>[] }));
@@ -216,17 +219,15 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     expect(opt()!.textContent).toBe('Gate run');
   }, 90_000);
 
-  it('D4: Place zone, then a click on the world: an Outliner row by its id (lock, delete) and a gizmo in the editor\'s scene, none in Play', async () => {
+  it('D4: Place zone spawns a zone at once: an Outliner row by its id (lock, delete) and a gizmo in the editor\'s scene, none in Play', async () => {
     const { api } = await mount(await storedVault());
     const input = document.querySelector<HTMLElement>('.fx-input')!;
     input.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON: () => ({}) });
     await vi.waitFor(() => expect(input.dataset['rulesGizmos']).toBe('zone:vault'));
     expect(document.querySelector('ul.fx-outliner li[data-rules-entity="zone:vault"]')!.textContent).toContain('Zone · vault');
+    // PR #5 (OT.R112, place mode removed; page.ts `startEntityPlace`): Place zone spawns the zone at the view's centre at
+    // once, no click on the world, no tool left pressed.
     must('place:zone').click();
-    await vi.waitFor(() => expect(must('place:zone').getAttribute('aria-pressed')).toBe('true'));
-    const pointer = (type: string): void => { input.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: 400, clientY: 300 })); };
-    pointer('pointerdown');
-    pointer('pointerup');
     await vi.waitFor(() => expect(input.dataset['rulesGizmos']).toBe('zone:vault,zone:zone1'));
     const row = (): HTMLElement | null => document.querySelector<HTMLElement>('ul.fx-outliner li[data-rules-entity="zone:zone1"]');
     expect(row()!.textContent).toContain('Zone · zone1');
@@ -269,7 +270,13 @@ describe('FCW-32 step 4: the Rules panel on the mounted Forge (FUI.R23)', () => 
     // A click on empty ground (the Select tool's pick finds no placement) lets it go too.
     row()!.click();
     expect(row()!.classList.contains('is-on')).toBe(true);
-    const pointer = (type: string): void => { input.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: 400, clientY: 300 })); };
+    // A pointer's id, as every browser's PointerEvent has (PR #5): his AI Navigation tool's capture-phase pointerup
+    // (`aiPaint.ts` onUp) takes a release whose id matches its stroke's -- none (undefined) matching an id-less event.
+    const pointer = (type: string): void => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: 400, clientY: 300 });
+      Object.defineProperties(e, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } });
+      input.dispatchEvent(e);
+    };
     pointer('pointerdown');
     pointer('pointerup');
     await vi.waitFor(() => expect(row()!.classList.contains('is-on'), 'a click on empty ground drops it').toBe(false));

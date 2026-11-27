@@ -15,7 +15,7 @@ function quad(points: number[], ditype = 2, cameratype = 0): WorldPoly {
 /** A vertical wall across x at `z`, from x0 to x1 and y0 to y1. */
 const wallZ = (z: number, x0: number, x1: number, y0: number, y1: number, cameratype = 0): WorldPoly =>
   quad([x0, y0, z, x1, y0, z, x1, y1, z, x0, y1, z], 2, cameratype);
-const floorAt = (y: number): WorldPoly => quad([-200, y, -200, 200, y, -200, 200, y, 200, -200, y, 200], 3);
+const floorAt = (y: number): WorldPoly => quad([-200, y, 200, 200, y, 200, 200, y, -200, -200, y, -200], 3);
 
 function world(polys: WorldPoly[]) {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };

@@ -141,7 +141,7 @@ export const BASE_MARK_SPECTATOR_PLACEHOLDER = 'none' as const;
  * -0x66 = 0x9a), which pushes `FUN_0057d540(actor, DAT_003deb48, 0)` (D:L475480-475481) -- `DAT_003deb48` is the action
  * type `Place claymore` (`FUN_005e4f90(0x661628)`, D:L495216; the string at 0x661628), the claymore's and the PMN's
  * placing (D:L475322, D:L475354), not C4's `Put on wall` (D:L475420). With the sidearm in the hand the body plays its
- * pistol pair, `Pistol place claymore` (`FUN_0058c820`, the pairs `FUN_005e1cf0` D:L494772 registers; `handAnim`). The
+ * rifle clip: its pair `Pistol place claymore` (`FUN_005e1cf0` D:L494772) is never picked (`handAnim`, LATER 1442). The
  * Seal anim set names its clip `seal_place_claymore` (`test/equipmentAnim.test.ts` reads it off `animset.rdr`).
  */
 export const PLANT_ANIM: ThrowAnim = PLACE_CLAYMORE_ANIM;
@@ -365,6 +365,11 @@ export interface BombPageView {
     setGearVisible(name: string, on: boolean): unknown;
     startClip?(anim: ThrowAnim, hold: string, pass?: HoldPass): void;
     pistol?(): boolean;
+    /**
+     * LATER 1427 review F1: the clip `startClip` last started is still the own body's top play (its pop not yet come), for
+     * d-pad Up's placing term (`BombPage.ownPlacingClip`); absent, never.
+     */
+    placing?(): boolean;
   } | null;
   /** PB-1: the game's sounds at a place (`./audio` `GameAudio.play`): the pickup's `.FOOTBOMB`. */
   sound?: { play(name: string, at: readonly [number, number, number]): void } | null;
@@ -390,14 +395,21 @@ export interface BombPageView {
  */
 export function ownBombBody(
   play: { setGearVisible(name: string, on: boolean): unknown },
-  pose: { start(anim: ThrowAnim, held?: boolean): unknown },
+  pose: { start(anim: ThrowAnim, held?: boolean): unknown; stats?(): { clip: string | null } },
   walk: { hold(clip: string, period?: number, pass?: HoldPass): boolean },
   pistol: () => boolean,
 ): NonNullable<BombPageView['ownBody']> {
+  // LATER 1427 review F1: the clip this body started for the bomb (its name, the pose's own once drawn), for `placing`.
+  let started: string | null = null;
   return {
     setGearVisible: (name, on) => play.setGearVisible(name, on),
-    startClip: (anim, hold, pass) => { const held = walk.hold(hold, undefined, pass); pose.start(anim, held); },   // PAR-74: the push's pass
+    startClip: (anim, hold, pass) => {
+      const held = walk.hold(hold, undefined, pass);                                                   // PAR-74: the push's pass
+      started = pose.start(anim, held) === false ? null : anim.clip;
+    },
     pistol,
+    // The pose still draws that clip (`ThrowPose.stats`: null once popped or stopped; another clip once a throw replaced it).
+    placing: () => started !== null && pose.stats?.().clip === started,
   };
 }
 
@@ -767,6 +779,18 @@ export class BombPage {
     if (!body?.startClip) return;
     const anim = handAnim(PLANT_ANIM, body.pistol?.() ?? false);
     body.startClip(anim, isHoldClip(anim.clip) ? anim.clip : PLANT_ANIM.clip, pass);
+  }
+
+  /**
+   * LATER 1427 review F1 (research 84 §7.2, "Up under a placing"; ZOOM_UP_PLACING_REFUSED_READING): whether the bomb's own
+   * `Place claymore` -- the plant's or the manual drop's, `startOwnClip` -- is still the own body's top play. r0004 pushes
+   * that type for both (the MPBOMB branch -0x66 at 0x5c5d08; the bomb's state-1 handler 0x5a3860 at 0x5a3960, the twin of
+   * r0001 `FUN_0059ddb0` D:L457606-457612), through the push 0x582720 that writes the body's action word `+0x534`, which
+   * d-pad Up's term reads (0x59b318 -> 0x57d220). The port plays both outside `GrenadeCore`, so the page's hands ask this
+   * beside `GrenadeCore.placingClipActive` (`PageHands.placingClip`, `./matchActions`). Read only.
+   */
+  ownPlacingClip(): boolean {
+    return this.view.ownBody?.placing?.() ?? false;
   }
 
   /** Review F2: the own body's satchel off, if it was on. */

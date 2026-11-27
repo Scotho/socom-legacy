@@ -70,12 +70,53 @@ The full list is `ZANIM_COMMAND_NAMES` in `@s2u/scene`'s `effects.ts`. 59-60 are
 - `VALVE` (tick `FUN_00353fd0`, decomp 252128): a valve reference (+4; flag 2 at +13 makes it a name index), an
   operand (+8) and an operation (+12): 0 true, 1 !=, 2 ==, 3 >, 4 <, 5 >=, 6 <=, 0x0b set, 0x0c add, 0x0d subtract
   (floored at 0), 0x0e multiply.
-- `WAIT` (begin `FUN_0025ed50`): seconds in the f32 at +8, or frames with flag 0x10; flag 0x20 adds a random range.
+- `WAIT` (begin `FUN_0025ed50`): seconds in the f32 at +8, or frames with flag 0x10; flag 0x20 adds a random range; its
+  tick and the shared runner's form: §1.1 (LATER 1426).
 - `LOOP` (`FUN_0025ede0`): back to the sequence's start until a count (flag 1; -1 never) or a time (flag 2).
 - `FAIL` returns 0 from its tick, which stops the animation.
 - A sequence's word (`_zsequence`): bits 1-7 its activation. 1 runs at the start. 2 is the activation gate
   `Anim_Params`' second offset names (`FUN_002734b0`, decomp 120743): `shell_eject`'s is "if the camera is more than
   100 units from the caller, FAIL", so no casing is thrown out of sight.
+
+### 1.1 The WAIT's tick in the shared runner (LATER 1426, 2026-11-23; reading, pending review)
+
+The shared program runner (viewer `effectRunner.ts`; effects, the world's programs, the doors, the gates, the Forge's
+wait ops) took the WAIT in the original's form. Sources (two non-author reads of r0004 -- the lever-timing review's and
+seat-kill's, pilot/kill/keyjob-later1426-wait-read.md -- and research 106's of r0001, which agree):
+
+- **r0004:** the WAIT's tick 0x25f7c0-0x25f8bc, its begin 0x25f8c0-0x25f948, its registration 0x25c4b8-0x25c4dc; the
+  dispatcher 0x26b2b0 (0x26b32c-0x26b3c0) begins a command and calls its tick in the same call, with the dt the stepper
+  still holds; the stepper 0x26a970 (0x26aad8-0x26abe8); LOOP 0x25f950 and END_WHILE 0x25f170 end their tick.
+- **r0001:** the begin `FUN_0025ed50` D:L108436-108447; the dispatcher `FUN_0026a6e0` D:L115199-115211; the stepper
+  `FUN_00269da0` D:L114884-114903; the tick at 0x25ec50-0x25ed4c, by address only (the export holds no function there;
+  research 106 calls it `zAnimWaitTick`, the menus' copy `ui/src/zanimRuntime.ts`).
+- **The rule.** Timed (flag 8): held while dt + elapsed <= seconds -- equality holds -- the whole dt spent; once past,
+  done with dt - max(0, seconds - elapsed) handed on to the next command in the same tick. Counted (flag 0x10): the
+  begin zeroes the count, each tick adds one (the begin's tick the first), done once the count passes its limit; dt is
+  never touched. Random (flag 0x20): base + range x one draw at the begin, as before.
+- **What changed in the port** (the read's D1-D3): the begin now ticks in its own call (it accrued nothing before); the
+  leftover is handed on (it was dropped); equality holds (a 1e-9 slack ended it); a counted wait leaves dt whole.
+- **The arithmetic** (`WAIT_EQUALITY_HOLD_READING`, §16): a compensated (Neumaier) sum in double, held while
+  elapsed + dt <= seconds + 1e-9. Measured over the disc's 256 non-looping plain WAIT sequences against the original's
+  rule in exact rational arithmetic on the stored f32 seconds (each chain ends on floor(60 x the sum) + 1 on the room's
+  grid): 256 of 256 (`effectWaitCensus.devdisc.test.ts`). The margin sits ~1,300x above the sum's largest error (7.4e-13,
+  MP62 `destroy_strike_1`'s 961 ticks, the first 16 s WAIT; sequence #0 as a whole ends on tick 1081) and ~6x under the
+  smallest stored gap below a k/60 (5.96e-9 over every timed WAIT value on the disc, the 0.35 s wait). The port holds
+  one tick past the original if the exact sum lands in (s, s+1e-9]; the 6x margin was measured on the PLAIN chains,
+  and the 1,137 non-plain sequences (a host's timed command sets the phase) are not covered by the census.
+  **Refused, measured:** the f32 sum and compare (98 later / 130 same / 28 earlier against the port before; ~61% of
+  the k/60 waits ended at tick k, before the original could); a plain double sum with a 1e-6 margin (243 of 256: 13
+  stored values just below a k/60 -- `cigarette_flame`'s 0.35 s, `vomits`' 0.45 s, the impacts' 2.1 and 3.1 s, the
+  bases' destruction -- held as equality, a tick late). Against the port before, the 256 end 168 later, 70 the same,
+  18 earlier (information).
+- **The counted wait's frame** (`COUNTED_WAIT_FRAME_READING`, §16): the port's tick, not the original's game frame;
+  the owner's (H494).
+- **Consequences:** the lever's slide moves from room tick 51 to 50 (0.833 s, inside the capture LEVER-1381-PC3b's
+  0.817-0.834 s; research 174 s5); a timed command after a WAIT begins with the leftover (MP62 `on_lablights`).
+- **Out of this row:** the dt <= 0 rule (the timeless bit, header bit 17: a reader change); WAIT flags 2 and 4 (on no
+  disc command); the 63 of the 80 looping WAIT sequences that never repeat in the port (a conditional WHILE taken as
+  false: LATER 1435); the runners that are not this one (the menus' runtime already has the form; `uiScript.ts`, the
+  round's cues, the sound delays).
 
 **The context** (`FUN_00272bb0`, typed arguments; `FUN_00272720` reads them):
 - Type 3 is the caller's node: the commands' node byte 0xFA (-6). 0xF9 (-7) is the animation's own instance (its root
@@ -315,8 +356,9 @@ up without regard to case in every animation set (`FUN_0026a250`). Every gun's `
 - Its colour is the colour of the world vertices it is clipped to, per vertex (§13).
 
 **The material table** (SOILS index = the polygon's `material` byte, research 81 §4; 0 takes the map's
-`DefaultMaterial` from `READERM.ZAR/<map>.rdr`'s `world_params` -- `FUN_002dc1d0` reads `DAT_0044f310`,
-`FUN_002ddc30` sets it at the load, decomp 152110):
+`DefaultMaterial` from `READERM.ZAR/<map>.rdr`'s `world_params` -- `FUN_002dc1d0` reads `DAT_0044f310`, `FUN_002ddc30`
+sets it at the load: the name's index from `FUN_002de9e0` at D:L152110, the call at D:L152112, the store at D:L181196
+-- the index kept as given even when it is out of range and the table read falls back to entry 0, D:L181190-181192):
 
 | # | material | mark (BULLET_MARK_SMALL) | impact | its sound | its particles |
 |---|---|---|---|---|---|
@@ -484,6 +526,30 @@ visual in reach**, world, characters and weapons alike:
 **The viewer** (`effectLights.ts`) draws the pass as overlays sharing the world's, the held weapon's and the SEAL's
 geometry (the body on its own skeleton), per fragment, with the face's normal. The overlays are pooled (§12).
 
+**Under the lens** (LATER 1544, 2026-11-24; reading, pending review). The pass's packet is VuLightMap's:
+`FUN_003b5b90` calls `FUN_003b54e0` with command 0x3a (D:L307746; 0x38 at D:L307788), which packs each light's colour
+quad -- `+0xd8`, `+0xdc`, `+0xe0` and the opacity `+0xd4` (D:L307478-307481) -- and, while the lens flag `0x4b4a68`
+is up (D:L307483), folds it on the EE through a lens row (D:L307484-307498): row 2 (`0x4b4c90`) when the lit visual's
+type byte `+0x4` is 1 -- a `CMesh`, the character's skinned mesh (`FUN_003b9760` D:L309959; research 78 s2.5) --
+else row 0 (`0x4b4c70`). Read from the bytes (r0001 0x3b568c-0x3b569c, the same five words at r0004
+0x3d77dc-0x3d77ec): `vmulax.xyz ACC, vf4, vf7x; vmadday.xyz ACC, vf4, vf7y; vmaddaz.xyz ACC, vf4, vf7z;
+vmaddz.xyz vf7, vf4, vf4z` with `vf4` the row and `vf7` the quad, so
+
+  `c'.xyz = row.rgb x (R + G + B + row.z)`, the opacity kept.
+
+The constant term is the row's z (the lens's blue x 0.33, 0.066 under the goggles), not command 0x5c's w (research 84
+s14): under a colour sum of 0..765 it is below one unit either way. The same five words sit at r0004 0x3d77dc-0x3d77ec,
+its rows at 0x4b84b0 / 0x4b84d0 and its flag at 0x4b82a8 (the review's byte read). The fold never reads the wash row
+`0x4b4d30` (only `FUN_003b59a0` / `FUN_003b5a10` do), so the flashbang's wash does not enter this pass. The goggles set
+the four rows alike, so the row choice shows only under a lens that sets them apart with the flag up. [Q245-PC2 (§24,
+R4P-245's section, which lands first) saw the flag down under a scope, while the viewer's thermal lens raises it
+(`nightVision.ts` `setLensRows`): a question older than this fold, for its own LATER row; under it the viewer now folds
+the lights too.] The viewer (`nightVision.ts` `lightMapColour` / `nightLightRgb`, `effectLights.ts`): the light's
+colour goes through the row before the `MODULATE`; the skinned body's overlays take row 2 (`LIGHT_MAP_ROW`), every other
+receiver row 0 (`LIGHT_MAP_RECEIVER_ROW_READING`, §16). Before this an explosion's or a muzzle's spot kept its own colour
+under the goggles; the original's is lens-green. Owed for proven: a capture of a spot under the goggles (IQ-203 is a
+rendered check of the page, not of the original).
+
 ## 11. Particle types, water, footprints, sounds, the pre-warm
 
 **Particle types.**
@@ -562,6 +628,11 @@ has no bounds that follow the pose, so every light reaches it.
 - **The activation rule** [reading]: a sequence of activation 2 waits when its own animation's `CALL_SEQUENCE` names
   it. Frostfire's `firey_flames` switches its vent lights on and off that way. A sequence of activation 2 that no
   call names runs from the start, as the activation gate does (`shell_eject`'s range test).
+  *(Corrected 2026-11-18 by research 448, reading, pending review: the second sentence is wrong. The start runs the
+  activation-1 sequences only (`FUN_0026ae20` D:L115457-115509); a sequence of activation 2 runs only when a start by
+  name reaches it (`FUN_00269b00` D:L114701-114760). One nothing names never runs. `shell_eject`'s 0x104 sequence is its
+  `Anim_Params` activation guard (offset +0x12), run by its offset, which is not this rule. The old rule lit Desert Glory's
+  burn barrel.)*
 
 **The ambient effects.**
 - The mission's ambient effects are the `MZANIM` animations that start themselves (`params.flags & 3 == 1`) and
@@ -797,16 +868,21 @@ the defect: `tools/sweepHeading.ts` now picks the nearest first strikable surfac
 |---|---|---|
 | `MARK_CLIP_MAX_TRIANGLES_READING` (`markClip.ts`) | 32 world triangles a mark | `FUN_003b3ab0` has no cap per mark (306654-306659): each kept triangle is a pool entry; 32 bounds the mesh's buffers (a mark is at most 3.4 units across) |
 | `CANDIDATE_MAX_READING` (`markClip.ts`) | 256 candidates a clip | a buffer bound of the viewer's; the game walks the node's visuals (306470-306483) |
+| `LIGHT_MAP_RECEIVER_ROW_READING` (`effectLights.ts`; LATER 1544, 2026-11-24, §10; reading, pending review) | `'skinnedBodyOnly'` | which receivers VuLightMap folds through lens row 2: a `CMesh` (visual type 1, `FUN_003b54e0` D:L307483-307488; `FUN_003b9760` D:L309959). The SEAL's skinned body is the model node's `vtype` 1 visual (research 78 s2.5); the held weapon and the gear are taken as not one (row 0), the weapon models' own `vtype` not read. Equal rows under the goggles, so nothing changes there. Settled by reading the `vtype` key of `WEAP_GEO`'s visuals off the disc |
 | `SCORCH_PARTIAL_ORDER_READING` (`grenade.ts` `scorchClipped`) | the clipper's candidate order | a scorch that only partly fits the permanent pool keeps its first triangles in the viewer's order (oversized list, then the cell walk), not the game's visual walk (`FUN_003b3800` 306401-306417) |
+| `WAIT_EQUALITY_HOLD_READING` (`effectRunner.ts`; LATER 1426, 2026-11-23, §1.1; reading, pending review) | 1e-9 | a timed WAIT's hold: a compensated sum in double held while elapsed + dt <= seconds + it, so a sum within rounding of the seconds counts as the original's equality (r0004 0x25f810-0x25f864). The original's dt is its game frame and never meets a disc wait's seconds; on the room's 1/60 grid it does, and this margin decides it as exact arithmetic would (256 of 256 plain sequences). Settled by a capture of a whole-sixtieth wait's end against a 60 Hz grid |
+| `COUNTED_WAIT_FRAME_READING` (`effectRunner.ts`; LATER 1426, 2026-11-23, §1.1; reading, pending review) | the port's tick | a counted WAIT (flag 0x10) counts the runner's ticks -- 1/60 s in the room, the display's frame on the page -- where the original counts its game frame (525/15734 s). Whether MISSION R8 makes a frame count the game frame is the owner's (H494) |
 | `ZANIM_UNREAD_OPERAND_PLACEHOLDER` (`effectRunner.ts`; LATER 310, ruling R2 as narrowed by the review's F1, 2026-10-22; narrowed by INV-RAIN F3, 2026-11-07, §21) | `'decidedElseFalse'` | an IF / ELSEIF holding an operand the reader keeps undecoded (`EffectCondition` `other`) and no host answers is folded with every answer of those operands: one result stands (the sourced operands decide it); a result the unread answer turns keeps the pre-fold false. Unread now: set 0 command 70, set 1's command 1, set 2's; set 0's 66 (`CAMERA_INDOORS`) and 72 (`PLAYER_INDOORS`) are answered from the floor since INV-RAIN F3 (§21) by the effect runner's host only (`EffectHost.answersIndoors`, `effects.ts`); on the world's display runs (`worldState.ts`), the doors' and the gates' hosts, which do not answer them, they stay unread (FIX-SOUND, 2026-11-07: asked there, the hosts' false took Frostfire's camera-state scripts' outdoor branch every pass, beside the audio's own layers). Their ticks' own acts are not modelled: settled by reading command 70's registering module and tick, and sets 1 and 2 (§18) |
 | `STREAK_TICK_READING` (`particles.ts`; INV-RAIN F2, 2026-11-07, §21; reading, pending review) | `'oneGameTickBack'` | a streaked particle (type 3) is drawn from its place one game tick ago (`+0x10`) to its place now (`+0x20`): `FUN_00326350` projects both (D:L224670-224699), `FUN_00327cd0` writes the spawn place to `+0x10` (D:L225673); the step that copies the old place to `+0x10` is `FUN_003282b0` (0x3282b0), outside the decompilation, so "one tick" (`GAME_FRAME_DT`) is read from the two ends. The port's tail is one `GAME_FRAME_DT` of its own step back (`tickBack`), never past the spawn. Settled by a memory trace of `+0x10` / `+0x20` over two ticks, or a read of 0x3282b0 in the ELF |
 | `PLAYER_INDOORS_FEET_READING` (`effects.ts`; INV-RAIN F3, 2026-11-07, §21; reading, pending review) | `'feetFloorInside'` | `PLAYER_INDOORS` (set 0 command 72)'s tick (0x2b3880, research 81 §10) answers bit 2 of the player's byte `+0x1060`, 0 with no player; what sets the bit is not traced, and the `m_inside` of the floor the ground probe picks under the player's feet stands in for it. No player (`setPlayer(null)`) answers false; a player whose feet the walk does not give (fly mode, a dead page watching) keeps the last answer, as the bit keeps its value while the player object lives (the review's F4, 2026-11-07). Settled by tracing the writes of `+0x1060` bit 2 |
 | `UNTEXTURED_PARTICLE_BLEND_READING` (`effectMaterials.ts`) | source alpha | `FUN_003251b0`'s untextured branch (D:L223980-223983) sends PRIM 0xE6 (a sprite, `ABE` on, no texture) and no bind packet, so the `ALPHA_1` in force is the last bind's; which bitmap drew before is the frame's sort (§17) |
+| `PARTICLE_LENS_ROW_READING` (`particleTint.ts`; R4P-245, 2026-11-24, §24; reading, pending review) | row 0 | which of the four lens rows (`0x4b4c70`) a particle draw folds through: the caller passes `FUN_003b7590(row, i)` the word `+0x10` of the particle's source (record `+0x10` the emitter, D:L225597; emitter `+0x4` its source, `FUN_00327cd0` D:L225646), not traced. The goggles set all four rows alike, so it changes nothing under them; under a lens that sets them apart it is read as the world's row 0 (which lens, if any: the setter's caller `FUN_00264580` writes rows by a 4-bit mask from the lens data, not traced; the lens flag is 0 under the thermal scope, Q245-PC2, so the fold never runs there). Settled by tracing what writes the source's `+0x10` (the `PARTICLE_SOURCE` handler) and the lens data's row mask |
 | `TRACER_START_ROLL_READING` (`tracerFlight.ts`) | the page's effects generator | the start's roll is `rand() % 990` (`FUN_00197740`, D:L327213-327214; the start `(roll + 1) / 10` units down the shot, D:L327214-327223). The page rolls it with its effects' own generator (`Math.random` in the match pages), not the console's `rand()`: a cosmetic offset no other page or the room needs to share (#425's takeover, the merge controller's note) |
 | `TRACER_SIDE_READING` (`tracerFlight.ts`) | `viewer-team` | ally is the viewer's own side, enemy the other; the anim is the ally's (`DAT_004b5340`) unless the round's model is the enemy's (`DAT_004b5330`), then the enemy's (`DAT_004b5348`) (D:L327204-327207), the round setting its model by `+0xb4` (D:L320544-320548). Confirmed against D:L479356-479360 by #425's first review |
 | `TRACER_ORIENTATION_READING` (`effects.ts`) | x along the shot, rolled to the world up | the round builds the object's matrix -- an identity scaled by 7.5 (`TRACER_OBJECT_SCALE`, D:L320498-320502) times a rotation taking +x to the shot (`FUN_00306d40`, `FUN_00307170`, D:L320508-320514) -- and the launch sets it (`FUN_00315820`, D:L327256-327257); the roll about the shot (`FUN_00306d40`'s construction) is unread, the port's the world's up. Was: "the launch writes the place only" (#425's second review, finding 1) |
 | `TRACER_RETIRED_ANIM_READING` (`effects.ts`) | runs out | the launch keeps the anim's handle in the slot's `+4` (D:L327210) and then writes 0 there (D:L327224), so the slot's free (`FUN_003d4ed0`, which stops a non-zero `+4`, D:L327136-327137) never stops a tracer's anim: it plays to its end (the `redpuffs`, the 0.3 s wait). Whether a follow source on the freed object still emits is unread; the port keeps the object where the flight left it until the run ends (#425's second review, finding 2) |
 | `TRACER_REMOTE_COUNT_READING` (`netPage.ts`) | the shots this page saw this round | another player's every-fourth round is counted on the shots of that player this page has seen this round; the original counts the shooter's own `+0xb8` (`FUN_003cabe0`), and whether another console sees that number or counts its own is unread |
+| `EFFECT_PARTICLE_DRAIN_READING` (`effects.ts`; R4P-255 EFFECT-CAP, 2026-11-24, §23; reading, pending review) | `'lastParticle'` | an ended instance whose particle sources drain is busy until the last particle they emitted has died (`ParticleGeometry.holds`), the lifetimes the disc's. The original hands a finished instance's sources that are active at the end (+0x38 count, +0x4c array; made only by `PARTICLE_SOURCE`) to `FUN_00329ab0` to drain (D:L118555-118567) and `GetAvailable` (`FUN_00270ef0` D:L119142-119214) counts it busy while one points at a live source; a drained source emits nothing and resets once its live count +0x130 reaches 0 (D:L226850-226862, 227390, 225624, 227145; read by the fresh review, 2026-11-24). Settled by capture Q-255 (the instance's state +3 and slot count +0x38 per frame) |
 
 ## 17. Round seven: the particles' bitmaps (the owner's Desert Glory report, 2026-10-07)
 
@@ -1030,6 +1106,97 @@ For those fields, the far multiplier is one through 100 units, `(250000 - distan
 overlap and camera position also matter. Source-alpha blending and these fade rules do not specify a completely
 opaque wall at every distance. The earlier investigation's distance-dependent visibility is therefore not, on
 its own, a demonstrated departure from the original. Removing this fade would need an explicit adaptation decision.
+
+**A near pair whose end is below its start culls at the start [reading, pending review] (LATER 1249, 2026-11-19).**
+`FUN_00266830` stores the near pair squared as the disc writes it (D:L113213-113226), and `FUN_003286d0` tests, in
+order: 0 at or past the far end or at or inside the near start; the far ramp alone past the far start; the near ramp
+inside the near end; else 1 (D:L225901-225919). A pair [100, 0] therefore hides the particle within 100 u of the camera
+and never ramps; [0, 0] -- and no near pair, the constructor's default (`FUN_00328e90`, D:L226252-226275) -- hides only a particle at the eye. The page had skipped a near pair whose end is 0 and multiplied the two ramps
+where both held; `particleFade` now follows the original's order (`scene/test/effects.test.ts`,
+`viewer/test/sparkNearFadeDisc.test.ts`, which pins MP73's set). Six sources carry such a cut -- `spark_streak`
+[100, 0] and [30, 0], `spark_streak1` [50, 0], `spark_streak2` [100, 0], `grenade_water_spray` [100, 0], `BigRing`
+[100, 0] -- on every map by the weather seat's census of 2026-11-19 over the 22 maps' programs through the repository's
+readers (a run not recorded in the tree; only MP73's set is held by a test). PC 3's isolation renders (agent-mail
+`evidence/weekend-mega-2026-11-14/l1248-iso`, a rendered browser run judged by eye, before this fix) showed FRAG_sparks'
+`spark_streak` alone drawing the M67's white "shard" discs, which the original's capture lacks. **Whether the cut
+removes them there is not shown**: the page's burst was placed by eye ~112 u from the frag9 eye, so sparks flying
+sideways or away stay past 100 u and are drawn under the original's rule too; a render after the fix settles it, and
+if discs remain, their look -- grey 0.5 at alpha 0.3 to 0 (the colour keys), drawn as wide white lenses -- is the next
+read (the review of 85c86e990d, F1). Still unread after those renders (LATER 1248/1249, named, not guessed): the C4's fireball reads as a
+ring with a grey core where `bsmoke_explode_large`'s puff lies over `fire_explode_small` (the one-list distance sort,
+`FUN_00326a00`: read 2026-11-19 -- `bsmoke_explode_large`'s `firepuff` is `fire_explode_small`'s source with only its
+texture swapped, two identical clouds at one spot, which the page's per-texture batches draw one over the other where
+the original's one list interleaves them; LATER 1264, its cost measured before any build); the M67's round puff against the original's tall column
+(`bsmoke_explode_large`, `dust_explode_long`); the original's long left-drifting ground trail, which no child of
+`frag_grenade` draws on the page (a capture may be needed); the original's white flash ball at ~0.07 s (none of the
+five children draws a sprite; `frag_grenade_stone`'s `firepuffStone` is the page's small orange speck).
+
+**The M67's three open looks, read at the source (LATER 1248 #3-#5; the weather seat, 2026-11-20; reading, pending
+review).** MP73's `frag_grenade_stone` tree was read through the repository's readers. **None of the three is settled by
+the data or the code**, so nothing is built; the capture that would settle them is the Shadow job
+`agent-mail/handoffs/stage2/JOB-weather-1248-m67-look-capture.md`.
+- **The flash ball (#5).** The only sprite alive at f2 is `firepuffStone`:
+  - explosion2.tif, additive;
+  - keys white (1, 1, 1) to (1, 0.8, 0.6) to (1, 0.2, 0), alpha 0.3 to 0;
+  - size 1.4-1.9, scale 1 to 6 at 0.4 of its life;
+  - life 0.16-0.25 s.
+
+  Its type is 4, which writes no type: `FUN_00266830` skips the store when the nibble is 4 (D:L112843). A fresh source's
+  type byte is 0: `FUN_0026ea20` makes it with `FUN_0032b120` -> `FUN_0032a800` -> `FUN_0032ab20`, which zeroes +0x3c
+  (D:L227381). `FUN_00324c70` draws type 0 with `FUN_003251b0` (D:L223768-223769).
+
+  So the page's square sprite is the original's path, and the ball's cause lies elsewhere: `light_flash_large`'s pass
+  (§10), the texel, or a draw the page lacks. The capture's GS dump of f1-f3 names the draw.
+- **The column (#3).** `firepuff` (`bsmoke_explode_large`):
+  - random y velocity 0..240, accel +400, friction 30, life 2.2-3 s.
+
+  The page integrates it in the original's order. That order was read from the ELF's disassembly at 0x3282b0, a
+  function outside the decompilation (the review of 1b23ad325e): age, then position += v dt, then v += accel dt, then
+  the friction (`k dt` halved to at most 0.5, `1/P(x)`, squared back; `frictionFactor`), then the wind.
+
+  At the game frame's step (`GAME_FRAME_DT`, 525/15734 s) the friction is 0.57 a step and the terminal rise ~18 u/s. A
+  particle starting at the mean 120 u/s is then ~15 u up at f12 and ~36 u at f48: the page's column, there only by
+  f36-f48. These figures hold at that step only. The page steps its particles at the display's frame time
+  (`matchMount.ts`: `Math.min(frameTime.frame(now), 0.1)` to `effects.update`), so the rise moves with the display, and
+  not monotonically. The position and accel terms are first-order steps, and the friction jumps wherever `k dt`
+  crosses 0.5 x 2^n, where the halving starts. For `firepuff`, k dt is exactly 0.5 at dt = 1/60:
+  - at dt <= 1/60, ~16.8 u/s and ~33 u at f48;
+  - just above 1/60, ~20.5 u/s and ~40 u;
+  - at exactly 30 Hz, ~14 u/s and ~30 u;
+  - at 144 Hz, ~22.9 u/s and ~43 u.
+
+  So a 60 Hz display swings between ~33 and ~40 u (the delta review of 283b2662c0, N1). The step is LATER 1274: a
+  game-frame accumulator, ruled 2026-11-20.
+
+  Which source carries the original's fast column is not read; the capture's per-frame particle trace, each particle's
+  source named, is what settles it.
+- **The trail (#4).** `dust_ground_roll`'s `grenade_dust_ground` is the frag tree's only ground source:
+  - its base velocity is the context's normal times the f32 at +0x20 (`FUN_00266830`, D:L113024-113037), which is 0 on
+    the disc;
+  - its random velocity is +-140 in x and z, symmetric;
+  - but its accel is [-10, -20, -10] (friction 2, life 2.6-3 s): about 16-20 u of drift toward -x and -z over its life.
+
+  Other terms in the tree are lopsided too:
+  - `spark_streak` accel [-560, -1000, -560];
+  - `grenade_dust01` random x and z [-50, 30];
+  - `grenade_dust02` random z [-50, 40];
+  - `frag_grenade`'s motion launches the `FRAG_sparks` node one way, along (0, 0.556, -0.444) or (-0.444, 0.556, 0).
+
+  The dust roll's accel is the only one-way term in the ground source, and the data argue against it as the trail:
+  - **The size.** By f12 and f24 the accel alone moves a particle -0.64 u and -2.35 u an axis, against the random
+    140 u/s's reach of ~47 u and ~78 u (the page's integrator at the game step).
+  - **What the runs show.** Two observations, two kinds. The page's sheet, with the same accel, is gone by f24 with no
+    visible drift: a rendered browser run (`l1248-iso` run 4; c4frag-visual's `page-frag.mp4`). The original's trail
+    is about a third of the frame long by f12-f24: the capture, judged by eye (c4frag-visual's `orig-frag.mp4`,
+    `SUMMARY.md`).
+  - **The direction.** Under the original's frag9 camera (c4frag-visual's `cam-frag9.csv`), right = up x back =
+    (-1.00, 0, -0.01). That assumes a right-handed view basis; the right axis itself is not recorded. It is borne out by
+    `cameras.txt`: the page set to the same eye and yaw (right = -x) matches the original's grass clumps within ~10 px,
+    which a mirrored view would not. So -x is screen RIGHT and -z points toward the eye, and the accel would carry the
+    sheet right, against the original's leftward trail.
+
+  Still open: another program, wind, or the thrown grenade's velocity. The capture's second camera, particle trace and
+  the grenade's velocity settle which.
 
 **Sorting [reading].** The original constructs a single particle pointer list and sorts it by each particle's
 distance (`FUN_00326a00`, D:L224884-224922; comparator `FUN_00325080`, D:L223890-223893).
@@ -1282,3 +1449,137 @@ floor rule; findings 1, 2 and 4 are folded:
 **Not done.** The render check (the brief's re-render of MP12, MP1 and MP2) is the report's, not this note's. No
 console capture is compared. The captures owed are the report's list: a still frame at spawn A over several frames (F1,
 F2), under the roof looking out (F3), and a memory trace of `+0x10` / `+0x20` over two ticks (`STREAK_TICK_READING`).
+
+## 22. The cutout particle's alpha test (MP64-CREATURES, 2026-11-22; reading, pending review)
+
+The owner's playtest on Shadow Falls (MP64): the ambient creatures drew with a yellow, white or black background. A
+particle's own packet (`FUN_003251b0`, D:L224000-224010; r0004 0x34296c-0x342978) chains the texture's bind packet into
+the draw and then its own GIF tag (sprite, TME, FGE, ABE; ST, RGBAQ, XYZF2) with no TEST, ALPHA or ZBUF of its own, so the
+texture's GS state -- for a cutout, `TEST.ATE` with `AREF` 64 (`@s2u/gs` `decodeTest`: `GsState.alphaTest` 0.5) -- is what
+the particle draws with. The viewer's `effectMaterial` (`packages/viewer/src/effectMaterials.ts`) computed it into
+`spec.alphaTest` but never set it on the material, so a cutout particle drew as an opaque quad, its alpha-0 texels' colours
+showing; it now applies it, as the world does (`world.ts`). On the disc only MP64's four effect textures are alpha-tested
+(`dragonfly01`, `dragonfly02`, `monarch01`, `monarch02`: the `bugs_flying` creatures at the camera); every `EFFE` / `ALPH`
+texture is blended with no alpha test, so no other effect changes. A served check (Shadow PC 4, a rendered browser run):
+the base drew the dragonflies as solid rectangles, the fix as silhouettes. Open, named (the fresh review, LATER rows asked):
+the original draws particles inside the alpha pass with `ZBUF` ZMSK 1, so a cutout particle writes no depth -- the
+port's writes it (older than this change); `decodeTest` reads ATE and AREF but not ATST / AFAIL (right for the disc's single
+value `0x5040d`); the lightweight engine's particle shader still ignores the alpha test (frozen; on the owner's queue).
+
+
+## 23. A world effect's instances: GetAvailable (R4P-255 EFFECT-CAP, 2026-11-24; reading, pending review)
+
+Source: atlas-parity's queue row 69 (`origin/agent/spc-atlas` a7650518f7, `docs/atlas/handover/r0004-parity-ready-queue.md`
+R4P-255; its read static, both exports, the disc counted). An r0001 behaviour r0004 keeps (r0004's twin 0x00271e00,
+D4:L125747-125838, identical with its calls mapped), not r0004-driven.
+
+**The rule.** Every start of a world effect asks `CZAnim::GetAvailable` (`FUN_00270ef0`, D:L119142-119214) for a free
+instance of its animation: an instance is busy while its state runs (`FUN_00269d10`), or while one of its particle
+slots points at a live source (`EFFECT_PARTICLE_DRAIN_READING`, §16). With every instance busy a copy is made only when
+`Anim_Params`' flags carry the copy bit 0x80 and the chain is under the head's limit `(flags & 0x7ffff) >> 13` (0 none);
+else the start is refused and nothing draws. Activate sets a started instance's state 2 (D:L120741) and only queues the
+update (D:L120754; `FUN_0034e6b0` D:L248823-248846) in which its sequences start (D:L118636-118637), so an instance is
+busy from its start to the frame's update whatever its sequences do. The port: `effects.ts` `effectInstanceLimit` and
+`start` (every play, run, spawn, tracer and `CALL_ANIMATION` of the effect player goes through it, as every caller of
+Activate does, D:L107764, 107768); a run started since the last `update` is busy (`fresh`); a refused start's run is
+handed back ended, never stepped, and counted in `stats().refused`. A map's ambient runs (its animations' heads, started
+with the map through Activate, D:L119328-119330) are never refused but are entered, so a later start finds a running
+head busy.
+
+**On the disc** (the fixtures' MP2 and MP6, `effectData` `effectsFromDisc`): `bullet_hit_person` 0xa0a2 (limit 5),
+`c4` 0x20a2 (limit 1), `50gallon_fuel_explosion` 0x50a2 (limit 2); the muzzle flashes, the impacts and the grenades 0xa2
+or 0x10a2 (copies, no limit). MP2 holds 360 programs, 33 with no copy bit: the camera states (`camera_shake`,
+`to_scope_lens_fx` ...), the wind and room noises, `door_slab`, `bullet_scroll`, and `muzzle_mp5`, `muzzle_mp5sd`,
+`muzzle_uzi` (0x22). The three muzzles' own runs are three `CALL_ANIMATION`s with no wait, ended by the frame's update:
+a second start of one in the SAME frame (two MP5s fired in one frame) is refused, one a frame later plays. The flash,
+casing and smoke are runs of their own programs, which copy.
+
+**Two findings from the transcription** (unit / dev-disc, `effectCap.test.ts`):
+- **c4's limit of 1 bites only within one frame.** `c4`'s activation-1 sequences are its `CALL_ANIMATION` of
+  `he_grenade` (flag 0x1, not the blocking 0x200) and its sound; its particle sequences are activation-2 and nothing in
+  it starts them, so under research 448's start rule a `c4` run ends in the update after its start and holds no
+  particle. A second `c4` in the same frame is refused; one a frame or more later finds the instance free. The queue
+  row's "two c4 within the run of c4 give 1" assumed the run lives; it would only if research 448's rule is wrong for
+  `c4` (capture Q-255's second leg settles both).
+- **The blood's drain adds nothing at the disc's lifetimes.** `bullet_hit_person`'s sources fire one event at its start
+  and live 0.4-1.1 s while its run waits past 1.1 s, so its particles are gone before it ends; the five instances are
+  held by their runs alone (about 1.13 s each). Under sustained fire into bodies, at most five puffs start inside that
+  window and a sixth hit draws none, as the queue row says.
+
+**Tests.** [unit] the limit from the flags; six starts of a limit-5 animation give five runs, the sixth refused; a
+limit-1 and a no-copy animation one run; the copy bit with no limit every start; an ended or stopped instance free
+again; a `CALL_ANIMATION` asks too; a new map forgets the instances; a no-copy run that ends at once refused a second
+time in its frame, free the next; a running ambient head busy. [dev-disc, the fixtures] MP2's flags; six
+`bullet_hit_person` give five; `c4` as above; the drain on MP2's `red_streak01` source in a run that ends first (held
+until its last particle dies, about 1 s, then free), and the same source switched off before the end (holds nothing).
+RED at db7564063d (10 of 14), GREEN at 1e8e668c78; the review's F1-F3 RED at 2693c88afb (4 of 17), GREEN after.
+
+**Fresh review** (Fable, 2026-11-24; `agent-mail/planning/mega-2026-11-21/pilot/kill/review-r4p255-effectcap.md`):
+PASS WITH FINDINGS. Re-read at the source and upheld: the limit and the copy bit (the chain counted with the head as 1,
+D:L119145-119175; the copy D:L119201-119203), busy (state 2-4, D:L114791; a slot's live source, D:L119151-119169), the
+callers. Folded: F1 (busy until the frame's update), F2 (only active sources drain), F3 (ambient heads entered). The
+r0004 twin was not re-read (no r0004 export on the reviewer's host).
+
+**Open, named (note only).** The opening guard: `GetAvailable` first tests +0x34 bit 0, set from the flags' bit 0x80000
+(D:L119142-119144, 116341-116343); not transcribed -- no MP2 or MP6 program sets 0x80000; a census over the disc and a
+read of what the bit means settle it.
+
+**Not done.** `worldState.ts` `callAnimation` (the scene's own runs: doors, destructibles, mission objects; the queue
+row's second half) is not changed here: its particle sources go out through hooks, so it has no drain of its own, and
+whether a room runs the same programs is to be read first. No capture compared (Q-255 queued with the row).
+
+## 24. The particles under the lens and the wash (R4P-245 PARTICLE-LENS-TINT, 2026-11-24; reading, pending review)
+
+Source: the atlas queue's row R4P-245 (`origin/agent/next`, `socomlegacy/docs/atlas/handover/r0004-parity-ready-queue.md`
+"### R4P-245"; lead L390). An r0001 behaviour r0004 keeps (its twin `0x003d7af0`, D4:L333224-333244, the flag at
+`0x4b82a8` and the wash row at `0x4b8570`).
+
+**The original** (reading, pending review). Every particle's colour passes one function, `FUN_003b59a0`
+(D:L307585-307611), before the four particle draws write it to the GS packet, one call in each: `FUN_003251b0` (D:L223968),
+`FUN_00325580` (D:L224250), `FUN_00325cc0` (D:L224548) and `FUN_00326350` (D:L224751). Its inputs: the particle's colour, the key times 128 (`FUN_001bfe68(128.0, ...)`, D:L225585),
+so in the GS's 0..255 units; a lens row the caller copies out of the four at `0x4b4c70` (`FUN_003b7590`, D:L223967;
+which row, `PARTICLE_LENS_ROW_READING`, §16); and the TRUE_COLOR_SCALE row `_DAT_004b4d30`. In order:
+- **The lens fold**, only while the lens flag `DAT_004b4a68` is set (D:L307592, the branch D:L307600-307611):
+  ACC = row x c.x, ACC += row x c.y, ACC += row x c.z, then c = ACC + row x row.**z** (D:L307604-307607), all on
+  .xyz: `c'.rgb = row.rgb x (R + G + B + row.z)`, alpha untouched -- the colour folded to the lens's monochrome at
+  about its brightness. The decompilation drops the VU0 macros' broadcast fields and masks; they are read off the
+  instruction words of the disc's `socom2_game.elf` at `0x003b59c0`-`0x003b59d4` (VMULAbc.x, VMADDAbc.y, VMADDAbc.z of
+  the colour; VMADDbc.z with the row as both operands; VMUL; VADDbc.w; every one dest .xyz), the same words in r0004 at
+  `0x003d7b10`-`0x003d7b24`. So the particles' constant term is the row's **z** (`0.33 x` the lens's blue; a row holds
+  0.33 r, 0.33 g, 0.33 b, 3.030303 a, written by the setter `FUN_003b76b0`, D:L308664-308677). The port's world fold
+  (`viewer/src/nightVision.ts`) takes the row's w (`3.03 x` the lens's alpha), read as the world's VU1 command `0x5c`:
+  that is NOT traced against the microcode, and a second CPU fold, `FUN_003b54e0` (D:L307482-307494), uses the same
+  row.z, so the z term is not unique to particles -- the world's fold is a LEAD to re-read (patches-contrib's second
+  read). Read as written for the particles, not corrected toward the world's (under `LensFX_NVG` the z term is 0.066
+  against the w term's 0.727, on a sum of up to 765). [A decode by hand of the COP2 words (fields per the EE's VU0 macro encoding), no
+  repository reader; the reviewer re-reads the words.]
+- **The wash**, always, after the fold: `c.rgb = c.rgb x wash.rgb + wash.w` (VMUL then VADDbc.w, .xyz; D:L307595-307596
+  with the flag down, D:L307608-307609 with it up).
+
+**Captured (Q245-PC2, IQ-137, 2026-11-23; proven for the inputs only).** The flag `0x4b82a8` is 1 exactly while the
+goggles are on (not the scope, not first person) and stays 1 through a flashbang's wash; the wash row `0x4b8570` rests at
+(1, 1, 1, 0.5) and a flashbang sets (0.75, 0.75, 0.75, 60.5), the first three rising back to 1 over ~250-300 frames.
+Under the goggles the flash and smoke draw green-tinted. The per-particle fold itself is shown by those pictures only:
+reading, pending review.
+
+**The port.** One colour step, `particleTint` / `particleTintInto` (`viewer/src/particleTint.ts`), run on the CPU once
+per particle where the shared particle core writes the keyed colour into its vertex buffer
+(`viewer/src/particleGeometry.ts` `fill`: the camera-facing, rotated, flat and streaked quads alike). Both render
+paths draw that buffer: three's path (`ParticleSystem`, `viewer/src/particles.ts`, with `effectMaterial`'s particle
+material, which multiplies the vertex colour as before) and the raw path (`RawParticles`,
+`viewer/src/xboxPrototype/rawParticles.ts`, which stages the same geometry's `color` attribute; its `ParticleGeometry`
+from `walkingEffects.ts`). The step's rows are the page's own: `setLensRows` (`viewer/src/nightVision.ts`) hands the
+four lens colours to `setParticleLens` as it sets the world's uniforms, `setTrueColourScale`
+(`viewer/src/trueColourScale.ts`) hands the wash row to `setParticleWash`; the step reads the row
+`PARTICLE_LENS_ROW_READING` and, in the page's units (1 = 128), divides the constants (`row.z`, `wash.w`) by 128. With
+no wash set the wash is the identity, as `./trueColourScale` reads the resting row's `+ 0.5` (the console's rounding).
+`effectMaterials.ts` is unchanged: its colour arrives stepped.
+
+**Tests.** [unit] `viewer/test/particleTint.test.ts`: no lens and no wash, the keyed colour unchanged; the goggles on,
+the lens fold (two colours of one sum alike, alpha kept); a wash, the colour scaled, lens off and after the fold with
+it on; a lens with its rows apart, the row `PARTICLE_LENS_ROW_READING`; and the same three through the shared core's
+colour buffer (`ParticleGeometry`). RED at 74bbf94a75 (6 of 8, the step an identity seam), GREEN at 325f11fca3.
+
+**Open.** `PARTICLE_LENS_ROW_READING` (§16). No capture compared (Q-245's particle colours read under the goggles and
+in a wash would prove the fold). The effect models (`buildEffectModel`: the muzzle flash's mesh) are model packets, not
+particles, and are not touched here.

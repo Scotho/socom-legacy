@@ -3,6 +3,7 @@ import { ExchangeInput } from './exchangeInput';
 import type { Input, PadButton } from './gamepad';
 import type { Hud, HudQuad, HudTri } from './hud';
 import type { PART_DEPS } from './matchNet';
+import { MENU_STICK_ADAPTATION, MenuStickGuard, MenuStickReader, stickMoving, stickWalk } from './menuStick';
 import type { ServerEvent } from './net/protocol';
 import type { NetPage, NetPageDeps } from './netPage';
 import type { SoundData } from './soundData';
@@ -40,6 +41,15 @@ import { controllerConfigs } from './controllerConfigs';
  * Input ownership (research 301 §7, a browser safeguard): while the menu holds the pad, the game's lanes take nothing,
  * a button it took stays the menu's until let go (`./exchangeInput`), and its opening lets the trigger go and cancels
  * an uncommitted held grenade (`release`: no throw, no ammunition spent) -- before the trigger lane hears R1 let go.
+ *
+ * WM-STICK (OT.R130; a browser adaptation behind `./menuStick` `MENU_STICK_ADAPTATION`): the left stick's flick moves
+ * the selection as the d-pad's Up / Down do, and the guard decides whose the stick is -- a living player moving when the
+ * menu opens keeps walking on it (`pad`'s `walk`: the move pair handed on past the ownership), the menu taking the d-pad
+ * alone until he has stood still 100 ms; standing at the open, the stick is the menu's at once. The guard is the owner's
+ * ruled DEPARTURE from the original (OT.R130): a capture of the original (r0004, n = 1; the bucket
+ * gate-runner/shadow/out/2026-11-15/q10-hitreg/circle-popup-walk/) measured that with this menu open the ORIGINAL DOES
+ * NOT WALK (forward held 3 s moved 0.00 u, against 62.7 u in 1 s closed) -- the stop `./exchangeInput` makes, which
+ * the adaptation off keeps.
  */
 
 /** The part's `NetPage` hooks, as `PART_DEPS.taunts` lists them. */
@@ -108,7 +118,12 @@ export interface MatchTaunts {
    * the menu holds the pad, the input the game's lanes get -- none while it does, a button it took held off until let go --
    * and the talk flag (SVC-20b-page: the voice client's `pad`).
    */
-  pad(held: ReadonlySet<PadButton>, input: Input): { owns: boolean; input: Input; talk: boolean };
+  pad(held: ReadonlySet<PadButton>, input: Input): { owns: boolean; input: Input; talk: boolean; walk: boolean };
+  /**
+   * WM-STICK (OT.R130): the open menu's stick still the soldier's, as the last `pad` left it -- the pages' camera not
+   * suspended for the menu then (`fly.setInputSuspended`).
+   */
+  walking(): boolean;
   /** The menu on the HUD's overlay (layer 1, beside the R2 inventory and WEAPON EXCHANGE). */
   draw(frame: { width: number; height: number }, sizes: Record<string, { width: number; height: number }>): { quads: HudQuad[]; tris: HudTri[] };
   /** Closed (a death, a respawn, a new map). */
@@ -140,6 +155,9 @@ export function mountTaunts(d: MatchTauntsDeps): MatchTaunts {
   let request = 0;
   const heard: HeardTaunt[] = [];
   const consume = new ExchangeInput();
+  /** WM-STICK (OT.R130): the stick's flicks and whose the stick is while the menu is open. */
+  const stick = new MenuStickReader();
+  const guard = new MenuStickGuard();
   const headset = d.headset ?? mountHeadset({ line: (text) => { d.hud.postMessage(text); } });
   const texts = (): string[] => {
     const own = d.custom();
@@ -185,7 +203,7 @@ export function mountTaunts(d: MatchTauntsDeps): MatchTaunts {
     talk,
     headset,
     isOpen: () => menu.isOpen(),
-    setData: (s) => { data = s?.taunts ?? null; menu.reset(); },
+    setData: (s) => { data = s?.taunts ?? null; menu.reset(); guard.reset(); },   // WM-STICK: every close resets the guard (the review's F1)
     texts,
     netDeps: () => ({ taunt }),
     pad: (held, input) => {
@@ -208,23 +226,39 @@ export function mountTaunts(d: MatchTauntsDeps): MatchTaunts {
       // spectators talk too -- the online talk routes carry no alive test (`VOICE_DEAD_TALK_READING`, research 170 C4,
       // the strong reading); the room puts them on their own channel (constraint 3).
       const wasOpen = menu.isOpen();
+      // WM-STICK (OT.R130): the flick read every frame (its arming follows the stick); on a menu already open whose stick
+      // is the menu's (the guard as the last frame left it), Up / Down is the d-pad's press for this frame. "Moving" is
+      // the frame's move pair (`./menuStick` `stickMoving`), a living player's only: the dead walk no soldier.
+      const flick = stick.read(input);
+      const moving = alive && stickMoving(input);
+      const stickPress = MENU_STICK_ADAPTATION && wasOpen && guard.menuHas() && (flick === 'Up' || flick === 'Down') ? flick : null;
       // SVC-22b: the pad's loss and the window's focus release the talk (browser adaptations); the DEV key is CIRCLE.
       const h = headset.frame({ phase: 'round', spectator: !!gate?.spectator });
       // OPT-14 (research 344 §7): the round's TeamCommand button is the active controller config's; the development key
       // stands for TeamCommand in every preset (OT.R29: a preset changes the pad's map only, never the keys).
       const preset = controllerConfigs.active;
       const keys = [...headset.keys('round')].map((b) => (b === 'Circle' ? controllerTalkBinding(preset).teamCommand : b));
-      const f = talk.frame(clock(), keys.length ? new Set([...held, ...keys]) : held, {
+      if (stickPress) keys.push(stickPress);
+      const now = clock();
+      const f = talk.frame(now, keys.length ? new Set([...held, ...keys]) : held, {
         phase: 'round', preset, runAndTalk: d.runAndTalk?.() ?? false, menuAllowed: allowed && !died, talkAllowed: !!gate?.inMatch && !d.otherMenu() && !(d.aborting?.() ?? false),
         lateJoiner: false, padPresent: h.padPresent, focused: h.focused,
       });
       const owns = wasOpen || menu.isOpen();
       if (owns) d.release();
-      return { owns, input: consume.frame(input, owns), talk: f.talk };
+      // WM-STICK (OT.R130): the guard stepped every frame after the menu's step (opened this frame, its stick is decided on
+      // this frame's). Closed this frame, the stick it left is the soldier's as it was, so a walking player loses no frame.
+      const soldier = guard.soldierHas();
+      const soldierNow = MENU_STICK_ADAPTATION && guard.frame(menu.isOpen(), moving, now);
+      const walk = MENU_STICK_ADAPTATION && owns && (soldierNow || (!menu.isOpen() && soldier));
+      const out = consume.frame(input, owns);
+      if (walk) Object.assign(out, stickWalk(input));   // the move pair, and the look pair: departures (OT.R130; the controller's ruling 2026-11-15) -- the original blocks both
+      return { owns, input: out, talk: f.talk, walk };
     },
+    walking: () => MENU_STICK_ADAPTATION && menu.isOpen() && guard.soldierHas(),
     draw: (frame, sizes) => drawTaunts(frame, menu.state(), texts(), clock(), sizes),
-    reset: () => { menu.reset(); },
+    reset: () => { menu.reset(); guard.reset(); },
     state: () => ({ ...menu.state(), defaults: [...(data?.defaults ?? [])], custom: texts(), received: [...heard] }),
-    dispose: () => { menu.reset(); consume.blur(); data = null; heard.length = 0; if (!d.headset) headset.dispose(); },
+    dispose: () => { menu.reset(); guard.reset(); consume.blur(); data = null; heard.length = 0; if (!d.headset) headset.dispose(); },
   };
 }

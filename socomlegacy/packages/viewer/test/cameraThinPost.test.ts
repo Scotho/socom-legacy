@@ -38,11 +38,21 @@ function world(polys: WorldPoly[]): Grid {
   return buildGrid(params, [], [], polys, owners);
 }
 const floor = quad([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200], 'floor', 3);
+/**
+ * LATER 1057: the same face wound the other way, its normal reversed. The pass is one-sided on the hull -- a face counts
+ * only entered from its front (`FUN_002d2890` side mode 0x20, research 382 s8) -- so the post's faces, first written
+ * facing in, face out, and a wall the boom meets from the body's side faces the body.
+ */
+const rewound = (p: WorldPoly): WorldPoly => {
+  const q = p.points, out: number[] = [];
+  for (let i = q.length / 3 - 1; i >= 0; i--) out.push(q[i * 3]!, q[i * 3 + 1]!, q[i * 3 + 2]!);
+  return { ...p, points: Float32Array.from(out) };
+};
 
-/** A post 4.7 wide and 1.3 thick, standing through the camera's height. */
+/** A post 4.7 wide and 1.3 thick, standing through the camera's height, its faces facing out (LATER 1057: `rewound`). */
 function postPolys(): WorldPoly[] {
   const x0 = 0, x1 = 4.7, z0 = 0, z1 = 1.3, y0 = 0, y1 = 80;
-  const f = (pts: number[], name: string) => quad(pts, name);
+  const f = (pts: number[], name: string) => rewound(quad(pts, name));
   return [
     f([x0, y0, z0, x1, y0, z0, x1, y1, z0, x0, y1, z0], 'post-z0'),
     f([x0, y0, z1, x0, y1, z1, x1, y1, z1, x1, y0, z1], 'post-z1'),
@@ -95,8 +105,8 @@ describe('a thin post and a corner (research 90 §10)', () => {
   const post = world([floor, ...postPolys()]);
   const corner = world([
     floor,
-    quad([0, 0, 0, 0, 80, 0, 0, 80, 40, 0, 0, 40], 'wall-x'),
-    quad([0, 0, 0, 40, 0, 0, 40, 80, 0, 0, 80, 0], 'wall-z'),
+    rewound(quad([0, 0, 0, 0, 80, 0, 0, 80, 40, 0, 0, 40], 'wall-x')),            // facing -x, out of the corner's solid
+    rewound(quad([0, 0, 0, 40, 0, 0, 40, 80, 0, 0, 80, 0], 'wall-z')),            // facing -z
   ]);
 
   it('the pass leaves a near corner in a thin post the body is clear of; the drawn eye does not', () => {
@@ -126,15 +136,21 @@ describe('a thin post and a corner (research 90 §10)', () => {
   it('a full right peek whose side ray misses the post still draws the eye on the body\'s side of it', () => {
     const feet: Vec3 = [-3.6, 0, -3.6];
     const g = goal(feet, 300, INIT_AIM_PITCH, 1);
+    // LATER 1057 (re-filed; reading, pending review; research 382 s8): the full peek's target lies inside the post (x
+    // 0.26, z 0.30), so the main probe leaves it through `post-x0`'s back and no side probe meets a face. The pass counts a
+    // hull face only entered from its front (`FUN_002d2890` D:L174831-174837, `+0x80` bit 1 clear, `FUN_00316e30`
+    // D:L215827-215828), so it leaves the eye at its goal, 0.75 past the boom's length, its near rectangle clear of the post.
+    // Two-sided, it met `post-x0` from behind, pulled the eye in to the target and left a near corner in the post.
     const passed = cameraPass(post, g.target, g.eye0, newPassState(), 1 / 60, isPeekCameraSurface);
-    expect(hitsNear(post, passed, g.target, isPeekCameraSurface)).toBe(true);
+    expect(Math.hypot(...sub(passed, g.target))).toBeCloseTo(Math.hypot(...sub(g.eye0, g.target)) + CAM_MARGIN, 6);
+    expect(hitsNear(post, passed, g.target, isPeekCameraSurface)).toBe(false);
     const view = drawn(post, feet, 300, INIT_AIM_PITCH, 1);
     expect(hitsNear(post, view.eye, view.target, isPeekCameraSurface)).toBe(false);
     expect(view.eye[0]).toBeLessThan(0);
   });
 
   it('the 0.75 minimum would put the eye past a face the target is against; the drawn eye stays on the target\'s side', () => {
-    const wall = world([floor, quad([-80, 0, 0, 80, 0, 0, 80, 80, 0, -80, 80, 0], 'wallz')]);
+    const wall = world([floor, rewound(quad([-80, 0, 0, 80, 0, 0, 80, 80, 0, -80, 80, 0], 'wallz'))]);
     const feet: Vec3 = [0, 0, -0.4];
     const g = goal(feet, 0, 0, 0);
     const passed = cameraPass(wall, g.target, g.eye0, newPassState());
@@ -147,7 +163,7 @@ describe('a thin post and a corner (research 90 §10)', () => {
   });
 
   it('a wall directly behind the player still stops the eye 0.75 short (research 90 §5)', () => {
-    const wall = world([floor, quad([-50, 0, 10, 50, 0, 10, 50, 60, 10, -50, 60, 10], 'wallz')]);
+    const wall = world([floor, rewound(quad([-50, 0, 10, 50, 0, 10, 50, 60, 10, -50, 60, 10], 'wallz'))]);
     const view = drawn(wall, [0, 0, 0], 0, 0);
     expect(view.eye[0]).toBeCloseTo(0, 6);
     expect(view.eye[1]).toBeCloseTo(21.484, 3);

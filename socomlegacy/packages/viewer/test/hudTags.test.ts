@@ -7,9 +7,9 @@ import {
 } from '../src/hudTags';
 import * as hudTagsModule from '../src/hudTags';
 import {
-  MP_TEAM_TAG_LINE_HEIGHT_READING, MP_TEAM_TAG_TOP_MARGIN_READING, MP_TEAM_TAG_WIDE_FRAME_ADAPTATION, TEAM_TAG_LAYOUT, teamTagLayout,
+  MP_TEAM_TAG_LINE_HEIGHT_READING, MP_TEAM_TAG_TOP_MARGIN_READING, MP_TEAM_TAG_WIDE_FRAME_ADAPTATION, TEAM_TAG_LAYOUT, TEAMMATE_NAME_AT_HEAD_ADAPTATION, teamTagLayout,
 } from '../src/hud';
-import { textWidth } from '../src/hudFont';
+import { textRise, textWidth } from '../src/hudFont';
 import { VOICE_TAG_ARROW, VOICE_TALK_ICON } from '../src/hudVoice';
 
 /**
@@ -274,5 +274,124 @@ describe('LATER 671: the name tags smaller and fading with distance by default; 
     const laid = teamTagLayout(out).tags;
     expect(laid.map((t) => t.width)).toEqual([textWidth('BRAVO', A.scale), textWidth('ALPHA', A.scale)]);
     expect(laid[0]!.width).toBeLessThan(textWidth('BRAVO', 0.9));
+  });
+});
+
+/**
+ * NAME-TAGS-AT-HEAD (product track, **a browser adaptation**, `TEAMMATE_NAME_AT_HEAD_ADAPTATION`; the Modern look alone,
+ * `../src/nameTags`): a name stays at its teammate's head and is never moved; one under a nearer name dims. The
+ * original's overlap rule (`FUN_00227130`, D:L77463-77483) moves a tag DOWN 5 px a step until its box, padded 10 a
+ * side, clears every earlier one -- 25 px at the least, onto the teammate's body or under his feet once he stands far
+ * enough to be shorter than that on the frame -- and takes the tags in the actor list's order, so a far teammate's tag
+ * moves a near one's. The Modern look instead takes the tags nearest first, lays each at its own head, and fades out
+ * one whose letters a nearer tag covers. The Original look keeps the original's rule exactly.
+ */
+describe('NAME-TAGS-AT-HEAD: the Modern look keeps every name at its head -- nearest first, none moved, a covered name dims', () => {
+  const A = TEAMMATE_NAME_AT_HEAD_ADAPTATION, S = TEAMMATE_NAME_DISTANCE_ADAPTATION.scale;
+  const rise = textRise(S), w = textWidth('BRAVO', S), wII = textWidth('II', S);
+  const modern = (points: TeamTagPoint[], holder: number | null = null): TeamTagsView => ({ points, holder, self: 1, scale: S, atHead: true });
+  const at = (id: number, u: number, y: number, distance: number, text = 'BRAVO'): TeamTagPoint => ({ id, text, alpha: 100, u, y, distance });
+  /** A point whose tag is drawn `dx` px right of a 'BRAVO' tag centred on the frame. */
+  const right = (id: number, dx: number, y: number, distance: number): TeamTagPoint => at(id, 0.5 + dx / 640, y, distance);
+  /** The share of its own alpha left to a tag `share` of whose letters are covered. */
+  const left = (share: number): number => 1 - Math.min(1, share / A.fullAt) * (1 - A.floor);
+
+  it('the values: a name half covered or more keeps 30% of its alpha; a name\'s letters rise 20 rows of its 25 over its baseline (`textRise`)', () => {
+    expect(A).toEqual({ fullAt: 0.5, floor: 0.3 });
+    expect(rise).toBeCloseTo(20 * S * 448 / 480, 9);
+  });
+
+  it('teamTags marks the Modern view `atHead` and gives its points nearest first; the Original look\'s view carries no mark and keeps the actor list\'s order', () => {
+    expect(teamTags(input([mate(2)])).atHead).toBe(true);
+    expect(teamTags(input([mate(2)], { original: true })).atHead).toBeUndefined();
+    const bodies = [mate(2, { head: [0, 0, -900] }), mate(3, { head: [0, 0, -100] }), mate(4, { head: [0, 0, -400] }), mate(5, { head: [0, 0, -400] })];
+    expect(teamTags(input(bodies)).points.map((p) => p.id)).toEqual([3, 4, 5, 2]);            // equal distances keep their order
+    expect(teamTags(input(bodies, { original: true })).points.map((p) => p.id)).toEqual([2, 3, 4, 5]);
+  });
+
+  it('two teammates at one point on the frame: both keep their head\'s place; the nearer is whole, the farther dimmed to the floor', () => {
+    // Seat 2 is the far one and comes first in the actor list's order; seat 3 stands near and so comes first in the view.
+    const { tags } = teamTagLayout(modern([at(3, 0.5, 200, 100), at(2, 0.5, 200, 900)]));
+    expect(tags.map((t) => [t.id, t.y])).toEqual([[3, 200], [2, 200]]);
+    expect(tags[0]!.alpha).toBe(100);
+    expect(tags[1]!.alpha).toBeCloseTo(100 * A.floor, 9);
+    // The Original look, the same points: the original's order and its push down (FUN_00227130), untouched.
+    const original = teamTagLayout({ points: [at(2, 0.5, 200, 900), at(3, 0.5, 200, 100)], holder: null, self: 1 }).tags;
+    expect(original.map((t) => [t.id, t.y, t.alpha])).toEqual([[2, 200, 100], [3, 225, 100]]);
+  });
+
+  it('no name ever moves: whatever the crowd, each tag\'s place is its own point\'s', () => {
+    const points = [at(2, 0.5, 201, 150), at(3, 0.51, 200, 300), at(7, 0.49, 203, 600), at(5, 0.5, 198, 800), at(9, 0.52, 207, 900)];
+    const { tags } = teamTagLayout(modern(points));
+    expect(tags.map((t) => t.id)).toEqual([2, 3, 7, 5, 9]);            // the view's order: nearest first
+    for (const t of tags) {
+      const p = points.find((q) => q.id === t.id)!;
+      expect([t.x, t.y]).toEqual([Math.trunc(p.u * 640 - w / 2), Math.trunc(p.y)]);
+    }
+    expect(tags[0]!.alpha).toBe(100);                                 // the nearest is always whole
+    for (const t of tags.slice(1)) {
+      expect(t.alpha).toBeLessThan(100);
+      expect(t.alpha).toBeGreaterThanOrEqual(100 * A.floor - 1e-9);   // and none is gone
+    }
+  });
+
+  it('the dimming is the covered share over `fullAt`: clear, whole; grazing, a little; half or more under a nearer name, the floor; a line apart in height, whole', () => {
+    const clear = teamTagLayout(modern([at(2, 0.3, 200, 100), at(3, 0.7, 200, 400)])).tags;
+    expect(clear.map((t) => t.alpha)).toEqual([100, 100]);
+    // 4 px of the farther tag's width under the nearer on one line: 4 / w of its letters.
+    const graze = teamTagLayout(modern([at(2, 0.5, 200, 100), right(3, w - 4, 200, 400)])).tags;
+    expect(graze[1]!.x - graze[0]!.x).toBe(w - 4);
+    expect(graze[1]!.alpha).toBeCloseTo(100 * left(4 / w), 9);
+    expect(graze[1]!.alpha).toBeGreaterThan(100 * A.floor);
+    expect(graze[1]!.alpha).toBeLessThan(100);
+    // Half its width under, and three quarters: the floor both times.
+    for (const dx of [w / 2, w / 4]) {
+      expect(teamTagLayout(modern([at(2, 0.5, 200, 100), right(3, dx, 200, 400)])).tags[1]!.alpha).toBeCloseTo(100 * A.floor, 9);
+    }
+    // A whole line apart: the letters' rows do not meet.
+    const over = teamTagLayout(modern([at(2, 0.5, 200, 100), at(3, 0.5, 200 - Math.ceil(rise), 400)])).tags;
+    expect(over.map((t) => t.alpha)).toEqual([100, 100]);
+  });
+
+  it('a dimmed name covers by what is left of it; the dimming rides the tag\'s own alpha', () => {
+    // 2 a narrow name at the centre; 3 a wide one centred on it (part covered); 5 a narrow one under 3's right end alone.
+    expect(w).toBeGreaterThan(3 * wII + 2);
+    const five = at(5, (320 + w / 2 - wII / 2 - 1) / 640, 200, 600, 'II');
+    const { tags } = teamTagLayout(modern([at(2, 0.5, 200, 100, 'II'), at(3, 0.5, 200, 300), five]));
+    const [t2, t3, t5] = tags as [typeof tags[0], typeof tags[0], typeof tags[0]];
+    const under = (a: typeof t2, b: typeof t2): number => Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) / a.width;
+    expect(under(t5, t2)).toBe(0);                                    // clear of the nearest
+    expect(under(t5, t3)).toBe(1);                                    // wholly under the dimmed one
+    const left3 = left(under(t3, t2));
+    expect(t3.alpha).toBeCloseTo(100 * left3, 9);
+    expect(t5.alpha).toBeCloseTo(100 * left(1 * left3), 9);           // 3 counts by what is left of it
+    expect(t5.alpha).toBeGreaterThan(100 * A.floor);
+    // A dead or distant teammate's own alpha (here 40) is what the cover takes its share of.
+    const dim: TeamTagPoint = { ...right(3, w - 4, 200, 400), alpha: 40 };
+    expect(teamTagLayout(modern([at(2, 0.5, 200, 100), dim])).tags[1]!.alpha).toBeCloseTo(40 * left(4 / w), 9);
+  });
+
+  it('any frame width: the rule runs on the frame\'s own width in its 448-high units -- 4:3, the PS2\'s 640, 16:9 and 21:9 lay the same pair the same way', () => {
+    for (const width of [597, 640, 796, 1045]) {
+      // Two names 4 px apart on one line, whatever the width: the same place across, the same dimming.
+      const mid = width / 2;
+      const pair = teamTagLayout(modern([at(2, mid / width, 200, 100), at(3, (mid + w - 4) / width, 200, 400)]), width).tags;
+      expect(pair.map((t) => t.y)).toEqual([200, 200]);
+      const under = (pair[0]!.x + w - pair[1]!.x) / w;                // the share of the farther tag's width under the nearer
+      expect(under).toBeGreaterThan(0);
+      expect(pair[1]!.alpha).toBeCloseTo(100 * left(under), 9);
+      expect(pair[0]!.alpha).toBe(100);
+    }
+  });
+
+  it('the cap of eight takes the view\'s first eight: the nearest eight teammates', () => {
+    const nine = [0, 1, 2, 3, 4, 5, 6, 7, 8].map((k) => at(10 + k, 0.1 + 0.09 * k, 100, 100 + 100 * k, 'II'));
+    expect(teamTagLayout(modern(nine)).tags.map((t) => t.id)).toEqual([10, 11, 12, 13, 14, 15, 16, 17]);
+  });
+
+  it('the holder\'s talk sprites stay at his own head, covered or not', () => {
+    const { tags, sprites } = teamTagLayout(modern([at(3, 0.5, 200, 100), at(2, 0.5, 200, 900)], 2));
+    expect(tags.find((t) => t.id === 2)!.y).toBe(200);
+    expect(sprites[0]!.y0).toBe(200 - 10);                            // the arrow's foot 10 over the tag's y, as `tagTalkSprites` places it
   });
 });

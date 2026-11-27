@@ -2,9 +2,11 @@ import {
   fireVariant, fixSoundName, footstepSound, globalRegister2, landingClass, landingSounds, landSpeeds, makeVolume, panDegrees, parseBankFile,
   bankGroupOf, bankModifier, groupMasterOf, groupModifier, MUSIC_GROUP, MUSIC_VOLUME_DEFAULT, passingSound, TUNER_DEFAULTS, type StreamTuners, PAN_RESET, rangeGain, renderLoop, renderSound, reverbImpulse, roundStreamGains, SampleBudget, SampleCache, soundSampleOffsets, SOUND_DEFAULT_RANGE,
   SLOT_FADE_TICKS, soundFor, soundRelease, STREAM_TICK_HZ, streamFadeCurve, streamGroupMaster, streamGroupModifier, streamVoiceGains, voiceLevel, type AmbienceLayer, type ReleaseCurve, type StreamVoiceGains, type LandingClass, type Material, type RenderedSound, type ReverbImpulse, type SoundBank, type SoundParams,
-  type StanceCode, type WeaponSounds,
+  floatStream, isPcm16Stream, VoiceScratch, type StoredStream, type StanceCode, type WeaponSounds, type MixOutput, type MixOutputAllocator,
 } from '@s2u/sound';
+import type { OffThreadRenderer, OffThreadStats } from './offThreadRender';
 import { LADDER_SLIDE_SOUND, loopKey, type SoundData } from './soundData';
+import { busiestTones, instanceCheck, soundPriority, streamAsks, tonePriority, VOICE_STOP_RAMP_ADAPTATION, VoiceBudget, type VoiceAsk, type VoiceHolder } from './voiceBudget';
 import { TacticalSoundGroup } from './tacticalSounds';
 import { deathVoiceSlot } from './net/deaths';
 import type { RoundCues } from './roundCues';
@@ -12,6 +14,18 @@ import { LOOP_FADE_SECONDS_PLACEHOLDER, LOOP_SECONDS_PLACEHOLDER } from './loopL
 import { BLAST_DUCK_GROUPS, blastDuckedMaster, blastGroupGain } from './blastAudio';
 import { soundDecodeRecord } from './soundDecodeRecord';
 import { readGraphicsBackend } from './graphicsBackend';
+import { ambienceGainOf, flooredAmbienceGain, readAmbienceVolume } from './ambienceVolume';
+import { CompletedAudioBuffers } from './completedAudioBuffers';
+import { pageLightweightMatch } from './lightweightMatchOptIn';
+
+/**
+ * Whether this page takes the lean audio: exactly when its front end mounts the lightweight match -- LW-DEFAULT (LATER
+ * 1277; a browser adaptation): the one page decision (`./lightweightMatchOptIn` `pageLightweightMatch`, the Xbox class or
+ * pick, then the address flag, the saved choice or the class's default), so the engine and the audio never disagree.
+ */
+export function leanXboxAudio(): boolean {
+  return pageLightweightMatch((globalThis as { location?: { search?: string } }).location?.search);
+}
 
 /**
  * The game's own sounds in the browser (socomlegacy/docs/research/81): the map's 989snd banks decoded from the disc, each sound
@@ -108,7 +122,7 @@ export const MUSIC_SLOT_HANDOVER_SECONDS = SLOT_FADE_TICKS / STREAM_TICK_HZ;
  * unlocked (the one worth trying again: `./roundAudio`'s retry), a name the map's streams lack, the user's mute, an
  * output with no music slot.
  */
-export type StreamPlay = 'played' | 'locked' | 'unknown' | 'muted' | 'no-output';
+export type StreamPlay = 'played' | 'locked' | 'unknown' | 'muted' | 'no-output' | 'no-voice';
 /** The page's budget a frame for the work queued behind the unlock (`GameAudio.pump`). */
 export const PUMP_BUDGET_MS = 4;
 /** How many plays `stats().recent` keeps. */
@@ -152,7 +166,7 @@ export interface AudioStats {
    * Plays that did not sound: before the unlock, out of range, a name no bank holds (or a round's weapon no kit holds),
    * muted.
    */
-  dropped: { locked: number; range: number; unknown: number; muted: number; silent: number };
+  dropped: { locked: number; range: number; unknown: number; muted: number; silent: number; voices: number; instances: number };
   /**
    * The names asked for that no bank holds, and how often (a misspelt name, a sound the map's banks lack, a round's
    * weapon name no kit holds).
@@ -167,6 +181,8 @@ export interface AudioStats {
   ambience: { on: boolean; beds: { outside: string[]; inside: string[] }; bed: 'outside' | 'inside' | null; emitters: { sound: string; node: string; gain: number }[] };
   /** The unlock's cost and the most a frame spent on the queued work, milliseconds; the jobs still queued. */
   timing: { unlockMs: number; pumpMaxMs: number; reverbMs: number; pending: number };
+  /** The renders run on the page's thread (their time and count), and the worker's counts (OFF_THREAD_RENDER_ADAPTATION; null: none). */
+  render?: { ms: number; renders: number; offThread: OffThreadStats | null };
   /** Research 124: the map's decoded streams by name, the cue last started in the music slot (null once stopped), the last line. */
   streams: { available: string[]; music: string | null; voice: string | null };
   /** Global register 2 as last sent from the listener's height (`globalRegister2`); null without a listener or an elevation. */
@@ -193,6 +209,13 @@ export interface LoopHandle {
 }
 
 /** Where rendered sound goes: Web Audio in the page, a recorder in the tests. */
+export type SoundGenerator = (output?: MixOutputAllocator) => RenderedSound;
+export interface PlayedSoundSummary { seconds: number; voices: number }
+/**
+ * XBOX-INTEGRATE (the merge of LATER 1218 with the lightweight match's direct mix): `admit` is asked of the render before
+ * it sounds -- false, it does not play (the voice budget's refusal); `voice` is handed what plays, for a later stop.
+ */
+export interface PlayHooks { admit?(sound: RenderedSound): boolean; voice?(v: { stop(): void }): void }
 export interface AudioOut {
   /** Makes the output, on a gesture. */
   unlock(): void;
@@ -221,8 +244,15 @@ export interface AudioOut {
   setSoundMode?(mode: number): void;
   /** A live group's dry signal and reverb sends; independent of the player's output master. */
   setGroupGain?(group: number, gain: number): void;
-  /** Starts a sound; an output that can stop it again returns its voice (`GameAudio.restart`). */
-  play(sound: RenderedSound, group?: number): void | { stop(): void };
+  /**
+   * Starts a sound; an output that can stop it again returns its voice (`GameAudio.restart`). `gain`, a linear gain after
+   * the render (LATER 1177(b)'s ambience volume, a browser adaptation, for the ambience's one-shot layers); absent, none.
+   */
+  play(sound: RenderedSound, group?: number, gain?: number): void | { stop(): void };
+  /** Optional synchronous one-shot transaction. Render exactly once; returned metadata never owns PCM.
+   * `transientOutput` promises the generator retains no supplied channel views or backing stores after return;
+   * an output may reuse those stores only after playback ends. Generic callbacks keep their storage by default. */
+  playGenerated?(render: SoundGenerator, group?: number, transientOutput?: boolean, hooks?: PlayHooks): PlayedSoundSummary;
   /** The reverb's response (null: none), and its depth ramped to over `seconds`. */
   setReverb(ir: ReverbImpulse | null): void;
   rampReverb(depth: number, seconds: number): void;
@@ -234,12 +264,12 @@ export interface AudioOut {
    * Research 124: a stream on a voice of its own, each data channel into the output's pair at `gains` (its group's level:
    * `roundStreamGains`, research 186 §3.1). Optional: `play` stands in.
    */
-  playStream?(sound: RenderedSound, gains: StreamVoiceGains, group?: number, liveGains?: () => StreamVoiceGains): void;
+  playStream?(sound: StoredStream, gains: StreamVoiceGains, group?: number, liveGains?: () => StreamVoiceGains): void;
   /**
    * Research 124: the music slot -- `sound` takes it, at `gains` as `playStream`; what sounds there fades out over
    * `handover` seconds and `sound` starts at their end (0: at once). Optional: an output without it plays nothing in the slot.
    */
-  playMusic?(sound: RenderedSound, handover: number, gains: StreamVoiceGains, group?: number, liveGains?: () => StreamVoiceGains): void;
+  playMusic?(sound: StoredStream, handover: number, gains: StreamVoiceGains, group?: number, liveGains?: () => StreamVoiceGains): void;
   /** Research 233 section 1: option masters re-level streams already sounding, including a stream started at zero. */
   refreshStreams?(): void;
   /** Stops the slot's sound, at once (a new round, a map change, a close). */
@@ -308,14 +338,31 @@ const now = (): number => (typeof performance !== 'undefined' ? performance.now(
  * the same as before, value for value; only where the page holds them changes. Every other preset keeps the arrays.
  */
 const NO_SAMPLES = new Float32Array(0);
-const builtLoops = new WeakMap<RenderedSound, AudioBuffer>();
+interface BuiltLoop { buffer: AudioBuffer; sharedSend: boolean }
+interface LoopBufferEntry extends BuiltLoop { filled: number; channels: number }
+const builtLoops = new WeakMap<RenderedSound, BuiltLoop>();
+
+/** Exact PCM identity, including signed zero/NaN bits; views borrow storage without copying it. */
+function sameLoopChannel(a: Float32Array, b: Float32Array): boolean {
+  if (a.length !== b.length) return false;
+  const x = new Uint32Array(a.buffer, a.byteOffset, a.length), y = new Uint32Array(b.buffer, b.byteOffset, b.length);
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+  return true;
+}
 
 export class WebAudioOut implements AudioOut {
+  private readonly completedBuffers: CompletedAudioBuffers;
+  private readonly directMix: boolean;
+  private readonly recycleDirect: boolean;
+  private readonly shareLoopSend: boolean;
+  private readonly shareShotSend: boolean;
   private readonly transient = new Set<AudioBufferSourceNode>();
+  /** Browser resource ownership: every source owns its private routing nodes until ended or explicitly stopped. */
+  private readonly voices = new Map<AudioBufferSourceNode, () => void>();
   private readonly liveStreams = new Map<AudioBufferSourceNode, () => void>();
   refreshStreams(): void { for (const refresh of this.liveStreams.values()) refresh(); }
   stopTransient(): void {
-    for (const node of this.transient) { this.liveStreams.delete(node); try { node.stop(); } catch { /* already ended */ } node.disconnect(); }
+    for (const node of this.transient) this.voices.get(node)?.();
     this.transient.clear();
   }
   private ctx: AudioContext | null = null;
@@ -376,7 +423,19 @@ export class WebAudioOut implements AudioOut {
    * menus' context (one context, running since the disc page's click: no second gesture) -- with its own master, reverb
    * bus and music slot, so the match's gain, reverb and round music never touch the menus'. Absent, a context of its own.
    */
-  constructor(private readonly shared: WebAudioOut | null = null, options: { releaseLoopSamples?: boolean | (() => boolean) } = {}) {
+  constructor(private readonly shared: WebAudioOut | null = null, options: { releaseLoopSamples?: boolean | (() => boolean); completedBufferBytes?: number; directMix?: boolean; recycleDirect?: boolean; shareLoopSend?: boolean; shareShotSend?: boolean } = {}) {
+    // LIGHTWEIGHT-MATCH (a browser memory adaptation, opt-in; `./xboxPrototype/matchLoader`): a page on the Xbox pick that
+    // asked for the lightweight match also takes the three storage options the private Xbox builds measured -- one-shots
+    // mixed straight into their playback buffer, and identical dry/send storage shared for loops and shots. Each keeps
+    // the samples it plays (their own tests compare them); pooling (`recycleDirect`) stays off, as measured. Unasked,
+    // every default is as it was.
+    const lean = options.directMix === undefined && leanXboxAudio();
+    this.directMix = options.directMix ?? lean;
+    this.recycleDirect = options.recycleDirect ?? false;
+    this.shareLoopSend = options.shareLoopSend ?? lean;
+    this.shareShotSend = options.shareShotSend ?? lean;
+    // Off in normal builds until whole-process memory and rendered output validate the experiment.
+    this.completedBuffers = new CompletedAudioBuffers(options.completedBufferBytes ?? 0);
     const r = options.releaseLoopSamples ?? readGraphicsBackend() === 'xbox';
     if (typeof r === 'function') this.releaseLoopSamplesOf = r; else this.releaseLoopSamplesRead = r;
   }
@@ -511,6 +570,8 @@ export class WebAudioOut implements AudioOut {
     this.disposed = true;
     this.stopMusic();
     this.stopTransient();
+    for (const stop of this.voices.values()) stop();
+    this.completedBuffers.clear();
     this.liveStreams.clear();
     for (const bus of this.groupBuses.values()) { bus.dry.disconnect(); bus.send.disconnect(); }
     this.groupBuses.clear(); this.groupGains.clear();
@@ -595,11 +656,16 @@ export class WebAudioOut implements AudioOut {
   }
 
   /** A buffer of the dry pair and, when the sound sends to the reverb, the send pair: channels 0-1 and 2-3. */
-  private buffer(sound: RenderedSound): AudioBuffer | null {
+  private buffer(sound: RenderedSound, reuseCompleted = false): AudioBuffer | null {
     const ctx = this.ctx;
     if (!ctx || sound.left.length === 0) return null;
     const send = sound.sendLeft && sound.sendRight && this.convolver ? 4 : 2;
-    const buffer = ctx.createBuffer(send, sound.left.length, sound.sampleRate);
+    // A fresh buffer zero-fills any short channel's tail. Keep that behavior for
+    // irregular callers rather than exposing samples from an earlier voice.
+    const whole = sound.right.length === sound.left.length
+      && (send === 2 || sound.sendLeft!.length === sound.left.length && sound.sendRight!.length === sound.left.length);
+    const buffer = (reuseCompleted && whole ? this.completedBuffers.take(send, sound.left.length, sound.sampleRate) : undefined)
+      ?? ctx.createBuffer(send, sound.left.length, sound.sampleRate);
     buffer.copyToChannel(sound.left as Float32Array<ArrayBuffer>, 0);
     buffer.copyToChannel(sound.right as Float32Array<ArrayBuffer>, 1);
     if (send === 4) {
@@ -610,13 +676,15 @@ export class WebAudioOut implements AudioOut {
   }
 
   /** Routes a source's channels: 0-1 through `gains[0..1]` to the master, 2-3 through `gains[2..3]` to the reverb. */
-  private route(source: AudioBufferSourceNode, channels: number, gains: GainNode[] | null, group: number): void {
+  private route(source: AudioNode, channels: number, gains: GainNode[] | null, group: number, sharedSend = false): () => void {
     const ctx = this.ctx!;
     const bus = this.groupBus(group);
-    if (channels === 2 && !gains) { source.connect(bus.dry); return; }
-    const split = ctx.createChannelSplitter(channels);
+    if (channels === 2 && !gains) { source.connect(bus.dry); return () => undefined; }
+    const owned: AudioNode[] = gains ? [...gains] : [];
+    const split = ctx.createChannelSplitter(sharedSend ? 2 : channels);
     source.connect(split);
     const dry = ctx.createChannelMerger(2);
+    owned.push(split, dry);
     dry.connect(bus.dry);
     const pair = (from: number, to: AudioNode, g: [GainNode | undefined, GainNode | undefined]): void => {
       for (let c = 0; c < 2; c++) {
@@ -627,29 +695,138 @@ export class WebAudioOut implements AudioOut {
     pair(0, dry, [gains?.[0], gains?.[1]]);
     if (channels === 4 && this.reverbIn) {
       const wet = ctx.createChannelMerger(2);
+      owned.push(wet);
       wet.connect(bus.send);
-      pair(2, wet, [gains?.[2], gains?.[3]]);
+      pair(sharedSend ? 0 : 2, wet, [gains?.[2], gains?.[3]]);
     }
+    // The shared buses/convolver are not this voice's: their reverb tail remains connected.
+    return () => { for (const node of owned) node.disconnect(); owned.length = 0; };
   }
 
-  play(sound: RenderedSound, group = 0): { stop(): void } | void {
-    const buffer = this.buffer(sound);
+  /** Natural completion and explicit stop share one release, including when no ended event can be dispatched. */
+  private startVoice(node: AudioBufferSourceNode, release: () => void, when?: number, completed?: () => void): () => void {
+    let ended = false;
+    const finish = (natural = false): void => {
+      if (ended) return;
+      ended = true;
+      const recycle = completed; completed = undefined;
+      this.voices.delete(node); this.transient.delete(node); this.liveStreams.delete(node);
+      node.onended = null;
+      node.disconnect(); node.buffer = null;
+      release();
+      if (natural) recycle?.();
+    };
+    const stop = (): void => {
+      if (ended) return;
+      try { node.stop(); } catch { /* already ended or never started */ }
+      finish();
+    };
+    node.onended = () => finish(true);
+    this.voices.set(node, stop);
+    try { if (when === undefined) node.start(); else node.start(when); }
+    catch (error) { finish(); throw error; }
+    return stop;
+  }
+
+  play(sound: RenderedSound, group = 0, gain?: number): { stop(): void } | void {
+    const buffer = this.buffer(sound, true);
     if (!buffer) return;
+    return this.playBuffer(buffer, group, true, false, gain);
+  }
+
+  /** Browser storage experiment: mix into exclusive playback storage, with no intermediate final mix or upload copy.
+   * Reuse requires both the experiment and the caller's explicit transient-output ownership promise. */
+  playGenerated(render: SoundGenerator, group = 0, transientOutput = false, hooks: PlayHooks = {}): PlayedSoundSummary {
+    const ctx = this.ctx;
+    // Preserve custom play overrides (for example the Forge's preview timing).
+    if (!this.directMix || !ctx || this.play !== WebAudioOut.prototype.play) {
+      const sound = render(), summary = { seconds: sound.left.length / sound.sampleRate, voices: sound.voices };
+      if (hooks.admit && !hooks.admit(sound)) return summary;
+      const v = this.play(sound, group); if (v) hooks.voice?.(v);
+      return summary;
+    }
+    const recycle = this.recycleDirect && transientOutput;
+    let owned: { buffer: AudioBuffer; channels: MixOutput; sharedSend: boolean } | undefined;
+    const allocate: MixOutputAllocator = (frames, send, rate, identicalSend) => {
+      if (owned || frames <= 0 || send && !this.convolver) return undefined;
+      const sharedSend = send && identicalSend === true && this.shareShotSend;
+      const count = send && !sharedSend ? 4 : 2;
+      const reused = recycle ? this.completedBuffers.take(count, frames, rate) : undefined;
+      const buffer = reused ?? ctx.createBuffer(count, frames, rate);
+      const left = buffer.getChannelData(0), right = buffer.getChannelData(1);
+      const channels = { left, right,
+        sendLeft: send ? (sharedSend ? left : buffer.getChannelData(2)) : null,
+        sendRight: send ? (sharedSend ? right : buffer.getChannelData(3)) : null };
+      // Preserve the fresh allocator's zeroes even for generators that only write part of a channel.
+      if (reused) for (let i = 0; i < count; i++) buffer.getChannelData(i).fill(0);
+      owned = { buffer, channels: { ...channels }, sharedSend }; return channels;
+    };
+    const sound = render(allocate);
+    // start() may acquire/detach exposed views: keep the duration before playback.
+    const summary = { seconds: sound.left.length / sound.sampleRate, voices: sound.voices };
+    const channels = sound.sendLeft && sound.sendRight && this.convolver ? 4 : 2;
+    if (hooks.admit && !hooks.admit(sound)) return summary;           // refused: the mixed buffer is let go unheard
+    let v: { stop(): void } | void;
+    if (owned && this.ctx === ctx && owned.buffer.numberOfChannels === (owned.sharedSend ? 2 : channels)
+      && owned.buffer.length === sound.left.length && owned.buffer.sampleRate === sound.sampleRate
+      && owned.channels.left === sound.left && owned.channels.right === sound.right
+      && owned.channels.sendLeft === sound.sendLeft && owned.channels.sendRight === sound.sendRight) {
+      v = this.playBuffer(owned.buffer, group, recycle, owned.sharedSend && channels === 4);
+    } else v = this.play(sound, group); // The already-rendered result; never run the grains twice.
+    if (v) hooks.voice?.(v);
+    return summary;
+  }
+
+  private playBuffer(buffer: AudioBuffer, group: number, recycle: boolean, sharedSend = false, gain?: number): { stop(): void } {
     const node = this.ctx!.createBufferSource();
     node.buffer = buffer;
-    this.route(node, buffer.numberOfChannels, null, group);
+    // LATER 1177(b) (a browser adaptation): the ambience volume's gain, one node between the source and its routing;
+    // since LATER 1218 always there (gain 1 without a layer's), for the stop's ramp. Merged with the lightweight match's
+    // storage (XBOX-INTEGRATE): its routing (a shared send's two channels heard as four), its one release and its recycle.
+    const ctx = this.ctx!;
+    const g = ctx.createGain();
+    g.gain.value = gain ?? 1;
+    g.channelCount = buffer.numberOfChannels; g.channelCountMode = 'explicit';
+    node.connect(g);
+    const routed = this.route(g, sharedSend ? 4 : buffer.numberOfChannels, null, group, sharedSend);
+    // LATER 1177(b) (the review's F5): the gain node goes with its source.
+    const release = (): void => { routed(); g.disconnect(); };
     this.transient.add(node);
-    node.addEventListener('ended', () => this.transient.delete(node), { once: true });
-    node.start();
-    return { stop: () => { try { node.stop(); } catch { /* ended */ } node.disconnect(); } };
+    // An explicit stop is never recycled, though its ramp ends it through `ended` as a natural end would.
+    let stopped = false;
+    const cut = this.startVoice(node, release, undefined, recycle ? () => { if (!stopped) this.completedBuffers.put(buffer); } : undefined);
+    // LATER 1218 (VOICE_STOP_RAMP_ADAPTATION, a browser adaptation): a stopped or stolen one-shot ramps to 0 over a few
+    // milliseconds rather than cutting (the original zeroes the voice at once, FUN_00017604 D:L13994-13995); its end
+    // then releases it as a natural end does.
+    return {
+      stop: () => {
+        stopped = true;
+        const t = ctx.currentTime;
+        try {
+          g.gain.cancelScheduledValues(t);
+          g.gain.setValueAtTime(g.gain.value, t);
+          g.gain.linearRampToValueAtTime(0, t + VOICE_STOP_RAMP_ADAPTATION);
+          node.stop(t + VOICE_STOP_RAMP_ADAPTATION);
+        } catch { /* ended */ cut(); }
+      },
+    };
   }
 
   /**
    * A stream's source through its own gain (the slot's fade, 1 until a handover) and then each data channel into the
    * master's pair at `gains` (its group's level, `roundStreamGains`), started at `when` (context time).
    */
-  private stream(sound: RenderedSound, when: number, gains: StreamVoiceGains, group: number, liveGains?: () => StreamVoiceGains): { node: AudioBufferSourceNode; gain: GainNode; start: number } | null {
-    const buffer = this.buffer({ ...sound, sendLeft: null, sendRight: null });
+  private stream(sound: StoredStream, when: number, gains: StreamVoiceGains, group: number, liveGains?: () => StreamVoiceGains): { node: AudioBufferSourceNode; gain: GainNode; start: number } | null {
+    if (!this.ctx || sound.left.length === 0) return null;
+    let buffer: AudioBuffer | null;
+    if (isPcm16Stream(sound)) {
+      // Browser memory adaptation: expand into Web Audio's mandatory float storage, with no intermediate copy.
+      buffer = this.ctx.createBuffer(2, sound.left.length, sound.sampleRate);
+      for (let channel = 0; channel < 2; channel++) {
+        const source = channel === 0 ? sound.left : sound.right, target = buffer.getChannelData(channel);
+        for (let i = 0; i < source.length; i++) target[i] = source[i]! / 32768;
+      }
+    } else buffer = this.buffer({ ...sound, sendLeft: null, sendRight: null });
     if (!buffer) return null;
     const destination = this.groupBus(group).dry;
     const ctx = this.ctx!, node = ctx.createBufferSource(), gain = ctx.createGain();
@@ -673,15 +850,12 @@ export class WebAudioOut implements AudioOut {
       const next = liveGains(), values = [...next.left, ...next.right];
       for (let i = 0; i < pair.length; i++) if (pair[i]!.gain.value !== values[i]) pair[i]!.gain.value = values[i]!;
     });
-    node.onended = () => {
-      this.transient.delete(node);
-      this.liveStreams.delete(node);
-      node.disconnect(); gain.disconnect(); split.disconnect(); merge.disconnect();
+    this.startVoice(node, () => {
+      gain.disconnect(); split.disconnect(); merge.disconnect();
       for (const g of pair) g.disconnect();
       if (this.slot?.node === node) this.slot = null;
       if (this.fading?.node === node) this.fading = null;
-    };
-    node.start(when);
+    }, when);
     return { node, gain, start: when };
   }
 
@@ -690,18 +864,16 @@ export class WebAudioOut implements AudioOut {
   /** The slot's last sound, fading out over a handover, or null. */
   private fading: { node: AudioBufferSourceNode; gain: GainNode } | null = null;
 
-  private static kill(s: { node: AudioBufferSourceNode; gain: GainNode }): void {
-    try { s.node.stop(); } catch { /* ended */ }
-    s.node.disconnect();
-    s.gain.disconnect();
+  private kill(s: { node: AudioBufferSourceNode; gain: GainNode }): void {
+    this.voices.get(s.node)?.();
   }
 
   /** `group` absent: 2, a stream's without a group of its own (`streamGroupOf`: a stream not a .VPK). */
-  playStream(sound: RenderedSound, gains: StreamVoiceGains, group = 2, liveGains?: () => StreamVoiceGains): void {
+  playStream(sound: StoredStream, gains: StreamVoiceGains, group = 2, liveGains?: () => StreamVoiceGains): void {
     if (this.ctx) { const voice = this.stream(sound, this.ctx.currentTime, gains, group, liveGains); if (voice) this.transient.add(voice.node); }
   }
 
-  playMusic(sound: RenderedSound, handover: number, gains: StreamVoiceGains, group = MUSIC_GROUP, liveGains?: () => StreamVoiceGains): void {
+  playMusic(sound: StoredStream, handover: number, gains: StreamVoiceGains, group = MUSIC_GROUP, liveGains?: () => StreamVoiceGains): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const now = ctx.currentTime, old = this.slot;
@@ -710,7 +882,7 @@ export class WebAudioOut implements AudioOut {
       // (DAT_0048e0b0), which never sounds, and starts no second fade (`FUN_00346da0`): it takes the waiting one's start.
       this.slot = null;
       this.liveStreams.delete(old.node);
-      WebAudioOut.kill(old);
+      this.kill(old);
       this.slot = this.stream(sound, old.start, gains, group, liveGains);
       return;
     }
@@ -723,7 +895,7 @@ export class WebAudioOut implements AudioOut {
       old.gain.gain.cancelScheduledValues(now);
       old.gain.gain.setValueCurveAtTime(curve.map((c) => c * from), now, handover);
       try { old.node.stop(now + handover); } catch { /* ended */ }
-      if (this.fading) { this.liveStreams.delete(this.fading.node); WebAudioOut.kill(this.fading); }
+      if (this.fading) { this.liveStreams.delete(this.fading.node); this.kill(this.fading); }
       this.fading = old;
       this.slot = null;
     } else this.stopMusic();
@@ -735,12 +907,12 @@ export class WebAudioOut implements AudioOut {
     const s = this.slot, f = this.fading;
     this.slot = null;
     this.fading = null;
-    if (s) { this.liveStreams.delete(s.node); WebAudioOut.kill(s); }
-    if (f) { this.liveStreams.delete(f.node); WebAudioOut.kill(f); }
+    if (s) { this.liveStreams.delete(s.node); this.kill(s); }
+    if (f) { this.liveStreams.delete(f.node); this.kill(f); }
   }
 
   /** Loop buffers, built a channel at a time (`warm`) and shared by every emitter of the sound. */
-  private readonly loopBuffers = new WeakMap<RenderedSound, { buffer: AudioBuffer; filled: number }>();
+  private readonly loopBuffers = new WeakMap<RenderedSound, LoopBufferEntry>();
 
   /**
    * Copies one more channel of a loop's buffer; true once it is whole. A 12 s channel is a copy of a few milliseconds,
@@ -756,22 +928,31 @@ export class WebAudioOut implements AudioOut {
       else {
         if (sound.left.length === 0) return true;
         const channels = sound.sendLeft && sound.sendRight && this.convolver ? 4 : 2;
-        entry = { buffer: ctx.createBuffer(channels, sound.left.length, sound.sampleRate), filled: 0 };
+        const sharedSend = this.shareLoopSend && channels === 4
+          && sameLoopChannel(sound.left, sound.sendLeft!) && sameLoopChannel(sound.right, sound.sendRight!);
+        entry = { buffer: ctx.createBuffer(sharedSend ? 2 : channels, sound.left.length, sound.sampleRate), filled: 0, channels, sharedSend };
       }
       this.loopBuffers.set(sound, entry);
-    } else if (entry.filled < entry.buffer.numberOfChannels) {
+    } else if (entry.filled < entry.channels) {
       // LOOP_SAMPLES_RELEASE_ADAPTATION (S5 review F1): another output finished this loop and let its arrays go while this
       // one was part-way -- take the built buffer rather than copy the emptied arrays (or a null send) into the rest.
       const built = builtLoops.get(sound);
       if (built) { entry = this.fromBuilt(ctx, sound, built); this.loopBuffers.set(sound, entry); }
     }
     const data = [sound.left, sound.right, sound.sendLeft, sound.sendRight];
-    if (entry.filled < entry.buffer.numberOfChannels) {
-      entry.buffer.copyToChannel(data[entry.filled] as Float32Array<ArrayBuffer>, entry.filled);
+    if (entry.filled < entry.channels) {
+      // Recheck at the original send-copy step: a caller may mutate PCM between warm calls. A shared buffer is
+      // not published/played until all four logical steps finish. Expand before copying a changed send.
+      if (entry.sharedSend && entry.filled >= 2 && !sameLoopChannel(entry.buffer.getChannelData(entry.filled - 2), data[entry.filled]!)) {
+        const expanded = ctx.createBuffer(4, entry.buffer.length, entry.buffer.sampleRate);
+        for (let c = 0; c < entry.filled; c++) expanded.copyToChannel(entry.buffer.getChannelData(c % 2), c);
+        entry.buffer = expanded; entry.sharedSend = false;
+      }
+      if (!entry.sharedSend || entry.filled < 2) entry.buffer.copyToChannel(data[entry.filled] as Float32Array<ArrayBuffer>, entry.filled);
       entry.filled++;
     }
-    const whole = entry.filled >= entry.buffer.numberOfChannels;
-    if (whole && !builtLoops.has(sound) && this.releaseLoopSamples()) WebAudioOut.letGo(sound, entry.buffer);
+    const whole = entry.filled >= entry.channels;
+    if (whole && !builtLoops.has(sound) && this.releaseLoopSamples()) WebAudioOut.letGo(sound, entry);
     return whole;
   }
 
@@ -779,11 +960,11 @@ export class WebAudioOut implements AudioOut {
    * LOOP_SAMPLES_RELEASE_ADAPTATION: the arrays a whole buffer holds replaced on the sound (left and right always, the
    * sends when the buffer took them as channels 2-3), the buffer kept by the sound for a later output.
    */
-  private static letGo(sound: RenderedSound, buffer: AudioBuffer): void {
-    builtLoops.set(sound, buffer);
+  private static letGo(sound: RenderedSound, entry: LoopBufferEntry): void {
+    builtLoops.set(sound, { buffer: entry.buffer, sharedSend: entry.sharedSend });
     sound.left = NO_SAMPLES;
     sound.right = NO_SAMPLES;
-    if (buffer.numberOfChannels === 4) { sound.sendLeft = null; sound.sendRight = null; }
+    if (entry.channels === 4) { sound.sendLeft = null; sound.sendRight = null; }
   }
 
   /**
@@ -791,28 +972,29 @@ export class WebAudioOut implements AudioOut {
    * sends only with this output's convolver), whole at once: the built buffer itself when its channels are those, else a
    * buffer of this output's channels copied out of it (and out of the send pair the sound kept).
    */
-  private fromBuilt(ctx: AudioContext, sound: RenderedSound, built: AudioBuffer): { buffer: AudioBuffer; filled: number } {
-    const sends = built.numberOfChannels === 4 || !!(sound.sendLeft && sound.sendRight);
+  private fromBuilt(ctx: AudioContext, sound: RenderedSound, storage: BuiltLoop): LoopBufferEntry {
+    const built = storage.buffer;
+    const sends = storage.sharedSend || built.numberOfChannels === 4 || !!(sound.sendLeft && sound.sendRight);
     const channels = sends && this.convolver ? 4 : 2;
-    if (channels === built.numberOfChannels) return { buffer: built, filled: channels };
+    if (storage.sharedSend || channels === built.numberOfChannels) return { buffer: built, filled: channels, channels, sharedSend: storage.sharedSend && channels === 4 };
     const buffer = ctx.createBuffer(channels, built.length, built.sampleRate);
     for (let c = 0; c < channels; c++) {
       const from = c < built.numberOfChannels ? built.getChannelData(c) : c === 2 ? sound.sendLeft! : sound.sendRight!;
       buffer.copyToChannel(from as Float32Array<ArrayBuffer>, c);
     }
-    return { buffer, filled: channels };
+    return { buffer, filled: channels, channels, sharedSend: false };
   }
 
   loop(sound: RenderedSound, group = 0): LoopHandle | null {
     while (!this.warm(sound)) { /* whatever is left of the buffer, now */ }
-    const ctx = this.ctx, buffer = this.loopBuffers.get(sound)?.buffer ?? null;
-    if (!ctx || !buffer) return null;
+    const ctx = this.ctx, entry = this.loopBuffers.get(sound), buffer = entry?.buffer ?? null;
+    if (!ctx || !buffer || !entry) return null;
     const node = ctx.createBufferSource();
     node.buffer = buffer;
     node.loop = true;
-    const gains = Array.from({ length: buffer.numberOfChannels }, () => { const g = ctx.createGain(); g.gain.value = 0; return g; });
-    this.route(node, buffer.numberOfChannels, gains, group);
-    node.start();
+    const gains = Array.from({ length: entry.channels }, () => { const g = ctx.createGain(); g.gain.value = 0; return g; });
+    const release = this.route(node, entry.channels, gains, group, entry.sharedSend);
+    const stop = this.startVoice(node, release);
     return {
       // FF-AUDIO-HOLD (a browser adaptation): a scheduling refusal costs this loop's automation for this call, never
       // the frame that asked for it (`scheduled`).
@@ -832,7 +1014,7 @@ export class WebAudioOut implements AudioOut {
           else g.gain.setValueAtTime(0, now);
         });
       },
-      stop: () => { try { node.stop(); } catch { /* already stopped */ } node.disconnect(); },
+      stop,
     };
   }
 }
@@ -859,7 +1041,7 @@ function hold(p: AudioParam, now: number): void {
   else { const v = p.value; p.cancelScheduledValues(0); p.setValueAtTime(v, now); }
 }
 
-interface Loaded { bank: SoundBank; samples: SampleCache; borrowed: boolean }
+interface Loaded { bank: SoundBank; samples: SampleCache; borrowed: boolean; /** The bank's file (OFF_THREAD_RENDER_ADAPTATION: what the worker parses). */ bytes: Uint8Array }
 
 /** A map's banks parsed (`GameAudio.setData`'s, or staged ahead of it): one byte budget, the names, the banks that failed. */
 interface BankSet { banks: Loaded[]; budget: SampleBudget; lookup: Map<string, { loaded: Loaded; index: number }>; failed: string[] }
@@ -938,6 +1120,13 @@ interface Emitter { sound: string; node: string; position: [number, number, numb
  * The walk's sound: the loaded banks, the rules that pick a sound, the listener, the reverb, the ambience, the output.
  * The `on*` methods are the event API the motion, weapon, grenade and traversal workstreams call.
  */
+/**
+ * CALLBACK_DELAY_PLACE_READING (LATER 1209, its review's F4): a callback's delayed sound plays where the callback was
+ * asked from, not where its node stands when the delay ends -- `frag_start`'s `.THROW_OBJECT` (flags 0x82, at a node)
+ * sounds up to 0.2 s of the thrower's movement behind him. Owed: the node's place at the play, from the caller's body.
+ */
+export const CALLBACK_DELAY_PLACE_READING = 'asked' as const;
+
 export class GameAudio {
   private banks: Loaded[] = [];
   private readonly lookup = new Map<string, { loaded: Loaded; index: number }>();
@@ -952,6 +1141,9 @@ export class GameAudio {
   private fireSq: { med: number; far: number } | null = null;
   private callbacks = new Map<string, string[]>();
   private callbackVolumes = new Map<string, number[]>();
+  /** LATER 1209: each callback's sounds' delays (`SoundData.callbackDelays`), and the delayed sounds still owed (`now`). */
+  private callbackDelays = new Map<string, number[]>();
+  private owedCallbacks: { due: number; sound: string; position: Vec3 | null; volume: number }[] = [];
   private characterVoices: SoundData['characterVoices'] | null = null;
   private map: string | null = null;
   private missing: string[] = [];
@@ -966,7 +1158,22 @@ export class GameAudio {
   private played = 0;
   private readonly byName: Record<string, number> = {};
   private readonly events: Record<AudioEvent, number> = { footstep: 0, fire: 0, reload: 0, jump: 0, land: 0, callback: 0, passing: 0, play: 0, ambience: 0, music: 0, voice: 0 };
-  private readonly dropped = { locked: 0, range: 0, unknown: 0, muted: 0, silent: 0 };
+  private readonly dropped = { locked: 0, range: 0, unknown: 0, muted: 0, silent: 0, voices: 0, instances: 0 };
+  /**
+   * LATER 1220 (b): each running loop's voices (LOOP_VOICE_HOLD_ADAPTATION: its render's busiest instant), held while
+   * it plays -- an emitter and the slide from their start, a bed side while it is up -- by the handle `startLoop` gave.
+   * A stolen voice leaves the loop sounding (LOOP_VOICE_STEAL_PLACEHOLDER: its holder's stop does nothing).
+   */
+  private loopHolds = new Map<LoopHandle, { asks: VoiceAsk[]; holder: VoiceHolder; held: boolean }>();
+  /**
+   * LATER 1220 (b): the music cues' voices (two each at 0x7f, `streamAsks`) -- the cue playing and a fading one held to
+   * its own end (the review's F3: the outgoing stream keeps its voices until its key-off) -- freed at a stop.
+   */
+  private musicHolders: { holder: VoiceHolder; name: string; ends: number }[] = [];
+  /** LATER 1220 (a): the live one-shots of each instance-limited sound (flag 0x8), by bank and index (`instanceCheck`). */
+  private instances = new Map<string, { volume: number; start: number; until: number; holder: VoiceHolder & { stopped?: boolean } }[]>();
+  /** LATER 1218 (`./voiceBudget`): the driver's 48 voices; a one-shot sounds only on one it is granted. */
+  private readonly voices = new VoiceBudget();
   private readonly unknownNames: Record<string, number> = {};
   private readonly recent: AudioStats['recent'] = [];
   private env: { inside: boolean; zone: number } | null = null;
@@ -991,7 +1198,7 @@ export class GameAudio {
   /** Whether the one warning about a tree with no sound archives has been given. */
   private warned = false;
   /** Research 124: the map's decoded streams by their script name, and the round's cues read off its script. */
-  private streams = new Map<string, RenderedSound>();
+  private streams = new Map<string, StoredStream>();
   /** The map's tactical recording groups (`sounds.rdr` GROUPS, research 302 §7): each its weights, kept across plays. */
   private tacticalGroups = new Map<string, TacticalSoundGroup>();
   /** Global register 2 from the listener's live height (`setListener`), null without a listener or an elevation. */
@@ -1010,12 +1217,40 @@ export class GameAudio {
    * thread. True for the tests; the page's `gameAudio` is made without it, so nothing heavy ever runs on a gesture.
    */
   constructor(private readonly out: AudioOut = new WebAudioOut(), private readonly random: () => number = Math.random,
-              options: { inline?: boolean; now?: () => number } = {}) {
+              options: { inline?: boolean; now?: () => number; ambienceVolume?: () => number; voiceScratchBytes?: number } = {}) {
     this.inline = options.inline ?? true;
+    this.ambienceVolume = options.ambienceVolume ?? ((): number => ambienceGainOf(readAmbienceVolume()));
+    const scratchBytes = options.voiceScratchBytes ?? 0;
+    this.voiceScratch = scratchBytes > 0 ? new VoiceScratch(scratchBytes) : undefined;
     this.now = options.now ?? ((): number => performance.now() / 1000);
     this.out.setGain(this.gain());
   }
   private readonly inline: boolean;
+  /**
+   * LATER 1177(b) (`./ambienceVolume` AMBIENCE_VOLUME_ADAPTATION, a browser adaptation): the launcher's ambience volume as a
+   * linear gain, read at each ambience start (`ambienceGain`), never below 0.5 (the owner's floor); 1, the default, is the
+   * original's mix byte for byte.
+   */
+  private ambienceVolume: () => number;
+  private ambienceGain = 1;
+  /** Opt-in browser storage experiment; no retained working PCM after a map teardown. */
+  private readonly voiceScratch: VoiceScratch | undefined;
+  /**
+   * OFF_THREAD_RENDER_ADAPTATION (`./offThreadRender`; opt-in, the lightweight match's): the one-shots rendered in a
+   * worker and played when their mix comes back. Unset (the default): every play renders at its call, as before.
+   */
+  private offThread: OffThreadRenderer | null = null;
+  /** Moves with the banks: a mix asked of the last map's banks is not played. */
+  private renderEpoch = 0;
+  /** Moves at each `stopTransient`: a mix asked before it is not played after it. */
+  private transientEpoch = 0;
+  /** The renders run on the page's thread: their time, ms, and their count. */
+  private readonly renderCost = { ms: 0, renders: 0 };
+  /** Sets the worker's renderer (given the banks now, and at each change of them), or lets it go (null). */
+  setOffThreadRenderer(renderer: OffThreadRenderer | null): void {
+    this.offThread = renderer;
+    renderer?.setBanks(this.banks.map((b) => b.bytes));
+  }
   /** The clock the replayed layers keep, seconds. */
   private readonly now: () => number;
   /** The ladder slide's one loop, while held (`setLadderSlide`), and where it is heard from. */
@@ -1080,6 +1315,7 @@ export class GameAudio {
 
   /** Research 304: level/connection teardown adaptation; never a change to volume or music. */
   stopTransient(): void {
+    this.transientEpoch++;
     this.slideLoop?.handle.stop();
     this.slideLoop = null;
     for (const tail of this.slideTails) tail.handle.stop();
@@ -1087,6 +1323,18 @@ export class GameAudio {
     this.out.stopTransient?.();
     for (const voice of this.restartVoices.values()) voice.stop();
     this.restartVoices.clear();
+    this.voices.clear();                          // LATER 1218: every one-shot gone, every voice free
+    this.owedCallbacks = [];                        // LATER 1209: a teardown owes no delayed callback
+    for (const [h, e] of this.loopHolds) if (e.held) { e.held = false; this.holdLoop(h); }   // LATER 1220 (b): the loops still running hold theirs again
+    {                                                   // and the music, which a teardown leaves playing (research 304)
+      const now = this.now();
+      this.musicHolders = this.musicHolders.filter((m) => m.ends > now);
+      for (const m of this.musicHolders) {
+        const g = this.streamGroups.get(m.name);
+        if (g) this.voices.takeVoices(streamAsks(g.group, g.channels, m.ends), now, m.holder);
+      }
+    }
+    this.instances.clear();                       // LATER 1220: and no live instance
     this.lastVoice = null;
   }
   /** Work queued behind the unlock: the reverb's buffer, then one loop's buffer a job; `pump` runs them frame by frame. */
@@ -1108,6 +1356,7 @@ export class GameAudio {
 
   /** The map's sound data from the worker (`./soundData`); null silences the walk. */
   setData(data: SoundData | null): void {
+    this.voiceScratch?.clear();
     this.stopTransient();
     this.slideRenders.clear();
     this.stopAmbience();
@@ -1121,6 +1370,8 @@ export class GameAudio {
     const adopted = staged !== null && data !== null && staged.data === data ? staged : null;
     const built = adopted ? (adopted.set ??= this.buildBanks(data)) : this.buildBanks(data);
     this.banks = built.banks;
+    this.renderEpoch++;
+    this.offThread?.setBanks(this.banks.map((b) => b.bytes));
     this.budget = built.budget;
     this.lookup.clear();
     for (const [name, found] of built.lookup) this.lookup.set(name, found);
@@ -1140,6 +1391,9 @@ export class GameAudio {
     this.fireSq = fd ? { med: fd.med * fd.med, far: fd.far * fd.far } : null;
     this.callbacks = new Map(data?.callbacks ?? []);
     this.callbackVolumes = new Map(data?.callbackVolumes ?? []);
+    this.callbackDelays = new Map(data?.callbackDelays ?? []);
+    this.owedCallbacks = [];
+    this.instances.clear();                       // LATER 1220: a new map, no live instance
     this.characterVoices = data?.characterVoices ?? null;
     this.reverbLoaded = false;
     this.env = null;
@@ -1154,8 +1408,9 @@ export class GameAudio {
     this.streamGroups = new Map((data?.streams ?? []).map((s) => [s.name, { group: streamGroupOf(s), channels: s.sound.voices > 1 ? 2 : 1 }]));
     this.roundCues_ = data?.roundCues ?? null;
     // LATER 730: the map's flash, grenade bursts and reports decoded ahead, a sound a step of the frames' `pump`.
-    this.warmQueue = adopted ? adopted.warmQueue : data ? soundWarmSet(data) : [];
-    this.jitQueue = adopted ? adopted.jitQueue : [];
+    // OFF_THREAD_RENDER_ADAPTATION: with the one-shots rendered in a worker, the page decodes none of them ahead.
+    this.warmQueue = this.offThread ? [] : adopted ? adopted.warmQueue : data ? soundWarmSet(data) : [];
+    this.jitQueue = this.offThread || !adopted ? [] : adopted.jitQueue;
     this.loadLane++;                                   // a lane of the last map's load (or a staged one) stops
     // The context made now, while the map comes in, so the first key press only resumes it.
     if (data && data.banks.length > 0) this.out.prepare?.();
@@ -1169,7 +1424,7 @@ export class GameAudio {
     for (const { file, bytes, only } of data?.banks ?? []) {
       try {
         const bank = parseBankFile(bytes);
-        const loaded = { bank, samples: new SampleCache(bank.vag, set.budget), borrowed: !!only };
+        const loaded = { bank, samples: new SampleCache(bank.vag, set.budget), borrowed: !!only, bytes };
         set.banks.push(loaded);
         for (const [name, index] of bank.names) {
           if (only && !only.includes(name) && !only.includes(name.trim())) continue;   // a borrowed bank lends only these
@@ -1272,6 +1527,7 @@ export class GameAudio {
     this.updateBedLevels();
     this.updateSlide();
     this.updateOneShots();
+    this.playOwedCallbacks();                       // LATER 1209: a callback's sound behind its WAIT
     this.out.refreshStreams?.();
   }
 
@@ -1360,7 +1616,7 @@ export class GameAudio {
     let seed = SOUND_JIT_WARM_ADAPTATION;
     const random = (): number => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x80000000; };
     const t0 = performance.now();
-    renderSound(found.loaded.bank, found.index, found.loaded.samples, { vol: 0x400, pan: PAN_RESET, random, state: new Map(), modifier: this.bankModifier(found) });
+    renderSound(found.loaded.bank, found.index, found.loaded.samples, { vol: 0x400, pan: PAN_RESET, random, state: new Map(), modifier: this.bankModifier(found), scratch: this.voiceScratch });
     this.jitCounts.jitRendered++;
     this.jitCounts.jitMaxMs = Math.max(this.jitCounts.jitMaxMs, performance.now() - t0);
   }
@@ -1371,7 +1627,9 @@ export class GameAudio {
    */
   private rendered(found: { loaded: Loaded }, render: () => RenderedSound): RenderedSound {
     const decodes = found.loaded.samples.decodes, evicted = this.budget.evictions;
+    const t0 = performance.now();
     const r = render();
+    this.renderCost.ms += performance.now() - t0; this.renderCost.renders++;
     if (found.loaded.samples.decodes > decodes) { this.decodeCounts.cold++; soundDecodeRecord.cold++; }
     soundDecodeRecord.evicted += this.budget.evictions - evicted;
     return r;
@@ -1499,7 +1757,7 @@ export class GameAudio {
    * Renders a looping sound once (per ambience start: emitters of one sound share the render) and starts it silent;
    * null when the bank lacks it or the output is locked.
    */
-  private startLoop(name: string, cache: Map<string, RenderedSound>, volume = 1): LoopHandle | null {
+  private startLoop(name: string, cache: Map<string, RenderedSound>, volume = 1, hold = true): LoopHandle | null {
     const found = this.find(name);
     if (!found || !this.canBuild()) return null;
     const key = loopKey(name, volume);
@@ -1511,12 +1769,49 @@ export class GameAudio {
       cache.set(key, r);
     }
     this.byName[name] = (this.byName[name] ?? 0) + 1;
-    return this.out.loop(r, bankGroupOf(found.loaded.bank.sounds[found.index]?.volGroup));
+    const group = bankGroupOf(found.loaded.bank.sounds[found.index]?.volGroup);
+    const h = this.out.loop(r, group);
+    if (!h) return null;
+    // LATER 1220 (b): the loop's voices -- its render's busiest instant, each at its tone's priority, until it stops.
+    const busiest = r.tones ? busiestTones(r.tones) : [];
+    const asks: VoiceAsk[] = busiest.length > 0
+      ? busiest.map((x) => ({ group: bankGroupOf(x.group), priority: tonePriority(x, x.volume), until: Infinity }))
+      : [{ group, priority: soundPriority(found.loaded.bank, found.index, Math.round(0x400 * volume)), until: Infinity }];
+    const entry = { asks, holder: { stop: () => {} } as VoiceHolder, held: false };
+    const wrapped: LoopHandle = {
+      setGains: (left, right, seconds) => h.setGains(left, right, seconds),
+      release: h.release ? (curve, seconds) => h.release!(curve, seconds) : undefined,
+      stop: () => { this.unholdLoop(wrapped); this.loopHolds.delete(wrapped); h.stop(); },
+    };
+    this.loopHolds.set(wrapped, entry);
+    if (hold) this.holdLoop(wrapped);
+    return wrapped;
+  }
+
+  /** LATER 1220 (b): a running loop takes its voices (`startLoop`'s asks), unless it holds them already. */
+  private holdLoop(h: LoopHandle): void {
+    const e = this.loopHolds.get(h);
+    if (!e || e.held) return;
+    this.voices.takeVoices(e.asks, this.now(), e.holder);
+    e.held = true;
+  }
+
+  /**
+   * LATER 1220 (b): a loop keyed off (a bed side down, a loop stopped) frees its voices -- after `tail` seconds, its
+   * tone's release, when given (the console holds a voice until its envelope reads 0: IRX D:L9377-9393; the review's F4).
+   */
+  private unholdLoop(h: LoopHandle, tail = 0): void {
+    const e = this.loopHolds.get(h);
+    if (!e || !e.held) return;
+    this.voices.release(e.holder);
+    e.held = false;
+    if (tail > 0) { const t = this.now(); this.voices.takeVoices(e.asks.map((a) => ({ ...a, until: t + tail })), t, { stop: () => {} }); }
   }
 
   private startAmbience(): void {
     if (this.ambienceOn || !this.data || !this.canBuild() || this.loopsFollow) return;
     this.ambienceOn = true;
+    this.ambienceGain = flooredAmbienceGain(this.ambienceVolume());   // LATER 1177(b): the launcher's ambience volume, this match (never below 0.5)
     const cache = new Map<string, RenderedSound>();
     this.beds = { outside: [], inside: [] };
     this.bed = null;
@@ -1533,9 +1828,9 @@ export class GameAudio {
         : this.data.beds[side].map((sound) => ({ sound, volume: 1 }));
       for (const { sound: s, volume } of beds) {
         this.queueWarm(loopKey(s, volume), cache, () => {
-          const h = this.startLoop(s, cache, volume);
+          const h = this.startLoop(s, cache, volume, this.bed === side);   // LATER 1220 (b): a side holds voices while up
           if (!h) return;
-          const level = this.loopLevel(s);
+          const level = this.ambienceLevel(s);
           this.beds[side].push({ handle: h, release: this.releaseOf(s), sound: s, level });
           const up = this.bed === side ? level : 0;
           h.setGains(up, up, 0);
@@ -1577,9 +1872,12 @@ export class GameAudio {
     // side's comes up at once (a new play; its tone's attack is not re-rendered: the loop resumes where it runs).
     for (const side of ['outside', 'inside'] as const) {
       for (const b of this.beds[side]) {
-        if (side === bed) { b.level = this.loopLevel(b.sound); b.handle.setGains(b.level, b.level, 0); }
-        else if (b.handle.release) b.handle.release(b.release.curve, b.release.seconds);
-        else b.handle.setGains(0, 0, 0);
+        if (side === bed) { b.level = this.ambienceLevel(b.sound); b.handle.setGains(b.level, b.level, 0); this.holdLoop(b.handle); }
+        else {
+          if (b.handle.release) b.handle.release(b.release.curve, b.release.seconds);
+          else b.handle.setGains(0, 0, 0);
+          this.unholdLoop(b.handle, b.release.seconds);   // LATER 1220 (b): keyed off, its voices held through its release (the review's F4)
+        }
       }
     }
     // The script stops the other side's animation and starts this side's afresh: its sequences run from their first
@@ -1598,7 +1896,7 @@ export class GameAudio {
     const now = this.now();
     for (const o of this.oneShots) {
       if (o.next === null || now < o.next) continue;
-      this.play(o.layer.sound, null, 'ambience', o.layer.volume);
+      this.play(o.layer.sound, null, 'ambience', o.layer.volume, this.ambienceGain);   // LATER 1177(b): the gusts at the ambience volume
       const w = o.layer.wait;
       o.next = o.layer.kind === 'repeat' && w ? now + w.base + w.range * this.random() : null;
     }
@@ -1616,7 +1914,7 @@ export class GameAudio {
       const g = rangeGain(distance, this.rangeOf(e.sound));
       e.gain = g * g;
       const [l, r] = panGains(distance > 1e-6 ? panDegrees(right, forward) : 0);
-      const master = this.loopLevel(e.sound);
+      const master = this.ambienceLevel(e.sound);
       e.handle.setGains(e.gain * master * l, e.gain * master * r);
     }
   }
@@ -1625,7 +1923,7 @@ export class GameAudio {
   private updateBedLevels(): void {
     if (!this.ambienceOn || !this.bed) return;
     for (const b of this.beds[this.bed]) {
-      const level = this.loopLevel(b.sound);
+      const level = this.ambienceLevel(b.sound);
       if (level !== b.level) { b.level = level; b.handle.setGains(level, level); }
     }
   }
@@ -1634,6 +1932,23 @@ export class GameAudio {
   private loopLevel(name: string): number {
     const found = this.find(name);
     return found ? loopMasterGain(this.bankModifier(found)) : 1;
+  }
+
+  /** An ambience loop's level: its group master's (`loopLevel`) at the launcher's ambience volume (LATER 1177(b)). */
+  private ambienceLevel(name: string): number {
+    return this.loopLevel(name) * this.ambienceGain;
+  }
+
+  /**
+   * LATER 1177(b) (a browser adaptation): the ambience volume set now, as a linear gain -- the playing beds and emitters
+   * follow at once, the gusts from their next play, and later ambience starts keep it; below the owner's floor, 0.5.
+   */
+  setAmbienceVolume(gain: number): void {
+    const floored = flooredAmbienceGain(gain);
+    this.ambienceVolume = (): number => floored;
+    this.ambienceGain = floored;
+    this.updateBedLevels();
+    this.updateEmitters();
   }
 
   // ---- the event API -----------------------------------------------------------------------------------------
@@ -1775,9 +2090,42 @@ export class GameAudio {
     const volumes = this.callbackVolumes.get(name);
     // Through the one name table (`@s2u/sound`'s `soundFor`): a casing's `.BUL_CASE_METAL` is the banks' `.BUL_CAS_METAL`;
     // each at its command's volume (flag 0x10: the flashbang's `.MARK_141_FLASH` at 2.0).
-    const played = sounds.map((sound, i) => ({ sound: soundFor(sound, (n) => this.has(n)), volume: volumes?.[i] ?? 1 }))
-      .filter(({ sound, volume }) => this.play(sound, position, 'callback', volume)).map(({ sound }) => sound);
-    return played[0] ?? null;
+    // LATER 1209: a sound behind its zAnim's WAITs (`callbackDelays`) is owed until its frame (`playOwedCallbacks`);
+    // the rest sound now.
+    const delays = this.callbackDelays.get(name);
+    const now: { sound: string; volume: number }[] = [];
+    sounds.forEach((sound, i) => {
+      const s = { sound: soundFor(sound, (n) => this.has(n)), volume: volumes?.[i] ?? 1 };
+      const delay = delays?.[i] ?? 0;
+      if (delay > 0) this.owedCallbacks.push({ due: this.now() + delay, sound: s.sound, position: position ? [...position] as Vec3 : null, volume: s.volume });
+      else now.push(s);
+    });
+    const played = now.filter(({ sound, volume }) => this.play(sound, position, 'callback', volume)).map(({ sound }) => sound);
+    return played[0] ?? (now.length < sounds.length ? (sounds[0] ?? null) : null);
+  }
+
+  /**
+   * LATER 1209: the callbacks' delayed sounds now due, each on the first frame at or past its time (the zAnim runner's
+   * WAIT counts down a frame at a time, `FUN_0025ed50`), at the place it was asked from (CALLBACK_DELAY_PLACE_READING).
+   */
+  private playOwedCallbacks(): void {
+    if (this.owedCallbacks.length === 0) return;
+    const now = this.now();
+    const due = this.owedCallbacks.filter((c) => c.due <= now);
+    if (due.length === 0) return;
+    this.owedCallbacks = this.owedCallbacks.filter((c) => c.due > now);
+    for (const c of due) this.play(c.sound, c.position, 'callback', c.volume);
+  }
+
+  /**
+   * LATER 1218 (`./voiceBudget` VOICE_PLAY_ADAPTATION): what a render asks of the budget -- each voice it keyed at its
+   * own tone's priority at its handler's volume (`tonePriority`), in its own sound's group, until its own end; a render
+   * without the list (a stream's, a test's) asks its `voices` alike at the sound's highest tone's priority until it ends.
+   */
+  private voiceAsks(found: { loaded: Loaded; index: number }, r: RenderedSound, group: number, vol: number, t: number): VoiceAsk[] {
+    if (r.tones) return r.tones.map((x) => ({ group: bankGroupOf(x.group), priority: tonePriority(x, x.volume), until: t + x.end }));
+    const until = t + r.left.length / r.sampleRate, priority = soundPriority(found.loaded.bank, found.index, vol);
+    return Array.from({ length: Math.max(1, r.voices) }, () => ({ group, priority, until }));
   }
 
   /** Whether the map's loaded banks hold a sound of that name (the effects' casing fallbacks ask it). */
@@ -1805,9 +2153,11 @@ export class GameAudio {
    * Plays a sound by its bank name (`.STEP_STONE`) at `position` (null: without a place), at `volume` -- a zAnim
    * command's own (flag 0x10), 1 for every other play: the app volume is `volume x RANGE gain x 1024`
    * (`FUN_00342670`, decomp 241912-241955), which 989snd takes into the voice as `(app x orig) >> 10` clamped at 127.
+   * `gain`, a linear gain after the render (LATER 1177(b)'s ambience volume for the ambience's one-shot layers; a browser
+   * adaptation): 1 for every other play, which leaves the output's call as it was.
    * False when it did not sound: locked, muted, out of its range, or a name the map's banks do not hold.
    */
-  play(name: string, position: Vec3 | null = null, event: AudioEvent = 'play', volume = 1): boolean {
+  play(name: string, position: Vec3 | null = null, event: AudioEvent = 'play', volume = 1, gain = 1): boolean {
     if (event === 'play') this.events.play++;
     if (event === 'ambience') this.events.ambience++;
     const found = this.find(name);
@@ -1821,12 +2171,75 @@ export class GameAudio {
       if (vol <= 0) { this.dropped.range++; return false; }
       pan = distance > 1e-6 ? panDegrees(right, forward) : 0;
     }
+    // LATER 1220 (a): the sound's instance limit first (`FUN_0000d3b0` at the handler's making, before its tones ask for
+    // voices): refused, it does not sound -- before its render (the review's F1: the original returns before a grain
+    // runs); a stolen instance is stopped and its voices freed.
+    const t = this.now();                         // the review's F5 (1218): the page's own clock (seconds)
+    const sound = found.loaded.bank.sounds[found.index];
+    const key = `${found.loaded.bank.name}:${found.index}`;
+    const live = sound && sound.flags & 8 ? (this.instances.get(key) ?? []).filter((x) => x.until > t && !x.holder.stopped) : null;
+    if (sound && live) {
+      const c = instanceCheck(sound, live, vol);
+      if (!c.play) { this.instances.set(key, live); this.dropped.instances++; return false; }
+      if (c.steal !== null) { const [v] = live.splice(c.steal, 1); v!.holder.stop(); this.voices.release(v!.holder); }
+    }
     const globals = this.register2 === null ? [] : [0, this.register2];
-    const r = this.rendered(found, () => renderSound(found.loaded.bank, found.index, found.loaded.samples, { vol, pan, random: this.random, state: this.grainState, globals, modifier: this.bankModifier(found) }));
-    this.out.play(r, bankGroupOf(found.loaded.bank.sounds[found.index]?.volGroup));
+    const render: SoundGenerator = output => this.rendered(found, () => renderSound(found.loaded.bank, found.index, found.loaded.samples, { vol, pan, random: this.random, state: this.grainState, globals, modifier: this.bankModifier(found), output, scratch: this.voiceScratch }));
+    const group = bankGroupOf(found.loaded.bank.sounds[found.index]?.volGroup);
+    // LATER 1218 (`./voiceBudget`, FUN_000178b8): its voices first -- a play refused its first voice does not sound, and
+    // a play stolen from is stopped (its holder). Asked of the render before it sounds, on every path below
+    // (XBOX-INTEGRATE: the lightweight match's worker and direct mix included).
+    const holder: VoiceHolder & { voice?: { stop(): void }; stopped?: boolean } = { stop: () => { holder.stopped = true; holder.voice?.stop(); } };
+    const admit = (r: RenderedSound, at: number): boolean => {
+      const asks = this.voiceAsks(found, r, group, vol, at);   // none: a render that keyed no voice holds none
+      const got = asks.length > 0 ? this.voices.takeVoices(asks, at, holder) : [];
+      if (got.length > 0 && !got.some((i) => i >= 0)) {   // the review's F3: nothing asked (every tone over) is no refusal
+        this.dropped.voices++;
+        return false;
+      }
+      return true;
+    };
+    const instance = live ? { volume: vol, start: t, until: t, holder } : null;
+    // OFF_THREAD_RENDER_ADAPTATION (opt-in, the lightweight match's): the place, the volume and the pan are this call's; the
+    // mix is the worker's, played when it comes -- and only then asked of the voice budget.
+    if (gain === 1 && this.offThread) {
+      const epoch = this.renderEpoch, transient = this.transientEpoch, bank = this.banks.indexOf(found.loaded);
+      const entry = { name, event, vol, pan, seconds: 0, voices: 0 };
+      if (bank >= 0 && this.offThread.render({ bank, index: found.index, vol, pan, globals, modifier: this.bankModifier(found) }, (sound) => {
+        // XBOX-INTEGRATE review F1: a play stolen while its mix was pending (LATER 1220 (a), `FUN_0000d3b0`) stays stopped.
+        if (holder.stopped || !sound || epoch !== this.renderEpoch || transient !== this.transientEpoch || this.muted_ || !this.out.unlocked) { holder.stopped = true; return; }
+        const at = this.now();
+        if (!admit(sound, at)) { holder.stopped = true; return; }
+        entry.seconds = sound.left.length / sound.sampleRate; entry.voices = sound.voices;
+        holder.voice = this.out.play(sound, group) || undefined;
+        if (instance) instance.until = at + entry.seconds;
+      })) {
+        if (live && instance) { instance.until = Infinity; live.push(instance); this.instances.set(key, live); }
+        this.played++;
+        this.byName[name] = (this.byName[name] ?? 0) + 1;
+        this.recent.push(entry);
+        if (this.recent.length > RECENT) this.recent.shift();
+        return true;
+      }
+    }
+    let summary: PlayedSoundSummary;
+    let refused = false;
+    // This generator keeps only metadata; no supplied channel views escape the transaction.
+    if (gain === 1 && this.out.playGenerated) {
+      summary = this.out.playGenerated(render, group, true, {
+        admit: (r) => (refused = !admit(r, t)) === false,
+        voice: (v) => { holder.voice = v; },
+      });
+    } else {
+      const r = render(); summary = { seconds: r.left.length / r.sampleRate, voices: r.voices };
+      refused = !admit(r, t);
+      if (!refused) holder.voice = (gain === 1 ? this.out.play(r, group) : this.out.play(r, group, gain)) || undefined;   // LATER 1177(b): an ambience layer
+    }
+    if (refused) return false;
+    if (live && instance) { instance.until = t + summary.seconds; live.push(instance); this.instances.set(key, live); }
     this.played++;
     this.byName[name] = (this.byName[name] ?? 0) + 1;
-    this.recent.push({ name, event, vol, pan, seconds: r.left.length / r.sampleRate, voices: r.voices });
+    this.recent.push({ name, event, vol, pan, seconds: summary.seconds, voices: summary.voices });
     if (this.recent.length > RECENT) this.recent.shift();
     return true;
   }
@@ -1846,12 +2259,24 @@ export class GameAudio {
     const modifier = this.bankModifier(found), key = `${name} ${modifier}`;   // one render a name at each master
     let r = this.restartRenders.get(key);
     if (!r) {
-      r = this.rendered(found, () => renderSound(found.loaded.bank, found.index, found.loaded.samples, { vol: 0x400, pan: PAN_RESET, random: this.random, state: this.grainState, modifier }));
+      r = this.rendered(found, () => renderSound(found.loaded.bank, found.index, found.loaded.samples, { vol: 0x400, pan: PAN_RESET, random: this.random, state: this.grainState, modifier, scratch: this.voiceScratch }));
       this.restartRenders.set(key, r);
     }
-    this.restartVoices.get(name)?.stop();
-    const voice = this.out.play(r, bankGroupOf(found.loaded.bank.sounds[found.index]?.volGroup));
-    if (voice) this.restartVoices.set(name, voice); else this.restartVoices.delete(name);
+    const last = this.restartVoices.get(name);
+    if (last) { last.stop(); this.voices.release(last); }
+    const group = bankGroupOf(found.loaded.bank.sounds[found.index]?.volGroup);
+    // LATER 1218: the restarted one-shot asks the budget as `play` does (`./voiceBudget`).
+    const holder: VoiceHolder & { voice?: { stop(): void } } = { stop: () => { holder.voice?.stop(); } };
+    const t = this.now();
+    const asks = this.voiceAsks(found, r, group, 0x400, t);   // none: a render that keyed no voice holds none
+    const got = asks.length > 0 ? this.voices.takeVoices(asks, t, holder) : [];
+    if (got.length > 0 && !got.some((i) => i >= 0)) {   // the review's F3: nothing asked (every tone over) is no refusal
+      this.restartVoices.delete(name);
+      this.dropped.voices++;
+      return false;
+    }
+    holder.voice = this.out.play(r, group) || undefined;
+    if (holder.voice) this.restartVoices.set(name, holder); else this.restartVoices.delete(name);
     this.played++;
     this.byName[name] = (this.byName[name] ?? 0) + 1;
     this.recent.push({ name, event: 'play', vol: 0x400, pan: PAN_RESET, seconds: r.left.length / r.sampleRate, voices: r.voices });
@@ -1865,7 +2290,7 @@ export class GameAudio {
   roundCues(): RoundCues | null { return this.roundCues_; }
 
   /** The decoded stream of a script name, or why it does not sound, counted (as `play` does): unknown, locked, muted. */
-  private streamFor(name: string): RenderedSound | Exclude<StreamPlay, 'played' | 'no-output'> {
+  private streamFor(name: string): StoredStream | Exclude<StreamPlay, 'played' | 'no-output'> {
     const sound = this.streams.get(name);
     if (!sound) { this.dropped.unknown++; this.unknownNames[name] = (this.unknownNames[name] ?? 0) + 1; return 'unknown'; }
     if (!this.out.unlocked) { this.dropped.locked++; return 'locked'; }
@@ -1873,7 +2298,7 @@ export class GameAudio {
     return sound;
   }
 
-  private heard(name: string, event: AudioEvent, sound: RenderedSound): void {
+  private heard(name: string, event: AudioEvent, sound: StoredStream): void {
     this.played++;
     this.byName[name] = (this.byName[name] ?? 0) + 1;
     this.recent.push({ name, event, vol: 0x400, pan: PAN_RESET, seconds: sound.left.length / sound.sampleRate, voices: sound.voices });
@@ -1904,7 +2329,13 @@ export class GameAudio {
     const liveGains = () => position ? streamVoiceGains(vol, pan, group.channels, groupModifier(group.group, this.getTuners()))
       : roundStreamGains(group.group, group.channels, this.getTuners());
     const gains = liveGains();
-    if (this.out.playStream) this.out.playStream(sound, gains, group.group, liveGains); else this.out.play(sound, group.group);
+    // LATER 1220 (b): a channel a voice at 0x7f in its group until it ends (`streamAsks`; unstealable by a one-shot),
+    // asked first: refused them (a range full of voices at 0x7e and above) the stream fails (IRX D:L9733-9740; the
+    // review's F2) -- 'no-voice'.
+    const t = this.now();
+    const got = this.voices.takeVoices(streamAsks(group.group, group.channels, t + sound.left.length / sound.sampleRate), t, { stop: () => {} });
+    if (!got.some((i) => i >= 0)) { this.dropped.voices++; return 'no-voice'; }
+    if (this.out.playStream) this.out.playStream(sound, gains, group.group, liveGains); else this.out.play(floatStream(sound), group.group);
     this.lastVoice = name;
     this.heard(name, 'voice', sound);
     const recent = this.recent[this.recent.length - 1]; if (recent) { recent.vol = vol; recent.pan = pan; }
@@ -1929,6 +2360,13 @@ export class GameAudio {
     const liveGains = () => roundStreamGains(group.group, group.channels, this.getTuners());
     this.out.playMusic(sound, handover, liveGains(), group.group, liveGains);
     this.slot = { name, starts: now + handover, ends: now + handover + sound.left.length / sound.sampleRate };
+    // LATER 1220 (b): the cue's voices, a channel a voice at 0x7f (`streamAsks`), held from now to its end; a fading cue
+    // keeps its own to its end (its holder's `until`). The new cue's are asked at the call, not at its start after the
+    // handover (a departure of at most MUSIC_SLOT_HANDOVER_SECONDS).
+    const holder: VoiceHolder = { stop: () => {} };
+    this.musicHolders = this.musicHolders.filter((m) => m.ends > now);
+    this.musicHolders.push({ holder, name, ends: this.slot.ends });
+    this.voices.takeVoices(streamAsks(group.group, group.channels, this.slot.ends), now, holder);
     this.heard(name, 'music', sound);
     return 'played';
   }
@@ -1937,6 +2375,8 @@ export class GameAudio {
   stopMusic(): void {
     this.slot = null;
     this.out.stopMusic?.();
+    for (const m of this.musicHolders) this.voices.release(m.holder);   // LATER 1220 (b)
+    this.musicHolders = [];
   }
 
   /**
@@ -1972,6 +2412,7 @@ export class GameAudio {
         emitters: this.emitters.filter((e) => e.handle).map((e) => ({ sound: e.sound, node: e.node, gain: e.gain })),
       },
       timing: { ...this.timing, pending: this.jobs.length },
+      render: { ...this.renderCost, offThread: this.offThread?.stats() ?? null },
       streams: { available: [...this.streams.keys()], music: this.slot?.name ?? null, voice: this.lastVoice },
       register2: this.register2,
       ladderSlide: this.slideLoop !== null,

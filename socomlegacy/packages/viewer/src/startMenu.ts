@@ -2,7 +2,9 @@ import { VALVE_TYPE, type OptionGlobals, type ValveStore } from '@s2u/ui';
 import { browserStoredControllerConfig, controllerConfigs, type ControllerConfigs } from './controllerConfigs';
 import { ExchangeInput } from './exchangeInput';
 import type { Input, PadButton } from './gamepad';
-import { WHITE, type Hud, type HudQuad, type HudTri } from './hud';
+import { WHITE } from './hudLayout';
+import type { Hud, HudQuad, HudTri } from './hud';
+import { MENU_STICK_ADAPTATION, MenuStickReader, type MenuStickPress } from './menuStick';
 import { FONT_SPECIAL_01, FONT_TEXT_01, layoutText, textWidth } from './hudFont';
 import type { PlayOptions } from './originalOptions';
 import { externalWhispers } from './roundChat';
@@ -40,18 +42,34 @@ export const START_MENU_TYPE = {
 export const START_SETTINGS_TYPE = 12;
 
 /**
- * cq41E0VR: **browser adaptations** (product track; the controller 5d's call, option (a), logged for the owner): FULLSCREEN
- * (the document into and out of fullscreen, `./mobileFullscreen` `documentFullscreen`) and SHOW FPS (a read-only
- * frame-rate readout, `./matchFps`), placed after the original rows. The original has neither; neither changes a game
- * value, and without `StartMenuDeps.adaptations` the menu places only its own rows.
+ * cq41E0VR: a **browser adaptation** (product track; the controller 5d's call, option (a), logged for the owner):
+ * FULLSCREEN (the document into and out of fullscreen, `./mobileFullscreen` `documentFullscreen`), placed after the
+ * original rows. The original has none; it changes no game value, and without `StartMenuDeps.adaptations` the menu
+ * places only its own rows. Type 14 was SHOW FPS until WM-LAUNCHER (WM.R7) took it off the START menu: its readout
+ * (`./matchFps`) stays on the native VIDEO OPTIONS; 14 is not reused.
  */
 export const START_FULLSCREEN_TYPE = 13;
-export const START_SHOW_FPS_TYPE = 14;
 
-/** The two adaptation rows' labels, in the menu's style (its toggles' "NAME: ON / OFF"). */
+/**
+ * WM-LAUNCHER (WM.R7, the owner's ask; product track): a **browser adaptation**, no original -- SHOW LAUNCHER, the
+ * LAST row (WM-R20-FOLDS item 1, the controller's final ruling: v0.4.22's rows keep their order and indexes, SHOW FPS
+ * alone removed -- it was v0.4.22's last row), offered only while the page has its launcher overlay
+ * (`StartMenuAdaptations.launcher`); choosing it opens the overlay over the round and closes the START menu.
+ */
+export const START_LAUNCHER_TYPE = 15;
+
+/** The adaptation rows' labels, in the menu's style (its toggles' "NAME: ON / OFF"; SHOW LAUNCHER an action, as SETTINGS). */
 export const START_MENU_ADAPTATION_TEXT = {
-  fullscreenOn: 'FULLSCREEN: ON', fullscreenOff: 'FULLSCREEN: OFF', showFpsOn: 'SHOW FPS: ON', showFpsOff: 'SHOW FPS: OFF',
+  fullscreenOn: 'FULLSCREEN: ON', fullscreenOff: 'FULLSCREEN: OFF', launcher: 'SHOW LAUNCHER',
 } as const;
+
+/**
+ * WM-LAUNCHER: the menu's one-line notice when the launcher's open is refused -- the overlay refuses it while the in-game
+ * Options holds the shared settings lock (`./settingsEditorOwnership`, through its loading and closing transitions), under
+ * a lobby link's cover, once disposed, or a failed mount undid it; the words name no one cause. The START menu then stays
+ * open, as FULLSCREEN's refusal leaves it. A **browser adaptation**.
+ */
+export const START_MENU_LAUNCHER_NOTICE_ADAPTATION = 'LAUNCHER unavailable right now: try again';
 
 /**
  * The menu's one-line notice when FULLSCREEN's request is refused (cq41E0VR fold, the controller's call logged for the
@@ -69,8 +87,17 @@ export const START_MENU_NOTICE_LAYOUT_ADAPTATION = { x: 320, below: 21, scale: 0
  */
 export interface StartMenuAdaptations {
   fullscreen?: { active(): boolean; toggle(refused: () => void): void };
-  fps?: { shown(): boolean; toggle(): void };
+  /**
+   * WM-LAUNCHER: the page's launcher overlay, read at each open (an overlay mounted after the round began, or while the
+   * menu is open, is offered at the next START); none (absent, or null) and SHOW LAUNCHER is not placed.
+   */
+  launcher?: () => StartMenuLauncher | null;
 }
+
+// WM-LAUNCHER (F-WML-5): the per-document launcher registry lives in `./startMenuLauncher`, a module with no imports, so a
+// page registers its overlay's handle without loading this module's graph; re-exported here, one registry.
+import type { StartMenuLauncher } from './startMenuLauncher';
+export { offerStartMenuLauncher, startMenuLauncher, type StartMenuLauncher } from './startMenuLauncher';
 
 export interface StartMenuSettings {
   open(): void;
@@ -79,6 +106,11 @@ export interface StartMenuSettings {
   loading?(): boolean;
   notice?(): string | null;
   retryable?(): boolean;
+  /**
+   * WM-6A (a browser adaptation, `./settingsAdvanced`): whether Settings last closed into the launcher (its ADVANCED);
+   * asked once at the frame after the close, answered once.
+   */
+  closedIntoLauncher?(): boolean;
 }
 
 /** The HudCLOC strings the rows name by id (`FUN_00361b40`; `HudCLOC.rdr`, `RUN/READERC.ZAR`). */
@@ -536,7 +568,7 @@ export interface StartMenuDeps {
   hud?: Pick<Hud, 'setStartMenu' | 'setSpectatorHud'>;
   /** MLS.R1: native Options over the live match, with an isolated navigation host. */
   settings?: StartMenuSettings;
-  /** cq41E0VR: the FULLSCREEN and SHOW FPS rows (browser adaptations). */
+  /** cq41E0VR: the FULLSCREEN row; WM-LAUNCHER: SHOW LAUNCHER (browser adaptations). */
   adaptations?: StartMenuAdaptations;
 }
 
@@ -572,7 +604,7 @@ export class StartMenu {
   private cursor = 0;
   private barY: number = START_MENU_BAR.rowY(0) + START_MENU_BAR.offset;
   private placed: number[] = [];
-  private rowAlpha = Array<number>(15).fill(START_MENU_LAYOUT.rows.alpha);   // the twelve, SETTINGS and the two cq41E0VR rows
+  private rowAlpha = Array<number>(16).fill(START_MENU_LAYOUT.rows.alpha);   // the twelve, SETTINGS, FULLSCREEN, 14 (retired), SHOW LAUNCHER
   /** `DAT_00409088`: seconds since the round's start (the lockout). */
   private lockout = 0;
   /** `DAT_00409098` / `DAT_00409090`: the cursor's gate and its time. */
@@ -600,8 +632,16 @@ export class StartMenu {
   private last = new Set<PadButton>();
   private readonly page: StartMenuPage;
   private readonly consume = new ExchangeInput();
+  /**
+   * WM-STICK (OT.R130; a browser adaptation, `./menuStick` `MENU_STICK_ADAPTATION`): the left stick's flick, read off
+   * `pad`'s move pair each frame, is the d-pad press it points (the rows' Up / Down, the confirm's Left / Right) on a
+   * frame the menu was already open -- one step a flick, no held repeat (the EXCHANGE-STICK feel). The original's menu
+   * reads the d-pad only (research 340 R340.1): `frame` alone is still that.
+   */
+  private readonly stick = new MenuStickReader();
+  private stickPress: MenuStickPress | null = null;
   private settingsHeld = false;
-  /** cq41E0VR: the refused FULLSCREEN's notice, until the next press, the open or the close. */
+  /** cq41E0VR: the refused FULLSCREEN's (WM-LAUNCHER: or the launcher's) notice, until the next press, the open or the close. */
   private notice: string | null = null;
 
   constructor(private readonly d: StartMenuDeps) { this.page = d.page ?? PAGE; }
@@ -645,7 +685,7 @@ export class StartMenu {
     return this.placed.map((i) => {
       if (i === START_SETTINGS_TYPE) return 'SETTINGS';
       if (i === START_FULLSCREEN_TYPE) return a?.fullscreen?.active() ? A.fullscreenOn : A.fullscreenOff;
-      if (i === START_SHOW_FPS_TYPE) return a?.fps?.shown() ? A.showFpsOn : A.showFpsOff;
+      if (i === START_LAUNCHER_TYPE) return A.launcher;
       return rowLabel(START_MENU_ROWS[i]!, v, mp, (n) => this.d.caption(n));
     });
   }
@@ -704,6 +744,7 @@ export class StartMenu {
     const e = Object.fromEntries(BUTTONS.map((b) => [b, edge(b)])) as Record<(typeof BUTTONS)[number], Edge>;
     this.last = new Set(held);
     if (this.d.settings?.isOpen()) { this.settingsHeld = true; return; }   // MLS.R2: Options owns every input
+    if (this.settingsHeld && this.d.settings?.closedIntoLauncher?.()) this.close();   // WM-6A: the launcher's close lands in PLAY
     if (this.settingsHeld) { if (held.size === 0) this.settingsHeld = false; return; }   // its closing button stays there until released
     if (!this.confirm) this.moveBar(dt);                       // the bar holds under the confirm (D:L60756)
     if (!this.open_) this.closedTick(dt, e);
@@ -724,7 +765,16 @@ export class StartMenu {
    */
   pad(held: ReadonlySet<PadButton>, input: Input, dt: number): { owns: boolean; input: Input; held: ReadonlySet<PadButton> } {
     const was = this.open_;
+    const flick = this.stick.read(input);                      // WM-STICK: read every frame, so its arming follows the stick
+    this.stickPress = MENU_STICK_ADAPTATION && was ? flick : null;
     this.frame(dt, held);
+    this.stickPress = null;
+    // RAISE-1577 fix forward (PC 2's RAISE-PAUSE: R1 held through the menu's close is a FRESH press, the rifle up in 3
+    // frames): the close lets CROSS, SQUARE, CIRCLE and TRIANGLE go (D:L62165-62169), not R1 -- so on the first frame the
+    // menu no longer owns the pad R1 is the game's again (its lane's edge false -> true: `MatchFirearm.triggerLane`): the
+    // menu's hold of it ended here (fed as let go, which drops it; the other buttons as they are, so kept till let go).
+    // Was: held off the game until let go and pressed again.
+    if (!was && !this.open_) this.consume.frame({ ...input, fire: false }, false);
     const owns = was || this.open_;
     return { owns, input: this.consume.frame(input, owns), held: owns ? new Set<PadButton>() : held };
   }
@@ -768,10 +818,14 @@ export class StartMenu {
     this.barY = dir === -1 ? Math.max(to, y) : Math.min(to, y);
   }
 
-  /** The next offered row from `from` by `delta`, wrapping 12 -> 0 and -1 -> 11 (D:L60824-60860). */
+  /**
+   * The next offered row from `from` by `delta`, wrapping 12 -> 0 and -1 -> 11 (D:L60824-60860). With adaptation rows
+   * placed, the walk is over the rows drawn: while open, the list fixed at the open (START_MENU_LAYOUT_TIME_READING),
+   * so a launcher offered or taken back mid-open neither makes an undrawn row reachable nor skips a drawn one.
+   */
   private next(from: number, delta: 1 | -1): number {
     if (this.d.settings || this.d.adaptations) {
-      const placed = this.layout(), at = placed.indexOf(from);
+      const placed = this.open_ ? this.placed : this.layout(), at = placed.indexOf(from);
       return placed[(at + delta + placed.length) % placed.length] ?? from;
     }
     const seat = this.d.seat();
@@ -788,9 +842,9 @@ export class StartMenu {
   private layout(): number[] {
     const placed = startMenuLayout(this.d.seat());
     if (this.d.settings) placed.splice(1, 0, START_SETTINGS_TYPE);
-    const a = this.d.adaptations;                              // cq41E0VR: after the original rows
-    if (a?.fullscreen) placed.push(START_FULLSCREEN_TYPE);
-    if (a?.fps) placed.push(START_SHOW_FPS_TYPE);
+    const a = this.d.adaptations;
+    if (a?.fullscreen) placed.push(START_FULLSCREEN_TYPE);   // cq41E0VR: after the original rows
+    if (a?.launcher?.()) placed.push(START_LAUNCHER_TYPE);   // WM-LAUNCHER: last (WM-R20-FOLDS item 1; v0.4.22's rows keep their indexes)
     return placed;
   }
 
@@ -847,7 +901,8 @@ export class StartMenu {
       if (this.gateTime > START_MENU_REPEAT_SECONDS) { this.gateTime = 0; this.gate = true; }
     }
     const held = (b: Edge): boolean => b === 1 || b === 2;
-    const down = held(e.Down), up = held(e.Up);
+    const sp = this.stickPress;                                // WM-STICK (OT.R130): the stick's flick, a d-pad press
+    const down = held(e.Down) || sp === 'Down', up = held(e.Up) || sp === 'Up';
     if (!this.confirm) {
       if (this.gate && (down || up)) {                         // D:L60815-60867
         if (down) { this.d.sound(START_MENU_SOUNDS.slide); this.cursor = this.next(this.cursor, 1); this.gate = false; }
@@ -855,8 +910,8 @@ export class StartMenu {
         this.rowAlpha.fill(START_MENU_LAYOUT.rows.alpha);      // D:L60862-60866
       }
     } else if (this.gate) {                                    // the confirm's buttons (D:L60869-60886): the gate left open
-      if (this.confirm.yes && held(e.Right)) { this.confirm.yes = false; this.d.sound(START_MENU_SOUNDS.slide); }        // byte +3, +0xbd4
-      else if (!this.confirm.yes && held(e.Left)) { this.confirm.yes = true; this.d.sound(START_MENU_SOUNDS.slide); }    // byte +4, +0xbd8
+      if (this.confirm.yes && (held(e.Right) || sp === 'Right')) { this.confirm.yes = false; this.d.sound(START_MENU_SOUNDS.slide); }        // byte +3, +0xbd4
+      else if (!this.confirm.yes && (held(e.Left) || sp === 'Left')) { this.confirm.yes = true; this.d.sound(START_MENU_SOUNDS.slide); }    // byte +4, +0xbd8
     }
     if (this.d.allowed()) this.press(e);                       // D:L60891-60893
     this.pulse += this.pulseDir * dt * START_MENU_PULSE_RATE;  // D:L60928-60935
@@ -897,12 +952,20 @@ export class StartMenu {
       this.d.settings.open();
       return;
     }
-    const a = this.d.adaptations;                              // cq41E0VR: the browser adaptations' rows -- toggle and blink, the menu left open
-    if ((this.cursor === START_FULLSCREEN_TYPE && a?.fullscreen) || (this.cursor === START_SHOW_FPS_TYPE && a?.fps)) {
+    const a = this.d.adaptations;                              // cq41E0VR: the browser adaptation's row -- toggle and blink, the menu left open
+    if (this.cursor === START_FULLSCREEN_TYPE && a?.fullscreen) {
       this.d.sound(START_MENU_SOUNDS.select);
-      if (this.cursor === START_FULLSCREEN_TYPE) a?.fullscreen?.toggle(() => { if (this.open_) this.notice = START_MENU_FULLSCREEN_NOTICE_ADAPTATION; });
-      else a?.fps?.toggle();
+      a.fullscreen.toggle(() => { if (this.open_) this.notice = START_MENU_FULLSCREEN_NOTICE_ADAPTATION; });
       this.blink = 0;
+      return;
+    }
+    if (this.cursor === START_LAUNCHER_TYPE) {                 // WM-LAUNCHER (WM.R7): the overlay opened, the START menu closed
+      const launcher = a?.launcher?.();
+      if (!launcher) return;
+      this.d.sound(START_MENU_SOUNDS.select);
+      try { launcher.open(); } catch (e) { console.error('start menu: the launcher did not open', e); }
+      if (launcher.isOpen()) this.close();
+      else this.notice = START_MENU_LAUNCHER_NOTICE_ADAPTATION; // refused: the menu stays open, with the notice
       return;
     }
     const r = START_MENU_ROWS[this.cursor];
@@ -1018,7 +1081,7 @@ export interface StartMenuDrawn {
   /** The four faded alphas (LATER 40): the open's while it is open, falling while the close fades. */
   alphas: StartMenuAlphas;
   title: string;
-  /** cq41E0VR: the one-line notice under the rows' box (`START_MENU_FULLSCREEN_NOTICE_ADAPTATION`), or null. */
+  /** cq41E0VR: the one-line notice under the rows' box (`START_MENU_FULLSCREEN_NOTICE_ADAPTATION`; WM-LAUNCHER's), or null. */
   notice: string | null;
   barY: number;
   bar: readonly [number, number, number];

@@ -47,16 +47,17 @@ describe("LATER 416: a blast's rays take the round's query class", () => {
     expect(blastSeen(floor, [0, 40, 20], [0, 9.5, 0])).toBe(false);
   });
 
-  it("research 386 §3.2 (review 3, F1): the line to a head is one-sided; the line to a destructible (blastLine) stays two-sided by BLAST_REACH_LINE_SIDES_READING -- from behind a one-faced pane the head is reached, the destructible not", () => {
-    // By the reading both are one-sided (the same `FUN_0031dd90` batch, `FUN_003c7ee0` D:L319056; `FUN_002d3030`
-    // D:L175276-175281); `blastLine` keeps two sides until the controller sizes the re-pinned sweeps (386 §8).
-    expect(BLAST_REACH_LINE_SIDES_READING).toBe('two-sided');
+  it("research 386 §3.2 (review 3, F1): the line to a head is one-sided; the line to a destructible (blastLine) is one-sided too since LATER 1087 (b), BLAST_REACH_LINE_SIDES_READING -- from behind a one-faced pane the head is reached, the destructible not", () => {
+    // Both are one-sided (the same `FUN_0031dd90` batch, `FUN_003c7ee0` D:L319056; `FUN_002d3030` D:L175276-175282: the
+    // hull's colliders take 0x20) -- LATER 1087 (b), the second reader's decode and its review; the controller's ruling (A)
+    // of 2026-11-15 (two-sided until then) superseded. A/B at the same head: the last line below was false two-sided.
+    expect(BLAST_REACH_LINE_SIDES_READING).toBe('one-sided');
     const stop = (): number => 0;
     const wall = world([pane(0, 2, 0, 'worldmodel/wall')]);          // its own normal +z
     expect(blastLine(wall, FROM, TO, 'worldmodel/target', 300, stop)).toBe(false);   // the blast in front: stopped
     expect(blastSeen(wall, FROM, TO)).toBe(false);
     expect(blastSeen(wall, TO, FROM)).toBe(true);                                    // behind it: the head reached
-    expect(blastLine(wall, TO, FROM, 'worldmodel/target', 300, stop)).toBe(false);   // the destructible: still stopped
+    expect(blastLine(wall, TO, FROM, 'worldmodel/target', 300, stop)).toBe(true);    // the destructible: reached, as the head
   });
 
   it("a destructible's reach line (blastLine) passes a camera-only pane a solid one of the same material would stop", () => {

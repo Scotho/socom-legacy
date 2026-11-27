@@ -94,6 +94,95 @@ export function teamCarry<T>(scorerTeam: T, players: Iterable<{ team: T; alive: 
  */
 export const OBJECTIVE_STAT_KIND_READING = 'detonate-and-breach-defuse-primary' as const;
 
+/** The game type DEMOLITION (`FUN_002c9540` D:L168877-168906). */
+const DEMOLITION = 2;
+
+/**
+ * OBJECTIVE_TEAMMATE_CREDIT_READING (R4P-252; research 239 s4.5 and s8): online, the BREACH defuse (`FUN_00545650`,
+ * its gate D:L411643, the actor's +0x32 D:L411644, the call D:L411645) and the BREACH or DEMOLITION detonation
+ * (`FUN_00545750`, the types read D:L411671-411672, its gate D:L411689, +0x32 D:L411690, the call D:L411691) call
+ * `FUN_00545d80` (D:L411914-411936), which visits every other player body (type 2, D:L411925; not the actor,
+ * D:L411928) that is alive (+0xe1 bit 4, D:L411929) and shares a team bit with the actor (D:L411930). Its call on each
+ * goes through member-pointer records the decompilation does not resolve, read off the ELF's data (review 1 of R4P-252,
+ * r0001; r0004's twins the same but the type byte): 0x64fd58 and 0x64fd38 point at 0x00545890, which returns the body's
+ * round block (+0x58c); 0x64fd68 points at `FUN_00545650` and 0x64fd48 at `FUN_00545750`. So each living teammate's
+ * block gets the scoring method with a third argument of 1 -- its +0x32 += 1 branch (D:L411649, D:L411695), one primary
+ * objective each; the direct callers pass 0 (D:L163922, D:L163934). Owed as confirmation: a GAME COMPLETE frame of a
+ * living teammate after an online BREACH defuse (r0004). [reading]
+ */
+export const OBJECTIVE_TEAMMATE_CREDIT_READING =
+  'each other living teammate +1 primary: the BREACH defuse, the BREACH or DEMOLITION detonation' as const;
+
+/**
+ * Whether an objective event credits the actor's living teammates a primary objective
+ * (`OBJECTIVE_TEAMMATE_CREDIT_READING`): the defuse in BREACH, the detonation in BREACH or DEMOLITION.
+ */
+export function creditsTeammates(event: ObjectiveEvent, gameType: number): boolean {
+  if (event.kind === 'defuse') return gameType === BREACH;
+  if (event.kind === 'detonate') return gameType === BREACH || gameType === DEMOLITION;
+  return false;
+}
+
+/**
+ * BREACH_SEAL_TALLY_READING (LATER 1462; research 239 s4.5 and s8; reading, pending review): the SEALs' plant tally
+ * BREACH's round-end arm reads. GetRoundResult `FUN_00224d10` runs once per console, for that console's local player
+ * (its one call site D:L76026 in `FUN_00223970`, passing `FUN_002b3580`'s body; the result into that body's
+ * +0x5be / +0x5c0, D:L76028-76029), and sums +0x5c4 (bombs planted, the round block +0x58c's +0x38) over that console's
+ * own SEAL copies (D:L76527-76530). +0x5c4's only incrementing writer, `FUN_005455d0` (D:L411606-411613), writes only
+ * offline (`DAT_0045a0c1` clear) or when the planter is the local player (`FUN_002b3580`); its caller, the bomb state
+ * handler `FUN_002c1c30` state 3 (D:L163940-163947), runs on every console, the guard keeping the write local. No
+ * message carries it: the per-player replicated state carries six other stats words (`FUN_002bd640` D:L162041-162047,
+ * received `FUN_002be150` D:L162417-162440), the bomb object 0x14 bytes with no count (D:L164090-164096). So online a
+ * console's tally is its own player's plants -- a Terrorist console's 0; offline the true count. Two independent reads
+ * of r0001 agree (LATER 1462, reads 1 and 2, 2026-11-24); r0004 moves only the mode byte here (R4P-252's review). A
+ * third read (atlas-maps, read 3) covers both exports and agrees: the round's bombs-planted tally (CSealStats +0x38 at
+ * actor +0x58c); r0004's BombPlanted `FUN_00549ff0` D4:L451763-451780 (offline flag `DAT_0045d481`, local getter
+ * `FUN_002b4f90`, its caller state 3 at D4:L172706), Reset `FUN_00549c20` at D4:L81939, RemoteRespawn `FUN_0059e690`
+ * (r0001 `FUN_00598b90`: the actor's own block saved and restored), UpdateLocalSeal `FUN_002bf280` (r0001
+ * `FUN_002bd640`: the six words, not +0x5c4). Three agreeing reads, no capture.
+ * Would prove it: an r0004 capture of a Terrorist console's +0x5be after a BREACH round with a remote SEAL plant.
+ * [reading]
+ */
+export const BREACH_SEAL_TALLY_READING = 'online, a console sums only its own player plants: a Terrorist console 0' as const;
+
+/**
+ * BREACH_JOINER_CREDIT_PLACEHOLDER (LATER 1462, the controller's ruling (A); research 239 s4.5 and s8): whether a
+ * mid-round joiner on the Terrorist side takes BREACH's round-end +1. Every other Terrorist seat present at the round's
+ * end does, alive or dead, a seat held away or passed by at the round's start, a bot, plant or not, whoever won -- the
+ * three reads agree. For the joiner the plain reading of `FUN_00223970` credits him too (it takes the local body,
+ * D:L76015, and calls GetRoundResult, D:L76026, with no ghost test between; the tally branch D:L76571-76573 has no
+ * life test), but whether a joiner's console reaches that call is unread, so the port holds its earlier behaviour: no
+ * credit (`false`). A true mid-round joiner is a seat seated after the round's start (`Player.seatedAt`, which a
+ * takeover's kept row carries, `TAKEOVER_ROW_READING`: a reconnected seat is not one). Settled by IQ-176: an r0004
+ * capture of a late joiner's YOUR STATS after a BREACH round. Replaces the retired reading of the seats it credits (s8).
+ * [placeholder]
+ */
+export const BREACH_JOINER_CREDIT_PLACEHOLDER: boolean = false;
+
+/** A seat as BREACH's arm reads it: its id, side, life (+0xe1 bit 4) and plants this round (+0x5c4). */
+export type BreachSeat = { id: number; team: 'seal' | 'terrorist'; alive: boolean; roundPlanted: number };
+
+/**
+ * The SEALs' plants this round as the console of `viewer` sums them (`BREACH_SEAL_TALLY_READING`; D:L76527-76530):
+ * offline every SEAL's; online only `viewer`'s own (a remote body's +0x5c4 is never written on his console).
+ */
+export function breachSealTally(viewer: number, players: Iterable<BreachSeat>, online: boolean): number {
+  let n = 0;
+  for (const q of players) if (q.team === 'seal' && (!online || q.id === viewer)) n += q.roundPlanted;
+  return n;
+}
+
+/**
+ * BREACH's arm of GetRoundResult (`FUN_00224d10` D:L76571-76573), as `p`'s own console computes it: a Terrorist
+ * (`FUN_002c30b0`) only; +1 when alive with no SEAL alive (the living count, D:L76506-76530), or when his console's SEAL
+ * plant tally (`breachSealTally`) is 0, alive or dead. A SEAL never.
+ */
+export function breachRoundCredit(p: BreachSeat, players: readonly BreachSeat[], online: boolean): boolean {
+  if (p.team !== 'terrorist') return false;
+  const sealsAlive = players.some((q) => q.team === 'seal' && q.alive);
+  return (p.alive && !sealsAlive) || breachSealTally(p.id, players, online) === 0;
+}
+
 /**
  * ACTION_POINTS_ACTOR_READING (PF.R34; research 214 s5, 210 s8): who scores an action a destructible's death runs
  * (an access barrier's `accessN` -> `EXECUTE_ACTION set_accessN`, `points 2` on MP61 Sujo's six; Vigilance's carry none): the charge's owner (a blast's thrower), the

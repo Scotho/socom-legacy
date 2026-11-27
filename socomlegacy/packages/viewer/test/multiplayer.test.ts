@@ -116,7 +116,7 @@ const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 1
 function loaded() {
   const floor: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
   };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const slot = (side: 0 | 1, index: number, x: number, z: number): SpawnSlot => ({

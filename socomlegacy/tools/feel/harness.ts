@@ -82,10 +82,16 @@ const padForward = (value: number): number[] => [0, -value, 0, 0];
 
 // ---- the decompilation's laws, computed apart from the viewer's code --------------------------------------------
 
-/** Distance after `ticks` ticks of a full forward push from rest: the stick moves 5 a second (`FUN_00586c10`). */
+/**
+ * Distance after `ticks` ticks of a full forward push from rest: the stick moves 5 a second (`FUN_00586c10`), and the
+ * move reads the ramp half a tick ahead -- tick n moves at min(1, (n + 1/2)/12) of the top. LATER 1164 (RAMP_LEAD;
+ * `packages/viewer/test/strafeRamp.test.ts`): the original moves the whole game frame at the frame's new 1/6 step, so
+ * read half a tick ahead the port's 60 Hz ramp lands on r0004's frame ends (the strafe capture cited in that test's
+ * header). Before the lead this law was n/12, 0.4965 u short of the lead over the 60 ticks.
+ */
 function lawForwardDistance(ticks: number): number {
   let d = 0;
-  for (let n = 1; n <= ticks; n++) d += Math.min(1, n * 5 * TICK) * 65 * TICK;
+  for (let n = 1; n <= ticks; n++) d += Math.min(1, (n + 0.5) * 5 * TICK) * 65 * TICK;
   return d;
 }
 
@@ -128,7 +134,7 @@ export function moverRows(): FeelRow[] {
   out.push(row('move.diagHeading', 'W+D: heading off the facing', 'deg', { ...CONSOLE.diagonal, value: 45 },
     Math.atan2(rel.right, rel.forward) / DEG, 'mover', { toleranceAbs: 0.5 }));
   // Fps: the same second of W at 30 and 144 frames a second covers the 60 Hz law's distance.
-  const law1s = { value: lawForwardDistance(60), kind: 'decomp' as const, source: 'FUN_00586c10 ramp over 60 ticks (this table\'s own loop)' };
+  const law1s = { value: lawForwardDistance(60), kind: 'decomp' as const, source: 'the port\'s 60 Hz model of FUN_00586c10 (MISSION R8), read half a tick ahead (LATER 1164, research 446; this table\'s own loop); the original\'s own 30 Hz frames give about 59.58' };
   for (const fps of [30, 60, 144]) {
     const s = new FeelRig('stand').hold(1, { keys: ['KeyW'] }, fps);
     out.push(row(`move.dist1s@${fps}`, `1 s of W from rest at ${fps} fps: distance`, 'u', law1s, -s[s.length - 1]!.feet[2], 'mover',

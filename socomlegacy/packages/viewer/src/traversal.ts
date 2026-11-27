@@ -1,17 +1,17 @@
 import {
-  findLadders, ladderFrame, probeFloor, probeGround, probeWater, segmentHits, selectFloor, surfaceWord, APP_LADDER, GAME_FRAME_DT, SEAL_TUNING, SURFACE_SIDE, SURFACE_SKIP,
+  findLadders, ladderFrame, probeFloor, probeGround, probeWater, segmentHits, selectFloor, surfaceWord, APP_LADDER, GAME_FRAME_DT, GameFrameAccumulator, SEAL_TUNING, SURFACE_SIDE, SURFACE_SKIP,
   type Grid, type Ladder, type MotionClip, type WorldPoly,
 } from '@s2u/scene';
 import type { TraversalPose } from './animator';
 import { BLEND_TIME_DEFAULT, blendWeight, entryOf, loopScale, oneShotSeconds, rootTravel, SEAL_ANIMS } from './locomotion';
 import { blendShapes, ClipPath, clipShape, reverseShape, rootAt, shapeTravel, STEER_RATE, straightShape, truncateShape, type ClipShape, type PathPoint } from './clipPath';
 import {
-  CLIMB_TOP_FLOOR_READING, CLIMBABLE, contactFromHits, contactHolds, contactOf, cornerDrop, floorUnder, obstacleRay, planClimb, topFloor, type ClimbClass, type ClimbContact, type ClimbPlan, type WalkHit,
+  CLIMB_TOP_FLOOR_READING, CLIMBABLE, contactFromHits, contactHolds, contactOf, cornerDrop, obstacleRay, planClimb, topFloor, type ClimbClass, type ClimbContact, type ClimbPlan, type WalkHit,
 } from './climb';
 
 export { CLIMB_TOP_FLOOR_READING } from './climb';
 import type { MotionEntry, MotionTable } from './motionTable';
-import { OneShotSteer } from './net/emplacement';
+import { mountPlayedOut, mountRootVelocity, OneShotSteer } from './net/emplacement';
 import { CROUCH_HEIGHT, PRONE_HEIGHT, STANDING_HEIGHT } from './stature';
 import { shortTurn } from './yaw';
 import {
@@ -49,7 +49,9 @@ import {
  * the head      at each cycle's end with the stick up (>= 0.03): a ray 11 along the facing from the root raised by
  *               the climb-off's rise less 1 (FUN_005b0eb0); no ladder polygon hit -> "Climb off ladder" forward,
  *               the SEAL set on the top at its end (FUN_00588bc0, 446544)
- * the foot      stick back and the feet under the ground + 1.0: "Stand -> Ladder" backwards (FUN_00584240)
+ * the foot      stick back and the feet under the ground + 1.0: "Stand -> Ladder" backwards (FUN_00584240); "the
+ *               ground" is the actor's cached floor RECORD (`+0x400..+0x41c`, its y `+0x404`, copied to `+0x2e4` each
+ *               climb frame), the last floor the probe answered, kept when it answers nothing (B-50, `ladderFloorAt`)
  * the slide     the action button's "LADDER SLIDE" (0x3e4de8; FUN_00592d50 -> FUN_0057f530 -> FUN_0057f3e0):
  *               "Ladder -> slide" then "Ladderslide", falling at gravity x 0.8 (FUN_0059b440, 456492), the root at
  *               11.44 (FUN_0059b870); on the ground "Ladderslide land" (FUN_0057f310)
@@ -212,6 +214,7 @@ export const LADDER_MATCH_READING = 1;
  * rows 14-15). The port keeps no per-ladder occupant and its wire no ladder claim: two SEALs may take one ladder.
  * `'not modelled'` until LC-3 (a wire field, the main controller's to approve). Settled by a two-console capture: one
  * SEAL on the ladder, whether CLIMB shows for the second at its foot.
+ * TRIPWIRE: LC-3 reopens R4P-R1 (AS-01, research 86 s2.6) -- a mount that waits on the room needs r0004's +0x1334 word.
  */
 export const LADDER_OCCUPANCY_READING = 'not modelled' as const;
 /**
@@ -289,6 +292,18 @@ export const PEEK_STANCE_ENDS_PEEK_READING = true;
  * replays the lean's rise (key 0) -- the original's flicker; owed the capture of research 180 s1.12.
  */
 export const PEEK_REPUSH_KEY_READING = 'held' as const;
+
+/**
+ * R4P-108 (R4-MOV-PEEKWATER, L107; reading, reviewed): a crouched body in water deeper than this refuses the peek, and
+ * a held one ends -- read at r0004's bytes (seat-kill's fresh review): the side ray 0x59c800 tests the action gate first
+ * (0x5ba680), then `+0x174 == 1` (crouched ONLY, 0x59c840-0x59c848), in water (`+0x105e` bit 7), the depth `+0xf88`
+ * against the immediate 0x40900000 = 4.5f, `c.ole.s` refusing iff depth > 4.5 (STRICT: 4.5 itself taken;
+ * 0x59c840-0x59c88c), every frame from the controller's tick 0x59a6e0 (r0001 twin `FUN_00594cf0`). r0001 has no water
+ * test (an r0004 addition). Standing, the water branch is not read: a standing peek in water of any depth is taken; prone
+ * cannot be that deep. Q108-PC2 (r0004 running, unscored) agrees: 4.406 taken, 4.606 refused -- a reading, a capture
+ * (Q108-PC2) agreeing (a ruling cannot make a value proven); captures at 4.45 / 4.5 / 4.55 and standing past 4.5 are owed.
+ */
+export const PEEK_WATER_DEPTH_READING = 4.5;
 
 
 /** The movement's surfaces (`DAT_0044d758 == 0`): bit 1 set, bit 18 clear -- the walls the peek's ray meets. */
@@ -423,6 +438,17 @@ export const DIVE_PRONE_TAKE_READING = 'down and at rest' as const;
 const DIVE_BLEED = 150;
 /** `FUN_0059b870`: the root's height through the slide. */
 const SLIDE_ROOT = 11.44;
+/**
+ * B-50 (research 86 s2.7; the residue R1 of the row 7 read): the ladder's floor probe -- its column's offset from the
+ * body (`ahead`, along the facing) and its origin's lift over the feet (`lift`). The original issues it through the
+ * body's own column plus the local translation of the node the `+0x88` virtual returns, turned into the world (r0004
+ * 0x5b6718-0x5b67f4; r0001 `FUN_005b0840` D:L467169-467290); r0004's inserted raise is 0 for state 5 (0x5b67f8-0x5b6844).
+ * UNREAD is only which node that is (0x5b6718-0x5b674c): the clips' root -- whose heights the port already holds,
+ * 15.6 on the rungs (`ladderRoot`) and 11.44 in the slide (`SLIDE_ROOT`) -- or a node at the feet. Two readings; the
+ * smaller change (0, the feet) is kept until one rig read of the query's origin during a climb (r0004 0x5b6938-0x5b694c)
+ * settles it (the row 7 review F5).
+ */
+export const LADDER_PROBE_COLUMN_PLACEHOLDER = { ahead: 0, lift: 0 } as const;
 /** `FUN_0059b440`: the slide falls at gravity x 0.8. */
 const SLIDE_GRAVITY = 0.8;
 /** The standing root (`walk.ts` `STANCE.stand.rootY`), which the moves hand back to. */
@@ -500,9 +526,12 @@ const REF_UP: Record<string, number> = {
   seal_step_up: -3.48 + 1, seal_climbcrate: 1.48, seal_climb_medium: 9.98, seal_climb_over: -0.96, seal_stand2hang: 18.51,
 };
 /**
- * `FUN_0059afd0` (decomp 456455-456460): under a `UseVelY` clip the root is held at most 11.487 over the actor, the
- * vertical going to the actor -- so the steer (`FUN_005b3340`, D:L468927) measures the clip's `refPt` from 11.487 over
- * the feet.
+ * `FUN_0059afd0` (D:L456455-456456): under a non-reversed `UseVelY` top the root node's height is capped at 11.487 over
+ * the actor (the set at D:L456460 is a reversed play's only; research 313 s8.18 (a)). The steer (`FUN_005b3340`, D:L468927)
+ * measures the clip's `refPt` from the root node's world point -- the last frame's feet plus the node's blended, capped y,
+ * which is 11.487 over the feet only while the node is at the cap. The climb over carries that node itself (LATER 1222,
+ * `OverCarry`); the other climbs read this constant until their own capture. *Was* (corrected by LATER 1222, s8.18 (e)):
+ * "the steer measures the clip's `refPt` from 11.487 over the feet".
  */
 const STEER_ROOT = 11.4869995;
 /**
@@ -545,25 +574,68 @@ export const CLIMB_STEER_READING = 'concurrent' as const;
 export const CLIMB_STEP_UP_STICK_READING = 'none' as 'pushing' | 'none';
 
 /**
- * PROVEN for the running jump's launch at one face, the code's cause unread (JUMP-AIR, research 80 s7): the automatic
- * step-up does not start in the launch (`'not-in-launch'`; `'any'` is the port before). The r0004 jump-near-wall capture
- * (ac, 2026-11-04, M51 g19733; capture-scored by `test/weaponLine.test.ts`'s two JUMP-AIR cases) never stepped up in
- * the air: pressed 6.95 out the feet rose to +11.75 against the 14-tall face, the height to the top sweeping the whole
- * 5-10 band with the contact held (`+0x10ac` set every airborne frame, CLIMB offered), and the jump ran 8 -> 10 -> 2;
- * pressed 17.43 out it cleared in one arc. The code read (`FUN_00593500` D:L452279-452290 -> `FUN_0059d980` ->
- * `FUN_005b3ce0` D:L469263-469276 -> `FUN_005b2620` -> `FUN_00580b70`) would push the step-up in the air, so what
- * refuses it is unread (upstream, perhaps the contact's life in the air, `FUN_005483d0` D:L413618-413671). Scoped to the
- * launch, the one state the capture holds: a walk-off fall, a dive, a knock and the bots keep the step-up, unevidenced
- * either way. The press's jump-grab is unchanged.
+ * READING, pending review (R4P-243, ATLAS L373, research 313 s8.24; capture IQ-179 queued): the automatic step-up (class
+ * 4, 5 < h <= 10) does not start while the top blend is `Jump launch` (type 8) or `Jump fall` (type 9), airborne or not
+ * (`'not-in-jump-blend'`); `Jump land` passes. r0004's CanTraverse `FUN_005b9ff0` kind 4 calls the front impact and the
+ * contact release only when `FUN_0058d580` (launch or fall on top) answers 0 (D4:L510624-510642); the r0001 twin
+ * `FUN_005b3ce0` runs them unconditionally (D:L469263-469276) -- so the cause JUMP-AIR called unread is a blend test, not
+ * an airborne one. *Was* (`'not-in-launch'`, JUMP-AIR): refused in an airborne launch only; `'any'` is the port before.
+ * PROVEN for the running jump's launch at one face (JUMP-AIR, research 80 s7), and this reading agrees: the r0004
+ * jump-near-wall capture (ac, 2026-11-04, M51 g19733; capture-scored by `test/weaponLine.test.ts`'s two JUMP-AIR cases)
+ * never stepped up in the air: pressed 6.95 out the feet rose to +11.75 against the 14-tall face, the height to the top
+ * sweeping the whole 5-10 band with the contact held (`+0x10ac` set every airborne frame, CLIMB offered), and the jump
+ * ran 8 -> 10 -> 2; pressed 17.43 out it cleared in one arc. The press's jump-grab is unchanged. Owed: a capture of a
+ * fall past a 5-10 face (IQ-179).
  */
-export const AIR_STEP_UP_READING = 'not-in-launch' as 'not-in-launch' | 'any';
+export const AIR_STEP_UP_READING = 'not-in-jump-blend' as 'not-in-jump-blend' | 'any';
+
+/**
+ * OWNER (DG-GUARD, the owner's safety ruling, 2026-11-25: "Ship the guard", relayed by the main controller; DG-CLIMB):
+ * a step-up plan (`ClimbPlan.automatic`: appflags 4, 5 < h <= 10 -- the original's automatic entry, `FUN_005b3ce0` calling
+ * the front impact for class 4 in that band, D:L469246, D:L469270-469274) is not started -- neither by itself nor on a press
+ * -- when its end finds no floor (`stepUpEndFloor` null: `topFloor` at the uncut clip's own distance past the target, the
+ * point `Traversal.climbClip` would aim the feet at). The body is left as if nothing started -- the offer (the prompt)
+ * stands, the walk goes on, and the same test is asked again the next tick with nothing changed; the other climbs and the
+ * climb over are unchanged. NOT the original's: r0004 STARTS this step-up at MP6's seam and asks no floor of the top
+ * (`CLIMB_TOP_FLOOR_READING` 'dropped', NU-1c B12), then drops the body back to the floor 0.37 u IN FRONT of the face,
+ * wedged (DG-DIAG20-r0004, PC 2, record 24d8fa69, observed); the port's same step-up carries the body 1.0 u PAST the face
+ * onto no floor, inside the wall (PC 4). The guard reaches the original's end state (in front, on the floor) without its
+ * rise. The faithful fix -- the step-up's end dropped to the floor as r0004's, and the contacted polygon (the original
+ * holds the wall's full-height polygon, top 29.983, DG-CLASS-BP-r0004; the port picks `worldmodel/firstwall_climber1`'s
+ * split quad) -- replaces it in v0.4.33 (DG-CLIMB). `false` is the port before (DG-GUARD's census:
+ * `test/parity/dgStepUpGuard.parity.test.ts`).
+ */
+export const STEP_UP_FLOOR_GUARD_OWNER = true as boolean;
+
+/** How far past the target an uncut climb's end looks for the top's floor: the clip's travel less its `refPt` z. */
+function uncutPast(shape: ClipShape, clip: string): number {
+  return Math.max(0.5, shapeTravel(shape).ahead - (REF_AHEAD[clip] ?? 8.92));
+}
+
+/**
+ * The floor an uncut climb's end lands the feet on (`Traversal.climbClip`'s `topFloor` at `uncutPast`), or null: what
+ * `STEP_UP_FLOOR_GUARD_OWNER` asks of an automatic step-up before it starts.
+ */
+export function stepUpEndFloor(grid: Grid, shapes: TraversalShapes, plan: ClimbPlan): number | null {
+  return topFloor(grid, plan.target, plan.contact, uncutPast(shapes.get(plan.clip), plan.clip));
+}
 
 /**
  * NU-1c B10: the climb's steer under way, on its clip's run -- the clock, the weight and the turn (`OneShotSteer`), the
  * facing it turns to (degrees), the horizontal offset still open between the clip's track and the body, the share of the
  * vertical (`lift`) still open, and that vertical whole.
  */
-interface ClimbSteer { core: OneShotSteer; facing: number; ex: number; ez: number; open: number; lift: number }
+interface ClimbSteer { core: OneShotSteer; facing: number; ex: number; ez: number; open: number; lift: number; phase?: number; k?: number; tilt?: ClimbTilt }
+
+/**
+ * LATER 1250 (research 313 s8.23; `CLIMB_STEER_TILT_READING`): the steer record's tilt for a climb on the 60 Hz path (the
+ * step-up, the crate, the medium and their blend, "Stand -> Hang"; the climb over carries its own, `OverCarry`).
+ * `normal`: the contact polygon's first-triangle normal negated, world, stored once at the push (play `+0x7c`,
+ * `FUN_005b1a10` D:L467927-467932); `refX`, `refY`, `refZ`: the stored `refPt` (`+0x6c`), less the clip root's velocity x dt
+ * each command (D:L468947-468951), never turned in storage; `v`: the vertical the turn has left open on the drawn root,
+ * against the flat steer (`Traversal.drawnRoot`).
+ */
+interface ClimbTilt { normal: readonly [number, number, number]; refX: number; refY: number; refZ: number; v: number }
 
 /**
  * `motion.rdr`'s `NoInterrupt` of the climb clips (the disc's `RUN/READERC.ZAR` member `motion.rdr`, read by
@@ -578,7 +650,8 @@ export const CLIMB_NO_INTERRUPT: Readonly<Record<string, number>> = Object.freez
 
 /**
  * READING (named; NU-1a, research 313 sections 4 and 8.4, its D3): a climb's clip -- the step-up, the crate, the medium and
- * their blend, the climb over, "Stand -> Hang", "Hang -> Climb" -- is cut by the stick or the turn past `INTERRUPT_STICK`
+ * their blend, "Stand -> Hang", "Hang -> Climb" (the climb over not: its axes are zeroed, `CLIMB_OVER_AXES_READING`,
+ * LATER 1223; was: "the climb over" among them) -- is cut by the stick or the turn past `INTERRUPT_STICK`
  * (`Walker.stickCut`) on the first command its phase is past its `NoInterrupt` (`CLIMB_NO_INTERRUPT`): the driver's
  * ordinary cut (`FUN_00550ef0` D:L418176-418203, `FUN_00587c20` D:L445549-445565), asked before the tick's advance, on the
  * clip's clock from its push, `t / (playback x (n - 1) / n)` (`NOFIRE_PHASE_READING`), with `Walker.holdCut`'s lag for a
@@ -593,6 +666,154 @@ export const CLIMB_NO_INTERRUPT: Readonly<Record<string, number>> = Object.freez
  * with the stick held forward -- the frame the walk resumes and the feet against the edge (research 313 section 8.2).
  */
 export const CLIMB_CUT_READING: HoldPass = 'before';
+
+/**
+ * READING (named; LATER 1223, research 313 section 8.16), PROVEN on r0004 for the stick (l278-climbover F1/F2): the
+ * stick or the turn never cuts `Climb over` (`'zeroed'`). The driver calls `FUN_005af930` with the move axes and the
+ * turn (`+0x240`, `+0x244`, `+0x23c`) just before its top-play block (D:L418169); outside its suspended list (`Climb crate`,
+ * `Climb medium`, `Step up`, the ladder's and `Hang -> Climb`'s ids, or state 4: D:L466760-466787) it sets the actor's
+ * `+0x105e` bit 0x20 (D:L466805-466806), runs the floor routine `FUN_0059b440` -- which clears that bit on a floor
+ * (D:L456508, D:L456528, D:L456558, D:L456602) -- for every action but `Climb over` (D:L466808-466810), and with the bit
+ * still set zeroes the three axes (D:L466811-466815). Under `Climb over` the bit is never cleared, so the cut's test of
+ * those axes past 0.1 (D:L418182-418185) reads zeros and `FUN_00587c20`'s phase past `NoInterrupt` 0.8 cuts nothing:
+ * the clip runs to its end. The capture: with the stick held forward from the press, action 189 ran its full clip
+ * (F1 0.901 s from its first action-189 row to its first other row; F2 the same, read through a 0.17 s recorder gap), as
+ * the uncut T1/T2, then the run (action 2). The other climbs keep the cut
+ * (`CLIMB_CUT_READING`); the knock's and the flinch's pops are not the stick's and are unchanged. *Was* (NU-1a): the climb
+ * over cut past its `NoInterrupt` like the others.
+ */
+export const CLIMB_OVER_AXES_READING = 'zeroed' as 'zeroed' | 'read';
+
+/**
+ * READING (named; LATER 1222, research 313 s8.18 (a) 5 and (b); research 101): the root node's blend into `Climb over` from
+ * the pose at the push lasts **0.4 s**. `FUN_00576860` (called at D:L418455, right after the tick at D:L418454) steps the
+ * blend's timer by dt each frame and weighs the push's snapshot by the ease of what is left over the length
+ * (D:L436621-436634, `blendWeight` = `FUN_002874f0`'s ease); the push sets the timer to the motion's `+0x20`
+ * (D:L135218-135220), which `seal_climb_over`'s `motion.rdr` row leaves unset (`BlendTime`). The 0.4 is the default the
+ * port's `./locomotion` `BLEND_TIME_DEFAULT` reads in `FUN_00287620` for an unset `BlendTime` (not re-read for this row),
+ * and it is **pinned by the capture** (l278-climbover, proven): with it the node reproduces skel_root within 0.00006 on T1,
+ * F1, L1x and L2x over all 27 frames; 0.39 or 0.41 miss by 0.03. The snapshot is the posture's root at the push
+ * (`stanceRootY`; the capture's running F1 reads 11.3587, the run cycle's drawn root, which the simulation does not hold:
+ * its feet 0.39 off the rows against 0.33). The node is capped at 11.487 (`STEER_ROOT`, D:L456455-456456) and is the drawn
+ * root over the feet through the clip. Owed: the read of `FUN_00287620`'s default at its line for this row.
+ */
+export const CLIMB_OVER_BLEND_READING = 0.4;
+
+/**
+ * READING (named; LATER 1222, research 313 s8.18 (b), folded from the design review's F1): which frame the first
+ * action-189 row of l278-climbover is against the push. The push sets bit 8 of a non-looped play (D:L135209-135212) and
+ * `FUN_0028c4f0` holds that tick's advance; the blend's timer is stepped every frame `FUN_00576860` runs
+ * (D:L436624-436629), held tick or not. Two pairings: `'held'` (A) -- the push frame's tick held, its blend step taken,
+ * the first row the frame after: the node then leaves skel_root at every blend length; `'push-advances'` (B, built) --
+ * the push frame is the first row, its tick advances and its blend steps (capture frame i = game frame i, the phase
+ * (i + 1) x dt / (playback x (n-1)/n)): the node matches skel_root within 0.00006. So the climb over steps its game frame 0
+ * on the press's own tick (the other climbs keep their first advance on the next command). How bit 8 goes unseen, read on
+ * r0001 by the build's review (reading, pending review): the press's push runs early in the driver (`FUN_005b4b40`,
+ * D:L418132, D:L418155), whose phase preview `FUN_0028c4f0(.., 0)` on the top play (D:L418293) clears bit 8 without storing
+ * the phase (D:L134257), so the tick at D:L438901 advances on the push frame (OT.R97: r0004's frame order not re-checked). Owed: play `+0x1c` and `+0x28` bit 8 read on the push frame of
+ * a climb over (research 313 s8.18, "the next capture").
+ */
+export const CLIMB_OVER_FRAME_ORDER_READING = 'push-advances' as 'push-advances' | 'held';
+
+/**
+ * READING (named; LATER 1244, research 313 s8.20 (b) 1 and s8.21 (a); research 101): the climb over's steer turns the
+ * stored `refPt` each frame by the shortest arc from this vector -- play `+0x9c`, in the body's frame -- onto the contact's
+ * reversed normal taken into the body's frame. `FUN_005b1a10` stores the stored contact's normal (the hit slot's words 4-6,
+ * D:L468504) negated, whole, at play `+0x7c` once (D:L467927-467932), and this vector from `0x3f6500` at `+0x9c`
+ * (D:L467934); `FUN_005b3340` takes `+0x7c` into the body's frame by the actor's conjugate rotation (D:L468840-468844),
+ * builds the rotation from `+0x9c` onto it (`FUN_00306d40`, D:L468892: h = normalize(a + b), the quaternion (a x h, a . h),
+ * D:L206032-206078) and turns a copy of `refPt` by it (D:L468893) before the body matrix and the target (D:L468898-468926);
+ * the stored `refPt` is never turned (D:L468947-468951). The normal is the plane of the contact polygon's first three
+ * points, `(p2 - p1) x (p0 - p1)` (the hull's VU0 routine, research 281 s4.3). The vector at `0x3f6500` is zero in the ELF's
+ * file image (set at run time, its writer unread); **fitted** on r0004 as (0, 0, -1), the body's forward
+ * (l1222-climbover2: the other sign misses by 9; with it the feet within 0.0022 on S1b) -- the capture never reads
+ * `0x3f6500` or `+0x9c`, and its y-only rows on faces whose normal lies in the body's y-z plane constrain only y and z:
+ * a small lateral (x) part would move only the unscored x/z aim. Owed: one PINE read of play `+0x9c`. *Was* (LATER 1222): the climb over
+ * steered on a flat `refPt` (the contact's nx and nz only) -- 0.36 of S1b's feet. Owed: the run-time writer of `0x3f6500`.
+ * LATER 1250 (research 313 s8.23; reading, pending review, no capture): `FUN_005b1a10` records the same whole normal for
+ * the step-up, the crate, the medium and "Stand -> Hang" (D:L467888-467934), so their steer takes the arc too
+ * (`climbTilt`); the mount's record is level (`FUN_005463c0` D:L412296), its arc `seatTarget`'s yaw: no tilt.
+ */
+export const CLIMB_STEER_TILT_READING: readonly [number, number, number] = Object.freeze([0, 0, -1]) as readonly [number, number, number];
+
+/**
+ * READING (named; LATER 1244, research 313 s8.21 (b); research 101), PROVEN on r0004 for the value: the node the climb
+ * over's hand-off stands the feet under `+0xfac` by, where that is over the floor pick -- `Jump fall`'s root. The end
+ * leaves the body over its floor, so `FUN_0057e050` pushes `Jump fall` (action 9 in the anim-type table at `0x661060`,
+ * D:L440726), whose Seal clip `seal_runningjump_in_air` (`motion.rdr`: playback 5, 14 keys, `BlendTime` 0.75) holds one
+ * `skel_root` key, y **10.59765625** (`RUN/MOTION_P.ZAR`; `traversal.test.ts` pins it on the pack), and `FUN_0059afd0`
+ * stands the feet at `+0xfac` less the root node's y (D:L456368-456371). l1222-climbover2's action-9 rows read skel_root
+ * 10.5977 (S1, S1b) and the feet 63.2992 - 10.5977 = 52.7015 exactly: the node is the clip's own root, the 0.75 blend from
+ * the climb over's last node not in it (why: the push against the blend's step, D:L418454-418455, r0004's frame order,
+ * unread, OT.R97). *Was* (LATER 1222): the posture's standing root 11.4844 -- the fence's hand-off row 0.62 under. Owed:
+ * the frame order of the `Jump fall` push against `FUN_00576860` on r0004.
+ */
+export const CLIMB_OVER_FALL_READING = 10.59765625;
+
+/**
+ * LATER 1244 (`CLIMB_STEER_TILT_READING`): the climb contact polygon's first-triangle normal, `(p2 - p1) x (p0 - p1)`
+ * normalised (the hull's hit normal, research 281 s4.3), or null for a degenerate first triangle.
+ */
+function firstTriangleNormal(p: ArrayLike<number>): [number, number, number] | null {
+  const ax = p[6]! - p[3]!, ay = p[7]! - p[4]!, az = p[8]! - p[5]!;
+  const bx = p[0]! - p[3]!, by = p[1]! - p[4]!, bz = p[2]! - p[5]!;
+  const n: [number, number, number] = [ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx];
+  const l = Math.hypot(n[0], n[1], n[2]);
+  return l > 1e-12 ? [n[0] / l, n[1] / l, n[2] / l] : null;
+}
+
+/**
+ * LATER 1244: `v` turned by the shortest arc from the unit `a` onto the unit `b` -- `FUN_00306d40`'s quaternion (D:L206032-
+ * 206078: h = normalize(a + b), q = (a x h, a . h); a + b zero, a half turn about (a.y, -a.x, 0), or x where a.x is 0).
+ */
+function turnByArc(a: readonly number[], b: readonly number[], v: readonly number[]): [number, number, number] {
+  let hx = a[0]! + b[0]!, hy = a[1]! + b[1]!, hz = a[2]! + b[2]!;
+  let qx: number, qy: number, qz: number, qw: number;
+  const hl = Math.hypot(hx, hy, hz);
+  if (hl > 1e-12) {
+    hx /= hl; hy /= hl; hz /= hl;
+    qx = a[1]! * hz - a[2]! * hy; qy = a[2]! * hx - a[0]! * hz; qz = a[0]! * hy - a[1]! * hx; qw = a[0]! * hx + a[1]! * hy + a[2]! * hz;
+  } else if (a[0] === 0) {
+    qx = 1; qy = 0; qz = 0; qw = 0;
+  } else {
+    const l = 1 / Math.hypot(a[0]!, a[1]!);
+    qx = a[1]! * l; qy = -a[0]! * l; qz = 0; qw = 0;
+  }
+  // v' = v + 2 w (q x v) + 2 q x (q x v)
+  const cx = qy * v[2]! - qz * v[1]!, cy = qz * v[0]! - qx * v[2]!, cz = qx * v[1]! - qy * v[0]!;
+  return [
+    v[0]! + 2 * (qw * cx + qy * cz - qz * cy),
+    v[1]! + 2 * (qw * cy + qz * cx - qx * cz),
+    v[2]! + 2 * (qw * cz + qx * cy - qy * cx),
+  ];
+}
+
+/**
+ * LATER 1250: `v` turned by the shortest arc from `CLIMB_STEER_TILT_READING` onto the body-frame normal `nb` made level (its
+ * y dropped) -- the part of `FUN_005b3340`'s turn (D:L468892-468893) the flat steer already lays, its facing the record's;
+ * a turn about the vertical, so `v`'s y is kept. `v` itself where `nb` has no horizontal part.
+ */
+function levelTurn(nb: readonly number[], v: readonly number[]): [number, number, number] {
+  const hl = Math.hypot(nb[0]!, nb[2]!);
+  return hl > 1e-12 ? turnByArc(CLIMB_STEER_TILT_READING, [nb[0]! / hl, 0, nb[2]! / hl], v) : [v[0]!, v[1]!, v[2]!];
+}
+
+/**
+ * LATER 1222 (research 313 s8.18): the climb over's carried vertical, stepped once a game frame (`GAME_FRAME_DT`) --
+ * the clock that owns the over's phase, its x/z steer, its vertical, its end and its hand-off. `feet`: the actor's y
+ * (`+0x20`); `travel`: the clip root's vertical integrated so far (S, what the stored `refPt` has moved by,
+ * D:L468947-468951); `node`: the root node's y after the blend and the cap (N, the last frame's); `snap`: the blend's
+ * snapshot; `up`: the clip's `refPt` y negated (0.96); `top`: the steer target's y (the contact's top, D:L467887);
+ * `hold`: after the hand-off frame held over the pick, the pick to stand on the next. LATER 1244
+ * (`CLIMB_STEER_TILT_READING`): `normal` the contact's reversed normal, world, stored once at the push (play `+0x7c`,
+ * D:L467927-467932; null for a degenerate polygon: the flat `refPt`); `refX`, `refZ` the stored `refPt`'s x and z, less the
+ * root's velocity x dt each frame like its y (D:L468947-468951), never turned in storage.
+ */
+interface OverCarry {
+  clock: GameFrameAccumulator; frames: number; top: number; up: number;
+  feet: number; travel: number; node: number; snap: number; hold: number | null;
+  normal: readonly [number, number, number] | null; refX: number; refZ: number;
+}
 
 /**
  * READING (named; NU-1a, research 313 sections 3 and 8.4, its D11; settled by NU-1c B11's re-read, section 8.6): the cut
@@ -699,6 +920,70 @@ export function climbHoldsBody(clip: string | null | undefined): boolean {
 }
 
 /**
+ * READING (named; LATER 562, research 86 s2.8; reading, pending review): a reload's start is refused through the ladder
+ * slide's landing (`seal_ladderslide_land`, `'refused'`). Its push is read (`land`, `FUN_0057f310`, r0004 0x584830: the
+ * stack popped toward the base, the landing clip pushed at posture 0, no state written), so state 5 holds while the clip
+ * plays if it is a one-shot -- and it is: `motion.rdr`'s `looped` 0 for `seal_ladderslide_land` (playback 1.3; the disc's
+ * `RUN/READERC.ZAR` through `motionTableFromArchive`, 2026-11-22), the record tick then writing the state from the ended
+ * record (D:L445118-445147) -- the refusal resting on the record under a ladder's records not being posture 3 (the pop
+ * writes 3 or 8 back; the fold delta's X3). *Was:* `LADDER_RELOAD_SLIDE_LAND_PLACEHOLDER` `'taken'` ("not found"; the 562 review's F1 and
+ * its delta's D5: a reader lookup, not a ruling).
+ */
+export const LADDER_RELOAD_SLIDE_LAND_READING = 'refused' as 'taken' | 'refused';
+
+/**
+ * READING (named; LATER 562, research 86 s2.8; the review's F2): the foot's step-off ("Stand -> Ladder" reversed, clip
+ * 0x2c, posture 0; r0004 0x589840 = `FUN_00584240` D:L443765-443773) refuses a reload while it plays (`'refused'`): the
+ * state stays 5 through it only if the clip is a one-shot (the record tick writes the state from a looped top every
+ * frame, from an ended one-shot's posture when it ends; D:L445115, D:L445118-445147) -- and it is a one-shot: `motion.rdr`'s
+ * `looped` 0 for `seal_stand2ladder` (playback 0.9; the disc's `RUN/READERC.ZAR` through `motionTableFromArchive`,
+ * 2026-11-22). `LADDER_RELOAD_CLIPS`' `toLadder` carries it (the clip in both directions of play; `ladderReload.test.ts`
+ * binds this value to that membership). Owed beside it: a capture, R held at the last rung going down.
+ */
+export const LADDER_RELOAD_FOOT_READING = 'refused' as 'taken' | 'refused';
+
+/**
+ * READING (named; LATER 562, research 86 s2.8; the fold delta's X1): a reload's start is refused under the "180" turn
+ * before a head mount (`seal_180`, `'refused'`). The gate's test 4 (r0004 0x5ba6f0-0x5ba70c) refuses every code while the
+ * current clip is the one whose id is the word at r0004 0x409cb0, and that word's one writer (0x5e97a8) stores the name
+ * lookup (0x5ec760, called at 0x5e9798) of the string at 0x661528, "180"; the turn's clip is pushed at 0x5b86f0-0x5b8704.
+ * So the 180 is refused wherever it plays; at a ladder it joins `LADDER_RELOAD_CLIPS`. (`seal_180` is a one-shot, `looped`
+ * 0, playback 0.95.) *Was:* `'taken'`, the id thought unresolved.
+ */
+export const LADDER_RELOAD_TURN_READING = 'refused' as 'taken' | 'refused';
+
+/**
+ * LATER 562 (research 86 s2.8; reading, pending review): the ladder's clips a reload's start is refused under. The
+ * original's action gate (r0004 0x5ba680, r0001 `FUN_005b4340`; it differs at r0004 and was read directly) refuses every
+ * code in the ladder's state 5 or with a posture-5 record on top (0x5ba710-0x5ba73c; r0001 D:L469329-469330), the
+ * reload's code 3 among them (the kit's timer -> 0x5c9f60 = `FUN_005c2a90` -> the gate, D:L476550-476560, D:L477404).
+ * By phase: the foot's mount pushes 0x2d and 0x2c with posture 5 (0x584de0 = `FUN_0057f880`, D:L441547-441561), the head's
+ * 0x2d and 0x2e reversed (0x584bb0, D:L441478-441480); the rungs are state 5 under looped 0x2d; the slide sets state 5
+ * on its push (0x584900, D:L441368-441370); the climb-off at the head (0x2e, posture 0) keeps state 5 until it ends.
+ * The step-off at the foot (0x2c reversed, posture 0) is refused only while state 5 lasts through it -- an inference
+ * (that clip a one-shot), named, which `toLadder` here takes in both directions of play. The original tests a state or a
+ * posture, not a clip list; where the port has only the clip (the page's pose, the room's frame), every ladder clip is
+ * refused in both directions, so the set is the same law. Not a refusal of this term: a mount pressed under a running
+ * reload, which the offer's `climbOffered` already refuses (0x5ad790 = `FUN_005a7ab0`).
+ */
+export const LADDER_RELOAD_CLIPS: ReadonlySet<string> = new Set([
+  TRAVERSAL_CLIP.toLadder, TRAVERSAL_CLIP.ladder, TRAVERSAL_CLIP.offLadder, TRAVERSAL_CLIP.toSlide, TRAVERSAL_CLIP.slide,
+  ...(LADDER_RELOAD_SLIDE_LAND_READING === 'refused' ? [TRAVERSAL_CLIP.slideLand] : []),
+  ...(LADDER_RELOAD_TURN_READING === 'refused' ? [TRAVERSAL_CLIP.turn180] : []),
+]);
+
+/**
+ * Whether a reload's start is refused under `clip` (`CLIMB_RELOAD_REFUSED_READING`): a climb holding the body
+ * (`climbHoldsBody`) or, LATER 562, a ladder's clip (`LADDER_RELOAD_CLIPS`). The page asks it (`./walk`
+ * `WalkMode.climbHolds`, `./fireCore` `FireSource.climbHolds`) and the room by its frame's motion clip. The grenade's
+ * throw keeps asking `climbHoldsBody` alone (its own refusal, a different gate).
+ */
+export function reloadRefusedBy(clip: string | null | undefined): boolean {
+  if (climbHoldsBody(clip)) return true;
+  return CLIMB_RELOAD_REFUSED_READING === 'refused' && clip !== null && clip !== undefined && LADDER_RELOAD_CLIPS.has(clip);
+}
+
+/**
  * READING (named; NU-1b B1, research 313 sections 1.2-1.3 and 8.1, its D1): the climb's offer asks the original's gates
  * (`'gated'`), one predicate on the mover (`climbOffered`) for the room and the page. `FUN_00593500` sets the climb's bit
  * only past the view's gates -- no offer in the binoculars (view state 4, `FUN_005b90f0` D:L452262) or a scope (over 4,
@@ -726,11 +1011,13 @@ export const CLIMB_PENDING_STANCE_READING = 'kept' as const;
 
 /**
  * READING (named; NU-1b B5, research 313 sections 5 and 8.1, its D6): a reload's start is refused while a climb's clip or
- * the hang holds the body (`climbHoldsBody`): the kit's timer runs out into `FUN_005c2a90` (D:L476550-476560, the timer
- * zeroed whatever it answers), which asks `FUN_005b4340(actor, 3)` (D:L477404): refused under a `UseVelY` top
- * (`FUN_0057b510`, D:L469517) and in state 4 (D:L469460-469461) -- no clip, no magazine moved, the press spent. The page's
- * `./fire` `FireSource.climbHolds`, the room's reload by its frame's motion. Owed: a capture, the magazine's count after
- * R mid-climb with an M4 and the 870 (research 313 section 8.2).
+ * the hang holds the body (`climbHoldsBody`) -- and, LATER 562, a ladder's clips (`LADDER_RELOAD_CLIPS`; state 5 or a
+ * posture-5 record on top, r0004 0x5ba710-0x5ba73c): the kit's timer runs out into `FUN_005c2a90` (D:L476550-476560, the
+ * timer zeroed whatever it answers), which asks `FUN_005b4340(actor, 3)` (D:L477404): refused under a `UseVelY` top
+ * (`FUN_0057b510`, D:L469517), in state 4 (D:L469460-469461) and in state 5 -- no clip, no magazine moved, the press
+ * spent. The page's `./fireCore` `FireSource.climbHolds` and the room's reload by its frame's motion ask `reloadRefusedBy`;
+ * the room tells the page (`stale`). Owed: a capture, the magazine's count after R mid-climb with an M4 and the 870
+ * (research 313 section 8.2).
  */
 export const CLIMB_RELOAD_REFUSED_READING = 'refused' as const;
 
@@ -760,8 +1047,13 @@ export const CLIMB_HIT_CANCELS_READING = 'popped' as const;
  * NU-1b B1 (`CLIMB_OFFER_GATE_READING`): whether the climb may be offered to `w` now -- the HUD's view gates, then
  * `FUN_005b4340(actor, 2)` in the air and on the ground, then on the ground the common gate's own refusals. Prone is
  * the plan's (`Traversal.keepContact`).
+ * R4P-243 (ATLAS L367, research 313 s8.24; reading, pending review; capture IQ-179 queued): `handRefuses`, the item in
+ * hand that the kit's selectability refuses (`Traversal.handRefusesClimb`), refuses it in the air and on the ground --
+ * r0004's `FUN_00598d30` skips CanClimbWall (0x5a3400, the step-up's kind 4 within it) and CanClimbLadder (0x5a34e0)
+ * when GetCurItem (0x5cac50) holds an item isSelectableItem (0x5c47e0) refuses (D4:L493145-493148 in the air,
+ * D4:L493164-493168 on the ground); an empty hand passes. The r0001 twin `FUN_00593500` has no item test.
  */
-export function climbOffered(w: Walker): boolean {
+export function climbOffered(w: Walker, handRefuses: (() => boolean) | null = null): boolean {
   if (CLIMB_OFFER_GATE_READING !== 'gated') return true;
   if (w.scoped || w.dead) return false;                           // D:L452259-452262; state 8, D:L469321
   const a = w.action?.name;
@@ -770,9 +1062,12 @@ export function climbOffered(w: Walker): boolean {
   const h = w.holding;
   if (h && holdFamily(h.clip) === 'reload') return false;         // FUN_005a7ab0, D:L469416: a still clip on the stack
   if (w.climbLock?.()) return false;                              // the lock's other parts, the sets (D:L469416, D:L469470-469474)
+  if (handRefuses?.()) return false;                              // R4P-243: r0004 FUN_00598d30, D4:L493145-493148, D4:L493164-493168
   // The air, `Jump launch` / `Jump fall` (FUN_00587f50) and `Jump land` / `Jump land hard` (FUN_00587f10): no common gate.
   if (w.airborne || a === 'launch' || a === 'fall' || a === 'land' || a === 'landHard') return true;
-  if (w.throwOnTop()) return false;                               // a throw or toss on top, the hand's (LATER 509), D:L462622-462631
+  // A throw or toss on top, the hand's (LATER 509, D:L462622-462631; R4P-211: r0004's IsThrowing holds the pistol peek
+  // tosses too, D4:L503648-503650, D4:L503688 -- LATER 509 superseded, `Walker.throwOnTop`).
+  if (w.throwOnTop()) return false;
   // LATER 220's last head (research 369 §1 term 9): getting up shuts the common gate (`FUN_00587f90` D:L462679).
   if (a === 'getUp' || a === 'getUpBackwards') return false;
   return w.overlay === null;                                      // the second channel, D:L462681
@@ -837,6 +1132,12 @@ export class Traversal implements TraversalHooks {
   private running: Running | null = null;
   private kind_: TraversalKind = 'none';
   private ladder: Ladder | null = null;
+  /**
+   * B-50: on a ladder, the actor's floor RECORD (`+0x400..+0x41c`; the point, its y `+0x404`): the last floor the probe
+   * answered, seeded at the mount, refreshed each ladder tick and KEPT when the probe answers nothing (r0004
+   * 0x5b63d0-0x5b6480; r0001 `FUN_005b0420` D:L467091-467103). Replaced whole, never written in place (LATER 526's keep).
+   */
+  private ladderFloor: readonly [number, number, number] | null = null;
   /** On a ladder: the cycle's phase in keys (0..16), kept from the climbed height. */
   private phase = 0;
   private slideVy = 0;
@@ -894,7 +1195,19 @@ export class Traversal implements TraversalHooks {
    * which ladder, and from which end (the tall quad its foot, the short its head) and facing.
    */
   private ladderOffer: { ladder: Ladder; tall: boolean; facing: number; front: number } | null = null;
-  private climbing: { plan: ClimbPlan; crouched: boolean; request: Stance | null } | null = null;
+  /**
+   * R4P-243 (ATLAS L367; `climbOffered`'s `handRefuses`): whether an equipment item is in hand that the kit's
+   * selectability refuses (`./equipment` `slotSelectable`, the twin of r0004's isSelectableItem 0x5c47e0: an emptied
+   * launcher, the Detonator with no claymore down) -- the climb, the step-up and the ladder are not offered then. Set
+   * by the mover's owner (the page's walk, the room); null: an empty hand, nothing refused.
+   */
+  handRefusesClimb: (() => boolean) | null = null;
+  /**
+   * The climb under way. `over` (LATER 1222, the climb over only): its carried vertical, once a game frame (`OverCarry`) --
+   * `climbClip` lays it, `overFrame` steps it, `climbSettle` and the hand-off read it. *Was* (LATER 278): `overPick`, a
+   * second `ClipPath` the end's floor pick started from.
+   */
+  private climbing: { plan: ClimbPlan; crouched: boolean; request: Stance | null; over?: OverCarry } | null = null;
   /** The hang's root over the feet: where "Stand -> Hang" left the body, the steer's lift in it (`climbClip`). */
   private hangRoot: number | null = null;
 
@@ -1078,10 +1391,15 @@ export class Traversal implements TraversalHooks {
     return this.running !== null || TICK_KINDS.has(this.kind_);
   }
 
-  /** The peek held this tick (`leanTick`, 469347-469353; state 3 too while nothing but the kit's one-shot is over it). */
+  /**
+   * The peek held this tick (`leanTick`, 469347-469353; state 3 too while nothing but the kit's one-shot is over it).
+   * R4P-108: a crouched body in water deeper than `PEEK_WATER_DEPTH_READING` is refused, every tick (the side ray's,
+   * r0004 0x59c800 / r0001 `FUN_00596d60`, asked each frame the lean is held), so a held peek ends as the water rises.
+   */
   private peekHeld(w: Walker): boolean {
     const cont = this.leanOn !== null && w.action === null;
-    return this.leanSide !== 0 && !w.airborne && !w.dead && !w.leanRefused()
+    const drowned = w.posture === 'crouch' && this.depth_ > PEEK_WATER_DEPTH_READING;
+    return this.leanSide !== 0 && !w.airborne && !w.dead && !w.leanRefused() && !drowned
       && (cont || (w.holding === null && w.actionInterruptible()));
   }
 
@@ -1253,10 +1571,14 @@ export class Traversal implements TraversalHooks {
    * plus the clip's `refPt` y (the blend's weighed).
    */
   private lift(plan: ClimbPlan, y: number): number {
-    const up = plan.blend
+    return plan.contact.top - (y + STEER_ROOT + this.refUp(plan));
+  }
+
+  /** The stored `refPt`'s y (`REF_UP`; the crate/medium blend's weighed, D:L467914-467919). */
+  private refUp(plan: ClimbPlan): number {
+    return plan.blend
       ? plan.blend.weight * (REF_UP[plan.clip] ?? 0) + (1 - plan.blend.weight) * (REF_UP[plan.blend.clip] ?? 0)
       : REF_UP[plan.clip] ?? 0;
-    return plan.contact.top - (y + STEER_ROOT + up);
   }
 
   /** The climb's root over the feet: the cycle's key-0 root, its rise carried by the feet. */
@@ -1279,6 +1601,8 @@ export class Traversal implements TraversalHooks {
     const plan = this.contact && CLIMBABLE.has(this.contact.app)
       ? planClimb(this.grid, this.contact, s.x, s.y, s.z, a.fx, a.fz) : null;
     if (!plan) return false;
+    // DG-GUARD (OWNER): the same floorless step-up refused for an AI body (a following hostage) as for a seat's.
+    if (STEP_UP_FLOOR_GUARD_OWNER && plan.automatic && stepUpEndFloor(this.grid, this.shapes, plan) === null) return false;
     this.startClimb(w, plan);
     return true;
   }
@@ -1315,9 +1639,14 @@ export class Traversal implements TraversalHooks {
     if (this.ladderOffer && pressed && this.mountOffered(w, this.ladderOffer)) return true;
     this.keepContact(w);
     const plan = this.plan;
-    const stepUp = plan?.automatic === true && !(AIR_STEP_UP_READING === 'not-in-launch' && w.airborne && w.action?.name === 'launch')
+    // R4P-243 (L373): r0004's `FUN_0058d580` -- no step-up under `Jump launch` or `Jump fall`, airborne or not (D4:L510630).
+    const jumpBlend = w.action?.name === 'launch' || w.action?.name === 'fall';
+    const stepUp = plan?.automatic === true && !(AIR_STEP_UP_READING === 'not-in-jump-blend' && jumpBlend)
       && (CLIMB_STEP_UP_STICK_READING === 'none' || this.pushing(w, input, plan.contact));
-    if (plan && (pressed || stepUp)) { this.startClimb(w, plan); return true; }
+    // DG-GUARD (OWNER): a floorless step-up plan starts neither by itself nor on a press (DG-GUARD-AFTER-PC4's hole: the
+    // press started it from `pressed`).
+    const floorless = STEP_UP_FLOOR_GUARD_OWNER && plan?.automatic === true && stepUpEndFloor(this.grid, this.shapes, plan) === null;
+    if (plan && !floorless && (pressed || stepUp)) { this.startClimb(w, plan); return true; }
     return false;
   }
 
@@ -1502,7 +1831,7 @@ export class Traversal implements TraversalHooks {
     const offered = this.contact !== null && CLIMBABLE.has(this.contact.app);
     const c = offered ? obstacleRay(this.grid, this.contact!, s.x, s.y, s.z) ?? this.contact : null;   // FUN_0054e430
     // NU-1b B1: the offer's gates (CLIMB_OFFER_GATE_READING); none offered, the automatic step-up does not run either.
-    this.plan = c && w.stance !== 'prone' && climbOffered(w) ? planClimb(this.grid, c, s.x, s.y, s.z, a.fx, a.fz) : null;
+    this.plan = c && w.stance !== 'prone' && climbOffered(w, this.handRefusesClimb) ? planClimb(this.grid, c, s.x, s.y, s.z, a.fx, a.fz) : null;
   }
 
   /**
@@ -1539,22 +1868,36 @@ export class Traversal implements TraversalHooks {
     const ahead = (d: number): [number, number] => [from[0] - c.nx * d, from[2] - c.nz * d];
     const startRoot = stanceRootY(w.posture);
     const lift = this.lift(plan, from[1]);
+    // LATER 1250 (CLIMB_STEER_TILT_READING): every climb kind's steer record keeps the contact's normal negated, whole
+    // (`FUN_005b1a10` D:L467927-467932 for 0x21, `Climb medium`, `Step up` and 0x2a, D:L467888-467899), and the stored
+    // `refPt` (x 0, its y `REF_UP`, its z `REF_AHEAD` back); the climb over's is its `OverCarry`'s (LATER 1244).
+    const tri = plan.kind === 'over' ? null : firstTriangleNormal(c.poly.points);
     const steer = (): void => {
       const r = this.running!;
+      const tilt: ClimbTilt | undefined = tri
+        ? { normal: [-tri[0], -tri[1], -tri[2]], refX: 0, refY: this.refUp(plan), refZ: -(REF_AHEAD[plan.clip] ?? 8.92), v: 0 }
+        : undefined;
       r.steer = CLIMB_STEER_READING === 'concurrent'
-        ? { core: new OneShotSteer(r.path.seconds, r.path.shape.keys, plan.yaw), facing: plan.yaw, ex: from[0] - s.x, ez: from[2] - s.z, open: 1, lift }
+        ? { core: new OneShotSteer(r.path.seconds, r.path.shape.keys, plan.yaw), facing: plan.yaw, ex: from[0] - s.x, ez: from[2] - s.z, open: 1, lift, ...(tilt ? { tilt } : {}) }
         : null;
     };
     if (plan.kind === 'high') {
       // "Stand -> Hang": its share of the height (6.81 of the two clips' 29.4), the whoosh at 0.5. The body ends where
-      // the clip and the steer put it -- the hands on the ledge -- and the hang holds it there (`hangRoot`).
+      // the clip and the steer put it -- the hands on the ledge -- and the hang holds it there (`hangRoot`; LATER 1250:
+      // less the vertical the tilt left open, so the hang takes the root the clip's end drew).
       const hangUp = shapeTravel(this.shapes.get(TRAVERSAL_CLIP.hangUp));
       const share = travel.rise / (travel.rise + hangUp.rise);
       const [x, z] = ahead(travel.ahead);
       const top = from[1] + plan.h * share;
       this.hangRoot = from[1] + startRoot + travel.rise + lift - top;
       const path = new ClipPath(shape, from, [x, top, z], startRoot, this.hangRoot, lift);
-      this.run('climb', plan.clip, path, false, () => { this.kind_ = 'hang'; }, [{ at: 0.5, event: { type: 'jumpWhoosh' }, fired: false }]);
+      const hangEnd = (): void => {
+        const v = held.steer?.tilt?.v ?? 0;
+        if (this.hangRoot !== null) this.hangRoot -= v;
+        this.kind_ = 'hang';
+      };
+      this.run('climb', plan.clip, path, false, hangEnd, [{ at: 0.5, event: { type: 'jumpWhoosh' }, fired: false }]);
+      const held = this.running!;
       steer();
       return;
     }
@@ -1570,15 +1913,29 @@ export class Traversal implements TraversalHooks {
       steer();
       return;
     }
-    let to: [number, number, number];
     const [x, z] = ahead(travel.ahead);
     if (plan.kind === 'over') {
-      const y = floorUnder(this.grid, x, from[1], z, SEAL_TUNING.stepHeight);
-      to = [x, y ?? from[1], z];
-    } else {
-      const past = Math.max(0.5, travel.ahead - (REF_AHEAD[plan.clip] ?? 8.92));
-      to = [x, topFloor(this.grid, plan.target, c, past) ?? c.top, z];
+      // LATER 1222 (research 313 s8.18; CLIMB_OVER_BLEND_READING, CLIMB_OVER_FRAME_ORDER_READING): the original's actor
+      // carries the clip root's vertical and the steer's under `Climb over` (D:L438910, D:L456435, D:L468933-468941) --
+      // PROVEN on r0004 (l278-climbover). The track keeps the x and z only (its y unused); the vertical, the node and the
+      // drawn root are the carry's, one game frame at a time (`overFrame`), the push's own frame the first -- stepped here,
+      // on the press's tick. The end is the hand-off's (`overHandOff`), not the floor pick of `endUncut`. *Was* (LATER
+      // 278): the feet on `floorUnder(x, start y, z, 6.5) ?? start y`, the end's pick from `overPick`.
+      const path = new ClipPath(shape, from, [x, from[1], z], startRoot, STAND_ROOT, lift);
+      this.run('climb', plan.clip, path, false, (m) => this.endClimb(m), [{ at: 0.1, event: { type: 'climbUp' }, fired: false }]);
+      steer();
+      // LATER 1244 (CLIMB_STEER_TILT_READING): the steer record keeps the contact's normal negated, whole (D:L467927-467932).
+      const n = firstTriangleNormal(c.poly.points);
+      const o: OverCarry = {
+        clock: new GameFrameAccumulator(), frames: 0, top: c.top, up: -(REF_UP[plan.clip] ?? 0),
+        feet: s.y, travel: 0, node: Math.min(STEER_ROOT, startRoot), snap: startRoot, hold: null,
+        normal: n ? [-n[0], -n[1], -n[2]] : null, refX: 0, refZ: -(REF_AHEAD[plan.clip] ?? 0),
+      };
+      k.over = o;
+      if (CLIMB_OVER_FRAME_ORDER_READING === 'push-advances') this.overFrame(w, this.running!, o);
+      return;
     }
+    const to: [number, number, number] = [x, topFloor(this.grid, plan.target, c, uncutPast(shape, plan.clip)) ?? c.top, z];
     const path = new ClipPath(shape, from, to, startRoot, STAND_ROOT, lift);
     this.run('climb', plan.clip, path, false, (m) => this.endUncut(m), [{ at: 0.1, event: { type: 'climbUp' }, fired: false }]);
     steer();
@@ -1804,7 +2161,7 @@ export class Traversal implements TraversalHooks {
       }
     }
     s.vx = d.vx; s.vz = d.vz;
-    w.glide(dx, dz);
+    w.glide(dx, dz, undefined, true);                           // FLE-2: the dive's carry, held on the bare floor (D:L456503; bare at D:L456544-456559)
     s.yaw = this.lock ?? s.yaw;
     if (w.airborne || (d.vx === 0 && d.vz === 0 && d.root <= DIVE_ROOT)) {   // off an edge, or down and at rest: prone (decomp 418158-418167)
       this.diving = null;
@@ -1814,6 +2171,9 @@ export class Traversal implements TraversalHooks {
       // once FUN_00552ec0 accepts it, raising the word's bit -- here, down and at rest (DIVE_PRONE_TAKE_READING). Off an
       // edge the take is the landing's (not modelled: a named gap; the word shows at the next take).
       if (!w.airborne) w.markStanceTaken();
+      // R4P-104: off an edge the dive's clip is still in play at the contact (r0004 0x5b5ce4-0x5b5cfc; D:L466908-466914),
+      // so the walker's landing is the dive's (`Landing.dived`, read at x 1.2: `DIVE_LANDING_SPEED_FACTOR`).
+      else w.markDiveFall();
       // F2 (`DIVE_END_BLEND_READING`): at rest the seam fades from the root drawn last on the clock of the play the
       // animator draws next (the prone base's, a crawl's, a turn's: `diveEndPlay`); off an edge the fall's own.
       if (!w.airborne) {
@@ -1892,8 +2252,9 @@ export class Traversal implements TraversalHooks {
     }
     if (!this.climbOneShot()) return false;
     const hanging = this.running !== null && this.standToHang();
+    const time = this.running?.time ?? 0;                        // the clip's clock at the pop (LATER 278)
     this.running = null;
-    if (!hanging) this.climbSettle(w);
+    if (!hanging) this.climbSettle(w, time);
     this.endClimb(w);
     if (hanging) w.setAirborne(true);                            // no case in FUN_00589aa0: no settle, the fall from here
     return true;
@@ -1906,13 +2267,17 @@ export class Traversal implements TraversalHooks {
    */
   private advance(w: Walker, dt: number): boolean {
     const r = this.running!;
+    const over = r.kind === 'climb' ? this.climbing?.over : undefined;
+    if (over) return this.advanceOver(w, r, over, dt);
     const next = Math.min(r.path.seconds, r.time + dt);
     if (this.climbCut(w, r, next)) return this.cutClimb(w, r);
     const was = r.steer ? r.path.at(r.time).feet : null;
     r.time = next;
     const p = r.path.at(r.time);
     let [x, z] = [p.feet[0], p.feet[2]];
+    const yaw = w.state.yaw;                                     // the body before the turn (D:L468840-468844)
     if (r.steer && was) [x, z] = this.climbSteer(w, r.steer, p.feet[0] - was[0], p.feet[2] - was[2], dt, x, z);
+    if (r.steer?.tilt && was) [x, z] = this.climbTilt(r, r.steer, r.steer.tilt, yaw, dt, x, z);
     Object.assign(w.state, { x, y: p.feet[1], z, vx: 0, vz: 0, vy: 0 });
     if (r.kind === 'climb' || r.kind === 'hangUp') {
       // CLIMB_RESUME_STICK_READING: the advance's copy of the stick into the ramp (FUN_0057a330 D:L438704-438706).
@@ -1948,7 +2313,8 @@ export class Traversal implements TraversalHooks {
    */
   private climbSteer(w: Walker, st: ClimbSteer, dx: number, dz: number, dt: number, x: number, z: number): [number, number] {
     const s = w.state;
-    const { k, yaw } = st.core.advance(s.yaw, dt);
+    const { phase, k, yaw } = st.core.advance(s.yaw, dt);
+    st.phase = phase; st.k = k;                                  // LATER 1222: the over's vertical reads the same clock
     s.yaw += shortTurn(s.yaw, yaw);
     this.lock = s.yaw;
     const a = ((s.yaw - st.facing) * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a);
@@ -1959,15 +2325,171 @@ export class Traversal implements TraversalHooks {
   }
 
   /**
+   * LATER 1250 (research 313 s8.23; `CLIMB_STEER_TILT_READING`): the tilt of one command's steer on the 60 Hz path, after
+   * `climbSteer` (its weight k). `FUN_005b3340` takes the stored normal into the body's frame by the yaw before the
+   * command's turn (D:L468840-468844), turns a copy of the stored `refPt` by the shortest arc from `+0x9c` onto it
+   * (`turnByArc`, `FUN_00306d40` D:L468892-468893) and lays it through the body matrix before the target
+   * (D:L468898-468926). The flat steer is the same turn onto that normal made level (a turn about the vertical: the facing
+   * the record's target and the track are laid on), so the tilt adds the turned `refPt` less the level-turned one: its y
+   * to the vertical left open on the drawn root (`tilt.v`, closed by k each command as the flat lift is), its x and z
+   * through the yaw to the x/z offset still open (`ex`, `ez`), the feet moved by k of it. Then the stored `refPt` loses
+   * the clip root's velocity x dt at the phase (`mountRootVelocity`'s law; D:L468947-468951).
+   */
+  private climbTilt(r: Running, st: ClimbSteer, tl: ClimbTilt, yaw: number, dt: number, x: number, z: number): [number, number] {
+    const k = st.k ?? 0, phase = st.phase ?? 0;
+    const a = (yaw * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
+    const n = tl.normal, nb = [n[0] * ca - n[2] * sa, n[1], n[0] * sa + n[2] * ca];
+    const ref = [tl.refX, tl.refY, tl.refZ];
+    const turned = turnByArc(CLIMB_STEER_TILT_READING, nb, ref);
+    const level = levelTurn(nb, ref);
+    const dx = turned[0] - level[0], dz = turned[2] - level[2];
+    const wx = k * (dx * ca + dz * sa), wz = k * (-dx * sa + dz * ca);
+    st.ex += wx; st.ez += wz;
+    tl.v = (1 - k) * tl.v + k * (turned[1] - ref[1]!);
+    const shape = r.path.shape;
+    const v = mountRootVelocity({ clip: shape.name, refPt: [0, 0, 0], root: shape.root, keys: shape.keys, seconds: r.path.seconds }, phase);
+    tl.refX -= v[0] * dt; tl.refY -= v[1] * dt; tl.refZ -= v[2] * dt;
+    return [x - wx, z - wz];
+  }
+
+  /**
+   * LATER 1222 (research 313 s8.18 (f), the review's F2): the climb over on one game-frame clock. Each 60 Hz tick feeds
+   * the carry's `GameFrameAccumulator`; each whole game frame steps `overFrame` (the end and the hand-off among them);
+   * between frames the body holds the frame's values (s8.18 (f) 6). The stick is copied into the ramp each tick as the
+   * other climbs' advance copies it (`CLIMB_RESUME_STICK_READING`).
+   */
+  private advanceOver(w: Walker, r: Running, o: OverCarry, dt: number): boolean {
+    const frames = o.clock.advance(dt);
+    const s = w.state;
+    s.vx = 0; s.vz = 0; s.vy = 0;
+    const stick = w.cutStick;
+    s.stickForward = stick.forward; s.stickRight = stick.right;
+    for (let i = 0; i < frames && this.running === r; i++) this.overFrame(w, r, o);
+    return true;
+  }
+
+  /**
+   * LATER 1222: one game frame of the climb over (`GAME_FRAME_DT`), the law of research 313 s8.18 (a):
+   * - the end first: the driver's end test on the phase before the frame's advance (`FUN_0028c6e0` D:L134283-134308 via
+   *   D:L418192-418193, `mountPlayedOut`) -- passed, the hand-off (`overHandOff`); a held hand-off's next frame stands on
+   *   its pick (`FUN_0059afd0` D:L456359-456363);
+   * - else the phase advanced and the x/z steer laid at it (`climbSteer` on the track's step since the last frame, dt
+   *   `GAME_FRAME_DT`: `FUN_0028c4f0` D:L438901, `FUN_005b3340` D:L439020), the track read at the frame's clock;
+   * - the root's vertical velocity from the new phase's key interval (`mountRootVelocity`'s law, `FUN_0028c250` /
+   *   `FUN_00289bb0` D:L438909-438910, D:L132713-132718);
+   * - the steer's vertical: the target's y (the contact's top) less the stored `refPt` (moved by the root's travel on
+   *   all three axes, D:L468947-468951) turned onto the contact's reversed normal (LATER 1244, `CLIMB_STEER_TILT_READING`,
+   *   D:L468840-468844, D:L468892-468893; its horizontal part moves the x/z steer's aim) less the root node's world point
+   *   (the last frame's feet and node, D:L468927), times the weight k = sqrt(ease(phase)) (D:L468929-468930), kept for
+   *   the climb over (D:L468933-468941);
+   * - the feet += v dt + k e (D:L456402, D:L456435; the steer's velocity added, D:L416455);
+   * - the node: the clip's root y at the phase, blended from the push's snapshot by the ease of the timer left
+   *   (`CLIMB_OVER_BLEND_READING`, `FUN_00576860` D:L436621-436634) and capped at 11.487 (D:L456455-456456) -- the drawn
+   *   root over the feet.
+   */
+  private overFrame(w: Walker, r: Running, o: OverCarry): void {
+    const s = w.state, shape = r.path.shape, n = shape.keys;
+    if (o.hold !== null) {
+      s.y = o.hold;
+      o.hold = null;
+      o.frames++;
+      this.overEnd(w, r);
+      return;
+    }
+    const e = n < 2 ? 1 : (n - 1) / n;
+    if (mountPlayedOut(o.frames * GAME_FRAME_DT, shape.seconds / (e * e), n)) {
+      this.overHandOff(w, r, o);
+      return;
+    }
+    const was = r.path.at(r.time).feet;
+    r.time = Math.min(r.path.seconds, (o.frames + 1) * GAME_FRAME_DT);
+    o.frames++;
+    const p = r.path.at(r.time);
+    let [x, z] = [p.feet[0], p.feet[2]];
+    const st = r.steer;
+    // LATER 1244 (CLIMB_STEER_TILT_READING): the stored `refPt` turned by the shortest arc from `+0x9c` onto the reversed
+    // normal in the body's frame (the yaw before this frame's turn, D:L468840-468844, D:L468892-468893).
+    const ref: [number, number, number] = [o.refX, -o.up - o.travel, o.refZ];
+    const a = (s.yaw * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
+    const nb = o.normal ? [o.normal[0] * ca - o.normal[2] * sa, o.normal[1], o.normal[0] * sa + o.normal[2] * ca] : null;
+    const turned = nb ? turnByArc(CLIMB_STEER_TILT_READING, nb, ref) : ref;
+    if (st) [x, z] = this.climbSteer(w, st, p.feet[0] - was[0], p.feet[2] - was[2], GAME_FRAME_DT, x, z);
+    const phase = st?.phase ?? Math.min(e, r.time / (shape.seconds / e)), k = st?.k ?? 0;
+    if (st && nb) {
+      // The turn's horizontal part moves the x/z steer's aim by the turned `refPt` less the level-turned one (the turn
+      // onto the normal made level, which the flat steer already lays: `climbTilt`'s), through the body matrix
+      // (D:L468898-468926), closed by the same weight: carried in the offset still open. LATER 1250 (the review's F1):
+      // *was* less the stored `refPt`, which added k M (R_level - I) refPt with the body yawed off the face.
+      const level = levelTurn(nb, ref);
+      const dx = turned[0] - level[0], dz = turned[2] - level[2];
+      const wx = k * (dx * ca + dz * sa), wz = k * (-dx * sa + dz * ca);
+      st.ex += wx; st.ez += wz;
+      x -= wx; z -= wz;
+    }
+    const v = mountRootVelocity({ clip: shape.name, refPt: [0, 0, 0], root: shape.root, keys: n, seconds: shape.seconds }, phase);
+    const err = o.top - turned[1] - o.feet - o.node;
+    o.feet += v[1] * GAME_FRAME_DT + k * err;
+    o.travel += v[1] * GAME_FRAME_DT;
+    o.refX -= v[0] * GAME_FRAME_DT;
+    o.refZ -= v[2] * GAME_FRAME_DT;
+    const left = Math.max(0, CLIMB_OVER_BLEND_READING - o.frames * GAME_FRAME_DT);
+    const snap = blendWeight(left / CLIMB_OVER_BLEND_READING);
+    o.node = Math.min(STEER_ROOT, snap * o.snap + (1 - snap) * rootAt(shape, phase * n)[1]);
+    Object.assign(s, { x, y: o.feet, z, vx: 0, vz: 0, vy: 0 });
+    const f = r.time / r.path.seconds;
+    for (const c of r.calls) if (!c.fired && f >= c.at) { c.fired = true; this.emit(c.event); }
+  }
+
+  /**
+   * LATER 1222 (research 313 s8.13 (a), s8.17 (c), s8.18 (d)): the climb over's hand-off, the frame after its clip.
+   * `+0xfac` = the last frame's feet + node (r0004: written the frame after the clip, l278-climbover); the frame's y is
+   * `+0xfac` less the revealed node where that is over the floor pick `+0x2e4` (LATER 1244: `Jump fall`'s root,
+   * `CLIMB_OVER_FALL_READING`), else the pick
+   * (`FUN_0059afd0` D:L456368-456386); held over it, the next frame stands on the pick (D:L456359-456363; r0004: action 9
+   * then 10 on the 16.41 fence, the floor at once on the low faces). The pick is taken at the body's x and z from that
+   * height plus the posture's lift (`selectFloor`, as every pick) -- so from about `+0xfac`: the original's origin for it is
+   * unread (`CLIMB_END_PICK_ORIGIN_READING`, note only; taken from `+0xfac` less the posture's root as LATER 1222 built
+   * it). *Was* (LATER 1222): the revealed node the posture's standing root. Replaces LATER 278's `overPick` for the over.
+   */
+  private overHandOff(w: Walker, r: Running, o: OverCarry): void {
+    const s = w.state;
+    const root = stanceRootY(w.posture), at = o.feet + o.node - root;
+    o.frames++;
+    const floor = selectFloor(probeGround(this.grid, s.x, s.z), at + probeLiftOf(w.posture), at);
+    // LATER 1244 (CLIMB_OVER_FALL_READING): over the pick the end reveals `Jump fall`, and the frame stands at `+0xfac`
+    // less its root (`FUN_0059afd0` D:L456368-456371), the drawn node that root. *Was:* less the standing root, `at`.
+    const fall = o.feet + o.node - CLIMB_OVER_FALL_READING;
+    if (floor && fall > floor.y) {
+      s.y = fall;
+      o.feet = fall;
+      o.node = CLIMB_OVER_FALL_READING;                          // the root's world height kept at +0xfac for the held frame
+      o.hold = floor.y;
+      return;
+    }
+    s.y = floor ? floor.y : fall;
+    this.overEnd(w, r);
+  }
+
+  /** LATER 1222: the climb over's end -- the clip off and the climb ended (`endClimb`, the run's `done`). */
+  private overEnd(w: Walker, r: Running): void {
+    this.running = null;
+    r.done(w);
+  }
+
+  /**
    * The drawn root over the feet at a path's point: `ClipPath`'s, its vertical steer (`lift`) laid at `FUN_005b2d20`'s 30
    * a second (`STEER_RATE`) taken back and laid again closed by the steer's weight (`CLIMB_STEER_READING`) -- for a climb
    * with a steer; the path's own otherwise.
    */
   private drawnRoot(r: Running, p: PathPoint): number {
+    // LATER 1222: the climb over's drawn root is the carried node (blended, capped; `overFrame`), not `ClipPath`'s rest.
+    const over = r.kind === 'climb' ? this.climbing?.over : undefined;
+    if (over) return over.node;
     const st = r.steer;
     if (!st) return p.rootY;
     const laid = Math.sign(st.lift) * Math.min(Math.abs(st.lift), STEER_RATE * r.time);
-    return p.rootY - laid + st.lift * (1 - st.open);
+    // LATER 1250: less the vertical the steer's tilt still leaves open (`climbTilt`).
+    return p.rootY - laid + st.lift * (1 - st.open) - (st.tilt?.v ?? 0);
   }
 
   /**
@@ -1976,6 +2498,8 @@ export class Traversal implements TraversalHooks {
    */
   private climbCut(w: Walker, r: Running, t: number): boolean {
     if (r.kind !== 'climb' && r.kind !== 'hangUp') return false;
+    // LATER 1223 (CLIMB_OVER_AXES_READING): FUN_005af930 zeroes the axes the cut reads under Climb over (D:L466805-466815).
+    if (CLIMB_OVER_AXES_READING === 'zeroed' && r.kind === 'climb' && this.climbing?.plan.kind === 'over') return false;
     const noInterrupt = climbNoInterrupt(r.clip, w.hand);               // NU-1c B11: the pistol's sub-node decides
     const shape = r.path.shape;
     if (noInterrupt === undefined || shape.keys < 2 || !(shape.seconds > 0)) return false;
@@ -1995,7 +2519,7 @@ export class Traversal implements TraversalHooks {
       this.kind_ = 'hang';
       return true;
     }
-    this.climbSettle(w);
+    this.climbSettle(w, r.time);
     this.endClimb(w);
     return false;
   }
@@ -2009,17 +2533,23 @@ export class Traversal implements TraversalHooks {
   popSettle(w: Walker): void {
     const r = this.running;
     if (CLIMB_KNOCK_SETTLE_READING !== 'settled' || !r) return;
-    if ((r.kind === 'climb' && this.climbing?.plan.kind !== 'high') || r.kind === 'hangUp') this.climbSettle(w);
+    if ((r.kind === 'climb' && this.climbing?.plan.kind !== 'high') || r.kind === 'hangUp') this.climbSettle(w, r.time);
   }
 
   /**
    * `FUN_00589aa0`'s climb settle (D:L446582-446648): the body at its own x and z, its y the floor pick (`+0x2e4`, copied
    * from `+0x404` each climb tick, D:L466784) -- the port's pick from the feet, as every tick's (`selectFloor` from the
-   * feet + the posture's lift, `probeLiftOf`, LATER 785); unchanged where there is none.
+   * feet + the posture's lift, `probeLiftOf`, LATER 785); unchanged where there is none. LATER 1222: a climb over popped
+   * mid-clip (the knock's `popSettle`, the flinch's `flinchPop`) settles from the actor's own height -- the pick taken as
+   * the hand-off's is (`overHandOff`): from `+0xfac` (the carried feet + node) less the posture's root, plus its lift;
+   * the hand-off's one held frame is not built for a pop (the move is released). *Was* (LATER 278): from the higher of
+   * the feet and `overPick` at the clip's clock `time`.
    */
-  private climbSettle(w: Walker): void {
+  private climbSettle(w: Walker, _time = Infinity): void {
     const s = w.state;
-    const floor = selectFloor(probeGround(this.grid, s.x, s.z), s.y + probeLiftOf(w.posture), s.y);
+    const over = this.climbing?.plan.kind === 'over' ? this.climbing.over : undefined;
+    const from = over ? over.feet + over.node - stanceRootY(w.posture) : s.y;
+    const floor = selectFloor(probeGround(this.grid, s.x, s.z), from + probeLiftOf(w.posture), from);
     if (floor) s.y = floor.y;
   }
 
@@ -2032,6 +2562,7 @@ export class Traversal implements TraversalHooks {
   private finish(w: Walker, keepStick = false): void {
     this.kind_ = 'none';
     this.ladder = null;
+    this.ladderFloor = null;
     this.lock = null;
     if (!keepStick) { w.state.stickForward = 0; w.state.stickRight = 0; }
     w.setAirborne(false);
@@ -2075,7 +2606,16 @@ export class Traversal implements TraversalHooks {
     const l = this.ladderOf(c);
     // The ladder's offer is the crate's function (`FUN_005b3ce0(a, 2)`): the same common gates (`climbOffered`,
     // `CLIMB_OFFER_GATE_READING`) and none prone, as `keepContact`'s plan asks.
-    if (!l || w.stance === 'prone' || !climbOffered(w)) return null;
+    if (!l || w.stance === 'prone' || !climbOffered(w, this.handRefusesClimb)) return null;
+    // R4P-243 (ATLAS L372; reading, pending review; capture IQ-179 queued): r0004's CanTraverse `FUN_005b9ff0` kind 2
+    // refuses the ladder while `Place claymore` (DAT_00409d18) is the top blend, after its one-SEAL-a-ladder test
+    // (D4:L510555-510557); the r0001 twin (D:L469165-469197) has none. The blend's clip, `seal_place_claymore`, is pushed
+    // by the claymore's placing and by the PMN's and the bomb plant's too (`./bombPage` `PLANT_ANIM`, D:L475322,
+    // D:L475354, D:L475480-475481), so all three are refused; C4's `put_onwall` shares the 'place' family (`./mover`
+    // `holdFamily`) but not the blend. OPEN (research 313 s8.24): the pistol pair `Pistol place claymore` (0x409d20,
+    // `./zoom`) -- the cite tests 0x409d18 only, and the port plays the rifle clip for both. Whether CanFire(actor, 1, 0)
+    // (0x5adae0) already refuses while placing is unread (IQ-179).
+    if (w.holding?.clip === 'seal_place_claymore') return null;
     return { ladder: l, tall, facing, front };
   }
 
@@ -2131,9 +2671,14 @@ export class Traversal implements TraversalHooks {
     w.stance = 'stand';
     w.setAirborne(false);                                        // a landing or a stance change ends here
     this.ladder = l;
+    this.seedLadderFloor(w);
     this.lock = yawFacing(l.nx, l.nz);
     s.yaw = this.lock;
     const shape = this.shapes.get(TRAVERSAL_CLIP.toLadder);
+    // B-50 (research 86 s2.7): the mount ends at the y of the press (the walk's height, its soil included). Ending it on
+    // the column's bare floor failed review (the soil offset, r0004 0x5a1264-0x5a1278). The original's end pop is READ
+    // (0x58f2a8-0x58f350: y = `+0x2e4` + 15.3 - 11.487 = +3.8129, matched 9/9 by the r0004 capture LADDER-PC3) and NOT
+    // built here: what it means for the port's ladder height and `FOOT_CLEAR` is open (86 s2.7, Open (1b)).
     const path = new ClipPath(shape, [s.x, s.y, s.z], this.onLadder(l, s.y), STAND_ROOT, this.ladderRoot());
     this.emit({ type: 'ladderMount', from: 'bottom' });
     this.run('ladderMount', TRAVERSAL_CLIP.toLadder, path, false, () => this.enterLadder());
@@ -2149,6 +2694,7 @@ export class Traversal implements TraversalHooks {
     w.stance = 'stand';
     w.setAirborne(false);                                        // a landing or a stance change ends here
     this.ladder = l;
+    this.seedLadderFloor(w);
     this.emit({ type: 'ladderMount', from: 'top' });
     const want = yawFacing(l.nx, l.nz);
     const angle = shortTurn(s.yaw, want);
@@ -2192,11 +2738,55 @@ export class Traversal implements TraversalHooks {
     return [l.x - l.nx * past, l.top, l.z - l.nz * past];
   }
 
-  /** The highest floor under (x, z) at or below `y`, or null. */
-  private groundUnder(x: number, y: number, z: number): number | null {
-    let best: number | null = null;
-    for (const h of probeGround(this.grid, x, z)) if (h.y <= y + 1e-6 && (best === null || h.y > best)) best = h.y;
-    return best;
+  /**
+   * B-50: the record seeded at a mount from the floor the mover stands on -- the walk's own pick, `selectFloor` from the
+   * feet + the posture's lift (the record the original carries into the climb is the walk's last answered floor:
+   * r0001 `FUN_00546cf0` D:L412496-412510 seeds it, `FUN_005b0420` refreshes it); the body's own point when none answers.
+   */
+  private seedLadderFloor(w: Walker): void {
+    const s = w.state;
+    const hit = selectFloor(probeGround(this.grid, s.x, s.z), s.y + probeLiftOf(w.posture), s.y);
+    this.ladderFloor = [s.x, hit ? hit.y : s.y, s.z];
+  }
+
+  /**
+   * B-50: a ladder tick's floor probe and the record's y (research 86 s2.7; the row 7 read, reading, pending review). One
+   * vertical line through the body's column (r0004 0x2f05a8-0x2f05c8, +/-50000) and the walk's pick on it
+   * (`selectFloor`: the highest at or under the origin + 1, else the lowest, refused more than 20 over the body; r0004
+   * 0x5bc180, r0001 `FUN_005b5d40` D:L470199-470274). A hit becomes the record (r0004 0x5b6338-0x5b63a4); a miss keeps
+   * it (`miss`), and the tick's END puts the body back on its point (`putBack`: r0004 0x5b6458-0x5b6468; r0001
+   * `FUN_005b0420` D:L467091-467103, the frame's read step after the move, `FUN_00550570` D:L417768-417771), as the
+   * walk's own miss does (`mover.ts`, "back at the last hit"). The column and the origin: `LADDER_PROBE_COLUMN_PLACEHOLDER`.
+   * *Was* `groundUnder`: a fresh pick of the highest floor under the feet, null with none, which skipped the foot test
+   * and the slide's landing (B-50's fall for ever).
+   */
+  private ladderFloorAt(w: Walker): { y: number; miss: boolean } {
+    const s = w.state, a = axes(s.yaw), c = LADDER_PROBE_COLUMN_PLACEHOLDER;
+    const hit = selectFloor(probeGround(this.grid, s.x + a.fx * c.ahead, s.z + a.fz * c.ahead), s.y + c.lift, s.y);
+    if (hit) this.ladderFloor = [s.x, hit.y, s.z];
+    else if (!this.ladderFloor) this.ladderFloor = [s.x, s.y, s.z];
+    return { y: this.ladderFloor[1], miss: !hit };
+  }
+
+  /**
+   * B-50 / L253 (R4P-240; reading, pending review): a miss's end of tick on the ladder -- the body back on the record's
+   * point (r0004 0x5b6458-0x5b6468) and the SLOPE slide's speed zeroed. Both are `ProcessDownProbe` (r0004 `FUN_005b6200`;
+   * the zero 0x5b6454 D4:L508319, the put-back D4:L508320, `+0x111c` 0x5b6480 D4:L508322), which the body's post-tick
+   * runs for every state (its only call 0x5556f8, D4:L456462), not a ladder rule: the speed it zeroes is `+0x1344` in
+   * r0004 -- `+0x1340` in r0001, CZSealBody's band r0004 +0x1338..+0x1374 sitting 4 above r0001's +0x1334..+0x1370 --
+   * the slope slide's speed (written by r0004 0x553be0, D4:L455750-455755), and `+0x111c` (the steep-floor contact
+   * record's last word: no counterpart owed). The walk's own put-back already stops the slide (`mover.ts`
+   * `groundFrameMove`), so this one does as it does (`Walker.stopSlopeSlide`). Only while the switch byte r0004 0x40a390
+   * is non-zero (the load 0x5b63d4, D4:L508278): built unconditionally, as the walk's is -- the byte reads 1 in r0004's
+   * image with no writer or other reference, and IQ-120's capture of r0004 running (Q108-PC2, Fish Hook) read it 1 in the
+   * round, on the ladder after the mount and after climbing off (the controller's ruling). Not ported, on this path or the walk's:
+   * the miss also clears `+0x1061` bit 1, sets bit 2, calls the body's slot +0x10 and 0x55d5e0 (0x5b63e0-0x5b6474). The fall law's speed (r0004 `+0x1340`, integrated at 0x5a105c-0x5a1068) is not
+   * touched. *Was* (the row 7 re-review F1): "+0x1344 unread, no speed touched" (atlas-parity's second read, c2d5527c8e).
+   */
+  private putBack(w: Walker): void {
+    const s = w.state;
+    [s.x, s.y, s.z] = this.ladderFloor!;
+    w.stopSlopeSlide();
   }
 
   /**
@@ -2217,10 +2807,17 @@ export class Traversal implements TraversalHooks {
     if (stick > 0 && next >= keys) {
       if (this.headClear(w)) { this.phase = 0; this.climbOffTop(w); return; }
     }
-    // The foot: going down with the feet under the ground + 1.
-    const ground = this.groundUnder(s.x, s.y + 1e-6, s.z);
+    // The foot: going down with the feet under the floor record + 1 (B-50: never skipped).
+    const { y: ground, miss } = this.ladderFloorAt(w);
     let y = s.y + (next - before) * perKey;
-    if (stick < 0 && ground !== null && y < ground + FOOT_CLEAR) { y = Math.max(y, ground); s.y = y; this.climbOffBottom(w, ground); return; }
+    if (stick < 0 && y < ground + FOOT_CLEAR) {
+      // B-50: on a miss the ORIGINAL steps off first (its move task, r0004 0x2a0930 -> 0x58c9c8) and the put-back is
+      // the frame's last word (the read task, 0x2a06a0); the port puts back FIRST so its step-off clip starts where the
+      // original's frame ends (row 7 fold delta F1).
+      if (miss) this.putBack(w); else { y = Math.max(y, ground); s.y = y; }
+      this.climbOffBottom(w, ground);
+      return;
+    }
     y = Math.min(y, this.headStart(l) + rise);                   // never past the head, whatever the ray says
     for (const at of RUNG_AT) {
       const k = at * keys;
@@ -2232,6 +2829,7 @@ export class Traversal implements TraversalHooks {
     this.phase = next;
     s.y = y;
     s.vx = 0; s.vz = 0; s.vy = stick * perKey * keysPerSecond;
+    if (miss) this.putBack(w);                                   // B-50: the frame's read step, after the move
   }
 
   /** `FUN_005b0eb0`: the ray from the root, raised by the climb off's rise less 1, `HEAD_RAY` along the facing; clear of ladder polygons. */
@@ -2276,16 +2874,20 @@ export class Traversal implements TraversalHooks {
     s.yaw = this.lock ?? s.yaw;
     this.slideTime += dt;
     this.slideVy -= SEAL_TUNING.gravity * SLIDE_GRAVITY * dt;
-    const ground = this.groundUnder(s.x, s.y + 1e-6, s.z);
+    const { y: ground, miss } = this.ladderFloorAt(w);         // B-50: the record's y ends it (r0004 0x5a11e8-0x5a11f4)
     let y = s.y + this.slideVy * dt;
     s.vy = this.slideVy;
-    if (ground !== null && y <= ground) {
-      y = ground;
-      s.y = y;
+    if (y <= ground) {
+      // B-50: the original lands first (the fall law, r0004 0x5b5874, in the move task 0x2a0930) and the read task's
+      // put-back (0x2a06a0) is the frame's last word; the port puts back FIRST so its landing clip starts where the
+      // original's frame ends (row 7 fold delta F1).
+      if (miss) this.putBack(w);
+      else s.y = ground;
       this.land(w);
       return;
     }
     s.y = y;
+    if (miss) this.putBack(w);                                   // the read step: back on the record (the fall speed kept)
   }
 
   /** `FUN_0057f310`: "Ladderslide land" on the ground, stepping back off the rungs as the clip does. */
@@ -2328,6 +2930,7 @@ export class Traversal implements TraversalHooks {
     this.running = null;
     this.kind_ = 'none';
     this.ladder = null;
+    this.ladderFloor = null;
     this.lock = null;
     this.actionPressed = false;
     this.leanOn = null;

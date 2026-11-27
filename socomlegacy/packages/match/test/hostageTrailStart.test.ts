@@ -113,7 +113,7 @@ function scene() {
     return { gate, moved };
   };
   const orderAndStand = (seconds: number): number | null => orderAndWatch(seconds).moved;
-  return { ext, planner, h, home, place, walk, orderAndStand, orderAndWatch };
+  return { ext, planner, h, home, place, walk, orderAndStand, orderAndWatch, gateOpen };
 }
 
 describe.skipIf(!MP71)('HOSTAGE-TRAIL-START: the leader\'s trail lives from the build and each placement (MP71, dev-disc)', () => {
@@ -158,6 +158,26 @@ describe.skipIf(!MP71)('HOSTAGE-TRAIL-START: the leader\'s trail lives from the 
     for (let k = 0; k < TICK_HZ; k++) s.ext.step();
     const trail = (s.ext as unknown as { trails: Map<number, FollowTrail> }).trails.get(LEADER);
     expect(trail?.length ?? 0).toBeGreaterThanOrEqual(8);         // the original never switches a human's trail off
+  });
+
+  // SHOTS-1208 r152 (research 445 s5.10; review 1 item 3): +0x76 is set only on the follow's enter (`FUN_005fdf80` event 0,
+  // D:L510077), so a HOLD (the follow's exit) leaves the gate open, and the next order -- state 9 entered again, signal 0,
+  // the room's `enter()` -- re-arms it: with a short trail since the leader's placement the follower then stands.
+  it('SHOTS-1208 r152: a new order after a HOLD re-arms the start gate, so a short trail holds the follower', () => {
+    const s = scene();
+    const route = walkFrom(s.planner, s.home, 14);
+    s.place(route[1]!);
+    s.walk(route.slice(1));
+    expect(s.orderAndWatch(10).gate).not.toBeNull();
+    onCommand(s.h, 5, { id: LEADER, alive: true }, s.ext.leaders);  // HOLD: the follow ends (signal 1)
+    for (let k = 0; k < TICK_HZ; k++) s.ext.step();
+    expect(s.gateOpen(), 'the exit leaves +0x76 as it was').toBe(true);
+    s.place(route[12]!);                                           // a placement zeroes the trail's entries
+    s.walk(route.slice(12, 15));
+    const { gate, moved } = s.orderAndWatch(5);
+    expect(s.h.ai.state, 'reached: the follow entered again').toBe(9);
+    expect(gate, 'the enter re-armed the gate').toBeNull();
+    expect(moved).toBeNull();
   });
 });
 

@@ -2,13 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { encodeSnapshot } from '../src/net/codec';
 import { BodyFlag, type BodyState } from '../src/net/protocol';
 import { encodeSnapshot as encodeSnapshotPre337 } from './fixtures/codecPre337';
-import { BODY_BYTES_V15, VIEW_TAIL_BYTES, withoutViewTails, withoutViewTailsUnchecked } from './fixtures/viewTail';
+import {
+  BODY_BYTES_V15, BODY_BYTES_V16, HAND_BYTES, VIEW_TAIL_BYTES, withoutHands, withoutHandsUnchecked, withoutViewTails, withoutViewTailsUnchecked,
+} from './fixtures/viewTail';
 
 /**
- * WIRE-16 (PV-1's fold; research 402 s3): `withoutViewTails` cuts each body's three tail bytes out of a protocol-16
- * snapshot so a byte pin can compare it with protocol 15's writer (`cranes.test.ts`, match `test/replayFormat.test.ts`).
- * The pins prove those bytes only if the helper looks at them: it refuses a frame whose cut byte is not zero. A test
- * helper's test, no game data.
+ * WIRE-16 (PV-1's fold; research 402 s3): `withoutViewTails` cuts each body's tail bytes (protocol 16's three view bytes
+ * and, since WM-DATA-17, protocol 17's hand byte) out of a live snapshot so a byte pin can compare it with protocol 15's
+ * writer (`cranes.test.ts`, match `test/replayFormat.test.ts`). The pins prove those bytes only if the helper looks at
+ * them: it refuses a frame whose cut byte is not zero. `withoutHands` (WM-DATA-17) cuts the hand byte alone, to protocol
+ * 16's frame, and refuses the same way. A test helper's test, no game data.
  */
 
 const body = (id: number, over: Partial<BodyState> = {}): BodyState => ({
@@ -26,7 +29,12 @@ describe('withoutViewTails: the cut tails are proved zero', () => {
     }
   });
 
-  it('a frame with one non-zero tail byte is refused, whichever body and whichever of the three bytes', () => {
+  it('the tail is four bytes since protocol 17: the view\'s three and the hand', () => {
+    expect([BODY_BYTES_V15, VIEW_TAIL_BYTES, BODY_BYTES_V16, HAND_BYTES]).toEqual([52, 4, 55, 1]);
+    expect(encodeSnapshot({ tick: 1, own: null, bodies: [body(1)] }).byteLength).toBe(12 + 1 + BODY_BYTES_V15 + VIEW_TAIL_BYTES + 1);
+  });
+
+  it('a frame with one non-zero tail byte is refused, whichever body and whichever of the four bytes', () => {
     for (const s of [{ tick: 3, own: null, bodies: [body(1), body(2)] }, { tick: 4, own, bodies: [body(1), body(2)] }]) {
       const frame = encodeSnapshot(s);
       const first = 12 + (s.own ? 36 : 0) + 1;                   // the head, the own state, the count
@@ -40,6 +48,29 @@ describe('withoutViewTails: the cut tails are proved zero', () => {
     }
     expect(() => withoutViewTails(encodeSnapshot({ tick: 1, own: null, bodies: [body(1, { clock: 1 })] }))).toThrow(/view tail/);
     expect(() => withoutViewTails(encodeSnapshot({ tick: 1, own: null, bodies: [body(1, { swayY: -0.5 })] }))).toThrow(/view tail/);
+    expect(() => withoutViewTails(encodeSnapshot({ tick: 1, own: null, bodies: [body(1, { hand: 121 })] }))).toThrow(/view tail byte 3/);
+  });
+});
+
+describe('withoutHands (WM-DATA-17): the hand byte cut, proved zero -- protocol 16\'s frame', () => {
+  it('a frame whose hands are all zero is cut one byte a body, the view tail kept where it was', () => {
+    for (const s of [{ tick: 3, own: null, bodies: [body(1, { view: 4, clock: 2, swayX: 1 }), body(2)] }, { tick: 4, own, bodies: [body(3, { swayY: -3 })] }, { tick: 5, own: null, bodies: [] }]) {
+      const live = encodeSnapshot(s), sixteen = withoutHands(live);
+      expect(sixteen.byteLength).toBe(live.byteLength - s.bodies.length);
+      const first = 12 + (s.own ? 36 : 0) + 1;
+      s.bodies.forEach((_, k) => expect(Array.from(sixteen.subarray(first + k * BODY_BYTES_V16 + BODY_BYTES_V15, first + (k + 1) * BODY_BYTES_V16)))
+        .toEqual(Array.from(live.subarray(first + k * (BODY_BYTES_V16 + HAND_BYTES) + BODY_BYTES_V15, first + k * (BODY_BYTES_V16 + HAND_BYTES) + BODY_BYTES_V16))));
+    }
+  });
+
+  it('a non-zero hand is refused by the strict cut, whichever body; the unchecked cut gives the bytes of the same frame with every hand 0', () => {
+    for (const own0 of [null, own]) {
+      const held = { tick: 6, own: own0, bodies: [body(1, { hand: 61 }), body(2, { hand: 255, view: 3 })] };
+      const bare = { tick: 6, own: own0, bodies: [body(1), body(2, { view: 3 })] };
+      expect(() => withoutHands(encodeSnapshot(held))).toThrow(/body 0's hand byte 0 is 61/);
+      expect(() => withoutHands(encodeSnapshot({ ...held, bodies: [body(1), body(2, { hand: 7 })] }))).toThrow(/body 1's hand byte 0 is 7/);
+      expect(Buffer.from(withoutHandsUnchecked(encodeSnapshot(held))).toString('hex')).toBe(Buffer.from(withoutHands(encodeSnapshot(bare))).toString('hex'));
+    }
   });
 });
 

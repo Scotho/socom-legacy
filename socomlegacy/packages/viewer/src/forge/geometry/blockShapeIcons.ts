@@ -1,7 +1,7 @@
 import type { BlockShape } from './blockShapes';
 
 /**
- * Create's shape pictures (the owner, 2026-11-17: "make the dropdown create menu a little nicer. Be nice to have a preview
+ * Create's shape pictures (the Forge's owner (crispy, OT.R112), 2026-11-17: "make the dropdown create menu a little nicer. Be nice to have a preview
  * image and it is categorized better"; a browser adaptation, FG.R2): each shape drawn in lines, in a 32 x 32 box, in
  * the text's colour -- an isometric look at what a drag makes.
  */

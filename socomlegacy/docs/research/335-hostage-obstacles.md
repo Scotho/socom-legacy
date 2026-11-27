@@ -71,7 +71,8 @@ steering task owns the controller/invalid-navigation gate and application to mov
 
 ## 5. Remaining footprint binding
 
-`HOSTAGE_DYNAMIC_FOOTPRINT_PLACEHOLDER` names the unported vehicle producer. `FUN_003ade90` D:L303307 constructs
+`HOSTAGE_DYNAMIC_FOOTPRINT_READING` (reading, pending review; scoped to the disc's own maps with hostages but the
+campaign's M71) names the unported vehicle producer and its value there: none. `FUN_003ade90` D:L303307 constructs
 type4 and `FUN_003adab0` D:L303212-303286 selects a named collision node and registers its mask. The port's SimMap
 has door polygons and swing bounds, but no corresponding type4 mover identity and named footprint quad. Treating
 a door's entire swing box, a physical hull, or an actor radius as that mask would invent navigation behavior.
@@ -90,13 +91,40 @@ or MP71. The separate placed-instance inspection found zero matches among 1271, 
 respectively. Thus these authored maps have no configured vehicle footprint producer; this does not establish
 that doors or other hulls should receive invented masks, or that the producer is implemented for other maps.
 
+**The one producer (2026-11-23, patches-contrib; reading, pending review).** The masks go into the AI overlay list (r0001
+0x66a0b8, its first node +8 0x66a0c0; r0004 0x669a38, the same layout). Its writers are `AddOverlay` (`FUN_00510530`) and
+`ClearOverlays` (`FUN_005104e0`, from `CAiMaps` Reset and Close, D:L397464, D:L397476; D4:L435732, D4:L435744); the static
+constructor `__sinit_ai_astar.cpp` (r0001 `FUN_00668540` D:L565172; r0004 `FUN_00667ec0` D4:L606109) builds it empty and
+registers its destructor. `AddOverlay`'s one caller is `CVehicle::Init` (`FUN_003adab0` D:L303286; r0004 `FUN_003cfc00`
+D4:L328877), reached only from `CVehicle`'s constructor (D:L303330), by TWO paths, both over the definitions filled only
+from this file's `VEHICLE` block (D:L152670; D4:L161224): (1) `CVehicle::LoadVehicles` (D:L156049) ->
+`ScanForVehicleDefinitionHookups` (`FUN_003ad910`), a scene node whose name STARTS WITH a definition's name
+(D:L303489-303490); (2) `CVehicle::Spawn` (`FUN_003ae030`, D:L156070-156072) -> `ScanForVehicleByName` (`FUN_003ad760`), for
+each record of the map's own `READERM.ZAR/vehicles.rdr` that `CVehicleRdrEntry::Load` (`FUN_00533370`) makes kind 2 -- a
+record with the key `vehicle` (D:L400427-400437) -- its scene node matched by EQUALITY with the record's `name`
+(D:L303067), so any node name: the definition is only looked up by the record. Its readers, every one a pure read: the flight's walk
+(`CountMapTravelDir` `FUN_00535a40`), the cover search (`CAiOverlayList::Contains` `FUN_0053a500`, from `_find_look`
+`FUN_0053a410` and `_find_cover` `FUN_0053a5e0`; research 445 s7), `FindTraversable` (`FUN_00529300`), `CountMapVisDir`
+(`FUN_00535df0`), `CAiPlanner::fcost` (`FUN_00512930`), `IsCommandCellUsable` (`FUN_0058fa70`; r0004 `FUN_005952e0`) and
+`SetOccupied` (`FUN_00529a90`, which changes a map cell's flag, not the list). A non-author second read (atlas-parity,
+2026-11-23, both builds, with a raw scan of both ELF images for any other reference to the list: none) CONFIRMED this WITH
+CORRECTIONS, folded here; its byte scan of the disc is not a decode, which the dev-disc test below covers. So on a map with hostages and no vehicle by either path the list is empty and no footprint exists:
+`HOSTAGE_DYNAMIC_FOOTPRINT_READING` = none, **scoped to the disc's own maps with hostages but the campaign's M71**.
+`hostageOverlayScope.devdisc.test.ts` reads every map on the disc, the 22 multiplayer maps and the campaign's 12 (hostage
+maps found by their escortee records; path 1 by the vehicle names read off this table, path 2 by a `vehicle` tag at any depth
+of a record). It pins the 13 maps with hostages (MP6, MP10, MP11, MP52, MP53, MP71, MP82; M51, M52, M61, M71, M73, M83) and
+the ones among them with a vehicle: M71 alone, whose scene node `tank1` builds a `CVehicle` by path 1. On M71 the original's
+list holds the tank's footprint and the port has none (the producer is unported): the readings do not hold there, a
+KNOWN DEPARTURE (LATER 1445). A new map
+with hostages, or a new vehicle on one, fails the test. The producer itself stays unported. Outside the scope: a forge layout placing hostages on a base with a vehicle -- MP2 (its `tank1`) is reachable today; the campaign's bases are not (no multiplayer mission entry, so no extraction room; their AIMAPS refused, so no planner), so neither is M71's departure.
+
 ## 6. Readings and placeholders
 
 | Name | Status | Meaning |
 |---|---|---|
 | `HOSTAGE_LOCATION_READING` | reading | Original raw cell and layered-height selection, §2; independently source-reviewed. |
 | `HOSTAGE_AI_COLLISION_READING` | reading | Radius and correction cap, §4; independently source-reviewed. Activation remains the steering controller's responsibility. |
-| `HOSTAGE_DYNAMIC_FOOTPRINT_PLACEHOLDER` | placeholder | Vehicle row-mask generation/live transform binding, §5; API exists, producer is not implemented. The four hostage maps contain neither configured vehicle. |
+| `HOSTAGE_DYNAMIC_FOOTPRINT_READING` | reading, pending review | None on a map with hostages but M71, §5: the overlay list's one producer is `CVehicle::Init` and of the disc's 13 maps with hostages only the campaign's M71 has a vehicle (its `tank1`; `hostageOverlayScope.devdisc.test.ts`). Scoped to the maps with hostages but M71, where the original has the tank's footprint (KNOWN DEPARTURE (LATER 1445)); the vehicle producer (row-mask generation, live transform binding) stays unported. |
 
 ## 7. Persistent collision-soil marking and contact output
 

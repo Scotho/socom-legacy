@@ -25,7 +25,7 @@ import { packGround, WalkMode, type GroundData, type PlaySnapshot } from '../src
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
 const poly = (path: string, y: number, z0: number, z1: number): WorldPoly => ({
   modelName: 'worldmodel', path, region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-400, y, z0, 400, y, z0, 400, y, z1, -400, y, z1]),
+  points: Float32Array.from([-400, y, z1, 400, y, z1, 400, y, z0, -400, y, z0]),
 });
 const DECK_Y = 42;
 const OWNERS: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 2 }];

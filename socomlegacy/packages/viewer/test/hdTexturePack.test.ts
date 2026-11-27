@@ -1,7 +1,10 @@
 import {describe,expect,it} from 'vitest';
-import {DataTexture,LinearFilter,LinearMipmapLinearFilter,NearestFilter} from 'three';
+import {DataTexture,LinearFilter,LinearMipmapLinearFilter,NearestFilter,RGBAFormat,SRGBColorSpace} from 'three';
 import {HdPackRuntime,HdTextureRegistry,HD_LIMITS,HD_CONCURRENT_LOADS,HD_UI_SAMPLING,drawPlacements,fullAlpha,hdCompositeSize,hdKeyOf,hdKeyPeak,hdTextures,markDerived,seedHdKey,upscaleRgba,validateHdManifest,
- type HdAlphaStep,type HdEntry,type HdManifest,type HdPlacement,type HdSampling} from '../src/hdTexturePack';
+ type HdAlphaStep,type HdEntry,type HdManifest,type HdPlacement,type HdRuntimeOptions,type HdSampling} from '../src/hdTexturePack';
+import {BC_THREE_FORMAT_ADAPTATION,blockGpuBytes,decodeKtx2,ktx2Level0Rgba,type BcKind} from '../src/hdPackBlocks';
+import type {Ktx2Kind} from '../src/ktx2';
+import {writeKtx2} from '../../../tools/hdPackKtx2';
 import {sha256} from '../src/texturePack';
 import {flipRows} from '../src/hudAssets';
 
@@ -174,11 +177,50 @@ describe('a 2D drawer\'s replacement larger than its unmipmapped bilinear origin
   await new HdPackRuntime(r2,async()=>same).setPack(manifest([await entry(src,same)]));
   expect(u.generateMipmaps).toBe(false);expect(u.minFilter).toBe(LinearFilter);
  });
- it('leaves a world texture (unflipped: alpha-tested cut-outs) unmipmapped, as the pack drew it before', async()=>{
+ it("leaves a world texture's non-opaque replacement (alpha-tested cut-outs: a chain thins them) unmipmapped, as the pack drew it before", async()=>{
   const src=image(2,2,[9,9,9,255]),hd=image(8,8,[1,1,1,128]),registry=new HdTextureRegistry(),t=texture(src);
+  hd.data[3]=0;   // one texel cut out (the pack's 128 is the PS2's full alpha, rescaled to 255: opaque)
   t.minFilter=LinearFilter;t.generateMipmaps=false;registry.register(t,src);
   await new HdPackRuntime(registry,async()=>hd).setPack(manifest([await entry(src,hd)]));
   expect(t.generateMipmaps).toBe(false);expect(t.minFilter).toBe(LinearFilter);
+ });
+});
+
+/**
+ * LATER 1137 (product track; the owner, 2026-11-18, in the main controller's seat: "interested" -- generate the smaller mip
+ * sizes for larger replacements): a world texture whose original is unmipped and bilinear (TEX1 `mipmaps=false`: MP71's
+ * `wood_boat.tif` 128x128 -> `906.dds` 512x512) was minified by single bilinear taps, speckling at middle distance (PC 3's
+ * WebGPU picture of MP71). Its OPAQUE larger replacement now gets a generated chain and trilinear minification; a
+ * non-opaque one (cut-outs) and a nearest or same-size one stay as before; the original's filter comes back with the pack.
+ */
+describe("LATER 1137: a world texture's opaque replacement larger than its unmipped bilinear original gets a mip chain", ()=>{
+ const world=(src:ReturnType<typeof image>,min:typeof LinearFilter|typeof NearestFilter=LinearFilter)=>{
+  const registry=new HdTextureRegistry(),t=texture(src);t.minFilter=min;t.generateMipmaps=false;registry.register(t,src);return {registry,t};
+ };
+ it('generates a chain and trilinear minification (the boat planks), and restores the original\u2019s filter when the pack goes', async()=>{
+  const src=image(2,2,[9,9,9,255]),hd=image(8,8,[120,80,40,255]),{registry,t}=world(src);
+  const runtime=new HdPackRuntime(registry,async()=>hd);await runtime.setPack(manifest([await entry(src,hd)]));
+  expect(runtime.applied).toBe(1);
+  expect(t.generateMipmaps).toBe(true);expect(t.minFilter).toBe(LinearMipmapLinearFilter);expect(t.mipmaps).toEqual([]);
+  await runtime.setPack(null);expect(t.generateMipmaps).toBe(false);expect(t.minFilter).toBe(LinearFilter);
+ });
+ it('a replacement larger on one side only (the boat shadow, 64x32 -> 256x128 at any ratio) counts as larger', async()=>{
+  const src=image(2,2,[9,9,9,255]),hd=image(4,2,[120,80,40,255]),{registry,t}=world(src);
+  await new HdPackRuntime(registry,async()=>hd).setPack(manifest([await entry(src,hd)]));
+  expect(t.generateMipmaps).toBe(true);expect(t.minFilter).toBe(LinearMipmapLinearFilter);
+ });
+ it('leaves a nearest-filtered world original and a same-size opaque replacement as they were', async()=>{
+  const src=image(2,2,[9,9,9,255]),hd=image(8,8,[120,80,40,255]),same=image(2,2,[120,80,40,255]);
+  const n=world(src,NearestFilter);await new HdPackRuntime(n.registry,async()=>hd).setPack(manifest([await entry(src,hd)]));
+  expect(n.t.generateMipmaps).toBe(false);expect(n.t.minFilter).toBe(NearestFilter);
+  const s2=world(src);await new HdPackRuntime(s2.registry,async()=>same).setPack(manifest([await entry(src,same)]));
+  expect(s2.t.generateMipmaps).toBe(false);expect(s2.t.minFilter).toBe(LinearFilter);
+ });
+ it('an original that has its own chain keeps its filter and generates (as before)', async()=>{
+  const src=image(2,2,[9,9,9,255]),hd=image(8,8,[120,80,40,255]),registry=new HdTextureRegistry(),t=texture(src);
+  t.mipmaps=[src,image(1,1,[9,9,9,255])];t.minFilter=LinearMipmapLinearFilter;t.generateMipmaps=false;registry.register(t,src);
+  await new HdPackRuntime(registry,async()=>hd).setPack(manifest([await entry(src,hd)]));
+  expect(t.generateMipmaps).toBe(true);expect(t.minFilter).toBe(LinearMipmapLinearFilter);
  });
 });
 
@@ -498,5 +540,230 @@ describe('GM-13d: a seeded key, and the injected alpha step',()=>{
   expect(loads).toBe(1);expect(r).toEqual({applied:2,skipped:[]});expect(calls).toEqual([]);
   const want=Array.from(fullAlpha(fresh().data));
   expect(Array.from(ta.image.data as unknown as Uint8ClampedArray)).toEqual(want);expect(Array.from(tb.image.data as unknown as Uint8ClampedArray)).toEqual(want);
+ });
+});
+
+/**
+ * WM-PACK-2 RUNTIME (WM.R13; PRODUCT TRACK, a browser adaptation with no original): an HD pack's exact KTX2 payloads
+ * uploaded as their own BC blocks. The block path is OFF unless every condition holds for that entry -- (a) a ktx2 entry
+ * with a BC kind, (b) whole, its key with no placements, (c) its decode unchanged by the alpha rescale, (d) its original
+ * not flipped, mipped or minified, (e) the online guard not drawing it opaque, (f) the device sampling the kind -- and
+ * a pack with no ktx2 entry is byte for byte today's. The pure decision is test/hdPackBlocks.test.ts.
+ */
+describe('WM-PACK-2 runtime: exact KTX2 payloads as BC blocks',()=>{
+ const ALL:ReadonlySet<BcKind>=new Set(['bc1','bc2','bc3','bc7']);
+ /** An 8x8 image's four blocks, each made by `one(i)`. */
+ const blocks4=(size:number,one:(i:number,b:Uint8Array,o:number)=>void)=>{const b=new Uint8Array(4*size);for(let i=0;i<4;i++)one(i,b,i*size);return b;};
+ const colour=(b:Uint8Array,o:number,c0:number,c1:number,idx:number)=>{b[o]=c0&255;b[o+1]=c0>>8;b[o+2]=c1&255;b[o+3]=c1>>8;for(let k=0;k<4;k++)b[o+4+k]=(idx>>>(8*k))&255;};
+ /** Opaque four-colour BC1 (c0 > c1): alpha 255 everywhere. */
+ const bc1=()=>blocks4(8,(i,b,o)=>colour(b,o,0xf81f-i,0x07e0+i,(0xe4e41b1b^(i*0x01010101))>>>0));
+ /** Punch-through BC1 (c0 <= c1, index 3 transparent): alpha 0 or 255. */
+ const bc1Cut=()=>blocks4(8,(i,b,o)=>colour(b,o,0x07e0+i,0xf81f-i,0xffe41b00>>>0));
+ /** BC2 whose alpha nibbles are `hi` and `lo` by turns (15/0: alpha 255/0, exact; 8/7: 136/119, rescaled). */
+ const bc2=(hi=15,lo=0)=>blocks4(16,(i,b,o)=>{for(let k=0;k<8;k++)b[o+k]=(k+i)&1?(hi<<4)|lo:(lo<<4)|hi;colour(b,o+8,0xf81f-i,0x07e0+i,0x1be4e41b);});
+ /** BC3 with alpha endpoints 255 and 0, each texel's code 0 or 1: alpha 255 or 0. */
+ const bc3=()=>blocks4(16,(i,b,o)=>{b[o]=255;b[o+1]=0;b.set([0x08,0x82,0x20,0x08,0x82,i&1?0:0x20],o+2);colour(b,o+8,0x001f+i,0xffe0-i,0x4e4e1b1b);});
+ /** BC7 mode 6 with both alpha endpoints 127 and p-bits 1: alpha 255 everywhere, colours varied. */
+ const bc7=()=>blocks4(16,(i,b,o)=>{
+  let pos=0;const put=(v:number,n:number)=>{for(let k=0;k<n;k++,pos++)if((v>>k)&1)b[o+(pos>>3)]=(b[o+(pos>>3)]??0)|(1<<(pos&7));};
+  put(64,7);const e0=[100+i,10,60,127],e1=[5,120-i,90,127];for(let c=0;c<4;c++){put(e0[c]!,7);put(e1[c]!,7);}put(1,1);put(1,1);
+  for(let t=0;t<16;t++)put((t*5+i)&(t===0?7:15),t===0?3:4);
+ });
+ const KINDS:[BcKind,()=>Uint8Array][]=[['bc1',bc1],['bc2',()=>bc2()],['bc3',bc3],['bc7',bc7]];
+ const own=(t:DataTexture,k:string)=>Object.prototype.hasOwnProperty.call(t,k);
+ /**
+  * A block-path texture's level 0, narrowed from three's `Texture.mipmaps` union (`CompressedTextureMipmap | CubeTexture |
+  * HTMLCanvasElement`) by its `data`, and that data to the Uint8Array the runtime uploads; the test fails if it is not one.
+  */
+ const level0=(t:DataTexture):{width:number;height:number;data:Uint8Array}=>{
+  const m=t.mipmaps[0];
+  if(!m||!('data' in m))throw new Error('the texture has no compressed level 0');
+  if(!(m.data instanceof Uint8Array))throw new Error('level 0 is not bytes');
+  return {width:m.width,height:m.height,data:m.data};
+ };
+ const compressed=(t:DataTexture)=>own(t,'isCompressedTexture')&&(t as unknown as {isCompressedTexture:boolean}).isCompressedTexture===true;
+ interface Case {kind?:Ktx2Kind;payload?:Uint8Array;supported?:ReadonlySet<BcKind>|null;guard?:boolean;src?:ReturnType<typeof image>;
+  flip?:boolean;mip?:'chain'|'generate';placed?:boolean;placedEntry?:boolean;flipY?:boolean;srgb?:boolean;alpha?:HdAlphaStep;linear?:boolean;levels?:Uint8Array[]}
+ /** One 8x8 KTX2 payload replacing a 4x4 original, through HdPackRuntime; `supported` null gives no `blocks` option. */
+ const run=async(c:Case={})=>{
+  const kind=c.kind??'bc1',bytes=writeKtx2(kind,8,8,c.levels??[c.payload??bc1()]),dec=decodeKtx2(bytes) as ReturnType<typeof image>;
+  const src=c.src??image(4,4,[10,20,30,255]),registry=new HdTextureRegistry();
+  const t=texture(c.flip?flipRows(src) as ReturnType<typeof image>:src);
+  if(c.mip==='chain'){t.mipmaps=[src,image(2,2,[10,20,30,255])];t.minFilter=LinearMipmapLinearFilter;}
+  if(c.mip==='generate'){t.generateMipmaps=true;t.minFilter=LinearMipmapLinearFilter;}
+  if(c.flipY)t.flipY=true;
+  if(c.srgb)t.colorSpace=SRGBColorSpace;
+  if(c.linear){t.minFilter=LinearFilter;t.generateMipmaps=false;}
+  registry.register(t,c.flip?flipRows(src):src,!!c.flip);
+  const e:HdEntry={...await entry(src,dec,'0.ktx2'),format:'ktx2' as HdEntry['format']};
+  const entries=[c.placedEntry?{...e,placements:[{dst:[0,0,4,4],src:[0,0,8,8]}],placementKind:'crop'} as HdEntry:e];
+  const part=image(4,4,[4,5,6,255]);
+  if(c.placed)entries.push(await entry(src,part,'1.png',{placements:[{dst:[1,0,1,1],src:[0,0,4,4]}],placementKind:'crop'}));
+  const options={...(c.supported===null?{}:{blocks:()=>c.supported??ALL}),...(c.guard!==undefined?{opaqueGuard:()=>c.guard!}:{}),...(c.alpha?{alpha:c.alpha}:{})};
+  const runtime=new HdPackRuntime(registry,async(x)=>x.file==='1.png'?{width:4,height:4,data:new Uint8ClampedArray(part.data)}:decodeKtx2(bytes),undefined,options as HdRuntimeOptions);
+  const original={image:t.image,mipmaps:t.mipmaps,generate:t.generateMipmaps,min:t.minFilter,format:t.format};
+  const report=await runtime.setPack(manifest(entries));
+  return {t,runtime,report,dec,bytes,original,kind};
+ };
+ const expectRgba=(t:DataTexture)=>{expect(compressed(t)).toBe(false);expect(t.format).toBe(RGBAFormat);expect(t.image.width).toBe(8);};
+ const expectBlocks=(t:DataTexture,kind:BcKind,payload:Uint8Array)=>{
+  expect(compressed(t)).toBe(true);expect(t.format).toBe(BC_THREE_FORMAT_ADAPTATION[kind]);expect(t.generateMipmaps).toBe(false);
+  expect(t.mipmaps.length).toBe(1);expect(t.mipmaps[0]).toMatchObject({width:8,height:8});
+  expect(Array.from(level0(t).data)).toEqual(Array.from(payload));
+  expect(t.image).toMatchObject({width:8,height:8});
+ };
+
+ for(const [kind,make] of KINDS){
+  it(`${kind}: every condition holding, the blocks uploaded; their decode is the RGBA path's texels; the cap counts the blocks`,async()=>{
+   const b=await run({kind,payload:make()});
+   // The fixture is exact as blocks: its decode's alpha is 0 or 255 only, so the rescale leaves it as it is.
+   expect(Array.from(fullAlpha(b.dec.data))).toEqual(Array.from(b.dec.data));expect(new Set(b.dec.data.filter((_,i)=>(i&3)===3)).size).toBeGreaterThan(0);
+   expect(b.report).toEqual({applied:1,skipped:[]});expectBlocks(b.t,kind,make());
+   expect(b.runtime.appliedBytes).toBe(blockGpuBytes(kind,8,8));
+   const r=await run({kind,payload:make(),supported:new Set()});
+   expectRgba(r.t);expect(r.runtime.appliedBytes).toBe(8*8*4);
+   const decoded=ktx2Level0Rgba({kind,vkFormat:0,width:8,height:8,levels:[level0(b.t)]});
+   expect(Array.from(decoded)).toEqual(Array.from(r.t.image.data as unknown as Uint8ClampedArray));
+  });
+ }
+ it('(a) a png entry, or a ktx2 holding RGBA (rgba8), keeps the RGBA path',async()=>{
+  const r=await run({kind:'rgba8',payload:new Uint8Array(8*8*4).fill(255)});expect(r.report.applied).toBe(1);expectRgba(r.t);
+  const src=image(4,4,[10,20,30,255]),hd=image(8,8,[1,2,3,255]),registry=new HdTextureRegistry(),t=texture(src);registry.register(t,src);
+  await new HdPackRuntime(registry,async()=>hd,undefined,{blocks:()=>ALL} as HdRuntimeOptions).setPack(manifest([await entry(src,hd)]));
+  expectRgba(t);
+  const control=await run();expect(compressed(control.t)).toBe(true);
+ });
+ it('LATER 1137 (B, the main controller\u2019s pick): a full BC chain in the file goes up as its blocks, every level, trilinear; the cap counts every level',async()=>{
+  const chain=[bc1(),bc1().subarray(0,8),bc1().subarray(8,16),bc1().subarray(16,24)];   // 8x8, 4x4, 2x2, 1x1
+  const r=await run({linear:true,levels:chain});
+  expect(r.report).toEqual({applied:1,skipped:[]});expect(compressed(r.t)).toBe(true);expect(r.t.generateMipmaps).toBe(false);
+  expect(r.t.mipmaps.map((m)=>[m.width,m.height])).toEqual([[8,8],[4,4],[2,2],[1,1]]);
+  expect(r.t.minFilter).toBe(LinearMipmapLinearFilter);
+  expect(r.runtime.appliedBytes).toBe(blockGpuBytes('bc1',8,8)+3*8);
+  await r.runtime.setPack(null);expect(r.t.minFilter).toBe(LinearFilter);expect(r.t.mipmaps).toBe(r.original.mipmaps);
+  // A nearest original with the same file: level 0 alone, as before (it needs no chain).
+  const n=await run({levels:chain});expect(compressed(n.t)).toBe(true);expect(n.t.mipmaps.length).toBe(1);
+ });
+ it('LATER 1137 (A, the fallback): a partial chain in the file takes the RGBA path with a generated chain',async()=>{
+  const part=await run({linear:true,levels:[bc1(),bc1().subarray(0,8)]});
+  expectRgba(part.t);expect(part.t.generateMipmaps).toBe(true);expect(part.t.minFilter).toBe(LinearMipmapLinearFilter);
+ });
+ it('LATER 1137: an opaque payload larger than its unmipped BILINEAR original with level 0 alone takes the RGBA path with a generated chain (no BC encoder for the levels)',async()=>{
+  const r=await run({linear:true});
+  expect(r.report.applied).toBe(1);expectRgba(r.t);expect(r.t.generateMipmaps).toBe(true);expect(r.t.minFilter).toBe(LinearMipmapLinearFilter);
+  const control=await run();expect(compressed(control.t)).toBe(true);   // a nearest original (DataTexture's own default): blocks, as before
+ });
+ it('(b) a key with placements, or the entry placed, keeps the RGBA path',async()=>{
+  const p=await run({placed:true});expect(p.report.applied).toBe(1);expectRgba(p.t);
+  const q=await run({placedEntry:true});expect(q.report.applied).toBe(1);expect(compressed(q.t)).toBe(false);
+  const control=await run();expect(compressed(control.t)).toBe(true);
+ });
+ it('(c) a payload the alpha rescale changes keeps the RGBA path',async()=>{
+  const r=await run({kind:'bc2',payload:bc2(8,7)});expect(r.report.applied).toBe(1);expectRgba(r.t);
+  expect((r.t.image.data as unknown as Uint8ClampedArray)[3]).not.toBe(r.dec.data[3]);   // rescaled: not the payload's bytes
+  const control=await run({kind:'bc2',payload:bc2(15,0)});expect(compressed(control.t)).toBe(true);
+ });
+ it('(d) a flipped original, a mipped one (a chain, or a generated one under a mip filter) keeps the RGBA path',async()=>{
+  for(const c of [{flip:true},{mip:'chain'},{mip:'generate'}] as Case[]){const r=await run(c);expect(r.report.applied,JSON.stringify(c)).toBe(1);expectRgba(r.t);}
+  const control=await run();expect(compressed(control.t)).toBe(true);
+ });
+ it('(e) online, an opaque original\'s transparent replacement (the guard draws it opaque) keeps the RGBA path',async()=>{
+  const g=await run({payload:bc1Cut(),guard:true});expect(g.runtime.guarded).toBe(1);expectRgba(g.t);
+  expect(compressed((await run({payload:bc1Cut(),guard:false})).t)).toBe(true);           // offline: as made
+  expect(compressed((await run({payload:bc1(),guard:true})).t)).toBe(true);               // online, already opaque
+  expect(compressed((await run({payload:bc1Cut(),guard:true,src:image(4,4,[10,20,30,128])})).t)).toBe(true);   // original not opaque
+ });
+ it('(f) a device that does not sample the kind, or no probe at all, keeps the RGBA path',async()=>{
+  expectRgba((await run({supported:new Set()})).t);
+  expectRgba((await run({supported:null})).t);
+  expectRgba((await run({kind:'bc7',payload:bc7(),supported:new Set<BcKind>(['bc1','bc2','bc3'])})).t);
+  expect(compressed((await run({kind:'bc7',payload:bc7(),supported:new Set<BcKind>(['bc7'])})).t)).toBe(true);
+ });
+ it('review F4: an original drawn flipY keeps the RGBA path',async()=>{
+  const r=await run({flipY:true});expect(r.report.applied).toBe(1);expect(compressed(r.t)).toBe(false);expect(r.t.image.width).toBe(8);
+  expect(compressed((await run()).t)).toBe(true);
+ });
+ it('review F4: an original with an sRGB transfer keeps the RGBA path',async()=>{
+  const r=await run({srgb:true});expect(r.report.applied).toBe(1);expect(compressed(r.t)).toBe(false);expect(r.t.image.width).toBe(8);
+  expect(compressed((await run()).t)).toBe(true);
+ });
+ it('review F5: a ktx2 payload with a mid alpha byte, or on a device with no BC, goes the injected alpha step as any payload',async()=>{
+  const seen:string[]=[],step=(tag:string):HdAlphaStep=>(r)=>{seen.push(tag);return hdStep(r);};
+  const hdStep=(r:{width:number;height:number;data:Uint8ClampedArray|Uint8Array})=>({width:r.width,height:r.height,data:fullAlpha(r.data as Uint8ClampedArray)});
+  const mid=await run({kind:'bc2',payload:bc2(8,7),alpha:step('mid')});expect(mid.report.applied).toBe(1);expect(compressed(mid.t)).toBe(false);
+  const none=await run({supported:new Set(),alpha:step('none')});expect(none.report.applied).toBe(1);expect(compressed(none.t)).toBe(false);
+  const exact=await run({alpha:step('exact')});expect(compressed(exact.t)).toBe(true);
+  expect(seen).toEqual(['mid','none']);                        // the exact one, with BC support, is the main thread's (no step, no copy)
+ });
+ it('restore puts the original image, mipmaps, filters and format back and clears the compressed state',async()=>{
+  const b=await run();expect(compressed(b.t)).toBe(true);
+  const v=b.t.version;await b.runtime.setPack(null);
+  expect(b.t.image).toBe(b.original.image);expect(b.t.mipmaps).toBe(b.original.mipmaps);expect(b.t.generateMipmaps).toBe(b.original.generate);
+  expect(b.t.minFilter).toBe(b.original.min);expect(b.t.format).toBe(b.original.format);
+  // The flags as DataTexture's constructor leaves them: its own isDataTexture true (three r186 DataTexture.js:43 sets it on
+  // the instance, not the prototype), no isCompressedTexture of its own -- the keys of a fresh DataTexture.
+  expect(own(b.t,'isCompressedTexture')).toBe(false);expect(b.t.isDataTexture).toBe(true);
+  expect((b.t as unknown as {isCompressedTexture?:boolean}).isCompressedTexture).toBeUndefined();
+  expect(own(new DataTexture(),'isDataTexture')).toBe(own(b.t,'isDataTexture'));
+  expect(b.t.version).toBeGreaterThan(v);expect(b.runtime.appliedBytes).toBe(0);
+ });
+ it('on the block path the texture reads isCompressedTexture true and isDataTexture false (WebGPU uploads by them)',async()=>{
+  const b=await run();
+  expect((b.t as unknown as {isCompressedTexture?:boolean}).isCompressedTexture).toBe(true);expect(b.t.isDataTexture).toBe(false);
+  expect(b.t).toBeInstanceOf(DataTexture);                                  // the registry's own object: every material keeps it
+ });
+ it('the guard turned on over a transparent block-path texture gives it back and applies it again as RGBA; off, blocks again',async()=>{
+  let on=false;const src=image(4,4,[10,20,30,255]),bytes=writeKtx2('bc1',8,8,[bc1Cut()]),dec=decodeKtx2(bytes) as ReturnType<typeof image>;
+  const registry=new HdTextureRegistry(),t=texture(src);registry.register(t,src);
+  const runtime=new HdPackRuntime(registry,async()=>decodeKtx2(bytes),undefined,{blocks:()=>ALL,opaqueGuard:()=>on} as HdRuntimeOptions);
+  await runtime.setPack(manifest([{...await entry(src,dec,'0.ktx2'),format:'ktx2' as HdEntry['format']}]));
+  expect(compressed(t)).toBe(true);
+  on=true;runtime.reguard();await runtime.settled();
+  expectRgba(t);expect(runtime.guarded).toBe(1);expect(t.isDataTexture).toBe(true);
+  on=false;runtime.reguard();await runtime.settled();
+  expect(compressed(t)).toBe(true);expect(runtime.guarded).toBe(0);
+ });
+
+ /** A png-only pack's whole effect: each texture's image, chain, filters, format, version and own keys; the runtime's counts. */
+ const pngOnly=async(options:HdRuntimeOptions|undefined)=>{
+  const registry=new HdTextureRegistry(),srcs=[0,1,2,3,4].map(i=>image(4,4,[10+i,20,30,255])),hds=srcs.map((_,i)=>image(8,8,[i,2,3,i===4?0:255]));
+  const ts=srcs.map((s,i)=>texture(i===1?flipRows(s) as ReturnType<typeof image>:s));
+  ts[1]!.minFilter=LinearFilter;ts[2]!.mipmaps=[srcs[2]!,image(2,2,[12,20,30,255])];ts[2]!.minFilter=LinearMipmapLinearFilter;
+  srcs.forEach((s,i)=>registry.register(ts[i]!,i===1?flipRows(s):s,i===1));
+  const part=image(4,4,[4,5,6,128]);
+  const entries=[...await Promise.all(srcs.map((s,i)=>entry(s,hds[i]!,`${i}.png`))),await entry(srcs[3]!,part,'9.png',{placements:[{dst:[1,0,1,1],src:[0,0,4,4]}],placementKind:'crop'})];
+  const runtime=new HdPackRuntime(registry,async(e)=>{const d=e.file==='9.png'?part:hds[parseInt(e.file,10)]!;return {width:d.width,height:d.height,data:new Uint8ClampedArray(d.data)};},undefined,
+   {opaqueGuard:()=>true,...options} as HdRuntimeOptions);
+  const report=await runtime.setPack(manifest(entries));
+  const rows=await Promise.all(ts.map(async t=>{const d=t.image.data as unknown as Uint8ClampedArray;
+   return [t.image.width,t.image.height,await sha256(new Uint8Array(d.buffer,d.byteOffset,d.byteLength)),t.mipmaps.length,t.generateMipmaps,t.minFilter,t.format,t.version,Object.keys(t).sort().join(',')].join('|');}));
+  return [...rows,JSON.stringify(report),runtime.appliedBytes,runtime.guarded].join('\n');
+ };
+ it('a pack with no ktx2 entry is byte for byte today\'s, whatever the device samples',async()=>{
+  const today=await pngOnly(undefined);
+  expect(await pngOnly({blocks:()=>ALL} as HdRuntimeOptions)).toBe(today);
+  expect(await pngOnly({blocks:()=>new Set()} as HdRuntimeOptions)).toBe(today);
+  // Pinned at 2391f5cdf7 (before the block path): the same effect, digested. Re-pinned at LATER 1228: only the applied
+  // bytes' line moved, 1280 -> 1448 (the two textures that generate an 8x8 chain counted whole, 340 not 256 each); every
+  // texture's row and the report are as at 2391f5cdf7 (the diff read line by line at the re-pin).
+  expect(await sha256(new TextEncoder().encode(today))).toBe(PNG_ONLY_DIGEST_AT_LATER_1228);
+ });
+});
+const PNG_ONLY_DIGEST_AT_2391F5CDF7='6ab0646237827e855925a7b3c14ee846539eb1a3a3ae197cf326188c1af3d749';
+const PNG_ONLY_DIGEST_AT_LATER_1228='67f822d39162a5887487f91b7d834e66b94d5067a0395297886b32541dd6361c';
+
+describe('WM-PACK-2 runtime: the manifest\'s ktx2 entries, and what an older reader does with one',()=>{
+ const ktx2Entry=async()=>({...await entry(image(2,2,[1,2,3,255]),image(8,8,[1,2,3,255]),'0.ktx2'),format:'ktx2' as HdEntry['format']});
+ it('a ktx2 entry (<n>.ktx2) is accepted and kept as ktx2',async()=>{
+  const e=await ktx2Entry(),m=validateHdManifest(manifest([e]));expect(m.entries[0]!.format).toBe('ktx2');expect(m.entries[0]!.file).toBe('0.ktx2');
+ });
+ // v0.4.22's validateHdManifest (`git show v0.4.22:socomlegacy/packages/viewer/src/hdTexturePack.ts`, :68 and :71) refuses
+ // the whole pack for one such entry: a '<n>.ktx2' file by its file rule, a 'ktx2' format on a png/dds file by
+ // "format does not match its file". The same words hold today for a format outside HD_FORMATS.
+ it('a format not in HD_FORMATS is refused in words, the whole pack (as v0.4.22 refuses a ktx2 entry)',async()=>{
+  const e=await entry(image(2,2,[1,2,3,255]),image(8,8,[1,2,3,255]));
+  expect(()=>validateHdManifest(manifest([{...e,format:'astc' as HdEntry['format']}]))).toThrow(/entry 1: format does not match its file/);
+  expect(()=>validateHdManifest(manifest([{...e,file:'0.astc',format:'astc' as HdEntry['format']}]))).toThrow(/entry 1: file is not/);
+  expect(()=>validateHdManifest(manifest([{...e,format:'ktx2' as HdEntry['format']}]))).toThrow(/entry 1: format does not match its file/);
  });
 });

@@ -19,7 +19,7 @@ import { Frame, type Command } from '../src/net/protocol';
 function floor(minX: number, minZ: number, maxX: number, maxZ: number, y: number): WorldPoly {
   return {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([minX, y, minZ, maxX, y, minZ, maxX, y, maxZ, minX, y, maxZ]),
+    points: Float32Array.from([minX, y, maxZ, maxX, y, maxZ, maxX, y, minZ, minX, y, minZ]),
   };
 }
 

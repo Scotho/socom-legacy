@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { decodeVagStream, roundStreamGains, VAGP_HEADER_BYTES, type RenderedSound, type ReverbImpulse } from '@s2u/sound';
 import { WebAudioOut } from '../src/audio';
 import { soundTransferables, type SoundData } from '../src/soundData';
+import { prototypeAudioOptions, trackLoopPayload } from '../src/xboxPrototype/audioResidency';
 
 /**
  * PR #631 (a browser adaptation, product track; the Xbox preset's memory): the samples played are the same whatever the
@@ -86,6 +88,57 @@ const played = (ctx: Ctx): FakeBuffer[] => ctx.buffers.filter((b) => b.length !=
 
 const PRESETS = [['xbox', true], ['auto', false]] as const;
 
+describe('lightweight renderer loop residency', () => {
+  it('mounts the tested audio policy and payload sampler in the experimental page', () => {
+    const source = readFileSync(new URL('../src/xboxPrototype/main.ts', import.meta.url), 'utf8');
+    expect(source).toContain('new WebAudioOut(null, prototypeAudioOptions(backend))');
+    expect(source).toContain('loopPayload = trackLoopPayload(loops)');
+    expect(source).toContain('report.sound.loopPayloadSample = loopPayload.snapshot()');
+  });
+  it('releases uploaded raw-loop arrays without a saved Xbox setting and replays identical samples', () => {
+    vi.stubGlobal('location', { search: '?mode=walk' });
+    vi.stubGlobal('localStorage', { getItem: () => null });
+    g.AudioContext = Ctx;
+    const s = stereo(96, true), want = snapshot(s), loops = [{ name: 'loop', sound: s }];
+    const payload = trackLoopPayload(loops);
+    const out = new WebAudioOut(null, prototypeAudioOptions('raw'));
+    out.prepare(); out.setReverb(ir());
+    const ctx = Ctx.made.at(-1)!;
+    expect(payload.snapshot()).toEqual({ loadedSourceBytes: 1536, currentSourceBytes: 1536, releasedSourceBytes: 0 });
+    expect(out.warm(s)).toBe(false);
+    expect(payload.snapshot().currentSourceBytes).toBe(1536);
+    while (!out.warm(s)) { /* a channel per warm, without changing scheduling */ }
+    expect(payload.snapshot()).toEqual({ loadedSourceBytes: 1536, currentSourceBytes: 0, releasedSourceBytes: 1536 });
+    const first = out.loop(s); first!.stop(); out.loop(s);
+    expect(played(ctx)).toHaveLength(1); expect(channels(played(ctx)[0]!)).toEqual(want);
+    const rematch = new WebAudioOut(null, prototypeAudioOptions('raw'));
+    rematch.prepare(); rematch.setReverb(ir()); rematch.loop(s);
+    expect(Ctx.made.at(-1)!.sources[0]!.buffer).toBe(played(ctx)[0]);
+    out.dispose(); rematch.dispose();
+  });
+  it('keeps the comparison backend default and counts only source channels actually released', () => {
+    vi.stubGlobal('location', { search: '?mode=walk&backend=current' });
+    vi.stubGlobal('localStorage', { getItem: () => null });
+    g.AudioContext = Ctx;
+    const s = stereo(96, true), payload = trackLoopPayload([{ name: 'loop', sound: s }]);
+    const out = new WebAudioOut(null, prototypeAudioOptions('current')); out.prepare();
+    while (!out.warm(s)) { /* comparison retains its existing default */ }
+    expect(payload.snapshot().releasedSourceBytes).toBe(0); out.dispose();
+    const raw = new WebAudioOut(null, prototypeAudioOptions('raw')); raw.prepare();
+    while (!raw.warm(s)) { /* no convolver: sends must remain available */ }
+    expect(payload.snapshot()).toEqual({ loadedSourceBytes: 1536, currentSourceBytes: 768, releasedSourceBytes: 768 });
+    expect(s.sendLeft).not.toBeNull(); expect(s.sendRight).not.toBeNull(); raw.dispose();
+  });
+  it('counts whole aliased backing buffers once without retaining the original channel views', () => {
+    const s = stereo(96, false), source = new Float32Array(128);
+    s.left = source.subarray(0, 96); s.right = source.subarray(32);
+    const payload = trackLoopPayload([{ name: 'a', sound: s }, { name: 'b', sound: s }]);
+    expect(payload.snapshot()).toEqual({ loadedSourceBytes: 512, currentSourceBytes: 512, releasedSourceBytes: 0 });
+    s.left = s.right = new Float32Array(0);
+    expect(payload.snapshot()).toEqual({ loadedSourceBytes: 512, currentSourceBytes: 0, releasedSourceBytes: 512 });
+  });
+});
+
 describe('PR #631: a mono stream holds one array for both channels (decodeVagStream)', () => {
   it('right is left: no second copy of the line', () => {
     const s = decodeVagStream(vagp([frame(0, 1), frame(0, 5), frame(1, 2)]));
@@ -161,13 +214,17 @@ describe('PR #631: a loop\'s buffer, and its arrays let go under the Xbox preset
       const { out, ctx } = output(release, true);
       const first = out.loop(s);
       expect(first).not.toBeNull();
+      const firstBuffer = ctx.sources[0]!.buffer;
+      expect(firstBuffer).not.toBeNull();
+      expect(channels(firstBuffer!)).toEqual(want);
       first!.stop();
       const again = out.loop(s);
       expect(again).not.toBeNull();
       const made = played(ctx);
       expect(made).toHaveLength(1);                                       // built once
       expect(ctx.sources).toHaveLength(2);
-      expect(ctx.sources[0]!.buffer).toBe(made[0]);
+      expect(firstBuffer).toBe(made[0]);
+      expect(ctx.sources[0]!.buffer).toBeNull();                           // stopped source releases its reference; cache still serves the next emitter
       expect(ctx.sources[1]!.buffer).toBe(made[0]);
       expect(ctx.sources.every((n) => n.loop && n.started)).toBe(true);
       expect(channels(made[0]!)).toEqual(want);

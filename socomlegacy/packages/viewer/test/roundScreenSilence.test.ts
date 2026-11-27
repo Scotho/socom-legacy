@@ -25,7 +25,10 @@ import { RemotePlayers } from '../src/remotePlayers';
 import { ROUND_SCREENS_AFTER_S, type RoundScreen } from '../src/roundScreens';
 import { WalkMode } from '../src/walk';
 import { WeaponRaise } from '../src/weaponRaise';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { FsAssetSource } from '@s2u/archive/node';
+import type { AudioOut } from '../src/audio';
+import { soundFromDisc } from '../src/soundData';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { noInput, type PadButton } from '../src/gamepad';
@@ -48,7 +51,7 @@ const ROUND: Extract<FireEvent, { type: 'round' }> = {
 };
 
 /** A player's page on a fake socket, its clock the test's, and the match's sound wired to it as both pages wire it. */
-function rig() {
+function rig(opts: { data?: SoundData; out?: AudioOut } = {}) {
   let t = 1000;
   vi.spyOn(performance, 'now').mockImplementation(() => t);
   let socket: WebSocketLike | null = null;
@@ -68,7 +71,8 @@ function rig() {
     setDead: () => undefined, feet: () => [0, 0, 0],
   } as unknown as WalkMode;
   let net: NetPage | null = null;
-  const audio = new GameAudio(silentOut(), () => 0.5, { inline: false });
+  // LATER 580: a rig may carry the map's sound data and a loop-capable output, the ambience rendered inline.
+  const audio = new GameAudio(opts.out ?? silentOut(), () => 0.5, { inline: opts.data !== undefined, now: () => t / 1000 });
   const sound = mountSound({
     audio,
     walk: { mode: () => 'walk', drawnFeet: () => [1, 2, 3], posture: () => 'stand', grid: () => null },
@@ -87,6 +91,7 @@ function rig() {
     },
     ...sound.netDeps(),                                // the sound's hooks, as both pages spread them
   };
+  if (opts.data) sound.setData(opts.data);
   net = new NetPage(deps, 'ws://test/ws', 'MP2', 'Tester', undefined, false, 'classic');
   socket!.onopen?.({} as Event);
   const server = (ev: ServerEvent): void => { socket!.onmessage?.({ data: JSON.stringify(ev) } as MessageEvent); };
@@ -122,7 +127,7 @@ function rig() {
     n.reloadSound({ name: 'M4A1' } as never, [1, 2, 3]);
     n.deathVoice('shot' as never, 'seal', 1, [1, 2, 3]);
     n.hurtVoice('seal', 1, [1, 2, 3]);
-    n.escorteeVoice(9, 'yes', [1, 2, 3]);
+    n.escorteeVoice(9, 'yes', [1, 2, 3], 'mp_fem1');   // R4P-254: the placed character names its YES
     n.ring(2, 1);
     sound.grenadeWarning({ id: 121, owner: 2, from: [1, 2, 3] });
     return heard.reduce((a, s) => a + s.mock.calls.length, 0) + ring.mock.calls.length - before;
@@ -132,7 +137,7 @@ function rig() {
     players: [], rules: 'classic', round: 1, rounds: 11, ghost: false, epoch: 0, env: { revision: 0, epoch: 0, states: [] },
   } as ServerEvent);
   const played = vi.mocked(audio.play);
-  return { net: net!, server, at, time: () => t, last: (): RoundScreen | null => screens.at(-1) ?? null, everything, stops, music, sound, played };
+  return { net: net!, server, at, time: () => t, last: (): RoundScreen | null => screens.at(-1) ?? null, everything, stops, music, sound, played, audio };
 }
 
 describe('OBF-31: the match\'s sound under the round screens (ROUND_SCREENS_STOP_ALL_READING)', () => {
@@ -190,6 +195,91 @@ describe('OBF-31: the match\'s sound under the round screens (ROUND_SCREENS_STOP
     expect(r.stops.mock.calls.length - stops0).toBe(1);                    // once, at the first screen
     expect(r.music.mock.calls.length - music0).toBeGreaterThanOrEqual(1);  // the stream system stopped (FUN_00344f80)
   });
+});
+
+/**
+ * LATER 580 (the audio half OBF-31 left open; reading, pending review): `SL_STOPALLSOUNDS` (`FUN_00346b30`, D:L151220)
+ * stops the ambience's loops too -- the beds and the emitters -- and nothing starts them again under the screens, the
+ * mission's world not ticked (`FUN_002ce9e0`, D:L171877-171888); the next round's restart starts the zAnim sets again
+ * (`FUN_002232a0` D:L75858-75866, reached by `FUN_00223680`'s pop, D:L75935-75936), the beds and the emitters with them. The page: the ambience off from the first screen
+ * frame (its loops stopped, their voices freed in the budget, LATER 1218/1220), on again with the next round.
+ */
+describe("LATER 580: the ambience's loops under the round screens", () => {
+  it('off from the first screen frame to the next round, on again with it', () => {
+    const r = rig();
+    const ambience = vi.spyOn(r.audio, 'setAmbience');
+    r.server(roundStart(1));
+    r.at(r.time() + 16);
+    expect(ambience.mock.calls.at(-1)).toEqual([true]);
+    const t0 = r.time();
+    r.server(roundOver(false));
+    for (let ms = 0; ms < READ_MS; ms += 250) r.at(t0 + ms);              // the engine's 3 s: the ambience plays on
+    expect(r.net.screenUp()).toBe(false);
+    expect(ambience.mock.calls.at(-1)).toEqual([true]);
+    const n0 = ambience.mock.calls.length;
+    for (let ms = READ_MS; ms < READ_MS + 4_000; ms += 250) r.at(t0 + ms);   // ROUND COMPLETE
+    expect(r.net.screenUp()).toBe(true);
+    const under = ambience.mock.calls.slice(n0);
+    expect(under.length).toBeGreaterThan(0);
+    expect(under.every(([on]) => on === false)).toBe(true);                // off, and never on, under the screen
+    r.server(roundStart(2));
+    r.at(r.time() + 16);
+    expect(r.net.screenUp()).toBe(false);
+    expect(ambience.mock.calls.at(-1)).toEqual([true]);                    // the next round starts them again
+  });
+
+  it("the ears: ended at the first screen frame (FUN_00346b30's FUN_00341060, D:L244181: the masters back at once), nothing resumed next round", () => {
+    const r = rig();
+    r.server(roundStart(1));
+    r.at(r.time() + 16);
+    const duck = vi.spyOn(r.audio, 'endBlastDuck');
+    r.sound.ears.start(5, 0.35);                                           // a ring late in the round, its duck holding
+    expect(r.sound.ears.ringing).toBe(true);
+    const stop = vi.spyOn(r.sound.ears, 'stop'), start = vi.spyOn(r.sound.ears, 'start');
+    const t0 = r.time();
+    r.server(roundOver(false));
+    for (let ms = 0; ms < READ_MS; ms += 250) r.at(t0 + ms);
+    expect(stop).not.toHaveBeenCalled();                                   // the engine's 3 s: the duck runs on
+    for (let ms = READ_MS; ms < READ_MS + 4_000; ms += 250) r.at(t0 + ms);
+    expect(r.net.screenUp()).toBe(true);
+    expect(stop).toHaveBeenCalledTimes(1);                                 // once, at the first screen frame
+    expect(r.sound.ears.ringing).toBe(false);
+    expect(duck).toHaveBeenCalledTimes(1);                                 // the masters put back (FUN_00341060)
+    r.server(roundStart(2));
+    r.at(r.time() + 16);
+    r.at(r.time() + 16);
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(start).not.toHaveBeenCalled();                                  // nothing comes back with the next round
+    expect(r.sound.ears.ringing).toBe(false);
+  });
+
+  const fixtures = resolve(process.env.S2U_TEST_FIXTURES || resolve(dirname(fileURLToPath(import.meta.url)), '../../../test-fixtures'));
+  const haveSound = existsSync(resolve(fixtures, 'RUN/SOUNDS/BNKSTORE.ZAR')) && existsSync(resolve(fixtures, 'RUN/MP2.ZDB'));
+  it.skipIf(!haveSound)('MP2 (the disc): the loops hold voices in the round; under the screen the budget holds none (loops and one-shots alike); the next round holds them again', async () => {
+    const data = await soundFromDisc(new FsAssetSource(fixtures), 'RUN/MP2.ZDB', 'MP2');
+    const out: AudioOut = {
+      ...silentOut(), unlocked: true, state: 'running', play: () => ({ stop: () => {} }),
+      loop: () => ({ setGains: () => {}, release: () => {}, stop: () => {} }),
+    };
+    const r = rig({ data, out });
+    const busy = (): number => (r.audio as unknown as { voices: { busy(now: number): number } }).voices.busy(r.time() / 1000);
+    r.server(roundStart(1));
+    r.at(r.time() + 16);
+    r.audio.pump(1e9);
+    r.at(r.time() + 16);
+    expect(busy()).toBeGreaterThan(0);                                     // the fan and the bed side up (LATER 1220)
+    r.audio.play('.JUMP_WHOOSH');                                          // a one-shot in flight as the screen opens
+    const t0 = r.time();
+    r.server(roundOver(false));
+    for (let ms = 0; ms < READ_MS + 4_000; ms += 250) r.at(t0 + ms);
+    expect(r.net.screenUp()).toBe(true);
+    expect(busy()).toBe(0);                                                // SL_STOPALLSOUNDS: every voice, the loops' too
+    r.server(roundStart(2));
+    r.at(r.time() + 16);
+    r.audio.pump(1e9);
+    r.at(r.time() + 16);
+    expect(busy()).toBeGreaterThan(0);
+  }, 60_000);
 });
 
 /** The firearm on fakes (`matchFirearm.test.ts`'s rig), its page's round screens `up`. */

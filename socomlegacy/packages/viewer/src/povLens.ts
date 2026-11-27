@@ -120,7 +120,10 @@ export interface PovLensInput {
   coneStance?: WeaponStanceName;
   /** LATER 107/168: the turret held, or null (`AimMover.turret`: a scope left by the mount clears no knock). */
   turret?: number | null;
-  /** The kit holds the thermal scope (`sights` `thermalFitted` of the subject's loadout); absent, false. */
+  /**
+   * The scope lens's thermal input (`sights` `thermalLensFitted`, R4P-110): the subject's kit holds the thermal scope and
+   * the item in his hand is class sniper; absent, false.
+   */
   thermal?: boolean;
   /** A throwable, a charge or the gear is up (the owner's `hands.itemUp()`): no lens, the reticle's mode. Absent, false. */
   itemUp?: boolean;

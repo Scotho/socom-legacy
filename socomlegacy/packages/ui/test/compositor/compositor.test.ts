@@ -279,6 +279,26 @@ describe('text through the compositor (PLAT-13 layout, FUN_00362b20 D:L260712-26
     if (glyphs?.kind !== 'glyphs') throw new Error('no glyphs');
     expect(glyphs.quads.filter((q) => !q.shadow)[0]!.rgba[3]).toBe(64);
   });
+  // R4P-237 / LEADS L355 (r0004; a reading, pending review): CWrappedText's draw (FUN_003979e0 0x397a78-0x397aa8)
+  // enables bright text only when its bound UIVAR's name is exactly `UsagePolicy` (strcmp), and clears it after
+  // (0x397eac); every other text draws `#B` as two glyphs.
+  const wrappedOn = (uivar: string) => {
+    const d = loadDialog(dialog('FONT', 'font_t', 'OBJECTS', [
+      rec('policy', 'WRAPPEDTEXT', 100, 100, r('UIVAR', r('NAME', uivar), 'WIDTH', '300', 'SCALE', '1')),
+    ]));
+    const glyphs = composeScreen(buildDialogScreen(d, { face: faces, uiVarString: () => 'A#BA' })).find((i) => i.kind === 'glyphs');
+    if (glyphs?.kind !== 'glyphs') throw new Error('no glyphs');
+    return glyphs.quads.filter((q) => !q.shadow).map((q) => [q.code, q.rgba[3]]);
+  };
+  const dim = Math.trunc(f32(f32(0.7) * 128)), bright = Math.trunc(f32(1.5 * f32(f32(0.7) * 128)));
+  it('a WRAPPEDTEXT bound to the UIVAR UsagePolicy draws bright: #B hidden, the span after it at 1.5x', () => {
+    expect(wrappedOn('UsagePolicy')).toEqual([[65, dim], [65, bright]]);
+  });
+  it('a WRAPPEDTEXT bound to any other UIVAR (the node name usage_policy, another case) draws #B as glyphs, never bright', () => {
+    for (const name of ['usage_policy', 'USAGEPOLICY', 'ChatLine']) {
+      expect(wrappedOn(name), name).toEqual([[65, dim], [35, dim], [66, dim], [65, dim]]);
+    }
+  });
 });
 
 describe('IMAGE PULSE (FUN_00378fc0 D:L272892-272914): its alpha, given dt', () => {

@@ -241,7 +241,7 @@ The cries: PANIC (0x48) when the watched body shares no team bit with the hostag
 of `FUN_00555900` pass flags 0 (D:L434913, 437711, 450478). The port runs both tests as written, on the bodies' masks.
 
 No AI event reaches it: `FUN_00572d70` zeroes every event mask online (`HOSTAGE_EVENTS_READING`); `onEvent` changes
-nothing, so the ShotAt (0x13) push 0x17 would admit in sub-state 5 never comes.
+nothing, so the ShotAt (0x13) push 0x17 would admit in sub-state 5 never comes. *Corrected 2026-11-18 (LATER 1170, research 445):* true of the AI **event** mask only -- the danger scan (`FUN_0056de10` -> `FUN_005cba20` -> `FUN_005cb870`) runs outside it, and a hostage runs (0x1b `CAiSGrenade`) from a frag or C4 it notices within the item's blast radius.
 
 ### 2.4 The stack and its masks
 
@@ -296,7 +296,7 @@ gate; the test "the masks ..." holds the [0x11] row.
   at 0.75/s, clamped (D:L422198-422203), and sets the node inactive at 0 (D:L422207): hidden after 40 game frames
   (1.335 s; 1 / 0.75 = 1.33 s at most in continuous time). The opacity is the body's, so a popped and re-entered 0x11
   continues it (199 §1). The offline self-pop (D:L422208-422211) never runs online.
-- **State 2** (`HOLD_STATE_TICK_PLACEHOLDER`): its Tick is unread; it lives one frame in the replay.
+- **State 2** (`HOLD_STATE_TICK_READING`, LATER 1187, research 447 s2.2; was `HOLD_STATE_TICK_PLACEHOLDER`): its Tick (`FUN_006060c0`) sets the AI mode IDLE in sub-state 0; it lives one frame in the replay.
 - **Cower** (`COWER_START_READING`): `Hostage_start` runs on the host at each level start and round restart
   (`FUN_002a7d40` D:L149744-149746; `FUN_00223680` D:L75920-75935; 199 §12.8, V5: H4-7 WRONG), its anim instance
   started before the script-state push 0x17's mask refuses; not built -- the port's crouch is the state machine's; the
@@ -350,7 +350,7 @@ character from HX-1's welcome list and `hostageState`.
 | `HOSTAGE_FADE_READING` | server `hostageAi.ts` | `{ rate: 0.75 }` /s, clamped [0, 1], hidden at 0 (D:L422191-422212; 199 s2, s12.3). Owed: C2 (the fade time after a rescue) |
 | `COWER_START_READING` | server `hostageAi.ts` | `'not built'`: `Hostage_start` runs on the host (199 s12.8); its visible effect owed to C2 |
 | `RESCUED_SIGNAL_READING` | server `hostageAi.ts` | `'sub 2 at once'`: 0x11's OnSignal(0) online (D:L422309-422313), no rejoin of unit 0x11 -- the double-credit path (199 s1) |
-| `HOLD_STATE_TICK_PLACEHOLDER` | server `hostageAi.ts` | `'idle'`: `CAiSHold`'s Tick unread; one frame in 199 s1's replay |
+| `HOLD_STATE_TICK_READING` | match `hostageAi.ts` | `'AI mode idle'`: `CAiSHold`'s Tick `FUN_006060c0` (D:L513892-514090), read (LATER 1187, research 447 s2.2); one frame in 199 s1's replay. *Was:* `HOLD_STATE_TICK_PLACEHOLDER`, unread |
 | `HOSTAGE_MODELS_READING` | `mp_fem1` `thai_biologist01`, `mp_fem2` `thai_biologist02`, `mp_fem3` `thai_wife`, texture `thcivpow` | `character.rdr`, MP6 `chartype.rdr`; 189 #12, §6, §14.11 | reading (HX-2) |
 | `HOSTAGE_LOD_READING` | 160 / 260 (the biologists), 150 / 250 (the wife) | `character.rdr` `lods` | *note only*: the port's `buildBody` draws LOD 0 for every body (HX-2) |
 | `CIV_CLIPS_READING` | the ten clips' seconds, keys and `motion.rdr` rules (§1.2) | `MOTION_P.ZAR`, `motion.rdr`; 189 §7 | reading (HX-2) |
@@ -361,6 +361,7 @@ character from HX-1's welcome list and `hostageState`.
 | `HOSTAGE_DEATH_LIST_READING` | TEAMMATE; a limb BODY STAND's first | `FUN_005a0950` D:L458919-458939, D:L458957-458959 | reading (HX-2) |
 | `HOSTAGE_BLAST_DEATH_READING` | `"the knock's clips"` | 238 §1.5; `FUN_005a54d0` D:L461384-461390 (cause 4 no clip; research 91 §3); the knock the body's (`FUN_005506a0` D:L417906 -> `FUN_005a0e70` D:L459307-459311 -> `FUN_0057e770`): dead not prone thrown (`FUN_005807d0` D:L441040-441051, Fall then Land), prone the body row (D:L441003-441015); 237 corrected 2026-10-23. The hostage's knock: `HostageFollow.knock` (LATER 354; reading, pending review) | reading |
 | `HOSTAGE_FLINCH_READING` | the players' lists | `damanim.rdr` (no TEAMMATE flinch rows); 189 §5 | reading (HX-2) |
+| `HOSTAGE_FLINCH_MOTION_PLACEHOLDER` | the AI moves on | LATER 1186: the room now flinches a hostage a round leaves alive (`room.ts` `hostageFlinch`; `FUN_005a54d0` D:L461394-461408, `FUN_005a2690`; research 447 s9.1) and tells every page; what the AI's motion does under the pushed clip (its follow, its stance, a climb the original pops at D:L460018) is unread -- unchanged; and the gate's `+0x2b != 8` / `+0x174 != 8` (D:L460013-460015, and the client's replay) unread for a hostage, taken as passing | placeholder (LATER 1186) |
 | `HOSTAGE_VOICES_READING` | slots YES, DAMAGE, DEATH; on MP6 DAMAGE and DEATH none (silent), YES `^CO_0343` (the HOSTAGE group's streams `CO_0343A-C`) | `character.rdr`; `FUN_0053b710` D:L405260-405266, `FUN_0053c200`; MP6's `sounds.rdr`, `MP6_vc.bnk`; 199 §8, §12.9 | reading (HX-2, re-valued in its fix round) |
 | `HOSTAGE_FADE_READING` | 0.75 a second (<= 1.33 s) | `FUN_00559070` D:L422191-422212 | reading (HX-2) |
 | `HOSTAGE_HIDDEN_READING` | inactive at 0: unpicked, unhit, unseen | D:L422203-422212; `FUN_002d6260` D:L176893, `FUN_002d61b0` D:L176837 | reading (HX-2) |

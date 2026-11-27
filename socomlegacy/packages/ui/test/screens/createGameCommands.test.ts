@@ -4,11 +4,12 @@ import { UiVarManager } from '../../src/uiVars';
 import { ValveStore, VALVE_TYPE } from '../../src/valves';
 import { conditionTokens, type ZAnimRtSet, type ZAnimUiCommand } from '../../src/zanimRuntime';
 import {
-  CREATE_GAME_ENTRY_COMMANDS, CreateGameCommands, FIRST_RELEASE_MAPS, availableMissionRows, clanField, missionRecords, playListNumbers, playListSets,
-  type CreateGameReply, type CreateGameRequest, type CreatedGame,
+  CREATE_GAME_ENTRY_COMMANDS, CreateGameCommands, FIRST_RELEASE_MAPS, acceptedVariant, availableMissionRows, clanField, missionRecords, playListNumbers, playListSets,
+  playListVariants, type CreateGameReply, type CreateGameRequest, type CreatedGame,
 } from '../../src/screens/createGameCommands';
 import { LOGOFF_COMMAND_ROWS } from '../../src/screens/logoffCommands';
-import { discAnimSets, discMissions, HAVE } from './createGameRig';
+import { MAP_VARIANTS, variantName } from '@s2u/archive';
+import { createGameRig, discAnimSets, discMissions, HAVE } from './createGameRig';
 
 /**
  * ONL-13 and ONL-14's rows off the machine (web research 163 §2-§4, 164 §2): `missionlist.rdr` as `FUN_002c9540`
@@ -51,7 +52,30 @@ describe('missionlist.rdr and the PLAY LIST\'s rows (FUN_002c9540, FUN_00274940)
       { number: 53, name: 'FOXHUNT', type: 3, multiplayer: true },
     ]);
     expect(m.filter((x) => (FIRST_RELEASE_MAPS as readonly number[]).includes(x.number)).map((x) => x.name)).toEqual([
-      'VIGILANCE', 'FISH HOOK', 'CROSSROADS', 'BLIZZARD', 'FROSTFIRE', 'DESERT GLORY', 'NIGHT STALKER', 'THE RUINS',
+      'VIGILANCE', 'SHADOW FALLS', 'FISH HOOK', 'CROSSROADS', 'BLIZZARD', 'FROSTFIRE', 'ABANDONED', 'DESERT GLORY', 'NIGHT STALKER',
+      "RAT'S NEST", 'THE RUINS',
+    ]);
+  });
+
+  // RN-1 (the owner, 2026-11-24, relayed by the main controller: "we're including rats nest in the rotation"): RAT'S NEST
+  // (MP8) offered, SUPPRESSION -- missionlist.rdr's TYPE 5 off the disc (`FUN_002c9540`; research 192: SUPPRESSION 2, 5, 8,
+  // 51, 64, 81), the 18th of its 22 multiplayer records (after NIGHT STALKER; r0004's own respawn list shows it after
+  // ABANDONED, atlas captures nade-swap-dg NOTES), so it is listed with RESPAWN on too.
+  it.skipIf(!HAVE)("RN-1: MP8 RAT'S NEST is the disc's 18th multiplayer mission, TYPE 5 (SUPPRESSION)", () => {
+    const m = discMissions();
+    expect(m.findIndex((x) => x.number === 8)).toBe(17);
+    expect(m.filter((x) => x.number === 8)).toEqual([{ number: 8, name: "RAT'S NEST", type: 5, multiplayer: true }]);
+  });
+
+  // The owner's B5 and S9 (2026-11-21): SHADOW FALLS (MP64) and ABANDONED (MP5) offered, SUPPRESSION both --
+  // missionlist.rdr's TYPE 5 off the disc (`FUN_002c9540`; research 192: SUPPRESSION 2, 5, 8, 51, 64, 81), the 6th and the
+  // 15th of its 22 multiplayer records (research 164 §7's order), so both are listed with RESPAWN on too.
+  it.skipIf(!HAVE)('B5: MP64 SHADOW FALLS and MP5 ABANDONED are the disc\'s 6th and 15th multiplayer missions, each TYPE 5 (SUPPRESSION)', () => {
+    const m = discMissions();
+    expect(m.findIndex((x) => x.number === 64)).toBe(5);
+    expect(m.findIndex((x) => x.number === 5)).toBe(14);
+    expect(m.filter((x) => x.number === 5 || x.number === 64)).toEqual([
+      { number: 64, name: 'SHADOW FALLS', type: 5, multiplayer: true }, { number: 5, name: 'ABANDONED', type: 5, multiplayer: true },
     ]);
   });
 
@@ -79,8 +103,8 @@ describe('missionlist.rdr and the PLAY LIST\'s rows (FUN_002c9540, FUN_00274940)
     ]);
   });
 
-  it.skipIf(!HAVE)('V13-2, DF-14 (DF.R2): with RESPAWN on the disc\'s list is SUPPRESSION\'s alone -- BLIZZARD and THE RUINS (DEMOLITION), DESERT GLORY and FISH HOOK (EXTRACTION) left out at the source, as CROSSROADS and NIGHT STALKER (FUN_00274940 D:L121528-121530)', () => {
-    expect(playListNumbers({ type: 'array', value: availableMissionRows(discMissions(), { respawn: true }) })).toEqual([51, 2]);
+  it.skipIf(!HAVE)('V13-2, DF-14 (DF.R2), B5: with RESPAWN on the disc\'s list is SUPPRESSION\'s alone -- VIGILANCE, SHADOW FALLS, FROSTFIRE, ABANDONED; BLIZZARD and THE RUINS (DEMOLITION), DESERT GLORY and FISH HOOK (EXTRACTION) left out at the source, as CROSSROADS and NIGHT STALKER (FUN_00274940 D:L121528-121530)', () => {
+    expect(playListNumbers({ type: 'array', value: availableMissionRows(discMissions(), { respawn: true }) })).toEqual([51, 64, 2, 5, 8]);
   });
 
   it('a record with no NUMBER or no NAME is not a mission; TYPE outside the five is 0; MULTIPLAYER by its key', () => {
@@ -105,8 +129,8 @@ describe('missionlist.rdr and the PLAY LIST\'s rows (FUN_002c9540, FUN_00274940)
     ]);
   });
 
-  it.skipIf(!HAVE)('the disc\'s list: VIGILANCE, FISH HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, DESERT GLORY, NIGHT STALKER, THE RUINS -- the 22 multiplayer missions left out at the source but the eight (OT.R45; V13-2, V13-3, DF-14)', () => {
-    expect(playListNumbers({ type: 'array', value: availableMissionRows(discMissions(), { respawn: false }) })).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
+  it.skipIf(!HAVE)('the disc\'s list: VIGILANCE, SHADOW FALLS, FISH HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, ABANDONED, DESERT GLORY, NIGHT STALKER, THE RUINS -- the 22 multiplayer missions left out at the source but the ten (OT.R45; V13-2, V13-3, DF-14; B5)', () => {
+    expect(playListNumbers({ type: 'array', value: availableMissionRows(discMissions(), { respawn: false }) })).toEqual([51, 64, 71, 72, 1, 2, 5, 6, 7, 8, 12]);
   });
 
   it('every map offered (the owner opening the rest): Medley and Random first, then every multiplayer mission, as FUN_00274940 lists them', () => {
@@ -259,4 +283,127 @@ describe('CREATE: CreateMPGame, CreateGame1 and cbCreateGame', () => {
     t.valves.set('mp_allow_respawn', 1, VALVE_TYPE.TEMP);
     expect(t.c.request('g$~Bravo').rulesSet).toBe(0); // CreateGame1's native field is independent of the later world report
   });
+});
+
+/**
+ * DAY-4 (`docs/plans/2026-11-23-day-mode.md`; simulation track, DAY.R1; DAY.R5, DAY.R7): CREATE GAME's variant rows. A
+ * variant's row keeps the original's row shape [number, name] (`missionRow`, `FUN_00274940` D:L121538-121547) --
+ * `[5, 'ABANDONED (DAY)']` -- right after its map's row and under its map's filters (respawn D:L121528-121530, present
+ * D:L121535, offered); it is listed when the table accepts it (`MAP_VARIANTS`' `accepted`, DAY-R1: MP5 day) or the
+ * server's all-maps offer is on (BAM.R4). The variant is read back from the selected row's name (`playListVariants`);
+ * the play list's numbers (`playListNumbers`, GameStats' bytes) are unchanged; the create request carries the
+ * positions as `variants` only when there are any.
+ */
+describe('DAY-4: the variant rows in the PLAY LIST (DAY.R5, DAY.R7)', () => {
+  const row = (n: number, name: string) => ({ type: 'array' as const, value: [{ type: 'int' as const, value: n }, S(name)] });
+  const nameOf = (r: { type: string; value?: unknown }): string => {
+    const v = (r as { value: { type: string; value: unknown }[] }).value;
+    return Array.isArray(v) && v[1]?.type === 'string' ? String(v[1].value) : '';
+  };
+  const missions = [
+    { number: 51, name: 'VIGILANCE', type: 5, multiplayer: true }, { number: 64, name: 'SHADOW FALLS', type: 5, multiplayer: true },
+    { number: 5, name: 'ABANDONED', type: 5, multiplayer: true }, { number: 6, name: 'DESERT GLORY', type: 4, multiplayer: true },
+  ];
+  const all = () => true;
+
+  it("the accepted variant's row follows its map's row, in the original's [number, name] shape: [5, ABANDONED (DAY)]", () => {
+    expect(availableMissionRows(missions, { respawn: false, variantOffered: acceptedVariant })).toEqual([
+      row(51, 'VIGILANCE'), row(64, 'SHADOW FALLS'), row(5, 'ABANDONED'), row(5, 'ABANDONED (DAY)'), row(6, 'DESERT GLORY'),
+    ]);
+    // with no variantOffered (a caller listing maps, not CREATE GAME's rows: the loadout editor) no variant row
+    expect(availableMissionRows(missions, { respawn: false }).map(nameOf)).toEqual(['VIGILANCE', 'SHADOW FALLS', 'ABANDONED', 'DESERT GLORY']);
+    expect([acceptedVariant(5, 'day'), acceptedVariant(64, 'day'), acceptedVariant(6, 'night'), acceptedVariant(5, 'night')]).toEqual([true, false, false, false]);
+  });
+
+  it('a variant not offered is absent: not accepted (MP64 day, MP6 night), or its map not offered or not present', () => {
+    const names = (o: Parameters<typeof availableMissionRows>[1]) => availableMissionRows(missions, o).map(nameOf);
+    expect(names({ respawn: false, variantOffered: acceptedVariant })).toEqual(['VIGILANCE', 'SHADOW FALLS', 'ABANDONED', 'ABANDONED (DAY)', 'DESERT GLORY']);
+    expect(names({ respawn: false, offered: (n) => [51, 64, 6].includes(n), variantOffered: acceptedVariant })).toEqual(['VIGILANCE', 'SHADOW FALLS', 'DESERT GLORY']);
+    expect(names({ respawn: false, present: (n) => n !== 5, variantOffered: all }))
+      .toEqual(['VIGILANCE', 'SHADOW FALLS', 'SHADOW FALLS (DAY)', 'DESERT GLORY', 'DESERT GLORY (NIGHT)']);
+  });
+
+  it('the all-maps offer lists every variant, each after its map: MP64 day, MP5 day, MP6 night', () => {
+    expect(availableMissionRows(missions, { respawn: false, variantOffered: all })).toEqual([
+      row(51, 'VIGILANCE'), row(64, 'SHADOW FALLS'), row(64, 'SHADOW FALLS (DAY)'), row(5, 'ABANDONED'), row(5, 'ABANDONED (DAY)'),
+      row(6, 'DESERT GLORY'), row(6, 'DESERT GLORY (NIGHT)'),
+    ]);
+  });
+
+  it("MP6 (Night)'s row obeys MP6's respawn filter: with RESPAWN on neither DESERT GLORY row is listed (D:L121528-121530)", () => {
+    expect(availableMissionRows(missions, { respawn: true, variantOffered: all })).toEqual([
+      row(51, 'VIGILANCE'), row(64, 'SHADOW FALLS'), row(64, 'SHADOW FALLS (DAY)'), row(5, 'ABANDONED'), row(5, 'ABANDONED (DAY)'),
+    ]);
+  });
+
+  it("GetAvailableMPMissions: the server's all-maps word (BAM.R4) lists the unaccepted variants; without it only MP5 day", () => {
+    const listed = (allMaps: boolean): string[] => {
+      const uiVars = new UiVarManager(), valves = new ValveStore();
+      const c = new CreateGameCommands({
+        uiVars, valves: () => valves, event: () => {}, row: () => {}, missions: () => missions,
+        offered: () => [5, 6, 51, 64], allMaps: () => allMaps,
+      });
+      c.GetAvailableMPMissions(cmd('GetAvailableMPMissions', 'MISSIONLIST'), null as never, undefined);
+      const v = uiVars.find('MISSIONLIST')!.value;
+      return v.type === 'array' ? v.value.map(nameOf) : [];
+    };
+    expect(listed(false)).toEqual(['VIGILANCE', 'SHADOW FALLS', 'ABANDONED', 'ABANDONED (DAY)', 'DESERT GLORY']);
+    expect(listed(true)).toEqual(['VIGILANCE', 'SHADOW FALLS', 'SHADOW FALLS (DAY)', 'ABANDONED', 'ABANDONED (DAY)', 'DESERT GLORY', 'DESERT GLORY (NIGHT)']);
+  });
+
+  it('playListVariants: the 0-based positions whose name is a variant name for their number; playListNumbers unchanged', () => {
+    const list = { type: 'array' as const, value: [row(5, 'ABANDONED'), row(5, 'ABANDONED (DAY)')] };
+    expect(playListVariants(list)).toEqual([1]);
+    expect(playListNumbers(list)).toEqual([5, 5]);
+    // a variant's name under another number is not that number's variant; a pair off the table is no variant
+    expect(playListVariants({ type: 'array', value: [row(2, 'ABANDONED (DAY)'), row(5, 'ABANDONED (NIGHT)'), row(6, 'DESERT GLORY (NIGHT)')] })).toEqual([2]);
+    expect(playListVariants(undefined)).toEqual([]);
+  });
+
+  it('the create request carries variants: [1] for [ABANDONED, ABANDONED (DAY)], and no variants key with none', () => {
+    const t = rows();
+    t.uiVars.set(t.uiVars.add('PLAYLISTVAR', null, 2), { type: 'array', value: [row(5, 'ABANDONED'), row(5, 'ABANDONED (DAY)')] });
+    t.c.CreateMPGame(cmd('CreateMPGame'), null as never, undefined);
+    expect(t.sent[0]!.variants).toEqual([1]);
+    const plain = rows();
+    plain.uiVars.set(plain.uiVars.add('PLAYLISTVAR', null, 2), { type: 'array', value: [row(5, 'ABANDONED')] });
+    plain.c.CreateMPGame(cmd('CreateMPGame'), null as never, undefined);
+    expect('variants' in plain.sent[0]!).toBe(false);
+  });
+
+  it.skipIf(!HAVE)("the disc: each variant's name is the disc's mission name and its word; ABANDONED (DAY) follows ABANDONED", () => {
+    const disc = discMissions();
+    for (const v of MAP_VARIANTS) expect(variantName(v.level, v.variant)).toBe(`${disc.find((m) => m.number === v.level)!.name} (${v.word})`);
+    const names = availableMissionRows(disc, { respawn: false, variantOffered: acceptedVariant }).map(nameOf);
+    const at = names.indexOf('ABANDONED');
+    expect(names.slice(at, at + 2)).toEqual(['ABANDONED', 'ABANDONED (DAY)']);
+  });
+
+  it.skipIf(!HAVE)("the disc's dlgCreateGame set moves ABANDONED (DAY) to SELECTED MAPS and writes PLAYLISTVAR with the name intact; CREATE sends variants [1]", async () => {
+    const r = createGameRig();
+    await r.enter();
+    r.go('gamename_btn');
+    r.press('CROSS', 20);
+    r.type('day');
+    await r.settle(10);
+    r.go('SelectGames');
+    r.press('CROSS', 10);
+    const items = r.list('AVAILABLE_MISSIONS').items.map((it) => it.captions.join(' '));
+    const plain = items.indexOf('5 ABANDONED'), day = items.indexOf('5 ABANDONED (DAY)');
+    expect([plain >= 0, day]).toEqual([true, plain + 1]);
+    for (const i of [plain, day]) {
+      for (let k = 0; k < 16 && r.list('AVAILABLE_MISSIONS').focus < i; k++) r.press('DOWN', 3);
+      expect(r.list('AVAILABLE_MISSIONS').focus).toBe(i);
+      r.press('CROSS', 8);
+    }
+    expect(r.list('SELECTED_MISSIONS').items.map((it) => it.captions.join(' '))).toEqual(['5 ABANDONED', '5 ABANDONED (DAY)']);
+    r.press('SQUARE', 10);                                               // accept_play_list
+    await r.settle(3);
+    const v = r.uiVars.find('PLAYLISTVAR')!.value;
+    expect(v).toEqual({ type: 'array', value: [row(5, 'ABANDONED'), row(5, 'ABANDONED (DAY)')] });
+    expect([playListNumbers(v), playListVariants(v)]).toEqual([[5, 5], [1]]);
+    r.press('SQUARE', 10);                                               // CREATE (the screen's SQUARE)
+    await r.settle(3);
+    expect(r.requests.map((q) => q.variants)).toEqual([[1]]);
+  }, 30_000);
 });

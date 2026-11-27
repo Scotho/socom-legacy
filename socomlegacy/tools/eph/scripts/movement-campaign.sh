@@ -9,7 +9,8 @@
 # need many creative tests between the clients with notable differences mapped cleanly." -- MATRIX (mx-*). Each case's
 # header says what it tests, what to look at and (mx-*) what the analyzer measures.
 #
-# A heavy run (AGENTS.md, "Layout and local directories", 5): the controller launches it on the owner's host only when
+# A heavy run (AGENTS.md, "Layout and local directories", 5): the controller launches it on a Shadow PC (never the hub
+# PC, S5; no owner's word per run since OT.R145) only when
 # the host is free -- no gate, no browser run, no playtest beside it -- and it reads the desktop's lock (check only) and
 # stops if it is held. It stops on the first trial that fails (the run exits non-zero), as the STM-3 loop did.
 #
@@ -26,7 +27,7 @@
 #
 # Rebinding. The scripts are in the original's pad terms, so a pad layout has no meaning for them: --pad-layout
 # (standard | machete, tools/eph/live.ts PAD_LAYOUTS) is a live mode remap of the physical pad onto those terms, and a
-# script run takes none. The rebinding is confirmed in a live session, the owner's, at his word:
+# script run takes none. The rebinding is confirmed in a live session (a parity-harness run: no owner's word since OT.R145):
 #   node --import tsx tools/eph/run.ts --live --map M51 --state 8 --build r0001 --pad-layout machete
 # with the quick drop played by hand (crouch with L2 + Triangle, still, a slight push, Triangle; then the pop), and
 # the session's live.script replayed with --script: the replay must show the same drop on both sides, and its

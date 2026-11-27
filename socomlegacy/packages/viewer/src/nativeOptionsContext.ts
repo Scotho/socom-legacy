@@ -2,6 +2,7 @@ import { Libmc, PersonaCard, UI_VAR_MODULE, type CardSlots } from '@s2u/card';
 import { CARD_PASSWORD_UI_VARS_PLACEHOLDER, OPTION_VALVES, UI_VAR_MODULE_TUNERS_READING, VALVE_TYPE, type UiVarManager } from '@s2u/ui';
 import type { NativeOptionsState } from './nativeOptionsHost';
 import { VALVE_MODULE } from './originalOptions';
+import { optionValveChanges, reportSettingChange } from './settingsDiag';
 
 /** MLS.R7 browser adaptation: Home and native Options share applied state while taking turns editing. A successful
  * Home card write publishes only that field; it never reloads the card over unrelated unsaved session options.
@@ -42,6 +43,7 @@ export function liveOptionValue(slots: CardSlots, field: NativeOptionField, name
 export function optionCommitted(slots: CardSlots, field: NativeOptionField, name: string, value: number): void {
   const canonical = (field === 'tuner' ? UI_VAR_MODULE_TUNERS_READING : OPTION_VALVES).find(n => same(n, name));
   if (!canonical) return;
+  const was = liveOptionValue(slots, field, canonical);                 // B-22 S2: the live value before this commit
   for (const state of contexts.get(slots) ?? []) {
     if (field === 'tuner') {
       applyCommittedTuner(state.uiVars, canonical, value);
@@ -52,6 +54,7 @@ export function optionCommitted(slots: CardSlots, field: NativeOptionField, name
     }
   }
   for (const callback of [...(commits.get(slots) ?? [])]) callback({ field, name: canonical, value });
+  if (was !== undefined) reportSettingChange('launcher', canonical, was, value);   // B-22 S2 (`./settingsDiag`): an instrument
 }
 
 const object = (value: unknown): Record<string, unknown> | null =>
@@ -100,7 +103,10 @@ export function connectNativeOptions(slots: CardSlots, state: NativeOptionsState
       contents: () => {
         const current = source.contents(), data = object(current.data);
         if (!data) return current;
-        const merged = keepNewerCardData(data, before, cardData(slots));
+        const latest = cardData(slots);
+        const merged = keepNewerCardData(data, before, latest);
+        // B-22 S2 (`./settingsDiag`, an instrument): the option valves this save changes against the card as it stands.
+        for (const [n, o, w] of optionValveChanges(latest?.[VALVE_MODULE], merged[VALVE_MODULE])) reportSettingChange('native', n, o, w);
         // PersonaCard computes the save size from the resulting registered modules and persona count.
         const file = new PersonaCard(new Libmc(slots, { log: () => {} }), 0);
         return file.restore(merged) ? file.contents() : current;

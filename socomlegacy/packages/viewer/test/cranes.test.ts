@@ -13,7 +13,7 @@ import { loadMap, transferables, type LoadedMap, type LoadedMesh } from '../src/
 import { simMapFromBytes } from '../src/simMap';
 import { buildWorld } from '../src/world';
 import {
-  ACTION_TYPE_CODES, bareMeta, C4_SURFACE_SLACK_PLACEHOLDER, c4Line, craneSurfaceOffRay, CraneSet, chainReactionCraneSpecs, craneDisc, craneOffset, cranePressSlack, craneRides, craneSwingAngle, craneUnresolved, decodeSnapshot,
+  ACTION_TYPE_CODES, bareMeta, C4_SURFACE_SLACK_PLACEHOLDER, actionLine, craneSurfaceOffRay, CraneSet, chainReactionCraneSpecs, craneDisc, craneOffset, cranePressSlack, craneRides, craneSwingAngle, craneUnresolved, decodeSnapshot,
   encodeCommands, encodeSnapshot, forkGround, groundGrid, groundPolygons, headEye, headPoint, packGround, PROTOCOL_VERSION, readCranes, splitCranePlacements, TICK_HZ,
   type ClientEvent, type CraneActionMiss, type CraneWire, type ServerEvent, type SimMap,
 } from '../src/sim';
@@ -266,7 +266,7 @@ describe('the room runs the hooks and the switch toggles them', () => {
   };
   const FLOOR: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([900, 75.5, 1700, 1400, 75.5, 1700, 1400, 75.5, 2100, 900, 75.5, 2100]),
+    points: Float32Array.from([900, 75.5, 2100, 1400, 75.5, 2100, 1400, 75.5, 1700, 900, 75.5, 1700]),
   };
   const PANEL: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/epan_1', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0,
@@ -402,7 +402,7 @@ describe('the room runs the hooks and the switch toggles them', () => {
   it("#337 review F1 (CRANE_PRESS_SLACK_ADAPTATION): a press naming the hook where a lagging page saw it pauses at 0, 100 and 200 ms; one lagging past the bound is refused 'missed'", () => {
     // The panel's face lies across Z, the hook's travel: the case the off-ray fallback cannot rescue. The page saw the
     // hook `lag` seconds ago (its view clock that far behind the room); the room's hook is ahead by speed x lag.
-    const floor: WorldPoly = { ...FLOOR, points: Float32Array.from([900, 65, 1700, 1400, 65, 1700, 1400, 65, 2100, 900, 65, 2100]) };
+    const floor: WorldPoly = { ...FLOOR, points: Float32Array.from([900, 65, 2100, 1400, 65, 2100, 1400, 65, 1700, 900, 65, 1700]) };
     const speed = 230 / 15;
     const press = (lag: number): { paused: boolean; drops: Record<string, number> | null } => {
       const room = new Room(map([1, 2], floor), null, { now: () => 0, random: () => 0.5, rules: 'respawn', roundSeconds: 600, launchCountdownS: 0 });
@@ -431,7 +431,7 @@ describe('the room runs the hooks and the switch toggles them', () => {
   });
 
   it("#337 (the review's low 3): a command batch whose view clock is NaN or Infinity leaves the player's clock as it stood, and a lagging crane press is still judged on it", () => {
-    const floor: WorldPoly = { ...FLOOR, points: Float32Array.from([900, 65, 1700, 1400, 65, 1700, 1400, 65, 2100, 900, 65, 2100]) };
+    const floor: WorldPoly = { ...FLOOR, points: Float32Array.from([900, 65, 2100, 1400, 65, 2100, 1400, 65, 1700, 900, 65, 1700]) };
     const speed = 230 / 15, lag = 0.2;
     for (const bad of [NaN, Infinity, -Infinity]) {
       const room = new Room(map([1, 2], floor), null, { now: () => 0, random: () => 0.5, rules: 'respawn', roundSeconds: 600, launchCountdownS: 0 });
@@ -461,7 +461,7 @@ describe('the room runs the hooks and the switch toggles them', () => {
     // collision the prompt tracks. Hook 1's leg is 230 units in 15 s, about 15 u/s.
     const floor: WorldPoly = {
       ...FLOOR,
-      points: Float32Array.from([900, 65, 1700, 1400, 65, 1700, 1400, 65, 2100, 900, 65, 2100]),
+      points: Float32Array.from([900, 65, 2100, 1400, 65, 2100, 1400, 65, 1700, 900, 65, 1700]),
     };
     const room = new Room(map([1, 2], floor), null, { now: () => 0, random: () => 0.5, rules: 'respawn', roundSeconds: 600, launchCountdownS: 0 });
     const client = new Client();
@@ -488,8 +488,8 @@ describe('the room runs the hooks and the switch toggles them', () => {
     const lead = speed * 0.1;
     const surface = { path: 'worldmodel/epan_1', point: [1118.335, Math.min(head[1], feet.y + 14), panelZ + lead] as [number, number, number] };
     const slack = cranePressSlack(room.cranes.specs[0]!);
-    const plain = c4Line(room.map.grid, head, surface);
-    const allowed = c4Line(room.map.grid, head, surface, '', [], slack);
+    const plain = actionLine(room.map.grid, head, surface);
+    const allowed = actionLine(room.map.grid, head, surface, '', [], slack);
     room.takeDrops();
     room.text(1, { type: 'action', seq: p.sim.seq, action: 0, surface });
     const drops = room.takeDrops();
@@ -506,7 +506,7 @@ describe('the room runs the hooks and the switch toggles them', () => {
     // before the line; then the reach. The hull is the room grid as the previous crane step left it.
     const floor: WorldPoly = {
       ...FLOOR,
-      points: Float32Array.from([900, 65, 1700, 1400, 65, 1700, 1400, 65, 2100, 900, 65, 2100]),
+      points: Float32Array.from([900, 65, 2100, 1400, 65, 2100, 1400, 65, 1700, 900, 65, 1700]),
     };
     const narrow: WorldPoly = {
       ...PANEL,
@@ -538,20 +538,20 @@ describe('the room runs the hooks and the switch toggles them', () => {
     };
     const lead = speed * 0.1;
     const good = stand(roomZ + lead);
-    expect(c4Line(room.map.grid, good.head, good.surface, '', [], slack).clear).toBe(false);
+    expect(actionLine(room.map.grid, good.head, good.surface, '', [], slack).clear).toBe(false);
     room.takeDrops();
     room.text(1, { type: 'action', seq: p.sim.seq - 4, action: 0, surface: good.surface });
     expect(room.takeDrops()).toEqual({ 'action: stale': 1 });
     expect(client.events.filter((e) => e.type === 'stale')).toEqual([]);
     expect(room.cranes.state(0).paused).toBe(false);
     const far = stand(roomZ + 8);
-    expect(c4Line(room.map.grid, far.head, far.surface, '', [], slack).clear).toBe(false);
+    expect(actionLine(room.map.grid, far.head, far.surface, '', [], slack).clear).toBe(false);
     room.takeDrops();
     room.text(1, { type: 'action', seq: p.sim.seq, action: 0, surface: far.surface });
     expect(room.takeDrops()).toEqual({ 'action: missed': 1 });
     expect(room.cranes.state(0).paused).toBe(false);
     const tracked = stand(roomZ + lead);
-    expect(c4Line(room.map.grid, tracked.head, tracked.surface, '', [], slack).clear).toBe(false);
+    expect(actionLine(room.map.grid, tracked.head, tracked.surface, '', [], slack).clear).toBe(false);
     room.takeDrops();
     room.text(1, { type: 'action', seq: p.sim.seq, action: 0, surface: tracked.surface });
     expect(room.takeDrops()).toBeNull();
@@ -578,8 +578,8 @@ describe('the room runs the hooks and the switch toggles them', () => {
     // Elevation is 15 against the feet, and the head stands about that far up, so the named point stays just inside
     // the elevation and the extra past the panel is Z only: over the 1-unit line, inside one frame of hook1.
     const surface = { path: 'worldmodel/epan_1', point: [1118.335, Math.min(head[1], feet.y + 14), panelZ + 1.5] as [number, number, number] };
-    expect(c4Line(room.map.grid, head, surface).clear).toBe(false);
-    expect(c4Line(room.map.grid, head, surface, '', [], cranePressSlack(room.cranes.specs[0]!)).clear).toBe(true);
+    expect(actionLine(room.map.grid, head, surface).clear).toBe(false);
+    expect(actionLine(room.map.grid, head, surface, '', [], cranePressSlack(room.cranes.specs[0]!)).clear).toBe(true);
     room.takeDrops();
     room.text(1, { type: 'action', seq: p.sim.seq, action: 0, surface });
     expect(room.takeDrops()).toBeNull();
@@ -595,7 +595,7 @@ describe('the room runs the hooks and the switch toggles them', () => {
     // The face itself is one frame away. Feet at y 65, the disc check's stand.
     const floor: WorldPoly = {
       ...FLOOR,
-      points: Float32Array.from([900, 65, 1700, 1400, 65, 1700, 1400, 65, 2100, 900, 65, 2100]),
+      points: Float32Array.from([900, 65, 2100, 1400, 65, 2100, 1400, 65, 1700, 900, 65, 1700]),
     };
     const wide: WorldPoly = {
       ...PANEL,
@@ -624,7 +624,7 @@ describe('the room runs the hooks and the switch toggles them', () => {
     };
     const head = headEye(room.map.grid, body.feet, headPoint(body), () => true);
     const surface = { path: 'worldmodel/epan_1', point: [1138, Math.min(head[1], feet.y + 14), panelZ + lead] as [number, number, number] };
-    const line = c4Line(room.map.grid, head, surface, '', [], slack);
+    const line = actionLine(room.map.grid, head, surface, '', [], slack);
     expect(line).toEqual({ clear: false, why: 'missed' });
     expect(craneSurfaceOffRay(room.map.grid, head, surface, slack)?.clear).toBe(true);
     room.takeDrops();
@@ -639,7 +639,7 @@ describe('the room runs the hooks and the switch toggles them', () => {
     // snapshot then put the two on different bases, and every crane's press was farther than the slack.
     const floor: WorldPoly = {
       ...FLOOR,
-      points: Float32Array.from([900, 65, 1700, 1400, 65, 1700, 1400, 65, 2100, 900, 65, 2100]),
+      points: Float32Array.from([900, 65, 2100, 1400, 65, 2100, 1400, 65, 1700, 900, 65, 1700]),
     };
     const built = map([1, 2], floor);
     const pageGround = built.ground;
@@ -696,7 +696,7 @@ describe('the room runs the hooks and the switch toggles them', () => {
   it('a dev room records the room faces a missed crane press was judged against', () => {
     const floor: WorldPoly = {
       ...FLOOR,
-      points: Float32Array.from([900, 65, 1700, 1400, 65, 1700, 1400, 65, 2100, 900, 65, 2100]),
+      points: Float32Array.from([900, 65, 2100, 1400, 65, 2100, 1400, 65, 1700, 900, 65, 1700]),
     };
     const seen: CraneActionMiss[] = [];
     const room = new Room(map([1, 2], floor), null, {
@@ -759,7 +759,7 @@ describe('the room runs the hooks and the switch toggles them', () => {
     const head: [number, number, number] = [0, 12, -6];
     const slack = cranePressSlack(chainReactionCraneSpecs()[0]!);
     const far = { path: 'worldmodel/epan_1', point: [0, 12, 8] as [number, number, number] };
-    expect(c4Line(grid, head, far, '', [], slack)).toEqual({ clear: false, why: 'missed' });
+    expect(actionLine(grid, head, far, '', [], slack)).toEqual({ clear: false, why: 'missed' });
     expect(craneSurfaceOffRay(grid, head, far, slack)).toBeNull();
     const near = { path: 'worldmodel/epan_1', point: [0, 12, 0.4] as [number, number, number] };
     expect(craneSurfaceOffRay(grid, head, near, slack)?.clear).toBe(true);
@@ -930,8 +930,8 @@ describe('crane panels are their own meshes, and a press allows one frame of tra
     const grid = groundGrid(packGround(params, [poly], owners));
     const surface = { path: 'worldmodel/epan_1', point: [0, 2, 1.8] as [number, number, number] };
     const head = [0, 2, -10];
-    expect(c4Line(grid, head, surface)).toEqual({ clear: false, why: 'missed' });
-    expect(c4Line(grid, head, surface, '', [], cranePressSlack(chainReactionCraneSpecs()[0]!)).clear).toBe(true);
+    expect(actionLine(grid, head, surface)).toEqual({ clear: false, why: 'missed' });
+    expect(actionLine(grid, head, surface, '', [], cranePressSlack(chainReactionCraneSpecs()[0]!)).clear).toBe(true);
   });
 
   it('reads a nodePath mesh and an instanced nodePaths entry, and says when a root was not drawn', () => {
@@ -1236,8 +1236,9 @@ describe("#337 takeover (the wire, additive): a map without hooks keeps main's b
       { tick: 8, own: null, bodies: [], doors, cranes: [] },
     ]) {
       const now = encodeSnapshot(s), before = encodeSnapshotPre337({ ...s, cranes: undefined } as Parameters<typeof encodeSnapshotPre337>[0]);
-      // WIRE-16 (protocol 16): three bytes a body more, the view's tail; with them cut, main's bytes to the byte.
-      expect(now.byteLength - before.byteLength).toBe(3 * s.bodies.length);
+      // WIRE-16 (protocol 16): three bytes a body more, the view's tail; WM-DATA-17 (17) one more, the hand; with the four
+      // cut, main's bytes to the byte.
+      expect(now.byteLength - before.byteLength).toBe(4 * s.bodies.length);
       expect(Buffer.from(withoutViewTails(now)).toString('hex')).toBe(Buffer.from(before).toString('hex'));
     }
   });

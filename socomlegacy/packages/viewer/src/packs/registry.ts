@@ -20,7 +20,7 @@ import { packMap, sha256, validateManifest, type PackProvenance } from '../textu
 import { buildUploadPart, plainProvenance, readUpload, type BuiltUpload, type PlainLoad } from '../texturePackUpload';
 import { idbUploadBackend, UploadedPacks, UploadStoreUnavailable } from '../texturePackStore';
 import { blobSource, bytesSource, openZip, safeMemberName } from '../zipReader';
-import { HdNotServed, importHdZip, installHdFromSource, pageHdStore, type HdPackSource, type HdStore, type HdStoredMeta } from '../hdTexturePackStore';
+import { HdDownloadFailed, HdNotServed, importHdZip, installHdFromSource, pageHdStore, type HdPackSource, type HdStore, type HdStoredMeta } from '../hdTexturePackStore';
 import { HdRefusal } from '../hdTexturePack';
 import { EMPTY_MOD_CHOICES } from '../mods/choices';
 import { classifyDrop, STORE_MANIFEST_READ_BYTES, type ClassifyOptions, type ReadSmall } from './classify';
@@ -1020,6 +1020,8 @@ export function createPackRegistry(options: PackRegistryOptions = {}): PackRegis
         } catch (e) {
           if (e instanceof LocalFileError) throw e;
           if (e instanceof HdNotServed) fail('NOT_FOUND', 'The HD pack is not served here.');
+          // LATER 1135: a failed request, told apart from a bad file; what was fetched is kept and the next try resumes.
+          if (e instanceof HdDownloadFailed) fail('DOWNLOAD_FAILED', `The HD pack could not be downloaded (${e.file}, after several tries). What was fetched is kept: try again to resume.`);
           if (e instanceof HdRefusal) fail('INVALID_PACKAGE', `The HD pack was refused: ${e.reason}.`);
           fail('STORAGE_FAILED', 'The browser could not keep the HD pack (its space, or another tab holding the store).');
         }

@@ -87,6 +87,12 @@ export interface ForgeLobbyArmoryOptions {
    * absent, the console's default (`LEFT_DEAD_ZONE`): the forge has no CONTROLLER OPTIONS.
    */
   deadZone?(): number;
+  /**
+   * FN-1a fix round 2 (simulation track; research 424 section 7): CREATE GAME's EQlimit as the lobby's room plays it
+   * (`ArmoryWorld.eqLimit`, as the game lobby's `../../lobbyArmory` passes its `EQlimit`), so the screen's own restriction
+   * runs -- the mode's rewrite on every entry, no stored profile (research 362 section 2). Absent, 0: unrestricted.
+   */
+  eqLimit?(): number;
 }
 
 /** The sixteen standard buttons by index (`PAD_BUTTON`): the Home button (16) is not among them. */
@@ -152,7 +158,7 @@ export class ForgeLobbyArmory {
     this.armory.setData(data);
     this.o.paint?.data(data);
     this.side = src.side;
-    this.armory.setWorld({ arsenal: data.world.arsenal, valves: data.world.valves, side: src.side, map: this.o.map().toUpperCase(), archive: data.archive });
+    this.armory.setWorld({ arsenal: data.world.arsenal, valves: data.world.valves, side: src.side, map: this.o.map().toUpperCase(), archive: data.archive, eqLimit: this.o.eqLimit?.() ?? 0 });
     this.prev = null;
     return this.armory.open(this.held.get(src.side) ?? null);
   }

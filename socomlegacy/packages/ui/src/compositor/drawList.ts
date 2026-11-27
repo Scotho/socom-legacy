@@ -124,7 +124,8 @@ function contentItems(out: UiDrawItem[], node: UiNode, c: UiContent, m: Matrix, 
       for (const l of place.lines) {
         if (!l.drawn) continue;
         const line = c.lines[l.index]!;
-        const run = layoutText(face, line.codes, l.x, l.y, styleOf(c.text, alpha, { scale, color: line.color, bold: line.bold }));
+        // R4P-237: bright text only under the UsagePolicy wrapped text's draw (r0004 FUN_003979e0 0x397a78-0x397aa8).
+        const run = layoutText(face, line.codes, l.x, l.y, { ...styleOf(c.text, alpha, { scale, color: line.color, bold: line.bold }), brightEnabled: c.brightEnabled === true });
         if (run.quads.length) out.push({ kind: 'glyphs', node: node.name, quads: run.quads, clip: place.clip });
       }
       return;

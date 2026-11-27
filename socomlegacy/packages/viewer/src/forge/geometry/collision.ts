@@ -21,6 +21,8 @@ export interface CollisionMesh {
   /** The owners, in order; a polygon's `owner` indexes them, -1 for none. `first`/`count` are rewritten by the pack. */
   owners: CollisionOwner[];
   polys: HullPoly[];
+  /** FLE-2 (ours; 21331326d7): the map's default soil (`GroundData.defaultMaterial`), carried to the packed ground. */
+  defaultMaterial?: number;
 }
 
 const FIELDS = 6;
@@ -39,7 +41,8 @@ export function importCollision(ground: GroundData): CollisionMesh {
     at += n * 3;
     polys.push({ points, surface: [ground.fields[f + 1]!, ground.fields[f + 2]!, ground.fields[f + 3]!, ground.fields[f + 4]!, ground.fields[f + 5]!], owner: ownerOf[i]! });
   }
-  return { grid: ground.grid, owners: ground.owners.map((o) => ({ ...o })), polys };
+  return { grid: ground.grid, owners: ground.owners.map((o) => ({ ...o })), polys,
+    ...(ground.defaultMaterial !== undefined ? { defaultMaterial: ground.defaultMaterial } : {}) };
 }
 
 /**
@@ -59,7 +62,7 @@ export function packCollision(c: CollisionMesh): GroundData {
   const ground = packGround(c.grid, c.polys.map((p) => ({
     modelName: '', path: '', ptcount: p.points.length, ditype: p.surface[0], material: p.surface[1], cameratype: p.surface[2], region: p.surface[3],
     appflags: p.surface[4] & 7, inside: (p.surface[4] >> 3) & 1, reverbZone: (p.surface[4] >> 4) & 1, points: Float32Array.from(p.points.flat()),
-  })), owners);
+  })), owners, c.defaultMaterial);   // FLE-2 (ours): the map's default soil
   // The flag word's bits past the reverb zone, which the split above drops, go back as they were read.
   c.polys.forEach((p, i) => { ground.fields[i * FIELDS + 5] = p.surface[4] >>> 0; });
   return ground;
@@ -92,7 +95,7 @@ export function clearHullInBox(c: CollisionMesh, min: readonly number[], max: re
 
 /**
  * The hull a mesh's faces make, on `surface` -- one set of words for all, or each polygon's own (`surfaceMatcher`): a
- * face flat and convex is one polygon, as it is drawn (the owner, 2026-11-15: a box's collision "triangles, but the
+ * face flat and convex is one polygon, as it is drawn (the Forge's owner (crispy, OT.R112), 2026-11-15: a box's collision "triangles, but the
  * objects faces are quads ... make them the same"; the disc's hull is mostly such polygons -- of Crossroads' 9,838, 6,544
  * quads, 2,999 triangles, the rest up to 12 corners); a face bent out of its plane, or concave, its drawn triangles; a
  * displacement its grid's triangles. The probe's walls and floors read a polygon's winding and plane as the draw's.
@@ -176,7 +179,7 @@ export function surfaceMatcher(polys: readonly HullPoly[], fallbackGround: Surfa
   const any = commonest(polys, () => true);
   const ground = commonest(polys, isGroundWords) ?? fallbackGround ?? any;
   // A node of floors alone (a terrain section) has no wall words: a wall on its ground's material, as `../hullGeometry`
-  // `wordsOf` and `floorOrWall` make one -- not a floor's (the owner, 2026-11-17: an extrude's sides read "Floor").
+  // `wordsOf` and `floorOrWall` make one -- not a floor's (the Forge's owner (crispy, OT.R112), 2026-11-17: an extrude's sides read "Floor").
   const side = commonest(polys, (s) => !isGroundWords(s)) ?? (ground ? wallWordsOf(ground) : any);
   return (tri) => {
     const n = polygonNormal(tri);
@@ -210,7 +213,7 @@ export function commonGroundSurface(c: CollisionMesh): Surface | null {
 }
 
 /**
- * A made face stands as a floor when its normal's up is at least this, else it is a wall (the owner, 2026-11-17: "when
+ * A made face stands as a floor when its normal's up is at least this, else it is a wall (the Forge's owner (crispy, OT.R112), 2026-11-17: "when
  * creating the collision for the shapes, can you try to properly add wall collision for walls and floor for floors"; a
  * browser adaptation, FG.R2: the editor's own split, `../hullGeometry` `wordsOf` alike).
  */

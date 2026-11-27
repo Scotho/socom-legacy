@@ -86,7 +86,7 @@ absolute difference in the row's unit. Sources are in the tool's own output and 
 | strafe right / left, u/s | 65 / 65 | 65 / 65 | 0 % | ok | decomp | mover | `seal_r/lstrafe` bands, `FUN_00583030` |
 | back / strafe (time-free, ours) | 0.571 | 0.569 | 0.33 % | ok | recomp | mover | research 18 lines 985-986 |
 | W+D: speed, u/s / heading off the facing, deg | 65 / 45 | 65 / 45 | 0 | ok | decomp | mover | `FUN_00583350` |
-| 1 s of W from rest at 30 / 60 / 144 fps: distance, u | 59.042 | 59.042 (all three) | 0 % | ok | decomp | mover | the ramp over 60 ticks |
+| 1 s of W from rest at 30 / 60 / 144 fps: distance, u | 59.538 | 59.538 (all three) | 0 % | ok | decomp (the port's model) | mover | the port's 60 Hz model of the ramp over 60 ticks, read half a tick ahead (LATER 1164, `RAMP_LEAD`, research 446; was 59.042 at n/12 a tick); the original's own 30 Hz frames give about 59.58 |
 | crouched, W held (stands and runs), u/s | 65 | 65 | 0 % | ok | decomp | mover | `FUN_00584c60` -> `FUN_00583030` |
 | crouched, pad half (byte 64), u/s | 14.0 | 14.0 | 0 % | ok | decomp | mover | `FUN_00584c60` |
 | prone, W held / W+D held, u/s | 11 / 11 | 11 / 11 (was 7.78) | 0 % | ok | decomp | mover | `FUN_00583500` |

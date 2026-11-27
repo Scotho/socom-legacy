@@ -4,7 +4,7 @@ import { insetFaces } from '../../src/forge/geometry/ops';
 import { box, plane, type PrimitiveOptions } from '../../src/forge/geometry/primitives';
 
 /**
- * Inset (`src/forge/geometry/ops` `insetFaces`; a browser adaptation, the owner 2026-11-18): the selected region shrunk in
+ * Inset (`src/forge/geometry/ops` `insetFaces`; a browser adaptation, the Forge's owner (crispy, OT.R112), 2026-11-18): the selected region shrunk in
  * its own plane with a ring of new faces round it; touching faces one region; the ring takes its border face's mapping,
  * object and, on a hull, collision words by facing.
  */

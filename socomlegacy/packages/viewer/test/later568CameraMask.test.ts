@@ -61,7 +61,7 @@ const state = (id: number, feet: [number, number, number]): BodyState => ({
 /** A floor strip x0..x1 across the world's depth, of `region` (`regionCull.test.ts`'s `floorAt`, narrowed). */
 const strip = (x0: number, x1: number, region: number): WorldPoly => ({
   modelName: 'worldmodel', path: 'worldmodel/floor', region, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([x0, 0, -200, x1, 0, -200, x1, 0, 200, x0, 0, 200]),
+  points: Float32Array.from([x0, 0, 200, x1, 0, 200, x1, 0, -200, x0, 0, -200]),
 });
 /** A 4 x 4 cell world (`regionCull.test.ts`'s `world`). */
 function world(polys: WorldPoly[]): Grid {

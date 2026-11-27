@@ -8,6 +8,7 @@ import { GAME_HELLO_WAIT_MS_ADAPTATION, GameSocketHost, type GameLobbyHandOff, t
 import { NetClient, type NetWalk, type WebSocketLike } from '../src/net/client';
 import type { ServerEvent } from '../src/net/protocol';
 import { retryDelayMs } from '../src/netPage';
+import { NET_ENDING_TEXTS_ADAPTATION, clearNetEnding, netEndingLine } from '../src/net/netEnding';
 
 /**
  * SA-6c (the server split, SA.R22 (5), (7) as amended 2026-10-18; product track, `GAME_RETOKEN_ADAPTATION`): the lobby's
@@ -122,6 +123,9 @@ describe('SA-6c: the lobby\'s reconnect awaits the re-token (GameSocketHost.fram
       r.placedThenDropped();
       await settle();
       expect(r.ended, String(status)).toEqual([close]);
+      // LATER 359b, NET-RES-3: 4008 names the seat released on #365; 4007 is #528, the original's, with no line
+      expect(netEndingLine(), String(status)).toBe(status === -972 ? NET_ENDING_TEXTS_ADAPTATION.removed : close === 4008 ? NET_ENDING_TEXTS_ADAPTATION['seat-freed'] : null);   // the controller's split: -972 'removed'
+      clearNetEnding();
       expect(r.sockets).toHaveLength(1);
       r.advance(60_000);
       expect(r.asks).toHaveLength(1);
@@ -147,12 +151,12 @@ describe('SA-6c: the lobby\'s reconnect awaits the re-token (GameSocketHost.fram
     expect(r.sockets).toHaveLength(1);
   });
 
-  it('a network failure: retried at the backoff\'s next step (2 s after a reach), asking again; then open', async () => {
+  it('a network failure: retried at the backoff\'s next step (1.5 s after a reach, LATER 359), asking again; then open', async () => {
     const r = rig({ answer: async (n) => { if (n === 1) throw new TypeError('Failed to fetch'); return { status: 0, door: DOOR, token: TOKEN2 }; } });
     r.placedThenDropped();
     await settle();
     expect(r.sockets).toHaveLength(1);
-    r.advance(1_900);
+    r.advance(1_400);
     expect(r.asks).toHaveLength(1);
     r.advance(200);
     expect(r.asks).toHaveLength(2);
@@ -167,7 +171,7 @@ describe('SA-6c: the lobby\'s reconnect awaits the re-token (GameSocketHost.fram
     expect(r.asks).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(GAME_RETOKEN_WAIT_MS_ADAPTATION);
     await settle();
-    r.advance(1_900);
+    r.advance(1_400);
     expect(r.asks).toHaveLength(1);
     r.advance(200);
     expect(r.asks).toHaveLength(2);
@@ -679,7 +683,7 @@ describe('SA-55: a game seat never welcomed is a drop (GameSocketHost.frame, GAM
 });
 
 describe('PT195-4: one immediate reconnect per 10 s window (the takeover review F4; GameSocketHost.frame)', () => {
-  it('welcome, drop, the immediate reconnect, welcome, drop: the second wait is 2 s', () => {
+  it('welcome, drop, the immediate reconnect, welcome, drop: the second wait is 1.5 s (LATER 359)', () => {
     const r = rig({ noRetoken: true });                           // a local seat: a reconnect is a socket, no request
     r.host.open(7);
     r.socket().onopen?.({});
@@ -692,9 +696,9 @@ describe('PT195-4: one immediate reconnect per 10 s window (the takeover review 
     r.welcome();                                                  // welcomed: the backoff's count back to 0
     r.socket().onclose?.({ code: 1006, reason: '' });
     r.host.frame();
-    r.advance(1_900);
+    r.advance(1_400);
     expect(r.sockets).toHaveLength(2);                            // a server that welcomes and drops is not rejoined at once
     r.advance(200);
-    expect(r.sockets).toHaveLength(3);                            // the 2 s step
+    expect(r.sockets).toHaveLength(3);                            // the 1.5 s step
   });
 });

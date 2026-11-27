@@ -283,7 +283,8 @@ export interface Overlay {
   /** The overlay's own document's frame over the page; null before the first open (the closed overlay is inert). */
   readonly el: HTMLIFrameElement | null;
   isOpen(): boolean;
-  open(): void;
+  /** WM-6A (`../../settingsAdvanced`): `target` opens the console at Settings on a tab; none, the overlay as before. */
+  open(target?: OverlayOpenTarget): void;
   close(): void;
   toggle(): void;
   /** Calls `cb` with each open (true) and close (false); answers the unsubscribe. */
@@ -293,6 +294,11 @@ export interface Overlay {
   /** OVERLAY-CONSOLE: the console drawn in the frame while open, else null. */
   console(): ConsolePage | null;
   dispose(): void;
+}
+
+/** WM-6A (a browser adaptation): where the open lands -- `settings`, the console's Settings tab (an options group id). */
+export interface OverlayOpenTarget {
+  settings?: string;
 }
 
 type Pads = ArrayLike<PadLike | null>;
@@ -625,11 +631,18 @@ export function mountOverlay(doc: Document, opts: OverlayOptions): Overlay {
     page = bootConsole(inner, innerWin ?? window, adapters, {
       keymap: import.meta.env.DEV,                                    // OT.R29: the frame's keys, a development build's only
       mode: 'overlay', page: pageReads, close: () => { doClose(); },
+      settle: true,                                                   // WM.R7: a control held at the open, spent until let go
       frame: { request: (cb) => { consoleQueued = cb; return 1; }, cancel: () => { consoleQueued = null; } },
     });
     const ctx: LauncherContext = { state, session, mode: 'overlay' };
     report = mountReport(reportHost, ctx, { inertRoot: app });
     trap = trapTab(inner.body);                                   // MU2-10: Tab comes round inside the overlay
+  };
+  /** WM-6A: the console at Settings on the target's tab (its own `opt:<id>` act), drawn; no target, nothing. */
+  const showTarget = (target: OverlayOpenTarget | undefined): void => {
+    if (!target?.settings || !page) return;
+    page.ctl.doAct(`opt:${target.settings}`);
+    page.render();
   };
   const unmountContent = (): void => {
     consoleQueued = null;
@@ -707,7 +720,7 @@ export function mountOverlay(doc: Document, opts: OverlayOptions): Overlay {
   const settling = (on: boolean): void => { inner?.documentElement.toggleAttribute('data-overlay-settling', on); };
   /** The open completed: the console's the pad from now on (`padFrame`), its own transitions on again. */
   const openDone = (): void => { phase = 'open'; mark('open'); settling(false); };
-  const doOpen = (): void => {
+  const doOpen = (target?: OverlayOpenTarget): void => {
     if (open || disposed) return;
     // OT.R121 (the review's F1): never under a lobby link's cover -- it stands above the frame, so an overlay opened now
     // would be blind; the press is spent (no open at the reveal), a new one opens it once the cover is gone.
@@ -721,6 +734,7 @@ export function mountOverlay(doc: Document, opts: OverlayOptions): Overlay {
     open = true;
     if (phase === 'closing') {                                       // OT.R60 (e): reversed mid-way, nothing remounted
       phase = 'opening';
+      showTarget(target);                                            // WM-6A: onto the tab asked
       startRamp('open', openDone);
       cue('open');
       say();
@@ -737,6 +751,7 @@ export function mountOverlay(doc: Document, opts: OverlayOptions): Overlay {
       copyStyles(d);                                                 // any sheet the page added since
       settling(true);
       mountContent(d);
+      showTarget(target);                                            // WM-6A: the console at Settings on the tab asked
     } catch (e) {
       // OV-2 review 3: a failed mount undoes the open -- the pad the game's again at once, nothing left drawn.
       open = false;

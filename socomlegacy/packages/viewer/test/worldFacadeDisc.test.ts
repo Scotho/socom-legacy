@@ -263,10 +263,13 @@ const absent = ['RUN/MP2.ZDB', 'RUN/MP6.ZDB', 'RUN/MP72.ZDB'].some((f) => fixtur
 
 describe.skipIf(absent)(`FACADES-2's guard: the fixtures have no world-model facade node, their world draws unchanged${absent ? ` (${FIXTURES_ABSENT})` : ''}`, () => {
   // Pinned on the lane before FACADES-2 (b30b6ab79): the world's draw count and triangles, the facade props' count.
-  const want: Record<string, { draws: number; triangles: number; facadeProps: number }> = {
-    MP2: { draws: 142, triangles: 8764, facadeProps: 3 },
-    MP6: { draws: 104, triangles: 13898, facadeProps: 1 },
-    MP72: { draws: 164, triangles: 27628, facadeProps: 0 },
+  // Research 439: MP6's world-model nodes with a banded visual are drawn apart as props (`loadMap` `place`, each visual
+  // shown in its band at its node's origin) -- 104 draws and 13,898 triangles before, the rest after; `bandedWorld` counts
+  // those entries.
+  const want: Record<string, { draws: number; triangles: number; facadeProps: number; bandedWorld: number }> = {
+    MP2: { draws: 142, triangles: 8764, facadeProps: 3, bandedWorld: 0 },
+    MP6: { draws: 92, triangles: 13059, facadeProps: 1, bandedWorld: 12 },
+    MP72: { draws: 164, triangles: 27628, facadeProps: 0, bandedWorld: 0 },
   };
   for (const [stem, w] of Object.entries(want)) {
     it.skipIf(absent)(`${stem}`, async () => {
@@ -275,6 +278,7 @@ describe.skipIf(absent)(`FACADES-2's guard: the fixtures have no world-model fac
       expect({
         draws: map.world.length, triangles: map.world.reduce((n, p) => n + p.indices.length / 3, 0),
         facadeProps: map.props.filter((p) => p.facade !== 0).length,
+        bandedWorld: map.props.filter((p) => p.modelName === 'worldmodel' && p.facade === 0).length,
       }).toEqual(w);
     }, 300_000);
   }

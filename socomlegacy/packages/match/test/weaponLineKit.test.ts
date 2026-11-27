@@ -25,7 +25,7 @@ function crateMap(): SimMap {
   const quad = (pts: number[], ditype: number, appflags = 0): WorldPoly => ({
     modelName: 'worldmodel', path: 'worldmodel/q', region: 0, ditype, material: 25, ptcount: 4, cameratype: 0, appflags, points: Float32Array.from(pts),
   });
-  const floor = (x0: number, z0: number, x1: number, z1: number, y: number): WorldPoly => quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], 3);
+  const floor = (x0: number, z0: number, x1: number, z1: number, y: number): WorldPoly => quad([x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z0], 3);
   const polys = [
     floor(-1000, -1000, 1000, 1000, 0),
     quad([-80, 0, 0, 80, 0, 0, 80, 14, 0, -80, 14, 0], 2, 4), quad([80, 0, -40, -80, 0, -40, -80, 14, -40, 80, 14, -40], 2, 4),

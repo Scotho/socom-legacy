@@ -1,5 +1,7 @@
 import type {Rgba} from '@s2u/gs';
 import {decodeDds} from './dds';
+import {decodeKtx2,ktx2Level0Dds,withBlocks} from './hdPackBlocks';
+import {readKtx2} from './ktx2';
 import {HdTextureRegistry,hdFullAlpha,hdKeyOf,reverseRows,seedHdKey,type HdManifest} from './hdTexturePack';
 import type {HdDecodeReply,HdDecodeRequest} from './hdMenuDecodeWorker';
 import {HdServedPack} from './hdTexturePackServed';
@@ -152,6 +154,17 @@ export class HdMenuDecoder {
   readonly dds=(bytes:Uint8Array,size:{width:number;height:number}):Promise<Rgba>=>{
     const w=this.start();
     return w?this.ask(w,{id:this.next++,op:'dds',bytes,width:size.width,height:size.height},[]):this.onMain(()=>decodeDds(bytes,size),true);
+  };
+  /**
+   * WM-PACK-2 RUNTIME (a browser adaptation): a KTX2 payload decoded at its entry's size -- its header read here (views,
+   * no copy), its BC level 0 decoded as the DDS of the same blocks (`ktx2Level0Dds`) by `dds` above (the worker, its key
+   * seeded), the blocks held beside the decode (`withBlocks`) for the runtime's block path. An RGBA KTX2 is read here.
+   */
+  readonly ktx2=async(bytes:Uint8Array,size:{width:number;height:number}):Promise<Rgba>=>{
+    const img=readKtx2(bytes);
+    if(img.width!==size.width||img.height!==size.height)throw new Error(`KTX2: size ${img.width}x${img.height}, the entry says ${size.width}x${size.height}`);
+    if(img.kind==='rgba8')return this.onMain(()=>decodeKtx2(bytes,size),true);
+    return withBlocks(await this.dds(ktx2Level0Dds(img),size),img);
   };
   /** GM-13d: `fullAlpha`'s copy of `r`; `r`'s pixels are handed over. An arrow: the menus' pack's `HdAlphaStep`. */
   readonly alpha=(r:Rgba):Promise<Rgba>=>{

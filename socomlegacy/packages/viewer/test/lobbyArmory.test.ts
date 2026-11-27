@@ -70,7 +70,7 @@ const GUN: UiModelGeometry = {
   })),
 };
 
-function rig(o: { data?: ArmoryData | null; team?: number | null } = {}) {
+function rig(o: { data?: ArmoryData | null; team?: number | null; pulloutLive?: boolean } = {}) {
   const valves = new ValveStore();
   const set = (n: string, v: number): void => { valves.acquire(n, VALVE_TYPE.PERM); valves.set(n, v, VALVE_TYPE.PERM); };
   const get = (n: string): number => valves.acquire(n, VALVE_TYPE.PERM).value;
@@ -91,6 +91,7 @@ function rig(o: { data?: ArmoryData | null; team?: number | null } = {}) {
       },
     },
     mission: () => 'mp2', sound: (n, cue) => { sounds.push(n); cues.push(cue); }, back: () => { backs++; },
+    ...(o.pulloutLive === undefined ? {} : { pulloutLive: o.pulloutLive }),
   };
   const l = new LobbyArmory(ports);
   const tick = (dialog: string | null = LOBBY_ARMORY_DIALOG, popup = false, down: PadSlotName[] = [], stick: readonly [number, number] = [0, 0]): void => {
@@ -245,8 +246,8 @@ describe('the shared ARMORY on the game lobby\'s page (./lobbyArmory)', () => {
     expect(r.l.hosting()).toBe(true);
   });
 
-  it('the pull-out: the dialog\'s UiBackToLobby popup (the clock ticked) shows popup 47 over the screen, which then takes no input; its SWITCHMENU closes it', async () => {
-    const r = rig();
+  it('the pull-out (the original, WM.R25 off): the dialog\'s UiBackToLobby popup (the clock ticked) shows popup 47 over the screen, which then takes no input; its SWITCHMENU closes it', async () => {
+    const r = rig({ pulloutLive: false });                                   // WM.R25 on: ./armoryPulloutLive.test.ts
     r.tick('dlgGameLobby.rdr'); await r.settle(); r.tick();
     r.set('ArmoryClock', 5); r.set('mp_x_sec_clock', 4);
     r.tick(LOBBY_ARMORY_DIALOG, true);

@@ -125,26 +125,27 @@ export interface DiscOpenerParts {
   forget(): void;
   /** Says a refusal as the worker's refusals are said. */
   failed(text: string): void;
-  /** The page's check of a folder; absent, `openDisc` (DA.R8), probing `SYSTEM.CNF`, the file the identity reads. */
-  check?: (disc: DirRequest) => Promise<unknown>;
+  /** The page's check of an image or a folder; absent, `openDisc` (DA.R8), probing `SYSTEM.CNF`, the file the identity reads. */
+  check?: (disc: DiscRequest) => Promise<unknown>;
 }
 
 /**
  * The test room's `openDisc` (`main.ts`; DA-3's review F1, DA-4's review F-a / F-b): a `File` or a disc request. Not
- * over a map switch (MJ-3: its world would be orphaned under the disc's first map). An image is asked of the worker at
- * once, as since W1.7. A folder is checked first, once, on the page (`openDisc`, DA.R8: the workers trust only a request
- * the page resolved), the older disc's index request forgotten at once, so whatever that disc answers no longer opens it
+ * over a map switch (MJ-3: its world would be orphaned under the disc's first map). An image or a folder is checked
+ * first, once, on the page (`openDisc`, DA.R8: the workers trust only a request the page resolved; LATER 954: an image
+ * was asked of the worker at once, as since W1.7, so another game's image was taken for SOCOM II's -- now refused in the
+ * identity's words, as a folder is), the older disc's index request forgotten at once, so whatever that disc answers no longer opens it
  * (a disc chosen meanwhile wins); then asked -- unless a newer disc was chosen meanwhile (dropped), or a map switch began
  * during the check (dropped, its mark taken back, asked for again in the entry's words). A refusal takes the mark back
  * and is said in the reader's words.
  *
  * LATER 322 (issue #454): the copy kept in this browser (`{ kind: 'stored' }`), handed by the replay viewer when the
- * launcher started from it, is asked of the worker at once, as an image is -- the page that hands it read it from its
+ * launcher started from it, is asked of the worker at once (an image no longer is, LATER 954) -- the page that hands it read it from its
  * record and checked it at its extraction (DX-3), and the worker opens it as it opens any stored request -- named "the
  * disc kept in this browser" (`requestLabel`).
  */
 export function discOpener(p: DiscOpenerParts): (chosen: File | HandedDiscRequest) => void {
-  const check = p.check ?? ((disc: DirRequest) => openDisc(disc, 'SYSTEM.CNF'));
+  const check = p.check ?? ((disc: DiscRequest) => openDisc(disc, 'SYSTEM.CNF'));
   const nameOf = (disc: HandedDiscRequest): string => (disc.kind === 'stored' ? requestLabel(disc) : discName(disc));
   const againWords = (disc: HandedDiscRequest): string => `a map is still loading: open ${nameOf(disc)} again once it is drawn`;
   const again = (disc: HandedDiscRequest): void => { p.status(againWords(disc)); };
@@ -156,7 +157,7 @@ export function discOpener(p: DiscOpenerParts): (chosen: File | HandedDiscReques
     p.status(`reading ${requestLabel(disc)} ...`);
     p.discState(`reading ${requestLabel(disc)} ...`);
     const call = ++opening;
-    if (disc.kind === 'iso' || disc.kind === 'stored') { p.ask(disc); return; }
+    if (disc.kind === 'stored') { p.ask(disc); return; }
     p.forget();
     check(disc).then(() => {
       if (call !== opening) return;

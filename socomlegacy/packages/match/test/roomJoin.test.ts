@@ -9,7 +9,7 @@ import {
 } from '../../viewer/src/sim';
 import { JOIN_STATE_VERSION, type JoinWire } from '../../viewer/src/net/protocol';
 import { DEPARTED_OWNER_FF_READING, Room, type Conn } from '../src/room';
-import { PROJECTILE_ID_READING, SMOKE_PHASE_ON_WIRE_READING } from '../src/joinState';
+import { JOIN_ORPHAN_OWNER, PROJECTILE_ID_READING, SMOKE_PHASE_ON_WIRE_READING } from '../src/joinState';
 
 /**
  * PF-28 (ruling PF.R47; web research 231, 195 s4-s6, 198 s4.4): a page joining mid-round is told what the event stream
@@ -28,7 +28,7 @@ import { PROJECTILE_ID_READING, SMOKE_PHASE_ON_WIRE_READING } from '../src/joinS
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
 };
 const BARRIER = 'worldmodel/access1/good_parts/di_good';
 
@@ -170,10 +170,10 @@ describe('PF-28: the join envelope, one versioned member of the welcome (ruling 
 
   it("a claymore set down and a C4 placed are in join.projectiles at rest with their facing and owner id; a joiner's Detonator of another's charge is refused as today", () => {
     const s = twoSeated();
-    s.place(1, [-300, 0, 0]); s.place(2, [0, 0, 300]);
+    s.place(1, [-300, 0, 0]); s.place(2, [0, 0, 316]); // LATER 1139: restaged from 30 u to 14 u (the hip gate, 19.9 u)
     s.run(0.5);
-    s.send(2, 'Claymore', [8, 0.1, 300], [1, 0, 0]);
-    s.send(2, 'C4', [0, 0.1, 302], [0, 0, 1], { target: 0, surface: { path: BARRIER, point: [0, 12, 330] } });
+    s.send(2, 'Claymore', [8, 0.1, 316], [1, 0, 0]);
+    s.send(2, 'C4', [0, 0.1, 318], [0, 0, 1], { target: 0, surface: { path: BARRIER, point: [0, 12, 330] } });
     const told = s.a.of('grenade');
     expect(told.map((g) => g.kind)).toEqual(['Claymore', 'C4']);
     s.run(0.5);                                                   // C4's Timer1 (6 s) running
@@ -181,7 +181,7 @@ describe('PF-28: the join envelope, one versioned member of the welcome (ruling 
     void joiner;
     const w = s.envelope();
     const byKind = new Map(w.projectiles.map((p) => [p.kind, p]));
-    expect(byKind.get('Claymore')).toMatchObject({ owner: 2, state: 'rest', pos: [8, 0.1, 300], facing: [1, 0, 0], pid: told[0]!.pid });
+    expect(byKind.get('Claymore')).toMatchObject({ owner: 2, state: 'rest', pos: [8, 0.1, 316], facing: [1, 0, 0], pid: told[0]!.pid });
     // C4-PLACE: the validated wall hit, not the submitted hand-ground point, is hydrated for late joiners.
     expect(byKind.get('C4')).toMatchObject({ owner: 2, state: 'rest', pos: [0, 12, 330], facing: [0, 0, 1], pid: told[1]!.pid });
     // C4's Timer1 runs from the placing, on the room's game frames (PF.R8): the room's own fuse left, in ticks.
@@ -297,13 +297,15 @@ describe('PF-28: the join envelope, one versioned member of the welcome (ruling 
     const w = s.envelope();
     expect(w.result).toBeDefined();
     expect(w.corpses.map((k) => k.id)).toEqual([1]);
-    expect(joiner.events.map((e) => e.type)).toEqual(['welcome', 'score', 'voiceFloor', 'voiceMembers']);   // SVC-20b-relay: its voice entry (W20.R6); AD-14 its channel's count
+    // SEAT_CLAIM_ADAPTATION (PR #941): the joiner is a watcher (`join(9, true)`), told the seats a claim could take NOW
+    // (`Room.tellSeats`: `open` and `claim` as they stand) -- the room's present state, as the welcome is, not a past event
+    expect(joiner.events.map((e) => e.type)).toEqual(['welcome', 'seats', 'score', 'voiceFloor', 'voiceMembers']);   // SVC-20b-relay: its voice entry (W20.R6); AD-14 its channel's count
     s.run(1);
     const replayed = new Set(['kill', 'hurt', 'blast', 'roundOver', 'grenade', 'flinch', 'hurtVoice']);
     expect(joiner.events.filter((e) => replayed.has(e.type))).toEqual([]);
   });
 
-  it('pids are per round generation and never reused within it (PROJECTILE_ID_READING); a departed owner\'s charge keeps its pid and owner id, and the friendly-fire gate still reads the owner live (DEPARTED_OWNER_FF_READING unchanged)', () => {
+  it('pids are per round generation and never reused within it (PROJECTILE_ID_READING); a departed owner\'s charge keeps its pid (its envelope owner no one\'s, LATER 931 B-F1), and the friendly-fire gate still reads the owner live (DEPARTED_OWNER_FF_READING unchanged)', () => {
     expect(PROJECTILE_ID_READING).toBe('per round, never reused');
     expect(DEPARTED_OWNER_FF_READING).toBe('lands');
     const s = twoSeated({ roundSeconds: 2 });
@@ -323,7 +325,9 @@ describe('PF-28: the join envelope, one versioned member of the welcome (ruling 
     const claymore = s.flying().find((f) => f.kind === 'Claymore')!;
     s.room.leave(2);
     expect(s.room.player(2)).toBeUndefined();
-    expect(s.envelope().projectiles.find((p) => p.kind === 'Claymore')).toMatchObject({ pid: claymore.pid, owner: 2 });
+    // LATER 931 B-F1: the envelope names no owner for it (JOIN_ORPHAN_OWNER), so the next page handed id 2 never reads it
+    // as its own; the room's own owner stays the departed player (below). Was: owner 2.
+    expect(s.envelope().projectiles.find((p) => p.kind === 'Claymore')).toMatchObject({ pid: claymore.pid, owner: JOIN_ORPHAN_OWNER });
     expect(claymore.owner.id).toBe(2);
     // The next round: the air cleared, the serial from 0 again (the pages clear theirs on roundStart).
     const seen = s.a.of('roundStart').length;
@@ -340,10 +344,10 @@ describe('PF-28: the join envelope, one versioned member of the welcome (ruling 
   // joiner's copy of a resting C4 is the claymore's shape; the room's blast reads the bit off the record it flies.
   it("a joiner's envelope carries a resting C4 as any charge; its flag is the record's, not the wire's -- nothing new on the envelope", () => {
     const s = twoSeated();
-    s.place(1, [-300, 0, 0]); s.place(2, [0, 0, 300]);
+    s.place(1, [-300, 0, 0]); s.place(2, [0, 0, 316]); // LATER 1139: restaged from 30 u to 14 u (the hip gate, 19.9 u)
     s.run(0.5);
-    s.send(2, 'Claymore', [8, 0.1, 300], [1, 0, 0]);
-    s.send(2, 'C4', [0, 0.1, 302], [0, 0, 1], { target: 0, surface: { path: BARRIER, point: [0, 12, 330] } });
+    s.send(2, 'Claymore', [8, 0.1, 316], [1, 0, 0]);
+    s.send(2, 'C4', [0, 0.1, 318], [0, 0, 1], { target: 0, surface: { path: BARRIER, point: [0, 12, 330] } });
     s.run(0.5);
     s.join(3);
     const wire = new Map(s.envelope().projectiles.map((p) => [p.kind, Object.keys(p).sort()]));

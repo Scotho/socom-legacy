@@ -49,7 +49,7 @@
 .fx-effect-preview-tools .fx-ico { width: 12px; height: 12px; }
 /* A row's preview icon while its card shows: pressed. */
 .fx-inspect-preview.is-on { color: var(--fx-gold); border-color: var(--fx-gold); }
-/* The preview's metadata (the owner, 2026-11-17: "under it show any meta data"): the tile's words as tags, then what
+/* The preview's metadata (the Forge's owner (crispy, OT.R112), 2026-11-17: "under it show any meta data"): the tile's words as tags, then what
    the preview reads of the asset -- its size, triangles, meshes, source and collision -- as label and value rows. */
 .fx-preview-meta { display: grid; gap: 6px; }
 .fx-preview-tags { display: flex; flex-wrap: wrap; gap: 4px; }

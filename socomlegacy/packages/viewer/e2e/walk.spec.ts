@@ -37,6 +37,8 @@ const SPAWN_A: [number, number, number] = [796, 100, 614];
 const EYE = 15.4;
 /** The game's camera standing at pitch 0 (`playerCamera.ts`): the target 21.484 over the feet, the eye 28.75 behind. */
 const TARGET_STANDING = 21.484, BEHIND_LEVEL = 28.75;
+/** LATER 1246: the eye-to-target length (28.75, `BEHIND_LEVEL` at pitch 0) and `camera_jiggle`'s largest downward pitch, rad. */
+const EYE_TO_TARGET = 28.75, JIGGLE_PITCH_MAX = 8.87e-4;
 /** At the spawn pitch `init_aim_pitch` -9.167: the eye 24.906 behind, 25.709 up standing and 19.603 crouched. */
 const INIT_PITCH = -9.167, BEHIND_REST = 24.906, UP_STANDING = 25.709, UP_CROUCHED = 19.603;
 
@@ -127,7 +129,16 @@ test('walks Frostfire from A\'s spawn to B\'s floor, and the door leaf stops it'
   expect(start.camera?.mode).toBe('third');
   expect(start.pose.y).toBeCloseTo(SPAWN_A[1] + TARGET_STANDING, 3);
   expect(start.pose.z).toBeCloseTo(SPAWN_A[2] + BEHIND_LEVEL, 3);
-  expect(start.camera!.target[1]).toBeCloseTo(SPAWN_A[1] + TARGET_STANDING, 3);
+  // LATER 1246 (`camera_jiggle` on the map's `camera_effects` node, FUN_002998f0 D:L142020-142024, research 428 s8.6;
+  // `cameraEffects.ts`, readings pending review): the drawn and aimed look -- the hook's `camera().target` -- is turned
+  // about the eye by the node's sway, on a game-frame clock from the page world's autostart, so its height at this frame
+  // depends on the sway's phase. The sway's pitch only turns the look DOWN, by at most k(1 + dt) = 8.87e-4 rad (k 0.05
+  // degrees; the bodies seat's `cameraJiggle.test.ts` (b)): for a target 28.75 from the eye at most 0.0255 low, never
+  // high. The feet and the pose above are exact and unturned. (Was: toBeCloseTo(SPAWN_A[1] + TARGET_STANDING, 3), red at
+  // the v0.4.27 cut with 121.48250, 0.0015 low, moving run to run.)
+  const targetDy = start.camera!.target[1] - (SPAWN_A[1] + TARGET_STANDING);
+  expect(targetDy, 'the target never above the unturned height').toBeLessThanOrEqual(0.0005);
+  expect(targetDy, "the target at most the sway's pitch low").toBeGreaterThanOrEqual(-(EYE_TO_TARGET * JIGGLE_PITCH_MAX + 0.0005));
 
   // The keys drive it: W held for a moment, facing waypoint 1, moves the feet toward it on the same floor.
   await page.evaluate(([x, z]) => window.__viewer.setCamera({ yaw: Math.atan2(-(x - 796), -(z - 614)) * 180 / Math.PI }), [806, 665] as const);

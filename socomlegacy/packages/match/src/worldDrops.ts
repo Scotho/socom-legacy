@@ -1,12 +1,13 @@
-import type { KitTable, Loadout, WeaponRecord } from '@s2u/scene';
-import type { KitRounds } from '../../viewer/src/firearms';
+import { CLAYMORE, type KitTable, type Loadout, type WeaponRecord } from '@s2u/scene';
+import { KitRounds } from '../../viewer/src/firearms';
 import type { MagazineRing } from '../../viewer/src/magazines';
 import type { PickupClipName } from '../../viewer/src/mover';
 import type { AimFrame } from '../../viewer/src/net/shotCone';
-import type { DropWire, ServerEvent } from '../../viewer/src/net/protocol';
+import type { DropWire, KitEquipmentWire, ServerEvent } from '../../viewer/src/net/protocol';
 import { launcherKitRounds, pickupKitOf, PICKUP_REACH_READING, PICKUP_SPEED_READING } from '../../viewer/src/net/pickupRules';
-import { claimWeapon, dropsOf, firearmsCarried, transferAmmo, type DropSpec } from './pickups';
+import { claimWeapon, dropsOf, firearmsCarried, takeEquipment, transferAmmo, type DropSpec } from './pickups';
 import { equipmentSlotsOf, type EquipmentSlots } from '../../viewer/src/equipment';
+import type { EquipmentSlotState } from '../../viewer/src/equipmentSlots';
 import { heldWeaponModels } from '../../viewer/src/loadout';
 
 /**
@@ -83,6 +84,13 @@ export interface DropSeat {
   readonly grenades: Readonly<Record<string, number>>;
   /** Independent throwable/charge rings, when the seat supports slot metadata (research 361 §3). */
   equipmentSlots?: EquipmentSlots;
+  /**
+   * LATER 1129 (reading, pending review): the kit holds the Detonator (0xc1). `FUN_005c74e0` (D:L480156-480202) adds it
+   * whenever a claymore (0x99) is in the kit -- after a take's pour (`FUN_005ba3d0` D:L472771) and at the kit's re-init
+   * (`FUN_005c7840` D:L480388; its direct callers the spawn's `FUN_00599b60` D:L455675 and `FUN_00553e60` D:L419394) -- and
+   * nothing removes it, so an install over a spent claymore keeps it. Absent: not tracked.
+   */
+  detonator?: boolean;
   /** The firearm in the hand. */
   readonly weapon: 0 | 1;
   /** The turret held (MAP-10b), or null. */
@@ -128,6 +136,19 @@ export type PickupRefusal = 'not alive' | 'over' | 'mounted' | 'stale' | 'gone' 
   | 'nofire' | 'swapping' | 'binoculars' | 'family';
 
 const feetOf = (s: DropSeat): V3 => { const w = s.sim.walker.state; return [w.x, w.y, w.z]; };
+/**
+ * R142: the kit's round rings for a loadout an equipment take installed into -- each round the new loadout still holds
+ * keeping its rounds (by its id, `KitRounds.ring`'s redirect, as `launcherKitRounds` keeps them), the overwritten slot's
+ * gone; never a fill.
+ */
+function roundsKept(old: KitRounds, table: KitTable | null, loadout: Loadout): KitRounds {
+  const next = new KitRounds(table, loadout);
+  for (const h of old.held()) {
+    const was = old.ring(h.id), now = next.ring(h.id);
+    if (was && now) now.restore(was.state());
+  }
+  return next;
+}
 const dist2 = (a: readonly number[], b: readonly number[]): number => (a[0]! - b[0]!) ** 2 + (a[1]! - b[1]!) ** 2 + (a[2]! - b[2]!) ** 2;
 const REACH2 = PICKUP_REACH_READING * PICKUP_REACH_READING;
 const SPEED2 = PICKUP_SPEED_READING * PICKUP_SPEED_READING;
@@ -169,14 +190,18 @@ export class WorldDrops {
 
   /**
    * A classic death (the room calls it from `kill`, once a death: the original's edge, `FUN_00547af0` D:L413052 ->
-   * `FUN_00547350` D:L412694-412696): the body's drops (`dropsOf`) laid and told, its rings cleared.
+   * `FUN_00547350` D:L412694-412696): the body's drops (`dropsOf`) laid and told, its rings cleared -- its throwable and
+   * charge rings among them since R142 (`BUNDLE_SLOTS_PLACEHOLDER`).
    * OBF-15: at the floor below the feet (`DROP_SETTLE_ADAPTATION`, OBF.R9), a death in the air's included.
    */
   death(victim: DropSeat): void {
     const s = victim.sim.walker.state;
     const below = this.opts.floor?.(s.x, s.y, s.z) ?? null;      // OBF-15: DROP_SETTLE_ADAPTATION (OBF.R9)
     const y = below !== null && below <= s.y ? below : s.y;
-    for (const d of dropsOf({ id: victim.id, loadout: victim.loadout, records: victim.records, mags: victim.mags, rounds: victim.rounds, feet: [s.x, y, s.z], yaw: s.yaw, table: this.opts.table() })) this.lay(d);
+    for (const d of dropsOf({
+      id: victim.id, loadout: victim.loadout, records: victim.records, mags: victim.mags, rounds: victim.rounds, feet: [s.x, y, s.z], yaw: s.yaw,
+      table: this.opts.table(), ...(victim.equipmentSlots ? { equipmentSlots: victim.equipmentSlots } : {}),
+    })) this.lay(d);
   }
 
   /**
@@ -285,7 +310,11 @@ export class WorldDrops {
     this.tellKit(seat, got.slot, got.launcher ? [[], []] : undefined);
   }
 
-  /** A living seat over the bundles within reach of its feet (`FUN_00593da0` D:L452526-452533): `transferAmmo`, told. */
+  /**
+   * A living seat over the bundles within reach of its feet (`FUN_00593da0` D:L452526-452533): the equipment entries
+   * taken by `takeEquipment` (R142, `PICKUP_EQUIPMENT_TAKE_READING`: each granted one removed whole), the firearm entries
+   * by `transferAmmo`; told.
+   */
   private walk(seat: DropSeat): void {
     const feet = feetOf(seat);
     for (let i = 0; i < this.lying.length; i++) {
@@ -296,11 +325,25 @@ export class WorldDrops {
       // r0004's skip reads each record's own NumMags (PICKUP_POUR_READING): the kit table's, by the slot's item, not the
       // 2X-doubled count.
       const table = this.opts.table();
+      const entries = d.entries ?? [];
+      // LATER 1129: the rings before the take (a copy: `takeEquipment` pours into the rings' own arrays), for the `kit`.
+      const ringsBefore = seat.equipmentSlots?.state().map((r) => ({ ...r, rounds: [...r.rounds] })) ?? [];
+      const eq = seat.equipmentSlots
+        ? takeEquipment(entries, { loadout: seat.loadout, equipmentSlots: seat.equipmentSlots, roundsAt: (slot) => seat.rounds.held()[slot]?.rounds ?? 0 }, table)
+        : null;
+      const took = eq?.granted.some(Boolean) ?? false;
+      if (eq && eq.installed.length) {
+        // The kit's round rings after an install over one (`FUN_005bc410` changes the installed slot only).
+        seat.rounds = roundsKept(seat.rounds, table, eq.loadout);
+        seat.loadout = eq.loadout;
+      }
       const carried = firearmsCarried(seat.loadout, table);
       const own = ([0, 1] as const).map((s) => table?.records.get(seat.loadout[s])?.mags ?? seat.records[s].mags) as [number, number];
-      const out = transferAmmo(d.entries ?? [], seat.records, seat.mags, carried, own);
-      if (!out.moved) continue;
-      this.tellKit(seat, null, out.filled, out.added);
+      const out = transferAmmo(entries.filter((_, k) => !eq?.granted[k]), seat.records, seat.mags, carried, own);
+      if (!out.moved && !took) continue;
+      // LATER 1129: the take's pour ends in FUN_005c74e0 (D:L472771): a claymore now in the kit adds the Detonator.
+      if (took && EQUIPMENT_SLOT_IDS.some((s) => seat.loadout[s] === CLAYMORE.id)) seat.detonator = true;
+      this.tellKit(seat, null, out.filled, out.added, took ? equipmentTold(ringsBefore, seat.equipmentSlots!.state(), eq!.installed) : undefined);
       if (out.residual.length) {
         d.entries = out.residual;
         this.sinks.broadcast({ type: 'drop', ...this.wireOf(d) });
@@ -321,10 +364,40 @@ export class WorldDrops {
     return { did: d.did, kind: d.kind, ...(d.item !== undefined ? { item: d.item } : {}), ...(d.entries ? { entries: d.entries.map((e) => ({ ...e })) } : {}), at: [...d.at] as V3, yaw: d.yaw, from: d.from };
   }
 
-  private tellKit(seat: DropSeat, slot: 0 | 1 | null, filled?: [number[], number[]], added?: [number[], number[]]): void {
+  private tellKit(seat: DropSeat, slot: 0 | 1 | null, filled?: [number[], number[]], added?: [number[], number[]], equipment?: KitEquipmentWire[]): void {
     this.sinks.send(seat.id, {
       type: 'kit', loadout: [...seat.loadout], ...(slot !== null ? { slot } : {}), rounds: [seat.mags[0].state().slots, seat.mags[1].state().slots],
       ...(filled ? { filled } : {}), ...(added ? { added } : {}),
+      ...(equipment ? { equipment } : {}), ...(seat.detonator ? { detonator: true as const } : {}),   // only ever added (FUN_005c74e0)
     });
   }
+}
+
+/**
+ * DETONATOR_KEPT_READING (LATER 1129; reading, pending review; research 85 §9.7.1, §12.1): `FUN_005c74e0`
+ * (D:L480156-480202) adds the Detonator (0xc1) when the owner's list (`+0x830` -> `+0x6c4`) holds a claymore and never
+ * removes it, so the kit keeps it until the next kit is built (`DropSeat.detonator`, the room's `Player.detonator`).
+ * Open: whether that list is the character's template or the live kit. The take's add (a claymore picked up gives the
+ * Detonator) rests on the live-kit reading: were it the template, a taker who spawned without a claymore would get no
+ * Detonator from one he picks up (the review's F2).
+ */
+export const DETONATOR_KEPT_READING = 'added with a claymore in the kit, kept until the next kit' as const;
+
+const EQUIPMENT_SLOT_IDS = [2, 3, 4] as const;
+
+/**
+ * LATER 1129: the slots a take wrote, for the taker's `kit` -- an installed slot whole, a topped-up one with the amount
+ * each magazine changed by (`added`); a slot the take left as it was is not named.
+ */
+function equipmentTold(before: readonly EquipmentSlotState[], after: readonly EquipmentSlotState[], installed: readonly number[]): KitEquipmentWire[] {
+  const out: KitEquipmentWire[] = [];
+  for (const a of after) {
+    const state = { slot: a.slot, kind: a.kind, rounds: [...a.rounds], current: a.current };
+    if (installed.includes(a.slot)) { out.push(state); continue; }
+    const b = before.find((x) => x.slot === a.slot && x.kind === a.kind);
+    if (!b) { out.push(state); continue; }
+    const added = a.rounds.map((r, i) => r - (b.rounds[i] ?? 0));
+    if (added.some((n) => n !== 0)) out.push({ ...state, added });
+  }
+  return out;
 }

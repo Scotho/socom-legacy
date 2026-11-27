@@ -4,7 +4,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { BUILTIN_MATERIALS, buildGrid, EMPTY_ITEM, GAME_FRAME_DT, ITEM, itemClass, SOILS, UNITS_PER_METRE, type Grid, type Loadout, type WeaponRecord, type WorldPoly } from '@s2u/scene';
 import { Fire } from '../src/fire';
-import { Accuracy, burstScalar, DEFAULT_FIRE_MODE_FULL_AUTO_ADAPTATION, defaultFireMode, fireInterval, kickStarts, kickTicks, nextFireMode, originalSpawnFireMode, pickupFireMode, roundsPerPull } from '../src/accuracy';
+import {
+  Accuracy, burstScalar, DEFAULT_FIRE_MODE_FULL_AUTO_ADAPTATION, defaultFireMode, fastestFireMode, fireInterval, fullAutoDefault, kickStarts, kickTicks,
+  nextFireMode, originalSpawnFireMode, PICKUP_FASTEST_FIRE_MODE_ADAPTATION, pickupFireMode, roundsPerPull,
+} from '../src/accuracy';
 import { afterShotLock, pelletsOf, reloadDelayOf } from '../src/firearms';
 import { withDoubleAmmo } from '../src/loadout';
 import { ringFor } from '../src/magazines';
@@ -29,16 +32,20 @@ const named = (name: string): WeaponRecord => ALL.find((r) => r.name === name)!;
 const SD = rec(62), M4 = rec(54), MARK23 = rec(15);
 const CARRIERS = new Set<number>([ITEM.MGL, ITEM.M79]);
 
-describe('the rate and the trigger off the pinned records (FUN_005c0940, FUN_005c09f0; research 84 §6)', () => {
-  it('the wait: FireWait single, x 0.8 burst and automatic -- the SD 0.14 / 0.112 s (536 a minute), the M4A1 0.12 / 0.096 (625)', () => {
-    expect([fireInterval(SD.fireWait, 1), fireInterval(SD.fireWait, 2), fireInterval(SD.fireWait, 3)]).toEqual([0.14, 0.14 * 0.8, 0.14 * 0.8]);
+describe('the rate and the trigger off the pinned records (FUN_005c0940, r0004 0x5c76f0 / r0001 FUN_005c09f0; research 84 §6)', () => {
+  it('the wait: FireWait x 1.2 single (r0004), x 0.8 burst and automatic -- the SD 0.168 / 0.112 s (536 a minute), the M4A1 0.144 / 0.096 (625)', () => {
+    // SWAP-FIRE (r0004 0x5c76f0, OT.R97): single and modes 4 and up wait FireWait x 1.2; this was r0001's unscaled 0.14.
+    expect([fireInterval(SD.fireWait, 1), fireInterval(SD.fireWait, 2), fireInterval(SD.fireWait, 3)]).toEqual([0.14 * 1.2, 0.14 * 0.8, 0.14 * 0.8]);
+    expect(fireInterval(SD.fireWait, 1)).toBeCloseTo(0.168, 12);
+    expect(fireInterval(M4.fireWait, 1)).toBeCloseTo(0.144, 12);
     expect(fireInterval(SD.fireWait, 3)).toBeCloseTo(0.112, 12);
     expect(Math.round(60 / fireInterval(SD.fireWait, 3))).toBe(536);
     expect(fireInterval(M4.fireWait, 3)).toBeCloseTo(0.096, 12);
     expect(Math.round(60 / fireInterval(M4.fireWait, 3))).toBe(625);
     expect(fireInterval(SD.fireWait, 0)).toBe(1);
-    // Every pinned record's own modes: a semi-only weapon waits its FireWait, an automatic one 0.8 of it.
-    for (const r of ALL) for (const m of r.fireModes) expect([r.name, m, fireInterval(r.fireWait, m)]).toEqual([r.name, m, m === 1 ? r.fireWait : r.fireWait * 0.8]);
+    // Every pinned record's own modes: single (and a mode 4 and up) waits FireWait x 1.2 (r0004; r0001's was FireWait),
+    // burst and automatic 0.8 of it.
+    for (const r of ALL) for (const m of r.fireModes) expect([r.name, m, fireInterval(r.fireWait, m)]).toEqual([r.name, m, m === 1 || m >= 4 ? r.fireWait * 1.2 : r.fireWait * 0.8]);
   });
 
   it('rounds a pull: single 1, burst 3, automatic 10,000, safe 0, a round mode (an item id) 1', () => {
@@ -71,6 +78,24 @@ describe('the rate and the trigger off the pinned records (FUN_005c0940, FUN_005
         .toEqual([r.name, carrier ? 0 : r.maxFireMode, carrier ? 0 : r.fireModes[0]]);
     }
     expect(['AK-47', 'M4A1', 'M16A2', 'M14', 'Model 18', 'M60E3', 'M40A1'].map((n) => pickupFireMode(named(n), [], true))).toEqual([3, 3, 2, 3, 3, 3, 1]);
+  });
+
+  it('OT.R100 as extended 2026-11-22 (PICKUP_FASTEST_FIRE_MODE_ADAPTATION): every weapon comes up on its fastest mode, at a pickup and at spawn', () => {
+    expect(PICKUP_FASTEST_FIRE_MODE_ADAPTATION).toBe(true);
+    for (const r of ALL) {
+      const firearm = r.fireModes.filter((m) => m >= 1 && m <= 3);
+      const fastest = firearm.length > 0 ? Math.max(...firearm) : null;
+      // A pickup, in the hand or not: the fastest firearm mode; a carrier with no firearm mode keeps its round.
+      for (const inHand of [true, false]) {
+        const original = pickupFireMode(r, [], inHand);
+        expect([r.name, inHand, fastestFireMode(r, original)]).toEqual([r.name, inHand, fastest ?? original]);
+      }
+      // The spawn's default (OT.R100's full auto over the original's burst-else-first) already lands on the fastest.
+      expect([r.name, defaultFireMode(r)]).toEqual([r.name, fastest ?? originalSpawnFireMode(r)]);
+    }
+    // The two weapons the extension moves at a pickup off the slot in the hand: single -> burst.
+    const moved = ALL.filter((r) => fastestFireMode(r, pickupFireMode(r, [], false)) !== fullAutoDefault(r, pickupFireMode(r, [], false))).map((r) => r.name);
+    expect(moved).toEqual(['M16A2', 'M16A2-M203']);
   });
 
   it('the switch walks each weapon\'s own modes in order and wraps to single; refused while magnified (FUN_005c4600)', () => {
@@ -200,12 +225,15 @@ describe('a round on the reticle off the pinned records (FUN_005c3360; research 
     for (const c of [1, 5, 10, 50]) expect(burstScalar(SD, c)).toBe(0);
   });
 
-  it('scoped (state 5): no knock, no bloom; the first round kicks, the second drops the scope (FUN_005c5340)', () => {
+  it('scoped (state 5): the first round kicks and adds nothing; the second drops the scope, then knocks and blooms (FUN_005c5340, AS-34 L77)', () => {
+    // AS-34 L77 (research 84 s8; reading, pending review): the drop (r0004 0x5cd580-0x5cd5c4) writes +0x200 = 1 before
+    // Recoil (r0004 0x5ca830, called at 0x5cdbc0), so the second round knocks 12 and blooms 7. *Was:* [0, 1] after both.
     const a = new Accuracy(SD);
     a.trigger();
     expect(a.round(5, 'stand')).toEqual({ dropZoom: false, kick: true });
-    expect(a.round(5, 'stand')).toEqual({ dropZoom: true, kick: false });
     expect([a.state().offset[1], a.state().size]).toEqual([0, 1]);
+    expect(a.round(5, 'stand')).toEqual({ dropZoom: true, kick: false });
+    expect([a.state().offset[1], a.state().size]).toEqual([-12, 8]);
     expect([kickStarts(1, 1), kickStarts(5, 1), kickStarts(5, 2), kickTicks(3), kickTicks(4)]).toEqual([false, true, false, false, true]);
   });
 });

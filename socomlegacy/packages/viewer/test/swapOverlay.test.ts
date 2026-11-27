@@ -44,11 +44,14 @@ const canvas = (): HTMLCanvasElement => {
   return c;
 };
 
+// A plank of +-600 (LATER 1148): the hot run's five seconds at the run's speed reach about 325 from the start (65 u/s), past a
+// +-200 plank's edge, where the floor tested once a game frame holds the body and the retry's idle frame restarts the
+// ramp (research 444) -- an edge this test is not about. The swap's rules are read on open floor.
 const GROUND: GroundData = packGround(
-  { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 },
+  { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 12, cellsZ: 12, originX: -600, originZ: -600 },
   [{
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]),
+    points: Float32Array.from([-600, 0, -600, 600, 0, -600, 600, 0, 600, -600, 0, 600]),
   }],
   [{ modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1 }],
 );

@@ -342,6 +342,9 @@
       }
      ]
     }
+   ],
+   "guards": [
+    1
    ]
   },
   "shell_smoke_med": {
@@ -569,6 +572,9 @@
       }
      ]
     }
+   ],
+   "guards": [
+    1
    ]
   },
   "shell_smoke_big": {
@@ -753,6 +759,9 @@
       }
      ]
     }
+   ],
+   "guards": [
+    1
    ]
   },
   "light_flash_large": {

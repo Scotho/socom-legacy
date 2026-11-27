@@ -7,7 +7,7 @@ import { FsAssetSource } from '@s2u/archive/node';
 import { surfaceMaterial } from '@s2u/scene';
 import { ActionPage } from '../src/actionPage';
 import { FlyCamera } from '../src/camera';
-import { actionRayDetail, c4Line } from '../src/equipment';
+import { actionLine, actionRayDetail } from '../src/equipment';
 import { loadMap, type LoadedMap } from '../src/loadMap';
 import { buildPageWorld, type PageWorld } from '../src/matchWorld';
 import { headEye } from '../src/cameraRig';
@@ -113,7 +113,7 @@ describe.skipIf(!HAVE)(`#427: the Enowapi lever stand, the page's use ray off th
     // (PF.R18); the first-hit test may still take the camera's eye at the command (`missed` is not this test's).
     const head = headEye(r.built.grid, feet, headPoint({ feet, yaw, posture: 'stand', moveRoot: null, peek: 0 }), () => true);
     // The default material only names a clear line's material, never whether it is walled.
-    const line = c4Line(r.built.grid, head, { path: 'worldmodel/epanel_di2', point: got!.point! });
+    const line = actionLine(r.built.grid, head, { path: 'worldmodel/epanel_di2', point: got!.point! });
     expect(line.clear || line.why !== 'walled', JSON.stringify(line)).toBe(true);
     // The window around it: the pitches -15..-30 all name the lever from here.
     const sweep = look(r, STAND, yaw, PITCHES);
@@ -159,18 +159,17 @@ const MP11_CROUCH: V3 = [1128.3, -100, 431];
 const toward = (at: readonly number[]): number => (Math.atan2(-(MP11_PANEL[0] - at[0]!), -(MP11_PANEL[2] - at[2]!)) * 180) / Math.PI;
 
 describe.skipIf(!MP11)(`#427: MP11 gate 1's lever stand, the page's use ray off the browser${MP11 ? '' : ' (SOCOM_DISC with RUN/MP11.ZDB absent: skipped)'}`, () => {
-  it("standing at Fuse's stand the ray misses the panel at every pitch (over it to g342_1; at -45 under it to g335); crouched 6 back it names epanel_di1, the head's line not walled", async () => {
+  it("standing at Fuse's stand the ray misses the panel at every pitch (over it to g342_1); crouched 6 back it names epanel_di1, the head's line not walled", async () => {
     const r = await page('MP11', MP11_FUSE);
     const stood = look(r, MP11_FUSE, toward(MP11_FUSE), [-45, -40, -35, -30, -25, -20, -15, -10, -5, 0, 5, 10, 15, 20]);
     expect(r.walk.posture()).toBe('stand');
     expect(stood.filter((s) => s.target !== null)).toEqual([]);
     for (const s of stood) {
-      if (s.pitch === -45) {                                             // LATER 308: under the panel, past its plane
-        expect(s.first, `pitch ${s.pitch}`).toBe('worldmodel/g335');
-        expect(s.point![1]).toBeCloseTo(-140, 2);
-        expect(s.point![2], `pitch ${s.pitch}: past the panel's plane, z 420.27`).toBeLessThan(420);
-        continue;
-      }
+      // LATER 1057 (re-filed; reading, pending review; research 382 s8): -45 no longer goes under the panel to g335. Its
+      // lead lays the target 0.65 past g342_1's plane, and the pass, one-sided on the hull (`FUN_002d2890`
+      // D:L174831-174837; g342_1 a world-model node, `FUN_00311520` D:L212597-212602 -> `FUN_00316e30`, `+0x80` bit 1
+      // clear, D:L215827-215828), meets that wall from behind and does not pull the eye in (the LATER 491 case below), so
+      // the ray from the eye passes over the panel to g342_1 as it does at every other pitch.
       expect(s.first, `pitch ${s.pitch}`).toBe('worldmodel/g342_1');
       expect(s.point![2]).toBeCloseTo(420, 2);
       expect(s.point![1], `pitch ${s.pitch}: above the panel's top edge, y -84.4`).toBeGreaterThan(-84.4);
@@ -187,7 +186,7 @@ describe.skipIf(!MP11)(`#427: MP11 gate 1's lever stand, the page's use ray off 
     const hit = actionRayDetail(r.built.world.grid, aim.eye, aim.far, r.built.world.meta.actions, (n) => surfaceMaterial(n, '')).pick!;
     expect(hit.path).toBe('worldmodel/epanel_di1');
     const head = headEye(r.built.grid, feet, headPoint({ feet, yaw, posture: 'crouch', moveRoot: null, peek: 0 }), () => true);
-    const line = c4Line(r.built.grid, head, { path: hit.path, point: hit.point });
+    const line = actionLine(r.built.grid, head, { path: hit.path, point: hit.point });
     expect(line.clear || line.why !== 'walled', JSON.stringify(line)).toBe(true);
   });
 });
@@ -205,9 +204,12 @@ describe.skipIf(!MP11)(`#427: MP11 gate 1's lever stand, the page's use ray off 
  * placeholder's question, and a capture of the eye at a steep look against a wall settles it (H337). This case pins
  * the placeholder's consequence under `'target'`, not the original's behaviour; the view from the head is 45 degrees
  * under either.
+ * LATER 1057 (2026-11-15; reading, pending review; research 382 s8): the target lies 0.65 past g342_1's plane, and the
+ * pass is now one-sided on the hull, so it no longer meets the wall's back nor holds the eye: the ~83 degrees is gone,
+ * and the far from the unheld eye is ~43.5 down under `'target'` too. The hold above is what the two-sided pass did.
  */
 describe.skipIf(!MP11)(`LATER 491: the -45 use ray's ~83 degrees${MP11 ? '' : ' (SOCOM_DISC with RUN/MP11.ZDB absent: skipped)'}`, () => {
-  it('under the lead probe\'s \'target\' start: the eye held ~0.95 from a target 0.65 off the wall, the far on that line ~83 down', async () => {
+  it('under the lead probe\'s \'target\' start: a target 0.65 past the wall\'s plane, the eye not held (LATER 1057), the far on that line ~43.5 down', async () => {
     expect(LEAD_PROBE_START_PLACEHOLDER).toBe('target');
     const r = await page('MP11', MP11_FUSE);                                         // the rig is shared: the case above leaves it crouched
     expect(r.walk.respawn(MP11_FUSE, toward(MP11_FUSE))).toBe(true);
@@ -220,10 +222,14 @@ describe.skipIf(!MP11)(`LATER 491: the -45 use ray's ~83 degrees${MP11 ? '' : ' 
     const sub = (a: readonly number[], b: readonly number[]): V3 => [a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!];
     const down = (v: V3): number => (Math.atan2(-v[1], Math.hypot(v[0], v[2])) * 180) / Math.PI;
     const toTarget = sub(cam.target, cam.eye), toFar = sub(aim.far, aim.eye);
-    expect(420 - cam.target[2]).toBeCloseTo(0.65, 1);                                 // the lead: the target near the wall
-    expect(Math.hypot(...toTarget)).toBeLessThan(1);                                   // the pass's hold, not the walk's distance
+    expect(420 - cam.target[2]).toBeCloseTo(0.65, 1);                                 // the lead: the target 0.65 past g342_1's plane
+    // LATER 1057 (re-filed; reading, pending review; research 382 s8): the main probe leaves the target through g342_1's
+    // back (its face at z 420 faces +z, the body's side), and the pass counts a hull face only entered from its front
+    // (`FUN_002d2890` D:L174831-174837, `+0x80` bit 1 clear, `FUN_00316e30` D:L215827-215828), so the eye is not held.
+    // Was: the two-sided pass met that back, held the eye ~0.95 from the target and laid the far ~83 down.
+    expect(Math.hypot(...toTarget)).toBeGreaterThan(18);                               // the walk's distance, not a hold
     expect(Math.abs(down(toFar) - down(toTarget))).toBeLessThan(0.01);                 // viewFar: the far on that line
-    expect(down(toFar)).toBeGreaterThan(80);                                            // the row's ~83, not the look's 45
+    expect(down(toFar)).toBeCloseTo(43.5, 0);                                           // ~43.5, near the look's 45
     r.walk.setScoped(true);
     frames(r, 6);
     const head = r.walk.lookAim()!;

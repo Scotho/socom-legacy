@@ -147,7 +147,8 @@ describe('LCM-8 / LCM-16: the page renders each section from the stats route\'s 
   });
 
   it('the sections, in order, each under the house section heading', () => {
-    expect(headings(page(fixture()))).toEqual(['Awards', 'Scoreboard', 'Rounds', 'Kill feed', 'Weapons']);
+    // WM-DATA-EV (the owner's approved call 9): the sections under four tabs, the EVENTS list in place of the kill feed
+    expect(headings(page(fixture()))).toEqual(['Awards', 'Scoreboard', 'Rounds', 'Events', 'Weapons']);
   });
 
   it('the awards: MVP, top fragger, sharpshooter, most assists, first blood, best round -- each with its identity', () => {
@@ -276,23 +277,25 @@ describe('LCM-8 / LCM-16: the page renders each section from the stats route\'s 
     expect(el.querySelector('.project-match-result .project-side-name')?.textContent).toBe('SEALs');
   });
 
-  it('the kill feed one round at a time (time, killer, weapon, victim, head shot, objectives), a labelled round picker', () => {
+  it('WM-DATA-EV: the EVENTS tab lists every event (round, clock, killer, weapon, victim, head shot, objectives) under labelled filter chips', () => {
     const el = page(fixture());
-    const feeds = [...el.querySelectorAll<HTMLElement>('.project-feed')];
-    expect(feeds.map((f) => f.getAttribute('data-round'))).toEqual(['1', '2']);
-    expect(feeds[1]!.hidden).toBe(true);
-    const first = [...feeds[0]!.querySelectorAll('li')].map((l) => text(l));
-    expect(first[0]).toContain('+0:00');                                              // since the round's first event (MATCH_PAGE_FEED_TIME_ADAPTATION)
-    expect(first[1]).toContain('+0:21');
-    expect(first[0]).toMatch(/Kestrel .*M4A1.* Cinder/);
-    expect(first[0]).toMatch(/Head shot/);
-    expect(first[2]).toContain('planted');
-    for (const glyph of feeds[0]!.querySelectorAll('.project-feed-glyph')) expect(glyph.getAttribute('aria-hidden')).toBe('true');
-    const field = el.querySelector('.s2u-field')!;
-    const select = field.querySelector('select')!;
-    expect(field.querySelector(`label[for="${select.id}"]`)?.textContent).toBe('Round');
-    expect(select.querySelectorAll('option')).toHaveLength(2);
-    expect(select.options[0]!.textContent).toBe('Round 1');
+    expect(el.querySelector('.project-match-feed')).toBeNull();                       // the kill feed's section is gone
+    const lists = [...el.querySelectorAll<HTMLElement>('.project-match-events .project-feed')];
+    expect(lists).toHaveLength(1);
+    const rows = [...lists[0]!.querySelectorAll('li')].map((l) => text(l));
+    expect(rows).toHaveLength(4);
+    expect(rows[0]).toMatch(/^R1 \+0:00 /);                                          // no startTick served: since the round's first event
+    expect(rows[1]).toMatch(/^R1 \+0:21 /);
+    expect(rows[3]).toMatch(/^R2 \+0:00 /);
+    expect(rows[0]).toMatch(/Kestrel .*M4A1.* Cinder/);
+    expect(rows[0]).toMatch(/Head shot/);
+    expect(rows[2]).toContain('Planted');
+    for (const glyph of lists[0]!.querySelectorAll('.project-feed-glyph')) expect(glyph.getAttribute('aria-hidden')).toBe('true');
+    const group = el.querySelector<HTMLElement>('.project-match-events [role="group"]')!;
+    expect(el.querySelector(`#${group.getAttribute('aria-labelledby')!}`)?.textContent).toBe('Round');
+    expect([...group.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['All', 'R1', 'R2']);
+    // a kind chip only for a kind the served events carry (no damage events are served today: no Damage chip)
+    expect([...el.querySelectorAll<HTMLButtonElement>('button[data-filter="kind"]')].map((b) => b.dataset['value'])).toEqual(['', 'kill', 'planted']);
   });
 
   it('kills by weapon and by hit location, in ds panels', () => {
@@ -402,9 +405,8 @@ describe('LCM-8 / LCM-16: loading, polling, failure, not found', () => {
     await tick();
     const link = document.querySelector<HTMLAnchorElement>('table.project-stat-table a[href="/player/Kestrel"]')!;
     link.focus();
-    const select = document.querySelector<HTMLSelectElement>('.s2u-field select')!;
-    select.value = '2';
-    select.dispatchEvent(new Event('change'));
+    document.querySelector<HTMLButtonElement>('button[data-filter="round"][data-value="2"]')!.click();
+    link.focus();
     timers.shift()!();
     await tick();
     expect(link.isConnected).toBe(false);                                            // the region was drawn again (its numbers changed)
@@ -412,8 +414,9 @@ describe('LCM-8 / LCM-16: loading, polling, failure, not found', () => {
     expect(now.tagName).toBe('A');
     expect(now.getAttribute('href')).toBe('/player/Kestrel');
     expect(now.closest('table.project-stat-table')).not.toBeNull();
-    expect(document.querySelector<HTMLSelectElement>('.s2u-field select')!.value).toBe('2');
-    expect(document.querySelector<HTMLElement>('.project-feed[data-round="2"]')!.hidden).toBe(false);
+    expect(document.querySelector('button[data-filter="round"][data-value="2"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect(document.querySelector<HTMLElement>('.project-match-events li[data-round="2"]')!.hidden).toBe(false);
+    expect(document.querySelector<HTMLElement>('.project-match-events li[data-round="1"]')!.hidden).toBe(true);
   });
 
   it('a failed read while live (thrown, 429, 5xx) keeps the page and reads again, backing off (LCM-18d); it stops once the match has ended', async () => {
@@ -557,7 +560,7 @@ describe('LCM-16 review fold: the live updates', () => {
 describe('LCM-18d: a live re-read patches the page in place', () => {
   const liveFx = (): MatchPageData => fixture({ live: true, ended: null, endedAt: null });
 
-  it('an unchanged answer redraws nothing: the head\'s still, the scoreboard and the picker are the same nodes; only "Updated" moves', async () => {
+  it('an unchanged answer redraws nothing: the head\'s still, the scoreboard and the tabs are the same nodes; only "Updated" moves', async () => {
     const answers: MatchPageData[] = [liveFx(), liveFx()];
     const timers: (() => void)[] = [];
     let t = STARTED + DAY;
@@ -565,14 +568,14 @@ describe('LCM-18d: a live re-read patches the page in place', () => {
     await tick();
     const still = document.querySelector('img.project-hero-still')!;
     const board = document.querySelector('.project-match-board')!;
-    const select = document.querySelector('.project-feed-pick select')!;
+    const tabs = document.querySelector('[role="tablist"]')!;
     const updated = text(document.querySelector('.project-match-updated'));
     t += 60_000;
     timers.shift()!();
     await tick();
     expect(document.querySelector('img.project-hero-still')).toBe(still);
     expect(document.querySelector('.project-match-board')).toBe(board);
-    expect(document.querySelector('.project-feed-pick select')).toBe(select);
+    expect(document.querySelector('[role="tablist"]')).toBe(tabs);
     expect(text(document.querySelector('.project-match-updated'))).not.toBe(updated);
     expect(document.querySelectorAll('img.project-hero-still')).toHaveLength(1);
   });
@@ -620,25 +623,59 @@ describe('LCM-18d: a live re-read patches the page in place', () => {
     expect(after.map((w) => w.scrollLeft)).toEqual([120, 48]);
   });
 
-  it('the round picked survives a changed answer, and the picker is not wired twice', async () => {
+  it('WM-DATA-EV: the tab open and the events\' filter survive a changed answer, and the controls still answer', async () => {
     const answers: MatchPageData[] = [liveFx(), changed(liveFx()), changed(changed(liveFx()))];
     const timers: (() => void)[] = [];
     mountMatchPage(document, window, '41-3-5', { fetch: async () => answer(answers.shift()!), setTimer: (fn) => { timers.push(fn); }, now: () => STARTED + DAY });
     await tick();
-    const select = document.querySelector<HTMLSelectElement>('.project-feed-pick select')!;
-    select.value = '2';
-    select.dispatchEvent(new Event('change'));
+    const tab = (k: string): HTMLButtonElement => document.querySelector<HTMLButtonElement>(`[role="tab"][data-tab="${k}"]`)!;
+    const panel = (k: string): HTMLElement => document.querySelector<HTMLElement>(`[role="tabpanel"][data-tab="${k}"]`)!;
+    const chip = (v: string): HTMLButtonElement => document.querySelector<HTMLButtonElement>(`button[data-filter="round"][data-value="${v}"]`)!;
+    const row = (n: number): HTMLElement => document.querySelector<HTMLElement>(`.project-match-events li[data-round="${n}"]`)!;
+    tab('events').click();
+    chip('2').click();
     timers.shift()!();
     await tick();
     timers.shift()!();
     await tick();
-    const now = document.querySelector<HTMLSelectElement>('.project-feed-pick select')!;
-    expect(now.value).toBe('2');
-    expect(document.querySelector<HTMLElement>('.project-feed[data-round="2"]')!.hidden).toBe(false);
-    expect(document.querySelector<HTMLElement>('.project-feed[data-round="1"]')!.hidden).toBe(true);
-    now.value = '1';
-    now.dispatchEvent(new Event('change'));
-    expect(document.querySelector<HTMLElement>('.project-feed[data-round="1"]')!.hidden).toBe(false);
+    expect(tab('events').getAttribute('aria-selected')).toBe('true');
+    expect(panel('events').hidden).toBe(false);
+    expect(panel('overview').hidden).toBe(true);
+    expect(chip('2').getAttribute('aria-pressed')).toBe('true');
+    expect(row(2).hidden).toBe(false);
+    expect(row(1).hidden).toBe(true);
+    chip('1').click();
+    expect(row(1).hidden).toBe(false);
+    expect(row(2).hidden).toBe(true);
+    tab('overview').click();
+    expect(panel('overview').hidden).toBe(false);
+    expect(panel('events').hidden).toBe(true);
+  });
+
+  it('WM-DATA-EV review fold: a focused player chip whose name holds `"` or `\\` is focused again after a changed answer, and the poll goes on', async () => {
+    // a name as central serves it with a double quote (`Gh"ost`; the fixture's `Harrow<b>&"` too), and `Back\slash` beside
+    // `Backslash` (a selector's `\s` would read as `s`)
+    const fx = (): MatchPageData => {
+      const d = liveFx();
+      return { ...d, players: [...d.players, player({ name: 'Gh"ost', side: 0 }), player({ name: 'Back\\slash', side: 1 }), player({ name: 'Backslash', side: 1 })] };
+    };
+    for (const name of ['Gh"ost', 'Harrow<b>&"', 'Back\\slash']) {
+      const answers: MatchPageData[] = [fx(), changed(fx()), changed(changed(fx()))];
+      const timers: (() => void)[] = [];
+      mountMatchPage(document, window, '41-3-5', { fetch: async () => answer(answers.shift()!), setTimer: (fn) => { timers.push(fn); }, now: () => STARTED + DAY });
+      await tick();
+      document.querySelector<HTMLButtonElement>('[role="tab"][data-tab="events"]')!.click();
+      const chip = [...document.querySelectorAll<HTMLButtonElement>('button[data-filter="player"]')].find((b) => b.dataset['value'] === name)!;
+      chip.focus();
+      expect(timers).toHaveLength(1);
+      timers.shift()!();
+      await tick();
+      const now = document.activeElement as HTMLButtonElement;
+      expect(now.dataset['filter']).toBe('player');
+      expect(now.dataset['value']).toBe(name);
+      expect(timers, `${name}: the poll goes on`).toHaveLength(1);
+      document.body.replaceChildren();
+    }
   });
 
   it('Copy link is wired once on a kept head (one click, one copy)', async () => {
@@ -708,5 +745,17 @@ describe('LCM-18d: the head\'s words', () => {
     const one = fixture({}, { players: [player({ name: 'Ghostline', side: 0 })] });
     expect([...page(one).querySelectorAll('.project-match-facts li')].map((li) => li.textContent)).toContain('1 player');
     expect([...page(fixture()).querySelectorAll('.project-match-facts li')].map((li) => li.textContent)).toContain('5 players');
+  });
+});
+
+// DAY-STILLS-2 (product track, a browser adaptation: the original has no Day maps): the head's still asks the match's
+// variant (the stats route's `variant`, DAY-VARIANT-STATS) at `/api/maps/<STEM>/<variant>/still.png`; a plain match the
+// stem's route as before; a word off the route's form is never put in the path (central falls back to night for any other).
+describe("DAY-STILLS-2: the match page asks the match's variant's still", () => {
+  const still = (el: HTMLElement): string | null => el.querySelector<HTMLImageElement>('img.project-hero-still')?.getAttribute('src') ?? null;
+  it("a Day match its Day still; a plain match the stem's; a malformed variant the stem's", () => {
+    expect(still(page(fixture({ map: 'MP5', mapName: 'Abandoned (Day)', variant: 'day' } as Partial<MatchPageData['match']>)))).toBe('/api/maps/MP5/day/still.png');
+    expect(still(page(fixture({ map: 'MP5', mapName: 'Abandoned' })))).toBe('/api/maps/MP5/still.png');
+    expect(still(page(fixture({ map: 'MP5', mapName: 'Abandoned', variant: '../x' } as Partial<MatchPageData['match']>)))).toBe('/api/maps/MP5/still.png');
   });
 });

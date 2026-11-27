@@ -148,14 +148,14 @@ export interface Layout {
    */
   hiddenData?: string[];
   /**
-   * The base map's own data objects this layout moves (the owner, 2026-11-12: "allow all map objects to be moveable";
+   * The base map's own data objects this layout moves (the Forge's owner (crispy, OT.R112), 2026-11-12: "allow all map objects to be moveable";
    * a browser adaptation, FG.R2), each by its key (`MOVED_DATA_KEY`: `slot:A1`, `respawn:B3`, `hostage:<name>`,
    * `bomb:start`, `tacpoint:<i>`, `taczone:<name>`, `view:<i>`) to its new place. The disc's map is untouched; this
    * layout's editor and match read them there (`viewer/src/forge/mapDataMove`). Absent: none. Online refused.
    */
   movedData?: Record<string, MovedMapData>;
   /**
-   * The base map's AI cells this layout paints (the owner, 2026-11-16: "a similar workflow to the collision paint but for
+   * The base map's AI cells this layout paints (the Forge's owner (crispy, OT.R112), 2026-11-16: "a similar workflow to the collision paint but for
    * ai navigation tiles"; a browser adaptation, FG.R2): each stored cell of its `AIMAPS.MPS` by `AI_SOIL_KEY` (`map:x:z`,
    * the sub-map's index in the file and the cell's column and row, research 75 section 4) to the soil it takes -- bits
    * 0-4 of the cell's word, one of the original's soils (research 200 section 2). A blank floor's are its own grid's
@@ -164,7 +164,7 @@ export interface Layout {
    */
   aiSoil?: Record<string, number>;
   /**
-   * The base's world geometry as this layout edits it (the Forge geometry audit's bug 1, the owner, 2026-11-16: "Edits
+   * The base's world geometry as this layout edits it (the Forge geometry audit's bug 1, the Forge's owner (crispy, OT.R112), 2026-11-16: "Edits
    * aren't saved"; a browser adaptation, FG.R2): a reference (`GEOMETRY_REF`, `geometry:` and the content's SHA-256) to
    * the edited meshes kept as an asset in this browser's store (`viewer/src/forge/geometryStore`), as a level editor keeps a map's
    * mesh edits in its `.vmap`. The disc's map is untouched. Absent: the base's own geometry. Online refused (another
@@ -260,7 +260,7 @@ export interface Layout {
   /** The layout's Forge objects (`ForgeObject`): ambient effects, cranes. Absent: none. A crane refused online. */
   objects?: ForgeObject[];
   /**
-   * The map's own script (the owner, 2026-11-13: "the native style map script"; a browser adaptation, FG.R2): run from the
+   * The map's own script (the Forge's owner (crispy, OT.R112), 2026-11-13: "the native style map script"; a browser adaptation, FG.R2): run from the
    * round's start at the map's origin, as the disc's `objectives` runs a round -- its loops and its ifs testing the
    * game's own valves (`SCRIPT_GAME_VALUES`) and the layout's flags. Absent: none.
    */
@@ -323,7 +323,7 @@ export interface LayoutObjectiveIds {
  *   turret of FG-21. Not the room's option: a lobby-hosted forge match seats no NPC.
  * - `arsenal` (`ArsenalSetting`; the owner, 2026-11-10): the map's `mission.rdr` valves with the layout's over them, and
  *   each side's kit picks -- what a side may pick and spawns with, by the game's own rules.
- * - `eqLimit` 0..4: CREATE GAME's equipment restriction (`EQlimit`, GameStats byte 5, `FUN_002f7c40` D:L196733-196734;
+ * - `eqLimit` 0..4: CREATE GAME's equipment restriction (`EQlimit`, GameStats byte 5, `FUN_002f7c40` D:L196732-196733;
  *   research 362) -- 0 none, 1 pistols, 2 shotguns, 3 snipers, 4 no bombs -- the room's own option (`RoomOptions.eqLimit`).
  * - `respawn`: CREATE GAME's RESPAWN row (`mp_allow_respawn`; research 348), the room's `rules` 'respawn' when on.
  */
@@ -806,7 +806,7 @@ export interface PieceTrigger { piece?: number; node?: string; health: number; a
  *   its particles, its sound, its light) -- played here from the round's start, rooted at this place;
  * - `crane`: a copy of a disc map's crane (`source`, `name` its node: Chain Reaction's).
  *
- * `script` (an ambient's; the owner, 2026-11-13: "one script format ... a fully generic scripting way of doing things that
+ * `script` (an ambient's; the Forge's owner (crispy, OT.R112), 2026-11-13: "one script format ... a fully generic scripting way of doing things that
  * is unified"): its steps (`ScriptStep`, the switches' and the triggers' own), run from the round's start at the object
  * as the map's own self-starting programs run -- standing in for its program's sounds (its particles and light as ever).
  * A file's older `audio` (`AudioStep`) is read into it (`scriptOfAudio`).
@@ -827,7 +827,7 @@ export const FORGE_OBJECT_KINDS: readonly ForgeObjectKind[] = ["ambient", "crane
  * - `if` / `elseif` (`chance`) ... `else` ... `endif`: `IF` / `ELSEIF` on `RANDOM_WEIGHT` (`FUN_0025dcf0`: taken when
  *   `rand() <= chance`, 0 to 1), `ELSE`, `ENDIF`;
  * - `effect`: `CALL_ANIMATION` of the effect program `effect` from the disc map `from` (absent, the base map's) at the
- *   object, as the disc's own ambient programs call theirs (the owner, 2026-11-13: one effect object, its sounds and
+ *   object, as the disc's own ambient programs call theirs (the Forge's owner (crispy, OT.R112), 2026-11-13: one effect object, its sounds and
  *   its effects alike; a browser adaptation, FG.R2 -- the game has no editor).
  */
 export type AudioStep =
@@ -949,7 +949,7 @@ export function pieceTriggerOk(v: unknown, c: SwitchCounts): boolean {
  */
 export type SwitchTarget = { map: string } | { piece: number } | { barrier: number } | { gate: number } | { object: number };
 /**
- * A script step -- the one script of the Forge (the owner, 2026-11-13: "one script format ... replace our weird home made
+ * A script step -- the one script of the Forge (the Forge's owner (crispy, OT.R112), 2026-11-13: "one script format ... replace our weird home made
  * formats"): a switch's pull, a damage trigger's death and an effect object's round all run these. Since 2026-11-13 also
  * the game's own flow commands: `wait` with a `random` range (WAIT flag 0x20); `if` / `elseif` on a `chance`
  * (`RANDOM_WEIGHT`, `FUN_0025dcf0`: taken when `rand() <= chance`) as well as on a flag; `while` ... `endWhile` (`WHILE`
@@ -990,7 +990,7 @@ export type ScriptStep =
   | { do: "loop"; times?: number; seconds?: number }
   | { do: "blast"; at?: SwitchTarget };
 /**
- * A test step's logic (the owner, 2026-11-13: "and, or, and all the logical operators"; the game's own: an IF's
+ * A test step's logic (the Forge's owner (crispy, OT.R112), 2026-11-13: "and, or, and all the logical operators"; the game's own: an IF's
  * conditions are its operands with the EXPRESSION operators between them -- 1 NOT, 2 AND, 3 OR, 4 (, 5 ) -- folded left
  * to right, no precedence, `FUN_0025e960`, research 106 s3): its first test's NOT and brackets (`open` before it,
  * `close` after it), then each further test (`more`), joined to what came before by AND or OR.
@@ -1039,7 +1039,7 @@ export type ScriptTarget = SwitchTarget;
 export interface ScriptSteps {
   steps: ScriptStep[];
   /**
-   * Its named sequences (the owner, 2026-11-13: "call sequence and end sequence"; the game's own: a program's other
+   * Its named sequences (the Forge's owner (crispy, OT.R112), 2026-11-13: "call sequence and end sequence"; the game's own: a program's other
    * sequences, CALL_SEQUENCE / STOP_SEQUENCE, research 89): each one waits until a step calls it (activation 2), then
    * runs beside the rest. Absent: none.
    */
@@ -1952,6 +1952,17 @@ const ownId = (id: string | undefined, prefix: string, i: number): { id?: string
 /** The record v3's schema name and version (the plan's "Shared interfaces": `schema: 'forge-layout', version: 3`). */
 export const RECORD_SCHEMA = "forge-layout" as const;
 export const RECORD_VERSION = 3 as const;
+/**
+ * FN-4 (the Forge lane's plan `docs/plans/2026-11-14-forge-next.md`, FN.R5; a browser adaptation, FG.R2 -- the game has
+ * no editor and no standard match reads a record): the record's version 4, which keeps a PIECE's yaw, pitch and roll on
+ * `RECORD_ANGLE_DENOMINATOR`'s lattice (a hundredth of a degree) where version 3 keeps whole degrees. Written exactly when
+ * some piece's angle is off the whole degree, so a layout whose piece angles are all whole is version 3 byte for byte;
+ * every other field is version 3's. A version-4 record whose angles are all whole is read and given back as version 3
+ * (`readCreatorRecord`). A build before FN-4 refuses one by its version (`not a forge record of version 2 or 3`).
+ * A trap for later, noted only: the parked branch `agent/xs-forge` also numbers a record 4 (`RECORD_VERSION_OTHER_TITLE`,
+ * a record naming another game's map); FN-4 lands first, and that branch takes another number when it rebases.
+ */
+export const RECORD_VERSION_FINE_ANGLES = 4 as const;
 /** The record before v3 (`{v: 2, ...}`), read and migrated, never written. */
 export const RECORD_V2 = 2 as const;
 
@@ -2002,6 +2013,17 @@ export const RECORD_POSITION_DENOMINATOR = 10;
 export const RECORD_SCALE_DENOMINATOR = 100;
 export const RECORD_SCALE_MIN_ADAPTATION = 0.1;
 export const RECORD_SCALE_MAX_ADAPTATION = 4;
+/**
+ * FN-4 (FN.R5, the owner: "agreed with your suggestion" -- save angles more finely so a typed value reads back exactly; a
+ * browser adaptation, FG.R2, no game value): a piece's yaw, pitch and roll in a version-4 record
+ * (`RECORD_VERSION_FINE_ANGLES`) are multiples of one hundredth of a degree (`round(d * 100) / 100`). Why a hundredth,
+ * measured by plain arithmetic (300,000 random poses a row: a parent at the top in whole degrees, a child's turn typed
+ * relative to it in whole degrees, the record keeping the WORLD turn): on whole degrees 32 to 45 percent of the typed
+ * local turns read back changed; on a tenth none up to a local pitch of 80 but 7,916 of 300,000 within 89; on a
+ * hundredth none of 300,000 at every band up to 89. The seat's evidence: `fn4-lattice.mjs` and `fn4-lattice-output.txt`
+ * (the weekend mega sprint's Forge evidence folder). Markers keep whole degrees.
+ */
+export const RECORD_ANGLE_DENOMINATOR = 100;
 
 export type PieceRow = [asset: number, x: number, y: number, z: number, yaw: number, locked?: true];
 /**
@@ -2009,7 +2031,9 @@ export type PieceRow = [asset: number, x: number, y: number, z: number, yaw: num
  * `R_y(yaw) * R_x(pitch) * R_z(roll)` -- three's `YXZ` Euler order, the one the Forge's Inspector reads (`viewer` `page.ts`
  * `fillStubFields`) -- then the scale per axis, so a piece's matrix is `T * R * S`. Pitch is a whole degree in -90..90,
  * roll a whole degree in 0..359 (as a yaw is); at a pitch of 90 or -90 the roll is 0 and its turn is in the yaw (the one
- * canonical form). The scale is on `RECORD_SCALE_DENOMINATOR`'s lattice.
+ * canonical form). The scale is on `RECORD_SCALE_DENOMINATOR`'s lattice. FN-4: in a version-4 record
+ * (`RECORD_VERSION_FINE_ANGLES`) the pitch, the roll and the row's yaw are on `RECORD_ANGLE_DENOMINATOR`'s lattice
+ * instead (pitch -90..90, roll and yaw 0..359.99), in the same canonical form.
  */
 export type PoseRow = [piece: number, pitch: number, roll: number, sx: number, sy: number, sz: number];
 export type SpawnRow = [team: "A" | "B", x: number, y: number, z: number, yaw: number, locked?: true];
@@ -2095,10 +2119,10 @@ export interface LegacyCarry {
   sites?: Record<string, Record<string, unknown>>;
 }
 
-/** The record v3 (FCW-07a). */
+/** The record v3 (FCW-07a); FN-4: or v4, the same fields with a piece's angles on a hundredth of a degree. */
 export interface CreatorLayoutRecord {
   schema: typeof RECORD_SCHEMA;
-  version: typeof RECORD_VERSION;
+  version: typeof RECORD_VERSION | typeof RECORD_VERSION_FINE_ANGLES;
   name: string;
   /** An archive stem, `blank:<stem>`, `blank:floor`, or (FCW-10) `content:<stem>`: an authored map, `contentBase` its map. */
   base: string;
@@ -2341,14 +2365,30 @@ const scaleOnLattice = (n: number): number => Math.min(RECORD_SCALE_MAX_ADAPTATI
 /** FX-1: a turn whose `|sin pitch|` reaches this is read at the gimbal (three's `Euler.setFromRotationMatrix`, `YXZ`). */
 const GIMBAL = 0.9999999;
 
+/** FN-4: an angle in degrees on the record's angle lattice (`RECORD_ANGLE_DENOMINATOR`), signed; +0 drops -0. */
+const angleOnLattice = (deg: number): number => Math.round(deg * RECORD_ANGLE_DENOMINATOR) / RECORD_ANGLE_DENOMINATOR + 0;
 /**
- * FX-1: a piece's turn and scale on the record's lattice: the row's yaw in whole degrees and, when the piece is tilted or
- * scaled, its pose (pitch, roll, sx, sy, sz); `pose` null otherwise. The scale per axis is the length of its column; the
- * turn is read in three's `YXZ` order from the columns divided by those lengths (`Euler.setFromRotationMatrix`). A
- * piece whose pitch and roll are 0 on the lattice keeps the yaw the record has always written (`yawOf`), which for such
- * a piece is the `YXZ` yaw, so a yaw-only layout's text does not move. The canonical form: a pitch on the lattice of 90
- * (-90) writes roll 0 and the yaw less (plus) the roll, the same turn. A matrix that is not `T * R * S` (a mirror, a
- * shear) is written as the nearest pose this reads, as a yaw-only row was before.
+ * FN-4: a turn (radians) as a piece's yaw or roll in the record: on the angle lattice, in 0..359.99 -- `wholeDeg`'s form
+ * on the finer lattice, and `wholeDeg`'s value exactly when that is a whole degree (an angle within half a hundredth of
+ * a whole degree is within half a degree of it).
+ */
+const fineDeg = (rad: number): number => {
+  const turn = 360 * RECORD_ANGLE_DENOMINATOR;
+  return (((Math.round(((rad * 180) / Math.PI) * RECORD_ANGLE_DENOMINATOR) % turn) + turn) % turn) / RECORD_ANGLE_DENOMINATOR;
+};
+
+/**
+ * FX-1: a piece's turn and scale on the record's lattice: the row's yaw and, when the piece is tilted or scaled, its pose
+ * (pitch, roll, sx, sy, sz); `pose` null otherwise. FN-4: each angle on a hundredth of a degree (`angleOnLattice`,
+ * `fineDeg`; before FN-4 whole degrees), so a whole-degree turn writes the whole degrees it always wrote and the record
+ * is version 4 only when an angle is off the whole degree (`recordOfLayout`). The scale per axis is the length of its
+ * column; the turn is read in three's `YXZ` order from the columns divided by those lengths
+ * (`Euler.setFromRotationMatrix`, its gimbal threshold `GIMBAL`). A piece whose pitch and roll are 0 on the lattice
+ * keeps the yaw the record has always written (`yawOf`), which for such a piece is the `YXZ` yaw, so a yaw-only layout's
+ * text does not move. The canonical form, decided on the lattice value: a pitch of 90 (-90) writes roll 0 and the yaw
+ * less (plus) the roll, the same turn. A matrix that is not `T * R * S` (a mirror, a shear) is written as the nearest
+ * pose this reads, as a yaw-only row was before. The Forge page's own reading of a turn on this lattice is `viewer`
+ * `forge/transformStubs.ts` `recordTurn`, held to this one by `transformStubsSwitch.test.ts`.
  */
 function poseOf(m: readonly number[]): { yaw: number; pose: [number, number, number, number, number] | null } {
   const at = (i: number): number => m[i] ?? 0;
@@ -2362,12 +2402,12 @@ function poseOf(m: readonly number[]): { yaw: number; pose: [number, number, num
     const gimbal = Math.abs(m23) >= GIMBAL;
     const y = gimbal ? Math.atan2(-unit(2, 0), unit(0, 0)) : Math.atan2(unit(8, 2), unit(10, 2));
     const z = gimbal ? 0 : Math.atan2(unit(1, 0), unit(5, 1));
-    pitch = Math.round((x * 180) / Math.PI) + 0;
-    roll = Math.abs(pitch) === 90 ? 0 : wholeDeg(z);
+    pitch = angleOnLattice((x * 180) / Math.PI);                // FN-4: on the hundredth (was `Math.round`, whole degrees)
+    roll = Math.abs(pitch) === 90 ? 0 : fineDeg(z);
     if (pitch !== 0 || roll !== 0) yaw = Math.abs(pitch) === 90 ? y - Math.sign(pitch) * z : y;
   }
   const posed = pitch !== 0 || roll !== 0 || sx !== 1 || sy !== 1 || sz !== 1;
-  return { yaw: wholeDeg(yaw), pose: posed ? [pitch, roll, sx, sy, sz] : null };
+  return { yaw: fineDeg(yaw), pose: posed ? [pitch, roll, sx, sy, sz] : null };
 }
 
 /**
@@ -2437,7 +2477,11 @@ function objectivesV3(o: ForgeObjectives, siteIds: readonly string[]): { objecti
   return { objectives, carry };
 }
 
-/** The layout as a record v3: its rows, its ids (`layoutIds`), its pack references, its inert legacy members. */
+/**
+ * The layout as a record v3: its rows, its ids (`layoutIds`), its pack references, its inert legacy members. FN-4: as a
+ * record v4 (`RECORD_VERSION_FINE_ANGLES`) when a piece's yaw, pitch or roll is off the whole degree (`poseOf`); every
+ * other yaw (a marker's, a rules entity's) a whole degree in either (`wholeDeg`).
+ */
 export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
   const ids = layoutIds(l);
   const assets: RecordAsset[] = [];
@@ -2465,8 +2509,10 @@ export function recordOfLayout(l: Layout, name: string): CreatorLayoutRecord {
     if (s.locked === true) row[5] = true;
     return row;
   });
+  // FN-4: version 4 exactly when some piece's yaw, pitch or roll is off the whole degree; else version 3, byte for byte
+  const version = hasFineAngles({ pieces, poses }) ? RECORD_VERSION_FINE_ANGLES : RECORD_VERSION;
   const record: CreatorLayoutRecord = {
-    schema: RECORD_SCHEMA, version: RECORD_VERSION, name: l.name?.trim() || name, base: baseText(l.base),
+    schema: RECORD_SCHEMA, version, name: l.name?.trim() || name, base: baseText(l.base),
     // FCW-10: an authored map's reference beside its `content:<stem>` base; a retail base writes nothing more
     ...(isContentLayoutBase(l.base) ? { contentBase: { ref: { id: l.base.ref.id, version: l.base.ref.version, hash: l.base.ref.hash }, mapId: l.base.mapId } } : {}),
     assets, pieces, ...(poses.length ? { poses } : {}), spawns, ids,
@@ -2726,6 +2772,35 @@ function cameraError(v: unknown): string | null {
 /** A coordinate at one decimal place, inside the map bound. An integer is one. */
 const inBound = (n: unknown): boolean => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= RECORD_LIMITS.coord && tenth(n) === n;
 const isDeg = (n: unknown): boolean => Number.isInteger(n) && (n as number) >= 0 && (n as number) < 360;
+/** FN-4: a finite number on the record's angle lattice (`RECORD_ANGLE_DENOMINATOR`). An integer is one. */
+const onAngleLattice = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n)
+  && Math.round(n * RECORD_ANGLE_DENOMINATOR) / RECORD_ANGLE_DENOMINATOR === n;
+/** FN-4: a version-4 record's piece yaw or pose roll: 0..359.99 on the angle lattice (`isDeg`'s bounds, finer). */
+const isFineDeg = (n: unknown): boolean => onAngleLattice(n) && n >= 0 && n < 360;
+/** FN-4: the versions of a v3-shaped record this build reads (`checkV3`). */
+const RECORD_VERSIONS_READ: readonly unknown[] = [RECORD_VERSION, RECORD_VERSION_FINE_ANGLES];
+/** The words a record of a version this build does not read is refused in, naming every version it reads (FN-4: and 4). */
+const versionRefusal = (): string => `not a forge record of version ${RECORD_V2}, ${RECORD_VERSION} or ${RECORD_VERSION_FINE_ANGLES}`;
+/**
+ * FN-4, fix round 2 (a browser adaptation, the product track: the game has no editor and reads no record): whether
+ * `version` is a whole number above the highest record version this build reads (`RECORD_VERSION_FINE_ANGLES`) -- a
+ * record a later build saved.
+ */
+export const isNewerRecordVersion = (version: unknown): version is number =>
+  Number.isInteger(version) && (version as number) > RECORD_VERSION_FINE_ANGLES;
+/**
+ * FN-4, fix round 2 (a browser adaptation, the product track): the refusal of a record by its `version`, in the words a
+ * player reads (the page shows it after "The share link could not be opened", the saved list beside an unreadable
+ * save). A later build's record (`isNewerRecordVersion`) is named as one, with its version and the remedy; anything
+ * else -- a number below 2, a fraction, a string, absent -- keeps the words naming every version this build reads
+ * (`versionRefusal`). The builds already shipped say `... version 2 or 3` and cannot change; this is for the next such
+ * case. Used by the v3-shaped check (`checkV3`), and by the bundle's and the map pack's layout checks.
+ */
+export function recordVersionRefusal(version: unknown): string {
+  return isNewerRecordVersion(version)
+    ? `this layout was saved by a newer build (record version ${version}): update the game to open it`
+    : versionRefusal();
+}
 
 /** The layout's own settings check (`parseLayout`), so the record's bounds stay the file's. */
 function settingsError(v: unknown): string | null {
@@ -2752,8 +2827,13 @@ function objectivesError(v: unknown): string | null {
   return points.every((p) => p.every(inBound)) ? null : "objectives has a point off the record's bound";
 }
 
-/** The checks v2 and v3 share: the name, the base, the rows and the optional blocks. `assetError` is the version's. */
-function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: number) => string | null, contentBase = false): string | null {
+/**
+ * The checks v2 and v3 share: the name, the base, the rows and the optional blocks. `assetError` is the version's; so
+ * (FN-4) is `pieceYaw`, a piece row's yaw check: a whole degree (`isDeg`), or for a version-4 record a hundredth
+ * (`isFineDeg`). Every other row's yaw is a whole degree in every version.
+ */
+function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: number) => string | null, contentBase = false,
+  pieceYaw: (n: unknown) => boolean = isDeg): string | null {
   const name = r["name"];
   if (typeof name !== "string" || name.trim() === "" || name.length > RECORD_LIMITS.name || /[\u0000-\u001f]/.test(name)) return `the name is not 1-${RECORD_LIMITS.name} printable characters`;
   const base = r["base"];
@@ -2773,7 +2853,7 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
   }
   for (const [i, p] of pieces.entries()) {
     if (!Array.isArray(p) || (p.length !== 5 && p.length !== 6) || !Number.isInteger(p[0]) || p[0] < 0 || p[0] >= assets.length
-      || !inBound(p[1]) || !inBound(p[2]) || !inBound(p[3]) || !isDeg(p[4])) return `piece ${i} is not [asset#, x, y, z, yaw]`;
+      || !inBound(p[1]) || !inBound(p[2]) || !inBound(p[3]) || !pieceYaw(p[4])) return `piece ${i} is not [asset#, x, y, z, yaw]`;
     if (p.length === 6 && p[5] !== true) return `piece ${i} lock is not true`;
   }
   for (const [i, s] of spawns.entries()) {
@@ -2976,7 +3056,7 @@ function commonError(r: Record<string, unknown>, assetError: (a: unknown, i: num
 /** Null when `r` is a v2 record within its bounds, else the first reason it is not (the v2 check, unchanged). */
 function checkV2(r: Record<string, unknown>): string | null {
   for (const k of Object.keys(r)) if (!V2_FIELDS.includes(k)) return `unknown field ${k}`;
-  if (r["v"] !== RECORD_V2) return `not a forge record of version ${RECORD_V2} or ${RECORD_VERSION}`;
+  if (r["v"] !== RECORD_V2) return versionRefusal();
   const why = commonError(r, (a, i) => (typeof a !== "string" || !ASSET.test(a) ? `asset ${i} is not <archive>:<prototype>` : null));
   if (why) return why;
   if (r["objectives"] !== undefined) {
@@ -3125,9 +3205,13 @@ const isScale = (n: unknown): boolean => typeof n === "number" && Number.isFinit
  * FX-1: null when a v3 record's `poses` is absent or well formed (`PoseRow`): 1..`RECORD_LIMITS.pieces` rows, each naming
  * a piece of the record once, in piece order; pitch a whole degree in -90..90, roll in 0..359, each scale on its lattice
  * within its bounds; canonical (no roll at a pitch of 90 or -90); and a pose, never a row for a piece that needs none
- * (pitch 0, roll 0, scale 1, 1, 1), so one layout has one text.
+ * (pitch 0, roll 0, scale 1, 1, 1), so one layout has one text. FN-4: in a version-4 record (`fine`) the pitch and roll
+ * are on `RECORD_ANGLE_DENOMINATOR`'s lattice instead (pitch -90..90, roll 0..359.99); every other rule the same.
+ * FN-4, fix round 3: and canonical on that lattice -- a pitch the writer reads at the gimbal (`poseOf`, |sin pitch| >=
+ * `GIMBAL`: on the hundredth every |pitch| from 89.98 up; at 90 and -90 the canonical words above) has roll 0.
+ * Version 3 is unchanged: its only whole degrees in that window are 90 and -90.
  */
-function posesError(r: Record<string, unknown>): string | null {
+function posesError(r: Record<string, unknown>, fine = false): string | null {
   if (r["poses"] === undefined) return null;
   const poses = r["poses"], pieces = r["pieces"] as unknown[];
   if (!Array.isArray(poses) || poses.length === 0 || poses.length > RECORD_LIMITS.pieces) return `poses is not a list of 1-${RECORD_LIMITS.pieces} piece poses`;
@@ -3138,12 +3222,24 @@ function posesError(r: Record<string, unknown>): string | null {
     if (piece < 0 || piece >= pieces.length) return `pose ${i} names no piece`;
     if (piece <= last) return "poses are not in piece order, each piece once";
     last = piece;
-    if (!Number.isInteger(pitch) || (pitch as number) < -90 || (pitch as number) > 90) return `pose ${i} pitch is not a whole degree in -90..90`;
-    if (!isDeg(roll)) return `pose ${i} roll is not a whole degree in 0..359`;
+    if (fine) {
+      // FN-4: a version-4 record's pitch and roll, on the hundredth
+      if (!onAngleLattice(pitch) || pitch < -90 || pitch > 90) return `pose ${i} pitch is not -90..90 on a lattice of 1/${RECORD_ANGLE_DENOMINATOR}`;
+      if (!isFineDeg(roll)) return `pose ${i} roll is not 0..359.99 on a lattice of 1/${RECORD_ANGLE_DENOMINATOR}`;
+    } else {
+      if (!Number.isInteger(pitch) || (pitch as number) < -90 || (pitch as number) > 90) return `pose ${i} pitch is not a whole degree in -90..90`;
+      if (!isDeg(roll)) return `pose ${i} roll is not a whole degree in 0..359`;
+    }
     if (!isScale(sx) || !isScale(sy) || !isScale(sz)) {
       return `pose ${i} scale is not ${RECORD_SCALE_MIN_ADAPTATION}-${RECORD_SCALE_MAX_ADAPTATION} on a lattice of 1/${RECORD_SCALE_DENOMINATOR}`;
     }
     if (Math.abs(pitch as number) === 90 && roll !== 0) return `pose ${i} is not canonical: at a pitch of 90 or -90 the roll is 0, its turn in the yaw`;
+    // FN-4, fix round 3 (a browser adaptation): on the hundredth the writer's gimbal window holds 89.98 and 89.99 too
+    // (and -89.98, -89.99): `poseOf` decides it as |sin pitch| >= GIMBAL and writes roll 0 there, so a roll beside such a
+    // pitch would write back as another text. Decided here on the lattice value, as the writer decides it.
+    if (fine && roll !== 0 && Math.abs(Math.sin(((pitch as number) * Math.PI) / 180)) >= GIMBAL) {
+      return `pose ${i} has a roll at a pitch read at the vertical (89.98 or more, either sign): its turn is the yaw's`;
+    }
     if (pitch === 0 && roll === 0 && sx === 1 && sy === 1 && sz === 1) return `pose ${i} is no pose: its piece is neither tilted nor scaled`;
   }
   return null;
@@ -3151,19 +3247,24 @@ function posesError(r: Record<string, unknown>): string | null {
 
 /** Null when `r` is a v3 record: strict (no unknown key anywhere), within its bounds, ids unique, every pack required. */
 function checkV3(r: Record<string, unknown>, options: CheckRecordOptions): string | null {
+  // FN-4, fix round 2: a later build's record is named by its version before its fields are read (it may carry a field
+  // this build does not know, and "unknown field ..." would hide the cause)
+  if (r["schema"] === RECORD_SCHEMA && isNewerRecordVersion(r["version"])) return recordVersionRefusal(r["version"]);
   for (const k of Object.keys(r)) if (!V3_FIELDS.includes(k)) return `unknown field ${k}`;
-  if (r["schema"] !== RECORD_SCHEMA || r["version"] !== RECORD_VERSION) return `not a forge record of version ${RECORD_V2} or ${RECORD_VERSION}`;
+  if (r["schema"] !== RECORD_SCHEMA || !RECORD_VERSIONS_READ.includes(r["version"])) return versionRefusal();
+  // FN-4: a version-4 record's piece angles on the hundredth (`RECORD_ANGLE_DENOMINATOR`); version 3's whole degrees
+  const fine = r["version"] === RECORD_VERSION_FINE_ANGLES;
   const why = commonError(r, (a, i) => {
     if (typeof a === "string") return ASSET.test(a) ? null : `asset ${i} is not <archive>:<prototype> or a pack's content`;
     const whyContent = checkContentRef(a);
     return whyContent ? `asset ${i}: ${whyContent}` : null;
-  }, true) ?? contentBaseError(r);
+  }, true, fine ? isFineDeg : isDeg) ?? contentBaseError(r);
   if (why) return why;
   if (r["objectives"] !== undefined) {
     const whyStrict = strictObjectivesError(r["objectives"]) ?? objectivesError(r["objectives"]);
     if (whyStrict) return whyStrict;
   }
-  const whyIds = posesError(r) ?? idsError(r) ?? requiresError(r) ?? entityListsError(r, true) ?? entityIdsError(r);
+  const whyIds = posesError(r, fine) ?? idsError(r) ?? requiresError(r) ?? entityListsError(r, true) ?? entityIdsError(r);
   if (whyIds) return whyIds;
   if (r["mode"] !== undefined) {
     const whyMode = modeShapeError(r["mode"]);
@@ -3178,8 +3279,9 @@ function checkV3(r: Record<string, unknown>, options: CheckRecordOptions): strin
 }
 
 /**
- * Null when `r` is a record this build reads -- a v2 record (its own check, unchanged) or a v3 record (strict) --
- * else the first reason it is not. A server's policy runs the same check.
+ * Null when `r` is a record this build reads -- a v2 record (its own check, unchanged) or a v3 record (strict); FN-4: or
+ * a v4 record, v3's check with a piece's angles on the hundredth (`RECORD_VERSION_FINE_ANGLES`) -- else the first
+ * reason it is not. A server's policy runs the same check.
  */
 export function checkCreatorRecord(r: unknown, options: CheckRecordOptions = {}): string | null {
   if (!isObj(r)) return "not an object";
@@ -3277,8 +3379,14 @@ function carryWarnings(r: CreatorLayoutRecord): Diagnostic[] {
   return out;
 }
 
+/** FN-4: whether some piece's yaw, pitch or roll in `r` is off the whole degree (what makes a record version 4). */
+function hasFineAngles(r: Pick<CreatorLayoutRecord, "pieces" | "poses">): boolean {
+  return r.pieces.some((p) => !Number.isInteger(p[4])) || (r.poses ?? []).some((p) => !Number.isInteger(p[1]) || !Number.isInteger(p[2]));
+}
+
 /**
- * The one reader (FCW-07a): a layout file (v1), a record v2 or a record v3, as a record v3, with its warnings and the
+ * The one reader (FCW-07a): a layout file (v1), a record v2 or a record v3 (FN-4: or v4, kept as it is when a piece's
+ * angle is off the whole degree, else given back as v3), as a record v3, with its warnings and the
  * packs it needs that are not here. A v1 file and a v2 record migrate deterministically (each row's default id,
  * `ID_PREFIX`; legacy members to `legacyCarry`), so the same input always gives the same v3 text. Throws with the
  * reason (`not a forge layout: ...`, or the file parse's own) when it is not one.
@@ -3298,6 +3406,9 @@ export function readCreatorRecord(text: string, options: ReadRecordOptions = {})
     if (why) throw new Error(`not a forge layout: ${why}`);
     const r = raw as unknown as AnyLayoutRecord;
     record = isV2(r) ? recordOfLayout(layoutOfRecord(r), r.name) : json(r);
+    // FN-4: a version-4 record whose angles are all whole is read leniently and given back as version 3, the one text a
+    // whole-degree layout has (`recordOfLayout` writes 4 only for an angle off the whole degree)
+    if (record.version === RECORD_VERSION_FINE_ANGLES && !hasFineAngles(record)) record.version = RECORD_VERSION;
   }
   const why = checkCreatorRecord(record, options);
   if (why) throw new Error(`not a forge layout: ${why}`);
@@ -3337,15 +3448,25 @@ function placedRefusal(code: string, field: string, count: number, words: string
  * online lobby neither sends nor applies them, and a layout carrying one is refused online (`onlineRecordRefusal`,
  * `onlineCreatorLayoutRefusal`); they play in local Forge Play. A name is lifted from the list as the server learns that
  * setting (FC2-5), with a test that page and server agree on it.
+ *
+ * Lifted by FN-1a (the Forge lane's FN-1, simulation track; research 424): `arsenal` (the room lays it over its base's
+ * kits by the page's own `arsenalWith`, `match/src/forgeSimMap.ts` `forgeRoomKits`), `eqLimit` and `respawn` (the room's
+ * own `RoomOptions.eqLimit` and `rules`, by the page's own `roomOptionsOf`, `match/src/forgeGame.ts` `roomOptions`);
+ * page and room agree on each in `match/test/forgeRoomSettings.test.ts` (and over the disc's tables,
+ * `forgeRoomArsenal.devdisc.test.ts`).
+ *
+ * Lifted by FN-1b (simulation track; research 425): `characters` (the room lends each roster column's kit and hit skeleton
+ * from its disc map by the page's own column rule, `match/src/forgeSimMap.ts` `forgeRoomRoster`; page and room agree in
+ * `match/test/forgeRoomRoster.test.ts`, the lobby's ARMORY with the room in `viewer/test/forge/lobbyArmory.test.ts`).
+ * The four world settings (`defaultMaterial`, `reverb`, `fov`, `loading`) stay held.
  */
 export const ONLINE_HELD_SETTINGS_ADAPTATION = Object.freeze(
-  ["arsenal", "characters", "defaultMaterial", "reverb", "fov", "loading", "eqLimit", "respawn"] as const,
+  ["defaultMaterial", "reverb", "fov", "loading"] as const,
 );
 export type HeldSetting = (typeof ONLINE_HELD_SETTINGS_ADAPTATION)[number];
 
-/** A held setting's value as "unset": absent or null; `eqLimit` 0 (none) and `respawn` false (off) too. */
-const heldIsSet = (s: Partial<LayoutSettings>, k: HeldSetting): boolean =>
-  k === "eqLimit" || k === "respawn" ? !!s[k] : s[k] !== undefined && s[k] !== null;
+/** A held setting's value as "unset": absent or null. */
+const heldIsSet = (s: Partial<LayoutSettings>, k: HeldSetting): boolean => s[k] !== undefined && s[k] !== null;
 
 /** The held settings (`ONLINE_HELD_SETTINGS_ADAPTATION`) a layout or a record sets to other than unset, in the list's order. */
 export function heldSettingsOf(l: { readonly settings?: Partial<LayoutSettings> | undefined }): HeldSetting[] {
@@ -3354,18 +3475,14 @@ export function heldSettingsOf(l: { readonly settings?: Partial<LayoutSettings> 
 }
 
 /**
- * A copy of `l` with each held setting unset (the optional ones removed, `eqLimit` 0, `respawn` false; a settings left
- * empty removed), what a Forge lobby sends and plays. The input is never written; one holding none is returned itself.
+ * A copy of `l` with each held setting removed (a settings left empty removed), what a Forge lobby sends and plays. The
+ * input is never written; one holding none is returned itself.
  */
 export function withoutHeldSettings<T extends { readonly settings?: Partial<LayoutSettings> | undefined }>(l: T): T {
   const held = heldSettingsOf(l);
   if (!held.length) return l;
   const settings: Partial<LayoutSettings> = { ...l.settings };
-  for (const k of held) {
-    if (k === "eqLimit") settings.eqLimit = 0;
-    else if (k === "respawn") settings.respawn = false;
-    else delete settings[k];
-  }
+  for (const k of held) delete settings[k];
   const { settings: _held, ...rest } = l;
   return (Object.keys(settings).length ? { ...rest, settings } : rest) as unknown as T;
 }

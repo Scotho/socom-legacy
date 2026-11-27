@@ -229,7 +229,8 @@ export function personaSignedIn(p: { NAME: string; HOST: string; PORT: number },
 /**
  * NET_CENSOR_TEXT_PLACEHOLDER (research 101's ledger, research 153 §8): the original filters a home town and a phrase
  * through `NetCensorText` on the online front end; here, as the retired section did, nothing is filtered -- the text
- * stays as typed -- until the reply's rules are read.
+ * stays as typed -- until the reply's rules are read. R4P-324: the ui's `NetCensorText` now writes r0004's `#C` rewrite
+ * back (`censorHashC`, research 263 §3a); this card's edits do not pass through it, so they are not rewritten.
  */
 export function liveProfile(notify: () => void, deps: ProfileDeps = {}): LiveProfile {
   const session = deps.session ?? pageSession();

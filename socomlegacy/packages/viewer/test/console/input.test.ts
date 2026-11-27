@@ -2,8 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bootConsole, type ConsolePage } from '../../src/console/app';
 import { ConsoleController } from '../../src/console/grammar';
-import { attachInput, DEAD, KEYMAP, PAD_REPEAT_ATTR, PAD_REPEAT_EVENT, PADMAP, REPEAT_DELAY, REPEAT_EVERY, padFrame, type Held, type PadLike } from '../../src/console/input';
-import { sampleAdapters } from '../../src/console/sampleAdapters';
+import { attachInput, DEAD, KEYMAP, PAD_REPEAT_ATTR, PAD_REPEAT_EVENT, PADMAP, REPEAT_DELAY, REPEAT_EVERY, padFrame, printable, type Held, type PadLike } from '../../src/console/input';
+import { SAMPLE_OPT_CATS, sampleAdapters } from '../../src/console/sampleAdapters';
 import { CATS, createState, HOME_CATEGORY, type Button } from '../../src/console/state';
 import { mountShell } from './shell';
 
@@ -30,6 +30,28 @@ describe('the input mode on <html data-input>', () => {
     expect(document.documentElement.dataset.input).toBe('pad');
     expect(CATS[page.ctl.S.cat]?.id).toBe('online');
     document.dispatchEvent(new Event('pointerdown'));
+    expect(document.documentElement.dataset.input).toBe('pointer');
+  });
+
+  // LATER 1083: the capture-phase `pointerdown` (src/console/input.ts :376-378) flips <html data-input> to pointer at the
+  // press, while the arrows act on its `click` (grammar.ts :2691 optstep), so pad-only CSS reflows between press and click.
+  // jsdom has no layout: this pins the mode at the press (the layout the press was hit-tested in), not the miss itself.
+  it.fails('a press after keys leaves the mode pad until its click; the click steps the value once and turns it pointer (LATER 1083)', () => {
+    page = bootConsole(document, window, sampleAdapters(), { keymap: true });
+    page.ctl.doAct('opt:display');
+    page.render();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+    expect(document.documentElement.dataset.input).toBe('pad');
+    const res = SAMPLE_OPT_CATS.find((c) => c.id === 'display')!.rows.find((r) => r.id === 'res')!;   // 4 values, at index 2
+    const select = (): HTMLElement => [...document.querySelectorAll<HTMLElement>('#stage [data-key="options"] .cx-r--select')]
+      .find((r) => r.querySelector('.cx-r__label')?.textContent === res.label)!;
+    const value = (): string => select().querySelector('.cx-r__choice')!.textContent!;
+    expect(value()).toBe(res.values![res.def!]);
+    const arrow = select().querySelector<HTMLElement>('[data-act="optstep"][data-d="1"]')!;
+    arrow.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(document.documentElement.dataset.input).toBe('pad');
+    arrow.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(value()).toBe(res.values![res.def! + 1]);   // one step, not two
     expect(document.documentElement.dataset.input).toBe('pointer');
   });
 
@@ -201,5 +223,36 @@ describe('RVK-A: the pad\'s held Cross on a control that repeats', () => {
     expect(presses.mock.calls).toEqual([['cross']]);
     expect(repeats).toEqual([]);
     b.remove();
+  });
+});
+
+/**
+ * LATER 1268 (v0.4.27's field, two pages: "Cannot read properties of undefined (reading 'length')" at `printable`): a
+ * keydown with no `key` -- Chromium's autofill and password-manager fills send one, an extension can -- is no character.
+ * A browser adaptation; product track.
+ */
+describe('LATER 1268: a keydown with no key', () => {
+  it('is not printable, and never throws', () => {
+    const keyless = new Event('keydown') as KeyboardEvent;
+    expect(() => printable(keyless, false)).not.toThrow();
+    expect(printable(keyless, true)).toBe(false);
+    expect(printable(new KeyboardEvent('keydown', { key: 'a' }), false)).toBe(true);
+  });
+
+  it('reaching the page with the sign-in dialog open raises no error', () => {
+    page = bootConsole(document, window, sampleAdapters(), { keymap: true });
+    page.ctl.S.overlay = 'signin';
+    const errors: unknown[] = [];
+    const onError = (e: ErrorEvent): void => { errors.push(e.error ?? e.message); e.preventDefault(); };
+    window.addEventListener('error', onError);
+    try {
+      document.dispatchEvent(new Event('keydown'));
+      window.dispatchEvent(new Event('keydown'));
+      page.ctl.S.overlay = null;
+      page.ctl.S.accountOpen = true;                                     // the account menu's own key hold
+      document.dispatchEvent(new Event('keydown'));
+      window.dispatchEvent(new Event('keydown'));
+    } finally { window.removeEventListener('error', onError); }
+    expect(errors).toEqual([]);
   });
 });

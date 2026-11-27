@@ -99,6 +99,11 @@ The review found two original mismatches, corrected with failing regressions fir
   `DAT_0065ab38 = 0.7071067690849304`. The existing `logs/parity/spawn_pcsx2.rdram` float at 0x65ab38 gives that
   value; 0x65b030 gives the endpoint scale 0.75. A blocked cell beside the line from an NW-offset action at (2,2)
   to (1,7) distinguishes normalized axes from the erroneous +/-1 axes.
+- An action's offset nibble 9..15 (8 is none, the caller's test) falls to `FUN_00519130`'s default case, north with
+  no diagonal factor (D:L386525-386528; r0004 `FUN_005193f0` D4:L423529-423587): WalkLine (`FUN_00537e50`
+  D:L403393-403401, D:L403421-403429; r0004 `FUN_0053c8a0` D4:L442946-442953, D4:L442974-442981) and `FUN_00537400`
+  (D:L403091-403103) move such an endpoint 0.75 north. The port made no move for 9..15 until 2026-11-23 (A1b, the
+  patches lane; reading, re-read by a fresh non-author review in both builds).
 - The link search uses float additions (`FUN_002d1790`, D:L173917), inserts newly discovered equal-cost entries
   **before** existing equals (D:L173932), and chooses the first strict minimum (D:L173858-173878). Decreasing an
   already-discovered entry leaves it in list position. A symmetric two-link graph distinguishes the resulting

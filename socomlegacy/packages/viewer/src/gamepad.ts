@@ -39,9 +39,17 @@ export type PadStick = keyof typeof PAD_STICK;
  * zone's edge is 0 and the rim 1 (`./touch`, `stickVector`). 0.15 is the launcher's default (`padDeadZone`,
  * ps2xShared/include/launcher/launcher_config.h, `padDeadZone`) and the runtime's since 2026-09-16
  * (ps2xRuntime/include/runtime/host_gamepad_select.h:39-47). The runtime applies it per axis (`hostPadAxis`, :70-79);
- * radial here, so a diagonal is not pulled onto the axes.
+ * radial here, so a diagonal is not pulled onto the axes. It is the shaping constant, no longer a new pad's default
+ * (`PAD_DEAD_ZONE_DEFAULT_ADAPTATION`).
  */
 export const PAD_DEAD_ZONE = 0.15;
+
+/**
+ * A new pad's default dead zone (0.05; WM-PAD-DEADZONE), re-exported beside the shaping constant it is not. It is
+ * declared in `./startupSettings`, which must not import this module: this module reaches `./startupSettings` through
+ * `./controllerModern`, whose stored key is built from `SETUP_KEY` as it loads.
+ */
+export { PAD_DEAD_ZONE_DEFAULT_ADAPTATION } from './startupSettings';
 
 /**
  * An analogue button past this value counts as down when the browser does not say `pressed` itself. `pressed` is the
@@ -71,6 +79,18 @@ export interface Input {
   pairedReload?: boolean;
   /** Native pressure, 0..1 including release; absent for the digital tap/hold adaptation. Research 373. */
   stancePressure?: number;
+  /**
+   * LATER 1059 (`./stanceButton` `STANCE_TOUCH_EVENT_TIME_ADAPTATION`; a browser adaptation): the stance lane's press
+   * length by its input events' own times (pointerdown to pointerup), seconds -- set by the touch pad once the lift is
+   * in and the button is still held for this frame's read. Absent: no such time (a pad, a key, a press still down);
+   * the frame loop's time decides.
+   */
+  stanceLength?: number;
+  /**
+   * LATER 1059 (the same adaptation): the stance lane is held by the touch layer with its press time by its event, so a
+   * lift may still be queued behind a stalled frame (`./stanceButton` `TOUCH_STALL_FRAME_S_ADAPTATION`). Absent: a pad, a key.
+   */
+  stanceTimed?: boolean;
   /** A synthetic USB neutral cancels a press; it is not a physical release. Nor is the R2 inventory's take of a held
    *  stance lane (`./inventoryMenu` `frame`, #702's review). */
   stanceCancelled?: boolean;
@@ -519,10 +539,16 @@ export function strongest(a: number, b: number): number {
 export function mergeInput(...inputs: readonly Input[]): Input {
   const out = noInput();
   let stanceOn = false;                                // OT.R107: a source whose `stance` is the stance's own
+  let stanceTimed = true, stanceLength: number | undefined;   // LATER 1059: only when every source holding the lane timed it
+  let stanceAllTouch = true;                           // LATER 1059: every source holding the lane is the touch layer's, timed
   // PZG: each pair's zone is the one of the source whose pair is the larger (absent: the default's).
   let moveBest = -1, lookBest = -1, moveZone: number | undefined, lookZone: number | undefined;
   for (const i of inputs) {
-    if (i.stance && !i.stanceOff) stanceOn = true;
+    if (i.stance && !i.stanceOff) {
+      stanceOn = true;
+      if (i.stanceLength === undefined) stanceTimed = false; else stanceLength = Math.max(stanceLength ?? 0, i.stanceLength);
+      if (!i.stanceTimed) stanceAllTouch = false;
+    }
     const m = Math.hypot(i.moveX, i.moveY), l = Math.hypot(i.lookX, i.lookY);
     if (m > moveBest) { moveBest = m; moveZone = i.moveZone; }
     if (l > lookBest) { lookBest = l; lookZone = i.lookZone; }
@@ -536,6 +562,8 @@ export function mergeInput(...inputs: readonly Input[]): Input {
     if (i.stancePressure !== undefined) out.stancePressure = Math.max(out.stancePressure ?? 0, i.stancePressure);
   }
   if (out.stance && !stanceOn) out.stanceOff = true;   // only when every source holding it holds it as Triangle's action alone
+  if (stanceOn && stanceTimed && stanceLength !== undefined) out.stanceLength = stanceLength;
+  if (stanceOn && stanceAllTouch) out.stanceTimed = true;
   if (moveZone !== undefined) out.moveZone = moveZone;
   if (lookZone !== undefined) out.lookZone = lookZone;
   return out;

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { FsAssetSource } from '@s2u/archive/node';
-import { isWallSurface, probeGround, segmentHits, selectFloor, SEAL_TUNING, type Grid } from '@s2u/scene';
+import { GAME_FRAME_DT, isWallSurface, probeGround, segmentHits, selectFloor, SEAL_TUNING, type Grid } from '@s2u/scene';
 import { loadMap } from '../src/loadMap';
 import { groundGrid, probeLiftOf, wallProbeHeights, Walker } from '../src/mover';
 
@@ -97,10 +97,11 @@ describe.skipIf(!HAVE_MP72)(`issue #111: the pocket beside Crossroads' stair (MP
     for (const { name } of HEADINGS) if (name !== 'W (-x)') expect(end[name]!.moved, name).toBeGreaterThan(3);
     expect(end['W (-x)']!.moved).toBeLessThan(1);
     // East is the rule itself: onto the stair, 7.37 over the feet, where the stair's east wall (x 762) stops it --
-    // SEGMENT-BODY (re-judged; was 3.5 off it, x 758.5): where the centre line (5.39) first crosses it.
+    // SEGMENT-BODY (re-judged; was 3.5 off it, x 758.5): where the centre line (5.39) first crosses it, plus up to a game
+    // frame's move (LATER 1194, H404 (b): the segments cast once a frame on its whole displacement; was under 6.5).
     expect(end['E (+x)']).toMatchObject({ y: expect.closeTo(49.87, 1), z: expect.closeTo(841.5, 3), airborne: false });
     expect(762 - end['E (+x)']!.x).toBeGreaterThan(5.3);
-    expect(762 - end['E (+x)']!.x).toBeLessThan(6.5);
+    expect(762 - end['E (+x)']!.x).toBeLessThan(1.1 * 1.4 * 3.5 + 65 * GAME_FRAME_DT + 0.01);
     // South runs down the crack's side onto the open road; west is pushed by the same stand-off onto the stair, over the
     // stringer's top (53.25) and off its far face -- the port's stand-off (WALL_PROBE_READING), not a read of the original.
     expect(end['S (+z)']!.z).toBeGreaterThan(900);

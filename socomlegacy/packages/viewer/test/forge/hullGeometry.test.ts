@@ -10,7 +10,7 @@ import { transformVerts, translation } from '../../src/forge/geometry/ops';
 import { buildHull, geometryOfMap, removeObject, transformObject } from '../../src/forge/geometry/world';
 
 /**
- * Collision editing (the owner, 2026-11-15: "it should be like I was just editing another geometry"; a browser
+ * Collision editing (the Forge's owner (crispy, OT.R112), 2026-11-15: "it should be like I was just editing another geometry"; a browser
  * adaptation, FG.R2): the hull as editable objects, a node's polygons an object, each face its polygon's surface words
  * and owner; Build takes an edited object as its node's hull, and leaves every other node as it makes it. Measured on
  * the disc (2026-11-15): every node's object marked edited with nothing changed gives the very ground the disc's hull

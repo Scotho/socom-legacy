@@ -81,8 +81,16 @@ applied before armour, including fractional shotgun damage; its wire field remai
    `+0x19`, 206 s1.1 V3) and the owner found live (`FUN_0029e4e0(0x4362e0, id)`, `+0x10 == 2`) and
    `(victim+0xc8 & owner+0xc8) != 0` and `(victim+0xc8 & 0x20000) == 0` and owner != victim: return 0 -- no damage, no
    blast queue, no knock, no flinch (0x5ac6b8-0x5ac750).
-4. Whatever the switch (0x5ac840-0x5ac8fc): item 0x9f (the Backblast) from the victim himself or a teammate: dropped;
-   items 0x79 (M67) / 0x7e (HE) likewise when the vtable+0x38 object's `+0x42c & 0x400` is set (unidentified).
+4. Whatever the switch: item 0x9f (the Backblast, spawned only by a weapon with HasBackblast, record `+0xd5`: LAW HEAT
+   and RPG) from the victim himself or a teammate: dropped at 0x5ac8b0-0x5ac8fc -- only when the victim's controller
+   (`victim+0xc0`), asked by its vtable `+0x38` method, returns an object; when it returns null the hit goes to damage
+   (0x5ac820); the whole block also needs `victim+0xe1` bit 4 and `FUN_0029ed20(victim)+0x5c` bit 0, failing which
+   there is no damage at all; it tests an ITEM ID (the round record's `+0x7c`). In r0004 the backblast child carries
+   `+4` bit 4 and passes the main gate, so this rule alone guards a teammate from it (corrected 2026-11-15 by 8f's
+   second read of research 429, at the bytes; the port refuses it always: LATER 1080). Items 0x79 (M67) / 0x7e (HE)
+   likewise when the VICTIM's controller (`victim+0xc0`), asked by its vtable `+0x38`,
+   returns an object whose `+0x264` bit 1 and `+0x42c & 0x400` are set -- the victim's own M67 / HE dropped as well
+   as a teammate's (0x5ac840-0x5ac8ac; corrected 2026-11-15 by 8f's second read of research 429, at the bytes).
 
 The room's `ffRefuses(attacker, victim, itemId, allow, spectator)` transcribes 1, 3 and 4's backblast branch, and every
 hit the room lays on a body goes through it once: `fire` (bullets and volleys), `directHit`, `blast`. `attacker` is the
@@ -294,6 +302,32 @@ footfalls, ..."; "a dead body among the nearest three does not take a slot; ..."
 ("the page's own footfalls are never capped (L418860)"). Registry: `sound.footstep.cap`. A mutation of the cap
 3 -> 4 fails both cap tests.
 
+### 4.1 Off the own body: the camera's bound actor (LATER 1051, 2026-11-18; reading, pending review)
+
+**The reading** (source inspection, the weather seat; re-read owed by the fresh review). The cap is not the page's
+body's but the camera's: `FUN_00551ec0` -- the SEAL's frame update, slot +0x14 of its table 0x6691a0 (research 215) --
+calls `FUN_00552850(actor)` when the actor it updates is the camera's bound object `DAT_00415ff0 + 0xbc`
+(D:L418506-418507), before its state-8 (dead) branch (D:L418511 on), so dead or alive. `FUN_00552850` then sets bit 2
+on at most three entries of THAT actor's own `+0xd8` list under 500 u (D:L418846-418853) and on that actor
+(D:L418860). What `+0xbc` holds (research 314): the own actor alive and at its death (the death camera binds no one
+online, s5.6 item 3); the watched teammate once a dead player cycles to one, kept through that teammate's death (items
+2-4); the own actor again when the cycle comes back (item 5); a spectator's followed player in follow, its own
+spectator object in free and scenic (W5).
+
+**As built.** `footfallsHeard(bodies, listener, bound)`: a `bound` body in the list is the listener (its feet), dead or
+alive, heard itself when living (L418860) and taking none of the three slots (it owns the list); else the page's own
+listener as before. `RemotePlayers.setBound(id)`, set by `NetPage.frame` from `SpectatorView.boundId()` (the
+spectator's followed target in follow, the benched watcher's watched teammate) before `remote.frame`. A dead page on
+its own corpse keeps `walk.feet()` -- the walk stays on the corpse until the cycle leaves it (`leaveSelf`). Not read:
+the spectator object's update in free and scenic; a followed hostage (kept out of the cap's list, HX-2); a bound body
+gone from the room's list (the page does not take `SpectatorView`'s retired copy as the listener) --
+`FOOTFALL_UNBOUND_PLACEHOLDER`: every living body heard, as before. The others' footprints off the body
+(`matchEffects.ts`) are unchanged by this row.
+
+**Tests.** `packages/viewer/test/remoteFootsteps.test.ts`, the four "LATER 1051" cases (a watched teammate's three
+nearest, the bound body's own steps without a slot, a dead watched teammate still the listener, a gone bound body, and
+the page's wiring in `NetPage.frame`'s text).
+
 ## 5. Readings and placeholders
 
 | name | where | status |
@@ -302,11 +336,12 @@ footfalls, ..."; "a dead body among the nearest three does not take a slot; ..."
 | `BACKBLAST_CONE_AXIS_READING` | scene `projectile.ts` (+ server `room.ts`) | `'body-back'` (181 s2.3); was `'backwards'` (the aim reversed). Owed: whether `body+0x28`'s matrix carries pitch (an RDRAM read of the node's rows aiming a launcher up; expect row 1 = (0,1,0)) |
 | `PIERCE_ROUNDING_READING` | viewer `net/damage.ts` | `'chop'`: the EE FPU's `mul.s` rounds toward zero (general PS2 knowledge -- PCSX2's EE FPU defaults to Chop for it -- not this project's capture). Owed: a capture of a 2.1-piercing hit, the packet's piercing byte (41 under chop, 42 under nearest) |
 | `ESCORTEE_TEAM_BIT_READING` (*note only*) | -- | the team word's `0x20000` bit lets a teammate's hit through the gate (0x5ac6b8-0x5ac750; read as the escortee / hostage bit, 192 G12). No escortees yet; owed: a read of the team word's writers (the `FUN_002c509c` area) |
-| `GRENADE_TEAM_FLAG_READING` (*note only*) | -- | an M67 (0x79) / HE (0x7e) hit from one's own side dropped when the vtable+0x38 object's `+0x42c & 0x400` is set (0x5ac840-0x5ac8fc); the object and the flag unidentified, unbuilt. Owed: a PEEK of a thrower's controller `+0x264` / `+0x42c` during a throw |
+| `GRENADE_TEAM_FLAG_READING` (*note only*) | -- | an M67 (0x79) / HE (0x7e) hit from the victim himself or his side dropped when the VICTIM's controller (`victim+0xc0`, vtable `+0x38`) returns an object with `+0x264` bit 1 and `+0x42c & 0x400` set (0x5ac840-0x5ac8ac; corrected 2026-11-15, 8f's second read of research 429: the victim's controller, not the thrower's, and the victim's own grenade too); the flag's meaning unidentified, unbuilt. Owed: a PEEK of the victim's controller `+0x264` / `+0x42c` during a hit |
 | `NET_DAMAGE_CLAMP_PLACEHOLDER` | *note only* | resolved 2026-10-05 (PF-22): `quantiseHit` (`FUN_002bd220` D:L161655-161672, `.data` 0x3de728-0x3de740; 179 s8.3) |
 | `FRIENDLY_FIRE_ENFORCEMENT_PLACEHOLDER` | *note only* | resolved in kind 2026-10-05 (PF-22): `ffRefuses` with `RoomOptions.allowFriendlyFire` (179 s8.2, 192 G12); the create-game row's wire built 2026-10-18 (FRIENDLY-FIRE, below): a lobby game's room takes the switch from the game's RulesSet bit 0. Was (2026-10-05 to 2026-10-18): "the create-game row's wire is ONL-13's" -- unbuilt, so every lobby game's room refused friendly damage whatever its host chose |
 | `FOOTFALL_CAP_READING` (`viewer/src/remotePlayers.ts`) | `{ others: 3, range2: 250000 }`: `DAT_0064fc78` = 3 others and the strict 250000.0 (500 u) of `FUN_00552850` D:L418748-418861; the `+0x265` skip is not modelled | a read of `+0x265`'s writers (what bits 0/1 mean on a remote player's actor) | in code; open |
 | `FOOTFALL_NEAREST_READING` (`viewer/src/remotePlayers.ts`) | `'nearest'`: the three heard are the nearest by distance squared (PF.R43) | a read of the `+0xd8` list's builder (sorted by distance or not) or a capture: four others walking inside 500 u at known distances | in code; open |
+| `FOOTFALL_UNBOUND_PLACEHOLDER` (`viewer/src/remotePlayers.ts`) | `'every living body'` (LATER 1051, s4.1): off the own body with no bound body to place -- a spectator in free or scenic; a spectator following a hostage (escortees kept out of the cap's list, HX-2); a bound body gone from the list (the original keeps the retired actor bound and likely runs it; the page does not take `SpectatorView`'s retired copy) -- the page's own listener stands (none off the body) | a read of the spectator object's frame update (does it run `FUN_00552850`, from where), or a capture: a spectator in free view beside four moving players, the steps counted | in code; open |
 | `BODY_PASS_FRIENDLY_READING` | server `room.ts` | `'through'`: a body the friendly-fire gate refuses is passed as any other (the handler D:L319418 before the continuation D:L319473-319518; an inference from the lines' order, 179 s8.2, s8.12; PF.R42). Owed: a capture of a teammate in front of an enemy, friendly fire off |
 | `BODY_ONE_SURFACE_READING` | server `room.ts` (retired 2026-11-10) | was `'per body'`: one PERSON surface a body, at the nearest volume the round enters, the range cut once; "the original walks each node polygon crossed (`+0x78`, D:L319398, sparing a re-damage)" -- amended by research 398: one record a bone box entered (its entry face), the range cut at each, `+0x78` gating only the effects, the damage guarded by `+0x1048` (D:L464597) armed by head and trunk hits only. Retired by BONE-BOXES (research 217 §3.6b) |
 | `SHOT_EVENT_BODIES_READING` | server `room.ts` | `'first body'`: one `shot` and one shooter's `impact` a round, of the first body struck (its point, normal, PERSON byte, id); every body its own `hurt`, `flinch` / `kill` and report (PF.R42; s3.2 says why `to` is not the round's end). Owed: the later bodies' impacts on the pages; the others' bullet marks (no page marks another's round, `FUN_003d0ba0` D:L319421; older than P12). Closed by P12 (2026-11-02; reading, pending review): the shooter's page in full past the bodies (its walk past every body, `fire.ts` `BODY_PENETRATION`: the marks, impacts and tracer), and the others' impacts on the world surfaces past them (`SHOT_EVENT_THROUGH_READING`). Closed by P12b (2026-11-02; reading, pending review): the others' tracer to the round's end (the `shot`'s additive `end` when `to` is the first body; `netPage` `tracerTo`, `effects` `onRound`; s3.2) |

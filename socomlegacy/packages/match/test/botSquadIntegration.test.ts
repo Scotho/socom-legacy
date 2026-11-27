@@ -12,7 +12,7 @@ import { BOT_BEHAVIOURS_OFF, type BotBehaviours } from '../src/botGates';
 function setup(options: { navWork?: number; behaviours?: BotBehaviours } = {}) {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
   const floor: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25,
-    ptcount: 4, cameratype: 0, points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]) };
+    ptcount: 4, cameratype: 0, points: Float32Array.from([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400]) };
   const wall = { ...floor, path: 'worldmodel/low-wall', ditype: 2,
     points: Float32Array.from([0, 0, -50, 0, 12, -50, 0, 12, 50, 0, 0, 50]) };
   const polys = [floor, wall], ground = packGround(params, polys, polys.map((p, i) => ({ modelName: 'worldmodel', path: p.path, first: i, count: 1 })));

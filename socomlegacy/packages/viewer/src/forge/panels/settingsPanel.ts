@@ -157,7 +157,7 @@ function controls(doc: Document): Parts {
   const lightReset = forgeEl(doc, 'button', 'fx-chip fx-setting-reset', 'Original');
   lightReset.type = 'button';
   lightReset.title = 'Restore original lighting';
-  // Its ends' words on the slider's own line, each at the end it names (the owner, 2026-11-12: "use the same sides as
+  // Its ends' words on the slider's own line, each at the end it names (the Forge's owner (crispy, OT.R112), 2026-11-12: "use the same sides as
   // the slider values ... aligned to the slider"): Night at the left (0), Day at the right (1), then the reset.
   const lightWrap = forgeEl(doc, 'div', 'fx-setting-pair');
   lightWrap.append(forgeEl(doc, 'span', 'fx-slider-end', 'Night'), lightIn, forgeEl(doc, 'span', 'fx-slider-end', 'Day'), lightReset);

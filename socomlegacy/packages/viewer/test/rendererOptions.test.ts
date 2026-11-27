@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GRAPHICS_BACKEND_KEY, saveGraphicsBackend } from '../src/graphicsBackend';
+import { Mesh, MeshBasicMaterial, PerspectiveCamera, PlaneGeometry, Scene } from 'three';
 
 /**
  * VS-6 (VS.R4, a browser adaptation, product track): `createRenderer`'s antialias, graphics and power preference come
@@ -10,23 +11,27 @@ import { GRAPHICS_BACKEND_KEY, saveGraphicsBackend } from '../src/graphicsBacken
  * what it was constructed with; no GPU, no browser.
  */
 const made = vi.hoisted(() => [] as Record<string, unknown>[]);
+const compiled = vi.hoisted(() => ({ count: 0, draws: 0 }));
 vi.mock('three/webgpu', async (original) => {
   const actual = await original<typeof import('three/webgpu')>();
   class RecordingRenderer {
     samples = 4; stencil = false; outputColorSpace = ''; autoClear = true; target: unknown = null;
     backend = { isWebGLBackend: true, createRenderPipeline() {} };
     constructor(parameters: Record<string, unknown>) { made.push(parameters); }
-    async init() {} setPixelRatio() {} setSize() {} setClearColor() {}
+    async init() {} setPixelRatio() {} setSize() {} setDrawingBufferSize() {} setClearColor() {}
     getRenderTarget() { return this.target; } setRenderTarget(t: unknown) { this.target = t; }
     getDrawingBufferSize(v: { set(x: number, y: number): unknown }) { return v.set(640, 448); }
-    render() {} async compileAsync() {} async dispose() {}
+    render() { compiled.draws++; } async compileAsync() { compiled.count++; } async dispose() {}
   }
   return { ...actual, WebGPURenderer: RecordingRenderer };
 });
 // S2: the page's device class, set per test (the real probe classes jsdom 'software'); `classGraphics` stays the real one.
 const deviceClass = vi.hoisted(() => ({ value: 'standard' as string }));
-vi.mock('../src/deviceClass', async (original) => ({ ...(await original<typeof import('../src/deviceClass')>()), pageDeviceClass: () => deviceClass.value }));
+// MAC-FLOOR: whether the page's probe names an Apple GPU, set per test; `appleGraphics` stays the real one.
+const apple = vi.hoisted(() => ({ value: false }));
+vi.mock('../src/deviceClass', async (original) => ({ ...(await original<typeof import('../src/deviceClass')>()), pageDeviceClass: () => deviceClass.value, pageAppleGpu: () => apple.value }));
 import { createRenderer } from '../src/renderer';
+import { invariantPositionInstalled, setInvariantPositionForTest } from '../src/invariantPosition';
 
 /** A canvas whose `getContext` is recorded and answers a stand-in context. */
 function canvas() {
@@ -38,10 +43,29 @@ function canvas() {
 
 const withGpu = (): void => { Object.defineProperty(navigator, 'gpu', { configurable: true, value: { requestAdapter: () => Promise.resolve({}) } }); };
 
-beforeEach(() => { made.length = 0; localStorage.clear(); deviceClass.value = 'standard'; });
+beforeEach(() => { made.length = 0; compiled.count = 0; compiled.draws = 0; localStorage.clear(); deviceClass.value = 'standard'; apple.value = false; });
 afterEach(() => { delete (navigator as { gpu?: unknown }).gpu; localStorage.clear(); vi.restoreAllMocks(); });
 
 describe('VS-6: createRenderer takes antialias, graphics and power from its options', () => {
+  it.each(['preset', 'device'])('Xbox %s builds shaders on demand instead of precompiling hidden and glow draws', async (which) => {
+    if (which === 'preset') saveGraphicsBackend('xbox');
+    else deviceClass.value = 'xbox';
+    const v = await createRenderer(canvas().c);
+    const scene = new Scene(), camera = new PerspectiveCamera();
+    const mesh = new Mesh(new PlaneGeometry(), new MeshBasicMaterial());
+    scene.add(mesh);
+    await v.warm(scene, camera);
+    await v.prepare([mesh], scene, camera);
+    v.setPresentation('ps2');
+    await v.warm(scene, camera);
+    v.setPresentation('native');
+    expect(compiled.count).toBe(0);
+    v.render(scene, camera);
+    expect(compiled.draws).toBeGreaterThan(0);
+    mesh.geometry.dispose(); mesh.material.dispose();
+    v.renderer.dispose();
+  });
+
   it('absent, today\'s reads: Automatic (WebGL2), antialias on, no power preference and no context of its own', async () => {
     const k = canvas();
     await createRenderer(k.c);
@@ -173,5 +197,90 @@ describe('S2: the Xbox class never asks WebGPU for Automatic', () => {
       expect(asked.count, cls).toBe(1);
       expect(made[0], cls).toMatchObject({ forceWebGL: false });
     }
+  });
+});
+
+// MAC-FLOOR step 1 (INTAKE I-3, tier 1 row 18; B-64; a browser adaptation, product track): on an Apple GPU Automatic
+// draws WebGL2 and never asks for an adapter (the tester's M1 Pro drew the detail pass missing in 32 px tiles on WebGPU
+// only); a player's WebGPU, handed in, saved or on the address, still asks for it. The recording fake above.
+describe('MAC-FLOOR: an Apple GPU draws WebGL2 for Automatic', () => {
+  const gpuAsked = (): { count: number } => {
+    const asked = { count: 0 };
+    Object.defineProperty(navigator, 'gpu', { configurable: true, value: { requestAdapter: () => { asked.count++; return Promise.resolve({}); } } });
+    return asked;
+  };
+  afterEach(() => { window.history.replaceState(null, '', '/'); });
+
+  it('Automatic handed in, absent, or on the address (?renderer=auto): WebGL2, no adapter asked, antialias kept', async () => {
+    apple.value = true;
+    const asked = gpuAsked();
+    await createRenderer(canvas().c, { graphics: 'auto' });
+    await createRenderer(canvas().c);
+    window.history.replaceState(null, '', '/?renderer=auto');
+    await createRenderer(canvas().c);
+    expect(asked.count).toBe(0);
+    expect(made.map((m) => (m as { forceWebGL?: boolean }).forceWebGL)).toEqual([true, true, true]);
+    expect(made[0]).toMatchObject({ antialias: true });
+  });
+
+  it("a player's WebGPU (handed in, saved, ?renderer=webgpu) is kept: the adapter is asked", async () => {
+    apple.value = true;
+    const asked = gpuAsked();
+    await createRenderer(canvas().c, { graphics: 'webgpu' });
+    saveGraphicsBackend('webgpu');
+    await createRenderer(canvas().c);
+    localStorage.clear();
+    window.history.replaceState(null, '', '/?renderer=webgpu');
+    await createRenderer(canvas().c);
+    expect(asked.count).toBe(3);
+    expect(made.map((m) => (m as { forceWebGL?: boolean }).forceWebGL)).toEqual([false, false, false]);
+  });
+
+  it('off an Apple GPU Automatic asks for the adapter, as before', async () => {
+    apple.value = false;
+    const asked = gpuAsked();
+    await createRenderer(canvas().c, { graphics: 'auto' });
+    expect(asked.count).toBe(1);
+    expect(made[0]).toMatchObject({ forceWebGL: false });
+  });
+
+  // MAC-AUTO-WEBGPU (2026-11-23; Lightspeed's M1 Pro, PR #870's comment: with the invariant mark WebGPU draws clean in
+  // Chrome): in a Chromium browser (its client hints name Chromium) Automatic on an Apple GPU asks for the adapter again;
+  // the cases above, with no client hints and no ANGLE renderer string, are Safari's and stay WebGL2.
+  it("in a Chromium browser Automatic on an Apple GPU asks for the adapter (WebGPU); a player's WebGL2 is kept", async () => {
+    apple.value = true;
+    Object.defineProperty(navigator, 'userAgentData', { configurable: true, value: { brands: [{ brand: 'Chromium', version: '157' }, { brand: 'Google Chrome', version: '157' }] } });
+    try {
+      const asked = gpuAsked();
+      await createRenderer(canvas().c, { graphics: 'auto' });
+      await createRenderer(canvas().c, { graphics: 'webgl2' });   // a player's WebGL2 is kept
+      expect(asked.count).toBe(1);
+      expect(made.map((m) => (m as { forceWebGL?: boolean }).forceWebGL)).toEqual([false, true]);
+    } finally { delete (navigator as { userAgentData?: unknown }).userAgentData; }
+  });
+});
+
+// MAC-FLOOR step 2, gated (PC 1's pixels, 2026-11-21: on an RTX A4500 the invariant mark moved MP2's WebGPU edges by up to
+// 28 LSB, and the picture must not change where it was right): `createRenderer` installs the mark only when the page's
+// probe names an Apple GPU, where the tiles were seen; once a page installs it, it stays (one page, one GPU).
+describe('MAC-FLOOR: the invariant position only on an Apple GPU', () => {
+  afterEach(() => { setInvariantPositionForTest(false); });
+
+  it('off an Apple GPU no renderer installs it, whatever the backend', async () => {
+    setInvariantPositionForTest(false);
+    apple.value = false;
+    await createRenderer(canvas().c, { graphics: 'webgl2' });
+    await createRenderer(canvas().c, { graphics: 'webgpu' });
+    expect(invariantPositionInstalled()).toBe(false);
+  });
+
+  it('on an Apple GPU the first renderer installs it, on either backend', async () => {
+    setInvariantPositionForTest(false);
+    apple.value = true;
+    await createRenderer(canvas().c, { graphics: 'webgl2' });
+    expect(invariantPositionInstalled()).toBe(true);
+    setInvariantPositionForTest(false);
+    await createRenderer(canvas().c, { graphics: 'webgpu' });
+    expect(invariantPositionInstalled()).toBe(true);
   });
 });

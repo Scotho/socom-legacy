@@ -35,6 +35,37 @@ import type { SwapPick, SwapProgress } from './walk';
  * channel's, runs the clip on it).
  */
 
+/**
+ * LATER 792 (research 211 §10.7; reading, pending review): the controller's trigger edge `+0x118` at which the kit's swap
+ * gate refuses -- 1, held. `FUN_005a8cb0`'s last clause takes the body's controller (`body+0xc0`, set with its back
+ * pointer by `FUN_002a26f0` D:L146774-146781) and passes only when there is none or its edge is not 1 (D:L463174-463181);
+ * every swap passes the gate -- L1 and L2 (`FUN_00594cf0` D:L453290, D:L453302) and the inventory's (D:L72691, D:L72830).
+ * The edge is read where the page steps it, the rifle's raise (`Play.triggerEdge`, `./weaponRaise` `WeaponRaise`:
+ * `FUN_00594cf0` D:L453543-453567, a press 2 on its own update and 1 after; a hand grenade with one left in its slot
+ * remaps a press 2 -> 3 -> 0, D:L453633-453661, and its wind-up leaves the edge there, D:L453507-453518), and the swap's
+ * test runs before that update's step in `FUN_00594cf0` (D:L453288-453312 before D:L453543), so it reads the edge the
+ * last update left. Measured (research 326 §7.3, `agent/last-grenade` 58cbcf94d; r0004, 3/3 a leg; upload pending): with
+ * R1 held L1 was not taken from the empty MARK141 nor from the pistol, and with R1 up it was taken from both; under the
+ * re-armed wind-up (the edge 0) it was taken. That the edge clause is what refuses stays the code's reading.
+ */
+export const SWAP_HELD_EDGE_READING = 1;
+
+/**
+ * EMPTY_THROWABLE_SWAP_OWNER (the owner's ruling, 2026-11-25 ~23:00Z in the main controller's seat; MISSION OT.R162,
+ * pending -- filed by seat-merge at the merge; research 326 §10). A deliberate DEPARTURE from the measured original: in
+ * r0004 L1 under a held R1 was NOT taken from the slot its last throw left empty (research 326 §7.3, GR-1, 3/3). His
+ * words, verbatim: "even if the original does not work this way, add a deliberate ruling that would allow this. so
+ * somebody with nades who holds it by accident can still swap in the same way as if they were winding up the throw. Same
+ * for flashbangs and smokes and HE." Scope: a hand-thrown grenade (class 'y', `./weaponRaise` `handGrenade`: the M67, the
+ * HE, the AN-M8, the Mark141) up with its slot empty -- the held edge does not refuse the swap (`./matchFirearm` `kitFree`),
+ * and the held trigger is handed to the firearm as the wind-up's is (TRIGGER-SWAP, `heldPulls`), which fires after its
+ * raise. The C4, the claymore, the PMN and the Detonator are outside it: still refused under a held trigger. The shape
+ * is the gate's exception, not the wind-up's edge remap (`./weaponRaise`, not reopened at the freeze), so it is a little
+ * wider: a trigger already held from BEFORE the grenade came up also swaps -- within his words (the main controller,
+ * 2026-11-25 ~23:07Z).
+ */
+export const EMPTY_THROWABLE_SWAP_OWNER = true;
+
 export type Firearm = 'rifle' | 'pistol';
 /** What the page's inventory holds, slot order (`mp_seal1`: M4A1, Mark 23, M67, HE). */
 export type KitItem = Firearm | 'M67' | 'HE';

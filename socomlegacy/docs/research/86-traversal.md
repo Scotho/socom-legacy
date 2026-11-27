@@ -321,6 +321,162 @@ login is back.
 - **U7 proper**: the stick held into the rungs 3 s with no Cross (expect no mount), with a pad log beside the frames.
 - **`LADDER_OCCUPANCY_READING`**: two consoles, one SEAL on the ladder: whether CLIMB shows for the second at its foot.
 
+**R4P-R1 (AS-01): r0004's pending-climb word -- met by construction (2026-11-24) [reading, pending review].** r0004 adds
+a word r0001 lacks: `CZSealBody +0x1334` (`ladder_request_timeout`; r0004's own offset, not the shifted band's). A ladder
+request writes 150 to it (`FUN_005b8920`, D4:L509829 on the offline path, D4:L509838 on the online one); state 1 of
+`FUN_005b76d0` counts it down each tick and at 0 drops the request (D4:L509088-509097); the grant re-checks the mount
+before it lands (D4:L509027-509043). It is also cleared by the request's reset (`FUN_005b7640`, D4:L509006), the knock
+off a ladder (`FUN_005a7d20`, D4:L500748), `FUN_005a8000` (D4:L500838) and `FUN_005b52b0` (D4:L507909) (atlas
+`data/r0004/field-names/readings-1.jsonl` row 11, second-read UPHELD). While it runs, the online gate refuses four acts:
+the jump (`0x583490`, D4:L481365), the moving dive (`0x58a100`, D4:L484650-484651), the type-0 use (`0x599b40`,
+D4:L493575-493578) and the bomb drop (`0x599cd0`, D4:L493637). So in the original the window between the ask and the
+answer is real and guarded. **The port has no such window.** It asks no one. The page's LIVE path is `WalkMode.action`
+(viewer `src/walk.ts` :717-724: the press laid on the command and handed straight to `Traversal.action`); its re-run path
+and the room's are `MoverSim` (`walk.ts` :413 and :1945 build one; `src/net/moverSim.ts` `prepare` lays the Action at
+:198 and `apply` steps the walker in the same call, :256). On either, the press reaches `Traversal.step`'s `pressed` in
+that tick and mounts there (`src/traversal.ts` :1591 -> `mountOffered` :2563-2568 -> `mountBottom`'s `ladderMount` event
+:2619); the room hears that event inside the same command's run (match `src/room.ts` `watchMoves` :8976, the
+`ladderMount` branch :9026). The ladder keeps no claim and the wire no ClimbAsk / ClimbOK (`LADDER_OCCUPANCY_READING`,
+`traversal.ts` :211-219, `'not modelled'` until LC-3). So "asked, not yet answered" never holds on any command. This note
+rules the grant's re-check and the timeout met by construction as well as the four refusals -- wider than the r0004 plan's
+wording (R4B-14, "G5 the ClimbAsk timeout", `plans/r0004-option-b.md`), on the main controller's ruling. Two edges, one
+sentence each. Jump and Action on one command: `MoverSim.prepare` lays the jump first (`moverSim.ts` :197-198, the player
+update's order D:L453208 then D:L453218), so a running jump leaves the ground and the airborne body drops the offer,
+while a standing jump is counted but still mounts on that tick. A mispredicted mount: the page's refused jump bit still
+rides the command (`walk.ts` :2504-2505), so a room that did not mount takes the jump -- the prediction model's
+reconciliation, not a pending state. **Held by** viewer `test/ladderWord.test.ts`, a pin of the port's current behaviour
+on `MoverSim` -> `Traversal` only (not `WalkMode.action`): the mount lands on the press's own seq with the offer
+consumed, a Jump on the next command is refused on the mount (`MoverSim.jump` -> `Traversal.jump`, which takes only the
+hang), and the two Jump + Action cases above. Its two movers run the same code, so their agreement is by construction,
+not a proof that the page and the room agree. A scratch edit that deferred the press by one tick turned the first case
+red; the edit was reverted. The main controller ruled it a reading, pending review; atlas-s2d's non-author re-read
+agrees. **Reopens** if LC-3 makes the mount wait on the room's answer (the tripwire comment at
+`LADDER_OCCUPANCY_READING`): the word then becomes a size-M task (the countdown, the re-check, the clears, the four
+refusals). **Proven by** the capture Q-R1 (IQ-068; the original, r0004 online, two consoles): ask for a ladder, then
+press jump / moving prone / drop bomb / use before the grant lands, with `+0x1334` read each frame from the request to
+the clear.
+
+### 2.7 The foot and the slide's end compare against the floor RECORD (B-50, 2026-11-22) [reading, pending review]
+
+The player report B-50 (Fish Hook, "sliding to infinity"): the port's foot test and the slide's landing asked a fresh
+"highest floor under the feet" (`groundUnder`) and skipped both when it answered nothing, so the body went down for
+ever. Read at **r0004** (seat-kill's key job for seat-movement, its report outside the repository;
+r0004 ELF decoded from its bytes, r0001's decompilation for structure; reading, reviewed PASS WITH FINDINGS):
+- **The foot** (r0004 0x589840 = r0001 `FUN_00584240` D:L443742-443777, 81 of 81 words): stick back (strict) and the
+  body's y under `+0x2e4` + 1.0; in the climb `+0x2e4` is rewritten each frame from the floor record's y `+0x404`
+  (r0004 0x5b56b8-0x5b5790; r0001 D:L466756-466786). So "the ground" is the actor's cached floor RECORD
+  (`+0x400..+0x41c`), the last floor the probe answered, not a fresh pick.
+- **The probe** (r0004 0x5b6620 issues, 0x2f0c00/0x2eff40 query, 0x5bc180 picks; r0001 `FUN_005b0840`, `FUN_002d3cf0`,
+  `FUN_005b5d40` D:L470199-470274): one vertical line, y +50000 to -50000 (r0004 0x2f05a8-0x2f05c8), through the
+  BODY's column (plus the root node's local offset in the playing clip), not the rung line; the pick is the walk's:
+  the highest floor at or under the origin + 1.0, else the lowest in the column, refused more than 20 over the body
+  (the port's `selectFloor`).
+- **A miss** (r0004 0x5b63d0-0x5b6480; r0001 `FUN_005b0420` D:L467091-467103): the record is KEPT and the body's node is
+  put back on the record's point (0x5b6458-0x5b6468) -- the walk's own miss branch, which the port already carries
+  (`mover.ts`, "back at the last hit").
+- **The slide** ends when its altitude `+0x2e4` meets the record's y (r0004 0x5a11e8-0x5a11f4, the fall law 0x5a0f60 =
+  r0001 `FUN_0059b440`). No timeout, no maximum distance, no ladder-length clamp.
+- **No function on the path reads the ladder record** (its bottom or top): 0x589840, 0x584830, 0x584900, 0x584a50,
+  0x5a0f60, 0x5a1390, 0x5b5660, 0x5b6200, 0x5b6620, 0x5bc180.
+
+**Built** (viewer `traversal.ts`, `ladderFloorAt` / `seedLadderFloor`): the record seeded at either mount from the walk's
+pick under the feet, refreshed each ladder tick by `selectFloor` at the body's column, kept on a miss with the body put
+back on its point; the foot test and the slide's landing compare against it and are never skipped. Held by viewer
+`test/ladderFoot.test.ts` (no game data: a column with no floor at all; a body left 0.8 under its floor) and the
+22-map census `test/ladderFoot.devdisc.test.ts` (every ladder `findLadders` finds, mounted from the deck or the foot:
+the climb down, the slide, and a foot mount pulled straight back; before the fix 10 ladders of 7 maps fell for ever on
+the last, the foot mount leaving the body up to 0.8 under its column's floor; after it the 36 mounted ladders hold on
+all three legs (none with a leg not run), and the 3 the census cannot mount -- MP10 `myladder_1` (1352.16, 1211.01),
+MP62 `g253/climbme` (1692.23, 1901.92) and (1348.99, 1395.63) -- are named and NOT measured; the counts are pinned
+(39 ladders on 14 maps, 36 mounted, 3 unmounted). Before the fix's last step the census's climb target (the span's
+middle) lay over Fish Hook's head, so its two ladders' climb down and slide had not run: the target is now 0.4 of
+the span).
+
+**Named** (placeholders): `LADDER_PROBE_COLUMN_PLACEHOLDER` -- the probe column's offset (`ahead`) and the origin's lift
+(`lift`) on the ladder clips, both 0: the original adds the root node's local translation in the playing clip
+(r0004 0x5b6718-0x5b67f4) and its inserted raise is 0 for state 5 (0x5b67f8-0x5b6844); those clips' root translation is
+unread. Settled by the clips' root keys on the disc or one rig read of the query's origin during a climb.
+
+**The foot mount's end** [reading; the capture re-read by a reviewer]: the port's mount ends at the y of the press -- the walk's
+height, its soil offset included. Two reads of r0004 by seat-kill's key jobs (outside the repository; their substance
+here): "Stand -> Ladder" (r0004 0x584de0 = r0001 `FUN_0057f880`) writes no height through the walk-in; the grounded
+floor law runs through it (clip 0x2c is not exempt at 0x5b5660) and lands on the record's y PLUS the floor material's
+soil offset (0x5a1264-0x5a1278), which is the walk's own height; and at the mount's END the pop (0x58f040, r0004
+0x58f2a8-0x58f350; r0001 `FUN_00589aa0` D:L446564-446575) sets the body's y from `+0x2e4` + 15.3 - 11.487. A built
+attempt to end the mount on the column's BARE floor failed its review (the soil offset left out: 0.8 high on -0.8 soils)
+and was taken out. **The capture** -- record `LADDER-PC3` (`RESULT.md`, the driver, the scorer, 9 MP64 and 9 MP71 trial
+files `runs/*.csv`; zip sha256 `5e50f8256649eda9a33d74a726549e37e1a236ce8b11852937c71eadd8f4e13b`, on the hub's records
+drive), Shadow PC 3, r0004 from fresh boots, LAN, hand-scored; its heights are the body's `+0x20`; re-read by the row 7
+re-review, which verified the hash and every MP64 row:
+- **MP64 `towerladder_di`**, climbed from +z, 9 trials: the body stands at the foot at y **48.056** (the floor polygon is
+  48.855; 48.056 is the standing height with the floor's soil). The first frame on the rungs is the press height
+  **+ 3.8129** in 9 of 9 -- the pop read above (15.3 - 11.487, r0004 0x58f2d0-0x58f318) -- after the body rises through
+  the mount's last 6-7 frames (to 51.59-52.36). From the first rung frame on, no trial goes under the standing height
+  48.056 and none falls; the step-off passes 48.855 and stands at 48.056; the slide lands at 48.056.
+- **MP71 Fish Hook `ladder01/di_ladder1`**, climbed from -x (its +x side is inside geometry, where a placed body freezes),
+  9 counted trials (6 void top-outs kept apart): standing 139.164; none falls; at most 0.012 under the standing height
+  at the step-off. The PS2 has a floor in that column.
+- The port's press height 48.05 at MP64's foot is the PORT's number (the census, `ladderFoot.devdisc.test.ts`, this
+  branch), not the capture's; it equals the PS2's standing height there.
+The port does NOT build the pop or the rise before it: its body starts on the rungs at the press height (open (1b)).
+
+The census's ten ladders that fell before the fix (a foot mount pulled straight back): MP2 `ldr/ladderdown`, MP8
+`climb05`, MP10 `myladder` (676.44, 1682.32) and (2083.73, 1691.17), MP53 `ladder`, MP61 `ladder` (434.17, 1448.78)
+and `g1902/di_ladder01`, MP62 `g253/climbme` (2628.99, 1393.95), MP64 `towerladder_di` (563.71, 2628.64) and
+(1810.45, 1757.59); MP73 `ladder_tower/ladder50` (1109, 1020.2) fell on the climb down's first census.
+
+**Open** (unbuilt or unread; the row 7 reviews' F4): (1) the probe and its miss are run only on the rungs and in the
+slide (`climbLadder`, `slide`): not through "Stand -> Ladder", "Ladder -> slide" or the dismounts, where the original's
+floor law keeps running (clip 0x2c is not exempt at 0x5b5660); in particular, after a landing or a step-off on a miss
+frame the port's clip carries the body away from the record's point with no probe, where in the original every later
+missing frame re-runs the put-back, so the body would stay on the record's point through the clip [inference, the row 7
+fold delta F3]. On the miss frame itself the original lands or steps off first (its move task, r0004 0x2a0930: the fall
+law 0x5b5874, the climb 0x58c9c8) and the read task's put-back (0x2a06a0) comes last; the port puts back first so its
+clip starts where the original's frame ends; (1b) the mount's end pop is READ (0x58f2a8-0x58f350, +3.8129, matched 9/9 by
+`LADDER-PC3`) and not built; what it means for the port's ladder height and the foot test's `FOOT_CLEAR` is open, and
+U2's `+0x2e4` / `+0x404` per frame through a foot mount stay owed (`+0x20` is in the record); (1c) the miss also zeroes
+`+0x1344` (0x5b6454): READ since (L253 / R4P-240, atlas-parity's second read c2d5527c8e and seat-kill's review): it is the slope slide's speed in r0004 (r0001 `+0x1340`, the shifted band; written by r0004 0x553be0; zeroed by ProcessDownProbe's miss, r0004 `FUN_005b6200` D4:L508319, for every state), zeroed with `+0x111c` (0x5b6480) by the probe's miss for every state, and the port's ladder put-back now stops the slide (`Walker.stopSlopeSlide`), unconditionally as the walk's: the gate byte 0x40a390 reads 1 in the image with no writer and 1 running (IQ-120, Q108-PC2). *Was:* "what it holds is unread, and the port touches no speed on a miss"; (2) the addendum's U1 / U2 (its own list of what it
+did not settle); (3) what a top mount over a floorless column looks like running (the port: each miss puts the body
+back on the deck point where it pressed, pinned by `ladderFoot.test.ts`; an inference from the code, not seen);
+(4) whether the byte at 0x40a390 is rewritten at run time (it reads 1 in the image and has no writer or other reference anywhere, r0001's 0x3df1c8 the same; IQ-120's capture read it 1 running, Q108-PC2); (5) B-50's own spot: the PS2 has a floor in Fish Hook
+L1's column from -x (`LADDER-PC3`) and the port's two Fish Hook ladders hold before and after the fix; the player's
+report is not reproduced on either side (its +x side, inside geometry, is a lead not chased); (6) a deck ladder's foot
+mount is never measured by the census, and the ten ladders' soils are not listed (the re-review's carried items).
+### 2.8 No reload begins on a ladder (LATER 562, 2026-11-22) [reading, pending review]
+
+Read at **r0004** by a seat-kill key job for seat-movement (its report outside the repository; the substance here):
+the action gate (r0004 0x5ba680 = r0001 `FUN_005b4340`; it DIFFERS at r0004, 511 -> 573 words, and was read directly)
+refuses every code in the ladder's state 5 or with a posture-5 record on top (0x5ba710-0x5ba73c; r0001 D:L469329-469330),
+the reload's code 3 among them -- the kit's timer runs out into 0x5c9f60 (= `FUN_005c2a90`, D:L476550-476560), which asks
+the gate with 3 (D:L477404); a refusal spends the press with no clip and no magazine moved (as NU-1b B5's). The state
+`+0x174` has one writer (0x58fcb0, through `+0x90`): under a looped top, every frame, the top's posture; under a
+one-shot, the ended record's when it ends. By phase:
+- the foot's mount (0x584de0 = `FUN_0057f880`, D:L441547-441561): 0x2d and 0x2c pushed with posture 5: **refused**;
+- the head's mount (0x584bb0, D:L441478-441480): 0x2d and 0x2e reversed, posture 5: **refused**;
+- the rungs: looped 0x2d, state 5 and posture 5: **refused**;
+- the slide (0x584900, D:L441368-441370): state 5 on its push: **refused**;
+- the climb-off at the head (0x2e, posture 0): state 5 until it ends: **refused**;
+- the step-off at the foot (0x2c reversed, posture 0): refused while state 5 lasts through it, the clip a one-shot
+  (`seal_stand2ladder` `looped` 0); r0004 also adds a refusal under clip 0x2c to the mount's permission test
+  (0x584fd0-0x584fe8);
+- the slide's landing: its push read (`FUN_0057f310`, r0004 0x584830: the landing clip at posture 0, no state written)
+  and the clip a one-shot (`motion.rdr` `looped` 0 for `seal_ladderslide_land`, the disc through `motionTableFromArchive`):
+  state 5 holds while it plays: **refused**.
+A mount pressed under a running or pending reload is refused by the offer's gate (0x5ad790 = `FUN_005a7ab0`), which the
+port's `climbOffered` already asks: not a departure.
+
+**The port** refused a reload's start only under `CLIMB_BODY_CLIPS` (the obstacle climbs and the hang), so the page and
+the room took it on a ladder. **Built** (viewer `traversal.ts`): `LADDER_RELOAD_CLIPS` (`toLadder`, `ladder`, `offLadder`,
+`toSlide`, `slide`, `slideLand` -- every ladder clip in both directions of play, so the foot's step-off rides on
+`toLadder`; `LADDER_RELOAD_FOOT_READING`, `LADDER_RELOAD_SLIDE_LAND_READING` and `LADDER_RELOAD_TURN_READING` bound to it) and
+`reloadRefusedBy` (a climb or a ladder clip), asked by the page's `WalkMode.climbHolds`; the room's reload by its frame's
+clip is the same law (its hunk handed to the room's owner), and the room tells the page (`stale`, request `reload`). The original tests a state or a posture; the port's clip set is the
+same law where only the clip is at hand. Held by viewer `test/ladderReload.test.ts` (no game data: both mounts, the rungs,
+the slide, its landing, the climb-off and the step-off refused; the ground not; the readings bound to the set) and match
+`test/roomLadderReload.test.ts` (the room's drop, the magazine unchanged, the page's `stale`). The word at 0x409cb0 is "180" (its writer 0x5e97a8 stores the name lookup of
+the string at 0x661528): the 180 before a head mount is refused too; the word at 0x40a0d8 is "dive_to_prone" (the
+gate's test 6 is the dive's).
+
 ## 3. The climb
 
 ### 3.1 The contact and what is climbable [read]
@@ -526,7 +682,7 @@ the weapon line built, reading, pending review) [capture; read; viewer, measured
   (`./loadout` `heldWeaponModels`, by `slotModel`, into `Walker.heldModels`; match `room.ts` `spawn`, `worldDrops.ts`
   `take`), the page's at its `spawnKit` and `takeKit` (`WalkMode.setHeldModels`, carried to every mover the walk makes).
   An MP5 casts 16.0, a Barrett 28.5052 (match `weaponLineKit.test.ts`). With an item up the port keeps the firearm's
-  model (`WEAPON_LINE_ITEM_MODEL_PLACEHOLDER`). A pickup's kit reaches the page when the room's `kit` event does, a
+  model (`WEAPON_LINE_ITEM_MODEL_READING`: by the body's mount). A pickup's kit reaches the page when the room's `kit` event does, a
   few ticks after the room's body took it.
 - **The length** (`./weaponLine` `WEAPON_LINE_LENGTH_READING`, s7.2): `|b[3] - b[0]|` of the held model's +0x40 bounds
   through `FUN_001b3620` (D:L416901), twice (D:L416902). `FUN_0054e8f0` takes `FUN_00541510(+100)`'s bounds instead
@@ -554,7 +710,7 @@ the weapon line built, reading, pending review) [capture; read; viewer, measured
   no part.
 - **Owed, LATER 682**: the line keeps any slope, so run straight up Frostfire's 26.6-degree rail ramp it stores the
   ramp's own floor 23 ahead and the running jump is refused (`walk.test.ts`'s rail-ramp case held as `it.fails`);
-  whether `FUN_0031e160` queries floors at all is unread (`WEAPON_LINE_POLYGON_SET_PLACEHOLDER`, which alone decides it).
+  `FUN_0031e160` queries floors too (`WEAPON_LINE_POLYGON_SET_READING`: the movement set exactly, read 2026-11-23).
 - **The rejected reading** (kept with its evidence): "only hits on the first two segment records -- the centre and the
   head line -- can become the stored contact (`FUN_005483d0`, D:L413823-413848) ... for a walk-in at an angle theta the
   leading side line reaches the face first once tan(theta) > 0.49/4.2, about 6.7 degrees: the centre never meets it,
@@ -583,9 +739,12 @@ the weapon line built, reading, pending review) [capture; read; viewer, measured
   the end face clears the contact (no `'span'` question for a crossing; `CORNER_HITS_READING` stays the disc arm's);
   Frostfire's box from x 938 (LATER 680) stays without an offer -- the -x side record meets `prop01` on every moving
   tick from z 801.1, where the body is held, and still there the line's 22.93 ends 0.1 short of `prop02`'s face.
-- **Placeholders** (s7.2): `WEAPON_LINE_ONE_SIDED_PLACEHOLDER` (whether the line's query is one-sided),
-  `WEAPON_LINE_POLYGON_SET_PLACEHOLDER` (which polygons it returns, floors or not: LATER 682),
-  `WEAPON_LINE_ITEM_MODEL_PLACEHOLDER` (the length with an item up); the reading `WEAPON_LINE_BOTS_READING` (the bots
+- **Readings and placeholders** (s7.2): `WEAPON_LINE_ONE_SIDED_READING` (the line's query is one-sided for the hull; no
+  hull node two-sided: read 2026-11-23 at r0004 0x2ef7a0, r0001 `FUN_002d2890` D:L174831-174837 / D:L174845-174862), `WEAPON_LINE_POLYGON_SET_READING` (the movement set exactly, floors in: LATER 682),
+  `WEAPON_LINE_BODIES_PLACEHOLDER` (whether the line meets other actors' bone boxes; the port walks the hull only),
+  `WEAPON_LINE_ITEM_MODEL_READING` (the line's model by the body's mount: firearm with any item up, the launcher's with a
+  launcher up -- none without a firepoint node, `WEAPON_LINE_NO_FIREPOINT` -- none after a launcher then an item; read
+  2026-11-23); the reading `WEAPON_LINE_BOTS_READING` (the bots
   cast none: the AI controller's +0x2c answers 0).
 
 **The fix**: `shortTurn(from, to)` (`traversal.ts`), the signed short turn in [-180, 180) for any winding, in `align`
@@ -732,18 +891,19 @@ none or the last has ended; a switch of size stops the other. `seal_fall_in_wate
 
 **The wake's place and its pace (the water wading trail fix, 2026-11-06; reading, pending review).** The "tag-3
 pointer" is a node: `FUN_005b52b0` first moves the actor's own node `actor+0x1380` to the water point under the feet
-(`FUN_003157d0` D:L469859, which writes the node's translation at +0x30..+0x38 and nothing else, D:L215065-215074), then
-starts the ripple on it (`FUN_00272bb0(anim, 1, 3, actor+0x1380, 0)`, type 3 a node, D:L469881 and D:L469895). Every
-ripple program on the disc (MP2, MP12, MP62 read through `effectsFromDisc`: `big_ripple_anim*`, `small_ripple_anim*`)
-holds three sources, all `NODE_CALLER` (-6) with FOLLOW (flag A 0x10) set and AT_CONTEXT (0x8) clear, each offset
-straight up in the node's frame (0x4): `rain_ripple1` 0.8 up every 0.5 s (0x8000; `waterspray.tif` in the still
-`big_ripple_anim`, `wake01.tif` in the rest), `rain_ripple2` 0.8 up every 3.5 units moved and `rain_ripple3` 0.2 up
-every 0.4 units moved (0x4000 without 0x8000: `FUN_00266830` D:L113156-113167 sets the manager's `+0x1b`, the later
-flag winning; `wake01.tif` and `waterspray.tif`). The particle tick places a followed source through its node's matrix
-(`FUN_00329b40` D:L226869-226878) and, for a per-distance source, adds the distance that place moved since the last
-tick -- a move under 200 only (squared under 40000) -- instead of the time (D:L226896-226904), both times
-`DAT_004884c8`, 1.0 (`FUN_00324b20` D:L223720); the tick's end records the place (D:L227152-227156). So standing in
-the water lays only `rain_ripple1`'s rings, and walking lays a trail of wake and spray behind the SEAL.
+(`FUN_003157d0` D:L469859, which writes the node's translation at +0x30..+0x38, then calls its own virtual slot +0x10
+(vtable at +0x60) and sets bit 2 of +0xa1, D:L215065-215074), then starts the ripple on it (`FUN_00272bb0(anim,
+1, 3, actor+0x1380, 0)`, type 3 a node, D:L469881 and D:L469895). Every ripple program on the disc (MP2, MP12, MP62
+read through `effectsFromDisc`: `big_ripple_anim*`, `small_ripple_anim*`) holds three sources, all `NODE_CALLER` (-6)
+with FOLLOW (flag A 0x10) set and AT_CONTEXT (0x8) clear, each offset straight up in the node's frame (0x4):
+`rain_ripple1` 0.8 up every 0.5 s (0x8000; `waterspray.tif` in the still `big_ripple_anim`, `wake01.tif` in the rest),
+`rain_ripple2` 0.8 up every 3.5 units moved and `rain_ripple3` 0.2 up every 0.4 units moved (0x4000 without 0x8000:
+`FUN_00266830` D:L113156-113167 sets the manager's `+0x1b`, the later flag winning; `wake01.tif` and
+`waterspray.tif`). The particle tick places a followed source through its node's matrix (`FUN_00329b40`
+D:L226869-226878) and, for a per-distance source, adds the distance that place moved since the last tick -- a move
+under 200 only (squared under 40000) -- instead of the time (D:L226896-226904), both times `DAT_004884c8`, 1.0
+(`FUN_00324b20` D:L223720); the tick's end records the place (D:L227152-227156). So standing in the water lays only
+`rain_ripple1`'s rings, and walking lays a trail of wake and spray behind the SEAL.
 
 The port did neither until this fix: `TraversalPage.effectsFrame` handed a place with a position and no node, so the
 ripples' FOLLOW sources found no node and `particles.ts` put their offsets in world space -- every wake particle at the
@@ -879,7 +1039,25 @@ the port's body sat about 4 u low from 600 to 1000 ms, dived 1-4 u short and cam
   the pop at rest (D:L418158-418163), left to the animator's own end, which the seam follows. Against the capture
   (the review's F3): the drawn root at 800 ms is 4.79 against 4.92-5.35, inside only through the test's 0.3 margin,
   and the test holds 1000 ms loosely at 2.6-4.6 (drawn 3.96 against 3.22-3.97); the seam is the same at both since F2.
-  LATER 661: the seam's prone root (the stance's 2.168) against the prone plays' own roots, for every prone body.
+  LATER 661: the seam's prone root (the stance's 2.168) against the prone plays' own roots, for every prone body --
+  RESOLVED 2026-11-18 for the hit body (HIT-POSE poses it on the play) and the eye (`aimRoot`'s prone branch: `FUN_0029a950`
+  stands the camera on the posed root, research 80 s7). Left: `aimRoot` takes a traversal move's root BEFORE the posed
+  root, so DIVE-ROOT's end blend (the seam fading to 2.168) wins in the aim frame where the page's camera takes the posed
+  root first (`walk.ts`); older than LATER 661's fix, recorded on its row.
+
+**The dive's aim pair and eye (LATER 597, 2026-11-22) [reading, pending review].** Read at r0004 by a seat-kill key job
+for seat-movement (its report outside the repository): unchanged from r0001 (three twins instruction for instruction).
+The dive sets the posture word `+0x174` to 6 (r0001 `FUN_0057e540` D:L440898, through the actor's `+0x90`); the aim pair
+(`FUN_00594600`) takes the standing and crouched -70..60 with no lean whenever the word is not 2 (D:L452817,
+D:L452837-452838), and the eye (`FUN_0029ae50`) the standing eye (D:L142591: the root + 4.4, 2.5 ahead or 0). The word is
+NOT on the original's wire: its setter's only side effect is a controller hook (vtable `+0x64`) empty in every class
+found; the wire carries the dive itself (an 8-byte action event, action code 4), each receiver replaying the dive on its
+copy. So the port derives the word from its own dive and its snapshot carries no posture field. **Built** (viewer
+`net/lookGate.ts`): `aimPostureOf` (prone only when `Walker.aimProne`, the word 2: prone and not in the dive) feeds
+`aimPitchLimitsOf`, the one call the room's gate, the page's gate and camera and the bots make; held by viewer
+`test/diveAim.test.ts`. The eye's callers -- the page's (`walk.ts`), the room's body posture into `net/shotCone.ts`
+(`match` room.ts) -- take `aimPostureOf` by their owners' hunks. **Open:** whether a WATCHING page can tell a remote body
+is diving from the port's current wire (the pov camera's `scopeEye`, `povCamera.ts`, keeps the body's stance).
 
 ### 6.2 What else the game has [read]
 
@@ -1040,6 +1218,12 @@ Named in the code:
 
 | name | value | stands for | status |
 |---|---|---|---|
+| `LADDER_PROBE_COLUMN_PLACEHOLDER` | `{ ahead: 0, lift: 0 }` | the ladder floor probe's column offset and origin lift: whether the issuer's node (r0004 0x5b6718-0x5b674c, the `+0x88` virtual's node) carries the ladder clips' root -- the port holds 15.6 on the rungs (`ladderRoot`) and 11.44 in the slide (`SLIDE_ROOT`) -- or a node at the feet (0); two readings, the smaller change kept (s2.7) | open (B-50): which node the issuer reads, by a rig read of the query's origin during a climb (r0004 0x5b6938-0x5b694c) |
+| `LADDER_RELOAD_SLIDE_LAND_PLACEHOLDER` | `'taken'` | the slide's landing's reload (s2.8) | replaced (2026-11-22) by `LADDER_RELOAD_SLIDE_LAND_READING`: the clip's `looped` read off the disc |
+| `LADDER_RELOAD_SLIDE_LAND_READING` | `'refused'` | a reload's start is refused through the ladder slide's landing: its push (`FUN_0057f310`, r0004 0x584830) writes no state and `seal_ladderslide_land` is a one-shot (`motion.rdr` `looped` 0, through `motionTableFromArchive`), so state 5 holds while it plays (s2.8) | open (LATER 562): a capture (R through a slide's landing, the magazine after) |
+| `LADDER_RELOAD_FOOT_READING` | `'refused'` | the foot's step-off (clip 0x2c reversed) refuses a reload while it plays: `seal_stand2ladder` is a one-shot (`motion.rdr` `looped` 0), so state 5 holds through it (s2.8) | open (LATER 562): a capture, R held at the last rung going down |
+| `LADDER_RELOAD_TURN_READING` | `'refused'` | a reload's start is refused under the "180" (`seal_180`): the gate's test 4 (r0004 0x5ba6f0-0x5ba70c) refuses every code under the clip whose id is the word at 0x409cb0, which its one writer (0x5e97a8) fills with the name lookup (0x5ec760 at 0x5e9798) of the string "180" at 0x661528 (s2.8) | open (LATER 562): a capture (R during a head mount's 180) |
+| `PEEK_WATER_DEPTH_READING` | `4.5` | R4P-108 (R4-MOV-PEEKWATER, L107): a crouched body in water deeper than this refuses the peek and a held one ends (`Traversal.peekHeld`; r0004's side ray 0x59c800 / r0001 `FUN_00596d60`). Read at r0004's bytes (seat-kill's review): the side ray tests crouched only (0x59c840-0x59c848), the depth `+0xf88` against the immediate 4.5f, refused iff deeper (strict, 0x59c840-0x59c88c), every frame (0x59a6e0); a standing peek in any depth is taken; r0001 has no water test. Q108-PC2 (unscored) agrees, 4.406 taken / 4.606 refused -- a reading, a capture (Q108-PC2) agreeing (a ruling cannot make a value proven); captures at 4.45 / 4.5 / 4.55 and standing are owed as confirmation. The same capture's mount / climb, airborne and claymore refusals the port already had (`peekRefusals.test.ts` pins all four) | reading, reviewed (bytes); proven by ruling |
 | `DEATH_LANDING_GETUP_PLACEHOLDER` (`mover.ts`) | true | a deadly fall's `Land forward` getting up (`Get up forward`) in the free walk (`&nomatch`, `&fly`), where nothing kills; the game dies in that landing (`FUN_005af590` 466641-466728, state 8, vtable +0x90) and never gets up (`FUN_005979a0` 454470-454495 spectates or fades the body; research 80 section 6c) | open, the free walk alone: in a match -- online, or the offline match run in the page (research 91 section 20) -- the net client's `kill` sets `Walker.dead`, which holds `Land forward` (or a knock's `Land backwards`) at its last key. A blast knock's landing always gets up, as the game's own (`knockLanding_`, L446653-446700) |
 | `LANDING_HIT_DRAW_READING` (`mover.ts`) | `landingHitDraw(seq)`: Knuth's multiplicative hash of the command's `seq` over 2^32 | the heavy landing's coin between `Hit stomach` (at or under 0.5) and `Hit` (`FUN_005af590` 466667-466669, `FUN_00197740`): the game draws from its own generator on one machine; the page's prediction and the match server must land one clip (a 23-unit root-travel apart otherwise, review 2 M-2), so the draw comes from the command both hold (`Walker.commandSeq`, set by `MoverSim.prepare` and by the page's walk, which numbers its ticks as the net client does, pinned by `walk.test.ts`); the coin is for a live mover: a corpse (`Walker.dead`) lands `Hit` on both ends, since its ticks carry no command (`Room.corpse`, the page's locked walk) and no seq is shared (review 3, A2) | open, a reading of the draw's source; the rule (a fair coin, the two clips) is the game's |
 | `PEEK_CUTS_ACTION_READING` (`traversal.ts`) | true | a peek started over an action that gives way (`FUN_00587c20`) ends that action as the stick's cut does (a get-up standing the SEAL): `FUN_0057d810` (440451-440530) pushes the lean over it, and whether the action is popped or left beneath is not read; the mover has one action slot | open (section 4.1) |
@@ -1062,9 +1246,13 @@ Named in the code:
 | `LADDER_AIRBORNE_OFFER_READING` (`traversal.ts`) | `'ground only'` | the port offers a ladder on the ground only; `FUN_00593500` offers CLIMB in a jump or landing (D:L452279-452290) and `FUN_00550ef0` has a mount path under the motion flag 0x40 (section 2.6) | open, a reading; a capture: a jump into the rungs, Cross in the air |
 | `LADDER_DROP_FLAG_READING` (`traversal.ts`) | `'never set'` | `FUN_005b3890`'s drop of a ladder contact on bit 1 of `seal+0x1061` (D:L469004-469005): what sets the bit is unread (section 2.5) | open, a reading; read the writers of `+0x1061` |
 | `WEAPON_LINE_LENGTH_READING` (`weaponLine.ts`) | 59 lengths by `WEAP_GEO` name; the M4A1 SD 22.9303 | the weapon line's length, `FUN_0054e8f0` D:L416892-416902: 2 x the held model's `|bbox x max - x min|` (its `nparams` +0x40 bounds), unless the model's byte +0x5f has bit 6 (0x40) set (D:L416894), when `FUN_00541510` walks the +100 chain (D:L408768 on) -- no weapon model on the disc sets it (the byte is 0x80 or 0xa0; `weaponLine.test.ts` over `WEAP_GEO`'s 59) (s3.8) | open, a reading (the disc's bounds through the repository's readers, Frostfire's and M51's archives alike); **the M4A1 SD's 22.930 proven** (`WEAPON_LINE_M4A1_SD_PROVEN`: ac's RDRAM read on r0004, 2026-11-04 09:16Z, its bounds x -3.679799 to 7.785366, the flag byte 0x80, bit 6 clear), inside the capture's 22.5-23.4 reach |
-| `WEAPON_LINE_ONE_SIDED_PLACEHOLDER` (`weaponLine.ts`) | true | whether the weapon line's query `FUN_0031e160` (D:L416642) meets a polygon from its front only; its crossing test is not transcribed, and the port takes the hull's one-sided test as the segment records do (research 281 s4.3); a line starting inside a collider would meet the far side's back face under `false` (s3.8). One-sidedness only: the set of polygons is `WEAPON_LINE_POLYGON_SET_PLACEHOLDER` | open; a read of `FUN_0031e160`'s crossing test, or a capture with the line starting behind a face |
-| `WEAPON_LINE_POLYGON_SET_PLACEHOLDER` (`weaponLine.ts`) | `'movement'` | which polygons the weapon line's query `FUN_0031e160` (D:L416642) returns -- whether floors are among them; the function only fills a query on world `+0x14c` (fresh review 1's F3 read), the set that query walks is not transcribed. The port asks the movement's surfaces (bit 1 set, bit 18 clear, as `segmentHit`'s), floors among them, which the line keeps at any slope (D:L416644-416672) -- so it alone decides LATER 682 (the running jump up Frostfire's rail ramp refused); `'walls'` recorded (s3.8) | open; a read of `FUN_0031e160`'s polygon set, or an r0004 capture of a running jump pressed partway up Frostfire's `rmp1` |
-| `WEAPON_LINE_ITEM_MODEL_PLACEHOLDER` (`weaponLine.ts`) | `'firearm'` | the weapon line's length with an item up: `FUN_0054e8f0` takes the model of the kit entry the hand byte `+0xf79` picks (D:L416869-416870), so with a grenade up the original's line is the item's (`grenade` 2.5372); the port's mover carries the firearm hand only (`Walker.hand` 0 or 1), the item up held outside it on both sides, and which entry `+0xf79` names in each item state is not read -- the port keeps the firearm's model (fresh review 1's F1; s3.8) | open; a read of `+0xf79`'s writes, then the item's model carried into the mover on the room's and the page's side |
+| `WEAPON_LINE_ONE_SIDED_READING` (`weaponLine.ts`) | true | READING (2026-11-23; seat-kill's key-job read pilot/kill/keyjob-weapon-line.md, pending review): the face test's side mask is per collision node (r0004 0x2ef7a0): 0x30, both directions, only where the node's `+0x80` bit 1 is set, else 0x20, one; the bit is set on no map node (stores 0x1ff8f4, 0x348708, 0x559c4c) and clear on the bone boxes, so front-only is the original's for the hull (no hull node two-sided; the particle DI node, two-sided, is dropped by the line's consumer; bone boxes take their own test); r0001's twin: `FUN_002d2890` D:L174831-174837 | a capture with the line starting behind a face (it does not meet it) |
+| `WEAPON_LINE_POLYGON_SET_READING` (`weaponLine.ts`) | `'movement'` | READING (2026-11-23; the same read): the surface word's bit 1 set and, with r0004 0x450b20 at 0 (by brackets around its writer's calls, not a trace), bit 18 (`m_cameratype` bit 0) clear; the ground bit untested (the filter's r0001 twin: `FUN_002d2890` D:L174845-174862), so floors are in -- the port's movement set exactly (22 r0004 maps, 202,305 faces, 0 disagree) | -- (LATER 682 done) |
+| `WEAPON_LINE_BODIES_PLACEHOLDER` (`weaponLine.ts`) | `'hull-only'` | PLACEHOLDER (2026-11-23; the same read's F7): the original's cast walks each cell's object list and switches only its own model's collision off (r0004 0x552fd0-0x552ffc / 0x553110-0x553128; 0x33b770 excludes no node), so a bone box (ditype 3, PERSON kept) may stop the line at another player pressed within its length; not traced running; the port walks the hull only | a capture of a body pressed against another within the line's length (does the stored contact form), then a read of the contact's use |
+| `WEAPON_LINE_ITEM_MODEL_READING` (`weaponLine.ts`) | `'by-mount'` | READING (2026-11-23; seat-kill's key-job read pilot/kill/keyjob-weapon-line-item.md, pending review): `+0xf79` picks the BODY's mount at actor+0x388 (1 rifle, 2 pistol, 3 grenade never built, 4 launcher), not a kit entry, and no item rewrites it: the firearm's model with any item up; the launcher's with a launcher up (the LAW: AT4 21.3236), none where the model has no firepoint node (`WEAPON_LINE_NO_FIREPOINT`: RPG7); none after a launcher then an item (`Walker.weaponLineMountNone`) | G1 the launcher mounts' models (`WEAPON_LINE_MOUNT_MODEL_READING`); G2 an item-path aim-point refresh; G3 actor+0x388's writer; G4 the line when dead |
+| `WEAPON_LINE_MOUNT_CASES_READING` (`weaponLine.ts`) | `'dismount-abandon-handover unported'` | READING (2026-11-23, the part 2 review's F3): three read cases the port does not carry -- a dismount into a kept item slot writes the empty mount (r0004 0x54abdc: no line); a launcher abandoned by moving goes to the kit hand's mount (r0004 0x5569d8); the rifle/pistol flip comes at the swap's hand-over, the port's at its start (G5) | captures of each with the line's slot logged |
+| `WEAPON_LINE_MOUNT_MODEL_READING` (`weaponLine.ts`) | `'kit-model'` | READING held by a capture (WEAPONLINE-LAUNCHER-r0004, Shadow PC 2, LAN Sandstorm, 2026-11-23; unreviewed): the launcher mount's model is the kit launcher item's own -- the LAW up (`+0xf79` 4) formed the contact at 21.3 u, not at 21.4 (the AT4's 21.3236 held); the RPG-7 up (`+0xf79` 4) formed no line at 8-21 u; the M4A1 SD control 22.3-22.8 / not 23.0; actor+0x388's writer (G3) unread | the capture's second reader |
+| `WEAPON_LINE_MOUNT_NONE_PLACEHOLDER` (`weaponLine.ts`) | `'unwired'` | PLACEHOLDER (2026-11-23): the 'none' mount (a launcher then an item: no line until a firearm is raised) is not wired -- neither room nor page keeps the body's last raised mount, so `Walker.weaponLineMountNone` is unset and the port keeps the firearm's line there; coupled to G2 (an item-path aim-point refresh) | a read of G2 and G3, then the last-mount state on room and page |
 | `WEAPON_LINE_BOTS_PLACEHOLDER` (`weaponLine.ts`) | `'cast'` | whether the port's bots cast the weapon line | replaced 2026-11-04 by `WEAPON_LINE_BOTS_READING` (below), the controller's ruling between readings (6d) |
 | `WEAPON_LINE_BOTS_READING` (`weaponLine.ts`, read by `matchBots.ts` `adopt` / `release` / `dispose`, match `room.ts` `newSim` for an AI seat, `climbDiscovery.ts`, `navigation.ts`'s ladder probe, `hostageFollow.ts` and the zombies' `mode.ts` / `obstacle.ts` into `Walker.weaponLineCast`) | `'none'` | the port's bots cast no weapon line: the original casts it only when the body's controller (`actor+0xc0`) answers its vtable +0x2c (D:L416630-416633); `CSealCtrlAi`'s table 0x6693f0 holds `FUN_00575c30` there (the ELF's word at 0x66941c), whose two instructions return 0 (`jr ra`, `v0` = 0 in the delay slot) -- re-read on the disc's `socom2_game.elf` 2026-11-04, as research 334 s9 and 199 s12.5 read it -- where the local player's `CSealCtrl` (0x6694b0) holds 0x5431f0, returning 1; the port's bots are the AI's model (`MoverSim.ai`, `IsAi`). The same on r0004 (OT.R97): the r0004 investigation's function-diff table (`scratch/code-diff/classify.json`) pairs the cast `FUN_0054d9a0` with r0004's 0x552790, 'changed' (raw_diff 97 of 674 words), whose recompiled output (`FUN_00552790_0x552790.cpp`) still loads the controller's vtable +0x2c, calls it and branches on the answer (0x552f74-0x552f8c) before its `+0x1344` read; `FUN_00575c30`'s twin 0x57b010 is 'same' (raw_diff 0; `FUN_0057b010_0x57b010.cpp`: `jr ra`, `v0` = 0). The r0004 `CSealCtrlAi` vtable slot itself is not re-read. The controller's ruling between readings (6d, 2026-11-04, for the owner to see; plan Log). With or without it the bots' 40-tall app-4 climb passes (`botClimbNavigation.test.ts`, the jump reading no contact) (s3.8) | reading, pending review (the vtable word re-read by the implementer; a reviewer's re-read owed); `CRemoteCtrl` (0x5e6250) answers 0 too -- the room's simulation of a remote human casts, as that human's own console does |
 | `DIVE_ROOT_FALL_READING` (`traversal.ts`) | 98.100006 | the dive's hidden timer's speed gained a second on the ground: `FUN_0059b440`'s literal (D:L456552-456557), not the table's 235 (section 6.1, DIVE-ROOT) | open, a reading, pending review; a memory trace of `+0x133c` and `+0xfac` through a dive settles it |

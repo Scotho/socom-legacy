@@ -51,6 +51,22 @@ const page = (src: AssetSource, lazy: readonly string[] = []): Page => assets.pa
 const same = (a: Rgba | null, b: Rgba | null): boolean => !!a && !!b && a.width === b.width && a.height === b.height && Buffer.from(a.data).equals(Buffer.from(b.data));
 
 describe('GM-29: the front end\'s textures prefetched off the main thread', () => {
+  it.skipIf(!UIMP_PRESENT)('releases decoded bank images and rejects an in-flight prefetch without rereading the banks', async () => {
+    const reads: string[] = [], p = page(source(reads)); await p.ready;
+    const names = uimpNames(), before = p.textures(names[0]!);
+    const { decoder } = await inThread(); let release!: () => void;
+    const wait = new Promise<void>(r => { release = r; });
+    const pf = p.prefetch({ decoder: async j => { await wait; return decoder(j); } });
+    await new Promise(r => setTimeout(r, 0));
+    const count = reads.length;
+    expect(typeof p.releaseDecoded).toBe('function'); p.releaseDecoded!();
+    release(); expect(await pf.finished).toBeNull(); expect(pf.decoded).toBe(0);
+    const after = p.textures(names[0]!);
+    expect(after).not.toBe(before); expect(same(after, before)).toBe(true); expect(reads).toHaveLength(count);
+    const again = p.prefetch({ decoder }); expect(await again.finished).toBeNull(); expect(again.decoded).toBeGreaterThan(0);
+    p.releaseDecoded!(); expect(same(p.textures(names[0]!), before)).toBe(true);
+  });
+
   it('states its byte cap (an adaptation, no original): 32 MiB, above the 26,159,104 bytes of every bank the page loads', () => {
     expect((assets as Record<string, unknown>).UI_TEXTURE_PREFETCH_ADAPTATION).toEqual({ maxBytes: 32 * 1024 * 1024 });
   });

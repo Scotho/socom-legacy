@@ -37,8 +37,8 @@ const tail = (b: BodyState): number[] => [b.view!, b.clock!, b.swayX!, b.swayY!]
 const NOT_A_STATE = [13, 15, 200, -1, 2.5, Number.NaN];
 
 describe('WIRE-16: protocol 16 and the frames\' sizes (research 402 s3)', () => {
-  it('the version is 16, the first whose bodies and commands carry the view (VIEW_SINCE_PROTOCOL); the raise came with 14', () => {
-    expect(PROTOCOL_VERSION).toBe(16);
+  it('the view came with 16 (VIEW_SINCE_PROTOCOL), the raise with 14; the version is 17 since WM-DATA-17 (the hand byte, ./netCodecHand.test.ts)', () => {
+    expect(PROTOCOL_VERSION).toBe(19);   // LATER 1141 (the round's `at`, research 441)
     expect(VIEW_SINCE_PROTOCOL).toBe(16);
     expect(RAISED_SINCE_PROTOCOL).toBe(14);
   });
@@ -48,9 +48,9 @@ describe('WIRE-16: protocol 16 and the frames\' sizes (research 402 s3)', () => 
     expect(encodeCommands({ viewTick: 1, commands: [command(1), command(2), command(3)] }).byteLength).toBe(60);
   });
 
-  it('a body is 55 bytes: a snapshot of n bodies and no own state is 12 + 1 + 55n + 1', () => {
+  it('a body is 55 bytes at 16, 56 since 17 (the hand byte after the tail): a snapshot of n bodies and no own state is 12 + 1 + 56n + 1', () => {
     for (const n of [1, 2, 15]) {
-      expect(encodeSnapshot({ tick: 1, own: null, bodies: Array.from({ length: n }, (_, i) => body(i + 1)) }).byteLength).toBe(12 + 1 + 55 * n + 1);
+      expect(encodeSnapshot({ tick: 1, own: null, bodies: Array.from({ length: n }, (_, i) => body(i + 1)) }).byteLength).toBe(12 + 1 + 56 * n + 1);
     }
   });
 });
@@ -113,7 +113,7 @@ describe('WIRE-16: the body\'s tail (bytes 52-54)', () => {
   it('a zero tail round-trips as zero; a body without the fields (a hostage\'s, a test\'s) is a zero tail', () => {
     for (const b of [body(1, { view: 0, clock: 0, swayX: 0, swayY: 0 }), body(2)]) {
       const bytes = encodeSnapshot({ tick: 1, own: null, bodies: [b] });
-      expect(Array.from(bytes.subarray(bytes.byteLength - 4, bytes.byteLength - 1))).toEqual([0, 0, 0]);   // the door count after it
+      expect(Array.from(bytes.subarray(bytes.byteLength - 5, bytes.byteLength - 2))).toEqual([0, 0, 0]);   // the hand byte and the door count after it
       expect(tail(one(b))).toEqual([0, 0, 0, 0]);
     }
   });
@@ -219,9 +219,11 @@ describe('WIRE-16: the frozen protocol-15 decoders (codecV15), decode only', () 
       { tick: 8, own: null, bodies: [] },
     ]) {
       const fifteen = encodeSnapshotV15(s);
-      expect(fifteen.byteLength).toBe(encodeSnapshot(s).byteLength - 3 * s.bodies.length);
+      expect(fifteen.byteLength).toBe(encodeSnapshot(s).byteLength - 4 * s.bodies.length);   // 16's three and 17's hand
       const read = decodeSnapshotV15(fifteen);
-      expect(read).toEqual(decodeSnapshot(encodeSnapshot(s)));
+      // The frozen 15 decoder names no hand (WM-DATA-17's field; absent is 0): the live one's read without it.
+      const live = decodeSnapshot(encodeSnapshot(s));
+      expect(read).toEqual({ ...live, bodies: live.bodies.map(({ hand: _hand, ...b }) => b) });
       for (const b of read.bodies) expect(tail(b)).toEqual([0, 0, 0, 0]);
     }
     expect(decodeSnapshotV15(encodeSnapshotV15({ tick: 1, own: null, bodies: [body(2, { flags: 1 << 17 })] })).bodies[0]!.flags).toBe(1 << 17);

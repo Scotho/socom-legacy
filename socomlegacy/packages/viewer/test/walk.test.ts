@@ -13,7 +13,7 @@ import {
   STANCES, TICK,
   type GroundData, type Stance, type WalkInput,
 } from '../src/walk';
-import { PRONE_ROOT, SWAP_OVERLAY_SECONDS, swapPlayedOut, wallHeadLine, type ActionEnd } from '../src/mover';
+import { PRONE_ROOT, RAMP_LEAD, SWAP_OVERLAY_SECONDS, swapPlayedOut, throttleFrameEnds, wallHeadLine, type ActionEnd } from '../src/mover';
 import { PICKUP_SWAP_OWN_LAG_READING } from '../src/walk';
 import { playedOutCommand } from '../src/mover';
 import { motionTableFromArchive } from '../src/motionTable';
@@ -158,7 +158,9 @@ describe('the game\'s speeds (W2.2b, W2.R2): motion.rdr\'s bands through FUN_005
     const { v } = speeds(FORWARD, 30);
     const first90 = v.findIndex((x) => x >= 0.9 * 65) + 1;
     expect(first90).toBe(11);                                   // 0.9 / 5 = 0.18 s = 10.8 ticks, up to the next tick
-    expect(v[0]).toBeCloseTo(65 * 5 / 60, 6);                   // one tick of 5 a second
+    // LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): the move reads the ramp half a tick ahead, so the
+    // first tick runs at 1.5 ticks of 5 a second (the original's first frame moves whole at its 1/6 step).
+    expect(v[0]).toBeCloseTo(65 * (1 + RAMP_LEAD) * 5 / 60, 6);
     expect(v[11]).toBeCloseTo(65, 6);                           // full at 0.2 s
     // The limit is lower_z_accel 2 with the stick at rest and upper 5 at full: (1 - (1 - |s|)^8) between them.
     expect(throttleStep(0, 1, 'forward', TICK)).toBeCloseTo(5 / 60, 9);
@@ -166,14 +168,19 @@ describe('the game\'s speeds (W2.2b, W2.R2): motion.rdr\'s bands through FUN_005
     expect(throttleStep(0, 0.5, 'forward', TICK)).toBeCloseTo((2 + 3 * (1 - 0.5 ** 8)) / 60, 9);
   });
 
-  it('a stick let go stops at once, from full or half (FUN_00586f00 idles it; FUN_00586570 skips the ramp at rest)', () => {
+  it("a stick let go on a game frame's end stops at once, from full or half; let go between two frames' ends, a tick later (IDLE-FRAME; FUN_00586570 standing, FUN_00586f00 crouched)", () => {
+    // IDLE-FRAME (the idle test on the frame's read; research 208 s10): tick 61 from the placing ends a game frame, so the
+    // release there is read at once; tick 60 does not, so a release there runs that tick on the last read and stops on 61.
     const run = speeds(FORWARD, 60);
     expect(speeds(STILL, 1, 'stand', run.w).v[0]).toBe(0);
+    const mid = speeds(STILL, 2, 'stand', speeds(FORWARD, 59).w).v;
+    expect(mid[0]).toBeCloseTo(65, 6);                             // tick 60, between frames' ends: the last read runs on
+    expect(mid[1]).toBe(0);                                         // tick 61, the frame's end: stopped
     const half = speeds({ forward: 0.5, right: 0, boost: false }, 60);
     expect(speeds(STILL, 1, 'stand', half.w).v[0]).toBe(0);
     // Easing off without letting go is the ramp's: from 0.5 to 0.1 the stick falls at the limit.
     const ease = speeds({ forward: 0.1, right: 0, boost: false }, 1, 'stand', speeds({ forward: 0.5, right: 0, boost: false }, 60).w).v;
-    expect(ease[0]).toBeCloseTo(65 * (0.5 - (2 + 3 * (1 - 0.9 ** 8)) / 60), 6);
+    expect(ease[0]).toBeCloseTo(65 * (0.5 - (1 + RAMP_LEAD) * (2 + 3 * (1 - 0.9 ** 8)) / 60), 6);   // LATER 1164: read half a tick ahead
     expect(throttleStep(0.5, 0, 'forward', TICK)).toBeCloseTo(0.5 - 2 / 60, 9);
     expect(throttleStep(1, 0, 'forward', TICK)).toBe(0);
     expect(throttleStep(1, -1, 'right', TICK)).toBe(-1);       // the lateral snap: > 0.78, > 7.8 a second
@@ -310,7 +317,8 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
     expect(w.state.y).toBe(0);
     // sqrt(2 x 42 / 235) = 0.598 s; the fall is stepped at 60 Hz and starts on the tick after the edge, so +-2 ticks.
     expect(SEAL_TUNING.gravity).toBe(235);
-    expect(Math.abs((landed - off) * TICK - Math.sqrt(2 * 42 / 235))).toBeLessThanOrEqual(2 * TICK);
+    // LATER 1176 (`LANDING_FRAME_READING`): the walk-off lands a game frame after the frame that reaches the floor.
+    expect(Math.abs((landed - off) * TICK - Math.sqrt(2 * 42 / 235) - GAME_FRAME_DT)).toBeLessThanOrEqual(2 * TICK);
     expect(w.state.x).toBeGreaterThan(30 + 0.5 * 65);          // the run's 65 carried through the air
     expect(inAir).toBe('fall');                                 // FUN_0057e050: the in-air clip on the way down
     // The contact at sqrt(2 x 235 x 42) = 140 is over land_hard_fall_rate 115 (FUN_005af590): the hard landing, which
@@ -386,7 +394,9 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
       const w = new Walker(world([floor(-200, -200, 30, 200, 0), floor(30, -200, 200, 200, h)]));
       w.place(0, 0, 0);
       w.state.yaw = facing(0, 0, 1, 0);
-      for (let i = 0; i < 120; i++) w.tick(FORWARD);
+      // LATER 1148 (research 444 s9, GROUND_FLOOR_PROBE_READING): 119 ticks end a game frame, where the floor is judged;
+      // the tick between two frame ends is unprobed and may stand a tick past the refused edge.
+      for (let i = 0; i < 119; i++) w.tick(FORWARD);
       return w;
     };
     for (const h of [7, 19.5]) {
@@ -449,11 +459,12 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
     // no rise (`FUN_005b5d40` D:L470163-470290), and this ramp is ditype 1, a ground surface the segments do not test (bit 1
     // clear; `FUN_0054aa30`'s records take the movement surfaces only). So the step onto it is taken, the slide starts from
     // the uphill velocity's part along the fall line and carries the body up a little before it turns back
-    // (`FUN_0054edf0`, research 201 s3; `./steepSlide`): measured, at 1 s x 33.88, y 5.53, never over 5.70.
+    // (`FUN_0054edf0`, research 201 s3; `./steepSlide`): measured, at 1 s x 33.23, y 4.61, never over 4.86 (the port's own
+    // values; x 33.88, y 5.53, top 5.70 before LATER 1164's ramp lead brought the body to the face 0.54 sooner along it).
     const steep = ramp(55);
     expect(steep.state.x).toBeGreaterThan(30);
     expect(steep.state.x).toBeLessThan(35);
-    expect(top).toBeGreaterThan(5);
+    expect(top).toBeGreaterThan(4.5);
     expect(top).toBeLessThan(SEAL_TUNING.stepHeight);
   });
 
@@ -556,9 +567,11 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
       nearest = Math.min(nearest, Math.hypot(w.state.x, w.state.z));
     }
     // SEGMENT-BODY (re-judged; was "> 0.5 moved, to within 0.5 of the stand-off", the disc's): every face within the
-    // segments' reach, each put out by the depth less 1 or held by the jam rule, the press still moves the body -- not
-    // toward the point: the depth push carries it 0.26 back from the face it faces.
-    expect(Math.hypot(w.state.x - x, w.state.z - z)).toBeGreaterThan(0.1);
+    // segments' reach, each put out by the depth less 1 or held by the jam rule. Re-judged again by LATER 1194 (the
+    // segments cast once a game frame on its whole move, `GROUND_WALLS_PER_TICK_READING` 'per-frame'; was "still moves",
+    // the depth push carrying it 0.26 back, cast per tick): the frame's segments meet more than two faces more than 1
+    // deep, and the jam (`FUN_005483d0` D:L413598-413609) holds the body where it stands. The port's reading, no capture.
+    expect(Math.hypot(w.state.x - x, w.state.z - z)).toBeLessThan(0.1);
     expect(nearest).toBeLessThan(2);
     expect(w.state.y).toBe(0);
   });
@@ -580,7 +593,10 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
     w.state.yaw = facing(w.state.x, w.state.z, 20, 0);
     for (let i = 0; i < 180; i++) w.tick(FORWARD);
     expect(w.state.y).toBe(0);
-    expect(w.state.x).toBeCloseTo(-0.958, 3);
+    // The port's own stand-off: where the first contact's move leaves the body, held from then on (steady from tick 20).
+    // -0.958 before LATER 1164; the ramp lead makes the arriving move larger at that contact (RAMP_LEAD, strafeRamp.test.ts).
+    // LATER 1194 (the walls once a game frame) leaves it: -1.545 under 'per-frame' and 'per-tick' alike on the same tree.
+    expect(w.state.x).toBeCloseTo(-1.545, 3);
     expect(w.wallHits().some((h) => h.poly.path === 'worldmodel/ramp')).toBe(true);
   });
 
@@ -600,7 +616,7 @@ describe('the fall and the step (W2.2b): dynamics.rdr\'s gravity, touch distance
     w.state.yaw = facing(w.state.x, w.state.z, 20, 0);
     let top = 0;
     for (let i = 0; i < 180; i++) { w.tick(FORWARD); top = Math.max(top, w.state.y); }
-    expect(top).toBeGreaterThan(5);
+    expect(top).toBeGreaterThan(4.5);
     expect(top).toBeLessThan(SEAL_TUNING.stepHeight);
     expect(w.state.x).toBeLessThan(5);
   });
@@ -660,11 +676,13 @@ describe('the mover, continued (W1.4)', () => {
     for (let i = 0; i < 180; i++) w.tick(FORWARD);
     // SEGMENT-BODY (re-judged; was `BODY_RADIUS` 3.5, the disc's stand-off): head on, the first segment to cross the
     // wall is the centre line, 1.1 x 1.4 x 3.5 = 5.39 (checkpoint 4: the head line runs along the facing by the muzzle
-    // only prone, `HEAD_LINE_MUZZLE_READING`; ac's capture at M51 house2), plus the tick's move (65 a second);
-    // the move's part along the normal is taken away there (`FUN_005483d0` D:L413557-413567) -- it stops between.
+    // only prone, `HEAD_LINE_MUZZLE_READING`; ac's capture at M51 house2), plus the FRAME's move (65 a second x
+    // `GAME_FRAME_DT`: the segments are cast once a game frame on its whole displacement, `FUN_0054aa30` D:L415395-415402;
+    // LATER 1194, `GROUND_WALLS_PER_TICK_READING` 'per-frame' -- was the tick's move); the move's part along the normal is
+    // taken away there (`FUN_005483d0` D:L413557-413567) -- it stops between.
     const standOff = 50 - w.state.x;
     expect(standOff).toBeGreaterThan(1.1 * 1.4 * 3.5 - 0.01);
-    expect(standOff).toBeLessThan(1.1 * 1.4 * 3.5 + 65 * TICK + 0.01);
+    expect(standOff).toBeLessThan(1.1 * 1.4 * 3.5 + 65 * GAME_FRAME_DT + 0.01);
     expect(BODY_RADIUS).toBe(3.5);                        // research 24 section 2 step 3
     expect(w.state.z).toBeCloseTo(0, 6);
     // Now at 45 degrees into it: the part into the wall is taken out and the rest slides along, no nearer.
@@ -798,14 +816,14 @@ describe('the mover, continued (W1.4)', () => {
   it('from below, the deck\'s face is a wall at the body\'s height', () => {
     // SEGMENT-BODY (re-judged): the deck's face wound toward the walker (+x), as a hull face is; the body stops where its
     // segments first cross it -- the centre line, 5.39 (the head line takes the muzzle only prone,
-    // `HEAD_LINE_MUZZLE_READING`), plus the tick's move -- not the disc's 3.5.
+    // `HEAD_LINE_MUZZLE_READING`), plus the frame's move (LATER 1194: cast once a game frame) -- not the disc's 3.5.
     const deck = world([floor(-200, -200, 200, 200, 0), floor(-100, -100, 30, 100, 42), wallXEast(30, -100, 100, 0, 42)]);
     const below = new Walker(deck);
     below.place(80, 10, 0);
     below.state.yaw = facing(80, 0, 0, 0);
     for (let i = 0; i < 180; i++) below.tick(FORWARD);
     expect(below.state.x - 30).toBeGreaterThan(1.1 * 1.4 * 3.5 - 0.01);
-    expect(below.state.x - 30).toBeLessThan(1.1 * 1.4 * 3.5 + 65 * TICK + 0.01);
+    expect(below.state.x - 30).toBeLessThan(1.1 * 1.4 * 3.5 + 65 * GAME_FRAME_DT + 0.01);
     expect(below.state.y).toBe(0);
   });
 
@@ -813,7 +831,10 @@ describe('the mover, continued (W1.4)', () => {
     const w = new Walker(plain);
     w.place(190, 0, 0);
     w.state.yaw = facing(0, 0, 1, 0);
-    for (let i = 0; i < 120; i++) w.tick(FORWARD);
+    // LATER 1148 (research 444 s9, GROUND_FLOOR_PROBE_READING): 119 ticks end a game frame, where the floor is judged; the
+    // tick between two frame ends holds a move over no floor for the frame's end (GROUND_FRAME_TICKS_READING), so no tick
+    // stands past the edge.
+    for (let i = 0; i < 119; i++) w.tick(FORWARD);
     expect(w.state.x).toBeLessThanOrEqual(200);
     expect(w.state.x).toBeGreaterThan(199);
     // Interpolation: half a tick into the next one, the eye is between the last two positions.
@@ -826,6 +847,143 @@ describe('the mover, continued (W1.4)', () => {
     const x1 = v.state.x;
     expect(v.eye()[0]).toBeGreaterThan(x0);
     expect(v.eye()[0]).toBeLessThan(x1);
+  });
+
+  it('LATER 1148: a diagonal walk into an edge with no floor beyond stops dead at it, not sliding along it (research 444 s9)', () => {
+    // GROUND_AXIS_RETRY_READING 'none': the frame end's probe takes the frame's move or puts the body back
+    // (FUN_005b0420 D:L467091-467103); the port's old per-part retry along x then z (`step`) is not on the ground walk's
+    // path. Before LATER 1148 phase B the body slid along the edge (z 87.71 after 120 ticks; the review of 42550490c1).
+    const w = new Walker(plain);
+    w.place(190, 0, 0);
+    w.state.yaw = facing(0, 0, 1, 1);
+    for (let i = 0; i < 120; i++) w.tick(FORWARD);
+    expect(w.airborne).toBe(false);
+    expect(w.state.x).toBeLessThanOrEqual(200);
+    expect(w.state.z).toBeLessThan(12);
+  });
+
+  it('LATER 1148: a held move over a floorless crack is wall-tested with the frame end\'s move as one: no nearer the wall than with no crack', () => {
+    // The re-review of e9d8e8c0ee, finding 1; the main controller's ruling: the original's one move a frame, the walls
+    // only shortening it (`FUN_005483d0` D:L413918), so no tick moves the body further than the frame's wall-shortened
+    // move. A crack narrower than one frame's move holds the in-between tick's move (GROUND_FRAME_TICKS_READING); a wall
+    // stands beyond it. With no crack the centre stops at the centre line's 5.39 (1.1 x 1.4 x 3.5, the case above).
+    const yaw = facing(0, 0, 1, 0);
+    const standOff = (gap: number): number => {
+      let closest = Infinity;
+      for (let W = 105.5; W <= 106.5 + 1e-9; W += 0.05) {
+        const g = world(gap === 0 ? [floor(-200, -200, 200, 200, 0), wallX(W, -100, 100, -5, 30)]
+          : [floor(-200, -200, 100, 200, 0), floor(100 + gap, -200, 200, 200, 0), wallX(W, -100, 100, -5, 30)]);
+        for (let x0 = 80; x0 < 82.2; x0 += 0.137) {
+          const w = new Walker(g);
+          w.place(x0, 0, 0);
+          w.state.yaw = yaw;
+          for (let t = 0; t < 120; t++) { w.tick(FORWARD); closest = Math.min(closest, W - w.state.x); }
+        }
+      }
+      return closest;
+    };
+    expect(standOff(0)).toBeGreaterThan(1.1 * 1.4 * 3.5 - 0.01);
+    expect(standOff(0.6)).toBeGreaterThan(1.1 * 1.4 * 3.5 - 0.01);
+    expect(standOff(1.0)).toBeGreaterThan(1.1 * 1.4 * 3.5 - 0.01);
+  });
+
+  // LATER 1148 (research 444 s9.2): the frame end's held move. A tick between two frame ends holds its move only when
+  // it would end over no floor (`groundFrameMove`, GROUND_FRAME_TICKS_READING); the tick that ends the game frame then
+  // takes the held move with its own, so the body covers two ticks' move on one tick, after one still tick. These pin
+  // where that happens and how far it goes. The run's step a tick: `seal_run` 65 u/s (scene/src/tuning.ts, SEAL_LOCOMOTION) / 60.
+  const RUN_TICK_STEP = SEAL_LOCOMOTION.find((b) => b.clip === 'seal_run')!.maxVelocity * TICK;
+  const heldOf = (w: Walker): number => { const m = w as unknown as { groundHeldX_: number; groundHeldZ_: number }; return Math.hypot(m.groundHeldX_, m.groundHeldZ_); };
+
+  it('LATER 1148: over solid floor a running body advances one run tick\'s move (65 / 60) EVERY tick: never a held tick, never a double step', () => {
+    for (const [tx, tz] of [[1, 0], [0, -1], [0.6, 0.8], [-0.28, 0.96]] as const) {
+      const w = new Walker(world([floor(-200, -200, 200, 200, 0)]));
+      w.place(-150 * tx, 0, -150 * tz);
+      w.state.yaw = facing(0, 0, tx, tz);
+      for (let t = 0; t < 40; t++) w.tick(FORWARD);               // the ramp from rest to the run band (12 ticks), with margin
+      for (let t = 0; t < 200; t++) {                              // 200 ticks: 216.7 u, every frame-end phase many times over
+        const x0 = w.state.x, z0 = w.state.z;
+        w.tick(FORWARD);
+        expect(Math.hypot(w.state.x - x0, w.state.z - z0), `tick ${t} along (${tx}, ${tz})`).toBeCloseTo(RUN_TICK_STEP, 6);
+        expect(heldOf(w)).toBe(0);
+        expect(w.airborne).toBe(false);
+      }
+    }
+  });
+
+  it('LATER 1148: at a floorless crack the held ticks are only a frame\'s ticks before its end (one; two in a 3-tick frame), and the frame end\'s step is at most the frame\'s ticks\' move', () => {
+    // A game frame is 2.002 ticks (GROUND_FRAME_TICKS_READING): numbered from the placing, its ends fall every second
+    // tick but at n 3, 986, 1971 ..., whose frames span three. A frame of two ticks holds at most one tick's move and
+    // its end steps at most two ticks' (2.17); one of three holds at most two and steps at most three (3.25).
+    const ends: number[] = [];
+    for (let n = 1; n < 1200; n++) if (throttleFrameEnds(n)) ends.push(n);
+    const threeEnd = ends.find((n, i) => i > 0 && n > 100 && n - ends[i - 1]! === 3)!;
+    expect(threeEnd).toBe(986);
+    const counts = { double: 0, triple: 0, heldTwo: 0 };
+    for (const lead of [0, threeEnd - 30]) {                       // run at once; or stand still to meet the frame of three at the crack
+      for (const gap of [0.3, 0.6, 1.0, 1.75, 2.1]) {
+        const g = world([floor(-200, -200, 100, 200, 0), floor(100 + gap, -200, 200, 200, 0)]);
+        for (let x0 = lead === 0 ? 86 : 80; x0 < (lead === 0 ? 90.4 : 84); x0 += lead === 0 ? 0.137 : 0.05) {
+          const w = new Walker(g);
+          w.place(x0, 0, 0);
+          w.state.yaw = facing(0, 0, 1, 0);
+          let n = 0, lastEnd = 0, prevStep = -1, heldRun = 0;
+          for (; n < lead; n++) { w.tick(STILL); if (throttleFrameEnds(n + 1)) lastEnd = n + 1; }
+          for (let t = 0; t < 60 && w.state.x <= 100 + gap && !w.airborne; t++) {
+            const xa = w.state.x;
+            w.tick(FORWARD);
+            n++;
+            const end = throttleFrameEnds(n), span = end ? n - lastEnd : 0;
+            const at = `gap ${gap} from ${x0.toFixed(3)}, tick ${n}`;
+            const step = Math.abs(w.state.x - xa);
+            heldRun = heldOf(w) > 0 ? heldRun + 1 : 0;
+            expect(heldRun, at).toBeLessThanOrEqual(n - lastEnd);  // only this frame's ticks before its end
+            expect(heldRun, at).toBeLessThanOrEqual(2);
+            if (heldRun === 2) counts.heldTwo++;
+            if (!end) expect(step, at).toBeLessThanOrEqual(RUN_TICK_STEP + 1e-6);   // between frame ends: at most its own move
+            else expect(step, at).toBeLessThanOrEqual(span * RUN_TICK_STEP + 1e-6);  // the frame end: at most the frame's ticks' move
+            if (end && step > RUN_TICK_STEP + 1e-6 && w.state.x > xa) {   // the held move taken at the frame end
+              expect(prevStep, `${at}: the tick before is still`).toBe(0);
+              if (Math.abs(step - 2 * RUN_TICK_STEP) < 1e-6) counts.double++;
+              if (Math.abs(step - 3 * RUN_TICK_STEP) < 1e-6) counts.triple++;
+            }
+            if (end) lastEnd = n;
+            prevStep = step;
+          }
+        }
+      }
+    }
+    expect(counts.double).toBeGreaterThan(0);                      // the sweep meets the 2-tick frame's 2.17 step
+    expect(counts.heldTwo).toBeGreaterThan(0);                     // and the 3-tick frame's two held ticks
+    expect(counts.triple).toBeGreaterThan(0);                      // and its 3.25 step
+  });
+
+  it('LATER 1148: at a floorless crack no tick shows a position the next frame end puts back: the body never steps back (no held-edge jitter)', () => {
+    // The main controller's ruling (09:3xZ): the original makes one move a frame (`FUN_005483d0` D:L413918), so no tick
+    // shows a position the frame end will not keep. A tick between two frame ends whose own move lands on floor but whose
+    // frame end's probe point would be over no floor holds too (GROUND_FRAME_TICKS_READING). Before: running from x 90 at
+    // a 0.6 crack (floor to x 100) the in-between tick stepped 1.083 u out to 99.208 and the frame end put it back at
+    // 98.125, every frame. Walking +x, x never decreases; and a held body stands still.
+    const starts = [90];                                           // the brief's case first: x 90 at the 0.6 crack
+    for (let x0 = 86; x0 < 90.4; x0 += 0.137) starts.push(x0);
+    for (const gap of [0.6, 0.3, 1.0, 1.75, 2.1]) {
+      const g = world([floor(-200, -200, 100, 200, 0), floor(100 + gap, -200, 200, 200, 0)]);
+      for (const x0 of starts) {
+        for (const lead of [0, 1]) {                               // the frame ends on even ticks, or (one still tick first) on odd
+          const w = new Walker(g);
+          w.place(x0, 0, 0);
+          w.state.yaw = facing(0, 0, 1, 0);
+          for (let t = 0; t < lead; t++) w.tick(STILL);
+          const xs: number[] = [w.state.x];
+          for (let t = 0; t < 80 && w.state.x <= 100 + gap && !w.airborne; t++) {
+            const xa = w.state.x;
+            w.tick(FORWARD);
+            xs.push(w.state.x);
+            expect(w.state.x, `gap ${gap} from ${x0.toFixed(3)} lead ${lead}, tick ${t}: ${xs.slice(-6).map((x) => x.toFixed(3)).join(' ')}`)
+              .toBeGreaterThanOrEqual(xa - 1e-9);
+          }
+        }
+      }
+    }
   });
 });
 
@@ -919,7 +1077,8 @@ describe.skipIf(!MP2)(`walking Frostfire${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, 
     }
     expect(off).toBeGreaterThan(0);
     expect(ledge.state.y).toBe(100);
-    expect(Math.abs((landed - off) * TICK - Math.sqrt(2 * 42 / 235))).toBeLessThanOrEqual(2 * TICK);
+    // LATER 1176 (`LANDING_FRAME_READING`): the walk-off lands a game frame after the frame that reaches the floor.
+    expect(Math.abs((landed - off) * TICK - Math.sqrt(2 * 42 / 235) - GAME_FRAME_DT)).toBeLessThanOrEqual(2 * TICK);
   });
 });
 
@@ -1687,8 +1846,10 @@ describe('walk mode (W1.4 step 5)', () => {
       expect(w.stance).toBe('stand');
       mode.launcherRaised();
       for (let i = 0; i < 3; i++) mode.frame(TICK);
-      expect(w.stance, 'the raise: crouched at once').toBe('crouch');        // today: 'stand'
+      // R4P-247 (QL55B-PC2; the set-state FUN_0058fcb0 at the raise's pop): standing through the raise, crouched once it pops
+      expect(w.stance, 'the raise still on: standing').toBe('stand');
       for (let i = 0; i < 120; i++) mode.frame(TICK);
+      expect(w.stance, 'the raise popped: crouched').toBe('crouch');
       mode.setStance('stand');
       for (let i = 0; i < 30; i++) mode.frame(TICK);
       expect(w.stance, 'a stand press under the set').toBe('crouch');
@@ -2863,7 +3024,10 @@ describe('round 4: the rifle <-> pistol swap in the picker (FUN_005a64c0)', () =
     }
     const j = at();
     expect(j.jump()).toBe(true);
-    expect(j.swapWeapon('pistol')).toBeNull();                       // the jump still refuses it
+    // The original's jump refuses it (FUN_005b4340 code 4); the owner's B-65 extended to the standing jump (2026-11-25,
+    // `AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION`) takes it as the moving overlay, the jump going on (was: toBeNull()).
+    expect(j.swapWeapon('pistol')).toMatchObject({ action: null, overlay: true });
+    expect(j.action?.name).toBe('jump');
   });
 
   it('the standing swap cut by the stick goes on as the overlay at its phase (FUN_00550ef0 418226-418245)', () => {
@@ -3058,7 +3222,7 @@ describe('a running jump up a slope lands on it, never under it (owner 2026-09-2
 
 describe.skipIf(!MP2)(`a running jump up Frostfire's rail ramp${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
   // LATER 682 (closed 2026-11-04): under the weapon line the ramp's own floor is stored about 23 ahead
-  // (`WEAPON_LINE_POLYGON_SET_PLACEHOLDER`), and the r0001 reading refused the running jump with a stored contact; the
+  // (`WEAPON_LINE_POLYGON_SET_READING`), and the r0001 reading refused the running jump with a stored contact; the
   // r0004 jump-near-wall capture proved the running jump reads no contact (`JUMP_CONTACT_PROVEN` 'none'), so it lands.
   it('rmp1 (x 680-705, z 891-975, y 100 -> 142 at 26.6 degrees, the 100 floor under it): lands on the ramp', async () => {
     const map = await loadMap(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB');
@@ -3115,7 +3279,10 @@ describe('an airborne column is entered on the ground\'s own pick (OWNER-5; FUN_
     const up = (p: WorldPoly): WorldPoly => ({ ...p, points: Float32Array.from([...p.points.slice(9, 12), ...p.points.slice(6, 9), ...p.points.slice(3, 6), ...p.points.slice(0, 3)]) });
     const w = new Walker(world([floor(-200, -200, 200, -20, 0), up(floor(-200, -20, 200, 200, 12))]));
     expect(w.place(0, PROBE_LIFT, -150)).toBe(true);
-    const r = crossing(w, -20, -32);
+    // Pressed 10 short of the edge (-32 before LATER 1164): the ramp lead moves each tick's landing point, and a press at
+    // -32 now crosses with the feet at 5.64, within step_height of the top, where this test cannot tell the pick from the
+    // step; at -30 the arc crosses at 3.76 (-28: 1.62; -35: 7.26), the pick's as before.
+    const r = crossing(w, -20, -30);
     expect(r.crossY).not.toBeNull();
     // Entered before the feet were within step_height of the top: the column is the pick's, not the ground step's.
     expect(r.crossY!).toBeLessThan(12 - SEAL_TUNING.stepHeight);
@@ -3179,6 +3346,22 @@ describe('a spawn stands on the tick\'s pick: from the feet + the standing lift 
     return { fly, mode: m };
   };
 
+  it('LATER 1201 (the fresh review F1): the page live walker takes the raise from its commands source each frame', () => {
+    const { mode: m } = mode(null);
+    expect(m.respawn([0, 0, 0], 0)).toBe(true);
+    let up = true;
+    m.setRaiseSource(() => up);
+    m.frame(1 / 60);
+    expect(m['walker']!.raised).toBe(true);
+    up = false;
+    m.frame(1 / 60);
+    expect(m['walker']!.raised).toBe(false);
+    m.setRaiseSource(null);
+    up = true;
+    m.frame(1 / 60);
+    expect(m['walker']!.raised).toBe(false);                       // no source: down, as the command
+  });
+
   it('the server\'s respawn at feet 0 under the crate stands on the ground, not on the crate 13 over it', () => {
     const { mode: m } = mode(null);
     expect(m.respawn([0, 0, 0], 0)).toBe(true);
@@ -3203,14 +3386,19 @@ describe('a spawn stands on the tick\'s pick: from the feet + the standing lift 
     [{ modelName: 'worldmodel', path: 'worldmodel/ground', first: 0, count: 1 }, { modelName: 'worldmodel', path: 'worldmodel/kerb', first: 1, count: 1 }],
   );
 
-  it('the respawn at feet 0 under a kerb 6.25 up stands on the kerb, the floor the walking tick picks', () => {
+  it('the respawn at feet 0 under a kerb 6.25 up stands on the kerb after its first frame (run at the respawn), the floor the walking tick picks', () => {
+    // L208 (seat-kill's order read, kill/keyjob-l208-order.md; a reading, pending review): the spawn SEEDS the body at the
+    // feet with no pick at the seed column; its first frame picks from the moved position with the same origin (the feet
+    // + probeLiftOf('stand')), so the kerb is the spawn's floor at that frame's end -- and no further lift after it.
     const m = new WalkMode(new FlyCamera(canvas()), () => undefined);
     m.setGround(KERB, null);
     made.push(m);
     expect(probeLiftOf('stand')).toBe(11.48);
     expect(m.respawn([0, 0, 0], 0)).toBe(true);
     const w = m['walker']!;
-    expect(w.state.y).toBe(6.25);
+    // The respawn runs the seed's first frame at once (the root-fix review's F1: the page runs the room's still frame).
+    expect(w.seeded, 'its first frame run').toBe(false);
+    expect(w.state.y, 'on the kerb at the first frame end').toBe(6.25);
     w.tick(FORWARD);
     expect(w.state.y).toBe(6.25);                                   // no lift on the first walking tick
   });
@@ -3747,13 +3935,16 @@ describe('LATER 220: the walker\'s terms of the prompts\' common gate (Walker.ga
   // The review's F1: term 4's words (D:L462622-462626, D:L495211-495237) are the rifle's throws, the tosses (the
   // pistol's two among them) and the rifle's peek tosses -- the pistol's throws and peek tosses are not among them, and
   // the port plays the rifle's clips for them (HOLD_OVER_THROW_HAND_READING): with the pistol in hand, no gate.
-  it("the review's F1: with the pistol in hand a throw or a peek toss is no gate; its tosses are", () => {
+  // LATER 1442's review F2 (the sidearm's standing throw plays the rifle's `Throw grenade`, on top and among term 4's
+  // words) and R4P-211 (L368: r0004's IsThrowing(actor, 0) holds the pistol peek tosses, D4:L503648-503650, D4:L503688):
+  // with the pistol in hand every throw clip is a gate.
+  it("the review F1, LATER 1442, R4P-211: with the pistol in hand its throws, tosses and peek tosses are all gates", () => {
     for (const [clip, rifle, pistol] of [
       // LATER 509's review F1: the pistol's crouched and prone throws have no record in the Seal anim set (research 85
       // §8.1 item 3: ELF 0x6617e0, 0x6617a0), so `FUN_0058c820` keeps the rifle's type (D:L448176-448189): "Crouch throw
       // grenade" / "Prone throw grenade" on top, both term 4 -- *was* null for the pistol here.
-      ['seal_throwgrenade', 'throw', null], ['seal_crouch_throwgrenade', 'throw', 'throw'], ['seal_prone_throwgrenade', 'throw', 'throw'],
-      ['seal_toss_rlean', 'throw', null], ['seal_toss_llean', 'throw', null],
+      ['seal_throwgrenade', 'throw', 'throw'], ['seal_crouch_throwgrenade', 'throw', 'throw'], ['seal_prone_throwgrenade', 'throw', 'throw'],
+      ['seal_toss_rlean', 'throw', 'throw'], ['seal_toss_llean', 'throw', 'throw'],   // R4P-211: was null for the pistol
       ['seal_tossgrenade', 'throw', 'throw'], ['seal_p_tossgrenade', 'throw', 'throw'], ['seal_prone_tossgrenade', 'throw', 'throw'],
     ] as const) {
       const w = at();

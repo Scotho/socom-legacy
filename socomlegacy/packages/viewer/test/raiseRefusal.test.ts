@@ -11,6 +11,7 @@ import { Envelope, RAISE_ENVELOPE_STEP_READING, RAISE_REFUSAL_FRAMES, RAISE_TIME
  * LATER 180 (research 215 s8.3, s8.4; reading, pending review): `FUN_005c0ae0` refuses a bullet-class round while the
  * raise envelope reads below 1 (D:L476423-476438). On the page: `FireSource.raiseRefused`, asked by the trigger's rounds
  * (`pull`, a held trigger's `update`), never by the hook's `shoot`; the page's source answers `WeaponRaise.weight() < 1`.
+ * LATER 1147 (research 443): the raise hears the kit's held read (`Fire.padHeldRead`), not the physical button.
  * Frame order as the page runs it (`./main`, `./matchMount`): the pad's press (`pull`), then `Play.frame` (the raise's ask
  * and tick), then `fireFrame` (`update`) -- the original's: the controller's ask and the raise tick (`FUN_00551ec0`
  * D:L418526, D:L418611) before the kit's fire (`FUN_005506a0` D:L417907).
@@ -40,17 +41,19 @@ function step(raise: WeaponRaise, dt: number, input: RaiseInput): number {
 
 /**
  * A page's frames: the trigger pressed on frame 0 and held; the frame each round left on, and (LATER 185) how many game
- * frames ended on each page frame.
+ * frames ended on each page frame. `led`: page frames of `dt` the Fire runs first with the trigger up -- the frames the
+ * raise was led through, so the kit's game frames (`Fire.update`'s clock) fall where the raise's do.
  */
-function pull(dt: number, frames: number, raise: WeaponRaise): { rounds: number[]; ticks: number[] } {
+function pull(dt: number, frames: number, raise: WeaponRaise, led = 0): { rounds: number[]; ticks: number[] } {
   const g = grid();
   const fire = new Fire({
     grid: () => g, aim: () => ({ eye: [0, 20, 0], far: [0, 20, -1000] }), raiseRefused: () => raise.weight() < 1,
   }, { ...DEFAULT_RIFLE, magazine: 100, fireWait: 10 }, undefined, () => 0.5);
+  for (let f = 0; f < led; f++) fire.update(dt);                               // the trigger up through the lead
   const out: number[] = [], ticks: number[] = [];
   for (let f = 0; f < frames; f++) {
     if (f === 0 && fire.pull()) out.push(f);                                   // the pad's press (`trigger` -> `pull`)
-    ticks.push(step(raise, dt, { trigger: fire.triggerHeld(), aiming: false }));   // `Play.frame`
+    ticks.push(step(raise, dt, { trigger: fire.padHeldRead(dt), aiming: false }));   // `Play.frame` (LATER 1147: the kit's held read)
     if (fire.update(dt) > 0) out.push(f);                                      // `fireFrame`
   }
   return { rounds: out, ticks };
@@ -68,38 +71,52 @@ function gameFrameEnd(ticks: readonly number[], n: number): number {
 }
 
 describe('LATER 180: the raise refusal (FUN_005c0ae0 D:L476423-476438)', () => {
-  it('RED: from a lowered rifle (a spawn) the first round waits for the raise -- at the game frame, two frames after the press', () => {
-    expect(rounds(GAME_FRAME_DT, 10, new WeaponRaise())).toEqual([RAISE_REFUSAL_FRAMES]);   // today: [0]
+  // LATER 1147 (research 443), restated: was [RAISE_REFUSAL_FRAMES]. The raise is asked up at the held answer, the press's
+  // second read (`FUN_005dfe30(.., 1)`, D:L453633-453634; `FUN_002c60c0` D:L166671-166686), so the round waits one game
+  // frame more: the first read + 1 + RAISE_REFUSAL_FRAMES.
+  it('RED: from a lowered rifle (a spawn) the first round waits for the raise -- at the game frame, three frames after the press', () => {
+    expect(rounds(GAME_FRAME_DT, 10, new WeaponRaise())).toEqual([1 + RAISE_REFUSAL_FRAMES]);   // was: [RAISE_REFUSAL_FRAMES], before that [0]
   });
   // LATER 185, restated: was "RED: at 60 Hz the port's envelope (doubles, the page's step) lets it go five frames after
   // the press (RAISE_ENVELOPE_STEP_READING)", [5] -- six page ticks of 1/60 s with the press's own, 0.1 s in doubles. The
   // raise now steps once a game frame, so the 60 Hz count is the game frames' (`RAISE_ENVELOPE_STEP_READING`).
-  it('RED: at 60 Hz the round leaves on the page frame where the press\'s game frame + RAISE_REFUSAL_FRAMES ends (6: game frames end on 2, 4, 6)', () => {
+  // LATER 1147, restated: was the press's game frame + RAISE_REFUSAL_FRAMES, [6] -- the raise asked at the press's second
+  // read (D:L453633-453634; `FUN_002c60c0` D:L166671-166686), one game frame later.
+  it('RED: at 60 Hz the round leaves on the page frame where the press\'s game frame + 1 + RAISE_REFUSAL_FRAMES ends (8: game frames end on 2, 4, 6, 8)', () => {
     const { rounds: r, ticks } = pull(1 / 60, 20, new WeaponRaise());
-    expect(ticks.slice(0, 7)).toEqual([0, 0, 1, 0, 1, 0, 1]);                 // two 60 Hz frames are 34 us short of a game frame
-    expect(r).toEqual([gameFrameEnd(ticks, RAISE_REFUSAL_FRAMES)]);
-    expect(r).toEqual([6]);                                                    // today: [5]
+    expect(ticks.slice(0, 9)).toEqual([0, 0, 1, 0, 1, 0, 1, 0, 1]);           // two 60 Hz frames are 34 us short of a game frame
+    expect(r).toEqual([gameFrameEnd(ticks, 1 + RAISE_REFUSAL_FRAMES)]);
+    expect(r).toEqual([8]);                                                    // was: [6], before that [5]
   });
-  it('a raised rifle fires on the press', () => {
+  // LATER 1147 (research 443), restated: was [0], the press's page frame. The trigger is read once a game frame through the
+  // pad layer and its "held" query answers state 2 only (`FUN_002c60c0` D:L166671-166686), so a raised rifle's round
+  // leaves at the press's second read -- the game frame after the press's -- with no raise wait.
+  it('a raised rifle fires on the press\'s second read', () => {
     const raise = new WeaponRaise();
     for (let i = 0; i < 12; i++) raise.frame(1 / 60, { trigger: true, aiming: false });
     raise.frame(1 / 60, { trigger: false, aiming: false });
     expect(raise.weight()).toBe(1);
-    expect(rounds(1 / 60, 5, raise)).toEqual([0]);
+    const { rounds: r, ticks } = pull(1 / 60, 5, raise);
+    expect(r).toEqual([gameFrameEnd(ticks, 1)]);
   });
   // LATER 185, restated: was [0] at 60 Hz, the press's page frame. The snap is the raise tick's (D:L494213-494216), run at
   // the press's game frame's end: the press's page frame at the game frame's step, at 60 Hz that one or the next.
-  it('a partly lowered rifle fires on the press\'s game frame (the raise snaps to the hold, D:L494213-494216)', () => {
+  // LATER 1147, restated: was `gameFrameEnd(ticks, 0)`. The raise is asked up at the held answer's ctrl+0x118 state
+  // (`FUN_005dfe30(.., 1)`, D:L453633-453634) and snaps at the press's game frame (D:L494213-494216), but the kit
+  // (`FUN_005c0fd0`, after the controller, `FUN_005506a0` D:L417907) reads the trigger held only at its second read, one
+  // game frame later. The Fire is led through the same frames as the raise (`pull`'s `led`), so both clocks share a phase.
+  it('a partly lowered rifle fires on the press\'s second read (the raise snaps to the hold, D:L494213-494216)', () => {
     for (const dt of [GAME_FRAME_DT, 1 / 60]) {
       for (const lead of [0, 1]) {                                            // the press early and late in its game frame
         const raise = new WeaponRaise();
-        for (let i = 0; i < 12; i++) step(raise, dt, { trigger: true, aiming: false });
-        for (let t = 0; t < 5.2 + lead * dt; t += dt) step(raise, dt, { trigger: false, aiming: false });   // 5 s, then 0.2 s into the lower
+        let led = 0;
+        for (let i = 0; i < 12; i++, led++) step(raise, dt, { trigger: true, aiming: false });
+        for (let t = 0; t < 5.2 + lead * dt; t += dt, led++) step(raise, dt, { trigger: false, aiming: false });   // 5 s, then 0.2 s into the lower
         expect(raise.weight(), `${dt} ${lead}`).toBeGreaterThan(0);
         expect(raise.weight(), `${dt} ${lead}`).toBeLessThan(1);
-        const { rounds: r, ticks } = pull(dt, 5, raise);
-        expect(r, `${dt} ${lead}`).toEqual([gameFrameEnd(ticks, 0)]);
-        if (dt === GAME_FRAME_DT) expect(r).toEqual([0]);
+        const { rounds: r, ticks } = pull(dt, 5, raise, led);
+        expect(r, `${dt} ${lead}`).toEqual([gameFrameEnd(ticks, 1)]);
+        if (dt === GAME_FRAME_DT) expect(r).toEqual([1]);
       }
     }
   });
@@ -165,15 +182,23 @@ describe('LATER 185: the raise once a game frame, in float32 (FUN_005dfc80 D:L41
     expect(r.stats()).toMatchObject({ state: 'up', moving: true, weight: 0.3051757216453552 });
   });
 
-  it('RED: the first round leaves RAISE_REFUSAL_FRAMES game frames after the press\'s at 30 and 60 Hz, wherever the press falls in its game frame', () => {
+  // LATER 1147 (research 443), restated: was RAISE_REFUSAL_FRAMES game frames after the press's, the raise led alone. The
+  // raise is asked up only at ctrl+0x118 2 or 1 (`FUN_005dfe30(.., 1)`, D:L453633-453634, D:L453612-453613) -- the held
+  // answer, the pad at state 2, the press's SECOND read (`FUN_002c60c0` D:L166671-166686); at 0 the default lower ask
+  // (D:L453087-453092). In a game frame the controller (D:L418526), then the raise tick `FUN_005dfc80` (D:L418611), then
+  // the kit `FUN_005c0fd0` (D:L417907), which refuses below 1 (`FUN_005c0ae0` D:L476423-476438). So the first round leaves
+  // at the first read + 1 + RAISE_REFUSAL_FRAMES: 3 game frames after the press's. Both clocks led (`pull`'s `led`).
+  it('RED: from a lowered rifle the first round leaves 1 + RAISE_REFUSAL_FRAMES game frames after the press\'s first read at 30 and 60 Hz, wherever the press falls in its game frame', () => {
+    expect(1 + RAISE_REFUSAL_FRAMES).toBe(3);
     for (const dt of [GAME_FRAME_DT, 1 / 30, 1 / 60]) {
       for (let lead = 0; lead < 4; lead++) {
         const raise = new WeaponRaise();
         for (let i = 0; i < lead; i++) step(raise, dt, IDLE);
-        const { rounds: r, ticks } = pull(dt, 20, raise);
-        expect(r, `${dt} lead ${lead}`).toEqual([gameFrameEnd(ticks, RAISE_REFUSAL_FRAMES)]);
+        const { rounds: r, ticks } = pull(dt, 20, raise, lead);
+        expect(r, `${dt} lead ${lead}`).toEqual([gameFrameEnd(ticks, 1 + RAISE_REFUSAL_FRAMES)]);
       }
     }
-    expect(rounds(1 / 30, 10, new WeaponRaise())).toEqual([3]);              // 1/30 s is 34 us short too: the first game frame ends on 1
+    // LATER 1147: was [3] -- the raise asked at the second read (D:L453633-453634), one game frame later.
+    expect(rounds(1 / 30, 10, new WeaponRaise())).toEqual([4]);              // 1/30 s is 34 us short too: the first game frame ends on 1
   });
 });

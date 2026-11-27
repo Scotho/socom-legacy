@@ -112,8 +112,12 @@ export function slotModel(table: KitTable | null, loadout: Loadout, slot: Firear
  * the room's body (match `room.ts` `spawn`, `worldDrops.ts` `take`) and the page's (`./matchFirearm` `spawnKit`,
  * `takeKit` -> `WalkMode.setHeldModels`).
  */
-export function heldWeaponModels(table: KitTable | null, loadout: Loadout): { rifle: string | null; pistol: string | null } {
-  return { rifle: slotModel(table, loadout, 0), pistol: slotModel(table, loadout, 1) };
+export function heldWeaponModels(table: KitTable | null, loadout: Loadout): { rifle: string | null; pistol: string | null; launcher: string | null } {
+  // WEAPON-LINE part 2: the kit's launcher's model too (the body's launcher mount, `WEAPON_LINE_ITEM_MODEL_READING`), the
+  // first entry of the rocket-launcher class; null with none, or with no tables.
+  const launcherId = table ? loadout.find((id) => itemClass(id) === 'rocketLauncher') : undefined;
+  const launcher = launcherId === undefined ? null : table!.arsenal.items.get(launcherId)?.model ?? null;
+  return { rifle: slotModel(table, loadout, 0), pistol: slotModel(table, loadout, 1), launcher };
 }
 
 /** The HUD weapon box's icon of a firearm slot: the item's `IconTextureName` (research 94 §C9), lower case as the HUD keys it. */
@@ -160,6 +164,22 @@ export function wireLoadout(ids: readonly unknown[] | null | undefined): Loadout
   if (!Array.isArray(ids) || ids.length !== 5 || !ids.every((v) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 255)) return null;
   return [...ids] as unknown as Loadout;
 }
+
+/**
+ * R4P-103 (r0004: the reading agent/spc-atlas dcd314b4bd, D4:L499303-499309; Q103B a1e119affd): the live kit off the wire
+ * after a pickup -- five records, or more: a claimed launcher's round is appended after the kit's last record, so a
+ * five-record kit carries six. At most the original's 30 records (`FUN_005bdfb0` D:L474716-474731), each an id 0-255;
+ * else null. A match's spawn kit is the room's live kit and takes it too (`PlayerLoadout.spawn`, R4P-103 fresh review F3);
+ * a `loadout` answer's kit, a type kit, stays `wireLoadout`'s five.
+ */
+export function wireKit(ids: readonly unknown[] | null | undefined): Loadout | null {
+  if (!Array.isArray(ids) || ids.length < 5 || ids.length > KIT_RECORDS_MAX) return null;
+  if (!ids.every((v) => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 255)) return null;
+  return [...ids] as unknown as Loadout;
+}
+
+/** The kit's record capacity: 30 (`FUN_005bdfb0` D:L474724, the count's bound). */
+const KIT_RECORDS_MAX = 30;
 
 /** A `loadout` request as the page sent it (`NetPage.requestLoadout`): its list, and the type it named (protocol 9). */
 export interface LoadoutRequest { list: readonly Pick[]; char?: number }
@@ -442,27 +462,29 @@ export class PlayerLoadout {
 
   /**
    * The rebuild at a spawn: the loadout the body now carries. `kit`: a match's spawn names the kit the room gave the
-   * body (protocol 7), which is taken as it is. `network` without a kit: the type's kit, as a network room gives it.
-   * `type` (protocol 9): the type the room rebuilt the body as, taken as it is when the map's side has it; else the
-   * side's own next type.
+   * body (protocol 7), which is taken as it is -- the room's own live kit, so `wireKit`'s 5-30 records: a resumed seat's
+   * spawn after a launcher claim names six (R4P-103 fresh review F3: its round appended, `FUN_005a4b70`
+   * D4:L499303-499309; the reading agent/spc-atlas dcd314b4bd). `network` without a kit: the type's kit, as a network
+   * room gives it. `type` (protocol 9): the type the room rebuilt the body as, taken as it is when the map's side has
+   * it; else the side's own next type.
    */
   spawn(side: Side, opts: { network?: boolean; kit?: readonly number[] | null; type?: number | null } = {}): Loadout {
     const type = opts.type !== undefined && opts.type !== null && armoryTypeAllowed(this.map, side, opts.type) ? opts.type : this.types[side];
     this.body = { side, type };
-    const given = wireLoadout(opts.kit);
+    const given = wireKit(opts.kit);
     const pick = given ?? (opts.network ? null : this.pending(side));
     this.current = pick ?? equipmentLimitKit(typeLoadout(this.map, side, type) ?? BAKED_LOADOUT, this.map?.valves ?? new Map(), side, this.limit);
     return this.current;
   }
 
   /**
-   * PF-34 (ruling PF.R54; research 234 s3): the kit on the body after a pickup -- the room's `kit` event, five ids --
-   * and nothing else: the side's pick, its type and the next spawn are the weapon select's, untouched (`FUN_005bc410`
-   * D:L473823-473868 "changes current inventory state; it is not a saved loadout edit", research 194 s2). A kit that is
-   * not five ids changes nothing.
+   * PF-34 (ruling PF.R54; research 234 s3): the kit on the body after a pickup -- the room's `kit` event (`wireKit`: five
+   * ids, or more once a launcher's round is appended, R4P-103) -- and nothing else: the side's pick, its type and the
+   * next spawn are the weapon select's, untouched (`FUN_005bc410` D:L473823-473868 "changes current inventory state; it
+   * is not a saved loadout edit", research 194 s2). A kit `wireKit` refuses changes nothing.
    */
   take(kit: readonly number[]): void {
-    const given = wireLoadout(kit);
+    const given = wireKit(kit);
     if (given) this.current = given;
   }
 

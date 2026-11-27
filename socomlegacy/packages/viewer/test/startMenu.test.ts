@@ -233,7 +233,7 @@ describe('MATCH-01: the pad\'s navigation (FUN_00201690 D:L60805-60892)', () => 
     expect(r.menu.state().cursor).toBe(3);
   });
 
-  it('the left stick moves nothing (AM-2, research 340 §1): the cursor reads the d-pad\'s bytes +5 / +6 only (D:L60817-60818)', () => {
+  it('the original\'s frame() logic: its cursor reads the d-pad\'s bytes +5 / +6 only, never the stick (AM-2, research 340 §1; D:L60817-60818) -- pad() takes the stick under OT.R130', () => {
     // The page's held set is `padButtonsDown` of the W3C pad (`./main` and `./matchMount`, beside the touch pad's): the
     // buttons, never the axes -- as the original's pad bytes are the digital buttons' (FUN_002da930 D:L179819-179862),
     // the stick its +0x220 / +0x224 floats, which nothing of FUN_002011f0 .. FUN_00205200 reads.
@@ -253,7 +253,7 @@ describe('MATCH-01: the pad\'s navigation (FUN_00201690 D:L60805-60892)', () => 
     expect(r.menu.state().cursor).toBe(2);
   });
 
-  it('under ABORT\'s confirm the stick moves neither YES nor NO (bytes +3 / +4 only, D:L60871-60874; AM-2)', () => {
+  it('the original\'s frame() logic under ABORT\'s confirm: YES / NO read bytes +3 / +4 only, never the stick (D:L60871-60874; AM-2) -- pad() takes the stick under OT.R130', () => {
     const r = rig();
     r.open(); r.walkTo(START_MENU_TYPE.abort); r.tap('Cross');
     expect(r.menu.state().confirm).toEqual({ choice: 2, yes: false });
@@ -656,6 +656,33 @@ describe('MATCH-01: the pad held and the HUD (the hide-all FUN_001f77c0, D:L5631
     expect(pass.input.fire).toBe(true);
   });
 
+  // RAISE-1577 fix forward (PC 2's RAISE-PAUSE, the original: R1 held while the START menu owns the pad, then the menu
+  // closed with R1 still down -- a FRESH press, the rifle raised in 3 frames). The close lets CROSS, SQUARE, CIRCLE and
+  // TRIANGLE go (D:L62165-62169), not R1: the page's trigger lane hears R1 on the first frame the menu no longer owns the
+  // pad (its edge false -> true, `MatchFirearm.triggerLane`). Was: the menu's hold of the buttons it took (`./exchangeInput`)
+  // kept R1 off the game until it was let go.
+  it("RED: R1 held through the menu and its close is the game's on the first frame after (a fresh press)", () => {
+    const r = rig();
+    r.open();
+    const input = { ...noInput(), fire: true };
+    expect(r.menu.pad(new Set<PadButton>(['R1']), input, 1 / 60).input.fire).toBe(false);          // open: the menu's
+    expect(r.menu.pad(new Set<PadButton>(['R1', 'Start']), input, 1 / 60).input.fire).toBe(false);   // START closes it
+    expect(r.menu.isOpen()).toBe(false);
+    const after = r.menu.pad(new Set<PadButton>(['R1']), input, 1 / 60);
+    expect(after.owns).toBe(false);
+    expect(after.input.fire).toBe(true);                  // was: false until R1 was let go and pressed again
+  });
+
+  it('the menu still keeps the buttons it took from the game until let go (a CROSS held through the close)', () => {
+    const r = rig();
+    r.open();
+    const input = { ...noInput(), action: true };
+    r.menu.pad(new Set<PadButton>(['Cross']), input, 1 / 60);
+    r.menu.pad(new Set<PadButton>(['Cross', 'Start']), input, 1 / 60);
+    expect(r.menu.isOpen()).toBe(false);
+    expect(r.menu.pad(new Set<PadButton>(['Cross']), input, 1 / 60).input.action).toBe(false);
+  });
+
   // PAR-97 (was: 'voice' in the hidden list, on research 282 §1's old mapping of D:L56341): the voice element is the
   // info box's child `+0x390` (`FUN_00238f50` D:L85656), and the hide-all skips the info box in control state 3
   // (D:L56344-56347), which the open sets before calling it (D:L61963-61964).
@@ -876,7 +903,7 @@ describe('MATCH-01: one wiring -- both matches mount the menu (OT.R43), the fron
     }
     const mount = src('matchMount.ts');
     expect(mount).toContain("import { MatchAbort } from './matchAbort';");
-    expect(mount).toContain('const start = startMenu.pad(down, mergeInput(touch.input, pad), dt);   // MATCH-01: the START menu first; up, the pad is its own\n    matchAbort.frame(dt);');
+    expect(mount).toContain('const start = startMenu.pad(down, padIn, dt);   // MATCH-01: the START menu first; up, the pad is its own\n    matchAbort.frame(dt);');
     expect(mount).toContain('ended: () => matchAbort.ended() ?? endedDialog ?? (net ? null : finalCloseDialog(o.client)),');
     const page = src('main.ts');
     expect(page).toContain("import { abortLines, MatchAbort } from './matchAbort';");

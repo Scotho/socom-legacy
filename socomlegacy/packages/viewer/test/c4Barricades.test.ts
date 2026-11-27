@@ -6,11 +6,12 @@ import { FsAssetSource } from '@s2u/archive/node';
 import { parseRdr, rdrGet, Zar, type RdrNode } from '@s2u/archive';
 import { gridCast, throwableRecord, type V3 } from '@s2u/scene';
 import { fixture } from '../../archive/test/fixtures';
-import { aimPick } from '../src/equipment';
+import { aimPick, c4InReach } from '../src/equipment';
 import { GrenadeThrower } from '../src/grenade';
 import { groundGrid, groundPolygons } from '../src/mover';
 import { under } from '../src/mapMeta';
 import { placeGround } from '../src/net/placing';
+import { hipPoint } from '../src/net/shotCone';
 import { loadSimMap } from '../src/simMap';
 import { forkGround, WorldState } from '../src/worldState';
 import type { PlaySnapshot } from '../src/walk';
@@ -53,7 +54,8 @@ describe.skipIf(!maps.length || !weapon)('C4 plant/fuse across the available ret
         }) as V3;
         let planted = 0, breached = 0;
         // Test inputs only: ordinary near/far approaches and hand offsets, independent of the target-ray point.
-        for (const distance of [15, 25, 30]) {
+        // LATER 1139: 11, 13 and 15 u (were 15, 25 and 30): every approach inside the hip gate (19.9 u in 3-D).
+        for (const distance of [11, 13, 15]) {
           let accepted = false;
           // Search legal viewing positions; every accepted plant must explode at its saved hit, without retrying its result.
           const targets = [centre, ...ground.owners.filter(o => under(o.path, d.targetPath)).flatMap(o => polys.slice(o.first, o.first + o.count)).map(p => [0, 1, 2].map(axis => Array.from(p.points).filter((_, i) => i % 3 === axis).reduce((a, b) => a + b, 0) / (p.points.length / 3)) as V3)];
@@ -116,8 +118,67 @@ describe.skipIf(!maps.length || !weapon)('C4 plant/fuse across the available ret
     console.info(`C4 placements: ${totalPlants}; one-charge breaches: ${totalBreaches}; shielded edge plants: ${shielded.join(", ")}`);
     expect(covered.length).toBeGreaterThan(0);
     if (mode === 'centred breach') expect(totalBreaches).toBe(totalPlants);
-    // Explicit known edge case: Sujo access2, all three hand offsets. Its 29.189u midpoint range
-    // yields 14.984 < shield17. Original nparams midpoint agrees with the collision midpoint (209 §16).
-    else if (maps.includes('MP61.ZDB')) expect(shielded).toEqual(Array(3).fill('MP61.ZDB:access2:range=29.189,rating=14.984'));
+    // LATER 1139: from the 11, 13 and 15 u approaches the survey's first legal plant at each barrier lands near its
+    // middle and breaches; no shielded plant. The far-edge plant the 30 u approach reached is pinned on its own below.
+    else expect(shielded).toEqual([]);
+  }, 180_000);
+
+  // Sujo access2's far edge under the hip gate (LATER 1139). The plant the old 30 u survey kept first: aiming -x down the
+  // barrier's long axis, the ray strikes its +x end at 29.189 u from the collision midpoint. Here the stand is 43 u out
+  // on +x (13.8 u back from that end, the hip 14.26 u from the struck point, inside 19.9 u). Its rating, 14.984, is under
+  // shield 17: the barrier survives. Original nparams midpoint agrees with the collision midpoint (209 §16).
+  it.skipIf(!maps.includes('MP61.ZDB'))('Sujo access2 far edge: a hip-gated plant at the far end is shielded', async () => {
+    const zar = Zar.parse(weapon!);
+    const rdr = parseRdr(zar.data(zar.root.children.find(k => k.name.toLowerCase() === 'zweapon.rdr')!));
+    const record = throwableRecord(rdr, 'C4');
+    const map = await loadSimMap(new FsAssetSource(disc!), 'RUN/MP61.ZDB');
+    const ground = forkGround(map.ground), grid = groundGrid(ground);
+    const world = new WorldState(map.meta!, ground, grid);
+    world.applyInitial();
+    const polys = groundPolygons(ground);
+    const d = world.health.list.find(x => x.anim === 'access2')!;
+    expect(d.shield).toBe(17); expect(d.health).toBe(1); expect(d.armor).toBe(0);
+    const vertices = ground.owners.filter(o => under(o.path, d.targetPath))
+      .flatMap(o => polys.slice(o.first, o.first + o.count).flatMap(p => Array.from(p.points)));
+    const centre = [0, 1, 2].map(axis => {
+      const v = vertices.filter((_, i) => i % 3 === axis);
+      return (Math.min(...v) + Math.max(...v)) / 2;
+    }) as V3;
+    // Test inputs only: the old survey's first approach (angle 0, aiming -x through the midpoint), stood 43 u out.
+    const eye: V3 = [centre[0] + 43, centre[1], centre[2]], far: V3 = [centre[0] - 30, centre[1], centre[2]];
+    const floor = placeGround(gridCast(grid, map.defaultMaterial ?? ''), eye);
+    expect(floor, 'a legal floor under the stand').not.toBeNull();
+    const feet: V3 = [eye[0], floor!.point[1], eye[2]], yaw = Math.atan2(1, 0) * 180 / Math.PI;
+    for (const side of [-8, 0, 8]) {
+      world.reset();
+      const hand: V3 = [eye[0], eye[1], eye[2] - side];
+      const g = new GrenadeThrower({ grid: () => grid, view: () => 'third',
+        snapshot: () => ({ feet, yaw, pitch: 0, stance: 'stand', airborne: false } as PlaySnapshot),
+        aim: () => ({ eye, far }), handPoint: () => hand,
+      });
+      g.setRecords([record]); g.setWorld(() => world); g.setKit(['M67', 'AN-M8', 'C4']);
+      run(g, 0.3);
+      expect(g.c4Target(), `hand ${side}: the far end is the target`).toBe(d.id);
+      expect(g.plantC4(), `hand ${side}: plant accepted`).toBe(true);
+      const positions: V3[] = [], explosions: V3[] = [];
+      g.on('place', e => { positions.push(e.pos); expect(e.pos).toEqual(e.surface!.point); });
+      g.on('explode', e => explosions.push(e.pos));
+      run(g, record.fuse + 2);
+      g.clearAir();
+      expect(explosions, `hand ${side}: one fuse`).toHaveLength(1);
+      expect(explosions).toEqual(positions);
+      const hip = hipPoint({ feet, yaw, posture: 'stand', moveRoot: null });
+      expect(c4InReach(hip, explosions[0]!), `hand ${side}: struck point inside the hip gate`).toBe(true);
+      expect(Math.hypot(...explosions[0]!.map((v, axis) => v - hip[axis]!))).toBeCloseTo(14.26, 2);
+      // Independent source transcription: FUN_003c7600 D:L318708-318735, D:L318763-318767.
+      const range = Math.hypot(...explosions[0]!.map((v, axis) => v - centre[axis]!));
+      expect(range).toBeGreaterThan(record.explosionRadius / 2);
+      const rated = Math.max(0, 2 * record.explosionDamage * (1 - range / record.explosionRadius));
+      expect(range).toBeCloseTo(29.189, 3);
+      expect(rated).toBeCloseTo(14.984, 3);
+      expect(rated).toBeLessThan(d.shield);
+      expect(world.health.hp(d.id), `hand ${side}: the barrier survives`).toBe(1);
+      expect(world.isActive(d.targetPath), `hand ${side}: collision stays`).toBe(true);
+    }
   }, 180_000);
 });

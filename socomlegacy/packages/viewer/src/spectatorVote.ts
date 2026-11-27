@@ -1,4 +1,5 @@
-import { MESSAGE_SCALE, type BannerLine } from './hud';
+import { MESSAGE_SCALE } from './hudLayout';
+import type { BannerLine } from './hud';
 import { SPECTATORS_EJECTED_TEXT, spectatorVoteText, type ServerEvent } from './net/protocol';
 import type { ChatEntry } from './tauntMenu';
 

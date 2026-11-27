@@ -4,6 +4,7 @@ import { inputSources } from './inputSources';
 import { loadStartedAt, setLoadMarkListener } from './loadMarks';
 import { MatchDiag, xboxMarks, type DiagStage, type PageState } from './matchDiag';
 import { bufferPayloadBytes } from './payloadBytes';
+import { pageSoftwareProbe } from './softwareRenderer';
 
 /**
  * XBOX-DIAG's page side (`./matchDiag`; product track, an instrument): the page's one diagnostic, made by the match's
@@ -42,6 +43,7 @@ export function pageMatchDiag(): MatchDiag {
       return typeof m?.usedJSHeapSize === 'number' ? m.usedJSHeapSize / 1_048_576 : null;
     },
     deviceMemory: () => (typeof nav()?.deviceMemory === 'number' ? nav()!.deviceMemory! : null),
+    parallelCompile: () => pageSoftwareProbe().parallelCompile ?? null,   // XBOX-WARM: the page's one probe context (GM-XBOX1), never a second
     send: (kind, message) => { pageClientErrorBeacon().reportDiag(kind, message); },
   });
   page = made;

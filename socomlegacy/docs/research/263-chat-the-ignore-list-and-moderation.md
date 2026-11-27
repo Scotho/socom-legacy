@@ -99,7 +99,9 @@ each:
 - **What is never sent**: a line with no character but spaces, or one opening `$~` (`FUN_00281d40` D:L128300-128313,
   the whole text checked before the cut). A character outside printable ASCII becomes `?` (`CHAT_PRINTABLE_ADAPTATION`,
   the desktop's own clamp, desktop@be557831 `Server.Medius/Medius/ChatClamp.cs:22-50`): the keyboard makes none; a page
-  could. What the original's text filter or Sony's server did with such bytes is unread.
+  could. What the original's text filter or Sony's server did with such bytes is unread. *2026-11-23, R4P-324: but
+  U+00B2, the one byte r0004's client itself puts past 0x7e (§3a) -- `chatCut` admits it and nothing else, in central
+  and the match process.*
 - **The briefing room's history** (`ROOM_CHAT_LINES_READING`, 11): the panel's lines are kept per room in 0x80-byte
   records (name +0x1c, type +0x3c, text +0x40); past 10 the oldest is dropped and the new one added (`FUN_001f5020`
   D:L55057-55101 for a whisper or a universe line, added to every room's list; D:L55110-55154 for a room's line, its
@@ -110,6 +112,63 @@ each:
   D:L160155-160188), each `"#C\x80\x80\x80%s (All): %s\n"` (`S:0x3f2720`) or, a team's, `"#C@\x80@%s (Team): %s\n"`
   (`S:0x3f2700`); the sender's name `"Unknown"` when it has none (`S:0x3f26f8`). V18's `S:0x3f2704` and `0x3f2725` are
   these strings past their colour codes. The relay holds no history: each line goes as it is sent.
+
+## 3a. The typed `#C`: r0004's `Censor` (R4P-324)
+
+*Written 2026-11-23 for R4P-324 (simulation track, r0004 parity). Level: **reading, pending review** -- read from the
+recompiler's r0004 lift (the MIPS in its comments) and the r0004 image's bytes, and re-read there by a non-author
+before the build; r0001 from the export (`D:L`). The r0004 export (D4) was not opened: every r0004 citation is an
+address. Nothing here is measured on the original running.*
+
+- **The rewrite** (`CENSOR_HASH_C_READING`; ui `censorHashC`). `Censor` (r0004 0x00311fc0, body 0x311fc0-0x3120ac)
+  builds a 0x6c-byte TextFilter request on its stack and copies the caller's text, 0x40 bytes, to +0x2c (0x31201c).
+  Unless the copy is empty (`strlen` 0x00199288) it searches the copy with `strstr` (0x00199a10) for the literal at
+  0x004211f8 -- the bytes `23 43 00`, `#C` -- writes 0xb2 over the hit's second byte (0x312050/0x312058) and searches
+  again from the start, until no hit is left (0x312060/0x312068). So only `#` and a capital `C` match (no case fold:
+  `#c` stays); only the `C` is overwritten, the `#` and the three colour bytes after it stay; every occurrence is
+  rewritten; `##C` becomes `#`, `#`, 0xb2; `#B` and every other `#x` are untouched. The caller's own string is not
+  changed. Then the request goes out (0x003faa50) with the reply handler 0x003120b0, which passes the reply's text
+  (+0x15) to the stored callback and never reads the status. r0001's `Censor` (`FUN_002f4df0`, D:L194740-194762)
+  builds the same request with the text copied unchanged: the rewrite is new in r0004.
+- **Its five callers** (a scan of every word of the image for a call or a pointer to 0x311fc0): the briefing room's
+  line (0x311c1c, SendChat 0x00311af0), the whisper (0x311d28, the FindPlayer reply 0x00311c50 -- every whisper, from
+  the briefing room, the game lobby (0x27ddd8) or a round (0x2ccc38), goes through SendChat), the game session's line
+  (0x2bc474, a tail jump in 0x002bc460), `UINetCensorText` (0x27871c, in 0x00278660) and the description (0x317b08, a
+  tail jump in 0x00317b00). In r0001 the room line and the whisper build the request inline (D:L194565-194571,
+  D:L194638-194647); its `Censor`'s three callers are D:L122975, D:L160062 and D:L198341. Names are not rewritten:
+  their TextFilter requests (0x304a20, 0x30ba08) bypass `Censor`.
+- **What each sender keeps.** The room line and the whisper are queued as typed (0x311b54, 0x311c04) before `Censor`
+  runs; the send callback 0x00311d70 sends the reply's text (0x311e58-0x311e74) and draws the own line from the typed
+  record (0x311ee4) -- so the sender sees their own colour, and only when the reply comes. The page has no filter reply
+  (`CHAT_FILTER_PLACEHOLDER`), so it sends `censorHashC` of the cut text and draws the typed own line at once
+  (`CHAT_OWN_LINE_AT_SEND_ADAPTATION`; ui `briefingRoomChat.ts` `mediusChat`). The game session's line is the other
+  way: its callback 0x002bc480 builds the packet from the FILTERED text (0x2bc544), sends it (0x2bc57c) and hands the
+  same packet to the local handler 0x002bc5e0 (0x2bc59c), so the seat's own line is the rewrite too (ui
+  `gameLobbyCommands.ts` `gameLine`; the panel's own `#C` prefix is the receiver's format, not rewritten).
+  `NetCensorText`'s callback 0x00278740 writes the reply into the same UI variable (0x278754) -- the page writes the
+  rewrite back at once and still asks Sony's filter through `lobby.censor` when one is supplied
+  (`NET_CENSOR_TEXT_PLACEHOLDER`, narrowed; research 153 §8). The description's callback 0x00317b10 sets
+  `PlayerDescription` from the reply: the page sends the rewrite, and the owner-fields answer written back leaves the
+  variable rewritten (ui `onlineOptionsCommands.ts`).
+- **The wire** carries 0xb2 as U+00B2 (`/lobby/chat`'s JSON, the game socket's `chat`). `chatCut` admits that one
+  character beyond 0x20-0x7e and no other (§3, `CHAT_PRINTABLE_ADAPTATION` amended; match `gameChat.ts`, so central's
+  `ChatService` and bridge, the match process's `game.ts` and `forgeGame.ts` alike).
+- **What a recipient draws.** The wrapped text's setter tests `#` (0x23) then `C` (0x43) with a signed load (r0004
+  0x003984e0 at 0x398790/0x3987a0; r0001 `FUN_00379f70`), so `#` and 0xb2 is not consumed: no colour is set and the
+  code draws as text. `#B` (0x42) still toggles (0x398800-0x398820). r0004's face loader 0x003796b0 makes glyph 0xb2 a
+  second parse of the face's `C` record (`HASH_C_GLYPH_ALIAS_READING`, research 111 §9; L113), so a recipient sees
+  `#`, a `C`, the three colour bytes and the rest of the line, uncoloured. A typed `#Rhi` holds no `#C` and arrives as
+  typed.
+- **Not read:** what Sony's filter did with a 0xb2 byte; the round keyboard's route to 0x2bc460 (its one caller is
+  0x27dde8); the forge lobby's own send; clan invitations (code-built text); a `NetCensorText` text of 64 bytes or more
+  (the copy has no terminator of its own and the reply is at most 64 bytes; the page rewrites the whole text and does
+  not cut it). The interleaving of two requests (the callback slots 0x452dc8/0x452dd0 are single globals) is not
+  modelled.
+- **The capture that would settle it:** r0004 on two consoles (or two PCSX2 instances) online; a line holding `#C`, three
+  bytes and some text typed in the briefing room, as a whisper and in the game lobby; the TextFilter request and the
+  ChatMessage recorded at the client (0xb2 at the `C`; against our own Horizon the desktop's `ChatClamp` maps it to `?`,
+  so read it at the client's request or with the clamp off); the receiver's frame (the code drawn as text, uncoloured);
+  the sender's own frame (the room line still coloured, the game line not); a control line with `#Rhi` (unchanged).
 
 ## 4. SVC-17
 
@@ -352,7 +411,7 @@ original's look kept; V22: the original's moderation is the vote, the voice mute
 | name sanitising | a typed room name cleaned to at most 30 printable characters and made unique (`viewer/src/net/lobby.ts` `sanitizeName`, `NAME_MAX`; V25); the server's `name` event at most 256 characters (`room.ts`); an account's name the accounts' rule (research 169 §6.5) | the console's keyboard (research 91's `NAME_MAXLEN_PLACEHOLDER`: 30 used) | OT.R26; the look-alike names H85's |
 | a line's characters outside printable ASCII | `chat.ts` (`CHAT_PRINTABLE_ADAPTATION`, §3) | the keyboard makes none | labelled (OT.R26) |
 | **not built: the reporting path** | -- | none | research 169 §7 measure 10's least form: a report names a player and a match, is rate-limited, and is kept beside the audit ledger for a moderator. Owed to sprint 22 with SVC-23a/b; nothing of it here |
-| **not built: the account ban** | -- (the ladder's seam `LADDER_BANNED_SOURCE_PLACEHOLDER`, research 261 §6, stays empty) | none beyond the game's -972 | an operator's tool; what a banned account keeps is H86 call 11 (LADDER-BANNED). Owed to sprint 22 with SVC-23a/b; nothing of it here |
+| **the account ban** *(was "not built"; built 2026-11-15 on the OPS lane, `agent/wm-ops`, the 2026-10-30 account-ban plan)* | central's `accountBans.ts`, `accounts.ts` (`applyBan`), `operatorHttp.ts` (`/operator/*`); the ladder's banned set the store's (`bannedAccountIds`; `LADDER_BANNED_SOURCE_PLACEHOLDER`, research 261 §6, retired) | none beyond the game's -972 (the sign-in's refusal `ACCOUNT_BANNED_STATUS_ADAPTATION`, MediusPlayerBanned) | an operator's tool (product track); what a banned account keeps is H86 call 11 (LADDER-BANNED); a banned player already in a running match stays until it ends (the plan's AB-4, not built); nothing of it here |
 
 **The two defaults on H170 (H-next d)** (H34 open; each a placeholder, §6):
 
@@ -396,7 +455,7 @@ the RED run's filter. `room.ts` changed in its comments only (the rejoin's owed 
 |---|---|---|---|---|
 | `ROOM_CHAT_LINES_READING` (server `chat.ts`) | `11` | the most lines a receiver's mailbox holds for its poll: the briefing room panel's per-room list (`FUN_001f5020` D:L55057-55154) | ONL-32's capture of a room with more than 11 lines | reading |
 | `ROOM_LINE_SKIPS_GAME_SEATS_READING` (server `chat.ts`) | a member seated in a game is not sent the room's line | the server's delivery of a room's line to a member in a game lobby, unobservable; the client's half read: it draws none in state 17 (`FUN_002f4ef0` D:L194797; D:L190483-190484) | a capture of a console in a game lobby while its room chats (ONL-32) | the client's gate a reading; the server's delivery inferred until ONL-32 |
-| `WHISPER_REACH_READING` (server `chat.ts`) | any player in a briefing room or a game | how far Sony's server carried a whisper, and whom FindPlayer finds: the client's half read -- it finds its recipient lobby-wide (FindPlayer) and draws one in every state; Horizon's `ChatMessage` stops at the sender's channel (`MLS.cs:4119`), Horizon's FindPlayer takes any logged-in player (`MLS.cs:1346-1396`), the room-or-game set is ours | ONL-32's transcript of a whisper across two rooms and to a player in a game | the client's search and drawing a reading; the server's reach inferred until ONL-32 (the client followed, not Horizon) |
+| `WHISPER_REACH_READING` (server `chat.ts`) | any logged-in player: in a briefing room, in a game, or on the main menu (LATER 1550, 2026-11-24; was any player in a briefing room or a game) | how far Sony's server carried a whisper, and whom FindPlayer finds: the client's half read -- it finds its recipient lobby-wide (FindPlayer) and draws one in every state; Horizon's `ChatMessage` stops at the sender's channel (`MLS.cs:4119`), Horizon's FindPlayer takes any logged-in player (`MLS.cs:1346-1396`), as caption 334's words and the friend row's MAIN MENU for a "Medius..." lobby (`FUN_00301a70` D:L202724-202778) agree; the old room-or-game set was ours (research 268, LATER 1550) | ONL-32's transcript of a whisper across two rooms, to a player in a game, and a FindPlayer and a whisper to a player on the main menu (LATER 1550) | the client's search and drawing a reading; the server's reach inferred until ONL-32 (the client followed, not Horizon) |
 | `IGNORE_LIST_CAP_PLACEHOLDER` (server `ignore.ts`) | `{ entries: 64, status: -956 }` | the most accounts an ignore list holds and the status past it: Horizon has none; the console says MP_IGNORE_LIST_FULL for any refusal (`FUN_00300e60` D:L202287-202290); 64 the client's list's boot count, 64 empty records it grows past (`FUN_00402420` D:L328712), no cap's evidence, MaxExceeded the clan caps' status (§4.3) | ONL-32's transcript of an add past the original's cap | placeholder |
 | `IGNORE_SELF_STATUS_PLACEHOLDER` (server `ignore.ts`) | DBError (-988) | an account ignoring itself: the console does not stop it; Horizon's store takes it and answers Success (`DbController.cs:902-915`); ours keeps no account on its own lists, so DBError, Horizon's answer for a refused add (`MLS.cs:852-859`) | ONL-32's transcript of a player ignoring himself | placeholder |
 | `IGNORE_PLAYER_STATUS_READING` (server `ignore.ts`; wired in `bridge.ts`) | in a game 3, in a room 2, logged in the menus' lobby 2, else 0 | a row's PlayerStatus: Horizon's client status (`MLS.cs:778-785`, `ClientObject.cs:300-309`) as the room service's seat; a logged-in player in no room the menus' lobby's status (`MAIN_MENU_PRESENCE_PLACEHOLDER`, `AccountService.loginAt` the session-by-account lookup; 2026-10-16, CLAN-DOT, research 272 §12 -- the port's narrowing to Disconnected retired) (§4.4) | ONL-32's transcript of the list with an ignored player on the menus | reading: Horizon's game and room states; the menus' a placeholder |
@@ -408,9 +467,12 @@ the RED run's filter. `room.ts` changed in its comments only (the rejoin's owed 
 | `VOTE_KICK_POINT_READING` (server `room.ts`; `voteKickDelayS`) | `['roundComplete', 'gameComplete']`: a passed vote's target removed as ROUND COMPLETE starts (`ENGINE_READ_S`, 3 s, after the result) or, after a match's last round, GAME COMPLETE (13 s after it); never at FINAL ROUND | the screens whose `ExitOnStart` runs `HaveBeenBannedFromGame` (`FUN_002c3550`) and `BanSelfFromGame` on the victim's console (research 179 §6.2 for both screens -- READERX's `dlgMultiplayerRound.rdr` and `dlgMultiplayerFinalReally.rdr`; research 187 §7.1 for ROUND COMPLETE only; the fixture's `RUN/MPZANIM.ZAR` `dlgMultiplayerRound.rdr` set, §5.2); the room's screen timings research 91 §18's | the recomp's vote run timing the request and `dlgNetBanned` against the screens (research 206 §4.5, S3's item 23) | reading (SVC-23d, 2026-10-10; reviewed 2026-10-10) |
 | `VOTE_BAN_SCOPE_PLACEHOLDER` (server `room.ts`: `banned`, `VOTE_BAN_MS`; first listed in research 91's placeholders) | the removed player's network address refused by the room for 10 minutes (443's words) | the original's rejoin refusal: the account refused "that game" -- JoinGame -972 `MediusPlayerBanned` (`FUN_002edba0` D:L190430) after the victim's own MediusBanPlayer, its account, 120 of an unread unit and the game's world (`FUN_002f95f0` D:L197800-197804; research 179 §6.3-§6.4, research 203 §4); a dedicated room never ends; the lobby's `banFromGame` (the account's -972) not yet called (§5.3) -- *2026-10-10, SVC-23e: called beside this ban, the account's -972 for that game (research 264 §4, `GAME_BAN_LIFE_PLACEHOLDER`); this name still the room's address ban* | the owner (H-next d, H34); ONL-32's transcript of a removed player's rejoin; the recomp's vote run for how long the refusal lasts | placeholder (H-next d's default kept, SVC-23 2026-10-10) |
 | `CHAT_FILTER_PLACEHOLDER` (server `chat.ts`) | `'none beyond the cut'`: `ChatHooks.line` unset, every line as `chatCut` makes it | the text filter Sony's lobby server applied to every online line: the client asks it (TextFilter Replace) and sends the reply's text, holding no list of its own (`FUN_002f4860` D:L194565-194571, a whisper's `FUN_002f4a20` D:L194614-194647, `FUN_002f4df0` D:L194753-194759, `FUN_002f4ea0` D:L194765-194778; §5.3); what it replaced unread; a server-side one would be our Horizon's (desktop@be557831 `MLS.cs:3959-4000`, `Program.cs:443-482`; V24) | the owner (H-next d, H34); ONL-32's transcript of a TextFilter exchange | placeholder (SVC-23, 2026-10-10) |
+| `CENSOR_HASH_C_READING` (ui `screens/briefingRoomChat.ts`, `censorHashC`; used in `gameLobbyCommands.ts`, `personaCommands.ts`, `onlineOptionsCommands.ts`) | every literal `#C` (0x23 0x43) becomes `#` and 0xb2 (U+00B2), case-sensitive, every occurrence; the line's other bytes as typed | r0004's `Censor` (0x00311fc0): `strstr` (0x00199a10) of its copy for the literal at 0x004211f8, 0xb2 written at hit+1 (0x312050/0x312058), searched again until none is left; its callers the room line (0x311c1c), the whisper (0x311d28), the game line (0x2bc474), `UINetCensorText` (0x27871c) and the description (0x317b08); r0001's `FUN_002f4df0` (D:L194740-194762) has no rewrite (§3a) | the capture of §3a: r0004's TextFilter request and ChatMessage for a typed `#C` line, and the receiver's frame | reading, pending review (R4P-324, 2026-11-23; re-read at r0004 by a non-author before the build) |
+| `CHAT_OWN_LINE_AT_SEND_ADAPTATION` (ui `screens/briefingRoomChat.ts`) | the room line's and the whisper's own line drawn at send, the typed text | a browser adaptation of the timing, no unknown of the original's: r0004 draws that own line from the typed record (0x311ee4) only when the filter's reply comes (the send callback 0x00311d70); the page has no filter reply (`CHAT_FILTER_PLACEHOLDER`) (§3a) | -- (what is drawn is the original's; a server filter reply would move the draw to it) | adaptation (R4P-324, 2026-11-23) |
+| `CENSOR_WRITE_AT_ONCE_ADAPTATION` (ui `screens/personaCommands.ts`, `NetCensorText`) | the variable's `#C` rewrite written back at once | a browser adaptation of the timing, no unknown of the original's: r0004's `UINetCensorText` (0x00278660) writes the text back from the filter's reply callback 0x00278740 (0x278754); the page has no filter reply (`CHAT_FILTER_PLACEHOLDER`) (§3a) | -- (what is written is the original's; a server filter reply would move the write to it) | adaptation (R4P-324 review finding 2, 2026-11-24) |
 
 Four labelled adaptations stand beside them, no unknown of the original's (no ledger row): `CHAT_PRINTABLE_ADAPTATION`
-(OT.R26 hardening, §3), `CHAT_POLL_ADAPTATION` (the HTTP seam's mailbox, §1; its cost: a line one poll late, the
+(OT.R26 hardening, §3; since R4P-324 it admits U+00B2, §3a), `CHAT_POLL_ADAPTATION` (the HTTP seam's mailbox, §1; its cost: a line one poll late, the
 period ONL-23's, and lines past 11 between two polls dropped, oldest first), SVC-17's `IGNORED_GAME_LINE_ADAPTATION`
 (the game lobby's line dropped at the bridge where the console's receiver drops it, §4.2; no cost seen) and VOTE-LOG's
 `VOTE_HUMAN_SEATS_ADAPTATION` (match `room.ts`: the vote threshold counts the target side's human seats, the target
@@ -449,3 +511,5 @@ counted -- the original has no online bots, so its side count was its human coun
   [266](266-the-chat-panels.md) §3 (reading, pending review).*
 - **A universe broadcast** (type 2) is drawn by the client in every state; no sender of it was found in the client
   (Sony's announcements, likely): not built.
+
+- **R4P-235 (L362), 2026-11-24: built, reading pending review.** r0004's `CheckStateSwitch` (twin of r0001 `FUN_002c3cf0`) zeroes every persona's +0x48 (team kick vote), +0x49 (spectator mark) and +0x4a (VOTE ALL) on each pass of the loading state (D4:L174132-174148); `Room.startRound(true)` (the launch and every new match) clears `votes`, `voteAllMarks` and `votesAll`. (r4 0x2c5b98-0x2c5bec: 24 slots of the table at 0x44dee0, each non-null record's three bytes zeroed on every pass). A round inside a match (`startRound(false)`) is not a game load and keeps them: the original never enters the loading state (session major 2) between rounds -- the round's end writes 4, or 6 at the match's end (r0001 `FUN_002a9b30` D:L150661-150666), ROUND COMPLETE's `ReplayMission` writes 5 (`FUN_00280040` D:L127390-127392), the exit state takes 3 or 5 as the next round (`FUN_00223680` D:L75920-75938) and the restart writes 3 (`FUN_002a7d40` D:L149761-149762); the only writers of 2 are the launch (`FUN_002c3cf0` D:L165381), the host's level-load tick (`FUN_001f5e70` D:L55633) and a late joiner's own load (`FUN_001f6660` D:L55862-55864); an r0004 image scan finds the same sites (the fresh review, 2026-11-24; the D4 line range not re-checked against the export, absent on that host). Test `match/test/roomVoteClear.test.ts` (both halves). **Open:** a late joiner's own console enters major 2 mid-game and so zeroes its LOCAL copy of every persona's three bytes; whether that reaches the host's tally is not read; the port clears nothing on a late join.

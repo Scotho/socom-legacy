@@ -119,6 +119,6 @@ describe('BLACK-GAP (a browser adaptation): the loading screen held until the ma
     // #635 review F2: the clock restarted at the canvas's mount; a match that will not mount lets the screen go at once.
     expect(src).toMatch(/const mounted = l\.mount\([^\n]*\);\r?\n\s*loadingHide\.mounted\(\);/);
     expect(src).toMatch(/made\.then\(\(\) => undefined, \(\) => \{ loadingHide\.release\(\); \}\);/);
-    expect(src).toMatch(/returned: \(\) => \{ roundLine = null;.*matchUp = false; loadingHide\.release\(\); \},/);
+    expect(src).toMatch(/returned: \(\) => \{ roundLine = null;.*matchUp = false; loadingHide\.release\(\);( [\w?.]+\(\);)* \},/);   // calls after it (QUAD-CACHE-RELEASE's menuTextures) allowed
   });
 });

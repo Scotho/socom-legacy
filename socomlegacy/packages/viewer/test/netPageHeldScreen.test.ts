@@ -321,10 +321,10 @@ describe('AD-12 C08: a real NetPage\'s retry -- the retried client\'s last scree
     step(10_000);
     expect(screens.at(-1)).toMatchObject({ kind: 'roundComplete', secondsLeft: 0 });   // held at GO (C07)
     quiet = true;                                                             // the room stops speaking: no close comes
-    step(8_000);                                                              // its last word at most 1.5 s before: under 10 s
-    expect(sockets.length).toBe(1);                                           // inside the 10 s bound: kept
+    step(2_000);                                                              // its last word at most 1.5 s before: under 4 s (LATER 359)
+    expect(sockets.length).toBe(1);                                           // inside the 4 s bound: kept
     expect(sockets[0]!.closed).toEqual([]);
-    step(5_000);                                                              // past it, then the retry's 1 s backoff
+    step(3_000);                                                              // past it (4 s), the retry at once, inside its 3 s hello wait (LATER 359a)
     expect(sockets[0]!.closed).toEqual([1000]);                               // given up by the link watch (`drop`)
     expect(sockets.length).toBe(2);
     expect(net!.client).not.toBe(first);

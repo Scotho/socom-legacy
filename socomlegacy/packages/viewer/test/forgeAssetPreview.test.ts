@@ -154,7 +154,12 @@ describe('real staged-handle preview adaptation', () => {
     const canvas = r.host.querySelector<HTMLCanvasElement>('canvas')!;
     expect(canvas.hasAttribute('tabindex'), 'no orbit: the canvas takes no focus').toBe(false);
     expect(r.host.querySelector('.fx-preview-name')!.textContent).toBe('crate');
-    expect(r.host.querySelector('.fx-preview-detail')!.textContent).toBe('MP2 · Source collision available');
+    // PR #5 (crispy's tooltip, OT.R112): the source line became the source's tag and rows of what the model says -- its
+    // size, its triangles -- then its collision; the source and the collision are still said, as FUI-22 D1 asks.
+    expect(r.host.querySelector('.fx-preview-tags')!.textContent).toBe('MP2');
+    const rows = [...r.host.querySelectorAll('.fx-preview-rows dt')].map((dt) => [dt.textContent, dt.nextElementSibling?.textContent]);
+    expect(rows).toContainEqual(['Collision', 'Source collision available']);
+    expect(rows.map(([k]) => k)).toEqual(expect.arrayContaining(['Size', 'Triangles', 'Collision']));
     // A drag on the canvas turns nothing and is not swallowed: the tooltip is not an input.
     const down = new MouseEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 });
     canvas.dispatchEvent(down); expect(down.defaultPrevented).toBe(false);

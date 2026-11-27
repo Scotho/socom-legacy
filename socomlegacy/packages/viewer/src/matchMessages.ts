@@ -1,4 +1,9 @@
-import { MESSAGE_SCALE, type BannerLine, type Hud } from './hud';
+import type { Rgba } from '@s2u/gs';
+import { MESSAGE_SCALE } from './hudLayout';
+import type { BannerLine, Hud } from './hud';
+import { sideNameRgb } from './killFeed';
+import type { RoundChatSender, ServerEvent } from './net/protocol';
+import { ROUND_CHAT_EYE_FRAME_BITMAP, ROUND_CHAT_NAME_COLOURS_ADAPTATION, ROUND_CHAT_SKULL_BITMAP } from './roundChatIcons';
 
 /**
  * MATCH-GAPS (web research 222 §9): a line the player's own SEAL posts on the HUD's message window, as the game posts
@@ -45,6 +50,125 @@ export function messageLine(text: string, colour: number, scale: number): Banner
  */
 export function refusalLine(hud: Pick<Hud, 'postMessage'>): (text: string) => void {
   return (text) => { hud.postMessage([messageLine(text, CLAYMORE_REFUSAL_COLOUR, CLAYMORE_REFUSAL_SCALE_READING)]); };
+}
+
+/*
+ * RC-3 ROUND-CHAT (V21.R15a, H452; the plan `docs/plans/2026-11-13-round-chat.md`): a BROWSER ADAPTATION beside OT.R48.
+ * The original sends no open line in a round (research 266 §3.1, §3.9); the server relays one under the round's rule
+ * (RC.R1) with the sender's side and life (`chat`'s `round`, RC.R2), and the page draws it on the HUD's message window
+ * as `[icon] NAME: text` or `[icon] NAME (team): text` -- the name in its side's colour, the body in the window's colour
+ * 0 (colour 3, the team's green, on a team line), a skull beside a dead player and an eyeball beside a spectator --
+ * unless IN-GAME TEXT MESSAGES is OFF (`EnableExternalWhispers` 0, the owner's answer (e) in H452). Nothing of the game's
+ * own lines changes.
+ */
+
+/**
+ * ROUND_CHAT_NAME_COLOURS_ADAPTATION -- the sender's name by his side, on the GS's 0..128 (128 as 1) as `MESSAGE_COLOURS`:
+ * RC-4's, with their sources (`./roundChatIcons`; the Terrorists' the original's message red, the spectators' the
+ * scoreboard's reading, the SEALs' a proposed lighter blue), PROVISIONAL until the owner has seen them in a picture
+ * (H452). Re-exported here for the line's builder.
+ */
+export { ROUND_CHAT_NAME_COLOURS_ADAPTATION };
+
+/**
+ * ROUND_CHAT_BODY_COLOUR_ADAPTATION: the body's colour in `MESSAGE_COLOURS` -- a plain line the window's colour 0 (the
+ * colour the kill feed's and the round's own lines draw in, `BannerLine` with no `rgb`), a team line colour 3 (64, 128,
+ * 64), the colour the HUD draws a teammate's tactical order in (`./matchChat` `commandLine`), as the brief's team green.
+ */
+export const ROUND_CHAT_BODY_COLOUR_ADAPTATION = { plain: 0, team: 3 } as const;
+
+/**
+ * ROUND_CHAT_ICON_BITMAPS_ADAPTATION: the HUD's names for the two icons (the seam RC-4 fills, `setRoundChatIcons`):
+ * drawn only once the HUD holds a bitmap under the name; until then the slot draws nothing and takes no room.
+ */
+export const ROUND_CHAT_ICON_BITMAPS_ADAPTATION = { skull: 'round_chat_skull', eye: 'round_chat_eye' } as const;
+
+/** The icon beside a round line's sender: an eyeball beside a spectator (no side), a skull beside a dead player, else none. */
+export function roundChatIcon(sender: RoundChatSender): 'skull' | 'eye' | null {
+  if (sender.side === null) return 'eye';
+  return sender.dead ? 'skull' : null;
+}
+
+const by128 = (c: readonly number[]): [number, number, number] => [c[0]! / 128, c[1]! / 128, c[2]! / 128];
+
+/**
+ * ROUND_CHAT_LOOK_ADAPTATION (V21.R15a, H452; a browser adaptation, PROVISIONAL until the owner picks from the look sheet,
+ * `e2e/zz-round-chat-look.spec.ts`): which of the sheet's options a round line draws in -- the one value to switch. Each
+ * as the sheet draws it (the body in the window's colour 0, or 3 on a team line, in every option):
+ * - `A` -- the original first: `NAME (All): text` / `NAME (Team): text`, the whole line in the body's colour (the game
+ *   lobby's forms and colours), the disc's dead voice channel icon beside a dead sender and its spectators channel icon
+ *   beside a spectator (`./roundChatIcons` `ROUND_CHAT_SKULL_BITMAP`, `ROUND_CHAT_EYE_FRAME_BITMAP`);
+ * - `B` -- RC-4's (the build's until a pick): `NAME: text` / `NAME (team): text`, the name in its side's colour
+ *   (`ROUND_CHAT_NAME_COLOURS_ADAPTATION`), the disc's skull, the drawn eye;
+ * - `B2` -- B with the name colours that pass 4.5:1 on the bright frame (`ROUND_CHAT_B2_NAME_COLOURS_ADAPTATION`);
+ * - `C1` -- A's forms, colours and icons, only the name tinted by side (B's colours);
+ * - `C2` -- no icons: `(dead) ` or `(watching) ` before the name in colour 0, `NAME: text` / `NAME (Team): text`, the
+ *   name tinted by side (B's colours);
+ * - `B3` -- B with the SEAL and Terrorist names in the kill feed's side colours (`./killFeed`
+ *   `SIDE_NAME_COLOURS_ADAPTATION`, the Forge's `SIDE_COLOUR`), the spectators' B's grey: WM-DATA-FEED's option 1 (the
+ *   owner's look 3B2, INTAKE 47, "colors that more closely resemble what we use for seal/terrorsit elsewhere"), the build's.
+ * RC-4's pastels (`B`) and the 4.5:1 set (`B2`) stay one constant away: set this switch back to 'B' or 'B2'.
+ */
+export type RoundChatLook = 'A' | 'B' | 'B2' | 'B3' | 'C1' | 'C2';
+export const ROUND_CHAT_LOOK_ADAPTATION: RoundChatLook = 'B3';
+
+/** The look sheet's B2 names (GS 128 as 1): the nearest SEAL blue and Terrorist red passing 4.5:1; the spectators' as B. */
+export const ROUND_CHAT_B2_NAME_COLOURS_ADAPTATION = {
+  seal: [92, 116, 128],
+  terrorist: [128, 108, 108],
+  spectator: ROUND_CHAT_NAME_COLOURS_ADAPTATION.spectator,
+} as const satisfies Record<'seal' | 'terrorist' | 'spectator', readonly [number, number, number]>;
+
+/**
+ * The sender's name colour in `look` (0..1, the window's pieces' scale; `null` a spectator): B3 the kill feed's side colours
+ * (`./killFeed` `sideNameRgb`, 1 the screen's 255) and B's grey for a spectator; B2 its own set; every other look B's.
+ */
+export function roundChatNameRgb(side: 'seal' | 'terrorist' | null, look: RoundChatLook = ROUND_CHAT_LOOK_ADAPTATION): [number, number, number] {
+  if (look === 'B3' && side !== null) return sideNameRgb(side);
+  return by128((look === 'B2' ? ROUND_CHAT_B2_NAME_COLOURS_ADAPTATION : ROUND_CHAT_NAME_COLOURS_ADAPTATION)[side ?? 'spectator']);
+}
+
+/** A round line as the message window draws it (`BannerLine`'s `segments` and `icon`), at the window's scale, in `look`. */
+export function roundChatLine(
+  ev: { name: string; text: string; team?: true; round: RoundChatSender }, look: RoundChatLook = ROUND_CHAT_LOOK_ADAPTATION,
+): BannerLine {
+  const body = by128(MESSAGE_COLOURS[ev.team ? ROUND_CHAT_BODY_COLOUR_ADAPTATION.team : ROUND_CHAT_BODY_COLOUR_ADAPTATION.plain]!);
+  const lobbyForms = look === 'A' || look === 'C1';
+  const name = look === 'A' ? body : roundChatNameRgb(ev.round.side, look);
+  const form = lobbyForms ? (ev.team ? ' (Team)' : ' (All)') : ev.team ? (look === 'C2' ? ' (Team)' : ' (team)') : '';
+  const rest = `${form}: ${ev.text}`;
+  const state = look !== 'C2' ? '' : ev.round.side === null ? '(watching) ' : ev.round.dead ? '(dead) ' : '';
+  const kind = look === 'C2' ? null : roundChatIcon(ev.round);
+  const icon = kind === null ? null
+    : lobbyForms ? (kind === 'skull' ? ROUND_CHAT_SKULL_BITMAP : ROUND_CHAT_EYE_FRAME_BITMAP)
+    : ROUND_CHAT_ICON_BITMAPS_ADAPTATION[kind];
+  return {
+    text: `${state}${ev.name}${rest}`, scale: MESSAGE_SCALE, rgb: body,
+    segments: [...(state ? [{ text: state, rgb: by128(MESSAGE_COLOURS[0]!) }] : []), { text: ev.name, rgb: name }, { text: rest, rgb: body }],
+    ...(icon ? { icon } : {}),
+  };
+}
+
+/**
+ * The round line's post on a HUD (`NetPageDeps.roundChat`): drawn while IN-GAME TEXT MESSAGES is on (`external`, the
+ * `./roundChat` `externalWhispers` of the session's option), else not at all; a line without `round` is not one.
+ */
+export function roundChatPost(d: { hud: Pick<Hud, 'postMessage'>; external(): boolean }): (ev: Extract<ServerEvent, { type: 'chat' }>) => void {
+  return (ev) => {
+    if (!ev.round || !d.external()) return;
+    d.hud.postMessage([roundChatLine({ name: ev.name, text: ev.text, round: ev.round, ...(ev.team ? { team: ev.team } : {}) })]);
+  };
+}
+
+/**
+ * The icons' seam (RC-4 fills it, from the disc or drawn): each bitmap given handed to the HUD under its name
+ * (`Hud.addBitmaps`, as the round screens' are, `./roundScreens` `handRoundScreenBitmaps`); a null one is not handed.
+ */
+export function setRoundChatIcons(hud: Pick<Hud, 'addBitmaps'>, icons: { skull: Rgba | null; eye: Rgba | null }): void {
+  const got: Record<string, Rgba> = {};
+  if (icons.skull) got[ROUND_CHAT_ICON_BITMAPS_ADAPTATION.skull] = icons.skull;
+  if (icons.eye) got[ROUND_CHAT_ICON_BITMAPS_ADAPTATION.eye] = icons.eye;
+  if (Object.keys(got).length > 0) hud.addBitmaps(got);
 }
 
 /**

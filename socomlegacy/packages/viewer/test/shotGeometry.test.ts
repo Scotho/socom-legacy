@@ -14,7 +14,7 @@ const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 1
 const FLAGS = 0x1001;
 const floor: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
 };
 const wall = (x: number): WorldPoly => ({
   modelName: 'worldmodel', path: 'worldmodel/barrier', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0,

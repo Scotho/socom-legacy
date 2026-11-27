@@ -1,3 +1,4 @@
+import { ownNameShown } from '../../streamerMode';
 import { btn, esc } from '../icons';
 
 /**
@@ -24,7 +25,9 @@ export function initials(name: string): string {
   return (parts[0] ?? '').slice(0, 2).toUpperCase();
 }
 
-export function signedOutHtml(v: SignedOutView): string {
+export function signedOutHtml(view: SignedOutView): string {
+  // STREAMER-P1 (a browser adaptation): the name, and its initials, read YOU while Streamer mode's details are Hidden.
+  const v = view.name ? { ...view, name: ownNameShown(view.name) } : view;
   const who = v.name ? ` as <b class="cx-signedout__name">${esc(v.name)}</b>` : '';
   return `<div class="cx-signedout" role="dialog" aria-modal="true" aria-labelledby="cx-signedout-title" tabindex="-1" data-act="${esc(v.act ?? 'signedout')}">
     <div class="cx-signedout__ring" aria-hidden="true">${v.name ? esc(initials(v.name)) : ''}</div>

@@ -160,8 +160,47 @@ import { isDead, MP_HEALTH, overall, PARTS, type Health } from './damage';
  * peer and a 16 peer refuse each other at the hello (`Room.hello`, the page's version text). A `.s2r` of protocol 11 to
  * 15 plays on frozen decoders (`./codecV15`; match `replay/format.ts` `DECODERS`) with the four fields 0, and the viewer
  * does not offer the view on it (`VIEW_SINCE_PROTOCOL`). `BodyFlag` bit 17 stays reserved, defined by nothing (PV.R4).
+ * 17 (2026-11-15, WM-DATA-17; WM.R11, the controller seat redotcom-8f): the player's view needs the watched player's item
+ * in the hand when it is neither the firearm nor the launcher (a grenade, a charge, the gear), which `weapon` does not
+ * name (the kit's item, research 94 s A6). Room to pages: a body grows 55 -> 56 by `BodyState.hand` (u8 after the sway
+ * bytes, `./codec`), a browser adaptation (`HAND_WIRE_ADAPTATION`, at the field) that nothing the room simulates reads;
+ * the room fills it from the seat's ROOM-HAND word and zeroes it with the view's tail for the other side (PV.R9). The
+ * command is unchanged. A per-tick binary field that moves the body's width bumps the version: a 16 peer and a 17 peer
+ * refuse each other at the hello (`Room.hello`, the page's version text). A 16 `.s2r` plays on a frozen decoder
+ * (`./codecV16`; match `replay/format.ts` `DECODERS`) with `hand` 0 (`HAND_SINCE_PROTOCOL`), its commands on the live
+ * `decodeCommands`.
+ * 18 (2026-11-17, LATER 1147, research 443; the owner's order, INTAKE 134): the fire button read as the PS2 reads it --
+ * the pad layer's two-read press (`FUN_002d9ff0`, `FUN_002c60c0`) once a kit step, a press's round named at its step
+ * (`../fire`, `./padButton`). No frame changes: a 17 `.s2r` reads on the live decoders (match `replay/format.ts`
+ * `DECODERS`). The rule changes what a page's rounds are, so a 17 peer and an 18 peer refuse each other at the hello
+ * (`Room.hello`): before any deploy, the page and the match server ship together. The same release carried the damage
+ * report's `health` as DMG points (intake item 2 (C), `./damagePoints`; `damageReport` below), not raw health.
+ * 19 (2026-11-18, LATER 1141, research 441; the owner's approval for the next patch, the main controller's rulings): the
+ * round's cone rolls at the firepoint about the line to the aim point (`FUN_005aa6e0`, `FUN_00592260`), its offsets x
+ * 1 / (scale x f) and the climb's cap x f, f the aim-to-firepoint depth ratio (`../accuracy` `depthRatio`). The `fire`
+ * message's `aim` is now the BARE look for a round that leaves a muzzle (it was the look after the cone), and it gains
+ * `at`, the aim point the cone was rolled toward, from which the room works out the same f (`./shotCone`). No frame
+ * changes. The meaning of `aim` changes, so an 18 peer and a 19 peer refuse each other at the hello (`Room.hello`):
+ * before any deploy, the page and the match server ship together, and the release drains every host.
+ * Also in 19 (2026-11-19, LATER 1129, R142 heads A+B; the main controller's ruling of 2026-11-18): a dead body's bundle
+ * gives its grenades and charges, and the taker's page is told -- `kit` gains `equipment` (the slots a take wrote) and
+ * `detonator` (the kept Detonator: `FUN_005c74e0` adds 0xc1 and nothing removes it, research 85 s9.7.1), `resume`
+ * gains `detonator`. JSON fields only, no frame changes.
+ * Additive since, the version kept: the `roundRefused` event (2026-11-22, LATER 876; the owner's B2/S6/S7: a round the room
+ * refuses is told to its page, which counts it and gives nothing back); an older page ignores it, an older room never
+ * sends it. The combat report's optional `ShotLedgerFields` (2026-11-22; an adaptation, the SHOT-LEDGER playtest
+ * instrument, B-16, opt-in COMBAT_REPORT): an older page ignores them, an older room never sends them. The `chargeGone`
+ * event (2026-11-24, R4P-224: a dead owner's claymore or PMN removed with no blast in a respawn game): an older page
+ * ignores it (its copy then stays drawn, as before), an older room never sends it.
  */
-export const PROTOCOL_VERSION = 16;
+export const PROTOCOL_VERSION = 19;
+
+/**
+ * WM-DATA-17: the first protocol whose bodies carry the hand byte (`BodyState.hand`). A recording below it carries none:
+ * its frozen decoder gives `hand` 0 (`./codecV16`), and a page reading it is told so by the header's protocol, never by
+ * the zero.
+ */
+export const HAND_SINCE_PROTOCOL = 17;
 
 /** ENEMY-RAISE ER-2: the first protocol whose bodies carry their owners' raise state (`BodyFlag.Raised`). */
 export const RAISED_SINCE_PROTOCOL = 14;
@@ -296,7 +335,7 @@ export const INTERP_DELAY_MS = 100;
  * SEAT_HOLD_MS_ADAPTATION (NET-RES.R4, the owner's ruling of 2026-10-23 in the deploy seat: "the hold is 3 minutes";
  * OT.R77, an adaptation under OT.R27 -- the original has no reconnect, a lost console is a leave, `FUN_002bc530`
  * D:L161109-161146): how long the room holds an account's seat whose socket closed unannounced (no `bye`), counted from
- * its last frame, ms. Past OT.R59's body hold (`RECONNECT_ALIVE_WINDOW_MS_ADAPTATION`, 10 s) its body is out of the
+ * its last frame, ms. Past OT.R59's body hold (`RECONNECT_ALIVE_WINDOW_MS_ADAPTATION`, 20 s since LATER 359) its body is out of the
  * world and the seat alone is held (NET-RES.R5); a held seat counts for its side and the game's player count
  * (NET-RES.R6). The page retries through it (NET-RES.R9). Under central's `SESSION_SILENT_MS_READING` (300 s), so the
  * account's session outlives it. One constant, the room's and the page's.
@@ -519,6 +558,17 @@ export interface BodyState {
   /** WIRE-16: the owner's scope sway, PS2 pixels, `Command.swayX`/`swayY` as carried (i8 at `VIEW_SWAY_STEP_ADAPTATION`). */
   swayX?: number;
   swayY?: number;
+  /**
+   * WM-DATA-17 (protocol 17; WM.R11): the item id in the owner's hand when it is neither the firearm nor the launcher (a
+   * grenade, a charge, the gear), else 0 -- the room's ROOM-HAND word at the seat's last run command (match `room.ts`
+   * `body`), 0 for a dead body and while the launcher is up; zeroed for the other side with the view's tail (PV.R9,
+   * `VIEW_RECIPIENTS_ADAPTATION`). HAND_WIRE_ADAPTATION: a browser adaptation for the player's view only, with no
+   * original -- the original's character message carries the current item alone (`weapon`, research 94 s A6), which
+   * keeps its meaning; nothing the room simulates reads this byte, and remote bodies do not read it. One u8 after the
+   * sway bytes (`./codec`); the frozen decoders below `HAND_SINCE_PROTOCOL` give 0, and a body literal built in code may
+   * omit it: absent is 0.
+   */
+  hand?: number;
 }
 
 /** `BodyState.flags`. */
@@ -585,6 +635,10 @@ export const ACTION_CODES = [
   'proneCover',                       // PF-19 (PF.R38): appended -- every earlier code keeps its byte (`./blast`)
   'rifleToLauncher', 'pistolToLauncher',   // PAR-84 (research 230 s5.2.10): appended, as PF.R38's -- no byte moves
   'swapRifleExchange', 'swapRifleClaim',   // NU-5 (research 323 s1.5, 324 s1.4): appended, as PAR-84's -- no byte moves
+  // LATER 1188 (research 447 s12): a hostage's flashbang cower, the two standing and two crouched clips (prone plays
+  // `proneCover`): appended, as NU-5's -- no byte moves; a page that predates them reads an unknown code as no action
+  // (`./body` `snapshotOf`; `test/actionCodeUnknown.test.ts`).
+  'cowerStand', 'cowerStand2', 'cowerCrouch', 'cowerCrouch2',
 ] as const;
 
 /** One snapshot, for one recipient. */
@@ -790,6 +844,12 @@ export type ClientEvent =
      */
     cranes?: boolean;
     /**
+     * DAY-7a (DAY.R6, the no-bump alternative; additive, the version kept; a browser adaptation, the product track): the
+     * page can draw a map's variant (the welcome's `variant`); every hello from `NetClient` carries it, beside `cranes`.
+     * Absent, the page is one from before it: the room welcomes it as before.
+     */
+    variants?: true;
+    /**
      * NCW-10 (an instrument with no original, the product track; additive, the version kept): the page's build,
      * `viewerRev()` (`../revision`), and its build time, `viewerBuiltAt()` (`BUILT_AT_PATTERN`), each absent when Vite
      * wrote none. The room keeps them for the seat's round signals only (`build` bounded,
@@ -841,7 +901,14 @@ export type ClientEvent =
    */
   | { type: 'chat'; text: string; team?: boolean }
   | { type: 'name'; name: string }
-  | { type: 'ping'; t: number }
+  /**
+   * Lag read v4 s6 (additive, no version change; an operator's instrument, the product track, no original): the page's
+   * own main-thread stalls since its previous app ping (`./stallMeter`) -- `pageStallMaxMs` the longest gap between two
+   * animation frames (whole ms), `pageStalls100` how many gaps passed 100 ms -- each optional, absent before two frames.
+   * The room only stores a seat's latest pair (bounded; anything else dropped) for the server's `rtt` line; nothing in
+   * play reads it and the pong is unchanged.
+   */
+  | { type: 'ping'; t: number; pageStallMaxMs?: number; pageStalls100?: number }
   /**
    * OT.R59 (RECONNECT-GHOST step 2; additive under protocol 11, a labelled adaptation): the page's own leave said before
    * its socket closes (`NetClient.close`, its pagehide's capture listener `NetPage.onPageHideBye`): the room never parks a
@@ -851,13 +918,21 @@ export type ClientEvent =
   /**
    * A round fired (W3.R4): the tick it left on, where from and along what (the client's cone and kick already in),
    * the weapon, and the view tick the shooter saw the others at. Protocol 5: `eye` and `aim`, the eye's ray the round
-   * was aimed down (the camera's eye and its look after the cone, `./fire`): the server checks them against its own
-   * run of the cone (`./shotCone`) and that the round goes where that ray points. The server takes the weapon from its
-   * own mover, not from `weapon` (kept for the wire's shape).
+   * was aimed down (the camera's eye and its look, `./fire`): the server checks them against its own run of the cone
+   * (`./shotCone`). Protocol 19 (LATER 1141): for a round that leaves a muzzle `aim` is the BARE look and `at` the aim
+   * point P1 on it (the original's `+0x1458`), and the round's `dir` lies in the cone about the line from `from` to `at`;
+   * a round without `at` is the eye's own (its cone on the eye's ray, as before 19). The server takes the weapon from
+   * its own mover, not from `weapon` (kept for the wire's shape).
    */
   | {
     type: 'fire'; seq: number; from: [number, number, number]; dir: [number, number, number]; weapon: number; viewTick: number;
     eye: [number, number, number]; aim: [number, number, number];
+    /**
+     * LATER 1141 (protocol 19): the aim point the round's cone was rolled toward (`./fire`'s `at`). Its checks -- on the
+     * look, no farther than the room's own first hit -- are the room's (a browser adaptation: our wire, our anti-cheat;
+     * `./shotCone` `AT_SLACK_ADAPTATION`), not the original's.
+     */
+    at?: [number, number, number];
     /**
      * NCW-17 (additive under protocol 13, no bump; an instrument, a labelled adaptation with no original): the page's
      * displayed tick at the round's firing (`NetClient.shownTick`: the snapshot tick its drawn others stand at -- the view
@@ -897,8 +972,12 @@ export type ClientEvent =
    * THROW-INTERRUPT (research 326 §2.4; additive, protocol 11 kept): a hand throwable's release request -- the kind in
    * the hand and the command it was asked on -- which the room keeps until the hand opens (the `throw` echoing `seq` as
    * `start`), for the original's drop at a death before then (`FUN_00547af0` -> `FUN_005b8920`, D:L413023, D:L471751-471870).
+   * `hurt` (LATER 1456; a network adaptation, additive, no bump: an older room ignores it): the serial `n` of the last
+   * `hurt` the page heard (0 from its own `spawn`, where the room zeroes it; absent before any, and from a resume until
+   * the next `hurt`), so the room refuses a request the page sent before it saw the hurt that cancelled it (research 85
+   * §4.3); absent, the request is kept as before.
    */
-  | { type: 'throwStart'; seq: number; kind: string; slot?: number }
+  | { type: 'throwStart'; seq: number; kind: string; slot?: number; hurt?: number }
   /**
    * ROOM-HAND (LATER 652; additive under protocol 15, no bump: an older room ignores it). [adaptation]
    * `ROOM_HAND_TRUST_ADAPTATION` (`packages/match/src/room.ts`): the selected non-firearm, non-launcher item in the page's
@@ -919,6 +998,14 @@ export type ClientEvent =
    * S:0x3e5cc0), false retains them ("VOTE ALL RETAIN", S:0x3e5cb0). The page's menu entry is not built.
    */
   | { type: 'voteAll'; on: boolean }
+  /**
+   * SEAT_CLAIM_ADAPTATION (a service adaptation with no original -- the original keeps a watcher a spectator for good,
+   * research 314 R314.1, R314.7; the owner's word, 2026-11-24; additive, the version kept: an older room ignores it): a
+   * watcher asks to play (`on` true) -- seated at once when a seat is free, else the back of the spectators' queue, the
+   * room answering with `promoted` or `queue` -- or leaves the queue it asked into (`on` false: a watcher again, `queue` 0).
+   * Refused silently (nothing changes) from a player, a playing joiner, or while the room's `seats` says `claim` false.
+   */
+  | { type: 'seatClaim'; on: boolean }
   /**
    * DOORS: the action button on the door under the reticle (`FUN_005aa240`'s pick), by its index in `actions.rdr`; the
    * command number it was pressed on. The server checks the reach and runs it (`DoorSet.use`). LATER 362 (additive):
@@ -1045,6 +1132,13 @@ export interface ScoreRow {
    * the page lists the totals there, as before.
    */
   roundKills?: number; roundDeaths?: number; roundScore?: number;
+  /**
+   * Protocol 17 (WM-DATA (a); a PRODUCT ADAPTATION, no original -- the original keeps no assists, research 155 §3): the
+   * seat's assists this match and this round, LCM-6a's count READ from the match record (`MatchRecorder.assistsOf`
+   * through the room's `assistsOf` option) -- the room keeps no second count, and an assist adds no score. Absent from a
+   * room with no match record (the loopback test room, the Forge): the page shows no assists column, never zeros.
+   */
+  assists?: number; roundAssists?: number;
   /** FBA.R12: trusted CPU identity, independent of display name/skin. */
   bot?: true;
 }
@@ -1124,7 +1218,22 @@ export interface CombatReport {
   /** `./combatHealth` `combatHealthSummary`: the part names and the two changes, null for not known. */
   hitLocation: string | null; hitLocationNames: string[];
   struckPartHealthChange: number | null; totalBodyPartHealthChange: number | null;
+  /** SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game), opt-in COMBAT_REPORT: see `ShotLedgerFields`. */
+  seq?: number; rewindTick?: number; rewindLead?: number | null; rewindClass?: 'a' | 'b' | 'c' | 'd' | 'e' | null; missBy?: number | null; worldAt?: number | null;
 }
+
+/**
+ * SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game), opt-in COMBAT_REPORT: the fields a room adds
+ * to a `fire` row of the combat report, so the page's playtest report can join each round it fired with what the room
+ * did (`./shotLedger` `joinShotLedger`). `seq` the round's command (every fire row, a refusal's too, when the room knew
+ * it); on a judged round, `rewindTick` the tick its bodies were rewound to, `rewindLead` its displayed tick's lead
+ * (`viewTick - shownTick`, null without one), `rewindClass` its rewind class a-e (the room's `noteRewind`; null for a
+ * shotgun pull's, settled later, or with the rewind instrument off) and `worldAt` the distance along the round of the
+ * first world surface it struck (null none); on a miss, `missBy` the nearest rewound body's distance from the round's
+ * line (null none). Additive and optional under the version kept (as `roundRefused`): an older page ignores them, an
+ * older room never sends them; a row of another request carries none.
+ */
+export type ShotLedgerFields = Partial<Pick<CombatReport, 'seq' | 'rewindTick' | 'rewindLead' | 'rewindClass' | 'missBy' | 'worldAt'>>;
 
 /**
  * NU-3c (research 321 section 4.2.1): who is told a seat's `health` -- A BROWSER ADAPTATION of the recipients only (the
@@ -1145,8 +1254,9 @@ export function healthTold(seat: Team, recipient: Team | null): boolean {
  * whole (`BodyState.view`, `clock`, `swayX`, `swayY`) -- A BROWSER ADAPTATION with no original (the original carries no
  * view, research 248 sections 1-2): the body's own side, alive or dead (a dead player cycles his own side only), and the
  * spectators; the other side, alive or dead, receives the same three bytes zeroed (the room's per-recipient pass, match
- * `room.ts` `recipientBodies`), so a page learns nothing of an enemy's scope or aim point from them. The recipients of
- * NU-3c's `healthTold`; the recording keeps the tail whole (a replay is not a live opponent).
+ * `room.ts` `recipientBodies`), so a page learns nothing of an enemy's scope or aim point from them. Since protocol 17
+ * (WM-DATA-17) the hand byte (`BodyState.hand`) goes with them: whole to the same recipients, zeroed to the other side.
+ * The recipients of NU-3c's `healthTold`; the recording keeps the tail whole (a replay is not a live opponent).
  */
 export const VIEW_RECIPIENTS_ADAPTATION = 'the body\'s side, alive or dead, and the spectators; the other side gets the tail zeroed' as const;
 
@@ -1368,7 +1478,8 @@ export interface HostageWire extends HostageStateWire {
  * granted at its ask's command and not yet taken (its body on foot until its page's `mountTake` or the bound); absent once
  * taken, on a release, and from an older room.
  */
-export type TurretWireYaw = TurretWire & { gunYaw?: number; reserved?: true };
+/** `gunPitch` (TURRET_FREE_GUN_PITCH): the gun's pitch, degrees, as its occupant left it; absent while level. */
+export type TurretWireYaw = TurretWire & { gunYaw?: number; gunPitch?: number; reserved?: true };
 
 /**
  * TURRET-AMMO (additive under protocol 11; issue #284, research 215 s8, `TURRET_RELOAD_READING`): the occupant's kit slot
@@ -1379,6 +1490,12 @@ export type TurretWireYaw = TurretWire & { gunYaw?: number; reserved?: true };
  * or a welcome's turrets. Absent from an older room.
  */
 export interface TurretMags { rounds: number[]; current: number; reloading: boolean }
+
+/**
+ * V21.R15a ROUND-CHAT (a browser adaptation): a round line's sender as the server saw it when the line was relayed --
+ * its side (null: a spectator, which always counts as dead) and whether it was dead. On the `chat` event's `round`.
+ */
+export interface RoundChatSender { side: 'seal' | 'terrorist' | null; dead: boolean }
 
 export type ServerEvent =
   /** Research 303 (additive under protocol 11): whether the VICTORY DANCE is offered to this seat now, the room's answer. */
@@ -1509,6 +1626,12 @@ export type ServerEvent =
      * s4-s6). Absent from a server before it: the page then sees what it saw before (nothing of them).
      */
     join?: JoinWire;
+    /**
+     * DAY-7a (DAY.R6, the no-bump alternative; additive, the version kept; a browser adaptation, the product track): the
+     * room's map variant, told to a page whose hello carried `variants: true`. Absent from a room before it, or on a map
+     * played as its base: the page draws the base map, as before.
+     */
+    variant?: 'day' | 'night';
   }
   /**
    * REFUSED-MAP (additive; the merge controller's note for TR-2, 2026-10-12): `map`, the hello's map, on a refusal that
@@ -1551,8 +1674,11 @@ export type ServerEvent =
    * A1 (additive): the reservation's broadcast (`reserved`, `TurretWireYaw`) at the ask's command; the take's broadcast
    * follows at the page's word (`steer.after` the command before it), or at the bound. A refusal at the take, a death, a
    * leave or a resume before it broadcasts a release.
+   * R4P-R2 review 1 F1 (additive): `releaseHand` on the release of a held turret -- the hand its reversed clip is of (0
+   * the rifle's, 1 the pistol's; the room's `dismountHand`, r0004 0x54a900 / 0x5aca70), which every page draws the
+   * release by (`../turretPage` `take`). Absent from every other event and from an older room (the mount's clip then).
    */
-  | ({ type: 'turret'; steer?: { ticks: number; after?: number }; refused?: 'mounting' | 'reload' } & TurretWireYaw & { mags?: TurretMags })
+  | ({ type: 'turret'; steer?: { ticks: number; after?: number }; refused?: 'mounting' | 'reload'; releaseHand?: 0 | 1 } & TurretWireYaw & { mags?: TurretMags })
   | { type: 'joined'; id: number; name: string; team: Team; character?: string; bot?: true }
   | { type: 'left'; id: number }
   /** Authored extension FBA.R10: server-assigned regional appearance, null back in the lobby. */
@@ -1567,8 +1693,21 @@ export type ServerEvent =
    */
   | { type: 'deadAtLoad'; id: number; age?: number; at?: [number, number, number]; yaw?: number }
   | { type: 'renamed'; id: number; name: string }
-  /** The recipient's place in the spectators' queue (1 = next), or 0 when promoted. */
+  /** The recipient's place in the spectators' queue (1 = next), or 0 when promoted (or, SEAT_CLAIM, withdrawn). */
   | { type: 'queue'; position: number }
+  /**
+   * SEAT_CLAIM_ADAPTATION (additive, the version kept: an older page ignores it, an older room never sends it): to a
+   * watcher and to a spectator queued from watching, the seats a claim could take now (`Lobby.openSeats`) and whether
+   * the room takes claims at all (`claim`: false in a clan game, or before a game's launch) -- sent at the welcome and
+   * on each change of either.
+   */
+  | { type: 'seats'; open: number; claim: boolean }
+  /**
+   * SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION (additive, the version kept): to a spectator whose claim a freed seat is held for
+   * (`Lobby.reserved`): its `promoted` follows in that many ms -- the page tells its player first ("taking you to the
+   * game"), then seats him. `team`: the side held.
+   */
+  | { type: 'seatComing'; team: Team }
   /**
    * The recipient became a player: its team, and (protocol 5) whether it is seated as a ghost -- a classic round in
    * play, "You are a ghost." until the next round (research 91 section 12), as the welcome's `ghost`.
@@ -1581,6 +1720,12 @@ export type ServerEvent =
     armory?: true;
     /** The launch countdown's seconds left, as the welcome's `countdown`. */
     countdown?: number;
+    /**
+     * SEAT_CLAIM_ADAPTATION (additive, the version kept: an older room never sends it): the seat is a watcher's claim's
+     * (`seatClaim`), not a playing joiner's turn in the queue -- the room's word, so a page that reconnected while it
+     * waited, or whose withdraw crossed its seat, still knows its seat came from watching.
+     */
+    claim?: true;
   }
   /**
    * W3.R13, protocol 5: the recipient, idle past the kick with someone waiting, was moved out to the back of the
@@ -1593,6 +1738,14 @@ export type ServerEvent =
    */
   | {
     type: 'spawn'; id: number; at: [number, number, number]; yaw: number; after: number;
+    /**
+     * L208: present when the room SEEDED the body (a record spawn: the record's cell y + 1) and ran its first game frame
+     * at once; `at` is that frame's result. The page seeds at this point and runs the same still frame, which gives `at`
+     * again, grounded or taking off with the room's own air phase (`WalkMode.respawn`'s `told`). Absent (an explicit
+     * placement, a body already running), the page adopts the body at `at`. Sent to the spawning seat's OWN page only (every
+     * other page, the valves and a recording are told the event without it). A product-track field of the port's own wire.
+     */
+    seed?: [number, number, number];
     /**
      * Protocol 7: the kit the body spawned with (`FUN_00599f00`, R94.3: the type's pick, else its own), five item ids --
      * the page's own kit when `id` is its own, and every page's picture of the others' weapons. The room always sends
@@ -1643,6 +1796,13 @@ export type ServerEvent =
    * can be told twice; an older page ignores both.
    */
   | { type: 'detonate'; pid: number; by: number | null }
+  /**
+   * R4P-224 (additive, the version kept; research 235 s10.3; match `room.ts` `DEAD_OWNER_MINES_CLEAR_READING`): the placed
+   * charge with this `pid` is gone with no blast -- a dead owner's claymore or PMN removed in a respawn game. The original
+   * sends its clear on the wire (`FUN_003cceb0` -> `FUN_003c7170`, D:L321674); every page takes its copy away silently
+   * (`GrenadeCore.removeRemote`: not drawn, never tripped). An older page ignores it (`NetPage.event`'s default).
+   */
+  | { type: 'chargeGone'; pid: number }
   /**
    * Research 386 §3.2 (LATER 63): a scene program's `FIRE_WEAPON` round went off at `at` -- Blizzard's outhouse's `C4` at
    * its toilet, Crossroads' bridges' and the bases' `MPBOMB` -- by the item's name (`kind`), for its explosion's effects and
@@ -1695,8 +1855,12 @@ export type ServerEvent =
     type: 'impact'; id: number; weapon: number; from: [number, number, number]; to: [number, number, number]; normal: [number, number, number] | null; material: number | null;
     body: number;
   }
-  /** The recipient was hit: health left per part, and where from (research 91a section 7). */
-  | { type: 'hurt'; health: number[]; from: [number, number, number]; part: number }
+  /**
+   * The recipient was hit: health left per part, and where from (research 91a section 7). `n` (LATER 1456; a network
+   * adaptation, additive, no bump: an older page ignores it, an older room sends none): the seat's serial of `hurt`s,
+   * one more each, zeroed at its spawn, which the page echoes on its `throwStart` (`hurt`; research 85 §4.3).
+   */
+  | { type: 'hurt'; health: number[]; from: [number, number, number]; part: number; n?: number }
   /**
    * NU-3c (additive under protocol 11; research 321 section 4.2.1): another seat's part health as the others' consoles
    * hold it -- the SealObject's six bytes 0x82-0x87 (research 193 section 4.1), `partHealthBytes`, in `./damage` `PART`
@@ -1717,12 +1881,33 @@ export type ServerEvent =
    */
   | { type: 'stale'; request: 'fire' | 'reload' | 'throw'; seq: number }
   /**
+   * [adaptation] LATER 876 (the owner's B2/S6/S7, 2026-11-22; additive under protocol 19, no bump): the room refused this
+   * page's own round for a reason other than `stale` -- `why` the word its drop log keeps (`cone: eye`, `reload or
+   * empty`, `rate`, `swapping`, ...; `trade: <why>` for a dead shooter's traded round, under the page's own seq) -- told
+   * to that page alone, once a seq (a pull's rays share one; "once" is "not twice running", the room's `tellRefusedRound`),
+   * and never AFTER `stale` for that seq. The count is seqs with a refused ray: a pull that partly fired, a later ray
+   * refused, counts as refused; and a seq told here may still be told `stale` after (a shotgun pull split at the cone's
+   * edge, or too many waiting then stale), whose refund stands; a dead shooter's traded pull so split may be told
+   * `stale` under the death's seq and this under the page's own (two seqs, one pull; the 876 fold check's C1). The round stays SPENT on the hand (S6: no server refuses
+   * the console's round, research 91; the console spends every round it fires, `FUN_005be9a0`'s ray loop,
+   * `FUN_005c5340`): the page gives nothing back and draws nothing, it counts it (`./client` `combatReport`'s `refused`,
+   * the `?devmode` playtest report). Not the turret: a refused turret round re-syncs its occupant's count (`ammo`,
+   * TURRET-AMMO F5), which hands the predicted round back. A server adaptation (the game has no server, research 91
+   * §15). An older page ignores it; an older room never sends it. Named `roundRefused`, not `refused`: that type is the
+   * hello's refusal above, which an older page takes as the end of its connection.
+   */
+  | { type: 'roundRefused'; request: 'fire'; seq: number; why: string }
+  /**
    * A player flinched (the owner, 2026-10-02; research 91 section 21): a non-lethal round's clip (`./deaths`
    * `flinchClip`, the room's draw), which the page plays on that player's body -- the victim's console plays it on its
    * own actor and sends the motion to every other (`FUN_005a2690` -> `FUN_00588ab0` -> `FUN_002bbaf0`, kind 0xf). Sent
    * to every page, the victim's own too since MATCH-FIX-2 (2026-10-02), which plays it on its own body (`../walk`
    * `setFlinchPose`). Additive (2026-10-02): an older page ignores the event (and its own id's: the first round's page
    * dropped those), an older room never sends it or not to the victim, so no version bump.
+   * LATER 1186 (research 447 s9.1): its MEANING WIDENED -- `id` may now name a hostage (`HOSTAGE_ID_BASE`+), the room's own
+   * flinch of a hostage a round leaves alive, as the original's host pushes it to every console (Push Blend 0xf). No wire
+   * change: a page hands every other id to `RemotePlayers.flinch`, which draws the hostages too and ignores an id it holds no
+   * body for (`test/hostageFlinchPage.test.ts`), so an older page plays it or drops it.
    */
   | {
     type: 'flinch'; id: number; clip: string;
@@ -1831,8 +2016,15 @@ export type ServerEvent =
    * into the game lobby's panel (ONL-23), in the round too (SVC-19: the match hands it to the panel, never the HUD).
    * SVC-19 (additive; research 266 §3.1): `team` on a line of a team scope (1-3, D:L160079-160102), drawn
    * "%s (Team): %s" (S:0x3f2700, D:L160184); absent, scope 0.
+   * V21.R15a ROUND-CHAT (additive, protocol 15 kept; a browser adaptation beside OT.R48 -- the original sends no open line
+   * in a round, research 266 §3.1, §3.9): `round`, present only on a line the server relayed under the round's rule
+   * (`match/src/gameChat.ts` `roundChatReaches`: in a round, by the sender's and each seat's life, side and the `/team`
+   * flag) -- the sender's `side` (null: a spectator) and whether it was `dead` (a spectator always is) when it spoke. A
+   * page draws such a line on the HUD's message window (its name in its side's colour, a skull or an eyeball beside a dead
+   * sender or a spectator, "(team)" after the name on a `team` line); absent, the line is the game lobby's, as before.
+   * An older page ignores the field and puts the line in the lobby's panel.
    */
-  | { type: 'chat'; sender: number; name: string; text: string; team?: true }
+  | { type: 'chat'; sender: number; name: string; text: string; team?: true; round?: RoundChatSender }
   /**
    * SA-43c RESTART-NOTICE, Part 2 (additive, protocol 11 kept; research 345 sections 1-2): the server's system message on
    * the game connection -- RT_MSG_SERVER_SYSTEM_MESSAGE's severity (a byte) and text, which the original's network library
@@ -1877,6 +2069,24 @@ export type ServerEvent =
     stats?: Record<number, MatchStats>;
   }
   /**
+   * WM-DATA task 3 (WM.R10; `DAMAGE_REPORT_ADAPTATION`, `match/src/room.ts`): a browser adaptation with no original --
+   * the game gives a player no damage numbers. The room's damage report, at the round's end (after `roundOver`; nothing
+   * at a hit; a respawn room's life report below), to each player's own page (`send`, never broadcast: never to a spectator or a third
+   * page, never in a recording): `taken` the health his round took, by enemy attacker, and `dealt` what he took from
+   * each enemy. Health only, never armour; an enemy's hits only (a teammate's and his own are left out); `hits` the
+   * applied hits that took health, `health` their DMG points summed (intake item 2, option (C), merged on the
+   * owner's pick (INTAKE 144, as the main controller read it): per hit the victim's HUD bar's fall x 100, at a kill the bar left -- `./damagePoints`;
+   * a kill from full is 100; the page draws it as it is). Nothing else: no place, distance, direction or anyone's health.
+   * WM-DATA task 3b (the owner's amendment): in a room playing respawn rules the room also sends, at a death, the victim
+   * alone the report of the life that just ended -- `life: true`, `taken` and `dealt` that life's -- after the `kill`
+   * and its `score`; a classic room sends nothing at a death. A round report carries no `life` key at all.
+   */
+  | {
+    type: 'damageReport'; round: number; life?: true;
+    taken: { from: number; hits: number; health: number }[];
+    dealt: { to: number; hits: number; health: number }[];
+  }
+  /**
    * Protocol 7 (review 3 B2): the classic round was abandoned -- a side left empty by a leave, a kick or a demotion
    * (a departure is a leave: `FUN_002bc530` D:L161109-161146, research 315 §3.3; `dlgNetAbandoned`) -- and the room waits for both sides
    * again. Sent before the score that carries `timeLeft: null`; the page ends the round on it (its decals go).
@@ -1893,14 +2103,29 @@ export type ServerEvent =
    * the seats (the room's id, the account's name, the side or null for a watcher, READY, the host's star, the whole
    * seconds until the seat's READY is available), the launch countdown's seconds or null, whether the match has started.
    * `refused` (to the requester only): why its `lobbyReady` / `switchTeams` / `launch` / `clanSwap` was not taken.
+   * WM-51 (WM.R21, the owner's team swap queue: a DEPARTURE from the original on his word, match `gameLobby.ts`
+   * `SWAP_QUEUE_OWNER`; research 432 -- the original tells a refused asker nothing, §1): a seat's `queued: true` while
+   * its SWITCH TEAMS ask stands, to every seat (everyone sees the mark), absent otherwise; and two `refused` values to the
+   * asker (match `SWAP_QUEUE_ANSWERS`): `'queued'` on a press that queued it, `'unqueued'` on the press that cancelled
+   * it. They ride `refused` because a page without the feature ends its switch's wait only on a `refused` or a side
+   * move (ui `screens/gameLobbyCommands.ts`'s `switchAsked`), so its wait stays honest. Additive JSON, the version kept
+   * (an older page ignores the field; an older server sends none and answers `'sides'`).
    */
   | {
     type: 'gameLobby';
     /** Server prepares a new mission; the completed map's load must end before reconnect. */
     nextMap?: string;
-    seats: { id: number; name: string; team: Team | null; ready: boolean; host: boolean; readyIn: number; bot?: true }[];
+    seats: { id: number; name: string; team: Team | null; ready: boolean; host: boolean; readyIn: number; bot?: true; queued?: true }[];
     botSettings?: BotSettings;
     countdown: number | null; launched: boolean; refused?: string;
+    /**
+     * LOBBY-READY-DELAY (OT.R129 amended, match `gameLobby.ts` `LOBBY_AFTER_MATCH_FREE_OWNER`; a departure on the owner's
+     * word): `true` while the lobby is one a match came back to and has not launched since (`PreMatch.returnedFromMatch`),
+     * so a page entering it fresh (a reload, a rejoin, after a rotation's 4021) lays the first entry's waits aside; absent
+     * otherwise. Our match server's own wire, not the original client's; additive, the version kept (an older page
+     * ignores it).
+     */
+    returned?: true;
     /** The staging room's authoritative equipment limit; absent: unrestricted (research 362 §3). */
     eqLimit?: number;
   }
@@ -2035,6 +2260,8 @@ export type ServerEvent =
     pouch: Record<string, number>; weapon: 0 | 1; held: number | null;
     /** MLS-EQ: exact throwable/charge rings; older rooms send the aggregate pouch only (research 361 §3). */
     equipmentSlots?: EquipmentSlotState[];
+    /** LATER 1129: the kit's kept Detonator (`kit`'s `detonator`), so a reload after a hold keeps what the room kept. */
+    detonator?: boolean;
     turret: number | null; steer?: { ticks: number; toward: number };
     /**
      * LATER 154 (additive under protocol 11): with `turret`, the mount's window end in the page's numbering (`Room`'s
@@ -2069,7 +2296,23 @@ export type ServerEvent =
      * in the weapon among them: exact with shots or a reload in flight. Absent: `filled` set from `rounds` as before.
      */
     added?: [number[], number[]];
+    /**
+     * LATER 1129 (R142 head B; reading, pending review): after a walk-over's equipment take, each throwable/charge slot
+     * the take wrote, as the room holds it (`EquipmentSlotState`). An installed slot (`FUN_005bc410` D:L473823-473829) is
+     * whole, no `added`: the page's slot of that kind is new. A topped-up slot carries `added`, the amount each magazine
+     * changed by (`FUN_005ba3d0`), which the page adds to its own count -- exact with a throw it spent ahead of the room.
+     */
+    equipment?: KitEquipmentWire[];
+    /**
+     * LATER 1129: whether the kit holds the Detonator (0xc1) -- added by `FUN_005c74e0` (D:L480156-480202) whenever a
+     * claymore is in the kit, never removed until the next kit is built, so an install over a spent claymore keeps it.
+     * Present (true) only when held: the page's own flag is only ever added to between spawns.
+     */
+    detonator?: true;
   };
+
+/** LATER 1129: a throwable/charge slot a walk-over's take wrote (`kit`'s `equipment`). */
+export interface KitEquipmentWire extends EquipmentSlotState { added?: number[] }
 
 /** Why a `loadout` request was refused (`@s2u/scene` `PickRefusal`). */
 export type LoadoutRefusal = 'slot' | 'unknown' | 'locked' | 'refused'

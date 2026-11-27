@@ -80,6 +80,7 @@ export const EVENT_CLASS: Record<ServerEvent['type'], EventClass> = {
   impact: 'transient',         // to the shooter alone
   grenade: 'transient',        // a grenade's arc (W37.R4's example), a Detonator's fire; a charge's placement read (RE-1)
   detonate: 'transient',       // a charge set off: a verb; read for the charge's state (RE-1), never replayed
+  chargeGone: 'transient',     // R4P-224: a charge removed with no blast; read for the charges (RE-1), never replayed
   sceneRound: 'transient',     // research 386 §3.2: a scene FIRE_WEAPON's round's explosion, drawn and heard once
   placed: 'transient',         // to the thrower alone
   flinch: 'transient',         // a clip
@@ -99,11 +100,14 @@ export const EVENT_CLASS: Record<ServerEvent['type'], EventClass> = {
   refused: 'transient',        // to one page
   pong: 'transient',           // to one page
   queue: 'transient',          // to one page
+  seats: 'transient',          // to one page (SEAT_CLAIM_ADAPTATION: a watcher's open seats)
+  seatComing: 'transient',     // to one page (SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: its seat held, `promoted` to follow)
   promoted: 'transient',       // to one page
   demoted: 'transient',        // to one page
   hurt: 'transient',           // to one page
   health: 'transient',         // NU-3c: to a seat's side and the spectators, sent, never recorded
   stale: 'transient',          // to one page
+  roundRefused: 'transient',   // LATER 876: to one page (the shooter's refused round)
   blast: 'transient',          // to one page
   votes: 'transient',          // to one page
   spectatorVote: 'transient',  // a line (SVC-23e)
@@ -119,6 +123,7 @@ export const EVENT_CLASS: Record<ServerEvent['type'], EventClass> = {
   voiceMembers: 'transient',   // AD-14: to one page, its channel's member count; voice is never recorded
   seatClans: 'transient',      // AD-13: the told tags; nothing in a replay draws them (the speaker line needs the floor, never recorded)
   combat: 'transient',         // a playtest instrument's report, to the attacker and the target
+  damageReport: 'transient',   // WM-DATA task 3: to one page (`send`, never recorded)
   gameLobby: 'transient',      // the game lobby's (the bridge's), not the room's broadcast
 };
 
@@ -351,6 +356,7 @@ export function emptyFold(): FoldState {
  */
 export function foldEvent(s: FoldState, ev: ServerEvent, tick: number, tickHz: number, throwable: ThrowableLookup = bakedThrowable): void {
   if (ev.type === 'grenade' || ev.type === 'detonate') { foldCharge(s, ev, tick, throwable); return; }
+  if (ev.type === 'chargeGone') { s.charges.delete(ev.pid); return; }   // R4P-224: gone with no blast, no trip after it
   if (EVENT_CLASS[ev.type] !== 'stateful') return;
   switch (ev.type) {
     case 'score':

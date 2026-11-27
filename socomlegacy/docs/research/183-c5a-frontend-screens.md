@@ -200,6 +200,12 @@ answers do not change. They differ on the LAN path. **PROVEN.** Suggestion: repl
   **The status is not read.** The answer is 1 at once. **STRONG.**
 - **Still open**: the filter's word list is the server's (SVC-23).
 - **Implementation**: `lobby.censor(text, var)` sends TextFilter type 1 and assigns the reply text whatever the status.
+- *2026-11-23, R4P-324 (research 263 §3a; reading, pending review):* the above is r0001's. In r0004 the row
+  (`UINetCensorText` 0x00278660, the same gate at 0x278674/0x278684) calls `Censor` (0x00311fc0, at 0x27871c), whose
+  copy of the text takes `#` and 0xb2 for every `#C` before the request goes, and the callback 0x00278740 writes the
+  reply into the same variable (0x278754). The port writes that rewrite back at once (`CENSOR_HASH_C_READING`; ui
+  `personaCommands.ts` `NetCensorText`), then calls `lobby.censor` with the rewritten text when one is supplied;
+  `NET_CENSOR_TEXT_PLACEHOLDER` now stands for Sony's filter alone.
 
 ### 7. `NET_WORKER_RESULT_READING` -- `dnasCommands.ts:146`
 
@@ -711,7 +717,9 @@ I then checked each claim against `$PORT` to confirm that the port does what the
 
 - My store scan (`v_netflags.py`) finds no lui-based non-zero store to 0x45a0c1. The 1 comes through a struct base:
   D:L122630 `FUN_0030e3a0(0x45a0c0, 1)` writes `*(base + 1)`.
-- `FUN_00402800` (D:L328767+) zeroes the block once as a static initializer. It has no callers and registers a
+- `FUN_00402800` (D:L328767-328789) initialises the block once as a static initializer: it clears the two network
+  flags (0x45a0c0, 0x45a0c1) and other fields, but sets 0x45a1a0 to 10, 0x45a1a4 to 0x100, 0x45a1ac to 100 and the
+  flags 0x45a1c9 and 0x45a1ca to 1, and constructs two lists (`FUN_001eabb0` x2). It has no callers and registers a
   destructor through `FUN_00182810`.
 
 ### 6.7 What an implementer should take from this (the verifier's list, for all seven reports)

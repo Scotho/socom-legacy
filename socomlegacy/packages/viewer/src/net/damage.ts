@@ -190,12 +190,53 @@ export function fallKills(h: Health, speed: number, speeds: readonly [number, nu
 }
 
 /**
- * `FUN_00580360` L441929 (from the landing's `FUN_005af930` L466914 with the contact speed): a blast knock's landing --
- * on the ground in `Fall forward` / `Fall backwards` (research 85 §12) -- reaches `FUN_005ac1f0` at the speed x 1.2,
- * so a knock-down hurts at a lower drop than a walk-off does. Its gate on body `+0x105c` bit 3 (L441921) is not read:
- * the room applies the factor to every knock's landing (research 151 §3.4).
+ * R4P-104 (reading, pending review; was `KNOCK_LANDING_SPEED_FACTOR`, research 151 s3.4): the dive's landing -- r0004
+ * 0x585900 (r0001 `FUN_00580360` D:L441912-441950) -- reaches the fall's damage at the contact speed x 1.2 (r0004
+ * 0x585980-0x585994, the literal 0x3f99999a; D:L441929). Its two callers are both under `dive_to_prone` (the clip word
+ * r0004 0x40a0d8 / r0001 `DAT_003def08`): the landing dispatcher with that clip in play at the contact (r0004
+ * 0x5b5ce4-0x5b5cfc; r0001 `FUN_005af930` D:L466908-466914) and the body's tick (r0004 0x556490-0x55649c; D:L418158-418166,
+ * `DIVE_KEPT_SPEED_READING`). A blast knock's landing (`Fall forward` / `Fall backwards`) calls the damage directly at the
+ * PLAIN speed (r0004 0x5b5aa8-0x5b5aac, 0x5b5b60-0x5b5b64; D:L466836, D:L466844): no factor. So a dive carried off an
+ * edge hurts from a lower drop than a walk-off does (142.3 a second, a 43-unit fall, instead of 170.7). The room reads it
+ * on a landing the walker marks `Landing.dived`; the walker's own `fallKills` ask takes the same scaled speed.
  */
-export const KNOCK_LANDING_SPEED_FACTOR = 1.2;
+export const DIVE_LANDING_SPEED_FACTOR = 1.2;
+
+/**
+ * R4P-104 (reading, pending review): the dive's landing skips the damage whole when body `+0x105c` bit 3 is set (r0004
+ * 0x585938-0x585948; D:L441923). It has more than one setter (the non-author second read's C2): `FUN_005594b0` (r0004
+ * 0x55e7d0, the store 0x55e870-0x55e884), `CAiSRescued`'s event 0 online, on an AI state's body (D:L422305-422314);
+ * `CMission::LoadVehicle` (r0001 `FUN_002b28d0`, the store 0x2b2c94, D:L155873-155876; r0004 0x2b46b4) on a non-AI body
+ * loaded as the first `vehicles.rdr` entry under mission flags `+0x140` & 0x1000; and r0004 `CRemoteCtrl::SetAiNetState`
+ * (0x5749e4). Whether a player's dive can carry it is open (which missions set 0x1000 is untraced); the port reads every
+ * dive landing it marks (`'ignored'`; research 151 s2.6, s5).
+ */
+export const DIVE_LANDING_BIT3_READING = 'ignored' as const;
+
+/**
+ * R4P-104 (reading, pending review): the dive's landing has a second caller, the body's tick with the dive's clip on top
+ * and the velocity zero (r0004 0x556490-0x55649c; r0001 D:L418158-418166), which reads the kept speed `+0x1368` (r0001
+ * `+0x1364`) and zeroes it. The port's walker measures the contact speed alone (`'contact'`): the dive's landing the
+ * walker records reads that. Settled by a trace of `+0x1368` beside the contact speed on a dive off an edge
+ * (research 151 s5).
+ */
+export const DIVE_KEPT_SPEED_READING = 'contact' as const;
+
+/**
+ * R4P-104, a BROWSER ADAPTATION (switches nothing): the port's CPU seats (`bots/matchBots.ts`, `MoverSim.ai`) are the
+ * port's own -- the original has no match bots online -- and take fall damage as players do (the owner's AS-09 note).
+ * r0004's online spare (0x5b2168-0x5b21a4) keys on the controller's class (`CSealCtrlAi`), which the port gives the
+ * escortees alone (`Walker.onlineAi`, set by match `hostageFollow.ts`); it never keys on `sim.ai`.
+ */
+export const MATCH_BOT_FALL_ADAPTATION = 'bots take fall damage' as const;
+
+/**
+ * R4P-104 (reading, pending review): the class r0004's `HandleFallingDamage` (0x5b1e80) returns, after the landing's
+ * sounds, for an AI-controlled body in a network game (0x5b2168-0x5b21a4: byte 0x45d481 and the controller's vtable
+ * slot +0x30, 1 for `CSealCtrlAi`) -- no exertion, no damage, no reaction, no death. The ordinary landing picks its clip
+ * by it (r0001 D:L466676-466678: class 0 or 1 over the hard rate, 0xb `Jump land hard`); the sound keeps the real class.
+ */
+export const AI_ONLINE_LANDING_CLASS = 0;
 
 /**
  * The fragments a blast sends at a SEAL whose feet are `distance` from the round's lifted point (`FUN_005a18b0`

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { DIALOG_EVENTS } from '../../src/dialog';
 import { UiCommandHost, uiCommandRowByName } from '../../src/uiCommands';
 import { UiVarManager, type UiVarValue } from '../../src/uiVars';
+import { chatHiddenWords, setChatFilter } from '../../src/text/chatFilter';
+import { setOwnNameDisplay } from '../../src/text/ownNameDisplay';
 import type { ZAnimUiCommand } from '../../src/zanimRuntime';
 import { lobbySessionStart, type ChannelListEntry } from '../../src/screens/worldOfSocomCommands';
 import { MEDIUS_LOBBY_NAME_VAR } from '../../src/screens/briefingRoomCommands';
@@ -10,6 +12,7 @@ import {
   GAME_LOBBY_CHAT_VAR, ROOM_CHAT_LINES, WHISPER_USAGE_TEXT, appendGameLobbyChat, gameLobbyChatLine, parseChatInput,
   type ChatFwdLine, type LobbyChatService,
   ROUND_PLAYER_NOT_FOUND_TEXT,
+  CENSOR_HASH_C_READING, CHAT_OWN_LINE_AT_SEND_ADAPTATION, censorHashC,
 } from '../../src/screens/briefingRoomChat';
 
 /**
@@ -336,5 +339,146 @@ describe('SVC-19: the round takes the queued lines while it runs; the game lobby
     expect(gameLobbyChatLine('host', 'gg')).toBe('#C\x80\x80\x80host (All): gg\n');
     expect(gameLobbyChatLine('host', 'on it', true)).toBe('#C@\x80@host (Team): on it\n');
     expect(gameLobbyChatLine(null, 'x', true)).toBe('#C@\x80@Unknown (Team): x\n');
+  });
+});
+
+/**
+ * R4P-324 (web research 263 §3a; `CENSOR_HASH_C_READING`): r0004's `Censor` (0x00311fc0) searches its copy of the text
+ * for the literal at 0x004211f8 (`#C`) with `strstr` (0x00199a10) and writes 0xb2 over the `C` of each hit
+ * (0x312050/0x312058), searching again from the start until none is left. The room line (0x311c1c) and the whisper
+ * (0x311d28) send that text; the sender's own line is the typed one (0x311b54, 0x311c04, 0x311ee4), drawn at send here
+ * (`CHAT_OWN_LINE_AT_SEND_ADAPTATION`). Synthetic lines; nothing measured on the original running.
+ */
+describe('R4P-324: censorHashC, r0004 Censor\'s #C rewrite, on the room line and the whisper', () => {
+  it('every literal "#C" becomes "#" + 0xb2 (case-sensitive, every occurrence); "#c", "#B", other codes and the empty text untouched', () => {
+    expect(censorHashC('#C\x80\x40\x40hi')).toBe('#\u00b2\x80\x40\x40hi');
+    expect(censorHashC('a#Cb #Cc#C')).toBe('a#\u00b2b #\u00b2c#\u00b2');
+    expect(censorHashC('##C')).toBe('##\u00b2');                                  // the hit is the second '#'
+    expect(censorHashC('#CC')).toBe('#\u00b2C');                                  // only the C after the '#'
+    expect(censorHashC('#cabc')).toBe('#cabc');
+    expect(censorHashC('#Bbold#B')).toBe('#Bbold#B');
+    expect(censorHashC('#Rhi ## #')).toBe('#Rhi ## #');
+    expect(censorHashC('')).toBe('');
+    expect(CENSOR_HASH_C_READING).toBe('every literal #C (0x23 0x43) becomes # and 0xb2, case-sensitive; the line\'s other bytes as typed');
+  });
+
+  it('a room line: the wire takes the rewrite, the own line the typed text (CHAT_OWN_LINE_AT_SEND_ADAPTATION)', async () => {
+    const r = rig();
+    await r.send('#Cabcred #c #B');
+    expect(r.requests).toEqual([{ op: 'chat', body: { messageType: 0, targetId: -1, message: '#\u00b2abcred #c #B' } }]);
+    expect(r.panel()).toEqual([`${CHAT_COLOUR.room} socomc: #Cabcred #c #B`]);
+    expect(CHAT_OWN_LINE_AT_SEND_ADAPTATION).toBe('the room line\'s and the whisper\'s own line drawn at send, the page having no filter reply');
+  });
+
+  it('the 63-character cut, then the rewrite: a #C inside the 63 goes out rewritten, the line still 63', async () => {
+    const r = rig();
+    await r.send(`${'x'.repeat(60)}#Cab#C`);
+    const sent = (r.requests[0]!.body as { message: string }).message;
+    expect(sent).toBe(`${'x'.repeat(60)}#\u00b2a`);
+    expect(sent).toHaveLength(CHAT_MESSAGE_CHARS);
+    expect(r.panel()).toEqual([`${CHAT_COLOUR.room} socomc: ${'x'.repeat(60)}#Ca`]);
+  });
+
+  it('a whisper: FindPlayer by the typed name, the wire the rewrite, the own line typed', async () => {
+    const r = rig();
+    await r.send('/w bob #Cxyz hi');
+    expect(r.requests).toEqual([
+      { op: 'find-player', body: { name: 'bob' } },
+      { op: 'chat', body: { messageType: 1, targetId: 42, message: '#\u00b2xyz hi' } },
+    ]);
+    expect(r.panel()).toEqual([`${CHAT_COLOUR.whisper} socomc: #Cxyz hi`]);
+  });
+
+  it('a whisper sent while a round runs: the wire the rewrite, the round sink\'s own line the typed text', async () => {
+    const uiVars = new UiVarManager();
+    lobbySessionStart(uiVars);
+    const sent: unknown[] = [];
+    const service: LobbyChatService = {
+      findPlayer: (q) => Promise.resolve({ status: 0, accountId: 42, accountName: q.name }),
+      chat: (q) => { sent.push(q); return Promise.resolve(); },
+      chatLines: () => Promise.resolve([]),
+    };
+    const taken: unknown[] = [];
+    const chat = new BriefingRoomChat({
+      uiVars, lobby: { up: true, state: () => 17, account: () => 'socomc' }, service, rooms: () => ROOMS, round: () => (l) => { taken.push(l); },
+    });
+    chat.mediusChat('#Cxyz go', 'kilo');
+    await flush(); await flush();
+    expect(sent).toEqual([{ messageType: 1, targetId: 42, message: '#\u00b2xyz go' }]);
+    expect(taken).toEqual([{ text: '#Cxyz go', name: 'socomc', kind: CHAT_KIND.whisper, own: true }]);
+  });
+});
+
+/**
+ * STREAMER-P1 slice 2 (a browser adaptation, `../../src/text/chatFilter`): the page's chat filter, set by the viewer
+ * (Streamer mode's Chat from others). A line it refuses is not drawn and is counted on ONE line, "N messages hidden
+ * (streamer mode)", rewritten in place; the player's own lines always show; unset, every line as before.
+ */
+describe('STREAMER-P1: the briefing room\'s lines under the page\'s chat filter', () => {
+  const only = (accountId: number) => (_place: 'lobby' | 'match', s: { accountId?: number | null; name?: string | null }) => s.accountId === accountId;
+
+  it('unset: as before', () => {
+    setChatFilter(null);
+    const r = rig();
+    r.chat.received(fwd('bob', 'hi all'));
+    expect(r.panel()).toEqual([`${CHAT_COLOUR.room}bob: hi all`]);
+  });
+
+  it('in the room: a refused sender is not drawn; one count line, rewritten in place; a friend (by account id) drawn', () => {
+    setChatFilter(only(9));
+    try {
+      const r = rig();
+      r.chat.received(fwd('bob', 'slur', 0, 7));
+      r.chat.received(fwd('dave', 'hey', 0, 9));
+      r.chat.received(fwd('bob', 'more', 0, 7));
+      r.chat.received(fwd('carol', 'psst', 1, 8));                                   // a whisper too
+      const lines = r.panel().filter((s) => s !== '\n');
+      expect(lines).toEqual([`${CHAT_COLOUR.room}${chatHiddenWords(3)}`, `${CHAT_COLOUR.room}dave: hey`]);
+      expect(JSON.stringify(r.panel())).not.toMatch(/slur|more|psst/);
+      expect(chatHiddenWords(1)).toBe('1 message hidden (streamer mode)');
+    } finally { setChatFilter(null); }
+  });
+
+  it('in a game lobby (BCHATLISTVAR): a refused whisper not drawn, the count line there, rewritten in place', () => {
+    setChatFilter(only(9));
+    try {
+      const r = rig({ state: 17 });
+      r.chat.received(fwd('carol', 'psst', 1, 8));
+      r.chat.received(fwd('dave', 'yo', 1, 9));
+      r.chat.received(fwd('carol', 'again', 1, 8));
+      expect(r.lobbyPanel()).toEqual([`${CHAT_COLOUR.room}${chatHiddenWords(2)}\n`, `${CHAT_COLOUR.whisper}dave: yo\n`]);
+    } finally { setChatFilter(null); }
+  });
+
+  it('the player\'s own lines always show, whatever the filter', async () => {
+    setChatFilter(() => false);
+    try {
+      const r = rig();
+      await r.send('my line');
+      r.chat.received(fwd('socomc', 'echo of mine', 0, 3));                        // the session's own account
+      expect(r.panel().filter((s) => s !== '\n')).toEqual([`${CHAT_COLOUR.room} socomc: my line`, `${CHAT_COLOUR.room}socomc: echo of mine`]);
+    } finally { setChatFilter(null); }
+  });
+});
+
+/** IQ-183 (a browser adaptation, `../../src/text/ownNameDisplay`): the own line's name by the page's own-name rule. */
+describe('IQ-183: the briefing room’s own line draws its name by the page’s own-name rule', () => {
+  it('set: the own line reads the rule’s text; another’s line unchanged; unset as before', async () => {
+    setOwnNameDisplay(() => 'YOU');
+    try {
+      const r = rig();
+      await r.send('hello room');
+      r.chat.received(fwd('bob', 'hi all'));
+      expect(r.panel().filter((s) => s !== '\n')).toEqual([`${CHAT_COLOUR.room} YOU: hello room`, `${CHAT_COLOUR.room}bob: hi all`]);
+      expect(r.requests).toEqual([{ op: 'chat', body: { messageType: 0, targetId: -1, message: 'hello room' } }]);   // nothing sent changes
+      // A whisper to oneself (no own line, OWN_WHISPER_BY_NAME_ADAPTATION) comes back from the server: its name drawn too (the review's F2).
+      r.chat.received(fwd('SoComC', 'psst', 1, 5));
+      expect(r.panel().filter((s) => s !== '\n').at(-1)).toBe(`${CHAT_COLOUR.whisper}YOU: psst`);          // a whisper's colour and kind kept (the re-check's F1)
+      expect(JSON.stringify(r.panel())).not.toMatch(/socomc/i);
+      setOwnNameDisplay(null);
+      const back = rig();
+      await back.send('again');
+      expect(back.panel()).toEqual([`${CHAT_COLOUR.room} socomc: again`]);
+    } finally { setOwnNameDisplay(null); }
   });
 });

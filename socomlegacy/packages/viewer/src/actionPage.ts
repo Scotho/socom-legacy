@@ -1,6 +1,7 @@
-import { surfaceMaterial } from '@s2u/scene';
+import { surfaceMaterial, type EffectProgram } from '@s2u/scene';
 import { actionRayDetail, type ActionRayDetail } from './equipment';
-import { promptOfBitmap, type ActionPrompt } from './hud';
+import { promptOfBitmap, type ActionPrompt } from './hudLayout';
+import { isGateLeverProgram, leverValveWrites } from './gates';
 import { ACTION_TYPE_CODES, actionReachNote, mapActionCaption, type MapAction } from './mapActions';
 import type { ClientEvent, ServerEvent } from './net/protocol';
 import type { WorldState } from './worldState';
@@ -66,9 +67,16 @@ export interface ActionPageDeps {
   net(): { role: string; send(ev: ClientEvent): void; lastSeq(): number; id?: number; acked?(): number | null } | null;
   /**
    * P8: a player's press on a gate lever (`GatePage.press`): true when the action is a gate's (its slide predicted there
-   * when the leaf rests at an end). The room broadcasts no `action` for a lever, so the world runs nothing for it here.
+   * when the leaf rests at an end). The world runs nothing for it at the press: its presentation waits for the room's
+   * `action` event (`gateLever`, LATER 307).
    */
   gatePress?(action: number, seq: number): boolean;
+  /**
+   * LATER 307 (`GATE_LEVER_PRESENT_ADAPTATION`): the room's `action` event on a gate lever (`GatePage.present`): its
+   * handles' turns presented there, the valves read through `read` (the page world's copy before this pull's writes).
+   * Absent, the handles are not drawn turning; the sounds still play (the world's run).
+   */
+  gateLever?(action: number, read: (valve: string) => number): boolean;
   /** P8: a player's press on a crane control (`CranePage.press`): true when `valve` is a hook's (its swap predicted there). */
   cranePress?(valve: string, seq: number): boolean;
   /** Whether `valve` is a crane control's (`CranePage.owns`): a crane toggles all round, never marked used. */
@@ -129,10 +137,12 @@ export class ActionPage {
         : used ? `switch=${record.node} used`
         : record.typeCode !== ACTION_TYPE_CODES['SWITCH'] ? `switch=${record.node} type`
           : `switch=${record.node}`);
-    // USED_SWITCH_PROMPT_ADAPTATION (the owner, 2026-11-08; a browser adaptation, FG.R2): a switch used this round (the
-    // room's `used`, marked here on its echo) offers no prompt -- the disc's own need no rule (their program hides the
-    // switch, research 171 s4), a Forge switch keeps its model.
-    const used = !!record && note.why === 'ok' && world.actionUsed(world.meta.actions.indexOf(record));
+    // LATER 976: the prompt is `FUN_002b46f0`'s gate (r0001; r0004 0x2b6160, the same rule) (the press path's, `FUN_00592d50` D:L452009; the doors' too): none while
+    // the action's program runs, nor for a `one_shot` record after a completed run -- and, USED_SWITCH_PROMPT_ADAPTATION
+    // (the owner, 2026-11-08; a browser adaptation, FG.R2), none for a FORGE switch used this round (the room's `used`,
+    // marked here on its echo; it keeps its model). A disc switch's prompt otherwise follows its node: gone while the node
+    // is off (the pick finds nothing), back with it once its program has ended (MP73's radios).
+    const used = !!record && note.why === 'ok' && world.actionRefusal(world.meta.actions.indexOf(record)) !== null;
     const target = note.why === 'ok' && record && record.typeCode === ACTION_TYPE_CODES['SWITCH'] && !used
       ? {
         action: world.meta.actions.indexOf(record), record,
@@ -226,8 +236,9 @@ export class ActionPage {
 
   /**
    * P8 (`SWITCH_PREDICT_ADAPTATION`): the press just sent, presented here at once. A gate lever's slide is the gates'
-   * (no world run: the room sends no `action` for it); a crane's swap is the hooks', and its program runs here as the
-   * room's `action` event would run it; every other switch's program runs here as that event's presentation run.
+   * (no world run here: its presentation waits for the room's echo, `GATE_LEVER_PRESENT_ADAPTATION`); a crane's swap is
+   * the hooks', and its program runs here as the room's `action` event would run it; every other switch's program runs
+   * here as that event's presentation run.
    */
   private predict(t: ActionTarget, seq: number, id: number | undefined): void {
     this.settle();
@@ -278,9 +289,40 @@ export class ActionPage {
       }
       p.covered = true;                                      // another's press of it: the run playing is that one's
     }
+    const program = world.program(record.anims[0] ?? '')?.program;
+    if (program && isGateLeverProgram(program)) { this.leverEvent(world, record, ev.action, ev.by, program); return; }
     this.played = { action: ev.action, by: ev.by, ran: world.executeAction(record.valve, false, true) };
     // Another seat's press marks the use here too (the room's `used`, as this seat's echo does): its prompt gone for all.
     if (!this.deps.isCrane?.(record.valve)) world.markUsed(ev.action);
+  }
+
+  /**
+   * LATER 307 (`GATE_LEVER_PRESENT_ADAPTATION`; research 174 s5.1, 175 s5.3): the room's taken pull of a gate lever,
+   * presented. The valves its program reads but never writes (`set_accessN`) are copied into the page's world from the
+   * death it took (the `accessN` destructible whose death executes that action: `SceneHealth.forAction`, spent); its own
+   * valves are the world's copy of the room's run. Then the world's presentation run (PF.R26: its `.SWITCH_SMALL` and
+   * the leaf's sound, no node or valve changed; the leaf's slide there is no profile stroke and moves nothing), the
+   * handles' turns (`gateLever`), and last the run's valve writes copied (`leverValveWrites`). Never marked used: a
+   * lever toggles all round and scores nothing (research 174 s5.1).
+   */
+  private leverEvent(world: WorldState, record: MapAction, action: number, by: number, program: EffectProgram): void {
+    const written = new Set<string>(), tested = new Set<string>();
+    for (const s of program.sequences) {
+      for (const op of s.ops) {
+        if (op.op === 'valve' && !op.context) written.add(op.valve);
+        if (op.op === 'if' || op.op === 'elseif' || op.op === 'while') for (const c of op.conditions ?? []) if (c.kind === 'valve' && !c.context) tested.add(c.valve);
+      }
+    }
+    for (const name of tested) {
+      if (written.has(name)) continue;
+      const d = world.health.forAction(name);
+      if (d) world.setValve(name, world.health.isSpent(d.id) ? 1 : 0);
+    }
+    const read = (name: string): number => world.valve(name);
+    const ran = world.executeAction(record.valve, false, true);
+    this.deps.gateLever?.(action, read);
+    for (const [name, v] of leverValveWrites(program, record.valve, read)) world.setValve(name, v);
+    this.played = { action, by, ran };
   }
 
   /** For the hook: the target's node and prompt, the last press and the last event played. */

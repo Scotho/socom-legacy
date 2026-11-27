@@ -347,8 +347,23 @@ Grade: PROVEN as a code read. What bits 28/29 and the routines they drive mean (
   `FUN_0061d478`: 0x10 -> 2, 0x40 -> 4, 0x80 -> 1). Any other connection -> `FUN_006157e0` (`NetSendMessageByTCP` in our
   names). Which connection index the game uses in a round (`DAT_0045a1b4` for messages, `DAT_00651178` for objects) is
   **UNRESOLVED**.
-  - In the RT queue `FUN_0063e928` D:L553673-553759, option 1 bypasses coalescing and option 4 starts the aggregation
-    timer.
+  - In the RT queue `FUN_0063e928` D:L553673-553759, option 1 bypasses coalescing in r0001: the search for a queued
+    message to join is skipped (D:L553704), so an option-1 send always starts its own message. r0004's twin
+    `FUN_00646b80` (D4:L597773-597863) always searches (D4:L597805). Its ordinary match never takes an option-1 send:
+    it passes over a queued message flagged 0x01 or 0x80 (D4:L597810) and joins only one with the same low three
+    option bits (D4:L597815), which for an option-1 send would carry bit 0. But when that match fails -- the low bits
+    differ, or a candidate is already held -- a queued message whose header masked by 0xffff00ff is 0x50020 (type
+    0x20, length 5; its low bits are 0) stops the search (D4:L597823-597825) and becomes the join target, replacing
+    any earlier candidate, with no message-size room test (+0x38): the join call `FUN_00647e60` follows (D4:L597833,
+    D4:L597848), and that function has its own 0x50020 case (D4:L598671-598676). The decompiled text shows it as a
+    held variable (D4:L597809) whose reset at D4:L597830 the break skips; the machine code has one register, loaded
+    with the message on the break (r0004 0x646ce0-0x646d04, then `jal 0x647e60` with it at 0x646d20-0x646d38; the only
+    room test, 0x646cbc, is on the match path; read by atlas-waves, 2026-11-24, not the author). So in r0004 an
+    option-1 send, any send whose low bits differ, or one that already holds a candidate, is joined onto a queued
+    0x50020 message that passes the search's gates (D4:L597807-597810); the queue buffer's own space check in
+    `FUN_00638fc8` still applies, and the join returns 10 when it fails (D4:L598693-598694). r0001 has no 0x50020
+    test. Reading, pending review. Option 4 starts the aggregation timer in both (D:L553743-553744;
+    D4:L597843-597844).
   - No retransmission was read. Reliability is therefore UNRESOLVED.
   - Research 18 measured that a *playing* PCSX2 pair carries the spawn ObjectUpdates (e.g. "SealObject") as DME TCP
     `APP_BROADCAST`, and nothing but echoes after that. So the in-round stream does not use DME TCP (STRONG,

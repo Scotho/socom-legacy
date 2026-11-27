@@ -88,7 +88,7 @@ export async function ambientPreview(source: SourceRequest, stem: string, progra
   if (!data) return null;
   const effects = new Effects(Math.random, () => {});
   effects.setData({ ...data, ambient: [] });
-  // Its length (the owner, 2026-11-14: "a progress bar for effects and make them loop"; a browser adaptation, FG.R2):
+  // Its length (the Forge's owner (crispy, OT.R112), 2026-11-14: "a progress bar for effects and make them loop"; a browser adaptation, FG.R2):
   // a dry run stepped to its end -- its run done and its last particle gone -- before the shown one starts; one still
   // going at `PREVIEW_ENDLESS_SECONDS` runs for ever (a fire, a steam: no bar, no replay).
   const done = (): boolean => { const st = effects.stats(); return st.runs === 0 && st.particles === 0 && st.shells === 0; };
@@ -191,7 +191,7 @@ export interface AmbientPlayOptions {
   loop?: boolean;
   onEnd?(): void;
   /**
-   * The preview's volume, 0 to 1 (the owner, 2026-11-14: "a slider to control the sound preview volume"; a browser
+   * The preview's volume, 0 to 1 (the Forge's owner (crispy, OT.R112), 2026-11-14: "a slider to control the sound preview volume"; a browser
    * adaptation, FG.R2): a share of the viewer's own listening gain (`LISTENING_GAIN_PLACEHOLDER`); the game's mix untouched.
    */
   volume?: number;

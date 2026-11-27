@@ -1,8 +1,10 @@
 import { polygonNormal, probeFloor, type Grid } from '@s2u/scene';
 import type { Effects } from './effects';
-import type { Hud } from './hud';
+import { MESSAGE_SCALE, type Hud } from './hud';
+import { killFeedLine } from './killFeed';
+import { matchSide } from './matchCore';
 import type { NetState } from './net/client';
-import { killLine } from './netPage';
+import type { Team } from './net/protocol';
 import type { PlayEvent } from './play';
 import type { RemoteStep, RemoteStepHook } from './remotePlayers';
 import { DEFAULT_PLAYER } from './scoreboard';
@@ -20,7 +22,7 @@ import type { WalkMode } from './walk';
  *   (D:L460295) -- the viewer's own actor and the three nearest others (`./remotePlayers` `FOOTFALL_CAP_READING`). So a
  *   print goes where the step is heard: the own body's off `Play.onEvent`, the others' off `RemotePlayers`' step hook.
  * - **The fall-death message** (PAR-9, s2): the room's kill line on both pages (`NetPage`); the page's own landing line
- *   only with no room (`fallDeathLine`).
+ *   only with no room (`fallDeathLine`), a kill feed line as the room's (WM-DATA-FALL, look 3B2, a browser adaptation).
  */
 
 /** The part of `Effects` a footprint needs (`./effects` `footfall`: `decals.rdr`'s `FOOTSTEP_DECALS`, SAND and SNOW). */
@@ -90,13 +92,32 @@ export function mountEffects(p: MatchEffectsParts): MatchEffects {
  * merely exists: a socket the server or the network closed leaves the page's `NetPage` in place (`main.ts`'s `net`,
  * retrying) with the walk handed back unlocked (`NetClient.release`, `net/client.ts:316-319`) -- a free walk again, which
  * no room hears; so is a client still connecting or refused (the PAR-9 review's finding).
+ *
+ * WM-DATA-FALL (LATER 1104, the kill feed's known limit 1; look 3B2, a BROWSER ADAPTATION, product track: `./killFeed`):
+ * the line is posted as `NetPage` posts every room's kill line -- `killFeedLine`, at the window's scale (`MESSAGE_SCALE`,
+ * the scale the plain string it replaces posted at, `Hud.postMessage`) -- not as a plain string drawn whole in colour 0.
+ * Its subject is the local player (`killFeedSubject('fall', ..)`: the one who died), so it carries the orange mark. His
+ * name's colour is a side only where the page knows one: with no room page at all, the free walk's lone SEAL (`./main`
+ * resets his body and kit to a SEAL at each map load, `ownBody.reset(bodyForTeam(map, 'seal'))`; `./matchCore`
+ * `matchSide`'s own default); with a room page, the net client's team -- a room that closed keeps the seat's. A KNOWN
+ * LIMIT (the re-review's finding 1; LATER 1121): leaving a room on the same map with no map load (`./main` `leaveRoom`:
+ * Online set to Shared where the map has no standing room, a refused join, a `/rooms` ask pending) drops the room page
+ * but keeps the seat's body, so a seat that was a Terrorist and falls there is named in the SEAL's colour; the cure is
+ * a side read off the body (`./main`), outside this claim. A client whose team is unknown (null) -- the retry's
+ * reopened client (`./netPage` `reopen`) until a room seats it, while the body may still be another side's
+ * (`followTeam` runs only on a respawn or a team change) -- draws the name in colour 0, never the SEAL's by default
+ * (WM-DATA-FALL's review, finding 1; the main controller's word). The text is `killLine`'s exactly (`./netPage`;
+ * `test/killFeed.test.ts` holds the two equal for the fall), so the original's line, its width and its wrap are
+ * unchanged; only its look is the adaptation's.
  */
 export function fallDeathLine(p: {
   hud: Pick<Hud, 'postMessage' | 'state'>;
-  net(): { readonly client: { readonly state: NetState } } | null;
+  net(): { readonly client: { readonly state: NetState; readonly team: Team | null } } | null;
 }): (e: PlayEvent) => void {
   return (e) => {
-    if (e.kind !== 'land' || e.cls !== 3 || p.net()?.client.state === 'open') return;
-    p.hud.postMessage(killLine('fall', null, p.hud.state().model.name || DEFAULT_PLAYER, null));
+    const net = p.net();
+    if (e.kind !== 'land' || e.cls !== 3 || net?.client.state === 'open') return;
+    const victim = { name: p.hud.state().model.name || DEFAULT_PLAYER, side: net === null ? matchSide(null) : net.client.team };
+    p.hud.postMessage([killFeedLine('fall', null, victim, null, true, MESSAGE_SCALE)]);
   };
 }

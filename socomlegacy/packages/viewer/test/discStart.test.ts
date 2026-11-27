@@ -6,7 +6,7 @@ import { DiscExtractError, extractDisc, type DiscExtractRecord, type ExtractEnv,
 import { extractionState, storedExtraction } from '../src/discExtractRecord';
 import type { DiscRequest } from '../src/discSource';
 import {
-  discForStart, forgeDiscStart, runExtraction, storedRequestOf, type DiscChooser, type ExtractPopover, type RunDeps,
+  discForStart, forgeCardDisc, forgeDiscStart, runExtraction, storedRequestOf, type DiscChooser, type ExtractPopover, type RunDeps,
 } from '../src/discStart';
 import type { ExtractAct, ExtractView } from '../src/console/render/extract';
 import { openPageRecords } from '../src/pageStore';
@@ -231,10 +231,22 @@ describe('the forge\'s start order: the extraction (whole) before the stored cop
       .toEqual({ kind: 'stored', identity: ID, fallback: 'outside' });
   });
   it('not whole: the stored copy, else the remembered disc, else null (the card asks)', async () => {
+    const same = async () => ID;
     for (const state of ['none', 'partial', 'evicted'] as const) {
-      expect(await forgeDiscStart({ state: async () => state, record: async () => record, copy: async () => copy, remembered: async () => folder })).toBe(copy);
-      expect(await forgeDiscStart({ state: async () => state, record: async () => record, copy: async () => null, remembered: async () => folder })).toBe(folder);
-      expect(await forgeDiscStart({ state: async () => state, record: async () => record, copy: async () => null, remembered: async () => null })).toBeNull();
+      expect(await forgeDiscStart({ state: async () => state, record: async () => record, copy: async () => copy, remembered: async () => folder, identity: same })).toBe(copy);
+      expect(await forgeDiscStart({ state: async () => state, record: async () => record, copy: async () => null, remembered: async () => folder, identity: same })).toBe(folder);
+      expect(await forgeDiscStart({ state: async () => state, record: async () => record, copy: async () => null, remembered: async () => null, identity: same })).toBeNull();
+    }
+  });
+  it('LATER 954 (2): not whole, a copy or a remembered disc that is not a SOCOM II disc is not taken (the card asks)', async () => {
+    const other = { kind: 'iso', file: new File([buildIso(discMembers(systemCnf('SLUS_123.45', '1.00')), 'OTHER')], 'Other game.iso') } as const;
+    for (const state of ['none', 'partial', 'evicted'] as const) {
+      // By default the identity is read off SYSTEM.CNF: another game's image, and a folder with no SYSTEM.CNF, say none.
+      expect(await forgeDiscStart({ state: async () => state, record: async () => record, copy: async () => other, remembered: async () => null })).toBeNull();
+      expect(await forgeDiscStart({ state: async () => state, record: async () => record, copy: async () => null, remembered: async () => folder })).toBeNull();
+      // Another game's copy does not hide a remembered SOCOM II disc behind it.
+      expect(await forgeDiscStart({ state: async () => state, record: async () => record, copy: async () => other, remembered: async () => copy })).toBe(copy);
+      expect(await forgeDiscStart({ state: async () => state, record: async () => record, copy: async () => copy, remembered: async () => null })).toBe(copy);
     }
   });
   it('the identity of a copy read off its SYSTEM.CNF by default (discIdentity over it)', async () => {
@@ -247,6 +259,35 @@ describe('the forge\'s start order: the extraction (whole) before the stored cop
   it('storedRequestOf: the identity copied, the disc and fallback only when given', () => {
     expect(storedRequestOf(record, null)).toEqual({ kind: 'stored', identity: ID });
     expect(storedRequestOf(record, null).identity).not.toBe(ID);
+  });
+});
+
+const folder0: DiscRequest = { kind: 'dir', entries: [] };
+describe('LATER 954 (2): the forge card checks the disc it is given before the forge opens it', () => {
+  it('a SOCOM II image or folder is answered as given; the check is openDisc\'s (DA.R8), probing SYSTEM.CNF', async () => {
+    const disc = image();
+    expect(await forgeCardDisc(disc)).toBe(disc);
+    const seen: unknown[] = [];
+    expect(await forgeCardDisc(folder0, async (d, probe) => { seen.push(d, probe); })).toBe(folder0);
+    expect(seen).toEqual([folder0, 'SYSTEM.CNF']);
+  });
+  it('another game\'s image is refused in the identity\'s words, and so is a folder with no SYSTEM.CNF', async () => {
+    const other: DiscRequest = { kind: 'iso', file: new File([buildIso(discMembers(systemCnf('SLUS_123.45', '1.00')), 'OTHER')], 'Other game.iso') };
+    await expect(forgeCardDisc(other)).rejects.toThrow(/this disc boots SLUS_123\.45; this game needs a SOCOM U\.S\. Navy SEALs II disc/);
+    await expect(forgeCardDisc(folder0)).rejects.toThrow(/no SYSTEM\.CNF here/);
+  });
+  it('forge/page.ts: the card\'s `opened` resolves only through forgeCardDisc, its refusal on the card\'s own line', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('../src/forge/page.ts', import.meta.url), 'utf-8');
+    const at = src.indexOf('const opened = (r: DiscRequest | null): void =>');
+    expect(at).toBeGreaterThan(0);
+    const body = src.slice(at, src.indexOf('\n', at));
+    expect(body).toMatch(/const mine = \+\+pick; void forgeCardDisc\(r\)\.then\(\(\) => \{ if \(mine === pick\) \{ handle\?\.close\(\); resolve\(r\); \} \}, \(e: unknown\) => \{ if \(mine === pick\) fail\(e\); \}\)/);
+    // Every way the card is given a disc goes through `opened`: the file input, the image and folder pickers, Continue with.
+    const card = src.slice(at, src.indexOf("card.append(el(doc, 'h2', '', 'Your disc')", at));
+    expect(card.match(/\.then\(\(d\) => opened\(d\?\.request \?\? null\), fail\)/g)).toHaveLength(2);
+    expect(card).toMatch(/if \(f\) opened\(\{ kind: 'iso', file: f \}\)/);
+    expect(card).toMatch(/discRequestFromHandle\(remembered\.handle\) : null\)\)\.then\(opened, fail\)/);
   });
 });
 

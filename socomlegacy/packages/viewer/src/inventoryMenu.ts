@@ -1,6 +1,7 @@
+import { GAME_FRAME_DT } from '@s2u/scene';
 import type { HudQuad, HudTri } from './hud';
 import { textWidth } from './hudFont';
-import type { Input, PadFlag } from './gamepad';
+import { activePadMap, PAD_BUTTON, padButtonLanes, type Input, type PadButton, type PadFlag, type PadMap } from './gamepad';
 import { ARROW_TEXTURE, drawWeaponSelect, PANEL_TEXTURE, type WeaponSelectItem, type WeaponSelectLayout } from './weaponSelect';
 
 /**
@@ -13,6 +14,9 @@ import { ARROW_TEXTURE, drawWeaponSelect, PANEL_TEXTURE, type WeaponSelectItem, 
  *   result 4), the local body alive (`+0xe1` bit 4) and its kit free to change (`FUN_005a8cb0`, `FUN_005c4fd0`; else the
  *   refusal sound `FUN_003419c0`). The highlight starts on the slot in the hand (`FUN_005be040` -> `+0xc54`). The
  *   open's two other refusals, posture `+0x174` 9 and `+0xeb8` set (L72823-72826), are not read here and not modelled.
+ *   A refusal inside the open runs the close `FUN_0021aaa0` (L72830-72832, L72836-72839, L72933-72935), which clears
+ *   the pad's X, Circle and Triangle (research 451; `INVENTORY_REFUSAL_CLEAR_BUTTONS`); a dead body never reaches the
+ *   open (L71617-71620) and clears nothing.
  * - **Inside** (`FUN_0021bda0`), each read `== 1`, the frame the button goes down (`FUN_002d9ff0`, research 188 §1.2),
  *   first match wins: d-pad **Up** (`+5`) the next slot that may be taken up (`FUN_0021abf0`, wrapping over
  *   `FUN_005be030`'s count, skipping what `FUN_005bdc30` refuses), **Down** (`+6`) the previous (`FUN_0021ae50`);
@@ -43,6 +47,12 @@ import { ARROW_TEXTURE, drawWeaponSelect, PANEL_TEXTURE, type WeaponSelectItem, 
  *
  * The menu reads the merged lanes, so a touch INV, zoom and action button drive it as the pad's R2, d-pad and Cross do.
  * Silent: the menu's sounds (`.TCM_SELECT`, `.TCM_SLIDE`, the refusal) are not wired.
+ *
+ * The left stick is never the menu's (X6, the owner 2026-11-18, seat redotcom-9a: "let's maybe not allow analog stick
+ * selections on that ui", narrowing OT.R130 / WM.R5): the original's quick select reads button presses only, the d-pad's
+ * Up / Down among them (`FUN_0021bda0` D:L72552-72729, no analog read), so the stick stays the soldier's while it is open.
+ * Whether the original's soldier walks with it open is not measured; the port's never stopped him there but under
+ * WM-STICK's guard (2026-11-15 to 2026-11-18).
  */
 
 /** A button the menu reads: the d-pad's Up / Down, L1, L2, Triangle, Cross and R2. */
@@ -60,11 +70,64 @@ export const INVENTORY_BUTTON_LANE: Readonly<Record<InventoryButton, PadFlag>> =
  * Cross that confirms is no climb, the Triangle that closes no crouch and the R2 no second open. OT.R107 (the owner,
  * 2026-11-06; SEPARATE a browser adaptation, STM.R1 / OT.R67): SEPARATE's Crouch and Prone binds are that stance block's
  * buttons there, and the Prone bind's button is Triangle's too (`./controllerInput` `poll`), so they are taken with it --
- * the Prone button that closes the menu is no Prone.
+ * the Prone button that closes the menu is no Prone; so is the Crouch bind's (LATER 1175, the owner 2026-11-18), the
+ * touchpad or any button Crouch is bound to: it closes the menu as Triangle and is no crouch.
  */
 export const INVENTORY_LANES: readonly PadFlag[] = ['zoom', 'zoomOut', 'swap1', 'swap2', 'action', 'inventory', 'stance', 'jump', 'crouch', 'prone'];
 /** The stance block's lanes among them (L453331): taken while held, the take is no release (`InventoryMenu.frame`). */
 const STANCE_BLOCK_LANES: readonly PadFlag[] = ['stance', 'crouch', 'prone'];
+
+/**
+ * Research 451: the buttons a refused open writes to rest. `FUN_0021c6f0` refused (alive, the kit's gate `FUN_005a8cb0`
+ * 0 -- while the trigger's edge is 1, held, D:L463174-463181 -- at D:L72830-72832; `FUN_005c4fd0` 0 at D:L72836-72839)
+ * runs the close `FUN_0021aaa0`, which for the local pad writes state 0 into slots 9, 7 and 6 (D:L72015-72017;
+ * `FUN_002da160` D:L179191-179197): X, Circle and Triangle (`FUN_002c6670`'s names; slot 6 the menu's Triangle, pad +7,
+ * D:L72661). The sampler then reads a button still down as first-down (`FUN_002d9ff0` D:L179153-179168), so each is a
+ * new press. These are buttons, not results: which lanes they hold is the active config's (`refusalClearLanes`).
+ */
+export const INVENTORY_REFUSAL_CLEAR_BUTTONS: readonly PadButton[] = ['Cross', 'Circle', 'Triangle'];
+
+/**
+ * Research 451 §2: of the cleared buttons, those a reader sees cleared at `INVENTORY_REFUSAL_CLEAR_UPDATES_READING` 1 --
+ * X and Circle, read through `FUN_002c60c0`'s state 2. Triangle's reader is the stance block, which reads the byte itself
+ * and re-arms only on it at 0 (D:L453331-453334); with the controller's update before the HUD's (the constant's 1) the
+ * sampler has set the byte to 1 before the block runs again, so no stance press, no cancel and no tap: its lane is not
+ * masked. Leg 1 showing the HUD first means 2 updates AND the stance re-press (Triangle back in, the block seeing the 0).
+ */
+export const INVENTORY_REFUSAL_CLEAR_SEEN: readonly PadButton[] = INVENTORY_REFUSAL_CLEAR_BUTTONS.filter((b) => b !== 'Triangle');
+
+/** The lanes the seen cleared buttons hold in a config's map (the active one by default; `./gamepad` `padButtonLanes`). */
+export function refusalClearLanes(map: PadMap = activePadMap()): PadFlag[] {
+  const lanes = new Set<PadFlag>();
+  for (const b of INVENTORY_REFUSAL_CLEAR_SEEN) for (const lane of padButtonLanes(PAD_BUTTON[b], map)) lanes.add(lane);
+  return [...lanes];
+}
+
+/**
+ * INVENTORY_REFUSAL_CLEAR_UPDATES_READING: for how many of the game's updates after the refusal's own a cleared lane
+ * still down reads up -- 1. The sampler's next read gives the button state 1, first down (`FUN_002d9ff0`
+ * D:L179153-179168), which `FUN_002c60c0` does not count as held (state 2 only, D:L166671-166684), and the read after
+ * it 2. The refusal's own update keeps what it sampled: that takes the player's controller update (`FUN_00594cf0`) as
+ * running before the HUD's in a frame, which was not read; were the HUD's first, the controller would also see the
+ * written 0 there, 2 updates up. Either way the trigger's edge comes back to a press (D:L453543-453567: 1 -> 3 -> 2, or
+ * HUD first 1 -> 3 -> 0 -> 2). The stance follows the order too (`INVENTORY_REFUSAL_CLEAR_SEEN`): at 1 Triangle's clear
+ * reaches no reader; the HUD first means 2 updates AND the stance block's re-press, which this value does not model.
+ * The port's lane reads a button down at its first sample (`AIM_MODE_HELD_READING`, research 344 §8), one sample
+ * before the original's state 2, so the up update(s) are modelled here and not left to the lane. A capture of SURE
+ * SHOT, X held and R1 pressed, the frames from each R1 edge to its shot, settles it (research 451 §5).
+ * The updates are GAME frames (`GAME_FRAME_DT`, ~1/30 s: the capture's frames, and the firearm's pad steps, `./fire`
+ * `update`), not page frames: `InventoryMenu.frame` holds the lanes up for this many game frames of the `dt` it is given
+ * (`INVENTORY_REFUSAL_CLEAR_SECONDS`), the firearm's own time base, so its step reads the lane up at any page rate.
+ */
+export const INVENTORY_REFUSAL_CLEAR_UPDATES_READING = 1;
+
+/**
+ * Research 451 §2: the clear's span in the `dt` the pages hand both this class and the firearm -- whole game frames. Held
+ * from the page frame after the refusal's until the frames' `dt` reach it, so at least one of the firearm's game steps
+ * (stepped on that `dt`, `./fire` `update`) falls inside; where a page frame does not divide a game frame, the span's
+ * last page frame can carry a second step (`frame`).
+ */
+export const INVENTORY_REFUSAL_CLEAR_SECONDS = INVENTORY_REFUSAL_CLEAR_UPDATES_READING * GAME_FRAME_DT;
 
 /** The idle close (`FUN_0021bda0` L72705: `5.0 < DAT_0040c100`), seconds without a step. */
 export const INVENTORY_IDLE_CLOSE = 5.0;
@@ -519,6 +582,17 @@ export class InventoryMenu {
   private v: MenuVisual = closedVisual();
   private readonly held = new Set<PadFlag>();
   private readonly openedFns: (() => void)[] = [];
+  /** Research 451: a refusal inside the open this frame (`press`), its clear taken up by `frame`. */
+  private refusedOpen = false;
+  /**
+   * Research 451: the cleared lanes still down and the updates they have left to read up. Left out (§4): a page that skips
+   * `frame` while another menu (START) has the pad, on the update right after a refused open, leaves this pending, and it
+   * is applied at the menu's next `frame` with the button still held -- one late extra press. The fix is a drop of it at
+   * the three call sites that skip `frame` (main.ts, matchMount.ts, xboxPrototype/walkingMenus.ts), for the next patch.
+   */
+  private clearing: { lanes: Set<PadFlag>; left: number } | null = null;   // `left`: seconds of `dt` (`INVENTORY_REFUSAL_CLEAR_SECONDS`)
+  /** Research 451 §6: the last `triggerFeed` handed the trigger the clear's up (its `fire` held down, fed up). */
+  private fedClear = false;
 
   constructor(private readonly host: InventoryHost) {}
 
@@ -537,6 +611,7 @@ export class InventoryMenu {
   /** Closed at once with no change and nothing left drawn (a new map, the walk left); the arrows keep their pulse. */
   close(): void {
     this.shut();
+    this.refusedOpen = false; this.clearing = null; this.fedClear = false;
     const v = this.v;
     this.v = { ...closedVisual(), arrowGrey: [...v.arrowGrey], arrowAlpha: [...v.arrowAlpha], pulse: v.pulse, rising: v.rising };
   }
@@ -562,12 +637,15 @@ export class InventoryMenu {
    * until the open has played out (states 1-2) nor while a step scrolls (4-5): only state 3 reads. A take the page
    * refuses (`take` false: the shoulder gate, `FUN_005a8cb0` -- airborne, an action under way) leaves the menu open,
    * as the original's refused confirm does (L72691-72705: no `FUN_005c4b10`, no close).
+   * The two refused opens differ (research 451): a dead body never reaches `FUN_0021c6f0` (L71617-71620) and clears
+   * nothing; a closed gate is refused inside it and runs `FUN_0021aaa0`'s clear (L72830-72832), which `frame` applies.
    */
   press(buttons: ReadonlySet<InventoryButton>, dt: number): InventoryEvent[] {
     const host = this.host;
     if (!this.s.open) {
       if (!buttons.has('r2')) return [];
-      if (!host.alive() || !host.canChange()) return [{ kind: 'refused' }];
+      if (!host.alive()) return [{ kind: 'refused' }];
+      if (!host.canChange()) { this.refusedOpen = true; return [{ kind: 'refused' }]; }
       this.s = { open: true, slot: host.kit().current, idle: 0 };
       for (const fn of this.openedFns) fn();
       return [{ kind: 'opened' }];
@@ -625,14 +703,36 @@ export class InventoryMenu {
    * PAR-34 (research 252 s3; ACT.R8): `real` is the frame's real seconds (`./frameTime`), which the idle count takes
    * (`press`; `INVENTORY_IDLE_CLOSE`, a timed rule), so the menu closes after 5 s idle of real time at any frame rate. The
    * slide and the fade are the menu's animations and keep the clamped step `dt`. `real` defaults to `dt`.
+   *
+   * Research 451: after a refused open (the gate closed, `press`), the lanes the pad's X and Circle hold in the active
+   * config (`refusalClearLanes`) that are still down read up for `INVENTORY_REFUSAL_CLEAR_UPDATES_READING` GAME frames of
+   * `dt` after the refusal's page frame (`INVENTORY_REFUSAL_CLEAR_SECONDS`; the page frames whose `dt` reach it), then down again -- a new press for whatever reads their edge (the trigger's `./weaponRaise`
+   * `nextEdge`, the action, the jump). Triangle's clear reaches no reader at that value (`INVENTORY_REFUSAL_CLEAR_SEEN`:
+   * the stance block reads the byte, D:L453331-453334), so the stance lane is left as it is. The lanes are the merged
+   * ones, so a touch or a key on a cleared lane is cleared with it (FI.R3: a touch button means the pad's).
    */
   frame(before: Input, after: Input, dt: number, real = dt): Input {
     const buttons = new Set<InventoryButton>();
     for (const [button, lane] of Object.entries(INVENTORY_BUTTON_LANE) as [InventoryButton, PadFlag][]) {
       if (after[lane] && !before[lane]) buttons.add(button);
     }
+    // An earlier refusal's clear: the lanes still down read up this page frame, until the frames' `dt` reach the game
+    // frames of `INVENTORY_REFUSAL_CLEAR_SECONDS` (the firearm's own steps, `./fire` `update`; the 1e-9 its floor takes).
+    const cleared: PadFlag[] = [];
+    if (this.clearing) {
+      const c = this.clearing;
+      for (const lane of [...c.lanes]) if (after[lane]) cleared.push(lane); else c.lanes.delete(lane);
+      c.left -= dt;
+      if (c.left <= 1e-9 || !c.lanes.size) this.clearing = null;
+    }
     const wasOpen = this.s.open;
     const events = this.press(buttons, real);
+    if (this.refusedOpen) {
+      this.refusedOpen = false;
+      const lanes = new Set(refusalClearLanes().filter((lane) => after[lane]));
+      if (this.clearing) for (const lane of this.clearing.lanes) lanes.add(lane);
+      if (lanes.size && INVENTORY_REFUSAL_CLEAR_SECONDS > 0) this.clearing = { lanes, left: INVENTORY_REFUSAL_CLEAR_SECONDS };
+    }
     this.drawFrame(events, dt);
     // #702's review (Codex P2): a stance lane held into the take (down last frame, not yet the menu's) goes true -> false in
     // the game's input -- no let-go: the frame says so (`Input.stanceCancelled`), so the Crouch bind's release toggle and
@@ -648,12 +748,41 @@ export class InventoryMenu {
       }
     }
     for (const lane of [...this.held]) if (!after[lane]) this.held.delete(lane);
-    if (!this.held.size) return after;
+    if (!this.held.size && !cleared.length) return after;
     const game = { ...after };
     for (const lane of this.held) game[lane] = false;
+    for (const lane of cleared) game[lane] = false;
     if (took) game.stanceCancelled = true;
     if (game.stancePressure !== undefined && !game.stance) game.stancePressure = 0;
     return game;
+  }
+
+  /**
+   * Research 451 §4: whether this page frame's `frame(_, after)` will hand the game `lane` up for a refused open's clear --
+   * down in `after` and still cleared. Read BEFORE `frame` (which steps the clear), so the walking pages feed their trigger
+   * the game's lane without moving the trigger behind the menu's gate (`press`'s `canChange`, which the trigger can move
+   * at once: a placed charge's pull is a throw under way, `hands.busy`). The clear only: the open menu's own holds
+   * (`INVENTORY_LANES`) are `frame`'s, and hold no `fire`.
+   */
+  clears(lane: PadFlag, after: Input): boolean {
+    return !!after[lane] && (this.clearing?.lanes.has(lane) ?? false);
+  }
+
+  /**
+   * Research 451 §6: the pages' pad trigger this page frame -- the level to hand the trigger, or null for no edge. Called
+   * once each page frame past the loading hold, before `frame` (as `clears`). `before` / `after`: the merged lanes, last
+   * frame's and this one's. `reach`: whether the clear may reach the trigger this frame -- the pages' guard (walking, no
+   * menu, the walk unlocked and alive, no turret held, the mouse not captured). Off the reach the answer is the old feed
+   * EXACTLY, `after.fire` on its edge against `before.fire`, whatever the clear holds (nothing of it reaches a turret, a
+   * spectator, the dead, a mouse-held trigger). On the reach: the merged lane less the clear, against what the last call
+   * handed -- the merged lane but where that call fed the clear's up. A `close` (the loading hold's flush, a screen's
+   * opening, a spawn: each lets the trigger go itself) ends that, so the next edge is the merged lane's, as before.
+   */
+  triggerFeed(before: Input, after: Input, reach: boolean): boolean | null {
+    const was = !!before.fire && !(reach && this.fedClear);
+    this.fedClear = reach && this.clears('fire', after);
+    const now = !!after.fire && !this.fedClear;
+    return now !== was ? now : null;
   }
 
   /** A key's `code` (a development build's, `INVENTORY_MENU_KEYS_READING`): closed only `I`; true when the menu took it. */

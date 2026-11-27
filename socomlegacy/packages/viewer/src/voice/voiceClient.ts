@@ -1,5 +1,6 @@
 import { pageAudioOutput } from '../audio';
 import { gameMicrophoneOn, getGameMicrophone } from '../gameMicrophone';
+import { myVoiceAllowed, streamerAllows, voiceFromOthers, type StreamerPlace } from '../streamerMode';
 import type { PART_DEPS } from '../matchNet';
 import type { NetClient } from '../net/client';
 import { encodeVoiceUp } from '../net/voiceWire';
@@ -10,9 +11,12 @@ import {
   createVoiceCodec, isVoiceSupported, VOICE_CAPTURE_PROCESSOR, VOICE_FRAME_SAMPLES_READING, VOICE_SAMPLE_RATE_READING, type VoiceCodec,
   type VoiceDecodeOn, type VoiceDecodeTimingClock, type VoiceDecodeWorkerPort, type WebCodecs,
 } from './voiceCodec';
-import { headsetGain, VOICE_JITTER_MS_PLACEHOLDER, VOICE_STALE_FRAME_MS_ADAPTATION, VoicePlayback, type VoiceAudioContext, type VoiceOutput, type VoicePlaybackDrops } from './voicePlayback';
+import { VOICE_JITTER_MS_PLACEHOLDER, VOICE_STALE_FRAME_MS_ADAPTATION, VoicePlayback, type VoiceAudioContext, type VoiceOutput, type VoicePlaybackDrops } from './voicePlayback';
+import { expandTalkCue, TALK_CUE_RATE, toStereoFrames } from './talkCuePcm';
+import { TALK_CUE_TABLE, TALK_CUE_TAIL_BYTE } from './talkCuePcmData';
 import { pageVoiceReport, type VoiceCodecState, type VoiceContextState, type VoiceReporter, type VoiceReportOptions, type VoiceReportRead } from './voiceReport';
 import { VoiceThrottleWatch } from './voiceThrottle';
+import { pageVoiceDiag, type VoiceSessionDiag } from './voiceDiag';
 
 /**
  * The page's voice client (SVC-20b-page, web sprint 20; research 226 §3): the part both matches mount -- `/testroom`
@@ -92,6 +96,18 @@ export interface VoiceState {
   trace?: readonly VoiceTraceEntry[];
   /** VOICE-LATE-4 row 3 (`./voiceThrottle`): the room's frames have read throttled -- every build's, the warning asked once. */
   throttled?: boolean;
+  /**
+   * STREAMER-P1 (a browser adaptation, `../streamerMode`): the room's frames this page dropped before the decode because
+   * Streamer mode's Voice from others refused their speaker here. Its own count, beside the drops: not posted. The client
+   * always gives it; optional for a state made by hand.
+   */
+  streamer?: number;
+  /**
+   * STREAMER-P1 (IQ-229 F2, the controller's ruling (a); display only): the floor holder as the talker indicators may name
+   * it -- null for a speaker Streamer mode's Voice from others refuses here, as if the floor were free (the page itself and
+   * an allowed speaker as `holder`). `holder` stays the room's word for the voice's own rules. Absent on a state made by hand.
+   */
+  shownHolder?: number | null;
 }
 
 /**
@@ -133,27 +149,18 @@ export interface VoiceWorkletNode {
   disconnect(): void;
 }
 
-/**
- * VOICE_TALK_CUE_ADAPTATION (PR #431, Chris's; research 170 §5.4; an adaptation on the owner's word): the local talk
- * grant's cue is the disc's command-menu selection sound, HUDUI's `.TCM_SELECT` -- the sound Chris chose by ear -- in
- * place of the original's own online cue, which the page cannot read: `FUN_0030ec10` (D:L211145-211162) expands 2,000
- * bytes of a table at 0x003df540 into an 8 kHz stereo beep of 0.25 s (the release, a loss and a timeout play them
- * reversed), and that table lies in the segment the retail loader fills at run time from its encrypted overlays
- * (`VOICE_TALK_PCM_PLACEHOLDER`, research 170's ledger; HUMAN_TASKS H270). The owner, in the merge controller's seat,
- * 2026-10-22: "I'd like us to take over and finish each sequentually starting with
- * https://github.com/Scotho/redotcom/pull/432, https://github.com/Scotho/redotcom/pull/431 (BENNYS), ... finish the
- * original intent with our validation and standards applied". Not the original's sound; the original's release cue is
- * not played.
- */
-export const VOICE_TALK_CUE_ADAPTATION = '.TCM_SELECT';
-
 export interface MatchVoiceDeps {
   /** The page's match: its client sends the talk and the frames, and its id is the floor entry's own. */
   net(): { client: Pick<NetClient, 'id' | 'send' | 'sendVoice'> } | null;
   /** The four option masters (`../audio` `GameAudio.getTuners`, the match's tuner source): HEADSET VOLUME. */
   tuners(): { headset: number };
-  /** Local cue only, through the page's existing disc audio; gain follows HEADSET VOLUME as well as its SFX mix. */
-  talkCue?(name: string, volume: number): void;
+  /**
+   * TALK-CUE-PCM (MISSION OT.R146): the original's talk-cue table (`./talkCuePcm`); absent, the page's
+   * (`./talkCuePcmData` `TALK_CUE_TABLE`); null, none -- the public edition, whose page plays no talk cue.
+   */
+  talkCueTable?: Uint8Array | null;
+  /** TALK-CUE-PCM: the byte past the table the reversed cue plays first; absent, the page's (`TALK_CUE_TAIL_BYTE`); null, a silent first sample. */
+  talkCueTail?: number | null;
   /** The game's microphone; absent, `getGameMicrophone()` (`../gameMicrophone`). */
   microphone?(): Promise<MediaStream | null>;
   /** The setup page's "Use in game" switch; absent, `gameMicrophoneOn()`. */
@@ -190,6 +197,11 @@ export interface MatchVoiceDeps {
    * absent, the page's reporter (`./voiceReport`, which needs `?devmode`). Never asked in a release build.
    */
   report?(o: VoiceReportOptions): VoiceReporter | null;
+  /**
+   * E15 (`./voiceDiag`, `VOICE_DIAG_ADAPTATION`, a browser adaptation): the session's talk told once at `dispose` when it
+   * had a press -- every build's, release too; absent, the page's beacon (`pageVoiceDiag`). Never throws into voice.
+   */
+  diag?: (d: VoiceSessionDiag) => void;
   /** The capture's worklet node; absent, the page's `AudioWorkletNode`. */
   workletNode?(ctx: VoiceAudioContext, name: string, options: AudioWorkletNodeOptions): VoiceWorkletNode;
   /** The worklet module's URL; absent, `./captureWorklet` as Vite bundles it (`?worker&url`). */
@@ -205,6 +217,17 @@ export interface MatchVoiceDeps {
    * VOICE-LATE-4 row 3 (research 226 §3.6): `throttled`, told once the room's frames read throttled (`./voiceThrottle`).
    */
   headset?: Pick<Headset, 'microphone' | 'noHeadset' | 'modulate'> & Partial<Pick<Headset, 'throttled' | 'noCodec'>>;
+  /**
+   * STREAMER-P1 (OT.R152; a browser adaptation, `../streamerMode`): where this voice is mounted -- the game lobby, or a
+   * match (the default: the front end's match, the test room, the Xbox prototype). Streamer mode's Voice from others and
+   * My voice read it; with the mode Off it changes nothing.
+   */
+  place?: StreamerPlace;
+  /**
+   * STREAMER-P1: whether a speaker (a room member id) is this player's friend or clan mate (`../socialSet`); absent, or
+   * where a name cannot be trusted, false -- a stranger.
+   */
+  friendOrClan?(speaker: number): boolean;
 }
 
 export interface MatchVoice {
@@ -213,6 +236,8 @@ export interface MatchVoice {
   /** Each frame: the talk input's flag (`../matchTaunts` `pad`'s `talk`); the playback's gain follows the tuner. */
   pad(talk: boolean): void;
   state(): VoiceState;
+  /** STREAMER-P1 (IQ-229 F2): whether Streamer mode lets this speaker be heard and shown here (the page itself always). */
+  allows?(speaker: number): boolean;
   /** The local mute (R170.6: the listener's; the room is told nothing). */
   mute(id: number, on: boolean): void;
   /** MATCH-05: whether `id` is muted (TEAMMATES > MUTE ON:OFF's label, `FUN_0022f530` D:L81429-81436). */
@@ -284,6 +309,9 @@ export function mountVoice(d: MatchVoiceDeps): MatchVoice {
     ?? ((ctx: VoiceAudioContext, name: string, options: AudioWorkletNodeOptions) => new AudioWorkletNode(ctx as unknown as BaseAudioContext, name, options) as unknown as VoiceWorkletNode);
   const workletUrl = d.workletUrl ?? (async (): Promise<string> => (await import('./captureWorklet?worker&url')).default);
   const microphoneOn = d.microphoneOn ?? gameMicrophoneOn;
+  const friendOrClanOf = (speaker: number): boolean => { try { return d.friendOrClan?.(speaker) ?? false; } catch { return false; } };
+  // STREAMER-P1 (IQ-229 F2): the audio gate's answer, also the talker indicators' (the page itself always shown).
+  const allows = (speaker: number): boolean => speaker === link()?.id || streamerAllows(voiceFromOthers(), place, friendOrClanOf(speaker));
   const bare = d.microphone ?? ((): Promise<MediaStream | null> => getGameMicrophone());
   const microphone = d.headset ? (): Promise<MediaStream | null> => d.headset!.microphone(bare) : bare;
   // VOICE-LATE (A; research 226 §3.2): the playback on the page's one output -- the game's context, which the page's one
@@ -329,6 +357,8 @@ export function mountVoice(d: MatchVoiceDeps): MatchVoice {
   const throttle = new VoiceThrottleWatch();
   /** VOICE-LATE (3): the talker's stale frames not sent, the room's frames dropped before the decode. */
   let stale = 0, backlog = 0;
+  let streamerDropped = 0;                                          // STREAMER-P1: Voice from others' drops
+  const place: StreamerPlace = d.place ?? 'match';
   /** VOICE-LATE (6): a development build's per-frame trace of the room's frames, oldest first, `VOICE_TRACE_FRAMES` at most. */
   const trace: VoiceTraceEntry[] | null = import.meta.env.DEV ? [] : null;
   /** VOICE-LATE (3): the dev log's window -- its start, the longest gap between `pad` calls in it, the last line's counts. */
@@ -355,6 +385,8 @@ export function mountVoice(d: MatchVoiceDeps): MatchVoice {
   /** The talk input's flag, and whether `voiceTalk {on: true}` went (its `off` owed). */
   let talking = false;
   let talkSent = false;
+  /** E15 (`./voiceDiag`): the session's presses, its first press and first frame sent (the client's clock), its floor asks and those let go ungranted. */
+  let presses = 0, firstPressAt = Number.NaN, firstSentAt = Number.NaN, asks = 0, ungranted = 0, askGranted = false;
   let cueActive = false;
   /** The finish's review F2: a floor naming this client heard since the latest talk request -- a stale holder is no grant. */
   let grantFresh = false;
@@ -395,15 +427,31 @@ export function mountVoice(d: MatchVoiceDeps): MatchVoice {
     cueActive = false; grantFresh = false;
   };
 
-  /** One cue on becoming ready to transmit; a press waiting for permission or another talker stays silent. */
+  /**
+   * TALK-CUE-PCM (MISSION OT.R146; research 170 s5.4; the read pilot/sound/read-talk-cue-pcm.md s4, reading, pending
+   * review): the original's cue on the headset (`VoicePlayback.playCue`) -- the table forward when the held request is
+   * granted (r0001 `FUN_0030ec10` D:L211145-211161; r0004 0x0032c418), reversed from index 2000 when the granted talk ends
+   * (r0004 0x0032c6c0, 0x0032c9d0): a release, the floor lost, the room's 10 s cap. A press waiting for permission or
+   * another talker, a release still asking, and no headset stay silent. No table (the public edition): no cue.
+   */
+  const cueTable = d.talkCueTable !== undefined ? d.talkCueTable : TALK_CUE_TABLE;
+  const cueTail = d.talkCueTail !== undefined ? d.talkCueTail : TALK_CUE_TAIL_BYTE;
+  const playTalkCue = (kind: 'grant' | 'reversed'): void => {
+    if (!cueTable) return;
+    try { playback.playCue(toStereoFrames(expandTalkCue(cueTable, cueTail, kind)), TALK_CUE_RATE); }
+    catch { /* A missing/failed cue must never stop voice. */ }
+  };
+  /** The cue's edges: granted and recording -> the grant cue; that state ended (the floor lost, the cap) -> reversed. */
   const updateTalkCue = (): void => {
     const active = !disposed && talking && talkSent && headset() && capture?.ctx.state === 'running' && granted() && grantFresh;
-    const start = active && !cueActive;
+    const start = active && !cueActive, stop = cueActive && !active;
     cueActive = active;
-    if (!start) return;
-    const volume = headsetGain(d.tuners().headset);
-    if (volume === 0) return;
-    try { d.talkCue?.(VOICE_TALK_CUE_ADAPTATION, volume); } catch { /* A missing/failed cue must never stop voice. */ }
+    if (start) { playTalkCue('grant'); return; }
+    if (!stop) return;
+    // TALK-CUE-PCM review F2: the microphone off or the capture suspended mid-talk resets with no cue, as the device's
+    // re-open does (FUN_0030fef0 D:L211679-211683), and the old grant is no grant of the talk that follows.
+    if (!headset() || capture?.ctx.state !== 'running') { grantFresh = false; return; }
+    playTalkCue('reversed');
   };
 
   /** VOICE-LATE-3 (1): the codec's state, for the posted counters. */
@@ -423,6 +471,7 @@ export function mountVoice(d: MatchVoiceDeps): MatchVoice {
     if (talkSent || disposed || !capture) return;
     link()?.send({ type: 'voiceTalk', on: true });
     talkSent = true;
+    asks++; askGranted = false;                                  // E15: an ask, not yet granted
     grantFresh = false;                                          // F2: this request's grant is a floor heard from now on
     updateTalkCue();
   };
@@ -430,10 +479,12 @@ export function mountVoice(d: MatchVoiceDeps): MatchVoice {
     if (!talkSent) return;
     link()?.send({ type: 'voiceTalk', on: false });
     talkSent = false;
+    if (!askGranted) ungranted++;                                // E15: let go with no grant heard after the ask
   };
   /** The talk let go (the release, the watchdog's): the floor's `off`, and the codec's run ended, its tail never sent. */
   const endTalk = (): void => {
     talking = false;
+    if (cueActive && !disposed) playTalkCue('reversed');         // TALK-CUE-PCM: the release from the granted talk
     cueActive = false;
     talkOff();
     void codec?.endTalk();
@@ -462,6 +513,7 @@ export function mountVoice(d: MatchVoiceDeps): MatchVoice {
         c.sendVoice(encodeVoiceUp({ seq, packets: f.packets }));
         seq = nextVoiceSeq(seq);
         sent++;
+        if (Number.isNaN(firstSentAt)) firstSentAt = clock();     // E15: the session's first frame sent
       }
     });
   };
@@ -542,6 +594,9 @@ export function mountVoice(d: MatchVoiceDeps): MatchVoice {
     sync();
     voiceEvent();   // VOICE-LATE-2 (1): the counters' panel, at the first voice event
     if (disposed || !headset() || playback.isMuted(down.speaker) || down.speaker === link()?.id) return;
+    // STREAMER-P1 (a browser adaptation): Streamer mode's Voice from others, its own gate after the headset's (never the
+    // microphone switch: that is the no-headset state, above); a refused speaker's frame dropped before the decode.
+    if (!streamerAllows(voiceFromOthers(), place, friendOrClanOf(down.speaker))) { streamerDropped++; return; }
     const arrived = clock();
     const entry: VoiceTraceEntry | null = trace
       ? { speaker: down.speaker, seq: down.seq, arrived, decoded: null, ctxTime: null, state: null, at: null, outcome: 'dropped' }
@@ -629,17 +684,22 @@ export function mountVoice(d: MatchVoiceDeps): MatchVoice {
         // VOICE-LATE-2: another's talk over -- the decoder drained once, so a frame it still holds is handed back
         if (ev.holder !== holder && holder !== null && holder !== link()?.id) void codec?.drainDecode();
         if (holder !== null && holder === link()?.id && ev.holder !== holder) void codec?.endTalk();   // no longer ours: the codec's run ends
-        if (channel !== ev.channel) cueActive = false;
+        // TALK-CUE-PCM review F1: a changed channel ends the granted talk through updateTalkCue's fall (the reversed cue):
+        // the original clears the talk flag on a channel set (FUN_0030fcd0 D:L211590) and plays it the next tick.
         holder = ev.holder;
         grantFresh = ev.holder !== null && ev.holder === link()?.id;   // F2: the room's word on the floor, after the request
+        if (talkSent && grantFresh) askGranted = true;                  // E15: this ask was granted
         channel = ev.channel;   // MATCH-05: the HUD's icon
         if (speaker !== null && ev.holder !== speaker) speaker = null;   // the HUD's rule is MATCH-05's: here only the entry
         updateTalkCue();
       },
       voiceFrame,
     }),
-    pad: (talk) => {
+    pad: (asked) => {
       if (disposed) return;
+      // STREAMER-P1 (a browser adaptation): My voice refuses the press here -- no capture, no voiceTalk, no frame, the
+      // microphone never asked (as no press); a talk under way when it is refused is let go.
+      const talk = asked && myVoiceAllowed(place);
       sync();
       const t = clock();
       if (Number.isFinite(lastPad)) frameMsMax = Math.max(frameMsMax, t - lastPad);   // VOICE-LATE (3): the page's frame, the probe
@@ -652,6 +712,8 @@ export function mountVoice(d: MatchVoiceDeps): MatchVoice {
         voiceEvent();   // VOICE-LATE-2 (1): the counters' panel, at the first voice event
         talking = true;
         firstBlock = true;
+        presses++;                                                 // E15: a press, the session's first timed
+        if (Number.isNaN(firstPressAt)) firstPressAt = t;
         capturedAt = Number.NaN;                                   // VOICE-2: the capture estimate starts again with the talk
         if (!headset()) { sayNoHeadset(); return; }   // SVC-22b: said once a page
         if (capture) talkOn();
@@ -665,7 +727,10 @@ export function mountVoice(d: MatchVoiceDeps): MatchVoice {
       sent, heard, speaker, holder, toneLevel: playback.toneLevel(), headset: headset(), channel, talking,
       playing: playback.playing(), suspended: playback.suspended(), members: link()?.voiceMembers ?? null, drops: drops(), ...(trace ? { trace } : {}),
       throttled: throttle.throttled(),
+      streamer: streamerDropped,
+      shownHolder: holder !== null && !allows(holder) ? null : holder,
     }),
+    allows,
     mute: (id, on) => { playback.mute(id, on); },
     muted: (id) => playback.isMuted(id),
     radio: (ask) => {
@@ -682,6 +747,18 @@ export function mountVoice(d: MatchVoiceDeps): MatchVoice {
       disposed = true;
       talking = false;
       cueActive = false;
+      // E15 (`./voiceDiag`): the session's talk, once, when it had a press -- read before the capture goes
+      // (the review's low 1: the row built inside the try too, so no read of it can stop the teardown below)
+      if (presses > 0) {
+        try {
+          const told: VoiceSessionDiag = {
+            presses, firstSendMs: Number.isNaN(firstSentAt) ? null : firstSentAt - firstPressAt, sent, stale, asks, ungranted,
+            headset: noCodec ? 'nocodec' : refused ? 'refused' : microphoneOn() ? 'ok' : 'off',
+            codec: codecState, captureRate: capture?.ctx.sampleRate ?? null,
+          };
+          (d.diag ?? pageVoiceDiag)(told);
+        } catch { /* the instrument never stops voice */ }
+      }
       if (stream) stopTracks(stream);
       stream = null;
       if (capture) {

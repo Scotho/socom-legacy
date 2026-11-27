@@ -1,5 +1,5 @@
 {
- "_source": "disc RUN/MP2.ZDB and RUN/MP6.ZDB (READERM.ZAR actions.rdr DOOR records, MZANIM.ZAR, the _GEO.ZED scene graph and hull) through simMapFromBytes -> readDoors (packages/viewer/src/simMap.ts, doors.ts); read 2026-10-02; re-read 2026-10-23 (ai::ANIMATE decoded, the ai namespace named)",
+ "_source": "disc RUN/MP2.ZDB and RUN/MP6.ZDB (READERM.ZAR actions.rdr DOOR records, MZANIM.ZAR, the _GEO.ZED scene graph and hull) through simMapFromBytes -> readDoors (packages/viewer/src/simMap.ts, doors.ts); read 2026-10-02; re-read 2026-10-23 (ai::ANIMATE decoded, the ai namespace named); re-read 2026-11-19 (ai::MOVE decoded, LATER 1206)",
  "MP2": [
   {
    "index": 0,
@@ -52,9 +52,22 @@
        "activation": 2,
        "ops": [
         {
-         "op": "other",
-         "cmd": 16,
-         "name": "ai::MOVE"
+         "op": "aiMove",
+         "mode": 1,
+         "node": 250,
+         "dist": 18,
+         "pos": [
+          0,
+          0,
+          -13
+         ],
+         "dir": [
+          0,
+          0,
+          -1
+         ],
+         "blocking": false,
+         "select": 0
         },
         {
          "op": "aiAnimate",
@@ -121,9 +134,22 @@
        "activation": 2,
        "ops": [
         {
-         "op": "other",
-         "cmd": 16,
-         "name": "ai::MOVE"
+         "op": "aiMove",
+         "mode": 1,
+         "node": 250,
+         "dist": 18,
+         "pos": [
+          0,
+          0,
+          -13
+         ],
+         "dir": [
+          0,
+          0,
+          -1
+         ],
+         "blocking": false,
+         "select": 0
         },
         {
          "op": "aiAnimate",
@@ -281,9 +307,22 @@
        "activation": 2,
        "ops": [
         {
-         "op": "other",
-         "cmd": 16,
-         "name": "ai::MOVE"
+         "op": "aiMove",
+         "mode": 1,
+         "node": 250,
+         "dist": 18,
+         "pos": [
+          0,
+          0,
+          -13
+         ],
+         "dir": [
+          0,
+          0,
+          -1
+         ],
+         "blocking": false,
+         "select": 0
         },
         {
          "op": "aiAnimate",
@@ -350,9 +389,22 @@
        "activation": 2,
        "ops": [
         {
-         "op": "other",
-         "cmd": 16,
-         "name": "ai::MOVE"
+         "op": "aiMove",
+         "mode": 1,
+         "node": 250,
+         "dist": 18,
+         "pos": [
+          0,
+          0,
+          -13
+         ],
+         "dir": [
+          0,
+          0,
+          -1
+         ],
+         "blocking": false,
+         "select": 0
         },
         {
          "op": "aiAnimate",
@@ -510,9 +562,22 @@
        "activation": 2,
        "ops": [
         {
-         "op": "other",
-         "cmd": 16,
-         "name": "ai::MOVE"
+         "op": "aiMove",
+         "mode": 1,
+         "node": 250,
+         "dist": 18,
+         "pos": [
+          0,
+          0,
+          -13
+         ],
+         "dir": [
+          0,
+          0,
+          -1
+         ],
+         "blocking": false,
+         "select": 0
         },
         {
          "op": "aiAnimate",
@@ -579,9 +644,22 @@
        "activation": 2,
        "ops": [
         {
-         "op": "other",
-         "cmd": 16,
-         "name": "ai::MOVE"
+         "op": "aiMove",
+         "mode": 1,
+         "node": 250,
+         "dist": 18,
+         "pos": [
+          0,
+          0,
+          -13
+         ],
+         "dir": [
+          0,
+          0,
+          -1
+         ],
+         "blocking": false,
+         "select": 0
         },
         {
          "op": "aiAnimate",
@@ -741,9 +819,22 @@
        "activation": 2,
        "ops": [
         {
-         "op": "other",
-         "cmd": 16,
-         "name": "ai::MOVE"
+         "op": "aiMove",
+         "mode": 1,
+         "node": 250,
+         "dist": 18,
+         "pos": [
+          -13,
+          0,
+          0
+         ],
+         "dir": [
+          0,
+          0,
+          -1
+         ],
+         "blocking": false,
+         "select": 0
         },
         {
          "op": "aiAnimate",
@@ -833,9 +924,22 @@
        "activation": 2,
        "ops": [
         {
-         "op": "other",
-         "cmd": 16,
-         "name": "ai::MOVE"
+         "op": "aiMove",
+         "mode": 1,
+         "node": 250,
+         "dist": 18,
+         "pos": [
+          -13,
+          0,
+          0
+         ],
+         "dir": [
+          0,
+          0,
+          -1
+         ],
+         "blocking": false,
+         "select": 0
         },
         {
          "op": "aiAnimate",

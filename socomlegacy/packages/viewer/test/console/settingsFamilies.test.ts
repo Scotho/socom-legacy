@@ -77,7 +77,7 @@ describe('LATER 294: Game and Launcher', () => {
     expect(ids.slice(1, 4)).toEqual(['pad-device', 'pad-dead', REMAP_ROW]);
     expect(ids).toContain('VIBRATION_CONTROLLER');
         expect(cat(options, 'display').rows.map((r) => r.id)).toContain('detail-distance');
-    expect(cat(options, 'communication').rows.map((r) => r.id)).toEqual(['EnableExternalWhispers', 'mic-on', 'mic-device']);
+    expect(cat(options, 'communication').rows.map((r) => r.id)).toEqual(['EnableExternalWhispers', 'mic-on', 'mic-device', 'streamer-mode']);   // STREAMER-P1: the master row last
   });
 
   it('R1 from Controller moves to Appearance, not into the game tabs', () => {
@@ -100,6 +100,8 @@ describe('LATER 294: Game and Launcher', () => {
     expect(ctl.S.screen).toBe('options');
     expect(cat(options, 'controller').rows[ctl.S.opt.row]?.id).toBe(REMAP_ROW);
     expect(options.value('pad-dead')).toBe(15);
+    options.reset('pad-dead');                                  // WM-PAD-DEADZONE: the row's reset writes the default, 5 percent
+    expect(zone()).toBeCloseTo(0.05);
     options.set('pad-dead', 22);
     expect(zone()).toBeCloseTo(0.22);
     expect(options.value('pad-dead')).toBe(22);

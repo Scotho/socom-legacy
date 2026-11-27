@@ -94,6 +94,17 @@ export function reloadFamily(how: { item: 'rifle' | 'pistol'; id: number; afterS
  */
 export const RELOAD_STILL_SPEED = 20;
 
+/**
+ * B-18 (research 150 section 5, "B-18"; the one-frame pop proven by the KILL2 capture, r0004, 11 hands-off trials and the stick's case (c), per research 150; its other cases reading):
+ * the commands from the command a still reload's or after-shot's clip life ends on (its end or its stick's cut) to the
+ * one a waiting stance request is taken on -- one game frame (what the capture proves; the value 2 is the arithmetic below, and 1 or 3 commands also fall inside its resolution). In the capture the request stays pending for one row with
+ * the looped stance on top, and the posture changes on the next row (`FUN_00552ec0`'s gate reads the top before the
+ * driver's end test or cut of the same frame, `FUN_00550ef0` D:L418174-418203). A game frame on the 60 Hz commands is
+ * `GAME_FRAME_DT * TICK_HZ` = 2.002 (525/15734 x 60), so 2 (held by `boltStance.test.ts`); not `HANDED_BACK_CUT_COMMANDS`, that ceiling
+ * is 3. Read by `walk.ts` `stillClipOnTop` and `room.ts` `watchMoves`' `stillClip`.
+ */
+export const STANCE_POP_FRAME_COMMANDS = 2;
+
 /** PLACEHOLDER (named; research 84 s11): the reload's seconds when its clip or the table is missing. No source. */
 export const RELOAD_SECONDS_PLACEHOLDER = 2;
 
@@ -140,18 +151,75 @@ export function reloadSeconds(clips: ReloadClipSource | null, table: MotionTable
  * at the speed it set (D:L462935-462941), its phase read against that clip's own `NoInterrupt` (`FUN_00550ef0`
  * D:L418176-418203, `FUN_00587c20` D:L445549-445565). The mover's hold (`./mover` `reloadHold`) is the rifle's or the
  * pistol's crouched or prone clip, so the seconds are the hold's own only for those two families (or no family named:
- * the item's); the shotgun reload, the pump and `Rifle m203 reload` are other clips (no `NoInterrupt` on the disc) the
- * hold only stands in for, and keep the stand-in's `playback` (undefined). The family gate is the PORT'S adaptation to
- * the stand-in hold, not the game's rule: the game scales whichever clip it pushed by its record's `ReloadTime`
- * (D:L462935-462941, no family test) and reads that clip's own `NoInterrupt`; it stands until the stand-in is replaced
- * (research 150 §5, owed). One derivation for the page (`main.ts`, on
- * `Fire`'s event) and the room (`room.ts`'s `holdPeriod`), which knows no after-shot or round mode: on every disc record
- * the two agree (`reloadRun.test.ts`) because no after-shot record and no carrier has a `ReloadTime`.
+ * the item's). The shotgun reload, the pump and `Rifle m203 reload` are other clips, with no `NoInterrupt` on the disc;
+ * *since B-18* (research 150 §5, "B-18") the page lays no hold for them (`reloadHolds`), so this answers undefined for
+ * them only for a caller that still lays one (the room's `holdPeriod` from a stale page's command, the Xbox prototype's
+ * runtime -- `./xboxPrototype/combatRuntime` keeps the stand-in hold because that fork is FROZEN by the owner's ruling of
+ * 2026-11-21: no new features; its techniques fold into the standard engine and the fork is retired). The game scales whichever clip it pushed by its record's `ReloadTime` (D:L462935-462941, no family test).
+ * One derivation for the page (on `Fire`'s event) and the room (`room.ts`'s `holdPeriod`), which knows no after-shot or
+ * round mode: on every disc record the two agree (`reloadRun.test.ts`) because no after-shot record and no carrier has
+ * a `ReloadTime`.
  */
 export function reloadHoldPeriod(family: ReloadItem | undefined, seconds: number | null | undefined): number | undefined {
   if (family !== undefined && family !== 'rifle' && family !== 'pistol') return undefined;
   return seconds !== null && seconds !== undefined && seconds > 0 ? seconds : undefined;
 }
+
+/**
+ * B-18 (research 150 §5, "B-18"; reading, reviewed 2026-11-21 by a second reader; capture owed): whether a reload's or an
+ * after-shot's clip of `family` holds the mover (`./walk` `WalkMode.holdReload`) -- the rifle's and the pistol's (and no
+ * family named: the item's), whose crouched and prone clips the mover's hold IS (`./mover` `reloadHold`, its
+ * `NoInterrupt` and `playback` the pushed clip's own). The shotgun reload (the 870, and the bolt snipers 101-103's
+ * after-shot), the pump and `Rifle m203 reload` hold none: their still clips carry no `NoInterrupt` (`motion.rdr`; an
+ * absent key loads as 0, D:L131431-131434), so the first move or turn axis past 0.1 cuts them from the driver's next
+ * frame (`FUN_00550ef0` D:L418174-418203, `FUN_00587c20` D:L445550-445556), and while they run untouched the stance
+ * request waits on their still clip's life instead (`StillReloadLife` / the room's `reloadLife`, asked as
+ * `Walker.oneShotOnTop`; `FUN_00552ec0` D:L418927-418930). Was: the rifle's `seal_prone_reload` / `seal_crouch_reload`
+ * laid as a stand-in (H77), which no stick could cut for its `NoInterrupt` 0.5 / 0.35 of another clip. No wire change:
+ * the hold codes (`HOLD_CODES`) are untouched; the page simply sends none for these families.
+ */
+export function reloadHolds(family: ReloadItem | undefined): boolean {
+  return family === undefined || family === 'rifle' || family === 'pistol';
+}
+
+/**
+ * BOLT_POP_TRANSITION_READING (B-18; research 150 §6; reading, reviewed 2026-11-21 by a second reader, not built): the
+ * original pops an in-flight stance transition when a still reload or after-shot clip is pushed -- `FUN_005a82e0`, still
+ * and with the stance word equal to the stack's posture, calls `FUN_0058a4d0(actor, 0)` first (D:L462924-462927), which
+ * pops every entry above the base Stand / Crouch / Prone (D:L446753-446781), so a drop (0x19, 0x13) under way is cut short
+ * into the clip, and a crouch the drop refused (D:L418953) waits only for the clip. The port lets the drop run on under
+ * the clip's life: building it needs the room's mover to end its drop on the same command (`room.ts` `lockLife` /
+ * `watchCut`, the after-shot's clip life), so both movers stay one. Settled by building that pair, and measured by the
+ * capture of research 150 §5's "B-18" run C (a prone press 0.1 s after the shot: the top at 0.5 s is the clip, one above
+ * the base, not 0x19).
+ */
+export const BOLT_POP_TRANSITION_READING = 'not built: the drop runs on under the clip' as const;
+
+/**
+ * AFTER_SHOT_DIVE_FIRE_LOCK_READING (B-18, the review of 0b122c4034's F-doc 3; research 150 §6; reading, pending review):
+ * the fire lock past the kit's timer is the pushed clip's. `FUN_005a7ab0` answers "held" while the kit's timer runs
+ * (`FUN_005c2400`, `kit+0x820 > 0`: D:L462522, D:L477159), else only while the top of the stack or any entry on it is one
+ * of the reload and after-shot types `FUN_005a82e0` pushes (D:L462524-462544 against D:L462838-462916), or the second
+ * channel plays one of the two moving reload types (D:L462548-462555, set at D:L418209, D:L418220). Under a
+ * `dive_to_prone` top no clip is pushed (D:L469334-469335), so the original's after-shot fire lock ends at the timer's
+ * end. **Built for the firearm's own after-shot** (a bolt's, a pump's; B-18 F1): the room picks the clip at the timer's
+ * end (`room.ts` `afterShotPick`, its dive test with it) and the page ends its lock there (`Fire.beginAfterShot`).
+ * **Not built for a round mode** (the M203's `Rifle m203 reload` after-shot): the room's launch path still picks the clip
+ * and sets its lock at the round (`room.ts`'s round-mode `setLock` / `lockLife`), and the page keeps the clip's length
+ * there too, so the two agree with each other, not the original. Settled by the same pick on the round-mode path;
+ * measured by research 150 §5's "B-18" run F (a round pressed between the timer's end and the clip's length).
+ */
+export const AFTER_SHOT_DIVE_FIRE_LOCK_READING = "not built for a round mode: the M203 after-shot's lock runs on under the dive" as const;
+
+/**
+ * AFTER_SHOT_REFUSED_STATES_READING (the review of the B-18 folds, 1a; research 150 §6; reading, pending review):
+ * `FUN_005b4340` also refuses the after-shot push (no clip, the lock ending at the timer) in body states 8 (D:L469321),
+ * 9 and 10 (D:L469409), state 5 or a type-5 top (D:L469329), state 4 or a type-4 top, the climb or hang
+ * (D:L469460-469462), and the tops at D:L469420-469447. The port models only the dive (`AFTER_SHOT_DIVE_FIRE_LOCK_READING`).
+ * Page and room agree with each other here, not with the original. Settled by modelling those states, or by a capture of a
+ * bolt shot followed by a climb within 0.5 s.
+ */
+export const AFTER_SHOT_REFUSED_STATES_READING = 'body states 8-10, state 5, state 4 (climb/hang), tops L469420-469447: not modelled' as const;
 
 /**
  * PF-18 (research 150 §3.4, §3.7; 218 §2): the family's moving overlay's life -- `Moving rifle reload` (`seal_mv_reload`,

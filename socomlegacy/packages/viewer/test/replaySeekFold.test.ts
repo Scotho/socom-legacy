@@ -3,7 +3,7 @@
 // skips only the transient ones -- held through the page's own handlers (`NetPage`, `BombPage`) on a `ReplayClient`
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PerspectiveCamera } from 'three';
-import { HELD_RIFLE, HELD_SIDEARM } from '@s2u/scene';
+import { GAME_FRAME_DT, HELD_RIFLE, HELD_SIDEARM } from '@s2u/scene';
 import type { ReplayRecord } from '../../match/src/replay/format';
 import { BombPage } from '../src/bombPage';
 import { Hud } from '../src/hud';
@@ -90,6 +90,11 @@ async function replayPage(seg: LoadedSegment) {
     wait: (ms: number): void => { now += ms; replay.advance(); },
     /** One page frame (the timer, the round screen), no replay time passing. */
     frame: (): void => { replay.advance(); net.frame(0, camera, false); },
+    /**
+     * R4P-253: `n` game frames of the page with no replay time passing -- another player's shots are shown from the
+     * copy's count, one a game frame (REMOTE_SHOT_DRAIN_PER_TICK_READING), on the replay's scale (0 on the frame after a seek).
+     */
+    ticks: (n: number): void => { for (let i = 0; i < n; i++) net.frame(GAME_FRAME_DT, camera, false); },
     clear: (): void => { for (const s of Object.values(spies)) s.mockClear(); },
   };
 }
@@ -101,6 +106,7 @@ describe('PTT-6: a seek folds the stateful events (W37.R4; review focus 6)', () 
   it('review focus 6: a seek back across a score change shows the score at the target, not the latest; the tracer in the skipped span draws nothing', async () => {
     const p = await replayPage(segment([[100, score(0)], [200, shot], [350, shot], [400, score(1)]]));
     p.wait(msOf(500));                                     // played to 500: the live page heard both scores, both shots
+    p.ticks(4);                                            // R4P-253: both shown, one a game frame
     expect(lastRows(p.spies.scoreRows)).toEqual([1, 0]);
     expect(p.spies.tracer).toHaveBeenCalledTimes(2);
     p.clear();
@@ -108,6 +114,7 @@ describe('PTT-6: a seek folds the stateful events (W37.R4; review focus 6)', () 
     expect(lastRows(p.spies.scoreRows)).toEqual([0, 0]);   // the score at 300: Alpha's kill at 400 not yet
     expect(p.spies.tracer).not.toHaveBeenCalled();         // no tracer, nothing replayed
     p.wait(msOf(120));                                     // on from 300: the shot at 350 and the score at 400 play
+    p.ticks(4);                                            // R4P-253: shown at a game frame (the first after the seek scales to 0)
     expect(p.spies.tracer).toHaveBeenCalledTimes(1);
     expect(lastRows(p.spies.scoreRows)).toEqual([1, 0]);
   });

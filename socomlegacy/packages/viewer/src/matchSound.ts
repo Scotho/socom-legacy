@@ -1,5 +1,5 @@
 import { SEAL_TUNING, type Side } from '@s2u/scene';
-import { soundFor, type RenderedSound } from '@s2u/sound';
+import { rangeGain, SOUND_DEFAULT_RANGE, soundFor, type RenderedSound } from '@s2u/sound';
 import { Matrix4, Vector3 } from 'three';
 import type { AudioOut, GameAudio } from './audio';
 import type { FlyCamera } from './camera';
@@ -14,7 +14,6 @@ import { grenadeWarningFor } from './gameplayAudio';
 import { commandLine, commandText } from './matchChat';
 import type { Team } from './net/protocol';
 import { RingingEars } from './ringingEars';
-import { HOSTAGE_YES_CUE_READING } from './hostagePage';
 import { RoundAudioHost } from './roundAudioHost';
 import type { SoundData } from './soundData';
 import type { WalkMode } from './walk';
@@ -77,6 +76,8 @@ export interface MatchSoundParts {
    * the beds off; absent (the front end's match), never -- the beds play in every view (research 81 §10).
    */
   ambienceOff?(): boolean;
+  /** B-86 (`./walkSounds`): the page's own view state (`Zoom.state()`, body+0x200); absent, 0. */
+  viewState?(): number;
 }
 
 /**
@@ -115,9 +116,12 @@ export const ROUND_SCREENS_SILENCE_WALK_READING = 'screens' as const;
  * The page: once, as a screen first comes up, `RoundAudioHost.reset` -- `GameAudio.stopTransient` (the voices, the slide,
  * the streams' voices) and the music slot stopped, the round's queued cues dropped; then, until the next round's start,
  * no shot, reload, dry click, effect, goggles, another's round or reload, voice, ring or warning plays. Through the
- * engine's 3 s every one plays as before. Open (LATER 580): the beds' and emitters' loops (`SL_STOPALLSOUNDS` stops them;
- * the page's loops run on), and a ringing ears' duck and its fade timer already running (`./ringingEars`; its tone, a
- * transient voice, stops with the reset). The taunts' vocals and the menu's send (`./matchTaunts`) and a scene program's
+ * engine's 3 s every one plays as before. The beds' and emitters' loops (LATER 580's audio half, 2026-11-19): off from
+ * the first screen frame, their voices freed, on again with the next round (`frame`; the round's restart starts the zAnim
+ * sets again, `FUN_002232a0` D:L75858-75866, reached by `FUN_00223680`'s pop at D:L75935-75936). A ringing ears' duck already running (LATER 580, 2026-11-19): ended at the first
+ * screen frame, the masters back at once (`./ringingEars`' `stop`) -- `FUN_00346b30` calls `FUN_00341060` before
+ * `SL_STOPALLSOUNDS` (D:L244181-244182), which sets the fade to 1 and restores the saved masters (D:L241124-241132,
+ * D:L241145-241172); its tone, a transient voice, stops with the reset. The taunts' vocals and the menu's send (`./matchTaunts`) and a scene program's
  * SOUND (`sceneSound`) are gated too; the world's step runs on (LATER 580). Settled by a capture of a round's end with a
  * shot, a voice and the win music sounding.
  */
@@ -132,6 +136,104 @@ export const ROUND_SCREENS_STOP_ALL_READING = 'once at the screens' as const;
  * window's own (D:L157983-157987), as the tactical line's. Settles: capture NU7-2.
  */
 export const GRENADE_WARNING_LINE_READING = Object.freeze({ window: 0x4366a0, colour: 3 } as const);
+
+/**
+ * R4P-254 (ESCORTEE-YES; reading, pending review): the global one-voice AI vocal queue an escortee's YES goes through.
+ * OnCommand `FUN_0058fbe0` says YES (CHRSND 0x37) on FOLLOW and HOLD (D:L450379, D:L450531, D:L450537) through PlayAiSound
+ * `FUN_0055ff60` -> PlayAt `FUN_0053b710`, whose AI play hands the handle to `FUN_003428f0` (D:L241978-241982): an entry
+ * appended to the queue at 0x48dee0 (`FUN_0034ced0` D:L247804-247830, with the body's place). The queue's service
+ * `FUN_0034c650` (D:L247425-247479) drops each head entry whose hearing check fails -- `FUN_0034d0b0` (D:L247882-247893):
+ * `FUN_00342670`'s RANGE volume at its place is 0 -- and plays the first that passes; one voice at a time, the next when
+ * the current ends. The member is picked as the stream group's (`FUN_00348450`, `GameAudio.playStream`). Each entry
+ * lives `AI_VOCAL_ENTRY_LIFETIME_READING` seconds of waiting: the tick (`tick`, `FUN_0034c920`) serves the queue when no
+ * AI voice sounds, then takes the frame's time off every waiting entry; a head entry whose life is spent is dropped
+ * before its hearing is asked (D:L247440-247443).
+ */
+export class AiVocalQueue {
+  private readonly entries: { name: string; at: [number, number, number]; life: number }[] = [];
+  private busyUntil = -Infinity;
+  /** The last tick's time (seconds), null before the first or after a reset. */
+  private last: number | null = null;
+  constructor(private readonly deps: {
+    /** Seconds. */
+    now(): number;
+    /** Whether `name` at `at` is in hearing now (`FUN_0034d0b0`). */
+    audible(name: string, at: [number, number, number]): boolean;
+    /** Plays it: its length in seconds, or null when it did not sound (`FUN_0034c650` then plays the next). */
+    play(name: string, at: [number, number, number]): number | null;
+  }) {}
+  /** `FUN_0034ced0`: appended, then served (it starts at once when no AI voice sounds). */
+  request(name: string, at: [number, number, number]): void {
+    this.entries.push({ name, at, life: AI_VOCAL_ENTRY_LIFETIME_READING });
+    this.service();
+  }
+  /**
+   * `FUN_0034c920` (D:L247519-247557): the queue served when no AI voice sounds, then the frame's time taken off every
+   * waiting entry, clamped at 0 (D:L247548-247555). A clock that went back (a replay's) takes nothing off.
+   */
+  tick(): void {
+    const now = this.deps.now();
+    const dt = this.last === null ? 0 : Math.max(0, now - this.last);
+    this.last = now;
+    this.service();
+    for (const e of this.entries) e.life = Math.max(0, e.life - dt);
+  }
+  /** `FUN_0034c650`: when the current voice has ended, the first entry in hearing plays; those out of hearing are dropped. */
+  service(): void {
+    const now = this.deps.now();
+    if (now < this.busyUntil) return;
+    for (let e = this.entries.shift(); e; e = this.entries.shift()) {
+      if (e.life <= 0) continue;                     // spent: dropped before hearing (D:L247440-247443)
+      if (!this.deps.audible(e.name, e.at)) continue;
+      const seconds = this.deps.play(e.name, e.at);
+      if (seconds === null) continue;
+      this.busyUntil = now + seconds;
+      return;
+    }
+  }
+  /** Emptied: nothing queued, no voice held (`AI_VOCAL_QUEUE_AT_SCREENS_READING`, a replay seek, the match's end). */
+  reset(): void {
+    this.entries.length = 0;
+    this.busyUntil = -Infinity;
+    this.last = null;
+  }
+}
+
+/**
+ * AI_VOCAL_ENTRY_LIFETIME_READING (R4P-254 review F1; reading, pending review): the seconds an AI vocal queue entry may
+ * wait. PlayAt `FUN_0053b710` hands `FUN_003428f0` 3.0 (D:L405300), stored at the entry's `+4` (`FUN_0034ced0` ->
+ * `FUN_0034cd30`, D:L247827, D:L247716-247723); the tick `FUN_0034c920` takes the frame's time off every waiting
+ * entry's `+4`, clamped at 0 (D:L247548-247555); `FUN_0034c650` drops a head entry whose `+4` is 0 or less before its
+ * hearing is asked (D:L247440-247443). r0004 the same (0x540160, 0x36a580, 0x369d00, 0x369fd0, per the review).
+ */
+export const AI_VOCAL_ENTRY_LIFETIME_READING = 3;
+
+/**
+ * AI_VOCAL_QUEUE_AT_SCREENS_READING (R4P-254 review F3; reading, pending review): the AI vocal queue is emptied at the
+ * round screens' first frame. The stop-all's second call `FUN_00344f80` (D:L151221) opens on the queue's vtable slot
+ * `+0x14` (D:L243218); the queue's vtable 0x406bc0 holds `FUN_0034ca20` there, which frees the entry pool and empties
+ * both lists (D:L247560-247590). r0004: vtable 0x433460 -> 0x36a0d0 (per the review). Was a placeholder.
+ */
+export const AI_VOCAL_QUEUE_AT_SCREENS_READING = 'emptied' as const;
+
+/**
+ * AI_VOCAL_UNKNOWN_LENGTH_PLACEHOLDER (R4P-254): seconds the queue holds a voice whose length the page cannot know (a
+ * bank voice mixed off the thread reports 0 when asked, `GameAudio.play`'s OFF_THREAD_RENDER_ADAPTATION): none, the
+ * next starts at once. A stream's length is always known. Settles: nothing in the original -- it knows every voice's end;
+ * a port's length for that path would retire it.
+ */
+export const AI_VOCAL_UNKNOWN_LENGTH_PLACEHOLDER = 0;
+
+/**
+ * AI_VOCAL_HEARING_RANGE_READING (R4P-254 review F2; reading, medium, pending review): the RANGE the queue's hearing
+ * check uses. `FUN_00342670` reads the handle's own `+0xc` / `+0xe` (D:L241930-241938). A group's handle is built by
+ * `FUN_00348130` with the plain sound constructor `FUN_00345620` (`+0xc` 160, `+0xe` 430, D:L243411-243425), and the
+ * group's load `FUN_00347f00` (D:L244831-244925) and its registration `FUN_00343f90` write neither: a group is heard by
+ * 160-430 (`SOUND_DEFAULT_RANGE`) -- `^CO_0284`, whose members' own 40-200 is the member play's falloff only
+ * (`FUN_00342b20`). A plain sound's handle carries its `sounds.rdr` RANGE. Medium: not every writer of `+0xc` was
+ * searched. Settles: a search of every `+0xc` writer, or capture Q-254.
+ */
+export const AI_VOCAL_HEARING_RANGE_READING = 'a group: 160-430; a sound: its own RANGE' as const;
 
 /** The sound part's `NetPage` hooks, as `PART_DEPS.sound` lists them. */
 export type MatchSoundDeps = Required<Pick<NetPageDeps, (typeof PART_DEPS)['sound'][number]>>;
@@ -221,6 +323,12 @@ export function mountSound(p: MatchSoundParts): MatchSound {
    * (`roundAudioClock`: a pause holds what is queued, the speed scales the waits), else `performance.now` as before.
    */
   const roundAudio = new RoundAudioHost(audio, roundAudioClock(() => p.seat?.() ?? null));
+  /**
+   * R4P-254 review F4: the round's audio reset -- a replay seek's (`./matchActions` `followSeek`), the screens', the
+   * match's end -- empties the AI vocal queue too (`vocal`, below), so a backward seek leaves no queued YES to burst.
+   */
+  const resetRound = roundAudio.reset.bind(roundAudio);
+  roundAudio.reset = () => { resetRound(); vocal.reset(); };
   audio.setFallTable(SEAL_TUNING.gravity, SEAL_TUNING.fallingDamage);
   const walkSounds = new WalkSounds(audio, {
     walking: () => walk.mode() === 'walk',
@@ -230,6 +338,7 @@ export function mountSound(p: MatchSoundParts): MatchSound {
     grid: () => walk.grid(),
     sceneGrid: () => walk.grid() ?? walk.gridOfGround?.() ?? null,   // AMB-1: the dead and spectator cameras pick the beds too
     ...(p.ambienceOff ? { ambienceOff: p.ambienceOff } : {}),
+    ...(p.viewState ? { viewState: p.viewState } : {}),   // B-86: the own step unplaced in first person and the zoom
   });
   /** The blast's ring above selected ducked sound groups: a 5 s hold, then 5 s master recovery (`./ringingEars`). */
   const ears = new RingingEars(audio);
@@ -239,6 +348,34 @@ export function mountSound(p: MatchSoundParts): MatchSound {
   const screens = (): boolean => p.screenUp?.() ?? false;
   /** OBF-31: whether a screen was up at the last frame -- its first frame stops every sound, once. */
   let screensWere = false;
+  /** R4P-254: the listener's place, the frame's (the matrix `GameAudio.setListener` takes); null before the first frame. */
+  let listener: [number, number, number] | null = null;
+  /** AI_VOCAL_HEARING_RANGE_READING: the RANGE of a name the queue hears by -- a group's the constructor's 160-430. */
+  const rangeOf = (name: string): readonly [number, number] =>
+    data?.tacticalGroups?.some((g) => g.name === name) ? SOUND_DEFAULT_RANGE
+      : data?.params.find(([k]) => k === name)?.[1].range ?? SOUND_DEFAULT_RANGE;
+  /** R4P-254 (`AiVocalQueue`): the one-voice AI vocal queue, on the round audio's clock (`roundAudioClock`). */
+  const vocal = new AiVocalQueue({
+    now: roundAudioClock(() => p.seat?.() ?? null),
+    // `FUN_0034d0b0` (D:L247890) drops on the whole volume 0: `FUN_00342670`'s `(int)(1.0 x gain x 1024)` (D:L241944)
+    audible: (name, at) => listener === null
+      || Math.trunc(0x400 * rangeGain(Math.hypot(at[0] - listener[0], at[1] - listener[1], at[2] - listener[2]), rangeOf(name))) > 0,
+    play: (name, at) => {
+      const played = audio.hasStream(name) ? audio.playStream(name, at) === 'played' : audio.play(name, at, 'voice');
+      if (!played) return null;
+      const seconds = audio.stats().recent.at(-1)?.seconds ?? 0;
+      return seconds > 0 ? seconds : AI_VOCAL_UNKNOWN_LENGTH_PLACEHOLDER;
+    },
+  });
+  /**
+   * R4P-254: an escortee's YES -- its placed character's own `CHRSND_YES` (`SoundData.escorteeVoices`, `^CO_0284` for
+   * MP82's `mp_vip1-3`) through the AI vocal queue; none for a character no entry names, or whose YES is null (the null
+   * handle plays nothing, `FUN_0053b710` D:L405264-405266).
+   */
+  const escorteeYes = (character: string | null, at: [number, number, number]): void => {
+    const yes = character === null ? null : data?.escorteeVoices?.find((v) => v.character === character)?.yes ?? null;
+    if (yes !== null) vocal.request(yes, [at[0], at[1], at[2]]);
+  };
   const firearm: FirearmSound = {
     fireEvent: (e) => { if (!screens()) walkSounds.fireEvent(e); },   // OBF-31: the rounds, reloads and dry clicks
     // The effects' sounds through the map's banks: the data's slips mended and a stand-in for a casing sound a map lacks
@@ -253,11 +390,12 @@ export function mountSound(p: MatchSoundParts): MatchSound {
     audio, walkSounds, roundAudio, ears, firearm,
     remoteStep: (_id, step, feet) => {
       if (p.screenUp?.()) return;                     // OBF-7: ROUND_SCREENS_SILENCE_WALK_READING -- the round is not ticked under the screens
-      audio.onFootstep(walkSounds.material(feet), step.at, { stance: step.stance, stick: step.stick });
+      // the stepping body's own floor on the scene's grid, whoever listens (`FUN_005a39b0`, research 81 §4)
+      audio.onFootstep(walkSounds.materialAt(feet), step.at, { stance: step.stance, stick: step.stick });
     },
     playEvent: (e) => { if (!p.screenUp?.()) walkSounds.playEvent(e); },   // OBF-7: ROUND_SCREENS_SILENCE_WALK_READING
     ladderSlide: (at) => { audio.setLadderSlide(p.screenUp?.() ? null : at); },   // OBF-7: the loop let go under the screens
-    ladderLand: (speed, at) => { if (!p.screenUp?.()) audio.onLand(speed, walkSounds.material(at), at); },
+    ladderLand: (speed, at) => { if (!p.screenUp?.()) audio.onLand(speed, walkSounds.materialAt(at), at); },
     sceneSound: (name, at, volume) => {
       if (screens()) return;                                    // OBF-31
       // FORGE_SCRIPT_SOUND_ADAPTATION (`SoundData.lentStreams`): a Forge switch's stream, where no bank holds the name.
@@ -298,25 +436,37 @@ export function mountSound(p: MatchSoundParts): MatchSound {
       ring: (seconds, volume) => { if (!screens()) ears.start(seconds, volume); },
       roundAudio,                                     // INT.R7: the round's cues (`./roundAudioHost`), run by the page's frame
       objective: () => audio.roundCues()?.objective ?? null,   // PF-12: the map's objective lines, read with the cues
-      // HX-4a: an escortee's YES at its body (CHRSND 0x37, mp_fem1-3's ^CO_0343; HOSTAGE_YES_AUDIENCE_PLACEHOLDER).
-      escorteeVoice: (_id, cue, at) => { if (cue === 'yes' && at && !screens()) audio.play(HOSTAGE_YES_CUE_READING.sound, at, 'voice'); },
+      // HX-4a: an escortee's YES at its body (CHRSND 0x37; HOSTAGE_YES_AUDIENCE_PLACEHOLDER); R4P-254: the placed
+      // character's own group (`^CO_0284` for MP82's mp_vip1-3), through the one-voice AI vocal queue.
+      escorteeVoice: (_id, cue, at, character) => { if (cue === 'yes' && at && !screens()) escorteeYes(character, at); },
     }),
     frame: (camera, game = null) => {
       // OBF-31 (`ROUND_SCREENS_STOP_ALL_READING`, `FUN_00346b30` + `FUN_00344f80`, D:L151220-151221): a screen's first frame
       // stops every sound once -- the voices, the streams, the music slot, the round's queued cues; a round's start hears again
       const up = screens();
       if (up && !screensWere) roundAudio.reset();
+      // LATER 580: `FUN_00346b30` first calls `FUN_00341060` (D:L244181; the sound-off switch clear, SOUND_OFF_SWITCH_READING):
+      // a ring's duck holding or fading is put back to the saved masters at once -- ended, nothing resumed next round.
+      if (up && !screensWere) ears.stop();
       screensWere = up;
       // The game's listener is the camera (0x48dd40): the game's, three's `lookAt` with y up as the drawn one is placed.
       if (game) ear.lookAt(earEye.fromArray(game.eye), earAt.fromArray(game.target), EAR_UP).setPosition(earEye);
       audio.setListener(game ? ear.elements : camera.matrixWorld.elements);
+      const m = game ? ear.elements : camera.matrixWorld.elements;
+      listener = [m[12]!, m[13]!, m[14]!];
+      if (!up) vocal.tick();                          // R4P-254: FUN_0034c920 -- the next AI voice, the waiting entries aged
       // NU-7 G1 (REMOTE_THROW_GRUNT_READING): another's standing throw's `throw_whoosh` from its body's clip, as the page's own
       for (const c of p.others?.()?.takeThrowCallbacks?.() ?? []) if (!up) audio.onAnimCallback(c.name, c.at);   // OBF-31: taken, none heard
-      walkSounds.frame(game ? [game.eye[0], game.eye[1], game.eye[2]] : [camera.position.x, camera.position.y, camera.position.z]);   // the reverb, the beds
+      // LATER 580 (`ROUND_SCREENS_STOP_ALL_READING`): `SL_STOPALLSOUNDS` stops the ambience's loops too -- the beds and the
+      // emitters -- and the mission's world is not ticked under the screens; the next round's restart starts the zAnim sets
+      // again (`FUN_002232a0` D:L75858-75866, reached by `FUN_00223680`'s pop at D:L75935-75936). So the ambience is off from the first screen frame (its loops stopped, their
+      // voices freed in the budget) and on again with the next round, through the beds' own per-frame call.
+      if (up) audio.setAmbience(false);
+      else walkSounds.frame(game ? [game.eye[0], game.eye[1], game.eye[2]] : [camera.position.x, camera.position.y, camera.position.z]);   // the reverb, the beds
     },
     setData: (next) => { data = next; audio.setData(next); if (next) roundAudio.dataChanged(); },
     setLoops: (loops) => { audio.setLoops(loops); },
-    dispose: () => { ears.stop(); roundAudio.reset(); audio.setData(null); },
+    dispose: () => { ears.stop(); roundAudio.reset(); audio.setData(null); },   // the queue with it (review F4)
   };
 }
 

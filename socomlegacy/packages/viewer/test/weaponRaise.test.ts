@@ -27,8 +27,9 @@ import type { HoldClip, PlaySnapshot } from '../src/mover';
  *   the trigger edge to 2 (D:L453532-453533); under the throw `FUN_0059d830` answers 0 (D:L457352-457362), so the plain
  *   trigger branch runs: the edge 2 -> 3 (the countdown reset, D:L453603-453610) -> 0, where the class 'y' asks it down
  *   (D:L453598-453600) -- the second update after the release, under the clip, so 0 at the pop;
- * - the pistol hand's throw (`Pistol throw grenade`) is in neither gate's list (D:L457352-457355, D:L462579-462582): the
- *   wind-up block's bit-7 branch asks it down on the very next update (D:L453484-453489);
+ * - the pistol hand's two peek tosses are in neither gate's list (D:L457352-457355, D:L462579-462582): the wind-up
+ *   block's bit-7 branch asks them down on the very next update (D:L453484-453489); *was* the standing throw too, as
+ *   `Pistol throw grenade` -- since LATER 1442 it plays the rifle's `Throw grenade`, inside the gates;
  * - a placing's trigger press raises it as the firearm's does (D:L453633-453634: the class is not 'y') and the
  *   countdown holds it 5 s; C4's and the bomb's Action-button plant ask nothing (`ACTION_PLANT_RAISE_READING`).
  *
@@ -269,7 +270,10 @@ describe("NU-8a B1 on the page's body: Play hears the hold's start and the hand 
     expect(r.run(60).every((x) => x === 0)).toBe(true);                // a grenade left: down and stays down
   });
 
-  it("a cold rifle: the two-update rise under the clip, then out; the pistol hand's throw (the rifle's hold code with the pistol in hand) one update sooner; the pistol toss as the rifle's", () => {
+  // LATER 1442's review F3: the sidearm's standing throw plays the rifle's `Throw grenade` (`handAnim`: only the peek
+  // tosses swap, research 85 §8.1 item 3), which `FUN_0059d830`'s list holds (D:L457352-457355): inside the gates, as the
+  // rifle's. *Was: `Pistol throw grenade`, outside both gates, lowered one update sooner.*
+  it("a cold rifle: the two-update rise under the clip, then out; the pistol hand's throw (the rifle's hold code with the pistol in hand) and the pistol toss as the rifle's", () => {
     const rifle = playRig({ grenade: true, windUp: false, trigger: false });
     rifle.run(30);
     rifle.hold('seal_throwgrenade');
@@ -282,10 +286,10 @@ describe("NU-8a B1 on the page's body: Play hears the hold's start and the hand 
     const pistol = playRig({ grenade: true, windUp: false, trigger: false });
     pistol.play.setItem('pistol');
     pistol.run(30);
-    pistol.hold('seal_throwgrenade');                                    // `Pistol throw grenade`: outside both gates
+    expect(throwReleaseOf('seal_throwgrenade', true)).toBe('gated');
+    pistol.hold('seal_throwgrenade');                                    // the rifle's `Throw grenade`: inside the gates
     const p = pistol.run(3);
-    expect(p[0]).toBeCloseTo(ease(RISE[0]), 5);
-    expect(p[1]).toBeCloseTo(ease(FALL_FROM[0]), 5);                   // R+1: down from RISE[0] x 0.5 s
+    [ease(RISE[0]), ease(RISE[1]), ease(FALL_FROM[1])].forEach((x, i) => expect(p[i]).toBeCloseTo(x, 5));
     const toss = playRig({ grenade: true, windUp: false, trigger: false });
     toss.play.setItem('pistol');
     toss.run(30);
@@ -562,7 +566,10 @@ function assembledRig() {
 describe('RAISE-HELD-FIRE (m02d) on the page\'s assembly: the M67 taken up under a held firearm trigger', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('RED: the rifle stays up while the trigger is held (edge 1 asks up), and lowers at once at the let-go', () => {
+  it("the OWNER'S rule (GRENADE_LOWERS_OWNER, MISSION OT.R159): the M67 taken up under a held trigger puts the rifle down and keeps it down", () => {
+    // RAISE-HELD-FIRE (m02d) read the held edge 1 as asking the rifle up through the take-up (`HELD_TRIGGER_ITEM_RAISE_READING`);
+    // the owner's ruling sets that aside for a hand grenade held ("a grenade in hand puts the rifle down ... even if our
+    // readings are wrong", OT.R159): down within the take-up's frames, held down while R1 stays held and after the let-go.
     const p = assembledRig();
     p.firearm.trigger(true);                                             // the firearm's own press
     const up = p.run(12);
@@ -570,13 +577,10 @@ describe('RAISE-HELD-FIRE (m02d) on the page\'s assembly: the M67 taken up under
     expect(p.throws.grenade.select('M67')).toBe(true);                  // the take-up, R1 still down
     expect(p.throws.grenade.stats().left).toBeGreaterThan(0);
     const held = p.run(Math.round(6 / DT));
-    expect(held.every((x) => x === 1)).toBe(true);                      // was: lowered within two game frames
-    expect(p.play.weaponStats().raise.edge).toBe(1);
+    expect(held.slice(3).every((x) => x === 0)).toBe(true);             // was (m02d): held at 1 while R1 stayed down
     p.firearm.trigger(false);                                            // the let-go
-    const down = p.run(20);
-    expect(down[0]).toBe(1);                                             // the edge 3: no request
-    expect(down[1]).toBeLessThan(1);                                     // the edge 0, the class 'y': down at once
-    expect(down[19]).toBe(0);
+    const after = p.run(20);
+    expect(after.every((x) => x === 0)).toBe(true);
     p.dispose();
   });
 
@@ -613,6 +617,95 @@ describe('LATER 180: the raise under the slot\'s times (FUN_005c4b10 D:L478849-4
     expect(r.weight()).toBe(0);
     r.setTimes(RAISE_TIMES);
     expect(frames(r, 10, FIRING).at(-1)).toBe(1);
+  });
+});
+
+/**
+ * B-01 D1 (the nade swap's accuracy; reading, reviewed by two readers; the countdown's state observed in IQ-169,
+ * unscored; the D1-specific leg IQ-185 (PC 4, B01-RECAP-PC4) owed): the controller's idle branch
+ * tests the hand's CLASS alone. r0004's `CSealCtrl::PreTick` asks `CZKit::GetCurItemIDType` (0x5cf750, which reads no
+ * count) and compares it with 0x79 (0x59bbac-0x59bbc4); with it set and the trigger idle (0x59be00-0x59be0c) it asks the
+ * rifle down and jumps over both the countdown's decrement (0x59be20-0x59be84) and its re-seed (0x59be88-0x59bed8): the
+ * countdown `ctrl+0x234` is FROZEN whatever the slot's count (r0001's twin `FUN_00594cf0` D:L453568, D:L453598-453600).
+ * The edge-2 wind-up needs the class AND a round left (`CurItemHasAmmo` 0x5c46b0 at 0x59bc40-0x59bc50; r0001
+ * `FUN_005bdb00` D:L474541-474549). An empty hand grenade stays selected (research 361 s2). The port fed `grenade` as
+ * "the class with one left", so with the slot empty the idle branch ran the countdown down and a return to the rifle 5 s
+ * on found it spent: the rifle stayed down. IQ-169 (B01-SWAP-PC2, unscored) saw the original's `ctrl+0x234` hold 5.0
+ * there while the page's ran down; the S+2 below is a reading, not measured (research 321 s7.10).
+ */
+describe('B-01 D1: an empty hand grenade selected freezes the countdown as a full one (0x59bbac-0x59bbc4, 0x59be00-0x59be0c)', () => {
+  /** A hand grenade selected, its slot empty, the trigger idle: the class 0x79, no round left. */
+  const EMPTY = { ...IDLE, grenadeSelected: true, grenade: false };
+  /** The same with one left. */
+  const ONE = { ...IDLE, grenadeSelected: true, grenade: true };
+  /**
+   * Zero times, the hand fed `hand`, a release, its pop, then `idle` game frames (6 s by default); the countdown at the
+   * return. The 5.0 s it holds is the re-arm of the release's gated let-go edge (the edge 3 while the throw gate refuses;
+   * the wind-up's press re-arms it always, 0x59bbf0-0x59bc44) from `ctrl+0x22c` 5.0 + `ctrl+0x230` 0 (r0004's constructor
+   * stores, 0x59e1dc and 0x59e210-0x59e214; r0001 D:L454808-454809).
+   */
+  const script = (hand: typeof EMPTY, idle = Math.round(6 / DT)): WeaponRaise => {
+    const r = new WeaponRaise();
+    r.setTimes(ZERO_RAISE_TIMES);
+    frames(r, 10, hand);
+    r.frame(DT, { ...hand, release: 'gated' });
+    frames(r, 20, hand);
+    r.frame(DT, { ...hand, pop: true });
+    frames(r, idle, hand);
+    return r;
+  };
+  /** Back on the rifle (its times, no grenade, no trigger): the weights of the first game frames. */
+  const back = (r: WeaponRaise): number[] => { r.setTimes(RAISE_TIMES); return frames(r, 4, IDLE); };
+
+  it('RED: none left -- the countdown still 5 s at the return, and the rifle up (weight 1) two game frames after it', () => {
+    const r = script(EMPTY);
+    expect(r.stats().countdown).toBeCloseTo(LOWER_DELAY_S, 6);           // today: 0, run down under the empty slot
+    expect(r.stats().state).toBe('down');
+    const w = back(r);
+    expect(w[1]).toBeLessThan(1);
+    expect(w[2]).toBe(1);                                    // S+2 (a literal); today: 0, the state stays down
+  });
+
+  // The second reader's addition 2 (seat-shots, a hand trace of the port's source, not a run): inside the first 5 s the
+  // port's idle branch asked UP under the empty grenade's zero times, the envelope parked at 0 and re-requested every
+  // other tick, so the rifle's times at the return gave 1.0 on S (one parity) or S+3 (the other); r0004 was DOWN and
+  // cleared, so S+2 at either.
+  for (const idle of [30, 31]) {
+    it(`RED: none left, the return ${idle} game frames after the pop (inside the 5 s): weight 1 on S+2, not S or S+3`, () => {
+      const r = script(EMPTY, idle);
+      expect(r.stats().state).toBe('down');
+      const w = back(r);
+      expect(w[0]).toBeLessThan(1);
+      expect(w[1]).toBeLessThan(1);
+      expect(w[2]).toBe(1);                                               // S+2
+    });
+  }
+
+  it('pin: one left -- the same script, the same countdown and the same rise', () => {
+    const r = script(ONE);
+    expect(r.stats().countdown).toBeCloseTo(LOWER_DELAY_S, 6);
+    const w = back(r);
+    expect(w[1]).toBeLessThan(1);
+    expect(w[2]).toBe(1);                                                 // S+2
+  });
+
+  it('the edge-2 wind-up needs a round left (0x59bc40-0x59bc50): none left, a press asks the rifle up; one left, nothing', () => {
+    const none = new WeaponRaise();
+    none.setTimes(ZERO_RAISE_TIMES);
+    frames(none, 5, EMPTY);
+    none.frame(DT, { ...EMPTY, trigger: true });
+    expect(none.stats()).toMatchObject({ state: 'up', edge: 2 });         // the press's own request (D:L453633-453634)
+    const one = new WeaponRaise();
+    one.setTimes(ZERO_RAISE_TIMES);
+    frames(one, 5, ONE);
+    one.frame(DT, { ...ONE, trigger: true });
+    expect(one.stats()).toMatchObject({ state: 'down', edge: 0 });        // the wind-up's: no request, the edge 2 -> 0
+  });
+
+  it("RED: the feed carries the class through from the page's kit (RaiseFeed.input)", () => {
+    const feed = new RaiseFeed();
+    const input = feed.input(snapshot(), false, IDLE, { grenade: false, grenadeSelected: true, windUp: false, trigger: false });
+    expect(input).toMatchObject({ grenade: false, grenadeSelected: true });
   });
 });
 

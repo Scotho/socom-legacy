@@ -1,9 +1,13 @@
 import { rdrGet, type RdrNode } from '@s2u/archive';
 import { rdrReal } from './tuning';
 import { weaponRumble, type WeaponRumble } from './weapons';
-import { segmentHits } from './segment';
+import { entersFront, segmentHits } from './segment';
 import { isShotSurface } from './ray';
+import { surfaceWord, SURFACE_SIDE } from './collision';
+import { CLUTTER_PATH_ROOT } from './clutterCollision';
+import { R0004_NODE_NAME_PREFIX } from './r0004MapPatch';
 import type { Grid } from './grid';
+import { GAME_FRAME_DT } from './gameFrame';
 
 /**
  * SOCOM II's thrown frag grenade, pure (the grenades workstream; socomlegacy/docs/research/85). Every number is the game's:
@@ -332,11 +336,16 @@ export function weaponCategory(id: number): number {
 
 /**
  * Whether `HandleIntersections` (0x3c9b70, decomp 320032-320041) sends a weapon's projectile to `HandleBounce`: its
- * category 0x79 (the hand grenades) or 0x97 (the charges), or its own ID 0xac, 0xad or 0xb2 (and 0xb9, 0xba once
- * fired from a carrier). Everything else takes `HandleImpact`.
+ * category 0x79 (the hand grenades) or 0x97 (the charges), or its own ID 0xac, 0xad, 0xb2 or -- r0004's addition --
+ * 0xb6, the F2000's smoke round (and 0xb9, 0xba once fired from a carrier). Everything else takes `HandleImpact`.
+ * R4P-218: r0004 adds 0xb6 to the same list in `HandleIntersections` (r4 0x3ebd00, D4:L345838-345844) and `PostTick`
+ * (r4 0x3ec150, D4:L345949-345955) and changes nothing else in either (agent/spc-atlas 22d47ddf74,
+ * socomlegacy/docs/atlas/readings/r4p-phase2-reads-218-230.md); proven on r0004 by the capture Q218C-PC2 (5 trials on
+ * Desert Glory: the round deflects at its first contact 225-230 u out with no burst and smokes where it rests; the
+ * record is outside the repository, carried from that read, not re-measured here).
  */
 export const bouncesByType = (id: number): boolean =>
-  weaponCategory(id) === 0x79 || weaponCategory(id) === 0x97 || id === 0xac || id === 0xad || id === 0xb2;
+  weaponCategory(id) === 0x79 || weaponCategory(id) === 0x97 || id === 0xac || id === 0xad || id === 0xb2 || id === 0xb6;
 
 const text = (node: RdrNode, key: string, where: string): string => {
   const v = rdrGet(node, key);
@@ -509,27 +518,42 @@ export const bouncesOff = (m: SurfaceMaterial): boolean => !m.liquid && m.penetr
 // ---- the throw's power -------------------------------------------------------------------------------------------
 
 /**
- * The power a held throw builds (the player controller's update `FUN_00594cf0`, 0x595ea0-0x595f28): the fire
- * button's **pressure** (0..255, `FUN_002c6350` reads the pad's pressure byte) times `1/255` (`DAT_00650660`) is
- * chased by the power at `THROW_POWER_RISE` a second while it is higher, `THROW_POWER_FALL` while lower:
- * `power += (pressure - power) * rate * dt`. The throw goes when the pressure falls to `THROW_RELEASE_FRACTION` of
- * the power (`DAT_00650668`) -- the button let go. A digital button is pressure 1 held, so the power is
- * `1 - (1 - 3 dt)^n`: how long it was held.
+ * The power a held throw builds (the player controller's update `FUN_00594cf0`, 0x595ea0-0x595f28, D:L453508-453516):
+ * the fire button's **pressure** (0..255, `FUN_002c6350` reads the pad's pressure byte) times `1/255`
+ * (`DAT_00650660`) is chased by the power at `THROW_POWER_RISE` a second while it is higher, `THROW_POWER_FALL` while
+ * lower: once a game frame, `power = pressure x dt x rate + power x (1 - dt x rate)` with `dt` the game frame. The
+ * throw goes when the pressure falls to `THROW_RELEASE_FRACTION` of the power (`DAT_00650668`) -- the button let go. A
+ * digital button is pressure 1 held, so after n game frames the power is `1 - (1 - 3 GAME_FRAME_DT)^n`: how long it
+ * was held.
+ *
+ * LATER 1027 (MISSION R8; research 437): the port steps it at the page's rate with that per-frame step's exact
+ * per-second law, the share of the chase left after `dt` being `(1 - rate x GAME_FRAME_DT)^(dt / GAME_FRAME_DT)`: a
+ * `dt` of one game frame is the original's step, and any split of the same time composes to the same power (the Euler
+ * step taken at the page's `dt` had a 0.3 s hold at 0.613 at 30 Hz, 0.603 at 60 and 0.597 at 144).
  */
 export const THROW_POWER_RISE = 3;      // DAT_006505e0
 export const THROW_POWER_FALL = 1.5;    // DAT_006505d8
 export const THROW_RELEASE_FRACTION = 0.15;   // DAT_00650668
 export const PRESSURE_SCALE = 1 / 255;  // DAT_00650660
 
-/** One controller tick of the held throw: the new power, or `release` when the button has been let go. */
+/** The share of the gap to the pressure the chase closes in `dt` seconds at `rate` a second (LATER 1027, R8). */
+function chaseShare(rate: number, dt: number): number {
+  const frames = dt / GAME_FRAME_DT;
+  return frames === 1 ? rate * dt : 1 - (1 - rate * GAME_FRAME_DT) ** frames;   // one game frame: the original's own step
+}
+
+/** `dt` seconds of the held throw: the new power, or `release` when the button has been let go. */
 export function stepThrowPower(power: number, pressure: number, dt: number): { power: number; release: boolean } {
   if (pressure <= power * THROW_RELEASE_FRACTION) return { power, release: true };
-  const f = dt * (pressure <= power ? THROW_POWER_FALL : THROW_POWER_RISE);
+  const f = chaseShare(pressure <= power ? THROW_POWER_FALL : THROW_POWER_RISE, dt);
   return { power: power * (1 - f) + pressure * f, release: false };
 }
 
-/** The power after `seconds` held at full pressure, stepped at `dt` from 0 (the hook's `throwGrenade(holdSeconds)`). */
-export function heldPower(seconds: number, dt = 1 / 60): number {
+/**
+ * The power after `seconds` held at full pressure, stepped at `dt` from 0 (the hook's `throwGrenade(holdSeconds)`):
+ * the same at any `dt` (LATER 1027), the game frame's steps by default.
+ */
+export function heldPower(seconds: number, dt = GAME_FRAME_DT): number {
   let power = 0;
   for (let t = 0; t < seconds - 1e-9; t += dt) power = stepThrowPower(power, 1, Math.min(dt, seconds - t)).power;
   return power;
@@ -587,6 +611,72 @@ export const THROW_ANIMS = {
   peekLeftToss: anim('Peek left toss', 'seal_toss_llean', 28 / 30, 1.2, 0.87, [-8.83, 11.47, -6.48], true),
 } as const satisfies Record<string, ThrowAnim>;
 
+/** A `THROW_ANIMS` key: one of `GetThrowAnim`'s answers. */
+export type ThrowAnimKey = keyof typeof THROW_ANIMS;
+
+/**
+ * LANE-KILL B-06 (research 256 §5.2, §7; reading of the PORT, pending review): the page's own POSED release hand for each
+ * of `GetThrowAnim`'s clips, in the actor frame (x right, y up, z behind) -- three poses: the frame before, the release
+ * frame and the frame after. What it is: the point the page sends as a throw's `from` (`grenadeCore.ts` `launchOf` with
+ * `handPoint('rhand', RELEASE_POINT)`), computed on the fixture disc's SEAL (MP2's seal_A; seal_E and seal_D the same,
+ * seal_C within about 0.2) with the page's `Animator` and `ThrowPose` stepped on the game's frame (`GAME_FRAME_DT`) and
+ * read at each clip's release frame, the game frame k = ceil(`releaseSeconds` / `GAME_FRAME_DT`) -- the clip clock
+ * k x `GAME_FRAME_DT`, when the original's `+0x87c` countdown reaches 0 (`FUN_005802b0` D:L441904; D:L476883-476885)
+ * and its launch reads the posed hand's local (2, 0, 0) (D:L477060-477067; r0004 0x5c9538-0x5c9590) -- a lean toss
+ * under the held lean the page draws (`traversal.ts`: the lean clip at its last key). LATER 1428 (reading of the PORT,
+ * pending review; `standToss`'s T / `GAME_FRAME_DT` = 31.98, so its k = 32 rests on `GAME_FRAME_DT`'s reading to 0.05%):
+ * *was* the first 1/60 s frame whose clip clock reached `releaseSeconds`, a render grid, not the game's (the
+ * half-pressure toss's posed hand then launched ~1% fast against PADR1-PC2's L1). It is the port's derivation from the
+ * disc's clips, a reading of the PORT's pose, not of
+ * the original's code: the original's clearance starts at `THROW_ANIMS`' table point and samples no bone (r0004
+ * `0x54e6f0` through `0x585280`, research 256 §5.3; first read in r0001 as `FUN_0057fce0` D:L441731-441772 and
+ * `FUN_005499e0` D:L414008-414054, superseded under OT.R97). The room's start-tie (`room.ts` `throwGrenade`,
+ * an ADAPTATION, SVC-23b's re-anchored to the hand) takes `ROOM_START_TIE_RENDER_GRID_ADAPTATION` (these values on the
+ * render grid) until LATER 1428's page half lands, then these.
+ *
+ * The exposure: the page samples the hand once a render frame (`Play.partPoint`, not yet at k x `GAME_FRAME_DT`:
+ * LATER 1428's page half, owed), and near the release the hand moves about 4 to 8 units a game frame (the standing
+ * throw's), so a line from a value here to the page's own sample spans at most about one game frame's travel -- the game
+ * frames either side are held for a page whose sample falls one frame off -- with both ends on the same side of a wall
+ * except at a face. A pistol hand's clips (`PISTOL_HAND_ANIMS`) are not measured: for them only the table point and these
+ * rifle poses stand. Held by `packages/viewer/test/posedReleaseHand.disc.test.ts` (dev disc, within 0.05).
+ */
+export const POSED_RELEASE_HAND_READING: Readonly<Partial<Record<ThrowAnimKey, readonly [before: V3, release: V3, after: V3]>>> = {
+  standThrow: [[6.272, 22.127, -2.430], [3.929, 21.927, -10.031], [1.509, 17.410, -14.525]],
+  standToss: [[3.814, 11.841, -10.244], [3.484, 13.365, -10.313], [3.173, 14.342, -10.294]],
+  crouchThrow: [[5.186, 13.966, 3.288], [5.480, 16.444, -0.642], [5.051, 16.888, -5.559]],
+  proneThrow: [[1.938, 6.691, 9.173], [3.631, 9.892, 8.467], [5.172, 14.083, 4.660]],
+  proneToss: [[4.217, 9.289, -7.550], [1.868, 6.849, -8.990], [0.843, 5.044, -9.107]],
+  peekRightToss: [[9.416, 9.519, -4.260], [8.454, 10.810, -5.475], [8.454, 11.087, -5.671]],
+  peekLeftToss: [[-4.212, 11.978, -1.397], [-3.940, 12.096, -1.445], [-3.643, 12.222, -1.445]],
+};
+
+/**
+ * [adaptation] The room's START-TIE candidate hands (`room.ts` `throwTied`, LANE-KILL B-06, SVC-23b's wall lines
+ * re-anchored to the hand -- no original): the page's posed release hand as the PAGE samples it today, on the 1/60 s
+ * render grid (`Play.partPoint` once a render frame: the first 1/60 s frame whose clip clock reaches `releaseSeconds`,
+ * and the frames either side). These are `POSED_RELEASE_HAND_READING`'s values before LATER 1428 re-read it at the game
+ * frame k x `GAME_FRAME_DT`. The main controller's ruling of 2026-11-24T01:21Z (LATER 1428, "B"): no server check is
+ * loosened on a reading fix, so the room keeps these until LATER 1428's page half moves `Play.partPoint` to the game
+ * frame; then this table goes and the room takes `POSED_RELEASE_HAND_READING` in the same merge. Held apart from the
+ * reading by `packages/match/test/roomStartTieHands.test.ts`.
+ */
+export const ROOM_START_TIE_RENDER_GRID_ADAPTATION: Readonly<Partial<Record<ThrowAnimKey, readonly [before: V3, release: V3, after: V3]>>> = {
+  standThrow: [[6.319, 22.051, -2.231], [4.240, 23.236, -6.407], [3.958, 22.002, -9.889]],
+  standToss: [[3.498, 13.317, -10.313], [3.283, 14.040, -10.304], [3.181, 14.323, -10.294]],
+  crouchThrow: [[5.284, 15.165, 1.691], [5.477, 16.404, -0.534], [5.408, 16.985, -3.021]],
+  proneThrow: [[2.587, 8.025, 9.075], [3.533, 9.756, 8.542], [4.762, 11.934, 6.988]],
+  proneToss: [[2.782, 8.037, -8.574], [1.892, 6.886, -8.980], [1.255, 5.870, -9.126]],
+  peekRightToss: [[9.435, 9.489, -4.226], [8.888, 10.242, -4.997], [8.457, 10.801, -5.468]],
+  peekLeftToss: [[-4.220, 11.975, -1.395], [-4.086, 12.033, -1.421], [-3.949, 12.092, -1.445]],
+};
+
+/** The `THROW_ANIMS` key of one of `GetThrowAnim`'s answers (`throwAnim`), or null for another clip. */
+export function throwAnimKey(a: ThrowAnim): ThrowAnimKey | null {
+  for (const k of Object.keys(THROW_ANIMS) as ThrowAnimKey[]) if (THROW_ANIMS[k] === a) return k;
+  return null;
+}
+
 /**
  * The claymore's placing action (`Place claymore`, 0x661628 via `FUN_005e4f90` into `DAT_003deb48`, played by
  * `FUN_0057d540`): `seal_place_claymore`, 55 keys, `playback` 2.7 (`NoInterrupt` 0.9). The pistol's
@@ -606,18 +696,15 @@ export const PLACE_CLAYMORE_ANIM: ThrowAnim = anim(
 export const PUT_ON_WALL_ANIM: ThrowAnim = anim('Put on wall', 'seal_put_onwall', 42 / 30, 2.5, 0.45, [0, 0, 0], false);
 
 /**
- * The pistol's version of a throw or a placing, by the rifle type's clip (the equipment's hand pass, research 85 §8.1):
- * `FUN_00588bc0` pushes every one-shot through `FUN_0058c820(body, type, +0xf79)` (D:L446077), which with the pistol in
- * the hand (`+0xf79` 2) swaps the type for its pistol pair -- the pairs `FUN_005e1cf0` registers (D:L494720-494772:
- * `Throw grenade` / `Toss grenade` / `Peek right toss` / `Peek left toss` / `Place claymore` to their `Pistol ...`
- * types, and type 0x3e `Put on wall` to 0x83 `Pistol put on wall`) when `animset.rdr` holds the pistol type. A grenade or
- * a charge taken up leaves `+0xf79` as it was (`FUN_005a64c0` D:L461887-461920: a 0.3 s cross-fade, no re-parent), so the
- * sidearm in the hand throws the pistol's clip. The crouched and prone throws' pistol types (`Pistol crouch throw
- * grenade`, `Pistol prone throw grenade`, `Pistol prone toss grenade`: ELF 0x6617e0, 0x6617a0, 0x661820) name no clip in
- * the Seal anim set, so `FUN_005e3ac0` finds none and the rifle's clip plays. `GetThrowAnim`'s release fraction and hand
- * point stand (0x57fce0 returns them by the rifle type); the release time is the pushed motion's (`FUN_005802b0`
- * multiplies the fraction by the pushed clip's `+0x10` and `FUN_0028ada0`): the pistol's toss lets go at
- * 0.69 x 2.0 x 29/30 = 1.334 s. Each clip's `playback` is `motion.rdr`'s and its keys `MOTION_P.ZAR`'s.
+ * The pistol pairs of the throw and placing types, by the rifle type's clip -- RECORDS: `FUN_005e1cf0` registers each
+ * (D:L494720-494721, 494735, 494741, 494747-494752, 494772: `Throw grenade` / `Toss grenade` / `Peek right toss` / `Peek
+ * left toss` / `Place claymore` to their `Pistol ...` types, and type 0x3e `Put on wall` to 0x83 `Pistol put on wall`),
+ * and `animset.rdr` names their clips. Which of them the body PLAYS is `PISTOL_HAND_SWAP_CLIPS` (`handAnim`): only the
+ * two peek tosses. The others stay here as the registered pairs, never picked (LATER 1442) -- read by `HAND_ANIMS`; the
+ * room's `THROW_START_WINDOW_S` takes the played ones.
+ * `GetThrowAnim`'s release fraction and hand point stand (0x57fce0 returns them by the rifle type); the release time is
+ * the pushed motion's (`FUN_005802b0` multiplies the fraction by the pushed clip's `+0x10` and `FUN_0028ada0`). Each
+ * clip's `playback` is `motion.rdr`'s and its keys `MOTION_P.ZAR`'s.
  */
 export const PISTOL_HAND_ANIMS: Readonly<Record<string, ThrowAnim>> = {
   seal_throwgrenade: anim('Pistol throw grenade', 'seal_p_throwgrenade', 28 / 30, 1.6, THROW_ANIMS.standThrow.release, THROW_ANIMS.standThrow.offset, false),
@@ -628,12 +715,25 @@ export const PISTOL_HAND_ANIMS: Readonly<Record<string, ThrowAnim>> = {
   seal_put_onwall: anim('Pistol put on wall', 'seal_p_put_onwall', 42 / 30, 2.5, PUT_ON_WALL_ANIM.release, [0, 0, 0], false),
 };
 
-/** The one-shot the body plays for a throw's or a placing's type with the pistol in the hand or not (`PISTOL_HAND_ANIMS`). */
+/**
+ * LATER 1442 (reading, pending review): the throw and placing types the sidearm in the hand (`+0xf79` 2) swaps for their
+ * pistol pair, by the rifle type's clip. The hand pass (`FUN_00588bc0` D:L446077 -> `FUN_0058c960` D:L448200 on; r0004
+ * 0x592050 -> 0x591f10) takes the pair only where the type's anim-set record has byte +5 bit 1 (`FUN_005e3ac0`
+ * D:L495755-495768; r0004 0x591fec -> 0x5eb290 / 0x5eb2c8), and the fixed list that sets that bit (`FUN_005e0690`
+ * D:L494815-494950; r0004 0x5e89a0-0x5e9154) holds, among the throw and placing types, only `Peek right toss` and `Peek
+ * left toss` (D:L494910-494919, the types D:L495211 / D:L495213). So the standing throw and toss, the crouched and prone
+ * throws and the placings keep the rifle's clip. Captures (unscored): ZOOMF1-PC2 and ZOOMF1B-PC2, no `Pistol throw
+ * grenade` in 24 throws (standing 49, crouched 243); WFEEL-C7-PC2, the peek tosses switch (240 / 241). The placings are
+ * not captured (the reading alone). *Was: every pair in `PISTOL_HAND_ANIMS` swapped where `animset.rdr` held the type.*
+ */
+export const PISTOL_HAND_SWAP_CLIPS: ReadonlySet<string> = new Set([THROW_ANIMS.peekRightToss.clip, THROW_ANIMS.peekLeftToss.clip]);
+
+/** The one-shot the body plays for a throw's or a placing's type with the pistol in the hand or not (`PISTOL_HAND_SWAP_CLIPS`). */
 export function handAnim(a: ThrowAnim, pistol: boolean): ThrowAnim {
-  return (pistol && PISTOL_HAND_ANIMS[a.clip]) || a;
+  return (pistol && PISTOL_HAND_SWAP_CLIPS.has(a.clip) && PISTOL_HAND_ANIMS[a.clip]) || a;
 }
 
-/** Every throw and placing clip the body may play, the rifle's and the pistol's (the page's and the remote bodies'). */
+/** Every throw and placing clip, the rifle's and the registered pistol pairs' (`PISTOL_HAND_ANIMS`; of these the body plays the pistol's two peek tosses only, `handAnim`). */
 export const HAND_ANIMS: readonly ThrowAnim[] = [
   ...Object.values(THROW_ANIMS), PLACE_CLAYMORE_ANIM, PUT_ON_WALL_ANIM, ...Object.values(PISTOL_HAND_ANIMS),
 ];
@@ -803,6 +903,33 @@ export const BOUNCE_LIFT = 0.1;
 export const PASS_NUDGE = 0.0001;
 /** The first bounce's extra damping (`* 0.75`, flag bit 1 of `+4`, set by `SetProjectile` and cleared by the bounce). */
 export const FIRST_BOUNCE_DAMPING = 0.75;
+/**
+ * VIGI-CEILING (MISSION OT.R140): an INTENTIONAL DIVERGENCE, the owner's [adaptation: Craig, relayed by the main controller
+ * 2026-11-23, "Soften the ceiling bounce"]. The original's flashbang thrown hard in Vigilance's low stone tunnels hits the
+ * vault's ceiling and, through `HandleBounce`'s one damping of the whole reflected velocity, drops short (an r0004 capture
+ * on a Shadow PC, the Shadow ledger's IQ-084, its record outside the repository; the port matched it on Shadow run 213). On
+ * these six MP51 tunnel owners -- by `CollisionOwner.path`; the collision census finds none of them on another multiplayer
+ * map, and `vigiCeiling.disc.test.ts` checks every archive on the disc, the campaign's included -- a THROWN grenade's
+ * contact met from BELOW keeps `VIGI_TUNNEL_CEILING_KEPT_SPEED_ADAPTATION` of the velocity along the face; a launched
+ * round (EVERY launched round: its dud, and the live bounce-typed smoke rounds 0xac, 0xad, 0xb2 and 0xb6 -- the v0.4.31
+ * release-head review's F1 and seat-kill's glance N1), every
+ * other face, owner and map keep the original's bounce. Thrown = the record's category 0x79 (hand grenades) or 0x97.
+ */
+export const VIGI_TUNNEL_CEILING_OWNERS_ADAPTATION: readonly string[] = [
+  'worldmodel/wc11/di_tunnel_wc11', 'worldmodel/wc12A/di_tunnels_wc12', 'worldmodel/wc12A/di_tunnels_wc12a',
+  'worldmodel/wc13/di_tunnel_wc13', 'worldmodel/wc13/di_tunnel_wc13a', 'worldmodel/wc14A/di_tunnels_wc14',
+];
+/**
+ * A ceiling: the contact's normal, turned toward the grenade, points down at least this far (n_y <= -0.5: the face within
+ * 60 degrees of level, met from below; a wall's n_y is about 0) [adaptation, OT.R140]. 0.5, not the first proposal's 0.7:
+ * wc12A's vault is an arch, and Kill's throw meets its sloped face at n_y -0.55 (Shadow run 233, the dev-disc test's first
+ * contact), which 0.7 let through unchanged.
+ */
+export const VIGI_TUNNEL_CEILING_MIN_DOWN_ADAPTATION = 0.5;
+/** The share of the velocity ALONG a listed ceiling kept by its bounce, in place of the material's damping (the owner to judge from the dev-disc run) [adaptation, OT.R140]. */
+export const VIGI_TUNNEL_CEILING_KEPT_SPEED_ADAPTATION = 0.9;
+const TUNNEL_CEILING_OWNERS: ReadonlySet<string> = new Set(VIGI_TUNNEL_CEILING_OWNERS_ADAPTATION);
+
 /** Under this speed after a bounce that turned the fall upward, the grenade stops (`fVar15 < 5.0`). */
 export const REST_SPEED = 5;
 /** A bounce plays its sound (the material's `grenade_hit_*` zAnim) only faster than this (`10.0 < fVar15`). */
@@ -857,8 +984,10 @@ export function holdsFuse(record: Pick<ThrowableRecord, 'id' | 'proximity'>): bo
  * The actor tick's mine test (`FUN_00543930` L410270-410310, over the proximity list 0x4b5238 `FUN_005bc730` fills with
  * type 0x9e): a mine whose `+0x8c` (`Timer1`) has run to 0 or less, with an actor's origin inside its
  * `ProximityDistance` (squared: `d^2 < r^2`), is set off (`FUN_003c5730`: `trigger`). Any actor -- the owner and his
- * team included: no team test is in that loop (`PMN_FRIENDLY_READING`, research 94 §C5.3). True when it trips (and
- * marks it); false while unarmed, gone off, or clear.
+ * team included: no team test is in that loop (`PMN_FRIENDLY_READING`, research 94 §C5.3) -- and a hostage too: the
+ * test is called from the seal body's update (`FUN_00550ef0` D:L418452), which a hostage runs, never for a dead body
+ * (D:L418112-418113); the room hands each living hostage's feet with the players' (`PMN_HOSTAGE_TRIP_READING`, research
+ * 433). True when it trips (and marks it); false while unarmed, gone off, or clear.
  */
 export const PMN_FRIENDLY_READING = true;
 
@@ -951,7 +1080,12 @@ export function raySphere(from: readonly number[], dir: readonly number[], reach
 }
 export function proximityTripped(g: Grenade, origins: readonly (readonly number[])[]): boolean {
   const r = g.record.proximity ?? 0;
-  if (!(r > 0) || g.state !== 'rest' || g.trigger || g.fuse > 0) return false;
+  // No state test (reading, pending review; research 433 s1, s7): `FUN_00543930` checks a listed mine only for
+  // `+0x8c <= 0` (D:L410287); the mine is on the list from its creation (`FUN_005bc730` D:L474106-474108), `Timer1`
+  // counts down in flight (`FUN_003c5310` D:L316893-316896) and `+0x48` follows the node every tick (D:L316849-316858),
+  // so a PMN whose fuse runs out in the air trips there. The port's former `state === 'rest'` condition is removed; a
+  // detonated or removed PMN is still refused, by `trigger` (only a trip or a queue sets one off). No rig case tests it.
+  if (!(r > 0) || g.trigger || g.fuse > 0) return false;
   const hit = origins.some((o) => (o[0]! - g.pos[0]) ** 2 + (o[1]! - g.pos[1]) ** 2 + (o[2]! - g.pos[2]) ** 2 < r * r);
   if (hit) g.trigger = true;
   return hit;
@@ -963,19 +1097,140 @@ export function proximityTripped(g: Grenade, origins: readonly (readonly number[
  * intersect record's `+0x1c` (`FUN_003c8f50` D:L319747-319750; `GRENADE_CONTACT_NODE_READING`). Absent on a hit that
  * is no hull polygon (a body, `bodyCast`; a test's own cast).
  */
-export interface HullHit { point: V3; normal: V3; material: SurfaceMaterial; t: number; owner?: string }
+export interface HullHit {
+  point: V3; normal: V3; material: SurfaceMaterial; t: number; owner?: string;
+  /**
+   * GRENADE_FLIGHT_ONE_SIDED_READING: whether the projectile's own query records this hull hit (`projectileAdmits` and
+   * entered from the face's front, `gridCast`); false, the flight passes it (`flightMeets`). Absent on a hit no hull
+   * polygon gives (a body, `bodyCast`; a test's own cast): met as before.
+   */
+  recorded?: boolean;
+}
 /** Every polygon the segment a->b crosses, nearest `a` first (`segment.ts`'s `segmentHits`, with the material). */
 export type HullCast = (a: V3, b: V3) => HullHit[];
 
 /**
+ * GRENADE-ONE-SIDED (the main controller's order 2026-11-25T04:29Z; first built as seat-shots' held VIGI-THROW change
+ * ee5ab09e85) -- reading, captured, pending review: the projectile's per-frame segment query records a MAP face only
+ * when the frame's segment enters it from its FRONT, and only a face with the SIDE bit (`m_ditype` bit 1) and not
+ * surface bit 18. The reads (two independent, and the atlas's; r0004 from the ELF's bytes, r0001 from the
+ * decompilation): the tick queues a type-2 record with layer mask -1 and no mode word (r0001 `FUN_0031dd90`
+ * D:L219868-219903, called at D:L320432; r0004 0x3ecd34 -> 0x33b3a0); the node routine takes the crossing mode from
+ * the node, `+0x80` bit 1 clear -> 0x20 (`FUN_002d3030` D:L175276-175282; r0004 0x2f0268-0x2f02a8; the hull
+ * collider's constructor clears the bit, `FUN_00316e30` D:L215827-215828), under which the VU0 plane test hits only a
+ * start in front and an end behind (research 281 §4.3; `segment.ts` `frontSides`); the type-2 branch of the surface
+ * loop leaves a surface whose byte +8 has bit 1 clear (D:L175350-175352; r0004 0x2f08c0-0x2f08cc), and the gate ahead
+ * of it skips bit 18 (D:L175299-175312). The capture: Shadow PC 2 on r0004 (GRENADE-CEILING-C-PC2, a per-frame logger
+ * of the projectile pool, unscored) threw at three single-sided MP51 faces from behind and each grenade crossed the
+ * plane with its velocity unchanged; the same face from its front bounced at k 0.375 (`viewer/test/
+ * grenadeBackFace.disc.test.ts` flies those releases). The port's flight was two-sided with no side-bit test, so a
+ * grenade met a face from behind and came back.
+ *
+ * MP51's six tunnel owners (`VIGI_TUNNEL_CEILING_OWNERS_ADAPTATION`) are the owner's labelled divergence (MISSION
+ * OT.R140), whose rule is a THROWN grenade's contact with their CEILING met from below, whatever the winding: only that
+ * contact is met from behind (`tunnelCeilingContact`, the bounce's own test); their walls, floors and roofs met from
+ * behind, and every launched round, follow the one-sided rule [adaptation, OT.R140; seat-kill's ruling on the review's
+ * F3, MISSION's text]. A known divergence (research 85 §5.1, LATER NNN): the original records at most one hit per hull
+ * node, the first in its surface order (`FUN_00316e30` D:L215827 sets `+0x80` bit 0; `FUN_002d3030` D:L175276,
+ * D:L175293-175295, D:L175372-175378 end the node's loop after it), but on the five MP1 nodes r0004 clears bit 0 on
+ * (research 383 §9); the port takes the nearest recorded hit. The one-sided mode holds for the MAP HULL's own nodes
+ * only in the port (the drop sweep's ruling, seat-kill 2026-11-25): r0004's added nodes and clutter instances' nodes
+ * are read one-sided too, and the port meets them from both sides as a labelled DEPARTURE from that reading, pending a
+ * capture (GRENADE_PATCH_NODE_SIDES_READING, GRENADE_INSTANCE_NODE_SIDES_READING; `projectileNodeSides`). Left unread:
+ * the consumer's choice among several recorded slots.
+ */
+export const GRENADE_FLIGHT_ONE_SIDED_READING = 'the projectile query meets a map face from its front only, side-bit faces only' as const;
+/**
+ * GRENADE-ONE-SIDED's drop sweep, cause A -- a DEPARTURE FROM THE READING, pending a capture (seat-kill's ruling,
+ * 2026-11-25, logged to the controller): the port meets a polygon of a node the r0004 map patch ADDS (`applyR0004MapPatch`
+ * `addNode`; `R0004_NEW_NODE_PLACEHOLDER`) from BOTH sides, where the reading says ONE side.
+ * The reading (research 85 §5.1; reading, pending review): the patch builds its added nodes with the r4 0x3343d0
+ * constructor, which is `FUN_00316e30` (`zdb::CNode::__ct`, the base node constructor), an unchanged masked twin
+ * (research 383 §3, "ctor r4 0x3343d0 (= r1 FUN_00316e30)"; research 398, its two flag writes at r4 0x334468, 0x334478):
+ * it sets `+0x80` bit 0 (D:L215827) and clears bit 1 (D:L215828), so `FUN_002d3030` takes mode 0x20 for the node
+ * (D:L175276-175282), one-sided. Research 383's census of every patch store to `+0x80` (11 stores, on MP1, MP51 and MP62
+ * only) has none on an added node of MP72 or MP83, and the atlas's builders (r0004:0x2d52a0 `BuildMP83Collision`,
+ * r0004:0x2d7050 `PatchMP72SceneCollision`) list no `+0x80` write. Read so, the original passes a grenade from above
+ * through the face-down MP72 `worldmodel/r0004@0x2d78d4` quad (`r0004MapPatchTable.ts`, pcs 0x2d78d4) and the MP83
+ * `worldmodel/c1/r0004@0x2d52e0` faces (the atlas: faces "beneath c1", possibly undersides).
+ * The departure: one-sided there drops grenades through 3,521 drop-sweep points on MP72 and MP83 floors players stand on
+ * (the sweep's cause A) on a reading no capture has checked, so the port keeps the flight it had before the one-sided
+ * rule. Polygons the patch adds to an EXISTING node (`addPolys`) are that node's and follow its rule. Settles it: an r0004
+ * capture of a grenade dropped or thrown from above onto MP72 (about 1572.4, 243.91, 1314.3, the patch quad's centre; the sweep's sample (1534.68, 243.91, 1274.0) sits 0.11 u inside its z edge) and MP83 (783.01, 79.0, 1632.89)
+ * -- does it pass through or bounce?
+ */
+export const GRENADE_PATCH_NODE_SIDES_READING = 'two-sided' as const;
+/**
+ * GRENADE-ONE-SIDED's drop sweep, cause C -- a DEPARTURE FROM THE READING, pending a capture (seat-kill's ruling,
+ * 2026-11-25, logged to the controller): the port meets a polygon of a clutter instance's node (`clutterCollision`, owners
+ * `clutter/<model>#<record>`) from BOTH sides, where the reading -- inferred, weaker than the patch's -- says ONE side.
+ * The reading (research 422 §2.5; inferred): clutter nodes keep the constructor's `+0x80`, bit 1 clear
+ * (`FUN_00316e30` D:L215827-215828), and go through the world's own polygon call and set-up; research 422 §0's finding 6
+ * keeps clutter's per-query facing, so the projectile's query would meet them as it meets the hull, one-sided.
+ * The departure: the drop sweep's MP61 `light_round_nosource*` `dilite` and MP82 `military_phone` tops are wound
+ * face-down, and one-sided a grenade falls through them (44 sweep points, cause C) on an inference no capture has checked.
+ * Settles it: an r0004 capture of a grenade dropped from above onto the top of one MP61 `light_round_nosource*` `dilite`
+ * or one MP82 `military_phone` -- does it pass through or bounce?
+ */
+export const GRENADE_INSTANCE_NODE_SIDES_READING = 'two-sided' as const;
+
+/**
+ * Which rule the projectile's query takes a struck polygon's node by (GRENADE_FLIGHT_ONE_SIDED_READING), from its owner's
+ * path, the one structural mark every owner carries to the hit (`HullHit.owner`, copied by the Forge's copies and the
+ * movers alike): a segment beginning `R0004_NODE_NAME_PREFIX` (the patch names each added node so) is a patch node
+ * (GRENADE_PATCH_NODE_SIDES_READING); a path under `CLUTTER_PATH_ROOT` an instance's (GRENADE_INSTANCE_NODE_SIDES_READING);
+ * anything else -- or no owner -- the map hull's own, one-sided.
+ */
+export function projectileNodeSides(owner: string | undefined): 'one-sided' | 'two-sided' {
+  if (owner === undefined) return 'one-sided';
+  if (owner.startsWith(CLUTTER_PATH_ROOT)) return GRENADE_INSTANCE_NODE_SIDES_READING;
+  if (owner.split('/').some((s) => s.startsWith(R0004_NODE_NAME_PREFIX))) return GRENADE_PATCH_NODE_SIDES_READING;
+  return 'one-sided';
+}
+
+/** The faces the projectile's query records (GRENADE_FLIGHT_ONE_SIDED_READING): the side bit set, surface bit 18 clear. */
+export const projectileAdmits = (p: Parameters<typeof isShotSurface>[0]): boolean => isShotSurface(p) && (surfaceWord(p) & SURFACE_SIDE) !== 0;
+
+/**
  * A `HullCast` over the map's grid (`segment.ts`): every polygon but the probe's skipped ones (surface bit 18, the
- * doorway volumes the mover walks through) [reading: the projectile's own `DiIntersect` class is not traced], each
- * hit's material out of the table by its byte, byte 0 the map's `DefaultMaterial`.
+ * doorway volumes the mover walks through), from either side -- what the world's vertical line (`viewer/src/net/placing`
+ * `worldColumn`) takes -- each hit's material out of the table by its byte, byte 0 the map's `DefaultMaterial`; each
+ * hit marked `recorded` when the projectile's query would record it (GRENADE_FLIGHT_ONE_SIDED_READING: `projectileAdmits`
+ * and, on a map hull node, entered from its front, `entersFront`; a patch or clutter node from either side,
+ * `projectileNodeSides`), which the flight keeps (`flightMeets`).
  */
 export function gridCast(grid: Grid, defaultMaterial = '', table: readonly SurfaceMaterial[] = DEFAULT_MATERIAL_TABLE): HullCast {
-  return (a, b) => segmentHits(grid, a, b, isShotSurface).map((h) => ({
-    point: h.point, normal: h.normal, t: h.t, material: surfaceMaterial(h.poly.material, defaultMaterial, table), owner: h.owner.path,
-  }));
+  return (a, b) => {
+    const d: V3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    return segmentHits(grid, a, b, isShotSurface).map((h) => ({
+      point: h.point, normal: h.normal, t: h.t, material: surfaceMaterial(h.poly.material, defaultMaterial, table), owner: h.owner.path,
+      recorded: projectileAdmits(h.poly) && (projectileNodeSides(h.owner.path) === 'two-sided' || entersFront(h.normal, d)),
+    }));
+  };
+}
+
+/**
+ * Whether the flight meets a hit (GRENADE_FLIGHT_ONE_SIDED_READING): one the projectile's query records, one that is no
+ * hull polygon (`recorded` absent), or OT.R140's contact -- a thrown grenade on a listed tunnel ceiling met from below
+ * (`tunnelCeilingContact`), whatever the winding [adaptation, OT.R140].
+ */
+export function flightMeets(hit: HullHit, g: Grenade): boolean {
+  return hit.recorded !== false || tunnelCeilingContact(g, hit);
+}
+
+/**
+ * OT.R140's contact (MISSION; VIGI-CEILING), the one test the flight (`flightMeets`) and the bounce share: a THROWN
+ * grenade (the record's category 0x79 or 0x97) that is not a dud, on one of the six listed MP51 tunnel owners, whose
+ * contact normal, turned toward the grenade's velocity, points down at least `VIGI_TUNNEL_CEILING_MIN_DOWN_ADAPTATION`
+ * (a ceiling met from below) [adaptation, OT.R140].
+ */
+function tunnelCeilingContact(g: Grenade, hit: HullHit): boolean {
+  if (g.dud || hit.owner === undefined || !TUNNEL_CEILING_OWNERS.has(hit.owner)) return false;
+  const category = weaponCategory(g.record.id);
+  if (category !== 0x79 && category !== 0x97) return false;
+  const n = hit.normal, nl = len(n) || 1;
+  const ny = (dot(n, g.vel) > 0 ? -n[1] : n[1]) / nl;
+  return ny <= -VIGI_TUNNEL_CEILING_MIN_DOWN_ADAPTATION;
 }
 
 /**
@@ -1103,7 +1358,17 @@ function bounce(g: Grenade, hit: HullHit): GrenadeEvent[] {
   const reflected: V3 = [g.vel[0] + n[0] * k, g.vel[1] + n[1] * k, g.vel[2] + n[2] * k];
   const e = hit.material.elasticity * (g.firstBounce ? FIRST_BOUNCE_DAMPING : 1);
   g.firstBounce = false;
-  g.vel = [reflected[0] * e, reflected[1] * e, reflected[2] * e];
+  // OT.R140: thrown grenades only (category 0x79 / 0x97), and never a dud: a launched round, live or dud, keeps the original
+  // bounce whatever record it was built from (the cut-fold bar #286: a dud on a 0x79-id record must still keep it). The
+  // test is `tunnelCeilingContact`'s, the one the flight's `flightMeets` asks (its normal turned as `n` is here).
+  if (tunnelCeilingContact(g, hit)) {
+    // OT.R140 (VIGI_TUNNEL_CEILING_KEPT_SPEED_ADAPTATION): off a listed tunnel ceiling the part along the face keeps the
+    // kept-speed share; the part off it takes the original's damping.
+    const kn = dot(reflected, n), keep = VIGI_TUNNEL_CEILING_KEPT_SPEED_ADAPTATION;
+    g.vel = [0, 1, 2].map((i) => (reflected[i]! - n[i]! * kn) * keep + n[i]! * kn * e) as V3;
+  } else {
+    g.vel = [reflected[0] * e, reflected[1] * e, reflected[2] * e];
+  }
   g.bounces++;
   const speed = len(g.vel);
   const events: GrenadeEvent[] = [{
@@ -1150,6 +1415,7 @@ export function stepGrenade(g: Grenade, dt: number, cast: HullCast, record: Thro
     const end: V3 = [start[0] + g.vel[0] * dt, start[1] + g.vel[1] * dt, start[2] + g.vel[2] * dt];
     let moved = false;
     for (const hit of cast(start, end)) {
+      if (!flightMeets(hit, g)) continue;       // GRENADE_FLIGHT_ONE_SIDED_READING: not recorded by the projectile's query
       if (ignoredBy(hit.material)) continue;
       if (record.impact && !hit.material.liquid && !g.dud && (record.armingDistance ?? 0) > 0) {
         // The arming distance (`FUN_003c8920` L319439-319462): nearer the launch point than it, the round is a dud --

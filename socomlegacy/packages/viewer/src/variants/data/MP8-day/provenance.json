@@ -1,0 +1,26 @@
+{
+ "what": "DAY-RN1 Rat's Nest (Day) builder output (a browser adaptation; product track, DAY.R1)",
+ "generated": "2026-11-25T18:28:45.263Z",
+ "baseCommit": "c1199459ebd574ef39ee176ade681297a87ce359",
+ "socom2": {
+  "file": "RUN/MP8.ZDB",
+  "sha256": "677c9bd6d37cffd63dd870c3608ff5cb69387058e0ee26902ae5e26562abf0eb",
+  "load": "loadMap(FsAssetSource(SOCOM_DISC), \"RUN/MP8.ZDB\"), no LoadMapOptions"
+ },
+ "socom1": {
+  "dir": "SOCOM1_MP8_DIR",
+  "files": {
+   "s1-MP8.world-verts.f32": "edfd4283cf74bd611852d2193e24c50a1f6a1dd2411b41fd5bb43688241f42b9",
+   "s1-MP8.world-attrs.f32": "1f057e2f80d24c9e536091a0fdf683ba77891c9c4420947e11c85dc45cb369e8",
+   "s1-MP8.json": "2783541ecbe74818bab82af705060399b671eab1769f5fe4d160fc683a1d9541",
+   "dumps/s1-MP8.render.json": "407ef03f84f29b06c7e4cc81d26dff8f1195cf5a54f10475c85cbbd56359532d",
+   "dumps/s1-MP8.render.bin": "e8f745e5c9c0067ccf3e9e61698dd730076b511477ae8112d86daacff013caa1"
+  }
+ },
+ "skySwap": {
+  "file": "RUN/MP2.ZDB",
+  "sha256": "d34e1119cf6c5b73dbab34a27efc0ddfe86049c21f338c641973a35003b03674",
+  "texture": "cuba1a_sky01.tif",
+  "as": "gen_cloudy_blue_sky.tif"
+ }
+}

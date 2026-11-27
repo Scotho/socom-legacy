@@ -35,15 +35,20 @@ async function named(r: Rig, name: string): Promise<void> {
   await r.settle(10);
 }
 /** The PLAY LIST's rows as `GetAvailableMPMissions` lists them for the first release (OT.R16): `missionlist.rdr`'s order. */
-// V13-2, V13-3, DF-14: eight rows in missionlist.rdr's order -- FISH HOOK (MP71, its 7th record), BLIZZARD (MP1, its 13th),
-// DESERT GLORY (MP6, its 16th) and THE RUINS (MP12, its 22nd) among them; every row after VIGILANCE shifted by DF-14.
-const VIGILANCE = 0, FISH_HOOK = 1, CROSSROADS = 2, BLIZZARD = 3, FROSTFIRE = 4, DESERT_GLORY = 5, NIGHT_STALKER = 6, THE_RUINS = 7;
+// V13-2, V13-3, DF-14, B5: ten rows in missionlist.rdr's order -- SHADOW FALLS (MP64, its 6th record), FISH HOOK (MP71, its
+// 7th), BLIZZARD (MP1, its 13th), ABANDONED (MP5, its 15th), DESERT GLORY (MP6, its 16th) and THE RUINS (MP12, its 22nd) among
+// them; every row after VIGILANCE shifted by B5 (the owner, 2026-11-21: Abandoned and Shadow Falls). DAY-4 (DAY.R5; DAY-R1
+// accepted MP5 day): ABANDONED (DAY), [5, 'ABANDONED (DAY)'], right after ABANDONED. RN-1 (2026-11-24): RAT'S NEST (MP8, its
+// 18th record) after NIGHT STALKER -- twelve rows, THE RUINS shifted to row 11. OT.R158 (the owner accepted Rat's Nest
+// (Day), 2026-11-25): RAT'S NEST (DAY), [8, "RAT'S NEST (DAY)"], right after RAT'S NEST -- thirteen rows, THE RUINS at row 12.
+const VIGILANCE = 0, SHADOW_FALLS = 1, FISH_HOOK = 2, CROSSROADS = 3, BLIZZARD = 4, FROSTFIRE = 5, ABANDONED = 6, ABANDONED_DAY = 7,
+  DESERT_GLORY = 8, NIGHT_STALKER = 9, RATS_NEST = 10, RATS_NEST_DAY = 11, THE_RUINS = 12;
 /** AVAILABLE MAPS' focus moved to row `i` (LEFT first when the selected list holds it), each step one press. */
 function at(r: Rig, i: number): void {
   if (r.focused() !== 'AVAILABLE_MISSIONS') r.press('LEFT', 8);
   expect(r.focused()).toBe('AVAILABLE_MISSIONS');
-  for (let k = 0; k < 8 && r.list('AVAILABLE_MISSIONS').focus < i; k++) r.press('DOWN', 3);
-  for (let k = 0; k < 8 && r.list('AVAILABLE_MISSIONS').focus > i; k++) r.press('UP', 3);
+  for (let k = 0; k < 12 && r.list('AVAILABLE_MISSIONS').focus < i; k++) r.press('DOWN', 3);
+  for (let k = 0; k < 12 && r.list('AVAILABLE_MISSIONS').focus > i; k++) r.press('UP', 3);
   expect(r.list('AVAILABLE_MISSIONS').focus).toBe(i);
 }
 /** The play list made: SelectGames' CROSS, then CROSS on each row index given, then SQUARE (accept_play_list). */
@@ -141,15 +146,18 @@ describe.skipIf(!HAVE)(`CREATE GAME over the machine${HAVE ? '' : ' (no disc and
     expect([r.valve('PasswordValve'), r.str('PlayerGamePassword'), r.text('passwd_toggle_val')]).toEqual([0, '', 'NO']);
   });
 
-  it('the PLAY LIST popup lists only Vigilance, Fish Hook, Crossroads, Blizzard, Frostfire, Desert Glory, Night Stalker and The Ruins, in missionlist.rdr order, every row taken; no Medley, no Random (OT.R16, OT.R45, R164.3, V13-2, V13-3, DF-14)', async () => {
+  it('the PLAY LIST popup lists only Vigilance, Shadow Falls, Fish Hook, Crossroads, Blizzard, Frostfire, Abandoned, Desert Glory, Night Stalker, Rat\'s Nest and The Ruins, in missionlist.rdr order, every row taken; no Medley, no Random (OT.R16, OT.R45, R164.3, V13-2, V13-3, DF-14, B5, RN-1, OT.R158)', async () => {
     const r = await screen();
     r.go('SelectGames');
     r.press('CROSS', 10);
     expect(r.node('pop_missionBack')!.visible).toBe(true);
     expect(r.focused()).toBe('AVAILABLE_MISSIONS');
-    expect(rows(r, 'AVAILABLE_MISSIONS')).toEqual(['51 VIGILANCE', '71 FISH HOOK', '72 CROSSROADS', '1 BLIZZARD', '2 FROSTFIRE', '6 DESERT GLORY', '7 NIGHT STALKER', '12 THE RUINS']);
+    expect(rows(r, 'AVAILABLE_MISSIONS')).toEqual([
+      '51 VIGILANCE', '64 SHADOW FALLS', '71 FISH HOOK', '72 CROSSROADS', '1 BLIZZARD', '2 FROSTFIRE', '5 ABANDONED', '5 ABANDONED (DAY)', '6 DESERT GLORY',
+      '7 NIGHT STALKER', "8 RAT'S NEST", "8 RAT'S NEST (DAY)", '12 THE RUINS',
+    ]);
     const items = r.list('AVAILABLE_MISSIONS').items;
-    expect(items.map((it) => Number(it.captions[0])).sort((a, b) => a - b)).toEqual([...FIRST_RELEASE_MAPS].sort((a, b) => a - b));
+    expect([...new Set(items.map((it) => Number(it.captions[0])))].sort((a, b) => a - b)).toEqual([...FIRST_RELEASE_MAPS].sort((a, b) => a - b));
     expect(items.every((it) => it.selectable && it.colors[1] === null)).toBe(true);     // plain rows: no keyed cell, no colour of their own
     // Row 0 is an offered map, so the list's ONACTIVATE pair runs on opening: the title, the help line, the picture.
     expect([r.text('bar_title'), r.text('DescriptionText'), r.text('playerinfo_ctl_desc')]).toEqual([814, 812, 815].map((id) => r.loc.byId.get(id)));
@@ -162,18 +170,22 @@ describe.skipIf(!HAVE)(`CREATE GAME over the machine${HAVE ? '' : ' (no disc and
     const pictures = (): string[] => [...r.node('CGBack')!.parent!.children].filter((n) => /^CG(Back|Pic\d+|SS\d+)$/.test(n.name) && n.visible).map((n) => n.name);
     const file = (name: string): string | null => { const c = r.node(name)?.content; return c?.kind === 'sprite' ? c.sprite.texture : null; };
     for (const [index, n] of [
-      [VIGILANCE, 51], [FISH_HOOK, 71], [CROSSROADS, 72], [BLIZZARD, 1], [FROSTFIRE, 2], [DESERT_GLORY, 6], [NIGHT_STALKER, 7], [THE_RUINS, 12],
-      [NIGHT_STALKER, 7], [DESERT_GLORY, 6], [FROSTFIRE, 2], [BLIZZARD, 1], [CROSSROADS, 72], [FISH_HOOK, 71], [VIGILANCE, 51],
+      [VIGILANCE, 51], [SHADOW_FALLS, 64], [FISH_HOOK, 71], [CROSSROADS, 72], [BLIZZARD, 1], [FROSTFIRE, 2], [ABANDONED, 5], [ABANDONED_DAY, 5],
+      [DESERT_GLORY, 6], [NIGHT_STALKER, 7], [RATS_NEST, 8], [RATS_NEST_DAY, 8], [THE_RUINS, 12],
+      [RATS_NEST_DAY, 8], [RATS_NEST, 8], [NIGHT_STALKER, 7], [DESERT_GLORY, 6], [ABANDONED_DAY, 5], [ABANDONED, 5], [FROSTFIRE, 2], [BLIZZARD, 1], [CROSSROADS, 72], [FISH_HOOK, 71], [SHADOW_FALLS, 64],
+      [VIGILANCE, 51],
     ] as const) {
       at(r, index);
       expect(r.list('AVAILABLE_MISSIONS').items[index]!.captions[0]).toBe(String(n));
       expect(pictures().sort()).toEqual(['CGBack', `CGPic${n}`]);
+      // A Day row's node names the night bitmap too (the script picks by the number cell): the page draws the Day
+      // picture under that name (DAY-PIC-OVERRIDE, viewer `src/variants/dayPictures.ts`, a browser adaptation).
       expect(file(`CGPic${n}`)?.toLowerCase()).toBe(`mp${n}misspic.tif`);
     }
   });
 
   it('SQUARE accepts the play list on one press from any row (accept_play_list): the popup closed, PLAY LIST showing it', async () => {
-    for (const row of [VIGILANCE, FISH_HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, DESERT_GLORY, NIGHT_STALKER, THE_RUINS]) {
+    for (const row of [VIGILANCE, SHADOW_FALLS, FISH_HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, ABANDONED, ABANDONED_DAY, DESERT_GLORY, NIGHT_STALKER, RATS_NEST, RATS_NEST_DAY, THE_RUINS]) {
       const r = await screen();
       r.go('SelectGames');
       r.press('CROSS', 10);
@@ -184,10 +196,10 @@ describe.skipIf(!HAVE)(`CREATE GAME over the machine${HAVE ? '' : ' (no disc and
       expect([row, r.node('pop_missionBack')!.visible, r.focused()]).toEqual([row, false, 'SelectGames']);
       expect(rows(r, 'PLAYLIST_MAIN')).toEqual(['72 CROSSROADS']);
     }
-  });
+  }, 30_000); // thirteen fresh screens, one per row (RN-1 + DAY-4 + OT.R158; twelve were ~3.9 s alone), past vitest's 5 s default beside other files (as REVIEW-DF-14-1 F1)
 
   it('TRIANGLE and RIGHT answer on every row: RIGHT moves to the selected list (missiondel_activate), TRIANGLE asks #811 (Back_out_from_play_list)', async () => {
-    for (const row of [VIGILANCE, FISH_HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, DESERT_GLORY, NIGHT_STALKER, THE_RUINS]) {
+    for (const row of [VIGILANCE, SHADOW_FALLS, FISH_HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, ABANDONED, ABANDONED_DAY, DESERT_GLORY, NIGHT_STALKER, RATS_NEST, RATS_NEST_DAY, THE_RUINS]) {
       const r = await screen();
       r.go('SelectGames');
       r.press('CROSS', 10);
@@ -201,18 +213,24 @@ describe.skipIf(!HAVE)(`CREATE GAME over the machine${HAVE ? '' : ' (no disc and
       expect([row, r.shown()]).toEqual([row, true]);
       expect(r.popupText()).toContain('clear out your selected games');
     }
-  });
+  }, 30_000); // thirteen fresh screens, one per row (RN-1 + DAY-4 + OT.R158; twelve were ~4.4 s alone), past vitest's 5 s default beside other files (as REVIEW-DF-14-1 F1)
 
-  it('Crossroads, Vigilance, Fish Hook, Blizzard, Frostfire, Desert Glory, Night Stalker and The Ruins are added in any order (add_a_mission): row 0 is a map, not Medley, and adds beside the rest', async () => {
+  it('Crossroads, Vigilance, Shadow Falls, Fish Hook, Blizzard, Frostfire, Abandoned, Desert Glory, Night Stalker, Rat\'s Nest and The Ruins are added in any order (add_a_mission): row 0 is a map, not Medley, and adds beside the rest', async () => {
     const orders = [
       [CROSSROADS, VIGILANCE, FROSTFIRE], [VIGILANCE, CROSSROADS, FROSTFIRE], [FROSTFIRE, CROSSROADS, VIGILANCE],
       [VIGILANCE, FROSTFIRE, CROSSROADS], [CROSSROADS, FROSTFIRE, VIGILANCE], [FROSTFIRE, VIGILANCE, CROSSROADS],
       [NIGHT_STALKER, VIGILANCE, FROSTFIRE, CROSSROADS], [CROSSROADS, NIGHT_STALKER, FROSTFIRE, VIGILANCE],
       [THE_RUINS, BLIZZARD, VIGILANCE], [BLIZZARD, THE_RUINS, NIGHT_STALKER, CROSSROADS],                    // V13-2, V13-3
       [DESERT_GLORY, FISH_HOOK, VIGILANCE], [FISH_HOOK, DESERT_GLORY, THE_RUINS, CROSSROADS],                // DF-14
+      [ABANDONED, SHADOW_FALLS, VIGILANCE], [SHADOW_FALLS, THE_RUINS, ABANDONED, FROSTFIRE],                  // B5
+      [RATS_NEST, ABANDONED, VIGILANCE], [THE_RUINS, RATS_NEST, NIGHT_STALKER],                                // RN-1
+      [RATS_NEST_DAY, RATS_NEST, VIGILANCE],                                                                   // OT.R158
     ];
-    const NAME = ['51 VIGILANCE', '71 FISH HOOK', '72 CROSSROADS', '1 BLIZZARD', '2 FROSTFIRE', '6 DESERT GLORY', '7 NIGHT STALKER', '12 THE RUINS'];
-    const NUMBER = [51, 71, 72, 1, 2, 6, 7, 12];
+    const NAME = [
+      '51 VIGILANCE', '64 SHADOW FALLS', '71 FISH HOOK', '72 CROSSROADS', '1 BLIZZARD', '2 FROSTFIRE', '5 ABANDONED', '5 ABANDONED (DAY)',
+      '6 DESERT GLORY', '7 NIGHT STALKER', "8 RAT'S NEST", "8 RAT'S NEST (DAY)", '12 THE RUINS',
+    ];
+    const NUMBER = [51, 64, 71, 72, 1, 2, 5, 5, 6, 7, 8, 8, 12];
     for (const order of orders) {
       const r = await screen();
       r.go('SelectGames');
@@ -229,7 +247,7 @@ describe.skipIf(!HAVE)(`CREATE GAME over the machine${HAVE ? '' : ' (no disc and
       const v = r.uiVars.find('PLAYLISTVAR')!.value;
       expect(v.type === 'array' ? v.value.map((e) => (e.type === 'array' && e.value[0]!.type === 'int' ? e.value[0]!.value : -1)) : []).toEqual(order.map((i) => NUMBER[i]));
     }
-  }, 30_000); // twelve orders over eight-row walks: ~3.4 s alone, past vitest's 5 s default beside other files (REVIEW-DF-14-1 F1)
+  }, 30_000); // seventeen orders over thirteen-row walks (OT.R158; sixteen over twelve with RN-1 + DAY-4; B5's fourteen over ten, twelve over eight were ~3.4 s alone), past vitest's 5 s default beside other files (REVIEW-DF-14-1 F1)
 
   it('CROSS on Vigilance and Frostfire adds them, a repeat too; SQUARE writes PLAYLISTVAR as [number, name] rows and PLAY LIST shows it', async () => {
     const r = await screen();

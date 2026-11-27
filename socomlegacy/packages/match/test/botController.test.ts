@@ -12,7 +12,7 @@ import { solidWalls } from './helpers/solidWalls';
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
 function flat(wall = false): SimMap {
   const floor: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25,
-    ptcount: 4, cameratype: 0, points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]) };
+    ptcount: 4, cameratype: 0, points: Float32Array.from([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400]) };
   const polys = [floor];
   if (wall) polys.push({ ...floor, path: 'worldmodel/wall', ditype: 2,
     points: Float32Array.from([0, 0, -400, 0, 60, -400, 0, 60, 400, 0, 0, 400]) });
@@ -182,8 +182,14 @@ describe('authored multiplayer CPU seats on the authoritative Room', () => {
     expect(bot.mags[0].total()).toBe(0);
     expect(reloaded).toBe(true);
     expect(bot.sim.weapon).toBe(1);
-    expect(human.events.some((e) => e.type === 'combat' && e.status === 'applied' && e.weapon === pistol.id && (e.rawDamage ?? 0) > 0
-      && (e.damageApplied > 0 || e.armourBefore?.some((before, i) => before > (e.armourAfter?.[i] ?? before))))).toBe(true);
+    // LATER 1164 + 1173 (RAMP_LEAD; strafeRamp.test.ts): the strafing bot's first two pistol rounds now miss the target
+    // (the second crossed the target line at z -3.8, not -2.5: a marginal hit the old ramp happened to land); the
+    // reloaded magazine fires on, so the run continues past the reload until a pistol round is applied -- the same
+    // claim (accepted pistol fire applies damage), witnessed by a later round.
+    const pistolHit = (): boolean => human.events.some((e) => e.type === 'combat' && e.status === 'applied' && e.weapon === pistol.id && (e.rawDamage ?? 0) > 0
+      && (e.damageApplied > 0 || e.armourBefore?.some((before, i) => before > (e.armourAfter?.[i] ?? before))));
+    for (let i = 0; i < 10 * TICK_HZ && !pistolHit(); i++) step();
+    expect(pistolHit()).toBe(true);
     step(10);
     expect(bot.sim.weapon).toBe(1);
   });

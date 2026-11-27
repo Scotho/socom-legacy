@@ -5,6 +5,7 @@ import {
 } from '@s2u/ui';
 import { BRIEFING_ROOM_SESSION_LOST, fetchBriefingRoomService } from '../../briefingRoomHost';
 import { DEV_PARAM, DEVTOOLS_PARAM } from '../../source';
+import { GRAPHICS_RECOVERY_PARAM } from '../../graphicsLost';
 import { ROOM_LIST_SESSION_LOST, fetchRoomListService, type RoomListWithDoors } from '../../worldOfSocomHost';
 import { safeServerDetail } from '../report/serverDetail';
 import type { PackRef } from '@s2u/creator-contracts';
@@ -441,9 +442,10 @@ export function customMatchMap(base: string, missions: readonly MissionRecord[] 
  * Where JOIN's forge is to read its lobby from (the view reads it off the page: `../../source` `devMode`,
  * `devSwitches` and the section's own base): `devmode`, whether the page has the developer's switch; `devtools`, whether
  * its dev-tools switch is on (`devSwitches`' `tools`: `devmode`, or `devtools` on a development build); `server`, the
- * base this section read the list from when it is not the page's own origin (null when it is).
+ * base this section read the list from when it is not the page's own origin (null when it is); `graphicsrecovery`, the
+ * page's own `graphicsrecovery` value as its address names it (null or absent when it names none).
  */
-export interface CustomMatchServer { devmode: boolean; devtools?: boolean; server: string | null }
+export interface CustomMatchServer { devmode: boolean; devtools?: boolean; server: string | null; graphicsrecovery?: string | null }
 
 /**
  * JOIN's address: the forge's lobby link (`/forge/lobby/<id>`, the forge's `lobbyIdOf`; the lobby links plan's scope
@@ -451,7 +453,8 @@ export interface CustomMatchServer { devmode: boolean; devtools?: boolean; serve
  * dev-tools switch's own word `devtools` -- and with it the list's server as `server=` when it is not the page's own;
  * nothing else of the page's address. So the forge's lobby base (`../../connectHost` `accountServiceBase`, the forge's
  * `lobbyBase`: `server=` only under the dev-tools switch on a development build) names the server this section read the
- * list from.
+ * list from. The player's explicit `graphicsrecovery` (`notice` or `reload`, `../../graphicsLost`) is carried, devmode or
+ * not, so an explicit notice is never dropped into the reload default on joining (N03-RECOVERY-ON review F1, 2026-11-25).
  */
 export function customMatchAddress(id: string, from: CustomMatchServer, base: string = import.meta.env.BASE_URL ?? '/'): string {
   const b = base.endsWith('/') ? base : `${base}/`;
@@ -460,5 +463,7 @@ export function customMatchAddress(id: string, from: CustomMatchServer, base: st
     parts.push(from.devmode ? DEV_PARAM : DEVTOOLS_PARAM);
     if (from.server !== null) parts.push(`server=${encodeURIComponent(from.server)}`);
   }
+  const gr = from.graphicsrecovery;
+  if (gr === 'notice' || gr === 'reload') parts.push(`${GRAPHICS_RECOVERY_PARAM}=${gr}`);
   return `${b}${FORGE_PAGE}/${FORGE_LOBBY}/${encodeURIComponent(id)}${parts.length ? `?${parts.join('&')}` : ''}`;
 }

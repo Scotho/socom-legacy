@@ -4,7 +4,8 @@
  * does: a standard match reads no pack. A disc-only layout names disc assets (`MP2:crate`), never their bytes.
  *
  * The shape:
- * - the layout record v3 (`layout.ts` `CreatorLayoutRecord`, read by `readCreatorRecord`) is a `gameplay`-role member at
+ * - the layout record v3, or v4 when a piece's angle is off the whole degree (FN-4) (`layout.ts` `CreatorLayoutRecord`,
+ *   read by `readCreatorRecord`), is a `gameplay`-role member at
  *   `layouts/<slug>.json` (`layoutMemberPath`; the slug rule `LAYOUT_SLUG`), under a `gameplay-value` intent -- the
  *   path the convention, as `maps/<mapId>.json` is a content map's (`maps.ts` `contentMapMemberPath`); a pack holds ONE
  *   (FX-5; the 0.2 spec's decision 3: its one `rules/mode.json` is that layout's), a second is `mapPack.LAYOUT_TWICE`;
@@ -33,7 +34,8 @@ import { diagnostic, reportStatus, type Diagnostic, type DiagnosticInput } from 
 import { canonicalJson, compareUtf8, sha256Hex, type Sha256 } from "./digest.js";
 import { behaviourCatalogue } from "./handlers.js";
 import {
-  checkCreatorRecord, layoutEntityIds, readCreatorRecord, RECORD_SCHEMA, RECORD_VERSION, rulesModeCatalogue,
+  checkCreatorRecord, isNewerRecordVersion, layoutEntityIds, readCreatorRecord, RECORD_SCHEMA, RECORD_VERSION, RECORD_VERSION_FINE_ANGLES,
+  recordVersionRefusal, rulesModeCatalogue,
   type CreatorLayoutRecord, type ModeCatalogueEntry,
 } from "./layout.js";
 import {
@@ -96,7 +98,7 @@ export const MAP_PACK_CODES = Object.freeze({
   layoutMissing: "mapPack.LAYOUT_MISSING",
   /** A second member under `layouts/`: a map pack holds one layout (FX-5; the 0.2 spec's decision 3). */
   layoutTwice: "mapPack.LAYOUT_TWICE",
-  /** A layout is not a record v3 this build reads (`actual` names the record reader's reason). */
+  /** A layout is not a record v3 or v4 this build reads (`actual` names the record reader's reason). */
   layoutInvalid: "mapPack.LAYOUT_INVALID",
   /** A member under `layouts/` whose role is not `gameplay`. */
   layoutRole: "mapPack.LAYOUT_ROLE",
@@ -341,8 +343,8 @@ export async function buildMapPack(input: MapPackInput): Promise<MapPackBuild> {
 
 /**
  * Reads a map pack's already-unzipped entries: the pack validated (`validatePack`, the store's root files beside it
- * tolerated), every `layouts/<slug>.json` member read by `readCreatorRecord` (strict v3), the pack's own reference
- * attached after validation -- to the folded rules, and to the `requires` of a layout playing the pack's own mode -- and
+ * tolerated), every `layouts/<slug>.json` member read by `readCreatorRecord` (strict v3, or v4: FN-4), the pack's own
+ * reference attached after validation -- to the folded rules, and to the `requires` of a layout playing the pack's own mode -- and
  * the packs each layout needs that this device lacks listed in `missing`. Refused, by name: a pack that does not
  * validate, no layout member, a layout member in a pack whose contract admits an engine before 0.2.0 (`CONTRACT_FLOOR`),
  * a second layout member (`LAYOUT_TWICE`: one layout a pack), a layout member that does not
@@ -416,8 +418,13 @@ export async function readMapPack(entries: readonly BufferedPackFile[], options:
     const text = readText(bytesOf(row.path) ?? new Uint8Array(0));
     let raw: unknown;
     try { raw = text === null ? undefined : JSON.parse(text); } catch { raw = undefined; }
-    if (!isObject(raw) || raw["schema"] !== RECORD_SCHEMA || raw["version"] !== RECORD_VERSION) {
-      f.error(MAP_PACK_CODES.layoutInvalid, `A layout member is a ${RECORD_SCHEMA} record version ${RECORD_VERSION}.`, { file: row.path });
+    // FN-4: version 3, or 4 (a piece's angles on a hundredth of a degree, `RECORD_VERSION_FINE_ANGLES`)
+    if (!isObject(raw) || raw["schema"] !== RECORD_SCHEMA || (raw["version"] !== RECORD_VERSION && raw["version"] !== RECORD_VERSION_FINE_ANGLES)) {
+      // FN-4, fix round 2 (a browser adaptation): a later build's layout is named as one (`recordVersionRefusal`), the code the same
+      const newer = isObject(raw) && raw["schema"] === RECORD_SCHEMA && isNewerRecordVersion(raw["version"]);
+      f.error(MAP_PACK_CODES.layoutInvalid, newer
+        ? recordVersionRefusal((raw as Record<string, unknown>)["version"])
+        : `A layout member is a ${RECORD_SCHEMA} record version ${RECORD_VERSION} or ${RECORD_VERSION_FINE_ANGLES}.`, { file: row.path });
       continue;
     }
     const requires = Array.isArray(raw["requires"]) ? raw["requires"] as unknown[] : [];

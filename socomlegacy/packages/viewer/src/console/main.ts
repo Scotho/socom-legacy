@@ -1,4 +1,5 @@
 import { bootFailure } from '../bootFailure';
+import { domToast, installStreamerHotkey } from '../streamerMode';
 import { watchSoftwareRenderer } from '../softwareRendererNotice';
 import { installClientErrorBeacon, pageClientErrorBeacon } from '../clientErrorBeacon';
 import { startPwa } from '../pwa/boot';
@@ -35,9 +36,17 @@ if (replayPage) {
 } else {
   const lobbyId = lobbyIdOfPath(window.location.pathname, import.meta.env.BASE_URL ?? '/');   // LCM-18d: it ends with the lobby's page
   if (lobbyId) mountLobbyLiveLink(document, lobbyId, { base: import.meta.env.BASE_URL ?? '/' });
-  void bootLauncher(document, {
+  const boot = (): Promise<unknown> => bootLauncher(document, {
     dev: import.meta.env.DEV,
     base: import.meta.env.BASE_URL ?? '/',
-    console: () => { bootConsole(document, window, adaptersFor(window.location.search, () => liveAdapters(document, window)), { keymap: import.meta.env.DEV }); },
+    // STREAMER-P1 (a browser adaptation): the page's own toast under the launcher's, so Ctrl+Shift+S still answers once
+    // the launcher has handed the window to the game (its own toast is suspended with it).
+    console: () => { installStreamerHotkey(window, domToast(document)); bootConsole(document, window, adaptersFor(window.location.search, () => liveAdapters(document, window)), { keymap: import.meta.env.DEV }); },
   }).catch(bootFailure);
+  // Browser adaptation: the public launcher is a different entry from /setup. Install before either can load a match.
+  if (new URLSearchParams(location.search).get('xboxdiag') === '1') {
+    void import('../xboxDiagnostics').then(m => { m.installXboxDiagnostics(window); }).catch(() => undefined).then(boot);
+  } else {
+    void boot();
+  }
 }

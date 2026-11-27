@@ -1,7 +1,7 @@
-import { controllerStanceMode, PAD_BUTTON_NAMES, savePreference, type ControllerConfig } from '../../startupSettings';
-import { OVERLAY_BUTTON_KEY, OVERLAY_HOME_BUTTON, OVERLAY_MAX_BUTTON as MAX_BUTTON, readOverlayButton } from '../../overlayButtonSetting';
+import { controllerStanceMode, type ControllerConfig } from '../../startupSettings';
+import { OVERLAY_BUTTON_KEY, OVERLAY_HOME_BUTTON, OVERLAY_MAX_BUTTON as MAX_BUTTON, onOverlayButtonChange, overlayButtonName, readOverlayButton, saveOverlayButton } from '../../overlayButtonSetting';
 import type { StanceMode } from '../../stanceButton';
-import { controllerLabelFamily, isSteamFamily, steamButtonName } from '../../controllerLabels';
+import { controllerLabelFamily, isSteamFamily } from '../../controllerLabels';
 import { FORGE_MATCH_EXIT_CHORD, ForgePad, type PadSnapshot } from '../../forge/pad';
 import type { OverlayPageKind } from './page';
 
@@ -35,22 +35,7 @@ import type { OverlayPageKind } from './page';
  * The default (16), the key and the reader live in `../../overlayButtonSetting`, the saved value alone, so a page reads it
  * without loading the overlay (the console's pad adapter, MU2-10c); re-exported here, the overlay's binding as before.
  */
-export { OVERLAY_BUTTON_KEY, OVERLAY_HOME_BUTTON, readOverlayButton };
-
-const subs = new Set<(button: number) => void>();
-
-/** Keeps `button` as the opening button and tells every mounted reader (the overlay follows it without a remount). */
-export function saveOverlayButton(button: number): void {
-  if (!Number.isInteger(button) || button < 0 || button > MAX_BUTTON) return;
-  savePreference(OVERLAY_BUTTON_KEY, String(button));
-  for (const cb of [...subs]) { try { cb(button); } catch (e) { console.error('overlay: a binding reader failed', e); } }
-}
-
-/** Calls `cb` with each new opening button saved on this page; answers the unsubscribe. */
-export function onOverlayButtonChange(cb: (button: number) => void): () => void {
-  subs.add(cb);
-  return () => { subs.delete(cb); };
-}
+export { OVERLAY_BUTTON_KEY, OVERLAY_HOME_BUTTON, onOverlayButtonChange, overlayButtonName, readOverlayButton, saveOverlayButton };
 
 /**
  * Whether the game reads the physical `button` under the player's `config`: a binding drives it, or the Crouch or Prone
@@ -112,22 +97,6 @@ export function overlayOpensBy(button: number, config: ControllerConfig, kind?: 
   if (gameReadsButton(button, config)) return 'hold';
   if (kind === 'forge' && forgeMatching) return (FORGE_MATCH_EXIT_CHORD as readonly number[]).includes(button) ? 'hold' : 'press';
   return kind === 'forge' && forgeReadsButton(button) ? 'hold' : 'press';
-}
-
-/**
- * The button's name as the controller page named a binding (its view retired with CX-26; `../../padBinding` names them
- * alike: the PS2 pad's names, an Xbox pad's own, else "Button <n>"), and 16 the centre button.
- */
-export function overlayButtonName(button: number, padId = ''): string {
-  const family = controllerLabelFamily(padId);
-  if (isSteamFamily(family)) return steamButtonName(button) ?? `Button ${button + 1}`;
-  const xbox = family === 'xbox';
-  if (button === OVERLAY_HOME_BUTTON) return xbox ? 'Guide' : 'Home (PS / Xbox Guide)';
-  if (xbox) {
-    const names = ['A / Cross', 'B / Circle', 'X / Square', 'Y / Triangle', 'LB', 'RB', 'LT', 'RT', 'View', 'Menu', 'LS', 'RS'];
-    if (names[button]) return names[button]!;
-  }
-  return PAD_BUTTON_NAMES[button] ?? `Button ${button + 1}`;
 }
 
 /**

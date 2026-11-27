@@ -55,7 +55,7 @@ function cellMap(): SimMap {
   });
   const bars = [100, 0, -100, 100, 0, 100, 100, 60, 100, 100, 60, -100];               // across x 100, as the jail's
   const polys = [
-    poly('worldmodel/floor', 3, 25, [-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+    poly('worldmodel/floor', 3, 25, [-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
     poly(NO, 2, 28, bars), poly(OK, 2, 3, bars),
   ];
   const owners: CollisionOwner[] = polys.map((p, i) => ({ modelName: 'worldmodel', path: p.path, first: i, count: 1, flags: 0x1001 }));

@@ -281,9 +281,25 @@ describe('touch (MENU_TOUCH_READING) and the enabled bit a control is built with
     expect(t.input.tap(150, 138)).toBe('B');
     t.run(2);
     expect(t.take()).toEqual(['.goB']);
-    expect(t.input.tap(5, 5)).toBeNull();                          // off every control: CROSS on the focused
+    expect(t.input.tap(5, 5)).toBeNull();                          // B-21: off every control, lost -- no CROSS on the focused
     t.run(2);
-    expect(t.take()).toEqual(['.goB']);
+    expect([t.focus(), t.take()]).toEqual(['B', []]);
+  });
+
+  it('B-21: two taps off every control 150 ms apart press nothing (B-62: a lobby a match returned to)', () => {
+    const t = rig(screen(abc(), r('BUTTON', 'CROSS', 'ANIMATION', 'back')));
+    t.take();
+    t.input.tap(5, 5); t.run(5);
+    t.input.tap(600, 440); t.run(2);
+    expect([t.focus(), t.take()]).toEqual(['A', []]);
+  });
+
+  it('B-21: a ring with no focused, enabled control keeps the tap as CROSS -- the screen binding runs (a "press X" screen)', () => {
+    const t = rig(screen([rec('ConnectAnim', 'TEXT', 0, 0, r('CAPTION', 'x'))], r('BUTTON', 'CROSS', 'ANIMATION', 'back')));
+    t.take();
+    expect(t.input.tap(5, 5)).toBeNull();
+    t.run(2);
+    expect(t.take()).toEqual(['.back']);
   });
 
   it('a tap on a disabled control is lost: no step, no SELECTION, no CROSS (the pad cannot focus it, FUN_003670d0)', () => {
@@ -341,6 +357,17 @@ describe('touch (MENU_TOUCH_READING) and the enabled bit a control is built with
     expect(t.input.tap(...inside(t, 'S2'))).toBeNull();
     t.run(2);
     expect([t.focus(), selection(t), t.take()]).toEqual(['A', 0, []]);
+  });
+
+  it('B-21 (B-22 item 1): a focused strip keeps its box after a tap off every control', () => {
+    const t = rig(screen([...abc(), strip()]));
+    t.input.tap(...inside(t, 'S1'));
+    t.run(2);
+    expect([t.focus(), selection(t)]).toEqual(['S', 1]);
+    t.take();
+    expect(t.input.tap(5, 5)).toBeNull();
+    t.run(2);
+    expect([t.focus(), selection(t), t.take()]).toEqual(['S', 1, []]);
   });
 
   const image = (name: string) => rec(name, 'IMAGE', 0, 0, r('FILENAME', 'x.tif', 'XSIZE', '10', 'YSIZE', '10'));
@@ -412,7 +439,7 @@ describe('touch (MENU_TOUCH_READING) and the enabled bit a control is built with
   // A click on a shown popup's button answers that button (research 116 §11, a browser adaptation; the player's report
   // of 2026-11-02: the card's AskToOverwrite, NO first and focused, re-prompted when YES was clicked).
   /** A two-button POPUP record (research 118 §2) on the animation `goA`, its valve `AreYouSure`: slot k at `at[k]`, 50 x 25. */
-  const popupRecord = (at: [[number, number], [number, number]], centred = false): ZAnimUiCommand => {
+  const popupRecord = (at: [[number, number], [number, number]], centred = false, width = 50): ZAnimUiCommand => {
     const bytes = new Uint8Array(POPUP_COMMAND_SIZE);
     const dv = new DataView(bytes.buffer);
     const o0 = POPUP_RECORD_AT;
@@ -423,7 +450,7 @@ describe('touch (MENU_TOUCH_READING) and the enabled bit a control is built with
     bytes[o0 + 66] = 1; bytes[o0 + 67] = NAMES.indexOf('AreYouSure');
     POPUP_BUTTON_SLOTS.forEach((b, k) => {
       const o = o0 + b;
-      dv.setInt32(o + 4, at[k]![0], true); dv.setInt32(o + 8, at[k]![1], true); dv.setInt32(o + 12, 50, true); dv.setInt32(o + 16, 25, true);
+      dv.setInt32(o + 4, at[k]![0], true); dv.setInt32(o + 8, at[k]![1], true); dv.setInt32(o + 12, width, true); dv.setInt32(o + 16, 25, true);
       bytes[o + 20] = 255;
       bytes[o + 68] = centred ? 1 : 0;                                          // HCENTERED (D:L267003)
       dv.setFloat32(o + 72, 1, true);
@@ -435,11 +462,11 @@ describe('touch (MENU_TOUCH_READING) and the enabled bit a control is built with
   /** save_and_leave's (#831): YES (253) button 1 at 65, NO (246) button 2 at 225. */
   const YES_FIRST: [[number, number], [number, number]] = [[65, 90], [225, 90]];
   /** The popup shown with a record, as PopUpDialog then the POPUP node's command leave it; answers the valve's value. */
-  const popUp = (t: ReturnType<typeof rig>, at: [[number, number], [number, number]], centred = false) => {
+  const popUp = (t: ReturnType<typeof rig>, at: [[number, number], [number, number]], centred = false, width = 50) => {
     const shell = t.m.shell()!;
     const p = t.m.queue.popupObject as SlotPopup;
     expect(p).toBeInstanceOf(SlotPopup);
-    p.command(popupRecord(at, centred));
+    p.command(popupRecord(at, centred, width));
     shell.popups.show(shell.screen);
     t.run();
     t.take();
@@ -458,15 +485,28 @@ describe('touch (MENU_TOUCH_READING) and the enabled bit a control is built with
     expect(t.take().filter((s) => s === 'SELECTION')).toEqual(['SELECTION', 'SELECTION']);   // the step's, then CROSS's
   });
 
-  it('a click on the focused button, or off both, is CROSS alone: the focused answer (1)', () => {
+  it('a click on the focused button is CROSS alone: the focused answer (1)', () => {
     const t = rig(screen(abc()));
     let q = popUp(t, NO_FIRST);
     t.input.tap(...AT_225);                                        // NO: button 1, focused
     t.run(2);
     expect([q.answer(), q.popup.visible]).toEqual([1, false]);
     expect(t.take().filter((s) => s === 'SELECTION')).toEqual(['SELECTION']);
-    q = popUp(t, NO_FIRST);
-    t.input.tap(5, 5);                                             // off both buttons: CROSS on the focus, as before
+  });
+
+  it('B-21: a tap off both buttons of a two-button popup is lost -- the popup stays up, unanswered', () => {
+    const t = rig(screen(abc()));
+    const q = popUp(t, NO_FIRST);
+    const before = q.answer();
+    t.input.tap(5, 5);
+    t.run(2);
+    expect([q.answer(), q.popup.visible, t.take()]).toEqual([before, true, []]);
+  });
+
+  it('B-21: a popup with no button to hit keeps the tap as CROSS -- it is answered and closes', () => {
+    const t = rig(screen(abc()));
+    const q = popUp(t, NO_FIRST, false, 0);
+    t.input.tap(5, 5);
     t.run(2);
     expect([q.answer(), q.popup.visible]).toEqual([1, false]);
   });
@@ -501,7 +541,7 @@ describe('touch (MENU_TOUCH_READING) and the enabled bit a control is built with
   };
 
   for (const [order, at] of [['NO-first (246, 253)', NO_FIRST], ['YES-first (253, 246)', YES_FIRST]] as const) {
-    it(`centred buttons under an offset parent, ${order}: a click on each body answers its slot; just left of one, the focus`, () => {
+    it(`centred buttons under an offset parent, ${order}: a click on each body answers its slot; just left of one, lost (B-21)`, () => {
       const t = offsetRig();
       const b1 = centredOn(at[0][0]), b2 = centredOn(at[1][0]);
       let q = popUp(t, at, true);
@@ -513,13 +553,12 @@ describe('touch (MENU_TOUCH_READING) and the enabled bit a control is built with
       t.run(2);
       expect([q.answer(), q.popup.visible]).toEqual([1, false]);
       q = popUp(t, at, true);
-      t.input.tap(b2.left - 1, b2.inside[1]);                      // one pixel left of button 2: off both, CROSS on the focus
+      t.input.tap(b2.left - 1, b2.inside[1]);                      // one pixel left of button 2: off both, lost (B-21)
       t.run(2);
-      expect([q.answer(), q.popup.visible]).toEqual([1, false]);
-      q = popUp(t, at, true);
+      expect(q.popup.visible).toBe(true);
       t.input.tap(b1.left - 1, b1.inside[1]);                      // one pixel left of button 1: the same
       t.run(2);
-      expect([q.answer(), q.popup.visible]).toEqual([1, false]);
+      expect(q.popup.visible).toBe(true);
     });
   }
 

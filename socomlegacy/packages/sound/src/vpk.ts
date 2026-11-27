@@ -1,4 +1,5 @@
 import type { RenderedSound } from './render';
+import { floatStream, type Pcm16Stream } from './streamPcm';
 import { decodeVag } from './vag';
 
 /**
@@ -76,9 +77,14 @@ export function parseVpkHeader(b: Uint8Array): VpkHeader {
  * as one buffer: the interim of PLAT-22, whose stream voice reads by range (research 124 §4).
  */
 export function decodeVpk(b: Uint8Array): RenderedSound {
+  return floatStream(decodeVpkPcm16(b));
+}
+
+/** Same de-interleaving and decoder; retain signed PCM until playback (browser memory adaptation). */
+export function decodeVpkPcm16(b: Uint8Array): Pcm16Stream {
   const h = parseVpkHeader(b);
   const stride = h.bufferBytes / h.channels;
-  const out: Float32Array[] = [];
+  const out: Int16Array[] = [];
   let peak = 0;
   for (let c = 0; c < h.channels; c++) {
     const data = new Uint8Array(h.channelBytes);
@@ -87,11 +93,11 @@ export function decodeVpk(b: Uint8Array): RenderedSound {
       if (from + n > b.byteLength) throw new Error('VPK: truncated');
       data.set(b.subarray(from, from + n), at);
     }
-    const pcm = decodeVag(data).pcm, f = new Float32Array(pcm.length);
-    for (let i = 0; i < pcm.length; i++) { f[i] = pcm[i]! / 32768; const a = Math.abs(f[i]!); if (a > peak) peak = a; }
-    out.push(f);
+    const pcm = decodeVag(data).pcm;
+    for (let i = 0; i < pcm.length; i++) { const a = Math.abs(pcm[i]! / 32768); if (a > peak) peak = a; }
+    out.push(pcm);
   }
   const left = out[0]!, right = out[1] ?? left.slice();
   if (left.length !== right.length) throw new Error('VPK: unequal channels');
-  return { left, right, sendLeft: null, sendRight: null, sampleRate: h.sampleRate, voices: h.channels, samples: [], peak };
+  return { storage: 'pcm16', left, right, sendLeft: null, sendRight: null, sampleRate: h.sampleRate, voices: h.channels, samples: [], peak };
 }

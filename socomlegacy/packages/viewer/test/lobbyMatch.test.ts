@@ -10,6 +10,8 @@ import { NetClient, type NetWalk, type WebSocketLike } from '../src/net/client';
 import { GAME_ENDED_DIALOG_READING } from '../src/netPage';
 import { SERVER_UPDATE_CLOSE, type Rules, type ServerEvent } from '../src/net/protocol';
 import { closeReportBody, parseCloseReport, type CloseReportPage } from '../src/net/closeReport';
+import type { NetEndPage } from '../src/net/netEndDiag';
+import type { LoadDiagPage } from '../src/net/loadDiag';
 import { FIRST_FRAME_FALLBACK_MS } from '../src/loadingHold';
 
 /**
@@ -21,7 +23,7 @@ import { FIRST_FRAME_FALLBACK_MS } from '../src/loadingHold';
 const PINNED = pinnedMatchSocket('', { protocol: 'https:', host: 'site.test', origin: 'https://site.test' }, false);
 type Sock = WebSocketLike & { sent: string[]; closed: number[] };
 
-function rig(o: { rules?: Rules; roundInLobby?: boolean; ended?: () => number | null; phase?: string; ghost?: boolean; lateJoiner?: boolean; watcher?: boolean; join?: unknown; lobby?: (say: (ev: ServerEvent) => void, wait: (ms: number) => void) => void; net?: boolean; onClient?: boolean; prepare?: boolean } = {}) {
+function rig(o: { rules?: Rules; roundInLobby?: boolean; ended?: () => number | null; phase?: string; ghost?: boolean; lateJoiner?: boolean; watcher?: boolean; join?: unknown; lobby?: (say: (ev: ServerEvent) => void, wait: (ms: number) => void) => void; net?: boolean; onClient?: boolean; prepare?: boolean; netEndThrows?: boolean } = {}) {
   let t = 0;
   const sockets: Sock[] = [];
   const holds: boolean[] = [];
@@ -68,8 +70,12 @@ function rig(o: { rules?: Rules; roundInLobby?: boolean; ended?: () => number | 
   } : null);
   const startedAt: number[] = [];
   const reports: { url: string; page: CloseReportPage }[] = [];                 // LATER 62: the close reports made
+  const netEnds: NetEndPage[] = [];
+  const loadDiags: LoadDiagPage[] = [];                                          // LATER 753: the slow late loads told                                              // LATER 62: the field's netend diagnostics
   const match = new LobbyMatch({
     closeReport: (url, page) => { reports.push({ url, page }); },
+    netEnd: (page) => { netEnds.push(page); if (o.netEndThrows) throw new Error('netend port broke'); },
+    loadDiag: (page) => { loadDiags.push(page); },
     now: () => t,
     screen: { show: (mission) => { log.push(`show ${mission}`); }, hide: () => { log.push('hide'); } },
     load: (mission) => { log.push(`load ${mission}`); return new Promise<void>((res) => { loaded = res; }); },
@@ -108,7 +114,7 @@ function rig(o: { rules?: Rules; roundInLobby?: boolean; ended?: () => number | 
     for (const fn of clientListeners) fn(client);                 // the page's retry tells it at once (F1's draft)
     return { client, sock, say: (ev) => { sock.onmessage?.({ data: JSON.stringify(ev) }); } };
   };
-  return { host, match, sockets, socket, server, holds, handOffs, log, backs, started, startedAt, errno, retried, reports, listeners: () => clientListeners.size, load: () => loaded(), prepared: (ok = true) => prepared(ok), step, flush, time: () => t, setTime: (v: number) => { t = v; } };
+  return { host, match, sockets, socket, server, holds, handOffs, log, backs, started, startedAt, errno, retried, reports, netEnds, loadDiags, listeners: () => clientListeners.size, load: () => loaded(), prepared: (ok = true) => prepared(ok), step, flush, time: () => t, setTime: (v: number) => { t = v; } };
 }
 
 describe('ONL-18: the hand-off from the game lobby to the loading screen to the match', () => {
@@ -327,6 +333,17 @@ describe('ONL-18: closes and the way back', () => {
 
   // LATER 62 (CLOSE_REPORT_ADAPTATION; NU-17, research 315 §12): every return but the match's end reports why, the call
   // site that decided it, and the socket's state and close code as they stood before the return closed it.
+  // LATER 1265 part 2 (its pair review's F2): the match-entry confirm's "Leave game" goes back as the START menu's ABORT
+  // does -- the abort dialog, why 'aborted' -- never as a lost session ('stopped', no dialog).
+  it('LATER 1265: leaveLoading returns through the ABORT dialog while loading, and does nothing once the match is over', async () => {
+    const r = rig({ roundInLobby: true });
+    r.match.start(r.handOffs[0]!);
+    r.match.leaveLoading();
+    expect(r.backs.map((b) => [b.why, b.dialog])).toEqual([['aborted', 'dlgNetAbort.rdr']]);
+    r.match.leaveLoading();
+    expect(r.backs).toHaveLength(1);
+  });
+
   it('LATER 62: a drop that ends the match reports net-error, its call site and the socket\'s 1006 -- the seat id, the phase, the late flag', async () => {
     const r = rig({ roundInLobby: true, lateJoiner: true });
     r.match.start(r.handOffs[0]!);
@@ -354,6 +371,75 @@ describe('ONL-18: closes and the way back', () => {
     expect(r.reports[0]!.page.sinceMatchMs).not.toBeNull();
   });
 
+  it('LATER 62 (netend diag): the same returns told to the page\'s beacon, a release build\'s too -- the fields, no seat id or URL', async () => {
+    const r = rig({ roundInLobby: true, lateJoiner: true });
+    r.match.start(r.handOffs[0]!);
+    r.load(); await r.flush();
+    r.step(1000);
+    r.socket().onclose?.({ code: 1006, reason: '' });
+    r.step(100);
+    expect(r.netEnds).toEqual([expect.objectContaining({ why: 'net-error', path: 'tick-ended', state: 'closed', code: 1006, phase: 'match', late: true })]);
+    expect(Object.keys(r.netEnds[0]!).sort()).toEqual(['code', 'late', 'path', 'phase', 'sinceMatchMs', 'state', 'why']);
+  });
+
+  it('LATER 62 review F3: a match\'s end on a socket no longer open tells netend too (not-open-at-end)', async () => {
+    const r = rig({ roundInLobby: true, lateJoiner: true });
+    r.match.start(r.handOffs[0]!);
+    r.load(); await r.flush();
+    r.step(1000);
+    r.socket().onclose?.({ code: 1006, reason: '' });
+    r.match.matchOver();
+    expect(r.netEnds).toEqual([expect.objectContaining({ why: 'net-error', path: 'not-open-at-end', state: 'closed', code: 1006, phase: 'match' })]);
+  });
+
+  it('LATER 62 review F3: a throwing netEnd port leaves the return as it was', async () => {
+    const r = rig({ roundInLobby: true, lateJoiner: true, netEndThrows: true });
+    r.match.start(r.handOffs[0]!);
+    r.load(); await r.flush();
+    r.step(1000);
+    r.socket().onclose?.({ code: 1006, reason: '' });
+    r.step(100);
+    expect(r.netEnds).toHaveLength(1);
+    expect(r.backs.map((b) => b.why)).toEqual(['net-error']);
+    expect(r.reports).toHaveLength(1);                                          // the close report still made after it
+  });
+
+  it('LATER 753: a late seat\'s load of 30 s or more is told (loaddiag): its assets\' and its load\'s ms', async () => {
+    const r = rig({ roundInLobby: true, lateJoiner: true });
+    r.match.start(r.handOffs[0]!);
+    r.step(42_000);                                                              // the assets 42 s in coming
+    r.load(); await r.flush();
+    expect(r.loadDiags).toHaveLength(1);
+    expect(r.loadDiags[0]).toMatchObject({ boundHit: false, failed: false, prepared: false });
+    expect(r.loadDiags[0]!.assetsMs).toBeGreaterThanOrEqual(42_000);
+    expect(r.loadDiags[0]!.loadMs).toBeGreaterThanOrEqual(42_000);
+  });
+
+  it('LATER 753 review F3: a prepare given up at its bound is told so (boundHit), the load timed to its end', async () => {
+    const r = rig({ roundInLobby: true, lateJoiner: true, prepare: true });
+    r.match.start(r.handOffs[0]!);
+    r.step(1_000);
+    r.load(); await r.flush();                                                  // the assets in; the prepare never settles
+    r.step(61_000); await r.flush();                                            // past PREPARE_WAIT_BOUND_ADAPTATION: given up
+    expect(r.loadDiags).toHaveLength(1);
+    expect(r.loadDiags[0]).toMatchObject({ boundHit: true, failed: false, prepared: true });
+    expect(r.loadDiags[0]!.assetsMs).toBeLessThan(5_000);
+    expect(r.loadDiags[0]!.loadMs).toBeGreaterThanOrEqual(60_000);
+  });
+
+  it('LATER 753: a quick late load, or any seat not late, tells nothing', async () => {
+    const quick = rig({ roundInLobby: true, lateJoiner: true });
+    quick.match.start(quick.handOffs[0]!);
+    quick.step(2_000);
+    quick.load(); await quick.flush();
+    expect(quick.loadDiags).toEqual([]);
+    const notLate = rig({ roundInLobby: true });
+    notLate.match.start(notLate.handOffs[0]!);
+    notLate.step(42_000);
+    notLate.load(); await notLate.flush();
+    expect(notLate.loadDiags).toEqual([]);
+  });
+
   it('LATER 62: the match\'s own end (match-over) reports nothing', async () => {
     const r = rig({ roundInLobby: true });
     r.match.start(r.handOffs[0]!);
@@ -362,6 +448,7 @@ describe('ONL-18: closes and the way back', () => {
     r.match.matchOver();
     expect(r.backs.map((b) => b.why)).toEqual(['match-over']);
     expect(r.reports).toEqual([]);
+    expect(r.netEnds).toEqual([]);                                              // nor a netend diagnostic
   });
 
   it('a drop (1006) with a match that cannot retry (no `ended`: the page default): ended, net error, the hold let go', async () => {

@@ -52,7 +52,7 @@ The M67's `ZWEAPON` record and its `ZAMMO` round (`M67 Ammo`, `ID 11`), and what
 
 | key | M67 | loaded as | where it lands / what reads it |
 |---|---|---|---|
-| `ID` | 121 (`0x79`, `'y'`) | the type byte `weapon+0x7c` | `HandleIntersections` sends type `'y'` (and 0x97, 0xac, 0xad, 0xb2, 0xb9, 0xba) to `HandleBounce`, every other type to `HandleImpact` (decomp 320032-320041) |
+| `ID` | 121 (`0x79`, `'y'`) | the type byte `weapon+0x7c` | `HandleIntersections` sends type `'y'` (and 0x97, 0xac, 0xad, 0xb2, 0xb9, 0xba; r0004 also 0xb6, the F2000's smoke round -- R4P-218, D4:L345838-345844, proven by the capture Q218C-PC2) to `HandleBounce`, every other type to `HandleImpact` (decomp 320032-320041) |
 | `Timer1` | 3 | seconds, absent -> 9999999 (never) | `SetProjectile` puts it at the projectile's `+0x8c` (decomp 0x3cb1a0) |
 | `Timer2` | 3.1 | seconds | `+0x90` |
 | `Muzzle_Velocity` | 0.1 | x10 = **1** (`weapon+0x44`) | `SetProjectile`: `vel = velscale x this + vel` -- the throw's velocity passes unchanged |
@@ -95,7 +95,7 @@ from `body->controller+0x11c` (decomp 477024). The SOCOM 1 demo did it different
 (demo 0x2844a0) returns the peak of the last pressure samples over 255 -- so SOCOM II replaced the peak with this lag.
 
 **What it means for a key or a mouse button**: pressure 1 while held, 0 let go. At 60 Hz the power after n frames is
-`1 - 0.95^n`: 0.265 at 0.1 s, 0.537 at 0.25 s, 0.785 at 0.5 s, 0.954 at 1 s, 0.998 at 2 s. On a PS2 pad a light
+`1 - 0.95^n`: 0.265 at 0.1 s, 0.537 at 0.25 s, 0.785 at 0.5 s, 0.954 at 1 s, 0.998 at 2 s (was: the 60 Hz Euler step; since LATER 1027, research 437 s1, the port chases at the original's per-game-frame law: 0.271, 0.546, 0.794, 0.958, 0.998; `grenade.parity.test.ts` holds the re-worked rows). On a PS2 pad a light
 press holds the power low however long it is held.
 
 `THROW_PARAMS`' `abort_threshold` (0.15) is loaded but its reader was not found by offset; the release's 0.15 is the
@@ -203,7 +203,7 @@ standing throws, the hand's height 19.35 (`throwVelocity`, `impactRange`):
 | 2 s | 0.998 | 30 deg | 42.0 | 238.7 | 596.5 | 598.8 |
 
 A level full throw lands about 305 units out; aimed 30 degrees up it reaches the 600 of `max_distance_stand`. At
-mid power and a high aim the speed reaches the max early (0.25 s held, 30 degrees: 443 units).
+mid power and a high aim the speed reaches the max early (0.25 s held, 30 degrees: 443 units; was -- the table above is the 60 Hz Euler step's, and since LATER 1027, research 437 s1, the 0.1 / 0.25 / 0.5 s rows read 60.3 / 130.4 / 217.4 u/s landing 44.5 / 119.6 / 259.0, and this throw 468).
 
 ### 4.1 The crouch-run quick throw (OBF-8, 2026-10-30)
 
@@ -279,6 +279,91 @@ was run.
   the same input -- crouch, stick full forward, a six-frame tap -- sampling `+0x174`, the pushed type at the request,
   the kit's timer and the grenade's first position.
 
+### 4.3 A hit cancels a release not yet out (R4P-248, 2026-11-23; r0004 first; legs 1-3 PROVEN 2026-11-24 by IQ-141)
+
+- **Proven, legs 1-3** (2026-11-24; a memory trace of the original running, compared value for value: r0004 "SOCOM 2 r0004
+  10:14:38 Nov 3 2004" on two PCSX2 consoles over LAN, console A read every game frame through PINE, MP5 Suppression;
+  record `D:/s2u-records/Q248-PC3/Q248-PC3.zip`, sha256 `731308a19a1d1356c59c0cf90de81be90eed361d5a078cc6686d1f5dfa186509`,
+  its `RESULT.md`; capture IQ-141 / Q-248, Shadow PC 3): after a standing M67's release the kit's `+1` byte goes 0x80 ->
+  0x82 and `+0x87c` counts down from 0.709 for **22 game frames** undisturbed, then 0x02 clears, the count drops by one
+  and the grenade flies. (1) A non-lethal hit inside that window (health 1.0 -> 0.9803) CANCELS it, **5 of 5 counted** (9 hit trials; 4 not counted: 2 hits landed 5 and 4 frames after
+  the window, 2 missed): on the
+  hit's frame 0x02 = 0 and `+0x87c` = 0 with 0.309-0.543 still left, the count unchanged, the M67 still in the hand, A
+  alive; the hit and the clear land in the SAME game frame. (2) Control, no hit: thrown 5 of 5, the window 22 frames.
+  (3) A hit during the held wind-up (before the let-go): thrown 3 of 3, the window 22 frames after. So the rule below
+  holds at the proven level for the grenade's release. **Not run** (they stay reading): (4) C4's pending plant and its
+  hand switch (`+0x828` / first primary; no C4 in that kit), (5) the r0001 control (no r0001 bench; r0001's absence of
+  the call rests on the reading below), (6) a health rise and an armour-only hit (no source on that rig). The port's
+  behaviour for legs 1-3 is held by `viewer/test/hitCancelsThrow.test.ts` (unit test; the capture is not replayed
+  against the port frame for frame).
+
+- **r0004** (the rule; for a grenade's release PROVEN by IQ-141, the block above; the C4 hand switch and the rest of
+  it reading, pending review -- lead L258, found by the ledger's second read of `r0001:0x005477a0`,
+  its own non-author second read CONFIRMED WITH CORRECTIONS, the r0004 parity ready queue's row 62): SetHealth (the twin
+  `0x0054c300`) calls `0x5bf4f0` on the kit (body `+0x5e0`) at D4:L453015 on every health change that leaves a live
+  SEAL above 0 (`UpdateHealth` D4:L502433; damage types 0/3/4/5/7, those that skip the hurt reaction included). It clears
+  the kit's pending bit (`+1` 0x02) and timer (`+0x87c`, D4:L513359-513361): a throw, placing or plant released and not
+  yet out is cancelled -- never launched or set down, never spent, the item kept selected. For C4 (0x97) and the bomb
+  (0x9a) only, it also clears the plant's target `+0x81c` and switches the hand: first to the kit's remembered slot
+  `+0x828` when it holds one (`0x5bf57c..98`; the slot an Action plant stored before it took the charge, `0x5c6c38`,
+  research 211 and 326 -- the same return a completed plant takes, `0x5bf4a0..b8`), and only when `+0x828` is -1 (a
+  charge selected by hand) to the kit's first primary, else its first secondary (`0x5bf5a0..670`; D4:L513365-513393).
+  The new health must differ from `+0x1044` (`0x54c30c..14`: an unchanged health returns first), and the test is `!=`,
+  so a rise above 0 cancels too. A held wind-up (cocked, not let go) sets no kit bit and is untouched; a throw already
+  out flies on; a lethal change is the death's path (THROW-INTERRUPT's drop, research 326 §2.4).
+- **r0001** has no such call: its only clears of that bit are D:L471752, D:L475503, D:L476897 and D:L480877, so in
+  r0001 a SEAL shot after letting go still threw (the port's THROW-INTERRUPT reading, research 326 §2.4, which now
+  holds only for a knock that takes no health: `KNOCKED_THROW_POWER_READING`).
+- **The port** (under OT.R97, r0004's): the page's moment is the room's `hurt` that leaves its own body alive with less
+  health (`NetPage.ownHurts`, the same drop as the hurt rumble's), read by the thrower at its next update before the
+  clocks (`GrenadeSource.hurts` -> `GrenadeCore.hitCancel`): the pending throw or placing goes, nothing spent, the item
+  still up; a C4 plant by Action goes back to the item it remembered (`actionReturn`, the port's `+0x828`), a C4
+  selected by hand to the firearm (`HIT_CANCEL_FIREARM_PLACEHOLDER`: the firearm the page holds, not yet the first
+  primary). A count below the one seen (a new page under a living thrower) resyncs and cancels nothing. The clip is left to play out (`HIT_CANCEL_CLIP_PLACEHOLDER`: the hurt call that follows,
+  vtable `+0x54`, is unread for it). The room, at every health drop that leaves a player alive (`Room.hitCancels`, from
+  `hurtVoice` before its gate), forgets the release request so a later death drops nothing for it (`deathDrop`), and
+  ends the bomb's placement unplanted, the bomb still carried (`BombAuthority.hitCancel`). Pinned by
+  `viewer/test/hitCancelsThrow.test.ts`, `match/test/roomHitCancelsThrow.test.ts` and `central/test/roomBomb.test.ts`.
+- **Read, not open:** a hit the armour wholly takes cancels nothing -- SetHealth returns at `0x54c30c..14` when the
+  new health equals `+0x1044` (the health without armour, §4.3's reading of it); the port's `overall` sums `hp` only,
+  so it agrees (reading).
+- **Named differences:** r0004 cancels on a RISE too (`!=` at `0x54c310`); the port counts drops only. The port has no
+  in-round heal (its raises are spawn and resume, when nothing can be pending), so no player sees it. The room's
+  cancel is at its own hit while the page's is at the `hurt`'s arrival: a release request sent before the page heard
+  the hurt reaches the room after its cancel (review F2). The victim's console alone decides: the death's release of a pending throw is
+  gated on the kit's pending bit -- read in **r0001** (`FUN_00547af0` D:L413023 -> `FUN_005b8920`, the gate at
+  D:L471751) and in **r0004** (`FUN_0054c650` D4:L453205 -> `FUN_005beef0`, the same gate at D4:L513216; its machine
+  code at 0x5bef80 matches r0001 word for word -- patches-contrib's second read, 2026-11-24); r0004's SetHealth clears
+  that bit (above) and spends nothing, so the death launches nothing for that release -- the page is the faithful side.
+  Untraced: that nothing re-arms the bit between the cancel and the death (a NEW let-go does re-set it: a new throw,
+  which the stamp lets through). **Not gated on the bit:** OnDeath's ordinary drops -- the death pickups
+  (`FUN_005a0040` via the +0x1061 bit, D:L413052; `FUN_00547350` D:L412694) and the carried bomb (`FUN_0059dd30`,
+  called at D:L413112) -- so a bomb placement a hit cancelled is still DROPPED at the death, as the port's room does. **Built, LATER 1456** (2026-11-24; a
+  network adaptation with no original -- the game has no server -- additive under the protocol, no bump; pending the
+  owner's word on the wire): every `hurt` the room sends carries the seat's serial `n` (`Room.hurtTo`,
+  `Player.hurtSerial`, one more each, zeroed at the spawn), the page keeps the last it heard (`NetPage.lastHurtN`: 0
+  from the moment it hears its own `spawn` -- the room's zero -- set in the event's handler, not at a held spawn's later
+  stand, so a hurt heard between is not overwritten; the 1456 review's F1) and echoes it on its `throwStart` as `hurt`
+  (`ThrowWire.throwStartEvent`); the room
+  notes the serial at each cancel (`Player.cancelSerial`, `Room.hitCancels`) and refuses a request stamped below it
+  (`takeThrowStart`, tallied `throwStart: hurt`), whether it arrived after the cancel or waited in `pending` across it,
+  so a lethal hit after it launches nothing for that release (the ordinary death drops, the bomb among them, are not
+  gated on it) -- the first hurt of a life too (stamp 0 below the cancel at 1). An unstamped
+  request is kept, as before: an older page, a bot, the load ramp, a page that has heard no hurt since its resume, and
+  the Xbox prototype's thrower
+  (`viewer/src/xboxPrototype/walkingGrenades.ts`, which calls `throwStartEvent` with no stamp: its owner's fork, left
+  as it was). No slack or latency guess: the page's own echo decides. **The lobby hand-off (named, LATER 1456's re-review N1):** a late seat spawned and hit non-lethally while still in the lobby has its spawn replayed at the match's mount (`lobbyMatch.ts` ~:483-485) but not those hurts (nor events past the load buffer's cap, ~:595), so its page stamps 0 against a cancel of 1 or more and its next honest release is refused at the room until it hears its next hurt -- the throw itself is still taken; only a death drop inside that window is lost. **The remaining gap (named):** after a resume
+  the page does not know the seat's serial (the `resume` event carries none, and the room does not zero it there) until
+  its next `hurt`, so a request released then and overtaken by that first hurt goes unstamped and is kept; closing it
+  needs the serial on the `resume` (another wire field, not added). Pinned by `match/test/roomHitCancelsThrow.test.ts`
+  ("LATER 1456"), `viewer/test/hurtStampThrowStart.test.ts` and `viewer/test/throwWire.test.ts`.
+- **Not settled:** the clip, and the C4's firearm with no remembered slot, above (IQ-141 ran neither); the order within one frame of the
+  hit's packet and the pad's release (the page reads `hurts` at the top of its update, so a release pressed later
+  in the same update survives). Q-248 (IQ-141) ran and did not settle them: no C4 in its kit, no r0001 bench, and a per-frame sample cannot show the
+  order of the hit and the clear within one game frame (they land in the same frame). Settles them: a C4-kit run of the
+  same rig (the plant pending, `+0x828` / `+0x81c` logged), an r0001 bench control, and a sub-frame trace (a call or
+  memory-write trace) for the order.
+
 ## 5. The flight: `CZProjectile`
 
 The projectile methods, matched by order and shape to the demo's `CZProjectile` (demo 0x318230-0x319ff0):
@@ -297,6 +382,121 @@ The projectile methods, matched by order and shape to the demo's `CZProjectile` 
    with PENETRATION exactly 1 is passed over (`fVar15 != 1.0`). The M67's type goes to `HandleBounce`; its answer 1
    ends the frame there, 2 (passed through) searches on; no hit, `FUN_003c9530` takes the segment's end.
 4. **`HandleTimers`**: `Timer1 <= 0` sets state 3 (to be detonated, grenade state 2); then `Timer2 <= 0` removal.
+
+**The query is one-sided** (GRENADE-ONE-SIDED, 2026-11-25, the main controller's order; `GRENADE_FLIGHT_ONE_SIDED_READING`;
+reading, captured -- the reads below and an unscored capture, pending review). The segment `FUN_0031dd90` registers
+(D:L219868-219903, called at D:L320432; r0004 0x3ecd34 -> 0x33b3a0) is a type-2 record with layer mask -1 and no mode
+word; the node routine takes the crossing mode from the node -- a hull collider's `+0x80` bit 1 is cleared by its
+constructor (`FUN_00316e30` D:L215827-215828), so mode 0x20 (`FUN_002d3030` D:L175276-175282; r0004
+0x2f0268-0x2f02a8) -- under which the VU0 plane test hits only a start in front of the face and an end behind (research
+281 §4.3); and the type-2 branch of the surface loop leaves a surface whose side bit (`m_ditype` bit 1, byte +8) is
+clear (D:L175350-175352; r0004 0x2f08c0-0x2f08cc), after the gate's bit-18 skip (D:L175299-175312). So a grenade meets
+a MAP face only entered from its front, and only a side-bit face; a face met from behind does not exist for it. The
+reads: seat-kill's two independent reads and the atlas's (r0004 from the ELF's bytes, r0001 from the decompilation),
+and the earlier VIGI-THROW read (outside the repository, agent-mail `pilot/kill/keyjob-vigi-throw-read.md`,
+`grenade-ceiling-read-1.md`, `-read-2.md`, `-read-atlas.md`). **The capture** (r0004 on Shadow PC 2,
+GRENADE-CEILING-C-PC2, 2026-11-25; a per-frame PINE logger of the projectile pool, unscored; its record outside the
+repository): a flashbang thrown at three single-sided MP51 faces from behind (face 3008 `wc09/di_extwalls_h02_1`, 4517
+`wc13A/di_bridge_wc13_sides`, 776 `wc03`) crossed each plane with its velocity unchanged, 3 of 3; a throw at face 3008's
+plane from its front bounced at k 0.375. The port's flight flies those four releases over MP51's hull and lands its first
+contact within 0.03 u of the original's bounce placement each time (`viewer/test/grenadeBackFace.disc.test.ts`, a
+dev-disc test; scene `test/grenadeOneSided.test.ts` the synthetic cases). **What the capture discriminates** (the
+review's F4): only t2 and t3. Before this the port's flight was two-sided with no side-bit test: t2 and t3 bounced off
+the face from behind on their first frame (t3 then fell out of the world; the page side by side, PBACK-PAGE-PC4); t1
+already passed face 3008 on the two-sided flight (PBACK-PAGE-PC4 (a)), so it agrees with both rules. Face 3008 on the
+disc (the port's MP51 reader): surface word 0xc0e (`m_ditype` 2, the side bit; material 3; a triangle), x
+603.11..642.27, y 116.55..162.58, in the plane z 444.16 (RESULT.md's 444.2 is rounded). The front control does not
+land on face 3008: its placement (y 98.75) is on the coplanar `wc09/di_wall_wc09` below it (face 3016, word 0x1c12, y
+71.62..118.09, z 444.16; PBACK-PAGE-PC4 names 3016 for the page's own front throw), so it shows a front contact in
+that plane, not on 3008 itself. **BACKFACE-FAR-PC2** (Shadow PC 2 on r0004, 2026-11-25, unscored; its record outside
+the repository, `s2u-records/BACKFACE-FAR-PC2/`): face 623 (`wc02A`, n (-1, 0, 0)) crossed from behind mid-flight 128.4
+u from the release, 3 of 3, v unchanged and no contact to the log's end; a front control on face 4515
+(`wc13A/di_bridge_wc13_sides`) bounced. The same dev-disc test flies those releases: the passes (no contact in the
+logged frames, v unchanged at the plane, the original's rows either side of it within 2 u of the port's flown path --
+the original ran one half-length frame early in those flights, so its rows sit half a frame along the path from the
+port's fixed-step frame points) and 4515's first contact,
+and the two set-aside throws aimed at face 6159, which met something else short of it (near `wc13/di_roof_b07`),
+flown for their first contact. The port: `gridCast` marks each hull hit `recorded` (`projectileAdmits`: side
+bit set, bit 18 clear; and `segment.ts` `entersFront`, on a map hull node, taken on the crossing's own Newell plane since the drop sweep below; a patch or clutter node from either side) and `stepGrenade`
+passes an unrecorded one (`flightMeets`); the world's vertical line (`net/placing.ts` `worldColumn`, the placing and the
+scorch) still takes every hit, being another query. **MP51's six tunnel owners keep OT.R140's labelled rule, as MISSION
+words it** (`VIGI_TUNNEL_CEILING_OWNERS_ADAPTATION`, §10; seat-kill's ruling on the review's F3): only a THROWN
+grenade's contact (categories 0x79 / 0x97, not a dud) with a listed owner's CEILING met from below (the turned normal's
+n_y <= -0.5, `VIGI_TUNNEL_CEILING_MIN_DOWN_ADAPTATION`, the bounce's own test) is met whatever the winding
+[adaptation, OT.R140]. A listed owner's walls, floors and roofs met from behind, and every launched round, follow the
+one-sided rule. **A known divergence: one hit per node** (the review's F5; reading, pending review). The hull
+collider's constructor sets `+0x80` bit 0 (`FUN_00316e30` D:L215827). The node routine reads it (`FUN_002d3030`
+D:L175276) and, after a recorded hit, carries it into the flag that ends the node's surface loop (D:L175293-175295,
+D:L175372-175378). So the original records at most ONE hit per hull node, the first recorded in the node's surface
+order. The port's `gridCast` lists every recorded hit and the flight takes the nearest: where one node holds two faces
+the frame's segment enters from the front, the two can choose different faces. On the five MP1 nodes r0004 clears
+bit 0 on (`land49`, `land58`, `invis25`, `invis29`, `land59`; research 383, the table of §9) the original records every
+hit, as the port does.
+LATER NNN (for seat-merge to number): the first recorded hit per hull node, in surface order, for the projectile's
+query. Left unread: which of several recorded slots `HandleIntersections` takes.
+
+**The real-map drop sweep and what it narrowed** (seat-kill, 2026-11-25; `viewer/test/grenadeDropSweep{A,B,C,D}.devdisc
+.test.ts` over `helpers/grenadeDropSweep.ts`, a dev-disc measurement of the port's flight on all 22 multiplayer hulls:
+drops, fast drops and short throws onto every floor the mover stands on, the bar no pass-through). Its first run found
+5,123 pass-throughs on 18 maps, four causes:
+- **A, r0004's added nodes** (3,521: MP72 `worldmodel/r0004@0x2d78d4`, MP83 `worldmodel/c1/r0004@0x2d52e0`, floors wound
+  face-down) and **C, clutter instances' nodes** (44: MP61 `light_round_nosource*` `dilite`, MP82 `military_phone`, tops
+  wound face-down). **The reading is one-sided for both; the port departs from it** (seat-kill's ruling, 2026-11-25,
+  logged to the controller, which may overturn it; the re-review of e00ef8d1f8's F1). The patch's reading (reading,
+  pending review): the r4 0x3343d0 constructor the patch builds its added nodes with is `FUN_00316e30`
+  (`zdb::CNode::__ct`, the base node constructor), an unchanged masked twin (research 383 §3, "ctor r4 0x3343d0 (= r1
+  `FUN_00316e30`)"; research 398, "the two flag writes at r4 0x334468, 0x334478"): it sets `+0x80` bit 0 (D:L215827) and
+  clears bit 1 (D:L215828), so `FUN_002d3030` takes mode 0x20 (D:L175276-175282). Research 383's census of every patch
+  store to `+0x80` (§2, 11 stores; the table of §9, on MP1, MP51 and MP62 only) has none on an added node of MP72 or
+  MP83, and the atlas's builders (r0004:0x2d52a0 `BuildMP83Collision`, r0004:0x2d7050 `PatchMP72SceneCollision`) list
+  no `+0x80` write -- the MP83 one calls the constructor; MP72's quad is face-down as transcribed
+  (`r0004MapPatchTable.ts`, pcs 0x2d78d4). So the original, read, passes a grenade from above through both (the atlas
+  calls MP83's faces "beneath c1", possibly undersides). Clutter's reading is the same shape, weaker: research 422 §2.5
+  files "clutter nodes keep the constructor's `+0x80`, bit 1 clear (inferred)", and its §0 finding 6 keeps clutter's
+  per-query facing. **The departure**: the port meets both from either side, the flight it had before the one-sided
+  rule -- `GRENADE_PATCH_NODE_SIDES_READING`, `GRENADE_INSTANCE_NODE_SIDES_READING` (§10, `'two-sided'`; a departure
+  from the reading, pending a capture) -- because one-sided there drops grenades through 3,521 + 44 sweep points on
+  floors and tops players stand on, on a reading no capture has checked. Settles it: an r0004 capture of a grenade
+  dropped or thrown from above onto MP72 (about 1572.4, 243.91, 1314.3, the patch quad's centre; the sweep's sample (1534.68, 243.91, 1274.0) sits 0.11 u inside its z edge) and MP83 (783.01, 79.0, 1632.89), and onto one MP61
+  `light_round_nosource*` `dilite` or MP82 `military_phone` top -- does it pass through or bounce? The port tells them
+  from the hull by the owner's path, the mark every owner carries to the hit: a segment beginning
+  `R0004_NODE_NAME_PREFIX` (`r0004MapPatch.ts` names each added node so) or a path under `CLUTTER_PATH_ROOT`
+  (`clutterCollision.ts`, CLT.R3); `projectile.ts` `projectileNodeSides`; the sweep's `hullOwnersMarked` (a dev-disc
+  case per map) holds that no disc hull node, read without the patch and the clutter, carries either mark. Polygons
+  the patch adds to an existing node (`addPolys`) are that node's. The side-bit test, the surface loop's, holds on every
+  node. The back-face capture's faces (3008, 4517, 776, 623) are all hull faces, so the capture's behaviour holds.
+- **B, warped faces, a port bug** (1,534 throws, about 120 faces warped 0.05-0.38 u off their first three vertices'
+  plane). Two parts, both fixed: (1) the flight's side test (`segment.ts` `entersFront`) took the micro's plane
+  (`frontSides`, `(p2 - p1) x (p0 - p1)` through p1) while the crossing is found on the Newell plane through p0, so a
+  frame ending in the sliver between the two met the face in neither frame -- the side is now taken on the crossing's
+  own plane (`n . d < 0`), so every hit the two-sided cast lists is front or back; the micro's "an end exactly on the
+  face is not behind" (1e-5) is left on that plane, where it would reopen a 1e-5 u sliver: an end within it is met that
+  frame, at the same point. (2) `segmentHits`' per-polygon box reject (SEGMENT-BODY's) took the points' box, which the
+  Newell plane through p0 leaves on a warped polygon (a 0.2 u warp: 0.08 u under every vertex), dropping hits the
+  uncached code finds; the box now bounds that plane at the corners (`polyBox`). (2) changes `segmentHits` for every
+  caller back to the uncached code's hits (the adaptation's own contract, `segmentCache.test.ts`); `crossing(.., true)`,
+  the hull's one-sided test for the throw clearance, is unchanged. LATER NNN (for seat-merge to number): `crossing(..,
+  true)` still takes the side by the micro's `frontSides` (`segment.ts` `crossing`, the `frontOnly` line), so the
+  sliver of (1) remains for its frame-stepped front-only callers (the walk's segment body, the camera's pass) -- pre-
+  existing, not this rule's; the fix is (1)'s, the side on the crossing's own plane.
+- **D, open hull edges** (24 in the first run): out of the world with NO face crossed and not met -- the flight left
+  through an opening of the hull, which the one-sided rule never touched (the two-sided flight flies it alike). Not
+  this rule: the sweep counts them as `open` beside the bar and prints them. LATER NNN (for seat-merge to number): the
+  open hull edges the drop sweep's `open` column names (22 on the re-run, throws only: MP1 3, MP51 1, MP71 1, MP72 12, MP83 5) -- whether the original's hull is
+  open there too (a capture of a throw at one) or the port's reader drops a face.
+The re-run after the fixes (2026-11-25, obfrun on Craig's host, one file a call; a dev-disc run): no pass-through on any
+of the 22 maps (hull, column and void all 0), 22 `open` beside the bar, the material passes (`INVISIBLE_DI`, glass)
+counted beside it as before; `grenadeBackFace.disc.test.ts` (the capture's releases, BACKFACE-FAR and the 6159
+set-asides) unchanged. Two more counts beside the bar (the same re-run's table, all 22 maps; a dev-disc run): **steep
+faces crossed unmet**, 67 (`steepX`, `grenadeDropSweep.ts` `steepCrossed`: a ground face steeper than the wall line,
+n_y under `WALL_NY`, crossed from its up side ahead of the contact and not met -- not a floor the mover stands on, so not
+the bar's; MP10 33, MP1 10, MP72 8, the rest 16), and **flights with no contact**, 860 (`noContact`: no bounce, impact
+or pass within the sweep's 60 frames, still in the world -- the instrument's horizon, not a pass; MP81 725, the rest
+135).
+
+The 25 u throw cancel still answers
+before the flight (capture C8 of the same record: r0004 cancels between 21 and 20 u from a wall's plane, the release
+then ~12 u in front of it), so a throw met head-on is released in front of the face.
 
 Online, a copy started late is flown these frames, not moved along its arc: the room's late hand throw (§6.1, 2.) and,
 since LATER 643, every page's copy of another's throw started at the room's age (§6.1, 4.; `GrenadeThrower.startAged`,
@@ -321,7 +521,15 @@ Otherwise (LIQUID, or PENETRATION >= 0.99): `v x= ELASTICITY_COEFF`, and the pos
 
 No other term touches the velocity: **there is no friction and no rolling**. A grenade on flat ground loses
 `1 - e` of its speed at every hop; the hops shorten until one ends under 5 going up. The viewer's normal comes from
-the hull polygon, either side; it is turned to face the grenade [reading: the engine's intersect record's normal].
+the hull polygon; it is turned to face the grenade [reading: the engine's intersect record's normal] -- since
+GRENADE-ONE-SIDED (§5.1) a recorded hit already faces it, and only an OT.R140 tunnel CEILING met from behind (a thrown grenade from below) is turned.
+
+**IQ-160 3B (2026-11-24; capture, UNSCORED; r0004, Shadow PC 4, record IQ160-ORIG-PC4; B-46 ruling (a): parity).** M67
+full throws' first bounce kept 0.3749-0.3756 of the speed on STONE, 0.2250 on WOOD (square and at 45 degrees), 0.3375 on
+ASPHALT (at 45 degrees; no square trial), mirrored within 0.48-1.11 degrees of the ideal mirror (the port's reflection
+is the exact mirror; the capture's residual is not attributed), the whole vector scaled -- ELASTICITY_COEFF x 0.75 as above. Pinned in
+scene `test/projectile.test.ts` ('B-46 (a)': the port's bounce on its own SOILS records, within 0.005 and 1 degree;
+the second bounce without the 0.75).
 
 **Every contact is a hit on the struck node** (LATER 851, 2026-11-10; reading, pending review). Both branches -- the
 bounce (answer 1) and the pass (answer 2) -- end by calling the `+0x94` handler of the intersect record's node (`+0x1c`)
@@ -469,6 +677,38 @@ The room now (`packages/match/src/room.ts`):
    starts its copy at the event. The thrower's own page is unchanged: it flies its copy from its own release (the
    broadcast skips it). So the room and every page share one release instant; what is left between their blasts is
    each page's line latency (the event's one-way trip, and the thrower's line to the room), filed below.
+5. **A refused hand throw, told** (LATER 1407, 2026-11-24; the controller's rulings 1-2; *reading, pending review*;
+   an ADAPTATION, the network's). The original never refuses a launched grenade: the thrower's console decides alone
+   (each net object is its maker's console's, research 193), and the receivers' create handler (r0004 `FUN_002c3400`
+   D4:L172495-172530; r0001 `FUN_002c17b0` D:L163738-163771, registered by `FUN_002c1850` D:L163776-163795) sends nothing
+   back -- it fires a local copy, or SKIPS it silently (no net object or data, D:L163753-163754; the shooter not found,
+   `FUN_002bd4d0` D:L163757-163758; no weapon in the receiver's view of the shooter's kit, `FUN_005bd030`
+   D:L474169-474170; and r0004 only: the copy made only while the game state `*(DAT_004446f8+0x117)` is 3, in play,
+   D4:L172522) -- the thrower never told either way (patches-contrib's second read, 2026-11-24);
+   every refusal is local and before the launch (the fire gate `FUN_005c0ae0`, the online cap D:L476470-476491; the
+   release clearance, research 256 s5), and once `FUN_005c1970` spends it (+0x818 up, +0x1d4 down, D:L477024-477042) and launches it (`FUN_005c5340`,
+   D:L477094-477095, D:L477133) nothing takes it back. The
+   room's refusals of a released hand throw are the port's, so each one an honest page can reach -- `not alive`,
+   `none left`, `no frame`, `rate`, `net cap`, `hand far`/`hand walled`, `launch`, `unclear` (`room.ts` `throwGrenade`)
+   and a `throw`'s `too many waiting` and `its command never ran` (`timed`, `settle`) -- is told to the thrower alone by
+   the EXISTING `{ type: 'stale', request: 'throw', seq }` (`Room.tellRefusedThrow`; no wire change, the same fields
+   `decide`'s stale bound, LATER 206's mount, LATER 929's charges and LATER 503's rockets send); `unknown kind` and
+   `slot` (a forged or old page's) stay untold. The page (`GrenadeThrower.giveBack` -> `takeBackThrown`) retires its
+   OLDEST own copy of that thrown kind with no pid -- in the air or at rest, not gone off; never one `tagOwn` tagged
+   (the room took it) -- and refunds the item by its own state, the message carrying no reason: none while its SEAL is
+   dead (the room's `not alive`: the original's console spends it either way), none for a copy thrown under an older
+   kit (`kitEpoch`, one more at each `refill`, the spawn's), else one as before. Held by match
+   `test/roomNetHardening.test.ts` 'LATER 1407' and viewer `test/grenade.test.ts` 'LATER 1407'. Left: a `stale` heard
+   after the own spawn never reaches `giveBack` (`net/throwWire.ts` `clearPending` drops the journal at `NetPage`'s
+   `ownSpawn` and `resume`), so that copy flies on -- the wiring of a retire-only callback (`ThrowWire` -> `NetPage` ->
+   `matchThrow`) is owed. A second known gap (the review's F1, named, not built): "oldest untagged" can retire the
+   wrong copy when an earlier refused throw's copy has already gone off on the page -- a `throw` answered `its command
+   never ran` after `PENDING_TICKS` (longer than a fuse), or `too many waiting` answered out of order -- so the stale
+   retires a later copy of that kind, which the room then flies (its `placed` not yet heard). The cure is to match the
+   copy by its launch point through the journal (`ThrowWire`'s seq -> kind, slot and `from`), and goes with the owed
+   retire-only respawn callback. The room tells a HAND throw's refusals alone (`kindOf` 'throwable'): `timed`'s and
+   `settle`'s refusals of C4's `throw` stay untold as LATER 929 keeps C4's, and a rocket's or a carrier's round's are
+   LATER 503's and P4's (the review's F2).
 
 Held by `packages/central/test/roomGrenadeFuse.test.ts`: a 1 s stall of the room mid-fuse, and a throw whose line held
 it 1 s -- the room's blast 3.017 s after the release in both (was 4.000 s and 4.017 s), B walking at it 180 units out
@@ -598,16 +838,27 @@ readings, **pending review** (the author's; not re-read by a second reader yet).
    hand's origin (`ITEM_NODE`, `Play.itemNode`; its local matrix `ITEM_NODE_LOCAL_READING`). Open: `FUN_005c6980`
    (D:L479740-479760, called from `FUN_005c50b0` at the take-up, D:L478994) looks a node up by the name `aimnodes` and
    adds a kit model to it; which model and for how long is not traced.
-3. **The pistol's versions.** `FUN_00588bc0` pushes every one-shot through `FUN_0058c820(body, type, +0xf79)`
-   (D:L446077); with the sidearm in the hand the type becomes its registered pair (`FUN_005e1cf0`, D:L494720-494772):
-   `Throw grenade` -> `Pistol throw grenade` (`seal_p_throwgrenade`), `Toss grenade` -> `Pistol toss grenade`
-   (`seal_p_tossgrenade`, playback **2.0**), the two lean tosses -> `seal_p_toss_rlean` / `seal_p_toss_llean`, `Place
-   claymore` -> `seal_p_place_claymore`, type 0x3e `Put on wall` -> 0x83 `Pistol put on wall` (`seal_p_put_onwall`; the
-   ELF's type table at 0x661060). The crouched and prone throws' pistol types (ELF 0x6617e0, 0x6617a0, 0x661820) are
-   not in the Seal anim set: the rifle's clip plays. `FUN_005802b0` times the release on the pushed motion, so the
-   pistol's toss lets go at 0.69 x 2.0 x 29/30 = **1.334 s** (the rifle's 1.067 s); `GetThrowAnim`'s fraction and hand
-   point stand. `@s2u/scene` `PISTOL_HAND_ANIMS`, `handAnim`. Three of the pistol clips are upper-body only (16, 15 and
-   16 parts): the layer lays the parts they carry (`PISTOL_ONESHOT_PARTS_READING`).
+3. **The pistol's versions.** `FUN_00588bc0` pushes every one-shot through the hand pass (D:L446077); `FUN_005e1cf0`
+   registers each throw and placing type's pair (D:L494720-494721, 494735, 494741, 494747-494752, 494772; D:L494718-494719
+   are the prone peeks'): `Throw grenade` -> `Pistol throw grenade`
+   (`seal_p_throwgrenade`), `Toss grenade` -> `Pistol toss grenade` (`seal_p_tossgrenade`, playback 2.0), the two lean
+   tosses -> `seal_p_toss_rlean` / `seal_p_toss_llean`, `Place claymore` -> `seal_p_place_claymore`, type 0x3e `Put on
+   wall` -> 0x83 `Pistol put on wall` (`seal_p_put_onwall`; the ELF's type table at 0x661060). **Which pair is taken
+   (LATER 1442; reading, pending review):** with the sidearm in the hand (`+0xf79` 2) `FUN_0058c960` (D:L448200 on;
+   r0004 the hand pass 0x592050 -> 0x591f10) takes the pair only where `FUN_005e3ac0` (D:L495755-495768; r0004 0x591fec
+   -> 0x5eb290 / 0x5eb2c8) finds byte +5 bit 1 of the type's anim-set record, and the fixed list that sets that bit
+   (`FUN_005e0690` D:L494815-494950; r0004 0x5e89a0-0x5e9154) holds, among the throw and placing types, only `Peek
+   right toss` and `Peek left toss` (D:L494910-494919, `DAT_003deb20` / `DAT_003deb30`, named at D:L495211 / D:L495213).
+   So only the lean tosses play the pistol's clip; the standing throw and toss, the crouched and prone throws, the
+   claymore's placing and C4's plant keep the rifle's. Captures of the original (unscored): ZOOMF1-PC2 and ZOOMF1B-PC2,
+   no `Pistol throw grenade` in 24 throws (standing 49, crouched 243); WFEEL-C7-PC2, the peek tosses switch (240 /
+   241). The placings are not captured (the reading alone). `FUN_005802b0` times the release on the pushed motion
+   (the pistol toss's record would let go at 0.69 x 2.0 x 29/30 = 1.334 s, but it is not played: the sidearm's toss is
+   the rifle's, 1.067 s); `GetThrowAnim`'s fraction and hand point stand. `@s2u/scene` `PISTOL_HAND_ANIMS` (the pairs,
+   records), `PISTOL_HAND_SWAP_CLIPS` (the two taken), `handAnim`. Three of the pistol clips are upper-body only (16,
+   15 and 16 parts): the layer lays the parts a pistol one-shot carries (`PISTOL_ONESHOT_PARTS_READING`). *Was: every
+   registered pair taken where the Seal anim set held the pistol type, so the sidearm's standing throw and toss, the
+   claymore and C4 played the pistol's clips, the toss let go at 1.334 s.*
 4. **C4's own clip.** `FUN_005be9a0`'s C4 branch (type -0x69) pushes action 0x3e, `Put on wall` (D:L475420), with the
    charge down at its trigger phase 0.45 (D:L475444): `seal_put_onwall`, 42 keys, playback 2.5, `NoInterrupt ()` bare.
    The claymore (-0x67), the PMN (-0x62) and types -0x68, -0x66 push `Place claymore` (D:L475322, 475354, 475371,
@@ -661,7 +912,7 @@ HUDW icon (`IconTextureName`: `grenade_frag_icon.tif`, `grenade_he_icon.tif`) an
 passes the weapon's `+0x7c` through `FUN_003d1a60`, which maps an ID to the first ID of its range (121-140 -> 0x79, the
 hand grenades; 151-170 -> 0x97, the charges; `weaponCategory`). So the HE (126), the AN-M8 (122) and the Mark141 (123)
 bounce exactly as the M67 does; `HandleImpact` (0x3c8920) -- which does set an explosive round to detonate at its first
-non-liquid hit -- is the launched rounds' (0xab-0xb8 but 0xac, 0xad, 0xb2) and the bullets'. Round 2's "the HE goes
+non-liquid hit -- is the launched rounds' (0xab-0xb8 but 0xac, 0xad, 0xb2, and in r0004 0xb6 -- R4P-218) and the bullets'. Round 2's "the HE goes
 off where it lands" was wrong. The HE: `Explosion_Radius` 10 (100 units), `Explosion_Damage` 11, its zAnims `HE_start`
 (`.THROW_OBJECT`) and `HE_grenade`.
 
@@ -767,6 +1018,22 @@ The claymore has **no trigger of its own** -- no tripwire, no proximity, no fuse
   carries a claymore. `FUN_005bdc30` (decomp 474637) makes it selectable only while `FUN_003cc1f0(0x4b5220, owner)`
   -- the SEAL's claymores down (the entries marked `+0xc5`, the claymore's alone, decomp 474101; research 256 §8.1,
   PAR-96, 2026-10-16) -- is not 0. *(Was: "the SEAL's charges down".)*
+- **The Detonator is KEPT** (LATER 1129, R142 head B, 2026-11-18; reading, pending review; the main controller's ruling
+  between readings, logged for the owner): `FUN_005c74e0` (D:L480156-480202) only ADDS 0xc1 -- when the owner's list
+  (`+0x830` -> `+0x6c4`, count `+0xe0c`) holds 0x99 and the kit (`+0xe4`, count `+0x82c`) holds no 0xc1 -- and never
+  removes it; it runs at the end of a take's pour (`FUN_005ba3d0` D:L472771) and from the kit's re-init (`FUN_005c7840`
+  D:L480388; its direct callers the spawn's `FUN_00599b60` D:L455675 and `FUN_00553e60` D:L419394, no per-frame caller cited). 0xc1 is one of the ten kept ids a bundle's install never overwrites (`PICKUP_SPENT_EXEMPT_IDS_READING`, was `LAUNCHER_SLOT_KEPT_READING`, D:L473266-473269).
+  So a SEAL whose spent claymore slot takes a body's HE (`FUN_005bb000` D:L473239-473285, `FUN_005bc410`
+  D:L473823-473829) still holds the Detonator and still sets off the claymores he has down. The room keeps it as
+  `Player.detonator` (set at a spawn whose kit holds a claymore and by a take that brings one; `detonate` asks it) and
+  tells the page in the taker's `kit` and a `resume` (`detonator`); the page keeps its own (`GrenadeThrower`
+  `detonatorKept`). Whether the owner's list at `+0x830` is the character's template or the live kit is not read
+  (`DETONATOR_KEPT_READING`, §12.1); either way the Detonator stays once added. **Rejected alternative** (the 11-16
+  close review of head A, M1): "the room's rule matches the original" -- the Detonator the kit's only while a claymore is
+  in a slot, so the page should drop it with the slot and the placed claymores rest (to be shot, PF-36). Rejected
+  because `FUN_005c74e0` has no removing branch and `FUN_005bdc30`'s 0xc1 gate asks claymores down alone; the room's
+  `no claymore` slot test and the page's `kit.includes('Claymore')` were readings of "has the Detonator" as "has a
+  claymore slot", equal until a take could rewrite a slot.
 - **Placing** (the fire handler `FUN_005be9a0`, type -0x67 = 0x99, decomp 475306-475337): with 4 or more of the SEAL's
   claymores down (`FUN_003cc1f0(...) < 4`; PAR-96: a PMN or C4 down never counts, research 256 §8; *was:* "the SEAL's
   charges down") it shows `Unable To Deploy: Max Equipment Items Placed (4)` (0x65f880) with a
@@ -944,7 +1211,9 @@ What it found:
 | `EXPLOSION_READING` | §7.2 | the particle commands |
 | the flash glow | a fifth of 100 -> 190 | the light |
 | the scorch | at rest only, the rest material's size; STONE's for a material `GRENADE_BLAST` does not list (`decals.rdr` has no row for it; `GrenadeThrower.scorch`, review 4) | the column under any blast, its surface's material (§7.3); what the game draws for a material with no row is not traced |
-| hull surfaces | bit 18 skipped (`isShotSurface`) | the projectile query's class |
+| `GRENADE_FLIGHT_ONE_SIDED_READING` (`projectile.ts`; reading, captured, pending review) | the flight meets a hull face only entered from its front and only with the side bit (`projectileAdmits`: bit 1 set, bit 18 clear; `segment.ts` `entersFront`); OT.R140's narrow carve-out: a THROWN grenade (0x79 / 0x97, not a dud) meeting one of MP51's six listed owners' CEILINGS from below (turned n_y <= -0.5) is met whatever the winding; their walls, floors and roofs from behind, and every launched round, are one-sided [adaptation, OT.R140] | the projectile query's class and sides (§5.1): `FUN_0031dd90` -> `FUN_002d3030`, mode 0x20, the side-bit test (D:L175276-175282, D:L175350-175352; r0004 0x2f0268-0x2f02a8, 0x2f08c0-0x2f08cc); captured on r0004 (GRENADE-CEILING-C-PC2, unscored: 3 of 3 back-face throws pass, of which only t2 and t3 discriminate (t1 passed face 3008 on the two-sided flight too); the front control lands on the coplanar `wc09/di_wall_wc09`, face 3016, not 3008; BACKFACE-FAR-PC2, unscored: face 623 passed mid-flight 3 of 3, face 4515's front control bounces). A known divergence: the original records one hit per hull node, the first in surface order (`FUN_00316e30` D:L215827 sets `+0x80` bit 0; `FUN_002d3030` D:L175276, D:L175293-175295, D:L175372-175378 stop the node's loop after it), where the port takes the nearest recorded hit (LATER NNN, for seat-merge to number). Narrowed by the drop sweep (seat-kill, 2026-11-25; §5.1): one-sided on the map hull's own nodes only -- r0004's added nodes and clutter instances' nodes, read one-sided too, are met from both sides as a departure from the reading pending a capture (the two rows below); the side test is taken on the crossing's own Newell plane (the sweep's cause B). Open: the consumer's slot choice. Settles it as proven: the capture scored by the harness |
+| `GRENADE_PATCH_NODE_SIDES_READING` (`projectile.ts`; a departure from the reading, pending a capture -- seat-kill's ruling 2026-11-25) | `'two-sided'`: a polygon of a node the r0004 map patch ADDS (`applyR0004MapPatch` `addNode`, an owner path with a segment beginning `R0004_NODE_NAME_PREFIX`, `projectileNodeSides`) is met by the flight from either side (the side bit still asked) | the reading (reading, pending review; §5.1): ONE-SIDED -- the r4 0x3343d0 constructor is `FUN_00316e30` (research 383 §3; research 398, the flag writes at r4 0x334468, 0x334478), `+0x80` bit 1 cleared (D:L215828), mode 0x20 (`FUN_002d3030` D:L175276-175282); research 383's `+0x80` census has no store on an added node of MP72 or MP83. The port departs because one-sided drops grenades through 3,521 sweep points on MP72 `worldmodel/r0004@0x2d78d4` and MP83 `worldmodel/c1/r0004@0x2d52e0` floors (cause A) on a reading no capture has checked. Settles it: an r0004 capture of a grenade dropped or thrown from above onto MP72 (about 1572.4, 243.91, 1314.3, the patch quad's centre; the sweep's sample (1534.68, 243.91, 1274.0) sits 0.11 u inside its z edge) and MP83 (783.01, 79.0, 1632.89) -- through or bounce |
+| `GRENADE_INSTANCE_NODE_SIDES_READING` (`projectile.ts`; a departure from the reading, pending a capture -- seat-kill's ruling 2026-11-25) | `'two-sided'`: a polygon of a clutter instance's node (`clutterCollision`, an owner path under `CLUTTER_PATH_ROOT`, `projectileNodeSides`) is met by the flight from either side (the side bit still asked) | the reading (inferred; §5.1): ONE-SIDED -- research 422 §2.5, clutter nodes keep the constructor's `+0x80`, bit 1 clear (`FUN_00316e30` D:L215827-215828), and §0 finding 6 keeps clutter's per-query facing. The port departs because one-sided drops grenades through 44 sweep points on MP61 `light_round_nosource*` `dilite` and MP82 `military_phone` tops (cause C) on an inference no capture has checked. Settles it: an r0004 capture of a grenade dropped from above onto one MP61 `light_round_nosource*` `dilite` or MP82 `military_phone` top -- through or bounce |
 | `ARC_DEPTH_TEST_PLACEHOLDER` | true | the translucent line list's (`FUN_003373b0`) Z test (§11) |
 | `PLACE_CAST_LIFT_READING` (retired, AD-4) | was 1: the page's cast started over the hand | resolved 2026-10-16 (web sprint 40 AD-4; reading, research 202 §2.2): no lift -- `FUN_005c2430` keeps, of the world column's accepted surfaces (+/-50000 at the hand's x and z), the highest at or under the hand, else the lowest, the later of equal heights (D:L477228-477249); `net/placing.ts` `placeGround`, the page's `placeCharge` and the room's `chargeRests` and hand path (`room.ts`, feet + `CHARGE_HAND_HEIGHT_PLACEHOLDER`) |
 | `PLACE_REST_LIFT_READING` (retired, AD-4) | was 0.1: the charge set over the surface found, the page's own | resolved 2026-10-16 (web sprint 40 AD-4; reading, research 202 §2.2): 0 -- `FUN_005bc730` sets the charge on the column entry's point (D:L477007-477010, D:L473998-474004); the room's hand path stops its drop `CHARGE_GROUND_SLACK_PLACEHOLDER` short of the point (`room.ts` `startRefused`) |
@@ -954,10 +1223,15 @@ What it found:
 | `GRENADE_CONTACT_RANGE_READING` (`sceneHealth.ts`) | `'frame-start'`: a contact's range falloff measured from where the frame began | the projectile node's position `FUN_003c7600` measures from (`+0x20`'s `+0x30..+0x38`, D:L318741-318749) while `HandleIntersections` runs: the projectile tick `FUN_003c9fb0` runs `HandleIntersections` (`FUN_003c9b70`, D:L320162), whose contact loop calls the handler before the frame's end is written back (`+0x54..+0x5c`, D:L320059-320061) and before `FUN_003c63d0` (D:L320062), and only then hands `+0x54` on (`FUN_003cabe0`, D:L320164-320174) -- that order is the source of 'frame-start'; what `FUN_003c63d0`'s callbacks and `FUN_003cabe0` do to the node's `+0x30..+0x38` is not traced -- one frame's travel either way, far under the M67's `Effective_Range` 400 (§5.2, LATER 851; reading, pending review) |
 | `ITEM_NODE_LOCAL_READING` (`heldItem.ts`) | identity | the `grenade` node's local matrix under `rhand`: `FUN_00553290`'s new node is given none before it is hung (D:L419019-419052); the node class's default and `FUN_005c6980`'s `aimnodes` model are not traced (§8.1) |
 | `PISTOL_ONESHOT_PARTS_READING` (`throwPose.ts`) | beneath (*since PAR-85: `{ throw: 'push', place: 'beneath' }`, research 251 §7*) | the parts an upper-body pistol one-shot (`seal_p_throwgrenade`, `seal_p_tossgrenade`, `seal_p_put_onwall`) does not carry keep the pose beneath it; how the action stack fills them is not traced (§8.1) |
+| `HIT_CANCEL_CLIP_PLACEHOLDER` (`grenadeCore.ts`) | `'plays out'` | the clip of a throw or placing a non-lethal hit cancels: left to the body with nothing leaving the hand; the hurt call after `0x5bf4f0` (vtable `+0x54`) is unread for it (§4.3); settles: that read, or capture Q-248 |
+| `HIT_CANCEL_FIREARM_PLACEHOLDER` (`grenadeCore.ts`) | `'the firearm the page holds'` | the firearm a cancelled C4 placing with no remembered slot (+0x828 == -1, a C4 selected by hand) goes to; r0004 takes the first primary, else the first secondary (`0x5bf5a0..670`; §4.3); an Action plant returns to `+0x828` first, built |
 | `CROUCH_RUN_QUICK_THROW_READING` (`projectile.ts`) | the standing throw, 0.710 s, reach 300, no thrower velocity; the reported second applied nowhere | the crouch-run quick throw's "missing 1 sec" (Trello xNAdEL9i): every step read at the source agrees with the port (§4.1); settles: the clip measured frame by frame beside the port (OBF-8, reading, pending review) |
 | `THROW_DATE_BACK_TICKS_ADAPTATION` (`match/src/room.ts`) | 60 ticks (1 s, `CREDIT_MAX`'s) | a network adaptation, no original (§6.1): the most a late hand throw is dated back -- flown from the page's release, not the room's decision; past it the throw runs late by the rest; the part of a throw's age past the room's own credit (§6.1). The owner's ruling (2026-11-02, Craig's own word in the controller seat ef): 60, and it stays. Since LATER 643 the `grenade` event carries the throw's age as the room flew it (§6.1, 4.), so every page sees the shortened fuse: the vector the ruling first accepted -- a page flying its grenade up to 1 s early against the others' full fuse -- is closed. What remains, the cost the 60 is judged against (LATER 643's review, F2): a held line still makes the others' copy appear up to 1 s into its flight, mid-arc, with up to 1 s less of its fuse to see (not new: the room's blast already reached them that early) |
 | `ROOM_FLIGHT_MAX_FRAMES_ADAPTATION` (`match/src/room.ts`) | 300 game frames (the queue's 10 s, `QUEUE_MAX`) | a server guard, no original (§6.1): the most frames the room's flight runs in one step on its credit; a longer stall's surplus is dropped, as the page's accumulator drops a stalled tab's (`GAME_FRAME_MAX_STEPS`) |
 | `REMOTE_AGE_MAX_FRAMES_ADAPTATION` (`viewer/src/grenade.ts`) | 300 game frames | a browser guard, no original (§6.1, 4.; LATER 643): the most frames a page starts another's copy into its flight at once from the `grenade` event's `age`; the room's own bound, pinned equal by `roomGrenadeFuse.test.ts` |
+| `VIGI_TUNNEL_CEILING_OWNERS_ADAPTATION` (`projectile.ts`; MISSION OT.R140, an intentional divergence, the owner's) | MP51's six tunnel owners (`worldmodel/wc11/di_tunnel_wc11`, `wc12A/di_tunnels_wc12`, `wc12A/di_tunnels_wc12a`, `wc13/di_tunnel_wc13`, `wc13/di_tunnel_wc13a`, `wc14A/di_tunnels_wc14`); the collision census finds none on another multiplayer map; the dev-disc test `vigiCeiling.disc.test.ts` asserts it over every archive, the campaign's included | no original: Craig's "Soften the ceiling bounce" -- the faces whose ceiling contact keeps its forward speed |
+| `VIGI_TUNNEL_CEILING_MIN_DOWN_ADAPTATION` (OT.R140) | 0.5: the contact's normal turned toward the grenade has n_y <= -0.5 (met from below, the face within 60 degrees of level; a wall's n_y is about 0). Not 0.7: wc12A's vault is an arch and Kill's throw meets its sloped face at n_y -0.55 (Shadow run 233) | no original: what counts as a ceiling contact on those owners; walls, floors, a roof met from above and every launched round (its dud; the live bounce-typed smoke rounds 0xac, 0xad, 0xb2 and 0xb6) keep `HandleBounce`: thrown grenades only, categories 0x79 / 0x97 (the v0.4.31 release-head review's F1) |
+| `VIGI_TUNNEL_CEILING_KEPT_SPEED_ADAPTATION` (OT.R140) | 0.9 of the velocity along the ceiling, in place of ELASTICITY_COEFF (x0.75 on the first bounce); the part off the ceiling keeps the original's damping | no original: the original keeps ~37% of the whole on Kill's throw (STONE 0.5 x 0.75; an r0004 capture on a Shadow PC, the Shadow ledger's IQ-084, outside the repository; the port matched it on Shadow run 213); the factor is the owner's to judge from the dev-disc run |
 
 ## 11. The yellow arc (round 5)
 
@@ -1027,6 +1301,14 @@ renderer) is taken from the opaque path's (`ARC_DEPTH_TEST_PLACEHOLDER`). The li
 frame, which reads thinner on a large canvas; WebGL lines are one pixel wide, so the viewer's is thinner still at
 high resolution. `FUN_005c9b30`, called first in the draw, was not read (it does not touch the arc's inputs).
 
+*LANE-KILL B-06 (2026-11-21; reading of r0004, one reader, agent-mail `pilot/kill/item-1-arc-read.md`, pending review).*
+r0004's arc `0x59cbb0` (the twin of `FUN_005970b0`) takes `asinf` of the body's aim y `actor+0x1450` (0x59cca4), clamped
+0 to 55 degrees, plus the power's term -- the launch's own sequence (0x5c9640-0x5c9680) -- and the toss test through
+`0x585280` (0x5852b8); the aim's x and z are not read, and nothing in it reads the camera's pitch. No world query: the
+arc is drawn through walls, whether or not the release will be refused or the hand-open's cast skip the launch. The
+page's `drawArc` now feeds the body's aim y (`viewer/src/throwAim.ts`, research 256 s5.3), live each drawn frame, to
+`throwAnim` and `launchOf`, in place of the pitch's sine; no hull stop.
+
 ## 12. The blast on the player: damage, the thrower, the wall, the knock, the ears (2026-09-29)
 
 The owner, playing offline: "should grenades be doing damage? they do not appear to be to myself, nor are they knocking
@@ -1079,6 +1361,17 @@ its clips, two movers agreeing), `match/test/roomBlast.test.ts` (a survivor knoc
 its own, the wall), `test/netDamage.test.ts` (the part table), `test/ringingEars.test.ts`.
 
 ### 12.1 Placeholders and readings (named in the code)
+
+- `DETONATOR_KEPT_READING` (LATER 1129, 2026-11-18; `match/src/worldDrops.ts`; §9.7.1): the kit's Detonator is added
+  when a claymore is in the kit and kept until the next kit is built. `FUN_005c74e0`'s owner list (`+0x830` ->
+  `+0x6c4`, count `+0xe0c`, D:L480166-480177) is the live kit: the owner's kit embedded at body+0x5e0 (its count
+  `+0x82c`, its items `+0xe4`): the kit's `+0x830` is its body (the body's constructor `FUN_00553ea0` hands the
+  embedded kit its body, D:L419567-419568; `FUN_005be020` stores it, D:L474741), and `FUN_005c91b0` reads the same
+  list as body+0x5e0's (D:L481634-481641; note-corrections-4, reading). The port's add at a take that brings a
+  claymore (`worldDrops.ts` `walk`) rests on the live-kit reading: were the list the template, a taker who spawned
+  without a claymore would get no Detonator from one he picks up (the fresh review's F2). Settles it: a capture of the
+  original -- a SEAL with claymores down whose spent claymore slot takes a body's HE, then fires the Detonator (the
+  read of `+0x6c4` is done: it is the embedded kit's own items).
 
 - `FLASH_FRIENDLY_FIRE_READING` (P2, 2026-11-02; `viewer/src/net/blast.ts`; research 101 s4): 'spared' -- friendly
   fire off, a teammate's flashbang whites out no one: the room's PF-22 gate (`ffRefuses`) for the flash as for any

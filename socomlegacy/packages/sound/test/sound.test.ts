@@ -7,7 +7,7 @@ import {
   landingClass, landingSounds, landSpeeds, makeVolume, materialsFromArchive, note2Pitch, panDegrees, parseBankFile,
   parseSoils, rangeGain, renderSound, SampleCache, sdNote2Pitch, soundHash, soundNameHash, soundParams,
   soundScriptFromArchive, voiceLevel, weaponScriptFromArchive, weaponSounds, type Material, type SoundBank,
-  ambienceLayers, callbackPlays, commandVolume, fireVariant, weaponGlobals, ZANIM_CAMERA_INDOORS, ZANIM_ELSEIF, ZANIM_IF,
+  ambienceLayers, CALLBACK_WAIT_BRANCH_READING, callbackPlays, commandVolume, fireVariant, weaponGlobals, ZANIM_CAMERA_INDOORS, ZANIM_ELSEIF, ZANIM_IF,
   ZANIM_LOOP, ZANIM_PLAYER_INDOORS, ZANIM_WAIT,
 } from '../src/index';
 import * as soundIndex from '../src/index';
@@ -152,7 +152,9 @@ describe('the rules (81 §4-§6)', () => {
   });
   it('reads a play-sound command\'s offset (flag 4, the f32 triple at +0x14) and keeps it on the emitter (90 item 26)', () => {
     // Vigilance's water_drain: `30 0 0x82 0 | 0x86 0 | 5 0 | ... | node 1 at +16 | (0, -60, 30) at +0x14` -- a copy of
-    // Crossroads' (whose node is `waterpipe`) naming a node `pipe` the map has not.
+    // Crossroads' (whose node is `waterpipe`) naming a node `pipe` the map has not. The hand-built sequence carries no
+    // word, so it is read as started; on the disc this command sits in an NA 0x104 sequence nothing names, which no
+    // emitter takes (research 448; `activationTwo.test.ts`). The shape here tests the offset's reading only.
     const d = new Uint8Array(32);
     [30, 0, 0x82, 0, 0x86, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1].forEach((v, i) => { d[i] = v; });
     const f = new DataView(d.buffer);
@@ -212,6 +214,51 @@ describe('the rules (81 §4-§6)', () => {
     expect(callbackSounds([mission], payload).get('satchel')).toEqual(['.MK138_SAT_CHRG']);
     expect(zanimEmitters(zanimSounds([mission], payload))).toEqual([{ anim: 'flame_in_rubble1', sound: '~FIRE_SM', node: 'fire_coals', flags: 0x292, volume: 3 }]);
     expect(commandVolume({})).toBe(1);
+  });
+  it("LATER 1209: a callback's sound keeps the timed WAITs ahead of it, through its starts -- frag_start's .THROW_OBJECT 0.2 s after the release, HE_start's at once (FINDING-X13; FUN_0025ed50)", () => {
+    const wait = (seconds: number): Uint8Array => { const b = new Uint8Array(12); b[0] = 15; b[4] = 8; new DataView(b.buffer).setFloat32(8, seconds, true); return b; };
+    const sound = (nameIndex: number): Uint8Array => { const b = new Uint8Array(32); b[0] = 30; b[4] = 0x82; b[6] = nameIndex; return b; };
+    const start = (nameIndex: number): Uint8Array => { const b = new Uint8Array(20); b[0] = 45; b[7] = nameIndex; return b; };
+    const bytes: Record<string, Uint8Array> = {
+      'frag_start:8': wait(0.2), 'frag_start:40': sound(2),
+      'HE_start:8': sound(2),
+      'chain_a:8': wait(0.05), 'chain_a:40': start(2), 'chain_a:72': sound(3),
+      'chain_b:8': wait(0.1), 'chain_b:40': sound(2),
+    };
+    const seq = (...cmds: [number, number][]) => [{ commands: cmds.map(([offset, cmd]) => ({ offset, set: 0, cmd })) }];
+    const set = { sets: [{ name: 'common', anims: [
+      { name: 'frag_start', names: ['NA', 'frag_start', '.THROW_OBJECT '], sequences: seq([8, 15], [40, 30]) },
+      { name: 'HE_start', names: ['NA', 'HE_start', '.THROW_OBJECT '], sequences: seq([8, 30]) },
+      { name: 'chain_a', names: ['NA', 'chain_a', 'chain_b', '.A_SOUND'], sequences: seq([8, 15], [40, 45], [72, 30]) },
+      { name: 'chain_b', names: ['NA', 'chain_b', '.B_SOUND'], sequences: seq([8, 15], [40, 30]) },
+    ] }] };
+    const payload = (_s: string, anim: string, offset: number, length: number): Uint8Array | null => bytes[`${anim}:${offset}`]?.subarray(0, length) ?? null;
+    const plays = callbackPlays([set], payload);
+    expect(plays.get('frag_start')).toEqual([{ sound: '.THROW_OBJECT ', volume: 1, delay: Math.fround(0.2) }]);
+    expect(plays.get('HE_start')).toEqual([{ sound: '.THROW_OBJECT ', volume: 1 }]);
+    // A start runs its animation at the start's own time: chain_b's sound at 0.05 + 0.1; chain_a's own at 0.05.
+    expect(plays.get('chain_a')).toEqual([{ sound: '.A_SOUND', volume: 1, delay: Math.fround(0.05) }, { sound: '.B_SOUND', volume: 1, delay: Math.fround(0.05) + Math.fround(0.1) }]);
+    expect(zanimSounds([set], payload).get('frag_start')!.sounds).toEqual([{ sound: '.THROW_OBJECT ', flags: 0x82, node: null, at: Math.fround(0.2) }]);
+  });
+  it("LATER 1209 (the review's F1): a WAIT inside an IF/ELSE branch counts in that branch alone; after ENDIF the longest branch's time goes on (CALLBACK_WAIT_BRANCH_READING)", () => {
+    const wait = (seconds: number): Uint8Array => { const b = new Uint8Array(12); b[0] = 15; b[4] = 8; new DataView(b.buffer).setFloat32(8, seconds, true); return b; };
+    const sound = (nameIndex: number): Uint8Array => { const b = new Uint8Array(32); b[0] = 30; b[4] = 0x82; b[6] = nameIndex; return b; };
+    const bare = (cmd: number): Uint8Array => { const b = new Uint8Array(20); b[0] = cmd; return b; };
+    // IF { WAIT 1, SOUND .A } ELSE { SOUND .B } ENDIF, WAIT 0.5, SOUND .C -- the shape of lightning_flashes and gate_openclose.
+    const bytes: Record<string, Uint8Array> = {
+      'branchy:8': bare(2), 'branchy:40': wait(1), 'branchy:72': sound(2), 'branchy:104': bare(4), 'branchy:136': sound(3),
+      'branchy:168': bare(5), 'branchy:200': wait(0.5), 'branchy:232': sound(4),
+    };
+    const set = { sets: [{ name: 'common', anims: [
+      { name: 'branchy', names: ['NA', 'branchy', '.A', '.B', '.C'], sequences: [{ commands: [
+        [8, 2], [40, 15], [72, 30], [104, 4], [136, 30], [168, 5], [200, 15], [232, 30],
+      ].map(([offset, cmd]) => ({ offset: offset!, set: 0, cmd: cmd! })) }] },
+    ] }] };
+    const payload = (_s: string, anim: string, offset: number, length: number): Uint8Array | null => bytes[`${anim}:${offset}`]?.subarray(0, length) ?? null;
+    expect(CALLBACK_WAIT_BRANCH_READING).toBe('longest');
+    expect(callbackPlays([set], payload).get('branchy')).toEqual([
+      { sound: '.A', volume: 1, delay: 1 }, { sound: '.B', volume: 1 }, { sound: '.C', volume: 1, delay: 1.5 },
+    ]);
   });
   it('walks the camera-state scripts: the sides a script starts its animations on, their sounds, volumes and waits (81 §10)', () => {
     // Frostfire's mission check_camera_inside_state, command for command: START snd_wind_outside (no such animation),
@@ -342,6 +389,17 @@ describe.skipIf(!store)('BNKSTORE.ZAR (81 §1)', () => {
       expect(am.names.has(n), n).toBe(true);
     }
     expect(am.names.get('.JUMP_WHOOSH')).toBe(0);
+  });
+  it("LATER 1218: a render lists each voice it keyed -- its tone's priority and flags, the play's volume, its sound's group, its start and end", () => {
+    const fx = bank('MP2_fx.bnk');
+    const r = renderSound(fx, 101, new SampleCache(fx.vag), { random: seeded(1), vol: 0x300 });
+    const sil = fx.sounds[101]!;
+    const tones = sil.grains.map((g) => bankTone(fx, g)!);
+    expect(r.tones).toHaveLength(r.voices);
+    expect(r.tones!.map((t) => [t.priority, t.flags, t.volume, t.group])).toEqual(tones.map((t) => [t.priority, t.flags, 0x300, sil.volGroup]));
+    for (const t of r.tones!) { expect(t.start).toBeGreaterThanOrEqual(0); expect(t.end).toBeGreaterThan(t.start); }
+    // The buffer runs to the last voice's end.
+    expect(Math.max(...r.tones!.map((t) => t.end))).toBeCloseTo(r.left.length / r.sampleRate, 6);
   });
   it('renders .M4A1_SIL: two voices, a short sharp report, not silence and not clipping', () => {
     const fx = bank('MP2_fx.bnk');

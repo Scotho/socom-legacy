@@ -1,18 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CLAYMORE, CLAYMORE_RULES, DEFAULT_RIFLE, GAME_FRAME_DT, HELD_SIDEARM, M67, arsenalOf, materialTable, segmentHits, type CollisionOwner, type EffectProgram, type GridParams, type Loadout,
+  CLAYMORE, CLAYMORE_RULES, DEFAULT_RIFLE, GAME_FRAME_DT, HELD_RIFLE, HELD_SIDEARM, M67, arsenalOf, materialTable, segmentHits, type CollisionOwner, type EffectProgram, type GridParams, type Loadout,
   type SpawnSlot, type ThrowableRecord, type WorldPoly,
 } from '@s2u/scene';
 import {
   BodyFlag, Button, centreClaim, encodeCommands, EYE_HEIGHT, launcherRaiseSeconds, groundGrid, packGround, PROTOCOL_VERSION, TICK_HZ, type ClientEvent, type Command, type MapMeta, type ServerEvent, type SimKits, type SimMap,
 } from '../../viewer/src/sim';
+import { MAX_PITCH_RATE } from '../../viewer/src/look';
+import { climbOffered, Traversal } from '../../viewer/src/traversal';
 import { wadingDepth } from '../../viewer/src/equipment';
 import { GrenadeThrower, type GrenadeSource } from '../../viewer/src/grenade';
 import { moverSnapshot } from '../../viewer/src/mover';
 import { NetClient, type NetWalk } from '../../viewer/src/net/client';
 import { LOOPBACK_STALL_MS_ADAPTATION, LoopbackMatch } from '../../viewer/src/net/loopback';
 import { WorldState } from '../../viewer/src/worldState';
-import { RECONNECT_HELD_LAUNCHER_ADAPTATION, Room, type Conn } from '../src/room';
+import { RECONNECT_HELD_LAUNCHER_ADAPTATION, Room, throwAimFloor, type Conn } from '../src/room';
+import { JOIN_ORPHAN_OWNER } from '../src/joinState';
+import { Hud } from '../../viewer/src/hud';
+import { NetPage, type NetPageDeps } from '../../viewer/src/netPage';
+import type { WebSocketLike } from '../../viewer/src/net/client';
+import type { RemotePlayers } from '../../viewer/src/remotePlayers';
+import type { PlaySnapshot, WalkMode } from '../../viewer/src/walk';
+import { simSkeletonsFromBytes } from '../../viewer/src/simMap';
+import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 
 /**
  * The equipment in the match (web sprint 4, M7; research 94 §C4-§C5, research 85 §9): the room flies the rockets and
@@ -24,11 +34,11 @@ import { RECONNECT_HELD_LAUNCHER_ADAPTATION, Room, type Conn } from '../src/room
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),   // its front UP (the grenade query is one-sided)
 };
 /** A level slab at height `y` over x0..x1, z0..z1: a ledge, a platform; `material` its byte (the floor's by default). */
 const slab = (y: number, x0: number, x1: number, z0: number, z1: number, material = FLOOR.material): WorldPoly =>
-  ({ ...FLOOR, material, path: `worldmodel/slab${y}`, points: Float32Array.from([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1]) });
+  ({ ...FLOOR, material, path: `worldmodel/slab${y}`, points: Float32Array.from([x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z0]) });
 /** `WATER`'s material byte: SOILS entry 9 after the two built-ins (`@s2u/scene` `materialTable`), LIQUID. */
 const WATER_BYTE = 11;
 /**
@@ -57,7 +67,7 @@ function map(slabs = false, extra: readonly WorldPoly[] = [], floor = true): Sim
  * `access1`'s block health 1, shield 17 on `di_good`, its sequence `EXECUTE_ACTION set_access1`; the type-less action
  * `access_action1` (at z 300) on that valve runs `destroy_access1`, which turns the wall off. SUP-03: the barrier is
  * C4's target (PF-13: the page names it and the struck point, `throw.target`/`throw.surface`; the room checks it takes
- * the charge, within `C4_REACH_READING` 32 of the feet along the ground, the line from the head clear, the surface not
+ * the charge, within the hip gate (|point - hip|^2 < 396, LATER 1139), the line from the head clear, the surface not
  * `INVISIBLE_DI`). `material`: the wall's byte (the floor's, METAL_THICK; 3 is INVISIBLE_DI); `extra`: more polygons;
  * `height`: the wall's (AD-5: 24 where a blast must open it -- Vigilance's barriers stand 20.8-30.7 high, `access1`
  * 22.7, and a blast is measured to the target's midpoint, FUN_00273a50 D:L120968-120978); `health`: the block's.
@@ -117,7 +127,11 @@ const HEAT_REACH = { value: HEAT_REACH_BUILT };
 Object.defineProperty(HEAT, 'maximumRange', { get: () => HEAT_REACH.value, enumerable: true });
 const BACKBLAST = round({ name: 'Backblast', id: 159, muzzleVelocity: 0, fuse: 0, removal: 0.1, capacity: 1, explosionDamage: 6, explosionRadius: 70 });
 const PMN = round({ ...CLAYMORE, name: 'PMN Mine', id: 158, fuse: 8, removal: 10, explosionDamage: 6.5, explosionRadius: 40, proximity: 10 });
-const C4 = round({ ...CLAYMORE, name: 'C4', id: 151, fuse: 6, removal: 0.1, explosionDamage: 18, explosionRadius: 50 });
+// WM-29 (the controller's ruling (a), 2026-11-15): the disc's own C4 -- its round, `C4 Ammo`, carries IgnoreExplosionDI in
+// every file that holds it (`scene/test/c4IgnoreExplosionDIDisc.test.ts`, dev-disc; `projectile.test.ts` on the committed
+// copy), so its blast asks no line. Was unflagged: a round the disc does not have, set exactly on its target's face
+// (the pin of that case: `roomBlast.test.ts`, BLAST_ON_FACE_START_READING).
+const C4 = round({ ...CLAYMORE, name: 'C4', id: 151, fuse: 6, removal: 0.1, explosionDamage: 18, explosionRadius: 50, ignoreExplosionDI: true });
 const item = (name: string, id: number, extra: unknown[] = []): unknown[] => ['InternalName', [name], 'ID', [String(id)], 'Ammo_Capacity', ['1'], 'NumMags', ['1'], 'AMMO_TYPES', [[]], ...extra];
 const arsenal = arsenalOf(['ZAMMO', [], 'ZWEAPON', [
   item('LAW', 145, ['SlotCost', ['2']]), item('LAW HEAT', 185), item('RPG LAUNCHER', 146, ['SlotCost', ['2']]), item('RPG', 186),
@@ -451,8 +465,10 @@ describe('the rockets on the server (research 94 §C4, R94.6/R94.9)', () => {
     const w = s.room.player(2)!.sim.walker;
     s.drive(2, 0.2);
     expect(w.stance).toBe('stand');
-    s.hold(2, 'LAW'); s.drive(2, launcherRaiseSeconds(0) + 0.1);
-    expect(w.stance, 'the raise: crouched').toBe('crouch');                // today: 'stand'
+    s.hold(2, 'LAW'); s.drive(2, launcherRaiseSeconds(0) - 0.1);
+    expect(w.stance, 'R4P-247: the raise still on: standing').toBe('stand');
+    s.drive(2, 0.2);
+    expect(w.stance, 'the raise popped: crouched').toBe('crouch');
     s.hold(2, 'M4A1 SD'); s.drive(2, launcherRaiseSeconds(0) + 0.2);
     expect(w.stance, "the lower's end: standing").toBe('stand');
   });
@@ -581,15 +597,35 @@ describe('the rockets on the server (research 94 §C4, R94.6/R94.9)', () => {
     expect(s.a.of('grenade')).toHaveLength(0);
   });
 
-  it('the RPG-7 is fed one round at a time: FireWait 3 s between rockets (two RPG slots, two rockets)', () => {
+  // LATER 1365 (reading, pending review; research 84 s6): the round's FireWait x 1.2 (r0004 0x5c76f0, modes 4 and up) and,
+  // for the RPG round alone, its 1 s lock on top (r0004 0x5cd330-0x5cd338, r0001 `FUN_005c5340` D:L479339-479342; the
+  // lock's frames skip the wait's run-down, r0004 0x5c7d94-0x5c7e20): the room's `rocketWaitTicks`, 275 ticks (RPG) and
+  // 215 (LAW). Was 179 for both: the unscaled 3 s, the RPG's lock inside it.
+  it('the RPG-7 is fed one round at a time: FireWait x 1.2 and its 1 s lock between rockets (two RPG slots, two rockets)', () => {
     const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 146, 186, 186), [0, 0, 500], [0, 0, 0]);
     s.hold(2, 'RPG LAUNCHER'); s.drive(2, launcherRaiseSeconds(0) + 0.05);
     s.send(2, 'RPG', s.eye(2), [400, 0, 0]);                                // east, at the wall: away from everyone
     s.drive(2, 1);
     s.send(2, 'RPG', s.eye(2), [400, 0, 0]);
     expect(s.a.of('grenade')).toHaveLength(1);
-    s.drive(2, 2.1);
+    s.drive(2, 3.5);                                                        // 4.5 s (270 ticks): inside 275
     s.send(2, 'RPG', s.eye(2), [400, 0, 0]);
+    expect(s.a.of('grenade')).toHaveLength(1);
+    s.drive(2, 0.15);                                                       // 4.65 s (279 ticks)
+    s.send(2, 'RPG', s.eye(2), [400, 0, 0]);
+    expect(s.a.of('grenade')).toHaveLength(2);
+  });
+
+  it('the LAW: FireWait x 1.2 between rockets, no lock on top (two LAW slots, two rockets)', () => {
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 145, 185, 185), [0, 0, 500], [0, 0, 0]);
+    s.hold(2, 'LAW'); s.drive(2, launcherRaiseSeconds(0) + 0.05);
+    s.send(2, 'LAW HEAT', s.eye(2), [200, 0, 0]);                           // east, at the wall: away from everyone
+    expect(s.a.of('grenade')).toHaveLength(1);
+    s.drive(2, 3.5);                                                        // 3.5 s (210 ticks): inside 215
+    s.send(2, 'LAW HEAT', s.eye(2), [200, 0, 0]);
+    expect(s.a.of('grenade')).toHaveLength(1);
+    s.drive(2, 0.15);                                                       // 3.65 s (219 ticks)
+    s.send(2, 'LAW HEAT', s.eye(2), [200, 0, 0]);
     expect(s.a.of('grenade')).toHaveLength(2);
   });
 
@@ -851,23 +887,23 @@ describe('the placed charges on the server (research 94 §C5, research 85 §9.7)
   });
 
   it('PAR-96: a claymore with two C4 and two PMNs down is set down (C4 is never marked +0xc5, D:L474101)', () => {
-    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 151, 158, 153), [30, 0, 300], [0, 0, 300], barrierMap());
-    for (let i = 0; i < 2; i++) s.plant(2, [0, 0.1, 302], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });
-    for (let i = 0; i < 2; i++) s.send(2, 'PMN Mine', [8, 0, 298 - i * 2], [1, 0, 0]);
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 151, 158, 153), [30, 0, 300], [0, 0, 316], barrierMap()); // LATER 1139: restaged from 30 u to 14 u (the hip gate, 19.9 u)
+    for (let i = 0; i < 2; i++) s.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });
+    for (let i = 0; i < 2; i++) s.send(2, 'PMN Mine', [8, 0, 314 - i * 2], [1, 0, 0]);
     expect(s.a.of('grenade').map((g) => g.kind)).toEqual(['C4', 'C4', 'PMN Mine', 'PMN Mine']);
-    s.send(2, 'Claymore', [8, 0, 292], [1, 0, 0]);
+    s.send(2, 'Claymore', [8, 0, 308], [1, 0, 0]);
     expect(s.a.of('grenade').map((g) => g.kind)).toEqual(['C4', 'C4', 'PMN Mine', 'PMN Mine', 'Claymore']);
     expect(s.room.takeDrops()).toBeNull();
   });
 
   it('PAR-96 controls: four claymores down, a PMN is refused (the claymores limit it, D:L475338-475340); C4 is planted (its fire asks no count)', () => {
-    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 153, 158, 151), [30, 0, 300], [0, 0, 300], barrierMap());
-    for (let i = 0; i < 4; i++) s.send(2, 'Claymore', [8, 0, 298 - i * 2], [1, 0, 0]);
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 153, 158, 151), [30, 0, 300], [0, 0, 316], barrierMap()); // LATER 1139: restaged from 30 u to 14 u (the hip gate, 19.9 u)
+    for (let i = 0; i < 4; i++) s.send(2, 'Claymore', [8, 0, 314 - i * 2], [1, 0, 0]);
     expect(s.a.of('grenade')).toHaveLength(4);
-    s.send(2, 'PMN Mine', [8, 0, 290], [1, 0, 0]);
+    s.send(2, 'PMN Mine', [8, 0, 306], [1, 0, 0]);
     expect(s.a.of('grenade')).toHaveLength(4);
     expect(s.room.takeDrops()).toEqual({ 'throw: charges down': 1 });
-    s.plant(2, [0, 0.1, 302], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });
+    s.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });
     expect(s.a.of('grenade').map((g) => g.kind)).toEqual(['Claymore', 'Claymore', 'Claymore', 'Claymore', 'C4']);
     expect(s.room.takeDrops()).toBeNull();
   });
@@ -918,6 +954,91 @@ describe('the placed charges on the server (research 94 §C5, research 85 §9.7)
     s.send(7, 'Detonator', s.eye(7), [0, 0, 0]);                             // its Detonator sets off its claymores
     const set = (s.room as unknown as { flying: { owner: unknown; kind: string; g: { trigger?: boolean } }[] }).flying.filter((f) => f.g.trigger);
     expect(set.map((f) => f.kind)).toEqual(['Claymore', 'Claymore', 'Claymore', 'Claymore']);   // the PMN by an actor only
+  });
+
+  /**
+   * LATER 931's fix after review B-F1: the join envelope names a charge's owner only while its thrower is that live seat
+   * (`thrower`, the room's own rule, DEPARTED_CHARGES_READING); a departed player's charge is sent as no one's
+   * (`JOIN_ORPHAN_OWNER`), so a new page handed the leaver's recycled id never reads them as its own
+   * (`netPage.joinSinks`' `owner === self`). A takeover's re-pointed charges still name the seat (TAKEOVER_ROW_READING).
+   */
+  it("LATER 931 B-F1: a new page handed a departed player's id is not named the owner of his claymore and PMN in its welcome's join envelope", () => {
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 153, 153, 158), [300, 0, 300], [0, 0, 0]);
+    s.send(2, 'Claymore', [8, 0.1, 0], [1, 0, 0]);
+    s.send(2, 'PMN Mine', [8, 0.1, 4], [1, 0, 0]);
+    expect(s.a.of('grenade').map((g) => g.kind)).toEqual(['Claymore', 'PMN Mine']);
+    s.room.leave(2);
+    const c = new Client();
+    s.room.hello(2, c, { type: 'hello', version: PROTOCOL_VERSION, name: 'Next', map: 'MP99' }, '192.0.2.9');
+    const join = c.of('welcome')[0]!.join!;
+    expect(join.projectiles.map((p) => p.kind)).toEqual(['Claymore', 'PMN Mine']);   // still where they lie
+    expect(join.projectiles.map((p) => p.owner)).not.toContain(2);           // was [2, 2]: the leaver's recycled id
+    expect(join.projectiles.map((p) => p.owner)).toEqual([JOIN_ORPHAN_OWNER, JOIN_ORPHAN_OWNER]);
+  });
+
+  it("LATER 931 B-F1 control: a takeover's welcome names the seat's new id as the owner of its claymore and PMN (re-pointed, TAKEOVER_ROW_READING)", () => {
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 153, 153, 158), [300, 0, 300], [0, 0, 0]);
+    s.send(2, 'Claymore', [8, 0.1, 0], [1, 0, 0]);
+    s.send(2, 'PMN Mine', [8, 0.1, 4], [1, 0, 0]);
+    const c = new Client();
+    s.room.hello(7, c, { type: 'hello', version: PROTOCOL_VERSION, name: 'P2', map: 'MP99', session: tok(2) }, '192.0.2.2');
+    expect(s.room.lastReplaced).toBe(2);
+    const join = c.of('welcome')[0]!.join!;
+    expect(join.projectiles.map((p) => [p.kind, p.owner])).toEqual([['Claymore', 7], ['PMN Mine', 7]]);
+  });
+
+  it("LATER 931 F4 control: a resumed seat's welcome (handBack: the same Player, the same id) names its own id as the owner of its claymore and PMN", () => {
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 153, 153, 158), [300, 0, 300], [0, 0, 0]);
+    s.send(2, 'Claymore', [8, 0.1, 0], [1, 0, 0]);
+    s.send(2, 'PMN Mine', [8, 0.1, 4], [1, 0, 0]);
+    (s.room as unknown as { accounts: Map<number, number | null> }).accounts.set(2, 102);   // seated as an account's (the bridge's)
+    const back = new Client();
+    s.room.hello(3, back, { type: 'hello', version: PROTOCOL_VERSION, name: 'P2', map: 'MP99', session: tok(2) }, '', { account: 102 });
+    expect((s.room as unknown as { lastResumed?: number | null }).lastResumed).toBe(2);
+    const welcome = back.of('welcome')[0]!;
+    expect(welcome.id).toBe(2);
+    expect(welcome.join!.projectiles.map((p) => [p.kind, p.owner])).toEqual([['Claymore', 2], ['PMN Mine', 2]]);
+  });
+
+  /**
+   * LATER 931's re-review F3: B-F1's two halves joined -- the room's own welcome for a recycled id, sent through the
+   * page's own path (`NetPage` -> `applyJoinState` -> `joinSinks`, `owner === self`) into a `GrenadeThrower`: the
+   * departed's claymores are drawn, none is the page's (`claymoresDown()` 0) and the Detonator is refused.
+   */
+  it("LATER 931 B-F1 joined: the room's welcome for a recycled id, laid by the page, counts none of the departed's claymores down and refuses the Detonator", () => {
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 153, 153, 158), [300, 0, 300], [0, 0, 0]);
+    s.send(2, 'Claymore', [8, 0.1, 0], [1, 0, 0]);
+    s.send(2, 'Claymore', [8, 0.1, 4], [1, 0, 0]);
+    s.room.leave(2);
+    const c = new Client();
+    s.room.hello(2, c, { type: 'hello', version: PROTOCOL_VERSION, name: 'Next', map: 'MP99' }, '192.0.2.9');
+    const welcome = c.of('welcome')[0]!;
+    expect(welcome.id).toBe(2);
+    const snap = { feet: [0, 50, 0], yaw: 0, pitch: 0, vx: 0, vz: 0, vy: 0, airborne: false, crouched: false, stance: 'stand', landing: null, jumps: 0 } as unknown as PlaySnapshot;
+    const g = new GrenadeThrower({ grid: () => null, snapshot: () => snap, view: () => 'third' });
+    let socket: WebSocketLike | null = null;
+    const walk = {
+      setNetTap: () => undefined, setLocked: () => undefined, respawn: () => true, nudge: () => undefined,
+      setTrigger: () => undefined, setDeathPose: () => undefined, setDeathKiller: () => undefined, setMode: () => true, mode: () => 'walk',
+    } as unknown as WalkMode;
+    // The remote bodies, every method a no-op (the room's real welcome names its players, their types and kits).
+    const remote = new Proxy({}, { get: () => () => undefined }) as unknown as RemotePlayers;
+    const roundAudio = Object.fromEntries((['roundStart', 'eliminated', 'timeExpired', 'roundOver', 'reset', 'frame'] as const)
+      .map((k) => [k, () => undefined])) as unknown as NonNullable<NetPageDeps['roundAudio']>;
+    const deps: NetPageDeps = {
+      walk, remote, hud: new Hud(), clips: () => null, spectate: () => undefined, roundAudio,
+      remoteGrenade: (kind, from, velocity, owner, pid, phase) => g.launchRemote(kind, from, velocity, owner, pid === undefined ? undefined : { pid, ...phase }),
+      ownProjectiles: () => g.ownLive(),
+      respawned: () => undefined, newRound: () => undefined, roundEffects: () => undefined, weapons: () => [HELD_RIFLE, HELD_SIDEARM],
+      socket: () => { socket = { binaryType: '', readyState: 1, send: () => undefined, close: () => undefined } as unknown as WebSocketLike; return socket; },
+    };
+    new NetPage(deps, 'ws://test/ws', 'MP99', 'Next', undefined, false, 'classic');
+    socket!.onopen?.({} as Event);
+    socket!.onmessage?.({ data: JSON.stringify(welcome) } as MessageEvent);
+    expect(g.stats().live.map((l) => l.owner)).toEqual([JOIN_ORPHAN_OWNER, JOIN_ORPHAN_OWNER]);   // drawn where they lie
+    expect(g.claymoresDown()).toBe(0);
+    expect(g.ownLive()).toBe(false);
+    expect(g.select('Detonator')).toBe(false);
   });
 
   it('a departed player\'s rocket meets the body of the next holder of its id (the owner passed over by the body, not the id)', () => {
@@ -1035,8 +1156,8 @@ describe('the placed charges on the server (research 94 §C5, research 85 §9.7)
     away.plant(2, [0, 0.1, -290], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });
     expect(away.a.of('grenade')).toHaveLength(0);
     expect(away.room.player(2)!.grenades.C4).toBe(4);
-    const at = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [30, 0, 300], [0, 0, 300], barrierMap());
-    at.plant(2, [0, 0.1, 302], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });
+    const at = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [30, 0, 300], [0, 0, 316], barrierMap()); // LATER 1139: restaged from 30 u to 14 u (the hip gate, 19.9 u)
+    at.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });
     expect(at.a.of('grenade')).toHaveLength(1);
     expect(at.room.player(2)!.grenades.C4).toBe(3);
     at.room.player(2)!.sim.walker.place(0, 20, -300);                        // the SEAL gets clear
@@ -1048,9 +1169,9 @@ describe('the placed charges on the server (research 94 §C5, research 85 §9.7)
 
   it('C4 fuse expiry destroys the barrier, tells the owner detonate, and hurts an in-range player in that one tick', () => {
     // Health 1, armour 0, shield 17, C4 damage 18 (research 209 §13, §18): one charge, the blast frame, no timer.
-    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [10, 0, 300], [0, 0, 300], barrierMap());
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [10, 0, 300], [0, 0, 324], barrierMap()); // LATER 1139: restaged from 30 u to 6 u (the point 18.5 over the hip)
     const point: V3 = [0, 30, 330];
-    s.plant(2, [0, 0, 302], [0, 0, 1], 0, { path: BARRIER, point });
+    s.plant(2, [0, 0, 326], [0, 0, 1], 0, { path: BARRIER, point });
     const pid = s.b.of('placed').find((e) => e.kind === 'C4')!.pid;
     s.room.player(2)!.sim.walker.place(0, 20, -400);                 // the planter leaves the radius
     const sum = (id: number): number => s.room.player(id)!.health.hp.reduce((n, v) => n + v, 0);
@@ -1086,9 +1207,9 @@ describe('the placed charges on the server (research 94 §C5, research 85 §9.7)
     // The page's copy counts the room's tick (`simTick`), not the stalled frame's wall time. The wall update
     // spends the fuse and does not explode; the room's catch-up then removes the gate and the page's blast
     // is that same sample (research 209 §18).
-    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [10, 0, 300], [0, 0, 300], barrierMap());
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [10, 0, 300], [0, 0, 324], barrierMap()); // LATER 1139: restaged from 30 u to 6 u (the point 18.5 over the hip)
     const point: V3 = [0, 30, 330];
-    s.plant(2, [0, 0, 302], [0, 0, 1], 0, { path: BARRIER, point });
+    s.plant(2, [0, 0, 326], [0, 0, 1], 0, { path: BARRIER, point });
     const pid = s.b.of('placed').find((e) => e.kind === 'C4')!.pid;
     const g = new GrenadeThrower({
       grid: () => s.room.map.grid, snapshot: () => null, view: () => 'third',
@@ -1150,10 +1271,10 @@ describe('the placed charges on the server (research 94 §C5, research 85 §9.7)
     const id = client.id!;
     for (let i = 0; i < 120; i++) match.step();
     const body = match.room.player(id)!;
-    body.sim.walker.place(0, 20, 300);
+    body.sim.walker.place(0, 20, 324); // LATER 1139: 6 u off (was 30)
     for (let i = 0; i < 30; i++) match.step();
     const point: V3 = [0, 30, 330];
-    match.room.text(id, { type: 'throw', seq: body.sim.seq, kind: 'C4', from: [0, 0, 302], velocity: [0, 0, 1], target: 0, surface: { path: BARRIER, point } });
+    match.room.text(id, { type: 'throw', seq: body.sim.seq, kind: 'C4', from: [0, 0, 326], velocity: [0, 0, 1], target: 0, surface: { path: BARRIER, point } });
     const charges = (): { g: { fuse: number } }[] =>
       (match.room as unknown as { flying: { kind: string; g: { fuse: number } }[] }).flying.filter((f) => f.kind === 'C4');
     for (let i = 0; i < 500; i++) {
@@ -1217,10 +1338,10 @@ describe('the placed charges on the server (research 94 §C5, research 85 §9.7)
     match.drain(t0);
     const id = client.id!;
     for (let i = 0; i < 120; i++) match.step();
-    match.room.player(id)!.sim.walker.place(0, 20, 300);
+    match.room.player(id)!.sim.walker.place(0, 20, 324); // LATER 1139: 6 u off (was 30)
     for (let i = 0; i < 30; i++) match.step();
     const body = match.room.player(id)!;
-    match.room.text(id, { type: 'throw', seq: body.sim.seq, kind: 'C4', from: [0, 0, 302], velocity: [0, 0, 1], target: 0, surface: { path: BARRIER, point: [0, 30, 330] } });
+    match.room.text(id, { type: 'throw', seq: body.sim.seq, kind: 'C4', from: [0, 0, 326], velocity: [0, 0, 1], target: 0, surface: { path: BARRIER, point: [0, 30, 330] } });
     const charges = (): { g: { fuse: number } }[] =>
       (match.room as unknown as { flying: { kind: string; g: { fuse: number } }[] }).flying.filter((f) => f.kind === 'C4');
     for (let i = 0; i < 500; i++) {
@@ -1294,9 +1415,9 @@ describe('the placed charges on the server (research 94 §C5, research 85 §9.7)
   });
 
   it('plants C4 at its validated wall hit, even when the hand-ground point cannot breach the shield', () => {
-    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [0, 0, -300], [0, 0, 300], barrierMap());
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [0, 0, -300], [0, 0, 324], barrierMap()); // LATER 1139: restaged from 30 u to 6 u (the point 18.5 over the hip)
     const point: V3 = [0, 30, 330];
-    s.plant(2, [0, 0, 302], [0, 0, 1], 0, { path: BARRIER, point });
+    s.plant(2, [0, 0, 326], [0, 0, 1], 0, { path: BARRIER, point });
     expect(s.a.of('grenade')).toEqual([expect.objectContaining({ kind: 'C4', from: point })]);
     expect(s.b.of('placed')).toEqual([expect.objectContaining({ kind: 'C4', from: point })]);
     expect(s.room.player(2)!.grenades.C4).toBe(3);
@@ -1307,25 +1428,25 @@ describe('the placed charges on the server (research 94 §C5, research 85 §9.7)
 
   it('C4 on a dead barrier or a shield-21 target is refused by c4TargetAt (FUN_002739b0): nothing planted, the charge kept; forAction binds the action\'s valve to its destructible', () => {
     const seal = kit(62, 15, 121, 126, 151);
-    // access_action1's valve binds it to access1's block (forAction, the death's chain); the SEAL stands 30 from the wall.
-    const hard = setup(kit(62, 15, 121, 126, 255), seal, [30, 0, 300], [0, 0, 300], barrierMap(21));
+    // access_action1's valve binds it to access1's block (forAction, the death's chain); the SEAL stands 14 from the wall (LATER 1139: was 30).
+    const hard = setup(kit(62, 15, 121, 126, 255), seal, [30, 0, 300], [0, 0, 316], barrierMap(21));
     expect(hard.room.world.health.forAction('set_access1')?.anim).toBe('access1');
     expect(hard.room.world.health.forAction('SET_ACCESS1')?.id).toBe(0);                 // the valve's case aside
     expect(hard.room.world.health.forAction('set_access2')).toBeNull();
     // Shield 21 over C4's 18: refused, the charge kept, nothing told.
-    hard.plant(2, [0, 0.1, 302], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });
+    hard.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });
     expect(hard.room.player(2)!.grenades.C4).toBe(4);
     expect(hard.a.of('grenade')).toHaveLength(0);
     // A barrier already down (health spent, its wall off): no destructible there to take it.
-    const dead = setup(kit(62, 15, 121, 126, 255), seal, [30, 0, 300], [0, 0, 300], barrierMap());
+    const dead = setup(kit(62, 15, 121, 126, 255), seal, [30, 0, 300], [0, 0, 316], barrierMap());
     expect(dead.room.world.health.hitAt(BARRIER, { kind: 'explosion', rating: 20, modifier: 0, point: [0, 20, 330] })).toEqual({ applied: true, died: true });
     expect(dead.room.world.isActive(BARRIER)).toBe(false);
-    dead.plant(2, [0, 0.1, 302], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });
+    dead.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });
     expect(dead.room.player(2)!.grenades.C4).toBe(4);
     expect(dead.a.of('grenade')).toHaveLength(0);
     // The same place with the barrier standing (shield 17): planted.
-    const live = setup(kit(62, 15, 121, 126, 255), seal, [30, 0, 300], [0, 0, 300], barrierMap());
-    live.plant(2, [0, 0.1, 302], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });
+    const live = setup(kit(62, 15, 121, 126, 255), seal, [30, 0, 300], [0, 0, 316], barrierMap());
+    live.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330] });
     expect(live.room.player(2)!.grenades.C4).toBe(3);
     expect(live.a.of('grenade')).toHaveLength(1);
   });
@@ -1431,28 +1552,29 @@ describe('the placed charges on the server (research 94 §C5, research 85 §9.7)
 
   it('C4 on a surface named exactly INVISIBLE_DI is refused (005c1970); on another surface the remaining checks decide; the name alone authorises nothing', () => {
     const at = (material?: number, extra: readonly WorldPoly[] = []) =>
-      setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [30, 0, -300], [0, 0, 300], barrierMap(17, material, extra));
+      setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [30, 0, -300], [0, 0, 316], barrierMap(17, material, extra)); // LATER 1139: restaged from 30 u to 14 u (the hip gate, 19.9 u)
     const face = { path: BARRIER, point: [0, 12, 330] };
     // INVISIBLE_DI (byte 3, the ELF's 0x65f8c8 string, a case-sensitive compare): refused before the placement call.
     const invisible = at(3);
-    invisible.plant(2, [0, 0.1, 302], [0, 0, 1], 0, face);
+    invisible.plant(2, [0, 0.1, 318], [0, 0, 1], 0, face);
     expect(invisible.room.player(2)!.grenades.C4).toBe(4);
     expect(invisible.room.takeDrops()).toEqual({ 'throw: c4 surface': 1 });
     // The same barrier of METAL_THICK: planted.
     const metal = at();
-    metal.plant(2, [0, 0.1, 302], [0, 0, 1], 0, face);
+    metal.plant(2, [0, 0.1, 318], [0, 0, 1], 0, face);
     expect(metal.room.player(2)!.grenades.C4).toBe(3);
     expect(metal.a.of('grenade')).toHaveLength(1);
     // Not INVISIBLE_DI is no licence: the target the page names must be the destructible at the struck node, in reach,
     // seen from the head; a request without a target or a surface plants nothing.
     const rest = at();
-    rest.plant(2, [0, 0.1, 302], [0, 0, 1], undefined, undefined);
-    rest.plant(2, [0, 0.1, 302], [0, 0, 1], 1, face);                             // another id than the node's
-    rest.plant(2, [0, 0.1, 302], [0, 0, 1], 0, { path: 'worldmodel/floor0', point: [0, 0, 320] });   // the floor: no destructible
-    rest.plant(2, [0, 0.1, 302], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330.0] });
+    rest.plant(2, [0, 0.1, 318], [0, 0, 1], undefined, undefined);
+    rest.plant(2, [0, 0.1, 318], [0, 0, 1], 1, face);                             // another id than the node's
+    rest.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: 'worldmodel/floor0', point: [0, 0, 320] });   // the floor: no destructible
+    rest.plant(2, [0, 0.1, 318], [0, 0, 1], 0, { path: BARRIER, point: [0, 12, 330.0] });
     expect(rest.room.player(2)!.grenades.C4).toBe(3);                              // only the last
     expect(rest.room.takeDrops()).toEqual({ 'throw: no c4 target': 3 });
-    // Out of reach: the point 32 along the ground (C4_REACH_READING, strict).
+    // Out of reach (LATER 1139): the point 32 along the ground, past the hip gate (|point - hip|^2 < 396, FUN_005be9a0
+    // D:L475400-475405; proven on r0004 by the capture agent-mail/evidence/later1139-c4reach, 2026-11-18).
     const far = at();
     far.room.player(2)!.sim.walker.place(0, 20, 298);
     far.run(0.5);
@@ -1462,22 +1584,51 @@ describe('the placed charges on the server (research 94 §C5, research 85 §9.7)
     // A wall between the head and the point (a pillar across z 320): refused, as startRefused refuses a round.
     const pillar: WorldPoly = { ...FLOOR, path: 'worldmodel/pillar', ditype: 2, points: Float32Array.from([-10, 0, 320, 10, 0, 320, 10, 60, 320, -10, 60, 320]) };
     const walled = at(undefined, [pillar]);
-    walled.plant(2, [0, 0.1, 302], [0, 0, 1], 0, face);
+    walled.plant(2, [0, 0.1, 318], [0, 0, 1], 0, face);
     expect(walled.room.player(2)!.grenades.C4).toBe(4);
     expect(walled.room.takeDrops()).toEqual({ 'throw: c4 walled': 1 });
   });
 
+  // C4-TOLD (an online adaptation, product track; the original has no server refusal -- its planter's console decides alone): a C4
+  // plant the room refuses after the page set its charge down and spent it is told to the planter (`stale`, request
+  // 'throw', its seq), as LATER 929's claymore refusals are, so the page takes its copy back and gives the charge back.
+  // The refusals' own rules and why strings are unchanged.
+  it("RED: C4-TOLD -- a C4 refused 'c4 reach' or 'no c4 target' is told to the planter (stale, request 'throw', its seq)", () => {
+    const at = () => setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [30, 0, -300], [0, 0, 316], barrierMap(17));
+    const face = { path: BARRIER, point: [0, 12, 330] };
+    const far = at();
+    far.room.player(2)!.sim.walker.place(0, 20, 298);
+    far.run(0.5);
+    far.room.takeDrops();
+    const seq = far.room.player(2)!.sim.seq;
+    far.plant(2, [0, 0.1, 300], [0, 0, 1], 0, face);
+    expect(far.room.takeDrops()).toEqual({ 'throw: c4 reach': 1 });
+    expect(far.b.of('stale')).toEqual([{ type: 'stale', request: 'throw', seq }]);   // today: not told
+    expect(far.a.of('stale')).toEqual([]);
+    const none = at();
+    none.room.takeDrops();
+    const seq2 = none.room.player(2)!.sim.seq;
+    none.plant(2, [0, 0.1, 318], [0, 0, 1], 1, face);                               // another id than the node's
+    expect(none.room.takeDrops()).toEqual({ 'throw: no c4 target': 1 });
+    expect(none.b.of('stale')).toEqual([{ type: 'stale', request: 'throw', seq: seq2 }]);   // today: not told
+    // An accepted plant is not told.
+    const ok = at();
+    ok.plant(2, [0, 0.1, 318], [0, 0, 1], 0, face);
+    expect(ok.room.player(2)!.grenades.C4).toBe(3);
+    expect(ok.b.of('stale')).toEqual([]);
+  });
+
   it('a C4 throw with a malformed target or surface is ignored as a malformed throw is: nothing planted, nothing tallied (roomFuzz, roomHostile)', () => {
-    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [30, 0, -300], [0, 0, 300], barrierMap());
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 151), [30, 0, -300], [0, 0, 316], barrierMap()); // LATER 1139: restaged from 30 u to 14 u (the hip gate, 19.9 u)
     const face = { path: BARRIER, point: [0, 12, 330] };
     for (const [target, surface] of [
       [0.5, face], ['0', face], [0, { path: 3, point: [0, 12, 330] }], [0, { path: BARRIER, point: [0, Number.NaN, 330] }],
       [0, { path: BARRIER, point: [0, 12] }], [0, { path: BARRIER }], [0, 'worldmodel/access1'], [0, null],
-    ] as const) s.plant(2, [0, 0.1, 302], [0, 0, 1], target, surface);
+    ] as const) s.plant(2, [0, 0.1, 318], [0, 0, 1], target, surface);
     expect(s.room.player(2)!.grenades.C4).toBe(4);
     expect(s.a.of('grenade')).toHaveLength(0);
     expect(s.room.takeDrops()).toBeNull();                                            // no refusal tallied: ignored
-    s.plant(2, [0, 0.1, 302], [0, 0, 1], 0, face);                                  // the well-shaped one: planted
+    s.plant(2, [0, 0.1, 318], [0, 0, 1], 0, face);                                  // the well-shaped one: planted
     expect(s.room.player(2)!.grenades.C4).toBe(3);
   });
 
@@ -1621,6 +1772,32 @@ describe('SVC-23b measure 5 (b): a rocket and a charge start at the body', () =>
     expect(s.a.of('grenade')).toHaveLength(0);
     expect(s.room.player(2)!.grenades.Claymore).toBe(8);
     expect(s.room.takeDrops()).toEqual({ 'throw: hand walled': 1 });
+  });
+
+  // LATER 929 (H2 of the mines investigation of 2026-11-12): a placed charge the room refuses after the page set it down
+  // and spent it -- here 'hand walled' -- is told to the placer (`stale`, request 'throw', its seq), as a rocket's
+  // refusals are (LATER 503), so the page takes its drawn copy back and gives the charge back. Product track: the telling
+  // only; the refusals' own rules are unchanged.
+  it("RED: LATER 929 -- a claymore refused 'hand walled' is told to the placer (stale, request 'throw', its seq)", () => {
+    const wall = { ...FLOOR, path: 'worldmodel/lowwall', ditype: 2, points: Float32Array.from([-50, 0, 9, 50, 0, 9, 50, 15, 9, -50, 15, 9]) };
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 153, 153, 158), [300, 0, 300], [0, 0, 0], map(false, [wall]));
+    s.room.takeDrops();
+    const seq = s.room.player(2)!.sim.seq;
+    s.send(2, 'Claymore', [0, 0, 12], [0, 0, 1]);
+    expect(s.room.takeDrops()).toEqual({ 'throw: hand walled': 1 });
+    expect(s.b.of('stale')).toEqual([expect.objectContaining({ request: 'throw', seq })]);   // today: not told
+  });
+
+  it("LATER 929 -- a claymore past the four down is told (stale); an accepted one is not", () => {
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 153, 153, 158), [300, 0, 300], [0, 0, 0]);
+    for (let i = 0; i < 4; i++) s.send(2, 'Claymore', [0, 0, 6], [0, 0, 1]);
+    expect(s.b.of('stale')).toEqual([]);
+    expect(s.b.of('placed')).toHaveLength(4);
+    s.room.takeDrops();
+    const seq = s.room.player(2)!.sim.seq;
+    s.send(2, 'Claymore', [0, 0, 6], [0, 0, 1]);
+    expect(s.room.takeDrops()).toEqual({ 'throw: charges down': 1 });
+    expect(s.b.of('stale')).toEqual([expect.objectContaining({ request: 'throw', seq })]);
   });
 
   it('a claymore dropped from a ledge onto the floor under a lower slab is refused (the drop leg, the re-review of 2026-10-04)', () => {
@@ -2227,5 +2404,564 @@ describe("LATER 181: the slot's last hand grenade arms no firearm reload (THROW_
     expect([...p.reloadUntil], 'no lock armed').toEqual(lock);
     expect(p.mags[0].rounds(), "the rifle's magazine as it was").toBe(rounds);
     expect(s.a.of('reloadSound').filter((e) => e.id === 2), 'no reload heard').toHaveLength(0);
+  });
+});
+
+const LEAN_MP2 = fixture('RUN/MP2.ZDB'), LEAN_PACK = fixture('RUN/MOTION_P.ZAR'), LEAN_READERC = fixture('RUN/READERC.ZAR');
+const LEAN_DISC = !!(LEAN_MP2 && LEAN_PACK && LEAN_READERC);
+describe.skipIf(!LEAN_DISC)(`LATER 1178 (ii) under r0004: a leaning throw is cast like any other -- refused by a wall its ray enters, taken past one its hand already reaches${LEAN_DISC ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+  // r0001 let a LEANING release go before its clearance test (r0001 `FUN_005499e0` returns 1 for state 3, D:L414037-414039;
+  // superseded under OT.R97), which this describe pinned as "the original's lean exemption". r0004 -- the specification (OT.R97) -- has no such
+  // return: its clearance (`0x54e6f0`) never reads the state and casts the lean's ray from the lean's own hand point
+  // (r0004 0x585740-0x58580c; research 256 s5, "the r0004 clearance"; the second reader's correction (f)). So a lean is
+  // refused by a wall its 25-unit ray enters from the front, and a wall nearer than its hand (the right lean's 5.31
+  // ahead) is passed from behind, as for any state. The room's SVC-23b reach (no original; anti-cheat) stays for every throw.
+  // The lean needs the SEAL's skeleton and lean clips (the fixture disc's, as `roomLeanHit.test.ts`).
+  // Read lazily, on the first test's call (BL-7, tools/test/skipIfFactories.test.ts): never at collection.
+  let read: ReturnType<typeof simSkeletonsFromBytes> | null = null;
+  const skeletons = (): ReturnType<typeof simSkeletonsFromBytes> => (read ??= simSkeletonsFromBytes(LEAN_MP2!, LEAN_READERC!, LEAN_PACK!));
+  // The wall is wound with its front toward the body (the clearance is one-sided, front entries, LATER 250).
+  const wallAt = (z: number) => ({ ...FLOOR, path: `worldmodel/leanwall${z}`, ditype: 2, points: Float32Array.from([50, 0, z, -50, 0, z, -50, 200, z, 50, 200, z]) });
+  /** Player 2 at the origin facing +z (the wall `wallZ` ahead), held `buttons` for 60 ticks; its throw from `ahead` across. */
+  const run = (buttons: number, ahead: number, releasedFor = 0, wallZ = 5): { drops: Record<string, number> | null; thrown: number; peek: number } => {
+    let seed = 1;
+    const random = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    const room = new Room(map(false, [wallAt(wallZ)]), null, { now: () => 0, random }, { seal: skeletons().seal, terrorist: skeletons().seal }, kits(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 255)));
+    const cs = [1, 2].map((id) => { const c = new Client(); room.hello(id, c, { type: 'hello', version: PROTOCOL_VERSION, name: `P${id}`, map: 'MP99', session: tok(id) }, `10.0.0.${id}`); return c; });
+    room.step();
+    room.player(1)!.sim.walker.place(300, 20, 300);
+    room.player(2)!.sim.walker.place(0, 20, 0);
+    for (let i = 0; i < 30; i++) room.step();
+    room.player(2)!.sim.allowSnap();
+    for (let i = 0; i < 90 + releasedFor; i++) {
+      const p = room.player(2)!;
+      const cmd: Command = { seq: p.sim.seq + 1, forward: 0, right: 0, yaw: 180, pitch: 0, turn: 0, buttons: i >= 30 && i < 90 ? buttons : 0, stance: 0, weapon: 0 };
+      room.binary(2, encodeCommands({ viewTick: room.tick, commands: [cmd] }));
+      room.step();
+    }
+    const p = room.player(2)!;
+    const peek = p.cone.frame(p.sim.seq)?.peek ?? 0;
+    room.takeDrops();
+    const w = p.sim.walker.state;
+    room.text(2, { type: 'throw', seq: p.sim.seq, kind: 'M67', from: [w.x, w.y + EYE_HEIGHT, w.z + ahead], velocity: [0, 0, 0] });
+    return { drops: room.takeDrops(), thrown: cs[0]!.of('grenade').length, peek };
+  };
+
+  it('the stage: yaw 180 faces +z, so the wall (z 5) stands between the head and a start 8 across', () => {
+    expect(run(0, 8).peek).toBe(0);
+  });
+
+  it('leaning, the wall 5 ahead: taken -- the lean’s hand (5.31 ahead) is already past the wall, its ray meets no front', () => {
+    const r = run(Button.LeanRight, 8);
+    expect(r.peek).not.toBe(0);
+    expect(r.drops).toBeNull();
+    expect(r.thrown).toBe(1);
+  });
+
+  // EXPECTED FAIL, LATER 1294 (the room's own throw aim is owed): since the review of c5629fb494's B1 the room tries a pair
+  // at the launch clamp's bound at every aim past it to the cone (`throwRelease`), and a zero velocity matches a power-0
+  // toss at every aim, 55 degrees included -- a near-vertical 25 u ray that meets no wall. Only the body's own aim tells
+  // this lean apart; the capture's leg T (no toss faces a wall at 10-10.5 u) and leg T2 (a standing tap refused at 9.0, 10.25 and 12 u, 3/5/3 times; SUMMARY.md) bears on the toss window. Assertions unchanged.
+  it.fails('GAP (LATER 1294): leaning, the wall 8 ahead and the throw from 4 ahead: REFUSED as `unclear` -- r0004 casts the lean (r0001 exempted it)', () => {
+    const r = run(Button.LeanRight, 4, 0, 8);
+    expect(r.peek).not.toBe(0);
+    expect(r.drops).toEqual({ 'throw: unclear': 1 });
+    expect(r.thrown).toBe(0);
+  });
+
+  // EXPECTED FAIL, LATER 1294: this describe's ORIGINAL expectation (before B-06), restored (the main controller's ruling:
+  // an old expectation is not given up on a reading). The zero-velocity throw matches a toss the room cannot rule out
+  // without the body's own aim; the capture's leg T (no toss faces a wall at 10-10.5 u) and leg T2 (a standing tap refused at 9.0, 10.25 and 12 u, 3/5/3 times; SUMMARY.md) is the nearest evidence.
+  it.fails('GAP (LATER 1294): upright: the same throw is still refused as `hand walled` (the SVC-23b guard kept)', () => {
+    const r = run(0, 8);
+    expect(r.drops).toEqual({ 'throw: hand walled': 1 });
+    expect(r.thrown).toBe(0);
+  });
+
+  it('upright, the wall 5 ahead: the same zero-velocity throw is taken too -- it matches a toss, whose unclamped hand (10.5 ahead) is past the wall (r0004; was `unclear` under r0001)', () => {
+    const r = run(0, 8);
+    expect(r.drops).toBeNull();
+    expect(r.thrown).toBe(1);
+  });
+
+  // EXPECTED FAIL, LATER 1294: the review F1's ORIGINAL expectation, restored, as the case above.
+  it.fails('GAP (LATER 1294): the review F1: just after the lean is let go (the camera’s peek still easing back) the walls are asked again', () => {
+    const r = run(Button.LeanRight, 8, 4);
+    expect(r.peek).not.toBe(0);                                  // the eased value is still off 0 ...
+    expect(r.drops).toEqual({ 'throw: hand walled': 1 });         // ... but the body no longer leans: the original's state
+    expect(r.thrown).toBe(0);
+  });
+
+  it('the review F1: just after the lean is let go (the camera’s peek still easing back) the body’s state decides, not the eased value', () => {
+    // The wall 8 ahead: the lean's ray enters it (refused, above); the upright toss's hand (10.5 ahead) is past it.
+    expect(run(0, 4, 0, 8).drops).toBeNull();
+    const r = run(Button.LeanRight, 4, 4, 8);
+    expect(r.peek).not.toBe(0);                                  // the eased value is still off 0 ...
+    expect(r.drops).toBeNull();                                  // ... the body no longer leans: the upright answer, not the lean's
+    expect(r.thrown).toBe(1);
+  });
+
+  it('leaning, but past the reach: still refused as `hand far` (the remaining adaptation, START_REACH_PLACEHOLDER)', () => {
+    const r = run(Button.LeanRight, 60);
+    expect(r.peek).not.toBe(0);
+    expect(r.drops).toEqual({ 'throw: hand far': 1 });
+  });
+});
+
+describe('LANE-KILL item 1 (B-06): a standing throw square to a wall at the right shoulder, cleared by the release request, is not dropped by the room', async () => {
+  // The original refuses a release only through its clearance (written against r0001 `FUN_005499e0` D:L413977-414063,
+  // asked by `FUN_005be9a0` D:L475490-475498 -- superseded under OT.R97 by r0004's `0x54e6f0`, asked at 0x5c5d6c; research
+  // 256 s5, D12): r0001's one-sided segment from the throw clip's hand point to the stance's far point. A body standing square to a wall at its right shoulder
+  // passes it (the segment runs from 3.34 right away from the wall), so the release goes and the throw clip plays. The room's SVC-23b gate (`throwGrenade` -> `startRefused`; no original) draws a
+  // two-sided line from the head to that hand and drops the throw as `hand walled`: the thrower sees the clip and no
+  // grenade. C3 (the owner, 2026-11-21): a server check stands only where a test shows it refuses no honest input.
+  // The launch is staged from the page's POSED hand (below), which reaches 4.24 to the right at release: past a wall
+  // 3.6 off when standing square to it. Still a HYPOTHESIS for the reports until a served run agrees (PLAN-2 s4): the
+  // hand moves about 4 units a frame there, so a one-frame clock offset changes the answer.
+  const { actorToWorldDir, actorToWorldPoint, maxThrowDistance, throwAnim, throwVelocity } = await import('@s2u/scene');
+  const { throwClear } = await import('../../viewer/src/throwCommit');
+  const AWAY = 0;                                                  // square: facing along the wall on the right
+  /**
+   * The page's POSED right hand at the standing throw's release (`launchOf` with `handPoint('rhand', RELEASE_POINT)`),
+   * in the actor frame, computed on the fixture disc's SEAL with the page's `Animator` and `ThrowPose`: release 0.710 s,
+   * read at the 0.717 s frame (agent-mail pilot/kill/item-1-posed-hand.md; a dev-disc computation, not a served run).
+   */
+  const POSED_STAND_THROW_HAND: V3 = [4.24, 23.236, -6.407];
+  const WALL_X = 103.6;                                            // 3.6 right of the body's axis (BODY_RADIUS 3.5)
+  const wall: WorldPoly = { ...FLOOR, path: 'worldmodel/rightwall', ditype: 2, points: Float32Array.from([WALL_X, 0, -100, WALL_X, 0, 300, WALL_X, 80, 300, WALL_X, 80, -100]) };
+
+  // The room's candidates (LATER 1428, ruling B: the render-grid table until the page half).
+  const { ROOM_START_TIE_RENDER_GRID_ADAPTATION } = await import('@s2u/scene');
+  /** The honest square stand at the right-shoulder wall, its throw sent from `hand` (actor frame): taken. */
+  const squareThrow = (hand: V3, past: boolean): void => {
+    const world = map(false, [wall]);
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 255), [-300, 0, -300], [100, 0, 100], world);
+    const step = (): void => {
+      const p = s.room.player(2)!;
+      const cmd: Command = { seq: p.sim.seq + 1, forward: 0, right: 0, yaw: AWAY, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 };
+      s.room.binary(2, encodeCommands({ viewTick: s.room.tick, commands: [cmd] }));
+      s.room.step();
+    };
+    s.room.player(2)!.sim.walker.state.yaw = AWAY;
+    for (let i = 0; i < 30; i++) step();
+    const feet = s.feet(2), yaw = s.room.player(2)!.sim.walker.state.yaw;
+    const power = 0.895, aimSin = 0;
+    const from = actorToWorldPoint(feet, yaw, hand);
+    expect(from[0] > WALL_X, 'the hand past the wall').toBe(past);
+    const velocity = actorToWorldDir(yaw, throwVelocity(power, aimSin, hand, maxThrowDistance('stand')).velocity);
+    s.room.takeDrops();
+    s.send(2, 'M67', from, velocity);
+    expect(s.room.takeDrops()).toBeNull();
+    expect(s.a.of('grenade')).toHaveLength(1);
+  };
+  const posed = ROOM_START_TIE_RENDER_GRID_ADAPTATION.standThrow!;
+  it("the start-tie: the square stand's throw from each of the posed hand's three frames (before, release, after) is taken", () => {
+    expect(posed[1]).toEqual(POSED_STAND_THROW_HAND);              // the release frame is this describe's own reading
+    squareThrow([...posed[0]], true);                              // the frame before: 6.3 right, past the wall
+    squareThrow([...posed[1]], true);                              // the release frame: 4.24 right, past it
+    squareThrow([...posed[2]], true);                              // the frame after: 3.96 right, past it
+  });
+  it("the start-tie: the same throw from the TABLE hand (`GetThrowAnim`'s point, a page with no posed body) is taken", () => {
+    squareThrow([...throwAnim(0.895, 0, 'stand').offset], false);  // 3.34 right: short of the wall
+  });
+  it('the start-tie: a forged start within reach past a wall the body faces (12 ahead; the start 15 ahead) is refused as `hand walled`', () => {
+    const world = map(false, [wallAhead(12)]);
+    const { s } = stage(world);
+    const feet = s.feet(2), yaw = s.room.player(2)!.sim.walker.state.yaw;
+    const hand: V3 = [0, EYE_HEIGHT, -15];                          // 15 ahead at the eye's height: within the reach, past the wall
+    const from = actorToWorldPoint(feet, yaw, hand);
+    expect(from[2]).toBeLessThan(100 - 12);
+    // Every candidate hand of a full throw is short of the wall: the table's, the three poses' (at most 9.9 ahead).
+    for (const h of [throwAnim(0.895, 0, 'stand').offset, ...posed]) expect(-h[2]).toBeLessThan(12);
+    const velocity = actorToWorldDir(yaw, throwVelocity(0.895, 0, hand, maxThrowDistance('stand')).velocity);
+    s.room.takeDrops();
+    s.send(2, 'M67', from, velocity);
+    expect(s.room.takeDrops()).toEqual({ 'throw: hand walled': 1 });
+    expect(s.a.of('grenade')).toHaveLength(0);
+  });
+
+  it('RED until the gate is fixed: the page clears it; the room takes it', () => {
+    const world = map(false, [wall]);
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 255), [-300, 0, -300], [100, 0, 100], world);
+    const step = (): void => {
+      const p = s.room.player(2)!;
+      const cmd: Command = { seq: p.sim.seq + 1, forward: 0, right: 0, yaw: AWAY, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 };
+      s.room.binary(2, encodeCommands({ viewTick: s.room.tick, commands: [cmd] }));
+      s.room.step();
+    };
+    s.room.player(2)!.sim.walker.state.yaw = AWAY;
+    for (let i = 0; i < 30; i++) step();
+    const feet = s.feet(2), yaw = s.room.player(2)!.sim.walker.state.yaw;
+    expect(yaw).toBeCloseTo(AWAY, 2);
+    expect(WALL_X - feet[0]).toBeGreaterThanOrEqual(3.5 - 1e-6);   // the body itself is clear of the wall
+    const power = 0.895, aimSin = 0;
+    expect(throwAnim(power, aimSin, 'stand').clip).toBeTruthy();
+    const from = actorToWorldPoint(feet, yaw, POSED_STAND_THROW_HAND);
+    expect(from[0]).toBeGreaterThan(WALL_X);                       // the hand point is past the wall's face
+    const snap = { feet: [...feet], yaw, pitch: 0, vx: 0, vz: 0, vy: 0, airborne: false, crouched: false, stance: 'stand', landing: null, jumps: 0 };
+    expect(throwClear(world.grid, snap as never, power, aimSin)).toBe(true);   // the release request lets it go
+    const velocity = actorToWorldDir(yaw, throwVelocity(power, aimSin, POSED_STAND_THROW_HAND, maxThrowDistance('stand')).velocity);
+    s.room.takeDrops();
+    s.send(2, 'M67', from, velocity);
+    expect(s.room.takeDrops()).toBeNull();                         // today: { 'throw: hand walled': 1 }
+    expect(s.a.of('grenade')).toHaveLength(1);
+  });
+
+  // The fix ("D", the main controller's ruling, 2026-11-21): the room asks the original's own clearance (`throwClear`,
+  // r0004 `0x54e6f0`; r0001's `FUN_005499e0` superseded under OT.R97) at the release request's body for every launch
+  // matching the throw, in place of the wall lines.
+  /**
+   * Player 2 standing at (100, 0, 100) facing `yaw` (0: ahead is -z, the right +x) for 30 ticks, in `world`, each command
+   * looking at camera pitch `pitch` (degrees; the AimFrame's `pitch`, which THROW_AIM_FLOOR_ADAPTATION reads).
+   */
+  const stage = (world: SimMap, yaw = AWAY, pitch = 0) => {
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 126, 255), [-300, 0, -300], [100, 0, 100], world);
+    const step = (y: number): void => {
+      const p = s.room.player(2)!;
+      const cmd: Command = { seq: p.sim.seq + 1, forward: 0, right: 0, yaw: y, pitch, turn: 0, buttons: 0, stance: 0, weapon: 0 };
+      s.room.binary(2, encodeCommands({ viewTick: s.room.tick, commands: [cmd] }));
+      s.room.step();
+    };
+    s.room.player(2)!.sim.walker.state.yaw = yaw;
+    for (let i = 0; i < 30; i++) step(yaw);
+    return { s, step };
+  };
+  /** A wall across x 0..200 at `ahead` in front of the stage's body (z 100 - ahead), its front facing the body. */
+  const wallAhead = (ahead: number): WorldPoly => {
+    const z = 100 - ahead;
+    return { ...FLOOR, path: `worldmodel/frontwall${ahead}`, ditype: 2, points: Float32Array.from([0, 0, z, 200, 0, z, 200, 80, z, 0, 80, z]) };
+  };
+  const snapOf = (feet: readonly number[], yaw: number) => ({ feet: [...feet], yaw, pitch: 0, vx: 0, vz: 0, vy: 0, airborne: false, crouched: false, stance: 'stand', landing: null, jumps: 0 });
+
+  it('a throw from past a wall 5 ahead (8 ahead, a launch matching from there) is TAKEN under r0004: a toss matching it starts past the wall (the toss window of the room, LATER 1294)', () => {
+    const world = map(false, [wallAhead(5)]);
+    const { s } = stage(world);
+    const feet = s.feet(2), yaw = s.room.player(2)!.sim.walker.state.yaw;
+    const hand: V3 = [0, EYE_HEIGHT, -8];                           // 8 ahead at the eye's height: past the wall
+    const from = actorToWorldPoint(feet, yaw, hand);
+    expect(from[2]).toBeLessThan(95);
+    // r0004 (OT.R97, research 256 s5): the throw's ray (hand behind the feet) enters the wall's front; the toss's (power
+    // under 0.6: its unclamped hand 10.5 ahead, already past a wall 5 ahead) meets nothing from the front and clears --
+    // r0004's prediction for a toss square to a wall nearer than 10.5 (leg T; leg T2 refused a standing tap at 9.0, 10.25 and 12 u).
+    for (const power of [0.6, 0.895, 1]) expect(throwClear(world.grid, snapOf(feet, yaw) as never, power, 0), `power ${power}`).toBe(false);
+    for (const power of [0, 0.3]) expect(throwClear(world.grid, snapOf(feet, yaw) as never, power, 0), `power ${power}`).toBe(true);
+    // So the room, which tries every launch of the family matching the velocity (THROW_CLEARANCE_PAIRS_ADAPTATION), finds
+    // a toss whose table hand (10.5 ahead) is tied to the start 8 ahead and clears: TAKEN. The same toss window as
+    // central room.test's BL-3 / LEAN-WALLED honest reds; the capture's legs T and T2 bear on it. Was `unclear` under r0001's
+    // clamped hand, and `hand walled` before B-06.
+    const velocity = actorToWorldDir(yaw, throwVelocity(0.6, 0, hand, maxThrowDistance('stand')).velocity);
+    s.room.takeDrops();
+    s.send(2, 'M67', from, velocity);
+    expect(s.room.takeDrops()).toBeNull();
+    expect(s.a.of('grenade')).toHaveLength(1);
+  });
+
+  // The main controller's ruling (2026-11-21): an old expectation is not given up on a reading. The case above, with its
+  // ORIGINAL assertion, kept as a named honest red: r0004's unclamped toss hand puts this in the toss window.
+  // EXPECTED FAIL, LATER 1294 (the room's own throw aim is owed; the controller's option A): the capture's leg T (no toss
+  // faces a wall at 10-10.5 u) and leg T2 (a standing tap refused at 9.0, 10.25 and 12 u, 3/5/3 times; SUMMARY.md) is the nearest evidence. Assertions unchanged.
+  it.fails("GAP (LATER 1294): the forged throw from past a wall 5 ahead, its original expectation (HONEST RED under r0004's clearance until the capture's leg T rules on the toss window)", () => {
+    const world = map(false, [wallAhead(5)]);
+    const { s } = stage(world);
+    const feet = s.feet(2), yaw = s.room.player(2)!.sim.walker.state.yaw;
+    const hand: V3 = [0, EYE_HEIGHT, -8];
+    const from = actorToWorldPoint(feet, yaw, hand);
+    for (const power of [0, 0.3, 0.6, 0.895, 1]) expect(throwClear(world.grid, snapOf(feet, yaw) as never, power, 0), `power ${power}`).toBe(false);
+    const velocity = actorToWorldDir(yaw, throwVelocity(0.6, 0, hand, maxThrowDistance('stand')).velocity);
+    s.room.takeDrops();
+    s.send(2, 'M67', from, velocity);
+    expect(s.room.takeDrops()).toEqual({ 'throw: unclear': 1 });
+    expect(s.a.of('grenade')).toHaveLength(0);
+  });
+
+  // Was EXPECTED FAIL (LATER 1294) while B1 tried a pair at the clamp's 0-degree bound at every aim below it to the cone:
+  // a steep-down 25 u ray ended short of a wall 10 ahead. Since THROW_AIM_FLOOR_ADAPTATION (the controller's ruling (ii),
+  // 2026-11-21) the aims below 0 stop at the lowest rest aim the capture logged, whose ray enters the wall: refused again,
+  // as the capture's legs T (no toss faces a wall at 10-10.5 u) and T2 (a standing tap refused at 9.0, 10.25 and 12 u,
+  // 3/5/3 times; SUMMARY.md) bear. Assertions unchanged.
+  it("a standing throw at a wall 10 ahead, its posed hand short of the wall, is refused as `unclear`: the original's segment enters the face from the front", () => {
+    const world = map(false, [wallAhead(10)]);
+    const { s } = stage(world);
+    const feet = s.feet(2), yaw = s.room.player(2)!.sim.walker.state.yaw;
+    const power = 0.895, aimSin = 0;
+    const from = actorToWorldPoint(feet, yaw, POSED_STAND_THROW_HAND);
+    expect(from[2]).toBeGreaterThan(90);                            // the hand short of the wall: no head or axis line meets it
+    expect(throwClear(world.grid, snapOf(feet, yaw) as never, power, aimSin)).toBe(false);   // the release request refuses it
+    const velocity = actorToWorldDir(yaw, throwVelocity(power, aimSin, POSED_STAND_THROW_HAND, maxThrowDistance('stand')).velocity);
+    s.room.takeDrops();
+    s.send(2, 'M67', from, velocity);
+    expect(s.room.takeDrops()).toEqual({ 'throw: unclear': 1 });   // was null: the room let it fly
+    expect(s.a.of('grenade')).toHaveLength(0);
+  });
+
+  // Was EXPECTED FAIL (LATER 1294), as the case above: its second half (the throw's body facing the wall 12 ahead) was
+  // taken through an aim steeply below the clamp's 0-degree bound; green again under THROW_AIM_FLOOR_ADAPTATION.
+  // Assertions unchanged.
+  it("the clearance is asked at the release request's body (`start`), not the throw's; a page naming none, at the throw's", () => {
+    // r0004 (OT.R97): the throw is a FULL standing throw from its table hand (it was a zero-velocity one from the eye):
+    // a zero velocity matches, among the family's pairs, some that clear facing the wall under r0004 (a toss's unclamped
+    // hand 10.5 ahead; which pair cleared at 12 was not traced). The wall 12 ahead (was 8): the full
+    // throw's ray from behind the feet reaches 21 ahead and enters it.
+    const world = map(false, [wallAhead(12)]);
+    const hand = throwAnim(0.895, 0, 'stand').offset;
+    const run = (named: boolean): Record<string, number> | null => {
+      const { s, step } = stage(world, 180);                      // at the request: facing away from the wall (+z)
+      const p = s.room.player(2)!;
+      const request = p.sim.seq;
+      s.room.text(2, { type: 'throwStart', seq: request, kind: 'M67' });
+      expect((p as unknown as { throwStart: unknown }).throwStart, 'the request taken').not.toBeNull();
+      p.sim.walker.state.yaw = AWAY;                                // then turns to face the wall
+      for (let i = 0; i < 5; i++) step(AWAY);
+      expect(p.sim.walker.state.yaw).toBeCloseTo(AWAY, 2);
+      s.room.takeDrops();
+      const feet = s.feet(2), from = actorToWorldPoint(feet, AWAY, hand);
+      const velocity = actorToWorldDir(AWAY, throwVelocity(0.895, 0, hand, maxThrowDistance('stand')).velocity);
+      s.room.text(2, { type: 'throw', seq: p.sim.seq, kind: 'M67', ...(named ? { start: request } : {}), from, velocity });
+      return s.room.takeDrops();
+    };
+    expect(run(true), "the request's body faced away: clear").toBeNull();
+    expect(run(false), "no request named: the throw's body, facing the wall").toEqual({ 'throw: unclear': 1 });
+  });
+
+  // EXPECTED FAIL, LATER 1294 (the room's own throw aim is owed): the capture's leg T (no toss faces a wall at 10-10.5 u) and leg T2 (a standing tap refused at 9.0, 10.25 and 12 u, 3/5/3 times; SUMMARY.md)
+  // is the nearest evidence. Assertions unchanged.
+  it.fails("GAP (LATER 1294): the request's body against the throw's, its ORIGINAL input -- a zero-velocity throw from the eye, the wall 8 ahead (HONEST RED under r0004's clearance until the capture's leg T rules on the toss window)", () => {
+    const world = map(false, [wallAhead(8)]);
+    const run = (named: boolean): Record<string, number> | null => {
+      const { s, step } = stage(world, 180);
+      const p = s.room.player(2)!;
+      const request = p.sim.seq;
+      s.room.text(2, { type: 'throwStart', seq: request, kind: 'M67' });
+      p.sim.walker.state.yaw = AWAY;
+      for (let i = 0; i < 5; i++) step(AWAY);
+      s.room.takeDrops();
+      s.room.text(2, { type: 'throw', seq: p.sim.seq, kind: 'M67', ...(named ? { start: request } : {}), from: s.eye(2), velocity: [0, 0, 0] });
+      return s.room.takeDrops();
+    };
+    expect(run(true), "the request's body faced away: clear").toBeNull();
+    expect(run(false), "no request named: the throw's body, facing the wall").toEqual({ 'throw: unclear': 1 });
+  });
+
+  // The review of c5629fb494, B1: pressed to a tall wall the page's aim (`throwAimVector` at rest, r0004 `0x5e6690`) is
+  // 72-76 degrees up, past the launch's 0..55-degree clamp (`THROW_AIM_CLAMP`, r0004 0x5c9640-0x5c9680), and its 25 u ray
+  // (the request's `throwClear`, the hand-open's `handOpenClear`) ends short of the wall's top: the page plays the clip and
+  // lets go. The room recovers the aim from the velocity, which only holds the clamped elevation, so it must also try the
+  // aims past the clamp's bound up to the stance's cone (`THROW_AIM_CONE_READING`): else `unclear`, the clip and no grenade.
+  const { PlayerCamera, INIT_AIM_PITCH, viewFar } = await import('../../viewer/src/playerCamera');
+  const { rootY } = await import('../../viewer/src/mover');
+  const { throwAimVector, throwAimReach, throwAimKept } = await import('../../viewer/src/throwAim');
+  const { handOpenClear } = await import('../../viewer/src/throwCommit');
+  const tallWall = (ahead: number, height: number): WorldPoly => {
+    const z = 100 - ahead;
+    return { ...FLOOR, path: `worldmodel/tallwall${ahead}x${height}`, ditype: 2, points: Float32Array.from([0, 0, z, 200, 0, z, 200, height, z, 0, height, z]) };
+  };
+  /**
+   * The page's honest standing throw at camera pitch `pitch` (the rest pitch unless given; its commands carry it), power
+   * `power`, at a wall `ahead` u off and `height` tall; the M67 selected at the posture `latch` (the aim's origin height,
+   * THROW_AIM_ORIGIN_LATCH_READING: stand 13.11, crouch 8.76), the body standing at the throw.
+   */
+  const pressedThrow = (ahead: number, height: number, pitch: number = INIT_AIM_PITCH, power = 0.895, latch: 'stand' | 'crouch' = 'stand') => {
+    const world = map(false, [tallWall(ahead, height)]);
+    const { s, step } = stage(world, AWAY, pitch);
+    // The room moves its pitch toward the command's at the look's rate: run until its frame holds the pitch.
+    const cone = (s.room.player(2) as unknown as { cone: { frame(seq: number): { pitch: number } | null } }).cone;
+    for (let i = 0; i < 600 && !(Math.abs((cone.frame(s.room.player(2)!.sim.seq)?.pitch ?? NaN) - pitch) <= 0.005); i++) step(AWAY);
+    expect(Math.abs(cone.frame(s.room.player(2)!.sim.seq)!.pitch - pitch), "the room's pitch (the wire holds 0.01 degree)").toBeLessThanOrEqual(0.005);
+    const feet = s.feet(2), yaw = s.room.player(2)!.sim.walker.state.yaw;
+    const cam = new PlayerCamera(world.grid);
+    for (let i = 0; i < 120; i++) cam.tick(feet, yaw, pitch, rootY('stand'));
+    cam.settle();
+    const v = cam.view(1);
+    const ray = { eye: [...v.aim.eye], far: [...viewFar(v.aim.eye, v.aim.target, v.far)] };
+    const aim = throwAimVector(world.grid, { ...ray, reach: throwAimReach(M67.maximumRange), kept: throwAimKept(world.defaultMaterial ?? '') }, { feet, yaw, stance: 'stand', latch }).aim;
+    const snap = { ...snapOf(feet, yaw), pitch };
+    const pageClears = throwClear(world.grid, snap as never, power, aim) && handOpenClear(world.grid, snap as never, power, aim);
+    // `launchOf` from the table hand (a page with no posed body): the velocity holds only the clamped elevation of aim[1].
+    const hand = throwAnim(power, aim[1], 'stand', 0).offset;
+    const from = actorToWorldPoint(feet, yaw, hand);
+    const velocity = actorToWorldDir(yaw, throwVelocity(power, aim[1], hand, maxThrowDistance('stand')).velocity);
+    s.room.takeDrops();
+    s.send(2, 'M67', from, velocity);
+    return { elevation: (Math.asin(aim[1]) * 180) / Math.PI, pageClears, drops: s.room.takeDrops(), thrown: s.a.of('grenade').length };
+  };
+  const GRID: readonly [number, number][] = [
+    [35, 3.6], [35, 4.5], [35, 5.5], [40, 3.6], [40, 4.5], [40, 5.5], [60, 3.6], [60, 4.5], [200, 3.6], [200, 4.5],
+  ];
+  // LANE-KILL B-06 (893dd1be9d, THROW_AIM_ORIGIN_LATCH_READING): the aim's origin is the height latched at the M67's
+  // select, not a fitted 8.808 at the throw. (i) Selected STANDING (13.11): the origin 4.35 u higher than the old fit puts
+  // the page's 25 u request / hand-open ray over the wall's top on only one grid point (35 tall, 3.6 ahead); on the other
+  // nine it enters the face and the page REFUSES the throw itself -- nothing reaches the room. The stand latch's refusal
+  // is a capture of the original: KILL-LATCH-PC2 (r0004 under PCSX2 2.8.2, 2026-11-21; record
+  // D:/s2u-records/KILL-LATCH-PC2/KILL-LATCH-PC2.zip, sha256
+  // 5bcf4f60b800abcb29c421056a687fa17efce098c6579275d1457fc62670ccc0; summary
+  // agent-mail/evidence/weekend-mega-2026-11-14/rig/KILL-LATCH-PC2/RESULTS.md s1-s2): the latch kept from the select, and
+  // a standing select at 20 u, the default look, refused 3/3 before any throw clip. The capture's pose is that 20 u leg
+  // (`throwAimCapture.disc.test.ts`); these tall-wall points are the same latch and the same request cast, not captured
+  // poses, and the cast's own margin was not measured. (ii) Selected CROUCHED, then stood (8.76, near the old fit's
+  // height but with no 0.453 ahead): the page lets seven go and refuses three (40 tall at 5.5, 60 and 200 tall at 4.5);
+  // the room TAKES all ten when sent (0 drops), so no throw the page lets go is dropped by the room.
+  const STAND_LATCH_PAGE_CLEARS: ReadonlySet<string> = new Set(['35@3.6']);
+  const CROUCH_LATCH_PAGE_REFUSES: ReadonlySet<string> = new Set(['40@5.5', '60@4.5', '200@4.5']);
+  for (const [height, ahead] of GRID) {
+    const clears = STAND_LATCH_PAGE_CLEARS.has(`${height}@${ahead}`);
+    it(`B1 (i), the stand latch: pressed to a wall ${height} u tall, ${ahead} u ahead, the page's honest throw at rest ${clears ? 'clears, so the room TAKES it' : 'is REFUSED by the page itself: the latch model at an uncaptured pose (a reading; KILL-LATCH captured the 20 u default-look pose)'}`, () => {
+      const r = pressedThrow(ahead, height);
+      console.log(`B1 (i) stand latch, wall ${height} at ${ahead}: aim ${r.elevation.toFixed(1)} deg, page clears ${r.pageClears}, drops ${JSON.stringify(r.drops)}, thrown ${r.thrown}`);
+      if (!clears) {
+        // The latch model at an uncaptured pose (a reading); KILL-LATCH-PC2 s2 (sha256 5bcf4f60...ccc0) captured the
+        // stand latch's refusal at the 20 u default-look pose only.
+        expect(r.pageClears, 'the page refuses it (request or hand-open): the latch model at an uncaptured pose (a reading; KILL-LATCH captured the 20 u default-look pose)').toBe(false);
+        return;
+      }
+      expect(r.pageClears, 'the page lets it go (request and hand-open)').toBe(true);
+      expect(r.drops).toBeNull();
+      expect(r.thrown).toBe(1);
+    });
+    const crouchClears = !CROUCH_LATCH_PAGE_REFUSES.has(`${height}@${ahead}`);
+    it(`B1 (ii), the crouch latch (selected crouched, then stood): pressed to a wall ${height} u tall, ${ahead} u ahead, the page's honest throw at rest (its aim past the 55-degree clamp) ${crouchClears ? 'clears' : 'is refused by the page (the latch, KILL-LATCH-PC2; this pose not captured)'}; the room TAKES it`, () => {
+      const r = pressedThrow(ahead, height, INIT_AIM_PITCH, 0.895, 'crouch');
+      console.log(`B1 (ii) crouch latch, wall ${height} at ${ahead}: aim ${r.elevation.toFixed(1)} deg, page clears ${r.pageClears}, drops ${JSON.stringify(r.drops)}, thrown ${r.thrown}`);
+      expect(r.pageClears, crouchClears ? 'the page lets it go (request and hand-open)'
+        : 'the page refuses it: the crouch latch (KILL-LATCH-PC2 s1), this pose not captured').toBe(crouchClears);
+      expect(r.drops).toBeNull();
+      expect(r.thrown).toBe(1);
+    });
+  }
+
+  // The review of afd246dfe3, B1 (C3): the stick held down to camera pitch -60, a wall 40 u tall 19 u ahead, power 0.895.
+  // The page's aim (`throwAimVector`) is steeply down, its request and hand-open clear and the launch is clamped level; the
+  // room under the FIXED floor (sine -0.1915) tried no aim that steep and refused `unclear`. The floor is per throw now,
+  // from the command's pitch (THROW_AIM_FLOOR_ADAPTATION, THROW_AIM_FLOOR_MARGIN_ADAPTATION): taken.
+  it("B1 of afd246dfe3's review: standing, camera pitch -60, a wall 40 u tall 19 u ahead, power 0.895 -- the page's honest throw is TAKEN", () => {
+    const r = pressedThrow(19, 40, -60, 0.895);
+    console.log(`B1 pitch -60, wall 40 at 19: aim ${r.elevation.toFixed(1)} deg, page clears ${r.pageClears}, drops ${JSON.stringify(r.drops)}`);
+    expect(r.elevation, 'the page aims below the old fixed floor').toBeLessThan((Math.asin(-0.191536) * 180) / Math.PI);
+    expect(r.pageClears, 'the page lets it go (request and hand-open)').toBe(true);
+    expect(r.drops).toBeNull();
+    expect(r.thrown).toBe(1);
+  });
+
+  // The delta review of 7bf7ac69cf, F1: a forged FULL-POWER LEVEL throw from past a thin wall (80 u tall, 6 ahead), its
+  // start the posed stand-throw's after-frame (9.889 ahead, 22 up) or 14 ahead. The room at c5629fb494 refused it as
+  // `unclear`; with B1's aims below the clamp's 0-degree bound tried to the cone's -85 degrees a steep-down 25 u ray met
+  // no wall and it was taken (7bf7ac69cf). The controller's ruling (ii), 2026-11-21: the aims below 0 go down only to
+  // THROW_AIM_FLOOR_ADAPTATION (sin of the command's camera pitch less the margin, at pitch 0 -0.0475), where the ray
+  // still enters the wall: refused.
+  // Not a toss lob: a full-strength throw through about 6 u of wall.
+  it('a forged full-power level throw through a thin wall is refused as `unclear`: B1\'s aims below 0 deg stop at THROW_AIM_FLOOR_ADAPTATION', () => {
+    const world = map(false, [wallAhead(6)]);
+    for (const ahead of [posed[2][2], -14]) {
+      for (const power of [0.895, 1]) {
+        const { s } = stage(world);
+        const feet = s.feet(2), yaw = s.room.player(2)!.sim.walker.state.yaw;
+        const hand: V3 = [posed[2][0], posed[2][1], ahead];
+        const from = actorToWorldPoint(feet, yaw, hand);
+        expect(from[2], 'the start past the wall').toBeLessThan(100 - 6);
+        const velocity = actorToWorldDir(yaw, throwVelocity(power, 0, hand, maxThrowDistance('stand')).velocity);
+        s.room.takeDrops();
+        s.send(2, 'M67', from, velocity);
+        expect(s.room.takeDrops(), `${-ahead} ahead, power ${power}`).toEqual({ 'throw: unclear': 1 });
+        expect(s.a.of('grenade')).toHaveLength(0);
+      }
+    }
+  });
+
+  // The review of 77da3bbe1b, N6: throwAimFloor's values pinned (THROW_AIM_FLOOR_ADAPTATION: sin(pitch) less the posture's
+  // margin, within the cone's `down`, and nothing below 0 when that is at or above 0).
+  it('throwAimFloor: sin(pitch) less the margin within the cone; at or above 0 it tries no aim below 0', () => {
+    const rad = (d: number): number => (d * Math.PI) / 180;
+    const m = (3 * MAX_PITCH_RATE) / 60;                          // three commands of RECRUIT's full stick: 0.0475 (to 4 places)
+    expect(m).toBeCloseTo(0.0475, 3);
+    expect(throwAimFloor(0, 'stand'), 'standing, pitch 0').toBeCloseTo(Math.asin(0 - m), 12);
+    expect(throwAimFloor(0, 'crouch'), 'crouched, pitch 0').toBeCloseTo(Math.asin(0 - m), 12);
+    expect(throwAimFloor(-60, 'stand'), 'standing, pitch -60').toBeCloseTo(Math.asin(Math.sin(rad(-60)) - m), 12);
+    expect(throwAimFloor(-60, 'crouch'), 'crouched, pitch -60').toBeCloseTo(Math.asin(Math.sin(rad(-60)) - m), 12);
+    for (const pitch of [-20, 0, 25]) {
+      expect(Math.sin(throwAimFloor(pitch, 'prone')), `prone, pitch ${pitch}: the cone's -20 degrees`).toBeCloseTo(Math.sin(rad(-20)), 12);
+    }
+    for (const posture of ['stand', 'crouch'] as const) {   // prone's margin 2 never reaches 0: always the cone
+      expect(throwAimFloor(10, posture), `${posture}: above 0 -> no aim below 0`).toBe(0);
+      expect(throwAimFloor(60, posture), `${posture}: looking up -> no aim below 0`).toBe(0);
+    }
+  });
+
+  // The delta review of 7bf7ac69cf, F2: the request's body decides the clearance, at an aim inside the clamp (sine 0.5,
+  // 30 degrees, where B1's leniency adds no aim). A full standing throw at power 0.895, the wall 12 ahead.
+  it("the clearance is asked at the release request's body (`start`): at aim sine 0.5 a named request facing away is taken, no named request `unclear`", () => {
+    const world = map(false, [wallAhead(12)]);
+    const power = 0.895, aimSin = 0.5;
+    const hand = throwAnim(power, aimSin, 'stand').offset;
+    const run = (named: boolean): Record<string, number> | null => {
+      const { s, step } = stage(world, 180);                      // at the request: facing away from the wall (+z)
+      const p = s.room.player(2)!;
+      const request = p.sim.seq;
+      s.room.text(2, { type: 'throwStart', seq: request, kind: 'M67' });
+      expect((p as unknown as { throwStart: unknown }).throwStart, 'the request taken').not.toBeNull();
+      p.sim.walker.state.yaw = AWAY;                                // then turns to face the wall
+      for (let i = 0; i < 5; i++) step(AWAY);
+      expect(p.sim.walker.state.yaw).toBeCloseTo(AWAY, 2);
+      s.room.takeDrops();
+      const feet = s.feet(2), from = actorToWorldPoint(feet, AWAY, hand);
+      const velocity = actorToWorldDir(AWAY, throwVelocity(power, aimSin, hand, maxThrowDistance('stand')).velocity);
+      s.room.text(2, { type: 'throw', seq: p.sim.seq, kind: 'M67', ...(named ? { start: request } : {}), from, velocity });
+      return s.room.takeDrops();
+    };
+    expect(run(true), "the request's body faced away: clear").toBeNull();
+    expect(run(false), "no request named: the throw's body, facing the wall").toEqual({ 'throw: unclear': 1 });
+  });
+});
+
+/**
+ * R4P-243 (ATLAS L367; research 313 s8.24; reading, pending review; capture IQ-179 queued): the room's wiring of the hand
+ * gate -- `watchMoves` sets `Traversal.handRefusesClimb` to `Room.handRefusesClimb`, which asks `slotSelectable`
+ * (r0004's isSelectableItem 0x5c47e0) of the item in hand on the command run now: the Detonator (0xc1, the page's
+ * `hand`) with no claymore down refuses the climb's and the ladder's offer (r0004 `FUN_00598d30` D4:L493145-493148,
+ * D4:L493164-493168); one claymore down, the offer stands.
+ */
+describe('R4P-243: the room refuses the climb offer with the Detonator in hand and no claymore down', () => {
+  it('the Detonator up with no claymore down refuses the offer; with a claymore down it stands; the firearm refuses nothing', () => {
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 121, 153, 255), [0, 0, 700], [0, 0, 0]);
+    const p = s.room.player(2)!;
+    const t = p.sim.moves as Traversal;
+    expect(t).toBeInstanceOf(Traversal);
+    s.drive(2, 0.2);
+    expect(t.handRefusesClimb?.() ?? false, 'the firearm in hand').toBe(false);
+    expect(climbOffered(p.sim.walker, t.handRefusesClimb), 'the firearm in hand: offered').toBe(true);
+    s.room.text(2, { type: 'hand', seq: p.sim.seq, item: 193 } as unknown as ClientEvent);   // the Detonator up
+    s.drive(2, 0.2);
+    expect(t.handRefusesClimb?.() ?? false, 'the Detonator, no claymore down').toBe(true);
+    expect(climbOffered(p.sim.walker, t.handRefusesClimb), 'refused').toBe(false);
+    s.send(2, 'Claymore', [8, 0, 0], [1, 0, 0]);                          // one claymore set down
+    s.drive(2, 0.2);
+    expect(s.room.player(2)!.grenades.Claymore).toBe(3);
+    expect(t.handRefusesClimb?.() ?? false, 'the Detonator, a claymore down').toBe(false);
+    expect(climbOffered(p.sim.walker, t.handRefusesClimb), 'offered').toBe(true);
+  });
+
+  // Seat-walls' check (page against room): with a claymore placed, the launcher's answer is its round alone -- the
+  // claymores down are read by `slotSelectable` for the Detonator only -- and the Detonator's is the placed count. The
+  // same sequence as `matchThrow.test.ts`'s twin, the same answers: [launcher, a round] false, [launcher, none] true,
+  // [the Detonator, a claymore down] false.
+  it('page and room alike: a claymore placed, then the launcher with a round, emptied, and the Detonator in hand', () => {
+    const s = setup(kit(62, 15, 121, 126, 255), kit(62, 15, 145, 185, 153), [0, 0, 700], [0, 0, 0]);
+    const p = s.room.player(2)!;
+    const t = p.sim.moves as Traversal;
+    s.send(2, 'Claymore', [8, 0, 0], [1, 0, 0]);                          // one claymore set down
+    s.drive(2, 0.2);
+    const answers: boolean[] = [];
+    s.hold(2, 'LAW'); s.drive(2, launcherRaiseSeconds(0) + 0.05);
+    expect(p.held).toBe(145);
+    expect(p.rounds.ring(185)!.rounds()).toBe(1);
+    answers.push(t.handRefusesClimb!());                                  // the launcher up, a round
+    s.send(2, 'LAW HEAT', s.eye(2), [200, 0, 0]);
+    s.drive(2, 0.1);
+    expect(p.rounds.ring(185)!.rounds()).toBe(0);
+    answers.push(t.handRefusesClimb!());                                  // the launcher up, emptied
+    s.hold(2, 'M4A1 SD'); s.drive(2, 2);                                    // the firearm back
+    expect(p.held).toBeNull();
+    s.room.text(2, { type: 'hand', seq: p.sim.seq, item: 193 } as unknown as ClientEvent);
+    s.drive(2, 0.2);
+    answers.push(t.handRefusesClimb!());                                  // the Detonator, a claymore down
+    expect(answers).toEqual([false, true, false]);
   });
 });

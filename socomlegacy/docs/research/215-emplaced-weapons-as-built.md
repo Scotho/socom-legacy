@@ -220,9 +220,9 @@ within 9.6 units of the pivot on all six MP51/MP72 turrets.
 | `TURRET_SEAT_READING` (`viewer/src/net/emplacement.ts`) | the port's steer onto the seat | built 2026-10-16 (PB-2c, s7.1 "The seat, re-read and built"; reading, pending review -- PB-2b's part-2 read re-read at the source): `FUN_005b3340` (the one-shot branch of `FUN_0057a330`, D:L439017-439020) aims the root at the place plus `refPt` turned to the facing `FUN_005463c0` recorded -- the gun part's flattened forward at the mount (D:L412268-412297; `TurretState.gunYaw`, the page's drawn aim) -- with the root's x and z zeroed (D:L468927; the tick zeroes them after the pose, D:L439099-439102 / D:L439147-439148, the steer before it, D:L439020) and `refPt` moved by the clip root's velocity x dt after each tick's offset (D:L468947-468951; `FUN_0028c250` D:L134145-134181 through `FUN_00289bb0` D:L132691-132754, x `DAT_0064fc80` = 1, D:L418170, D:L438985); the offset x sqrt(ease) of the motion's phase as it stands, 0 to (n - 1)/n (D:L468835-468839, D:L468929; the port eased the phase scaled to 1 -- found and built by PB-2c); the turn (`seatTurn`) through the mover; the clip off at the driver's end test before the advance (`FUN_0028c6e0` D:L134283-134308 via `FUN_00582540` D:L418193, PAR-69's uncut-end rule): 16 steer ticks at 60 Hz, key 24.04 (the game's frame: 8, key 24.06), the hold on the 17th; the vertical read: the move lays the floor's height after each move (D:L413943-413946, `FUN_0059afd0`), so the feet stay on the floor (`SeatMover.lift` retired). The steer leaves the feet 0.215 from the hold's place at 60 Hz (0.293 at the game's frame) on all six turrets of Crossroads and Vigilance; the room's steer, like the page's, now meets no polygon wall and leaves them 0.215 from it too (T81-4, s7.9; was: "the room's walk stops them 2.43 short on Crossroads (the gun's hull inside the body's 3.5: the port's walls) and the hold places them", T81-4's review F2). The room's half built the same day, cleared by the online seat (`room.ts`: `TurretState.gunYaw`, the start's facing, the hold on the end tick; *was* awaiting that clearance). *Was* (PB-2, 2026-10-09): the seat `origin + R(rest facing) x (refPt - root)` with the root's x and z turned by the actor's facing, `refPt` unmoved, the ease of `t / run`, the clip run to key 25 (17 ticks), the vertical handed to a mover none took | open: where the mount's push falls in the game's frame (`FUN_002c7d00` against the actor's tick: the whole mount a frame later or not); capture B 13 (a mount from behind, a side and 20 away) |
 | `TURRET_STEER_WALLS_READING` (`viewer/src/net/emplacement.ts`) | the walls the mount clip's steer meets: no polygon wall -- its move laid on the place with no collision, the floor's height (the post-move cell push, D:L413920-413941, runs after the restore, the clip's ticks included: `TURRET_HOLD_PUSH_READING`, unread, not applied; was "none", T81-4's review F3) | read 2026-10-17 (T81-4, s7.9; reading, pending review): in the turret anim set (`+0x528` == `DAT_0044d410`) `FUN_005483d0` writes the move's unresolved displacement back over the resolved one (D:L413464-413466, D:L413908-413912) and integrates it unless the hold's `Stand` is on top (D:L413914-413918); the turret's own hull is a live collider otherwise (its instance node active and DI, 3 polygons; `FUN_002d2890` D:L174789-174792). Built on the page (`SeatSteer.step` with the walker's ground; its place laid again before the next step, kept from the walker's push-out: LATER 91's page half, s7.9) and in the room (`room.ts`, the steer's place laid again after the command's move). **Widened 2026-10-18 (LATER 109, s7.9; reading, pending review) to the release's reversed clip:** it runs in the turret set too, the clip on top and not the hold's `Stand`, so its move is integrated with no wall until the end's command returns the set (`FUN_00582540` D:L443143-443150); built as `ReleaseTravel` (page and room) | open: capture B 13 (a mount from behind, its last frames; a dismount, the body's path) |
 | `TURRET_HELD_WEAPON_READING` (`viewer/src/net/emplacement.ts`) | where a mounted body's own rifle is drawn in the hold: on its carry (`character.rdr`'s "rifle" gear on `spinelo`), stowed at the mount clip's phase 0.5 | read 2026-10-16 (PB-2b's rework, s7.3 "The stow"; reading, pending review): the kit re-hangs nothing (the turret's class-0 slot, `FUN_005c50b0` -> `FUN_005c6980(kit, 0, "aimnodes")` on a node the body never makes), but `FUN_00588bc0` (D:L446318-446343) gives `Stand -> Turret` a phase callback at 0.5 -- `FUN_005a73c0` (D:L462281-462303) moves the rifle's node to `spinelo`, clears its slot and lays the "rifle" gear's local -- and the release's reversed clip `FUN_005a7520` hands it back; the pistol's clip at 0.4, `FUN_005a75d0` / `FUN_005a7730` (the pistol to `rthigh`, its holster). *Was* `'hand'` (PB-2b: the node's last local on `rhand`, the callback unread) and before it `'carry'` (PB-2, while the untracked node's write was unread) | open: capture B 13 (a mounted body from behind and the side) |
-| `TURRET_MUZZLE_NODE_READING` (`viewer/src/net/emplacement.ts`) | the node a mounted round's flash is placed on: the firepoint, turned with the gun | the turret's own fire hands its effect the firepoint (`FUN_003a8d20` D:L300364); the mounted kit's fire (`FUN_005c5340`) uses the kit's weapon node, unread while mounted (s7) | open: capture B 13 (a mounted burst's flash) |
+| `TURRET_MUZZLE_NODE_READING` (`viewer/src/net/emplacement.ts`) | the node a mounted round's flash is placed on: the firepoint, turned with the gun | the turret's own fire hands its effect the firepoint (`FUN_003a8d20` D:L300364); the mounted kit's fire (`FUN_005c5340`) uses the kit's weapon node, unread while mounted (s7) | SUPERSEDED for the flash 2026-11-23 by R4P-239 (`MOUNTED_MUZZLE_FLASH_READING`: a mounted round draws no muzzle flash; r0001 FUN_005c5340 D:L479463-479479 clears the fire point); the firepoint now only marks the body mounted; was: open: capture B 13 (a mounted burst's flash) |
 | `TURRET_DAMAGE_PLACEHOLDER` (`match/src/room.ts`) | the turret's damage: `'indestructible'` (PF.R31) | the authored health 30 is read (s1.1); the damage path is untraced | open: the damage path's read (`DESTROY_ANIM`, the health's consumer) or capture B 13 |
-| `TURRET_FREE_GUN_PITCH_PLACEHOLDER` (`viewer/src/turretPage.ts`) | the pitch a free gun is drawn at on a page that joined after it was left turned: 0, level (RESUME-MOUNTED, 2026-10-17; the yaw is the room's, `gunYaw` on the wire) | the original's freed gun keeps its whole world matrix, pitch included (`FUN_003a7350` D:L299409-299411 copies the gun part's world matrix into `+0x2c0`; the round's reset `FUN_003aa9d0` restores the rounds and `+0x3c0` only, D:L301337-301338); the room keeps the yaw (`TurretState.gunYaw`) but no pitch | open: the room keeping the occupant's pitch at the release as it keeps `gunYaw`, and the wire carrying it |
+| `TURRET_FREE_GUN_PITCH_PLACEHOLDER` (`viewer/src/turretPage.ts`) | the pitch a free gun is drawn at on a page that joined after it was left turned: 0, level (RESUME-MOUNTED, 2026-10-17; the yaw is the room's, `gunYaw` on the wire) | the original's freed gun keeps its whole world matrix, pitch included (`FUN_003a7350` D:L299409-299411 copies the gun part's world matrix into `+0x2c0`; the round's reset `FUN_003aa9d0` restores the rounds and `+0x3c0` only, D:L301337-301338); the room keeps the yaw (`TurretState.gunYaw`) but no pitch | RETIRED 2026-11-23 (TURRET_FREE_GUN_PITCH, R2-FIRE-3 s9): the room keeps the occupant's pitch at the release (`TurretState.gunPitch`), the wire carries it (`gunPitch`, absent while level) and the page draws it; was: open: the room keeping the occupant's pitch at the release as it keeps `gunYaw`, and the wire carrying it |
 | `TURRET_RELOAD_READING` (`viewer/src/net/emplacement.ts`) | the ammunition's magazines and reload: the mount pours the turret's rounds into the kit slot's ten magazines of `Ammo_Capacity` (`turretPour`); the magazine's last round and R arm the record's `ReloadDelay` (0.5 s PKM / LMG, 0.25 s MGL), no round leaving, then the walk to the next magazine; a dry pull reloads at once but on class 230; no refill; a release sums the magazines back, so a dry turret stays dry until the round's reset | re-valued 2026-10-17 (TURRET-AMMO, issue #284; s8 "The original's reload", reviewed AGREED WITH CORRECTIONS; built in the room, `room.ts` `TurretState.mags`, the occupant's `mags` on the wire): `FUN_005c5340` D:L479287-479294, D:L479318-479320; `FUN_00594cf0` D:L453460-453463; `FUN_005c32b0` D:L477661-477676; `FUN_005c2a90` D:L477462-477497; `FUN_005c0fd0` D:L476549-476567, D:L476590, D:L476616-476622; `FUN_005c3c10` D:L412003; `FUN_003aa9d0` D:L301330-301337; re-cited 2026-10-17 (the review's fold, F1, s8): the pause on the command clock `turretReloadCountdown` -- `FUN_005c0fd0` D:L476549-476563, a float32 countdown, decrement then `< 0.0`, the landing frame's fire step skipped: 30 commands at 0.5 s, 16 at 0.25 s, the first round N+31 / N+17 (was `Math.round(ReloadDelay x 60)`, the landing's command firing); unread and named here: the R5900 FPU's rounding (toward zero would stop 0.25 s on the 15th), the frame time's producer, and where R's arm (`FUN_00594cf0`, a controller vfunc) falls against the kit update (`FUN_005506a0` D:L417905-417907: one command earlier if before); *was* "one a round, nothing reloads until the round's reset" (`ammoInit` read, its consumer untraced, research 177 s4) | open: capture B 13 (fire until empty: the pause, the box, the sound; R mounted: the first round after) |
 | `TURRET_RELEASE_RELOAD_READING` (`match/src/room.ts`, a comment) | a reload's timer still running at a release: dropped with the kit slot (the port's choice) | named 2026-10-17 (the review's fold, F2, s8): the room's comment had cited D:L412001-412006, which write no timer; `kit+0x820` is the kit's and no writer of it is in the release path (`FUN_00545ee0` D:L411941-412024, `FUN_005c3c10` D:L478128-478154, `FUN_005c4b10` D:L478842, `FUN_005b9bb0`, `FUN_005a6eb0`, `FUN_005448a0`, `FUN_003aa020`, `FUN_003a9ea0`), so the original's very likely lands on the rifle back in the hand (`FUN_005c2a90` walks `+0x824`, D:L477411) | open: capture (a dismount within 0.5 s of the 250th round or of R: whether the rifle takes a magazine and plays its `ReloadSound`) |
 | `TURRET_LANDING_FLINCH_READING` (`match/src/room.ts`, a comment) | a landing inside a flinch window while mounted: lands (no flinch gate) | named 2026-10-17 (the review's fold, F3, s8): `FUN_005c2a90` refuses inside a flinch window (`FUN_005b4340(actor, 3)` D:L469494-469504, asked at D:L477404) and the timer is cleared anyway (D:L476560), losing that reload; whether a mounted body flinches is unread (no `+0xeb8` test in `FUN_005a2690` D:L459885-459959; the room's `flinchState` has no mounted case) | open: read (the hit path's reaction with `+0xeb8` set) or capture (an occupant hit within 0.5 s of the arm) |
@@ -236,6 +236,7 @@ within 9.6 units of the pivot on all six MP51/MP72 turrets.
 | `TURRET_ROUND_LINE_READING` (`match/src/room.ts`) | a turret round's line: from the room's firepoint at the clamped aim along the page's claimed line, inside the occupant's cone -- the kit's, on the turret record at 'stand' -- about the gun's own line; MGL FRAG TURRET's launched round too (PAR-59, s8) | built 2026-10-18 (TURRET-CONE, the room half and P2's wiring, s8.2; reading, pending review; named `TURRET_ROUND_LINE_PLACEHOLDER`, 'the gun line, no cone', until then): mounted, `FUN_005be9a0` takes the origin from the turret's vfunc `+0x60` (D:L475525) and overwrites the converged direction with its `+0x68`, the gun part's world -z (D:L475600), then the controller's `+0x74` -- `FUN_00592260`, the cone (D:L475601-475602; D:L451531-451577) -- rolls it; the page rolls (`TurretPage.round` on `MatchFirearm.turretCone`), the room bounds (`ShotCone.checkLine` about its own `gunLine(clampAim(frame))`, its cone the turret record's at `TURRET_RETICLE_STANCE_READING`'s row, bloomed per accepted round; no eye, no bind) and fires along the claim, a refusal through `turretDropped`; the port normalises the line (s8.2's known deviation). *Was:* the line read 2026-10-17 (TURRET-RETICLE, s8.2; reading, pending review) and the port's: mounted, the kit's fire takes its origin from the turret's vfunc `+0x60` (`turret+0x380`, the firepoint node's world place, `FUN_003a8f50` D:L300418-300428) and overwrites the direction it converged on the aim point with the turret's vfunc `+0x68` (`turret+0x38c`, the gun part's world -z, `FUN_003a7350` D:L299398-299406) -- `FUN_005be9a0` D:L475525, D:L475600; the vtable 0x408250's words 0x3a71a0 / 0x3a71d0 (the ELF's bytes) -- so no convergence; the gun's rest -z level within 0.0092 degrees on nine turrets (MP72, MP51, MP10), the port's `gunLine(facing, 0)`. The cone read, not built: the controller's `+0x74` after it (D:L475601-475602) is `FUN_00592260` in the player's, the remote's and the AI's vtables (0x6694b0, 0x669590, 0x6699f0), over the kit's accuracy on the turret slot's record (`TURRET_RETICLE_STANCE_READING`) -- the row TURRET-CONE, next (`room.ts`); the name kept until it is built. *Was:* "the turret record's reticle while mounted, and whether the kit's cone runs over it, are unread; the mounted kit's fire takes its origin from the turret's vfunc `+0x60` and its direction from the turret's `+0x68` and the controller's `+0x74` (`FUN_005be9a0` D:L475520-475526, D:L475594-475603), none of them read" | open: capture B 13 (a burst's spread at range; an MGL round's line) |
 | `TURRET_JITTER_BLOOM_ADAPTATION` (`match/src/room.ts`) | a network adaptation (no counterpart in the original): a mounted round the room refuses 'rate' on its event clock alone -- its command at the cadence, its arrival bunched -- blooms the occupant's cone (`ShotCone.round`) when its claim lies inside the cone, and stands as the cadence's last round; nothing spent or fired | added 2026-10-18 (TURRET-CONE's review F1, s8.2; pending re-review): the console blooms every round its own gate fires (`FUN_005c0ae0` via `FUN_005c0fd0` D:L476569, D:L476638), on one clock; the page's gate is that console's, so a round the room drops on arrival jitter has bloomed the page's kit, and two such drops in one LMG burst left the rest refused 'cone' until the trigger's release (the review's probe). At most one bloom per cycle of the occupant's commands, never for a claim outside the cone: sprayed claims early on the event clock open the room's cone no wider than an honest burst's after the same round (`roomTurrets.test.ts`) | the page's own: no capture settles it |
 | `TURRET_RETICLE_STANCE_READING` (`viewer/src/net/emplacement.ts`) | the stance row of the turret record's `Reticule_Modifiers` the kit's bloom runs while mounted, and each mounted round's (TURRET-CONE P1): 'stand' (PKM TURRET 15-35, Dilate 8; LMG TURRET 6-30, Dilate 4; MGL FRAG TURRET 2-6, Dilate 0; `ReticuleKnock` 0 on all three, where their crouch and prone rows knock 7-9 on the PKM and the MGL; `zweapon.rdr` through `readKitTable`) | added 2026-10-17 (TURRET-RETICLE, s8.2; reading, pending review): the kit's tick takes its row by `FUN_0058a720(body, 1)` (`FUN_005c2670` D:L477256-477377, research 84 s3), and the round's step by the same call (`FUN_005c3360` D:L477722; 2026-10-18, TURRET-CONE P1, s8.2: the bloom and the knock per mounted round at this row); what that answers for a body in the turret anim set (its `Stand` held by `FUN_00585cd0`) is unread; the set's motion is a `Stand` and no crouch or prone reaches the hold | open: that read, or capture B 13 (a mounted HUD frame at rest and after a burst) |
+| `MOUNTED_MUZZLE_FLASH_READING` (`viewer/src/effectRules.ts`) | 'no flash drawn': a gun mounted on a type-3 entity draws no muzzle flash; the port hands the muzzle animation no node (`muzzleCarrier`), the round's tracer and impact kept | the behaviour is PROVEN on r0004 by the capture Q-239 (a PKM on MP73; atlas-parity, agent/spc-atlas), and r0004 always clears the fire point for such a gun and plays the clip in its no-point form (D4:L521540-521565); WHY that form draws nothing is not read, nor whether it still ejects a casing or lights (the capture scored the flash only); the port drops the whole clip | added 2026-11-23 (R4P-239; reading, pending review): open, a read of the no-point form's draw path |
 | `TURRET_CAMERA_PITCH_READING` (*note only*) | the mounted third-person camera's pitch: the port keeps the look (the gun's aim at rest) | partly read 2026-10-17 (TURRET-RETICLE, s8.2; reading, pending review): the mount keeps the camera on the body (`FUN_002956e0` D:L139716-139746, called D:L412191) with a one-second blend (D:L140729-140790) and the view state 0 in third person (D:L412247-412255); the stick's pitch step is skipped while mounted (`FUN_00594600` D:L452890-452906) and no writer of the look `+0x1070` from the gun was found -- taken literally, the reticle would part from the rounds by 100-365 px at the pitch stops, implausible, so not built on | *note only* -- open: capture B 13 (the pitch stops filmed from behind, the reticle against the tracer) |
 | `TURRET_LAUNCH_INHERIT_READING` (`match/src/room.ts`) | what a mounted MGL FRAG TURRET's round inherits at its launch: none | the kit's fire hands the launch the actor's `+0x38` (`FUN_005be9a0` D:L475604 -> `FUN_005c5340` -> `FUN_003d2d70` -> `FUN_003cb1a0`), added to MV x dir (D:L320731); the hold writes the body's place each frame and skips its move (D:L413914-413919), and what `+0x38` holds then is unread (PAR-59, s8) | open: that read, or capture B 13 (an MGL round's arc) |
 | `FIRST_REQUEST_WINS_READING` (`match/src/room.ts`, named in `viewer/src/net/protocol.ts`) | two mounts taken at one step's top go to the lower seat id (LATER 124, 2026-10-19, s7.9: a mount is taken only once its own command has run, so the step that takes them; *was* "two mounts on one tick", the step after they came) | ruling PF.R28 (XR-05's bomb pickup is the same rule and owns the constant in its own note, research 214); MAP-10b applies it in `resolveMounts` and names it in comments only, so the two do not collide | open: capture B 13 (console B mounts while A is on it) |
@@ -264,6 +265,16 @@ within 9.6 units of the pivot on all six MP51/MP72 turrets.
 | `MOUNT_HELD_THROW_FUSE_PLACEHOLDER` (`viewer/src/grenade.ts`; applied in `GrenadeThrower.mountTake`) | a throwable held at the turret's take -- a wind-up, or a throw asked whose hand has not opened: nothing thrown, the item kept, the power 0, and no fuse running in the hand | named 2026-10-22 (A1 branch B, s8.6): the take pops the body's stack (`FUN_0058c350` D:L447983-447988) and its take-up zeroes the controller's power (`FUN_00592d40` D:L478915), so nothing leaves the hand; what the kit does then with the throwable in it -- its pending bit and timer (`+1` 0x02, `+0x87c`) -- is unread across the take-up (`FUN_005c4b10` D:L478777-478935) | open: that read, or a capture (a mount taken with a grenade held, and with a throw asked) |
 | `MOUNT_GRANT_CHECKS_ADAPTATION` (`viewer/src/net/emplacement.ts`; applied in `match/src/room.ts` `resolveMounts`) | a network adaptation: the room's checks at the grant, at the ask's command K -- alive, not stale, holding none, the turret free (PF.R28), no traversal move, the kit's lock (LATER 175, 223, 249), the reach and facing (`canMount`); for a worded ask, the asker's own ask's refusals too (the review's fold, 2026-10-22): a knock-down fall ('fall', `FUN_00546210` D:L412059-412062, no locality gate) and a `Stand -> Turret` clip playing, forward or reversed ('mounting', D:L412066-412069: the dismount's reversed clip) | added 2026-10-22 (A1, the merge controller's word 2026-10-21; reading, pending review): the original's host checks only that it is the master and the turret unowned (`FUN_0061e6d0` D:L529427-529428); the asker's console offered the mount past its own gate (`FUN_00593500`) and its ask's refusals before it asked (`FUN_00546210` D:L412075-412084); the room is both, so it keeps the gate and the ask's refusals at K; the ask's third, the restraint or stab victim `+0xeac` (D:L412071-412073), is the campaign's alone (research 189, 194) and is not checked; an older page's (unworded) ask keeps its path from before A1, without the two refusals | none: an adaptation; open (P37's review F2, 5d, 2026-11-02): the room's no-traversal-move check (`room.ts` `resolveMounts` ~:6112, `p.sim.moves?.busy()` -> 'mount: busy') refuses a mount during a climb and a dive too, but whether the original's offer gate refuses those is unread -- `FUN_00593500` D:L452277 -> `FUN_005a7de0` D:L462612 posts no offer outside `actor+0x174` 0, 1, 2, 3, 6, and their `+0x174` state is `NOFIRE_STATE_READING`'s owed read (`viewer/src/traversal.ts`); the ladder (5) and the hang (4) are refused by it, reading (P37's F1) |
 | `MOUNT_WORD_BOUND_ADAPTATION` (`viewer/src/net/emplacement.ts`, with `MOUNT_WORD_BOUND_TICKS`; applied in `match/src/room.ts` `resolveMounts` -> `takeMount`) | a network adaptation: 2 s, the ask's window (`TURRET_MOUNT_ASK_WINDOW_READING`, pinned equal): a worded reservation whose page names no take inside it is taken by the room on its own count, at a step's top (`steer.after` the last command run) | added 2026-10-22 (A1; reading, pending review): the original has no reservation -- the host's grant is every console's take (`FUN_0061e6d0` D:L529429-529433 -> `FUN_0061e7f0` D:L529455-529466 -> `FUN_002c7d00` D:L168019) | none: an adaptation |
+| `LIBRARY_REGISTRY_READING` (`scene/src/turrets.ts`) | which libraries a map's instances resolve through, for the HULL (LATER 1003, s9): every `*_GEO.ZED` embedded in the archive, the map's own graph first, then the archive's order, the first name kept (`hullModels` = `turretSceneModels`) | the original looks an instance's model up in every REGISTERED library, first registered first (`FUN_00310da0` D:L212317-212372 -> `FUN_00320f10` D:L221752-221773, the list at 0x45c3c0), loading libraries by name (`FUN_003199c0`, D:L217466); which a map registers, and in what order, is unread. On the 22 maps no two libraries of one archive name the same model (census cc3, table X3), so the order decides nothing there | reading, pending review (2026-11-19) |
+| `TURRET_GUN_STATIC_PLACEHOLDER` (`scene/src/turrets.ts`) | a turret's gun in the hull stands at rest (LATER 1003, s9) | the original's walk pushes each node's matrix (`FUN_002d3030` D:L175103-175108), so the gun's polygons turn with the gun; the port's hull is static. Its own row: LATER 1237 (a moving collider on the room) | placeholder (2026-11-19) |
+| `MOUNT_CLIP_HIDDEN_HAND_READING` (`viewer/src/net/emplacement.ts`; applied in `viewer/src/main.ts` and `viewer/src/matchMount.ts`, the `TurretPage` `hand` dep) | how a page draws the mount clip of a body of the other side: `'slot'`, by its firearm slot alone (the pistol's clip for an item over the pistol) | R4P-R2 2026-11-24 (L81; reading, pending review): r0004's 0x5acbb0 plays the rifle's `Stand -> Turret` for the gear helper's items 0, 1, 3 and 4 and the pistol's for item 2 alone (D4:L503241-503262; the label row upheld, `../atlas/data/r0004/labels/changed-011.check.md`); the room and the body's own page choose by the item (`mountHandOf`), but the wire's `hand` is zeroed for the other side (HAND_WIRE_ADAPTATION, `recipientBodies`), so that side's page cannot tell an item over the pistol from the bare pistol | retired 2026-11-24 (the non-author second read (patches-contrib, 2026-11-24; `agent-mail` `pilot/shots/r4pr2-turret.second-read.md`)): the direction was inverted -- the other side's page, drawing by the firearm slot, matched r0004 (the mount clip follows the hand class `+0xf79`, which an item over a firearm never changes: 0x5acbb0 D4:L452444, the select 0x5ac050 D4:L502932-502964); the room and the own page differed. With `mountHandOf` by the hand class all three agree, and the name is gone from the source; settled for that reading by the third read (atlas-parity, 2026-11-24; `agent-mail` `pilot/shots/r4pr2-turret.third-read.md`) (s8.8) |
+| `DISMOUNT_FIREARM_UNDER_ITEM_READING` (`viewer/src/net/emplacement.ts`; the page's `TurretPageDeps.drawn`, the room's `releaseTurret`) | the firearm in the hand after a release whose mount kept an item over the pistol: `'kept'`, the pistol stays (the item is put away; the rifle's reversed clip plays) | R4P-R2 2026-11-24 (L67; reading, pending review): r0004's 0x54a900 chooses the primary then (`dismountSlot`: the secondary when kept or no primary, else the primary, else the kept slot; D4:L452157-452169, the label row upheld, `../atlas/data/r0004/labels/changed-008.check.md`) and sets `+0xf79` from it with no swap clip; the port's firearm is the walk's (the command's `weapon`), and that slot change is not built on the walk and the room's mover together | open: the slot change built on both movers; a capture of r0004 (the queue's Q-R2: dismount after mounting with a grenade over the pistol) |
+| `VICTORY_R0004_FLAGS_READING` (`match/src/room.ts` `victoryStatus`) | four of r0004's added dance refusals not modelled: `'not modelled'` | R4P-R2 2026-11-24 (L97; reading, pending review): r0004's CanVictoryDance (0x582fd0) adds, for a live local actor, mounted (built: `p.mounted`), the turret set (built: `onTurretSet`, the reversed clip too), the stance word 2 or 6 (built: prone; the dive's 6 a traversal move, `moves.pose()`), and `+0x105e` bit 0x20, `+0x1061` bit 0x02 (D4:L481170-481175) the kit's selected item passing r4 0x5c47e0 (D4:L481182-481185), and a fourth refusing test the first read left out, `FUN_0058eea0` (D4:L481176-481179; the non-author second read (patches-contrib, 2026-11-24; `agent-mail` `pilot/shots/r4pr2-turret.second-read.md`)), unread and unmodelled -- the last three unmapped (r0004's SEAL body moves some fields by 4; r0001's `+0x1061` 0x02 is the walk-off's fall flag, FLE-1) and 0x5c47e0 unread; the airborne term (`VICTORY_OFFER_BUSY_PLACEHOLDER`) stands for the bits meanwhile | open: those bits' writers and 0x5c47e0 read in r0004, or a capture (Q-R2: the dance asked prone and on a turret after a round win) |
+| `TURRET_MOUNT_VETO_READING` (`viewer/src/net/emplacement.ts`) | the turret's own veto of a mount: `'none'`, the port refuses no mount on the turret's side | R4P-R2 2026-11-24 (L49; reading, pending review): r0004's TryMountEntity (0x54ae60, D4:L452298-452319; r0001 `FUN_005463c0` has no such test) asks the entity's vtable `+0x5c` when the actor's controller (vtable `+0x34`) answers 0 and the entity's type byte `+0x10` is 3, and refuses on a zero answer; which turret classes answer 0 is not read (LEADS L49; the label row upheld, `../atlas/data/r0004/labels/changed-002.check.md`) | open: the turret classes' vtable `+0x5c` read in r0004, then a capture of a refused mount |
+| `MOUNT_AFTER_LAUNCHER_ITEM_READING` (`viewer/src/net/emplacement.ts`; the rule applied in `match/src/room.ts` `takeMount`, `viewer/src/main.ts` and `viewer/src/matchMount.ts`) | the mount clip after an item is taken from the raised launcher: `'slot'`, the firearm slot still in the hand (the pistol's clip after a launcher raised from the pistol) | R4P-R2 hand review 1 F3, 2026-11-24 (reading, pending review): the weapon change with old class 4 lowers through `FUN_005a6b70`, which writes the new class -- 3 for a grenade or charge (D4:L503129; the third read, section 4 path (i), section 5) -- so r0004 plays the RIFLE's clip until a firearm is next selected. Not built: the room cannot tell an item taken from the launcher from one taken after its lower (the page's lower and its ROOM-HAND word arrive apart), and the room's seat steer and NoFire window read the same hand (`Player.mountHand`), so on this route they follow the slot's clip too (hand re-review C) | open, a build path (hand re-review A): the room sees both halves, each dated by its command -- the page's launcher lower (`lowerLauncher`) and its ROOM-HAND word, sent from the same page handler -- so it can mark an item taken while the launcher was held or lowering, clear it at the next firearm selection and take `mountHandOf(null)`; the other side needs only the room's chosen hand on the turret broadcast (an additive field, as `releaseHand`), the own page the same mark; checked against the third read's trial 4 (launcher -> M67 -> mount: 3, the rifle's clip, 1 after) |
+| `ITEM_ALONE_MOUNT_CLIP_READING` (`viewer/src/net/emplacement.ts`; the rule applied in `match/src/room.ts` `takeMount`) | the mount clip of a kit with no firearm and an item up: `'the rifle clip'` (the slot in the hand, 0 for two `FULL_SLOT` firearms) | R4P-R2 hand review 1 F4, 2026-11-24 (reading, pending review): no source gives it -- the kit's set-up write to `+0xf79` with an item as the set-up item is unread (the third read, section 6), and set-up writes the pistol's 2 for any non-rifle item at once (`ChangeItemModel`, D4:L521116), which would give the pistol's clip; the release half is read for the item kept (class 3, the rifle's reversed clip, 0x54a900 D4:L452168-452169, 0x5aca70). Also unread (hand re-review B): a kit with a `FULL_SLOT` primary and an EQUIP_NONE secondary mounts by its slot 1 (the pistol's clip) but releases by the rifle's (`mountKept` 'secondary', neither firearm present, `dismountSlot` 'saved', `releaseHandOf` 0); if that slot's class is 2 at the mount the original may play the pistol's reversed clip | open: that set-up write read, or a capture of a mount and a release from such kits |
+| `MOUNT_GEAR_BITS_READING` (no code: R4P-R2 review 1 F8) | r0004's mount writes not ported -- the mount function's own, beside its call of the gear helper r4 0x5abc60 (`../atlas/data/r0004/labels/changed-011.check.md`, the 0x5acbb0 note; review 2 F3): `+0x105e` bits 0x04 and 0x02 cleared, `+0x1061` bit 0x02 cleared and 0x04 set, and `+0x1354..+0x135c` zeroed | R4P-R2 2026-11-24 (L81; reading, pending review): r0004's 0x5acbb0 (D4:L503241-503257; the label row upheld, `../atlas/data/r0004/labels/changed-011.check.md`); r0001's `FUN_005a6fc0` (D:L462173-462200) has none; which port states those bits are is not mapped (s8.8) | *note only*: owed the bits' writers read in r0004, or a capture of r0004 (Q-R2) |
+| `DISMOUNT_STACK_CLEAR_READING` (no code: R4P-R2 review 1 F8) | r0004's dismount clears the action stack before its clip; the port does not | R4P-R2 2026-11-24 (L87; reading, pending review): r0004's 0x5aca70 calls r4 0x58fbe0(actor, 1, 1), the twin of r0001's ClearStack, before the clip (D4:L503199; the label row upheld, `../atlas/data/r0004/labels/changed-013.check.md`); r0001's `FUN_005a6eb0` (D:L462136-462170) does not | *note only*: owed what the stack holds at a dismount in the port, or a capture of r0004 (Q-R2) |
 
 ## 5. Owed
 
@@ -445,7 +456,7 @@ step), `packages/viewer/src/motionTable.ts` (`MotionEntry.refPt`), `packages/vie
     `MountMark.facing`), `SeatSteer.start(.., facing)`, `SeatSteer.toward`. **Built 2026-10-17 by the online seat's RESUME-MOUNTED (#258):** the room's `gunYaw` rides the
     wire (an additive `gunYaw` on `TurretWire`: the welcome's turrets, a free gun left turned listed too, and each `turret`
     event), taken in `TurretPage.take` as the mount's facing; a free gun a welcome names is drawn at it
-    (`TURRET_FREE_GUN_PITCH_PLACEHOLDER`, the room keeping no pitch); the `resume` carries the turret and, mid-steer, the
+    (and, since TURRET_FREE_GUN_PITCH 2026-11-23, at the room's `gunPitch` -- was `TURRET_FREE_GUN_PITCH_PLACEHOLDER`, the room keeping no pitch); the `resume` carries the turret and, mid-steer, the
     steer's ticks and `toward`. *Was (open, PB-2c's review, F1, medium):* the
     room's `gunYaw` is not on the wire (`TurretWire` carries `{ id, occupant, ammo }`), so a page takes the gun's yaw it last
     drew itself -- a page that joined after the gun was turned (a late join, a resume) holds the rest facing, and on its
@@ -545,10 +556,10 @@ step), `packages/viewer/src/motionTable.ts` (`MotionEntry.refPt`), `packages/vie
   and its count from the mount -- every fourth; a body on the gun's line, `FireSource.bodyDistances` / `targetDistance`,
   struck unmarked and passed at PERSON's 0.97 as the firearm's own round's since P12 (research 219 §3.2; *was* stopped
   there unmarked), the room's `impact` bringing the blood), the record's `FireAnimName` (`muzzle_turret_RMG`, `muzzle_turret_LMG`)
-  on the firepoint turned with the gun (`firepointFrame`, `TURRET_MUZZLE_NODE_READING`), the impact, and the report
+  on the firepoint turned with the gun (`firepointFrame`, `TURRET_MUZZLE_NODE_READING`; SUPERSEDED by R4P-239 2026-11-23: no flash is drawn), the impact, and the report
   (`.PKM`, `.PKM_M`, `.PKM_F`) -- none for a claim the room drops (the count spent, the binoculars up). The other pages took a turret round's item id (205, 207) for no record -- `recordOf`
   read the kit records only, so they drew and heard the side's first firearm; it now reads `turretRecords` too, and the
-  flash is placed on the turret's firepoint (`MatchFirearmDeps.mountedMuzzle`), not the rifle in the occupant's hand. No
+  flash was placed on the turret's firepoint (`MatchFirearmDeps.mountedMuzzle`), not the rifle in the occupant's hand -- since R4P-239 (2026-11-23) no flash is drawn for a mounted round. No
   page draws another's tracer, for any weapon (an existing gap, not the turret's).
 - **Not built here:** the menu-launched match has no turret at all (`FRONT_END_CAPABILITIES.actions` false: the
   actions part is `/testroom`'s; the controller's plan item) *(since built: ACT-2, research 250 s3)*; the occupant's held
@@ -2434,36 +2445,38 @@ The kit's fire `FUN_005c0fd0` -> `FUN_005c0ae0` runs in `FUN_005506a0` (D:L41790
 ask (D:L453634) and one tick land before the fire check, and on every later frame the tick comes first. The frame's dt is
 `GAME_FRAME_DT` (525/15734 s, proven; `scene/src/gameFrame.ts`).
 
-*The count.* From a cleared envelope (the lower run out: 0.495 s, 15 game frames after its ask; a spawn), the ask starts
-it at in + hold + out summed in float32 (`FUN_00286d90`): rounded toward zero (`EE_FPU_ROUNDING_READING`) 100000.59375
-(0x47c3504c), to nearest 100000.6015625 (0x47c3504d) -- `seal+0xef0` is the "time since" base the ask reads
-(D:L494247), not this start. Each tick takes dt off it, where the float32 step at that size is 1/128 s; the weight reads 1
-once the remaining is at or under 100000.5 (D:L494213-494219; `FUN_00286b80`'s else branch). Toward zero each tick takes
-5/128 s from 100000.59375: 100000.5546875 (linear 0.391, 0.305 eased), 100000.5156250 (0.781, 0.904 eased),
-100000.4765625 (1) -- the first round two game frames after the press's (66.7 ms); to nearest, 4/128 s a tick from
-100000.6015625 and three frames (100 ms). *Was:* "100000.6015625 in float32 (`seal+0xef0`, 0x47c3504d)" with the
-toward-zero steps of 5/128 s -- a first step of 6/128 s from that start; the values shown are from 100000.59375 (LATER
-180's review, F3; the counts unchanged). At 1/60 s and to nearest it would be six frames (the
-"7 raise ticks" s8.3 once gave, its was-line, which assumed that step). From a partly lowered rifle the raise snaps the remaining to the hold
-(D:L494213-494216) and the round leaves on the press's frame. Computed by a float32 mirror (scratch, not a test of the
-repository). `RAISE_ENVELOPE_STEP_READING`, LATER 185 (2026-10-21; reading, pending review): the port's raise steps
-once a game frame -- each game frame a `GameFrameAccumulator` (PF.R8) counts in the page's clamped step runs the
-controller's tick (the trigger's edge, its request) and the raise tick (`FUN_005dfc80`, by `GAME_FRAME_DT` in single
-precision) -- and the envelope in float32 toward zero (`FUN_00286d90` D:L130883: `(out + in) + hold`; `FUN_00286d40`
-D:L130853; `FUN_00286c90` D:L130826-130835; `FUN_00286b80`'s ease D:L130804-130810; `FUN_005dfe30` D:L494247,
-D:L494250-494255, D:L494268-494269; `FUN_005dfc80` D:L494213), the slot's times as their float words (`FUN_005dffc0`
-D:L494280-494288, the sum 0x47c3504d the request's base). The values above are now the page's: from a cleared
-envelope 100000.5546875, 100000.515625, 100000.4765625 (weights 0.3051757, 0.9042968, 1), the snap to 100000.5 on
-the fourth; the first round on the page frame the press's game frame + `RAISE_REFUSAL_FRAMES` ends on -- 6 page
-frames after the press at 60 Hz from a fresh count (game frames end on 2, 4 and 6: two 60 Hz frames are 34 us short of
-one), 2 at `GAME_FRAME_DT`, 3 at 1/30 s; from a partly lowered rifle on the press's game frame (the snap is the
-tick's). The port's own, named in the reading: the count's phase (the raise's, from its construction or reset), a
-page frame's trigger -- down on any page frame since the last game frame -- release and real seconds given to the next
-game frame to end (a tap shorter than a game frame kept), the dt's last bit. The Fire versions' blend and the aim's
-twist (`./play` `fireWeight`, `aimWeight`) step with it, constant between game frames. *Was:* "the port's envelope
-steps by the page's frame in doubles, its round on the page frame whose tick completes 0.1 s, the press's own counted
-(5 frames after the press at 60 Hz: the linear weight 1 - 2.3e-10 there, which the ease rounds to 1 in doubles; 2 at
-30 Hz)". `raiseRefusal.test.ts` (LATER 185's cases), `weaponRaise.test.ts` (the throws' updates at the game frame).
+*The count.* From a cleared envelope (the lower run out: 0.495 s, 15 game frames after its ask; a spawn), the ask
+starts it at (in + hold) + out summed in float32 (`FUN_00286d90`, `add.s` at 0x286d90 then 0x286d94): rounded toward
+zero (`EE_FPU_ROUNDING_READING`) 100000.59375 (0x47c3504c), to nearest 100000.6015625 (0x47c3504d) -- `seal+0xef0` is
+the "time since" base the ask reads (D:L494247), not this start. Each tick takes dt off it, where the float32 step at
+that size is 1/128 s; the weight reads 1 once the remaining is at or under 100000.5 (D:L494213-494219;
+`FUN_00286b80`'s else branch). Toward zero each tick takes 5/128 s from 100000.59375: 100000.5546875 (linear 0.391,
+0.305 eased), 100000.5156250 (0.781, 0.904 eased), 100000.4765625 (1) -- the first round two game frames after the
+press's (66.7 ms); to nearest, 4/128 s a tick from 100000.6015625 and three frames (100 ms). *Was:* "100000.6015625 in
+float32 (`seal+0xef0`, 0x47c3504d)" with the toward-zero steps of 5/128 s -- a first step of 6/128 s from that start;
+the values shown are from 100000.59375 (LATER 180's review, F3; the counts unchanged). At 1/60 s and to nearest it
+would be six frames (the "7 raise ticks" s8.3 once gave, its was-line, which assumed that step). From a partly lowered
+rifle the raise snaps the remaining to the hold (D:L494213-494216) and the round leaves on the press's frame. Computed
+by a float32 mirror (scratch, not a test of the repository). `RAISE_ENVELOPE_STEP_READING`, LATER 185 (2026-10-21;
+reading, pending review): the port's raise steps once a game frame -- each game frame a `GameFrameAccumulator` (PF.R8)
+counts in the page's clamped step runs the controller's tick (the trigger's edge, its request) and the raise tick
+(`FUN_005dfc80`, by `GAME_FRAME_DT` in single precision) -- and the envelope in float32 toward zero (`FUN_00286d90`:
+the ELF's `add.s` at 0x286d90 and 0x286d94 sum (in + hold) + out -- the export's D:L130883 prints `(out + in) + hold`,
+the same float for these times; `FUN_00286d40` D:L130853; `FUN_00286c90` D:L130826-130835; `FUN_00286b80`'s ease
+D:L130804-130810; `FUN_005dfe30` D:L494247, D:L494250-494255, D:L494268-494269; `FUN_005dfc80` D:L494213), the slot's
+times as their float words (`FUN_005dffc0` D:L494280-494288, the sum 0x47c3504d the request's base). The values above
+are now the page's: from a cleared envelope 100000.5546875, 100000.515625, 100000.4765625 (weights 0.3051757,
+0.9042968, 1), the snap to 100000.5 on the fourth; the first round on the page frame the press's game frame +
+`RAISE_REFUSAL_FRAMES` ends on -- 6 page frames after the press at 60 Hz from a fresh count (game frames end on 2, 4
+and 6: two 60 Hz frames are 34 us short of one), 2 at `GAME_FRAME_DT`, 3 at 1/30 s; from a partly lowered rifle on the
+press's game frame (the snap is the tick's). The port's own, named in the reading: the count's phase (the raise's,
+from its construction or reset), a page frame's trigger -- down on any page frame since the last game frame -- release
+and real seconds given to the next game frame to end (a tap shorter than a game frame kept), the dt's last bit. The
+Fire versions' blend and the aim's twist (`./play` `fireWeight`, `aimWeight`) step with it, constant between game
+frames. *Was:* "the port's envelope steps by the page's frame in doubles, its round on the page frame whose tick
+completes 0.1 s, the press's own counted (5 frames after the press at 60 Hz: the linear weight 1 - 2.3e-10 there,
+which the ease rounds to 1 in doubles; 2 at 30 Hz)". `raiseRefusal.test.ts` (LATER 185's cases), `weaponRaise.test.ts`
+(the throws' updates at the game frame).
 
 *Mounted.* A PKM or LMG TURRET's zero times (s8.3) keep a lowered envelope at 0, so a pull that starts with the pending
 bit clear -- the first after the lower or the mount, or one after a tap released on the frame after its round -- waits
@@ -2484,6 +2497,8 @@ online-parity sweep's AR-3 = WK-4; an adaptation, no original -- the game has no
 lower and the float32 step or carrying a one-frame named slack, is LATER 641.
 
 ### 8.5 The rocket launcher's raise (2026-10-20, PARITY-2 LATER 192's read; reading, pending review -- source inspection)
+
+**R4P-247 (2026-11-23; reading, pending review; the timing captured x2, QL55B-PC2):** the raise does not kneel the body at once. BodySetState (r0004 0x58fcb0; r0001 `FUN_0058a6b0` D:L446812-446825), called from PopBlend (r0001 `FUN_0028da00` D:L135104), writes the posture of the blend a pop uncovers -- every pop, not only the raise's own end (seat-kill's fresh review; atlas-parity's mechanism review, CONFIRMED WITH CORRECTIONS, agent/spc-atlas; its brief named 0x58fcb0 as r0001's: it is r0004's): raised + `playedOutCommand`, the 84th command from the rifle's clip and the 82nd from the pistol's, 41 game frames after the set binds -- one command before `launcherBaseCommand`. The port: `Walker.followLauncherSet` latches the set at once (WEAPON-LINE reads the latch) and `endBody` writes the crouch when a forward raise comes off any way under the set (its end, a knock, a dance, the air) (`test/launcherRaiseCrouch.test.ts`). *Was:* the crouch on the raise's first command, ~1.4 s early.
 
 With a LAW or RPG-7 in the hand the body runs its one envelope `actor+0x1160` under the firearm's times: the take-up
 `FUN_005c4b10` gives class 0x91 (`FUN_003d1d90` D:L324424-324428; ids 145-150) `FUN_005dffc0`'s (D:L478849-478857) and
@@ -2894,3 +2909,183 @@ asked on the raise's command, refused; on the set's last command, taken), beside
 8. The offer builder's place in the frame (`FUN_00593500`, D:L73388) against the raise's push of the set (D:L462105)
    and the lower's give-back (D:L461768) is uncited: it decides the window's edges (whether a press on the raise's frame,
    or on the give-back's, is offered). The port's edge is K + 1 on both sides (the review's F1).
+
+### 8.8 r0004's turret cycle (2026-11-24, R4P-R2; reading, pending review -- source inspection of the carried readings)
+
+The ready queue's R4P-R2 (AS-02, AS-06, AS-21; leads L49, L54, L67, L81, L87, L97, L106). The r0004 export is not on
+the building seat's host: every r0004 line below is the reviewed label rows' and LEADS' (each upheld at its second
+read), carried at their level, not re-read here; the r0001 lines are the r0001 export's.
+
+- **The research step, AS-06** (can the port's mounted body walk off?). Mounted, the room runs no stick, jump or
+  stance for the body (`room.ts`, the mounted command, PF.R31) and the hold places it each command; the page's walk is
+  locked through the hold and the release's travel (`setLocked`). So a walk-off from the seat is not reached by a
+  command. The release's reversed clip (`TURRET_RELEASE_TRAVEL_READING`) lays the body with no collision over 16
+  steps, and a knock can still carry a body; r0004's CanBeginJumpFall (0x583400) refuses `Jump fall` on the turret set
+  or mounted (D4:L481315; D4:L538271-538273 only names the turret anim set -- the non-author second read (patches-contrib, 2026-11-24; `agent-mail` `pilot/shots/r4pr2-turret.second-read.md`)). Built as a gate on the shared mover (`Walker.turretSetOn`, read at the
+  walk-off `groundEndpoint` and the airborne branch `fall`), set by the room over `onTurretSet` (mounted, or the
+  reversed clip). Review 1 F3: the page's walker is given the same hook over the same span (`WalkMode.turretSet`, set by
+  `matchActions` from the `TurretPage`: held, or its own release's travel), so a travel with no floor under it cannot push
+  `Jump fall` on the page where the room's mover does not. The blend replay rule (r0004 0x58d710) stays not carried (its
+  ledger row: NOT-APPLICABLE).
+  **Unread (review 1 F4):** what a body airborne on the turret set with no `Jump fall` held does in r0004 is not read. The
+  port's answer -- the posed head the idle head (`airPosedHead`, no air row), the action interruptible
+  (`actionInterruptible` true) and nothing interrupted -- is the port's own, resting on unread r0004; the port's consumers
+  of those are shut over the span (the hold, the lock). A release travel ending mid-air pushes `Jump fall` on the next
+  tick (the airborne branch asks again) with no FLE flag.
+- **The research step, AS-02** (the turret's veto, vtable `+0x5c`): not read -- `TURRET_MOUNT_VETO_READING`.
+- **The mount's clip** (L81; r0004 0x5acbb0 D4:L503241-503262; r0001 `FUN_005a6fc0` D:L462173-462200). **Corrected
+  2026-11-24 by the non-author second read (patches-contrib, 2026-11-24; `agent-mail` `pilot/shots/r4pr2-turret.second-read.md`):** the 0-4 are the body's hand class `+0xf79` (1 the rifle, 2 the pistol, 4 the launcher,
+  3 grenades and charges, 0 other), not kit items. The mount calls `FUN_005acbb0(body, +0xf79, 0)` (D4:L452444); the
+  helper never sees the selected item (0x5acc44-0x5acc8c); selecting a grenade, C4, a satchel, a claymore or the
+  Detonator over a firearm never writes `+0xf79` (the select 0x5ac050 writes only 1 and 2, D4:L502932-502964, machine
+  code 0x5ac258-0x5ac31c; r0001 the same). So the pistol's `Stand -> Turret` plays for the pistol under any item
+  (D4:L503258-503260) and the rifle's for classes 1, 3, 4 and 0 -- for an item only when `+0xf79` is already 3 or 0
+  (picked straight from the launcher, D4:L503129; after its moving put-away, D4:L456980; after a release that fell back
+  to the kept item, D4:L452168-452169). The item itself is put away by the kit selecting the turret's weapon at the
+  mount (D4:L452400-452404; r0001 the same). The port: `mountHandOf(firearm | null)` of the firearm slot in the hand,
+  the same rule on the room, the own page and the other side's page (hand review 1 F4: the room and the own page had
+  passed null for a slot whose firearm is absent -- a kit with an EQUIP_NONE secondary on slot 1 then split from the
+  other side's slot view; now one rule, the slot, as set-up writes the pistol's 2 for a non-rifle item, D4:L521116).
+  Class 3 is not "the firearm slot absent": it is the launcher route (an item taken from the raised launcher,
+  D4:L503129) or a release's fallback to the kept item (D4:L452168-452169). The launcher route is NOT built
+  (`MOUNT_AFTER_LAUNCHER_ITEM_READING`, 'slot': the port plays the firearm slot's clip there, r0004 the rifle's, and the
+  room's seat steer and NoFire window follow the same hand; a build path, hand re-review A: the room marks an item taken
+  while the launcher was held or lowering from the two dated halves it already gets -- the lower and the ROOM-HAND word
+  -- clears it at the next firearm selection, and tells the other side its chosen hand on the turret broadcast, an
+  additive field as `releaseHand`); the
+  item-alone kit's clip is named (`ITEM_ALONE_MOUNT_CLIP_READING`, 'the rifle clip': the set-up write unread). The room
+  takes it at the take and keeps it on the seat
+  (`Player.mountHand`: the steer's shape and the NoFire gate); both pages hand it to `TurretPage` (`hand`), another
+  body's by its firearm slot -- the three agree, so `MOUNT_CLIP_HIDDEN_HAND_READING` is retired (its direction was
+  inverted: the other side's slot view was r0004's). *Was* (the first reading): the classes read as kit items, an item
+  over the pistol mounting with the rifle's clip.
+  **The second read, summarised** (patches-contrib, non-author, 2026-11-24; decompilation and machine code; provenance
+  `agent-mail` `pilot/shots/r4pr2-turret.second-read.md`): the 0-4 the first reading called the gear helper's items are
+  the body's hand class `+0xf79`; the mount passes it to 0x5acbb0 (D4:L452444) and the helper never sees the selected
+  item; selecting a grenade, C4, a satchel, a claymore or the Detonator over a firearm never writes `+0xf79` (the select
+  writes only 1 and 2, D4:L502932-502964), so a grenade over the pistol mounts with the pistol's clip; the dismount's
+  choice (`dismountSlot`) is upheld; one ledger reading's direction was inverted (`MOUNT_CLIP_HIDDEN_HAND_READING`,
+  retired) and review 1 F1's premise corrected; two cites corrected (PopBlend, CanBeginJumpFall) and the dance's fourth
+  test (`FUN_0058eea0`) added.
+  **The third read, summarised** (atlas-parity, a fresh seat ordered to decide, 2026-11-24; decompilation, machine words
+  and whole-image scans; provenance `agent-mail` `pilot/shots/r4pr2-turret.third-read.md`): reading (a) holds for r0004
+  and r0001. `CZKit::PreTick` runs every frame and, after a grenade or charge is selected, does call the weapon change
+  with new class 3, but the store of 3 is dead code in both builds; a scan of every `+0xf79` store (13 in r0004, 12 in
+  r0001) finds none that leaves 3 from a firearm in the hand; class 3 comes only from the launcher, a remote copy moving
+  in its set, or a release's fallback to the kept item. Its outcome: pistol + grenade -> the pistol's clip; rifle +
+  grenade -> the rifle's; a placed charge the same; launcher + grenade -> 3, the rifle's clip (not built here:
+  `MOUNT_AFTER_LAUNCHER_ITEM_READING`); r0001 plays no mount clip for 3, 4 and 0. Open there: the at-once set-up write
+  with a grenade as the set-up item (`ITEM_ALONE_MOUNT_CLIP_READING`), and its five-trial capture row (below).
+  **The three reads, and what settles it (reading, pending review; nothing measured).** (1) The first reading: the
+  label row for 0x5acbb0 and LEADS L81 (`../atlas/data/r0004/labels/changed-011.check.md`), which read the 0-4 as kit
+  items -- an item over the pistol mounting with the rifle's clip. (2) The second read (patches-contrib,
+  `pilot/shots/r4pr2-turret.second-read.md`): the 0-4 are `+0xf79`, which a selection over a firearm leaves at 1 or 2
+  -- reading (a). (3) the third read (atlas-parity, 2026-11-24; `agent-mail` `pilot/shots/r4pr2-turret.third-read.md`), a fresh seat ordered to decide between (a) and the
+  building seat's reading (b), **settles it for (a)**, in r0004 and r0001 alike.
+  *Reading (b), and why it fell.* (b) held that r0001 `FUN_005c1660` -- `CZKit::PreTick` (r0004 0x5c84c0, run every
+  frame for every body from the weapons tick) -- writes class 3 on the frame after a grenade or charge is selected. Its
+  first steps are right: the kit's gate opens (byte 0 bit 0 clear after a life's first frame; byte 1 bit 0x10 set by
+  `ChangeItemModel` for a new class 3), and PreTick calls the weapon change `FUN_005ac050(body, old 1/2, new 3, 0)`
+  (D4:L518537). But the store of 3 is dead code in both builds: the fade flag reduces to "new not in {1, 2}"
+  (D4:L502932-502938; machine words 0x5ac258-0x5ac284), so a new class 3 always takes the fade branch -- 0.3 s into
+  `+0x178` / `+0x17c`, return 1, no `+0xf79` store (D4:L502959-502963) -- and the `param_3` store (D4:L503053; `sb` at
+  0x5ac6c8; r0001 D:L462010) sits behind an unconditional branch at 0x5ac65c. A whole-image scan of `+0xf79`'s writers
+  (13 stores in r0004, 12 in r0001) finds none that leaves 3 from a firearm in the hand; the only paths to 3 are from
+  the launcher (D4:L503129), a remote copy moving in the launcher set (D4:L456978-456982), or a release that fell back
+  to the kept item (D4:L452168-452169). So a pistol holder who selects a grenade or a charge mounts with the pistol's
+  clip, a rifle holder with the rifle's; class 3 (the launcher route) mounts with the rifle's in r0004 -- and r0001's
+  `FUN_005a6fc0` plays NO mount clip for classes 3, 4 and 0 (D:L462173-462201), r0004's change being that they take
+  the rifle's.
+  *What would prove it* (the third read's capture row; ORIG, r0004, LAN rig, per-frame sampling, no breakpoints): each
+  frame body `+0xf79`, `+0xf78`, `+0x528`, the kit's selected slot `kit+0x824`, the current item's ID and class, kit
+  bytes 0 and 1 (bits 0x01, 0x10, 0x20), and the clip id at the mount's start; the set-up words asserted before frame 0.
+  Five trials: (1) pistol -> M67 -> mount: 2 throughout, the pistol's clip; (2) rifle -> M67 -> mount: 1, the rifle's;
+  (3) pistol -> C4 -> mount: 2, the pistol's; (4) launcher -> M67 -> mount: 3 before the mount, the rifle's, 1 after;
+  (5) the control, pistol -> mount: 2, the pistol's. A run whose logged set-up differs from its row is void. The mount function's own `+0x105e` / `+0x1061` bit writes (beside its
+  call of the gear helper, not the helper's; review 2 F3) and
+  the `+0x1354..+0x135c` zeroing (D4:L503241-503257) are not ported (`MOUNT_GEAR_BITS_READING`, note only).
+- **The launcher** (class 4): a launcher in the hand refuses the mount -- PROVEN on r0004 (QL55-PC2, x2: no action 287,
+  `+0xeb8` 0), the port's `mount: launcher` (LATER 205, s8.7). The brief's "puts it away with the rifle clip" is the
+  helper's reading for item 4; the capture shows the offer never reaches it, and the port follows the capture.
+- **The set bound again** (L54; r0004 PopBlend 0x58f040 D4:L487376-487382 -- D4:L537596-537597 is the two turret
+  clips' action-name set-up, the non-author second read (patches-contrib, 2026-11-24; `agent-mail` `pilot/shots/r4pr2-turret.second-read.md`); the behaviour holds at PopBlend): the set held before the mount comes back
+  when the reversed entry clip pops (flag 0x20). The port has no anim-set object: the turret set is the span
+  `onTurretSet` names, and it ends at the travel's 17th step, where the body's own set returns -- by construction.
+  The `+0x52c` / `+0x530` choice (the second when the first is the turret set) has nothing to choose between here.
+- **The weapon drawn after** (L67, L87; r0004 0x54a900 D4:L452157-452169, 0x5aca70 D4:L503199-503207; r0001
+  `FUN_00545ee0` D:L412005): the secondary when the slot kept at the mount was the secondary or no primary exists,
+  else the primary, else the kept slot (`dismountSlot`; upheld by the second read); the reversed clip is the chosen
+  slot's -- the secondary's the pistol's, the primary's the rifle's, the kept item's (class 3) the rifle's
+  (`releaseHandOf`, which no longer reads the mount's clip). The room puts a kept
+  item away at every held release (the ROOM-HAND word from the command after) and plays that clip; the page puts its
+  item away (`TurretPageDeps.drawn`). The firearm under an item stays the walk's: `DISMOUNT_FIREARM_UNDER_ITEM_READING`.
+  r0004's action-stack clear before the dismount clip (r4 0x58fbe0, D4:L503199) is not ported
+  (`DISMOUNT_STACK_CLEAR_READING`, note only). The grenade-over-pistol case keeps the pistol in the hand
+  (`DISMOUNT_FIREARM_UNDER_ITEM_READING` 'kept'; review 1 F2: the room test asserts it), so L67 stays partly built.
+  **Review 2 F1 (2026-11-24):** the occupant's own release reads its kit at its own take, as the room keeps `mountKept`
+  at its take: the page keeps its kit on the mount (`MountMark.kit`, from `TurretPageDeps.kit`) and computes the reversed
+  clip from that, so a grenade selected or put away on the turret changes neither side's release (was: read at the
+  press). Review 2 F2: the page's walker is told the turret set on every walk (`matchActions`), held by a test.
+  **Review 1 F1 (2026-11-24), its premise corrected by the second read:** with no primary, r0004 mounts AND releases a
+  body holding the pistol (an item over it or not) by the pistol's clip; the reversed clip differs from the mount's
+  when the release draws the primary over a pistol mount (an item kept), or falls back to the kept item (neither
+  firearm: the rifle's, class 3). *Was:* "a kit with no primary and an item over the pistol mounts by the rifle's clip
+  and is released by the pistol's". One function
+  (`releaseHandOf`) gives that hand to the room's travel, to the release's broadcast (`releaseHand`, additive on the
+  turret event) that every page draws the release by, and to the occupant's own predicted travel (over its own kit,
+  `TurretPageDeps.releaseHand`). A slot present is the loadout's (`firearmSlotPresent`) on both sides: the first build's
+  room read `records`, never null. The class predicates are r4 0x5ce8b0 (secondary) and 0x5ce940 (primary), twins of
+  r0001's `FUN_005c71a0` (D:L480023) and `FUN_005c7230` (D:L480048). Left: on a predicted dismount the room clears the
+  item from the release's command + 1 and the page at the room's confirm, a round trip apart (review 1 F5, no game
+  value).
+- **The dance** (L97; r0004 0x582fd0 D4:L481170-481185): refused mounted (as before), on the turret set (the reversed
+  clip) and prone; the dive's stance word 6 is a traversal move, refused by the offer's move term. The two flag bits,
+  the selectable item and a fourth refusing test the first read left out, `FUN_0058eea0` (D4:L481176-481179; the second
+  read): `VICTORY_R0004_FLAGS_READING`, four terms unmodelled.
+- **Held by** `viewer/test/r4pR2TurretCycle.test.ts`, `viewer/test/r4pR2TurretCycleReview.test.ts` (review 1) and
+  `match/test/roomR4pR2TurretCycle.test.ts` (unit and
+  fixture tests; not run on the building seat). Owed: the queue's Q-R2 capture of r0004 (mount and dismount holding a
+  grenade, a launcher and the pistol; a body on a turret at an edge; the dance prone and on a turret), with the third
+  read's five-trial `+0xf79` row above for the mount's clip.
+
+## 9. The library prototypes in the hull (LATER 1003, 2026-11-19; reading, pending review)
+
+Evidence kinds: **(D)** seat 8a's census cc3 (all 22 maps on a box, the port's readers against the disc's data:
+`agent-mail/evidence/collision-census/cc3/`, table X3) and its skeptic's verdict (`verdict-library-prototypes-turret-guns.md`,
+re-read at the decompilation: an instance's model is looked up in every registered library and copied whole, children and
+polygons, `FUN_00310da0` -> `FUN_00320f10`, `FUN_00317d90` -> `FUN_00316820`; the walk reaches them, `FUN_002d3030`);
+**(U)** dev-disc tests on the hub (viewer `test/libraryPrototypeHull.test.ts`). Nothing is measured on the original running.
+
+- **The miss.** Every hull builder (viewer `simMap.ts`, `loadMap.ts`'s `hull`, match `forgeSimMap.ts`) took the map's own
+  graph only, so a prototype in a library realised nothing in the hull: 697 polygons under 58 instances on 15 maps.
+  - **Placed turrets** (34): the gun's METAL_THICK parts (11 / 13 / 9 on RMG / LMG / 30mm MGL) were in no hull, so rounds
+    and blast lines passed the gun. The base's 3 INVISIBLE_DI polygons were there.
+  - **Ledge turrets** (8): nothing at all, so a body could walk into the base and rounds passed the gun.
+  - **No effect:** the Mixer's smashed cars (their 15 polygons each are already the instance node's, which the library's
+    one-node model only duplicates, as in the original); the pavehawk and the skies (0 polygons); `mp52_terrain`
+    (resolves nowhere; the original makes no node, and it has 0 polygons).
+- **The fix.** The hull's models are the map's with the archive's libraries joined (`hullModels`, the drawing's own join;
+  `LIBRARY_REGISTRY_READING`), in all three builders, the same models for the polygons and the owners. The gun stands at
+  rest (`TURRET_GUN_STATIC_PLACEHOLDER`; LATER 1237 moves it).
+- **The actor bit, settled from the census.** The original gives a world-level node the actor bit from its flag word's
+  bit 21 (`CWorld::AddChild`, D:L220691-220695). The turrets' instance words read 0x80801055, bit 21 clear, so a body is
+  stopped by the base, as the port now has it.
+- **The tests** (U):
+  - RED on agent/next 3d06628fbc: MP71's placed turret, 11 of 11 gun parts let a round's line pass (MP71 is a committed
+    fixture, so every box runs it); MP53's ledge turret, 13 of 13.
+  - A body walked into MP52's second ledge turret base from its south side entered it. On the other seven, the walk does
+    not enter the base's box with or without the join, even from sides standing on the base's own floor (MP53's first on
+    all four): something else stops it there, unread. So the walk tests one placement (the review of a744f55790, N1).
+  - Rebuilt at the base by the fresh reviewer (the GREEN file cannot load there, `hullModels` being new): 18 of the 32
+    fail -- the two round-line cases, the one walk and 15 census maps (the review's N2; the commit's "17 of 25" miscounted).
+  - The 22 maps' added polygons are the census's figures, map by map, 697 in all.
+  - GREEN with the join: all 32.
+  - One behaviour moved in the room's tests: a hand-round claim whose muzzle lies beyond a mounted turret's gun is now
+    refused "muzzle walled" (the gun's METAL_THICK stands between the head and the muzzle) where it was refused "cone: eye";
+    nothing spent either way. Honest mounted rounds are still accepted.
+- **The mission maps** take the same join (the census counted the MP maps only): M83's wrecked helicopter
+  (`worldmodel/broken_bell430`, its library prototype `bell430_destroyed`) now collides; two of its walls write the climb
+  column's fifth slot (`climbCut.disc` wideWalls 122 -> 124). Other mission maps' library instances are not counted here.
+- **Index-keyed tests move:** polygons joined early in a map's walk shift every later polygon's index (MP52's railcar walls
+  by 50 wall faces, `groundFrameWalls.devdisc`); the faces themselves are unchanged.
+- **Open:** the Mixer's cars are not DRAWN (LATER 1238).

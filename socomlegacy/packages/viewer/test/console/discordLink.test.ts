@@ -37,6 +37,9 @@ const icon = (): HTMLAnchorElement => document.querySelector<HTMLAnchorElement>(
 const row = (): HTMLAnchorElement => document.querySelector<HTMLAnchorElement>('#stage .cx-discord-row a')!;
 const ghIcon = (): HTMLAnchorElement => document.querySelector<HTMLAnchorElement>('#header .cx-github')!;
 const ghRow = (): HTMLAnchorElement => document.querySelector<HTMLAnchorElement>('#stage .cx-github-row a')!;
+/** The pointer's focus on Home's item `i` (a hover sets it): the pad no longer walks onto the community links (the
+ *  owner, 2026-11-19: "remove github and discord from the selection for controller"), so their drawing is reached so. */
+const at = (p: ConsolePage, i: number): void => { p.ctl.S.item[HOME_CATEGORY] = i; p.render(); };
 const said = (): [string, string][] => prompts(page!.ctl.S, page!.ctl.A).map((p) => [p.k, p.label]);
 
 function expectLink(a: HTMLAnchorElement): void {
@@ -102,12 +105,15 @@ describe('LATER 291: the Discord link', () => {
   // RB-45 (c), wave 1's review: a pad press is no user activation, so a browser's popup blocker eats its new tab. The
   // pad's Cross says how (`NEW_TAB_POINTER_WORDS`, as Experiments' rows since RB-5) and opens nothing; a key's press
   // (Enter, `keyGesture`) opens the invite once.
-  it('the pad walks onto it from Server status (LR-13); a pad Cross says how, a key opens the invite once', () => {
+  it('the pad stops at Server status (the owner, 2026-11-19); focused by the pointer, a pad Cross says how, a key opens the invite once', () => {
     const p = boot();
     p.ctl.S.input = 'pad';
     const open = vi.fn();
     vi.stubGlobal('open', open);
-    for (let i = 0; i < 2; i++) p.ctl.press('down');                       // LR-37 (4): Discord is Home's third (LR-13: the fourth)
+    for (let i = 0; i < 3; i++) p.ctl.press('down');                       // LR-37 (4): Discord is Home's third -- not the pad's
+    expect(p.ctl.S.item[HOME_CATEGORY]).toBe(1);
+    expect(icon().classList.contains('is-focused')).toBe(false);
+    at(p, 2);
     expect(p.ctl.S.item[HOME_CATEGORY]).toBe(2);
     expect(icon().classList.contains('is-focused')).toBe(true);
     expect(row().classList.contains('is-focused')).toBe(false);
@@ -120,8 +126,8 @@ describe('LATER 291: the Discord link', () => {
     try { p.ctl.press('cross'); } finally { p.ctl.keyGesture = false; }
     expect(open).toHaveBeenCalledTimes(1);
     expect(open).toHaveBeenCalledWith(DISCORD_INVITE, '_blank', 'noopener,noreferrer');
-    // The owner, 2026-11-12: GitHub is the next stop after Discord -- the header's icon beside it -- and Home's last.
-    p.ctl.press('down');
+    // The owner, 2026-11-12: GitHub after Discord -- the header's icon beside it -- and Home's last (the pointer's).
+    at(p, 3);
     expect(p.ctl.S.item[HOME_CATEGORY]).toBe(3);
     expect(ghIcon().classList.contains('is-focused')).toBe(true);
     expect(icon().classList.contains('is-focused')).toBe(false);
@@ -137,10 +143,7 @@ describe('LATER 291: the Discord link', () => {
     expect(open).toHaveBeenCalledWith(GITHUB_REPO, '_blank', 'noopener,noreferrer');
     p.ctl.press('down');
     expect(p.ctl.S.item[HOME_CATEGORY]).toBe(3);
-    p.ctl.press('up');
-    expect(p.ctl.S.item[HOME_CATEGORY]).toBe(2);
-    expect(document.activeElement).toBe(icon());
-    p.ctl.press('up');
+    p.ctl.press('up');                                                      // the owner, 2026-11-19: back to the pad's last row
     expect(p.ctl.S.item[HOME_CATEGORY]).toBe(1);
     expect(document.activeElement).toBe(document.querySelectorAll('#stage .cx-item')[1]);
   });
@@ -153,9 +156,9 @@ describe('LATER 291: the Discord link', () => {
     const shift = (): string => document.querySelector<HTMLElement>('#stage .cx-list')!.style.getPropertyValue('--cx-list-shift');
     p.ctl.press('down');
     const held = shift();
-    p.ctl.press('down');
+    at(p, 2);
     expect(shift()).toBe(held);
-    p.ctl.press('down');
+    at(p, 3);
     expect(p.ctl.S.item[HOME_CATEGORY]).toBe(3);
     expect(shift()).toBe(held);
   });
@@ -176,16 +179,16 @@ describe('LATER 291: the Discord link', () => {
     width(760);
     p.ctl.S.input = 'pad';
     p.render();
-    for (let i = 0; i < 2; i++) p.ctl.press('down');                       // Discord (GitHub one further since 2026-11-12)
+    at(p, 2);                                                               // Discord (GitHub one further since 2026-11-12)
     expect(row().classList.contains('is-focused')).toBe(true);
     expect(icon().classList.contains('is-focused')).toBe(false);
     expect(document.activeElement).toBe(row());
-    p.ctl.press('down');                                                    // the owner, 2026-11-12: GitHub's row next
+    at(p, 3);                                                               // the owner, 2026-11-12: GitHub's row next
     expect(ghRow().classList.contains('is-focused')).toBe(true);
     expect(ghIcon().classList.contains('is-focused')).toBe(false);
     expect(row().classList.contains('is-focused')).toBe(false);
     expect(document.activeElement).toBe(ghRow());
-    p.ctl.press('up');
+    at(p, 2);
     expect(document.activeElement).toBe(row());
     const open = vi.fn();
     vi.stubGlobal('open', open);
@@ -264,11 +267,11 @@ describe('LATER 291: the Discord link', () => {
     p.ctl.S.input = 'pad';
     p.render();
     const shift = (): string => document.querySelector<HTMLElement>('#stage .cx-list')!.style.getPropertyValue('--cx-list-shift');
-    for (let i = 0; i < 2; i++) p.ctl.press('down');
+    at(p, 2);
     expect(icon().classList.contains('is-focused')).toBe(true);
     expect(document.activeElement).toBe(icon());
     expect(shift()).toBe('0');                                              // held at Server status' place (LR-29)
-    p.ctl.press('down');
+    at(p, 3);
     expect(p.ctl.S.item[HOME_CATEGORY]).toBe(3);
     expect(ghRow().classList.contains('is-focused')).toBe(true);
     expect(ghIcon().classList.contains('is-focused')).toBe(false);
@@ -278,10 +281,10 @@ describe('LATER 291: the Discord link', () => {
     expect(shift()).toBe('1');
     expect(ghRow().classList.contains('is-above')).toBe(false);
     expect(document.querySelectorAll('#stage .cx-list .cx-item')[1]!.classList.contains('is-above')).toBe(false);
-    p.ctl.press('up');
+    at(p, 2);
     expect(document.activeElement).toBe(icon());
     // A resize out of the band moves the stop to the control that is shown.
-    p.ctl.press('down');
+    at(p, 3);
     width(1280);
     window.dispatchEvent(new Event('resize'));
     expect(ghIcon().classList.contains('is-focused')).toBe(true);
@@ -300,7 +303,7 @@ describe('LATER 291: the Discord link', () => {
     vi.stubGlobal('matchMedia', (q: string) => { asked.push(q); return { matches: false, media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, onchange: null, dispatchEvent: () => false }; });
     const p = boot();
     p.ctl.S.input = 'pad';
-    for (let i = 0; i < 3; i++) p.ctl.press('down');
+    at(p, 3);
     expect(asked).toContain('(max-width: 1100px)');
     expect(ghIcon().classList.contains('is-focused')).toBe(true);
     expect(document.activeElement).toBe(ghIcon());
@@ -311,7 +314,7 @@ describe('LATER 291: the Discord link', () => {
   it('a resize across the phone rule moves the ring and the focus to the control that is shown', () => {
     const p = boot();
     p.ctl.S.input = 'pad';
-    for (let i = 0; i < 2; i++) p.ctl.press('down');                       // Discord (GitHub one further since 2026-11-12)
+    at(p, 2);                                                               // Discord, by the pointer (GitHub one further)
     expect(document.activeElement).toBe(icon());
     width(760);
     window.dispatchEvent(new Event('resize'));

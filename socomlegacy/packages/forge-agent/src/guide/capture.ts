@@ -49,7 +49,7 @@ export function captureTopic(): string {
     // viewer/src/forge/agent/api.ts camera.pose {x, y, z, yaw, pitch}; viewer/src/camera.ts Pose (yaw and pitch in degrees)
     "- `camera.pose` {x, y, z, yaw, pitch}: all five; yaw and pitch in degrees (topic coordinates).",
     "- `camera.look` {from: [x, y, z], to: [x, y, z]}: stand at from and look at to -- the simplest way to frame something.", // api.ts camera.look
-    "- `camera.focus` {ref}: frame a placement by its ref; `camera.objective` {name, archive?}: frame a named disc objective.", // api.ts
+    "- `camera.focus` {ref}: frame a placement by its ref; `camera.objective` {name, archive?}: frame a point named in `forge.catalogue` {section: \"objectivePoints\"}.", // api.ts
     // editorFacade.ts AGENT_VIEW_OPERATIONS: view edits need the current revision and do not advance it
     "- These need the current revision but do not change it. `view.set` {toggle, on} switches a drawing toggle " +
       "(wireframe, untextured, collision, grid, spawns, fog, shadows, detail, billboards, alternate, blendgraded, " +

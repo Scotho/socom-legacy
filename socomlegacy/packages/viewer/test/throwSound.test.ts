@@ -49,7 +49,7 @@ interface Snap {
 /** A throw kind: the body as the release request reads it, how long the button was held, the clip it plays. */
 interface Kind { name: string; snap: Partial<Snap>; hold: number; pistol?: boolean; clip: string; cutAt?: number }
 
-/** `GetThrowAnim`'s rows (research 85 s3) and the pistol's version, each through the page's own path. */
+/** `GetThrowAnim`'s rows (research 85 s3) and the sidearm's hand, each through the page's own path. */
 const KINDS: Kind[] = [
   { name: 'a standing throw', snap: {}, hold: 1, clip: 'seal_throwgrenade' },
   { name: 'a standing toss', snap: {}, hold: 0.1, clip: 'seal_tossgrenade' },
@@ -60,8 +60,9 @@ const KINDS: Kind[] = [
   { name: 'a prone toss', snap: { stance: 'prone' }, hold: 0.1, clip: 'seal_prone_tossgrenade' },
   { name: 'a toss from the right peek', snap: { peek: 1, leanClip: true }, hold: 1, clip: 'seal_toss_rlean' },
   { name: 'a toss from the left peek', snap: { peek: -1, leanClip: true }, hold: 1, clip: 'seal_toss_llean' },
-  { name: 'a standing throw, the pistol in the hand', snap: {}, hold: 1, pistol: true, clip: 'seal_p_throwgrenade' },
-  { name: 'a standing toss, the pistol in the hand', snap: {}, hold: 0.1, pistol: true, clip: 'seal_p_tossgrenade' },
+  // LATER 1442: the sidearm in the hand keeps the rifle's standing throw and toss (only the peek tosses swap).
+  { name: 'a standing throw, the pistol in the hand', snap: {}, hold: 1, pistol: true, clip: 'seal_throwgrenade' },
+  { name: 'a standing toss, the pistol in the hand', snap: {}, hold: 0.1, pistol: true, clip: 'seal_tossgrenade' },
   // PAR-70/76: the stick cuts a throw at its 48th command (0.80 s), past the release (0.71 s) and the grunt (0.69 s).
   { name: 'a standing throw cut by the stick', snap: {}, hold: 1, clip: 'seal_throwgrenade', cutAt: 0.8 },
   // A knock pops the clip before its callback (`FUN_0028da00` D:L135092-135104): no grunt; the kit's timer still lets go.
@@ -166,7 +167,9 @@ describe.skipIf(!haveClips)(`PAR-77: the thrower's page asks one release and the
     const { table } = motionSource();
     const withGrunt = KINDS.map((k) => k.clip).filter((c, i, a) => a.indexOf(c) === i)
       .filter((c) => table.get(c)!.callbacks.some((cb) => cb.name === 'throw_whoosh'));
-    expect(withGrunt).toEqual(['seal_throwgrenade', 'seal_p_throwgrenade']);
+    expect(withGrunt).toEqual(['seal_throwgrenade']);
+    // The pistol pair's clip carries it too on the disc; since LATER 1442 the sidearm's standing throw does not play it.
+    expect(table.get('seal_p_throwgrenade')!.callbacks.some((cb) => cb.name === 'throw_whoosh')).toBe(true);
     expect(table.get('seal_throwgrenade')!.callbacks).toEqual([{ name: 'throw_whoosh', time: 0.45 }]);
   });
 
@@ -365,25 +368,35 @@ describe.skipIf(!haveDisc || !haveClips)(`PAR-77, the disc: the release and the 
     expect(callbacks.has('c4_start_zoom')).toBe(false);
 
     const count = (byName: Record<string, number>, name: string) => Object.entries(byName).filter(([n]) => n.trim() === name).reduce((a, [, c]) => a + c, 0);
+    // LATER 1209 (FINDING-X13; research 81 s16): frag_start is [WAIT 0.2, SOUND .THROW_OBJECT] on every MP map, so the
+    // M67's release sounds 0.2 s after it (FUN_0025ed50) -- on the page's audio frame (`setListener`) at or past that
+    // time. Not yet at the throw (the wait, proved), then once.
+    const CAMERA = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 20, 40, 1];      // the camera behind the SEAL
     for (const [view, release] of [[0, 1], [1, 0]] as const) {
       for (const kind of [KINDS[0]!, KINDS[1]!]) {
-        const out = new Recorder(), audio = new GameAudio(out);
+        let now = 100;
+        const out = new Recorder(), audio = new GameAudio(out, Math.random, { now: () => now });
         audio.setData(d);
-        audio.setListener([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 20, 40, 1]);   // the camera behind the SEAL
+        audio.setListener(CAMERA);
         const { t } = page(audio, { snap: kind.snap, view });
         throwOnce(t, 'M67', kind);
+        expect(count(audio.stats().byName, '.THROW_OBJECT'), `${kind.name} view ${view}: not yet at the throw`).toBe(0);
+        now += 0.21; audio.setListener(CAMERA);                          // the first audio frame past frag_start's WAIT
         const s = audio.stats();
         expect(count(s.byName, '.THROW_OBJECT'), `${kind.name} view ${view}`).toBe(release);
         expect(count(s.byName, '.MALE_GRUNT'), `${kind.name} view ${view}`).toBe(kind.clip === 'seal_throwgrenade' ? 1 : 0);
         t.dispose();
       }
     }
-    // Another page: the room's event, once.
-    const out = new Recorder(), audio = new GameAudio(out);
+    // Another page: the room's event, once -- after the same wait (LATER 1209).
+    let now = 100;
+    const out = new Recorder(), audio = new GameAudio(out, Math.random, { now: () => now });
     audio.setData(d);
-    audio.setListener([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 20, 40, 1]);
+    audio.setListener(CAMERA);
     const { t } = page(audio, { view: 1 });
     t.netDeps().remoteGrenade('M67', [0, 15, 0], [0, 0, -100], 4, 7, undefined);
+    expect(count(audio.stats().byName, '.THROW_OBJECT'), 'remote: not yet at the throw').toBe(0);
+    now += 0.21; audio.setListener(CAMERA);
     expect(count(audio.stats().byName, '.THROW_OBJECT')).toBe(1);
     t.dispose();
   }, 60000);

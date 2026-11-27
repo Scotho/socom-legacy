@@ -35,7 +35,7 @@ const SLAB = 'worldmodel/door/door1=door1/door_slab', PANE = `${SLAB}/pane1`;
 const BASE = 'worldmodel/terrorist_base', BASEDI = `${BASE}/healthy/basedi`;
 const PLANK = 'worldmodel/plankaccess1', PLANKDI = `${PLANK}/di_good`;
 const POLYS: WorldPoly[] = [
-  { ...across('worldmodel/floor', 0), ditype: 3, points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) },
+  { ...across('worldmodel/floor', 0), ditype: 3, points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) },
   across(DI, 50), across(DILEFT, 60), across(PANE, -50), across(BASEDI, 200, 280, 320), across(PLANKDI, -200),
 ];
 const PLACED = ['worldmodel/floor', ACCESS, GOOD, DI, LEFT, DILEFT, ACTION, 'worldmodel/door', 'worldmodel/door/door1=door1', SLAB, PANE,

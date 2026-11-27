@@ -26,6 +26,9 @@ vi.mock('../../src/forge/archives', () => ({ Archives: class {
   clips = async () => null;
   list = async () => ({ entries: [], problems: [] });
   load = archiveLoad;
+  census = async () => null;
+  props = async () => null;
+  scriptNames = async () => null;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
@@ -80,14 +83,14 @@ describe('FP-2: the mounted Forge viewport draws at the player\'s render scale (
     expect(ratio.now).toBe(capOf('balanced'));                                  // nothing stored: CPS.R7's default
     videoSettingsKeeper().set({ renderScale: 'quality' });                       // the launcher's or VIDEO OPTIONS' step
     expect(ratio.now, 'not before the tick').toBe(capOf('balanced'));           // FP-2 review 2: met at the tick, not at the set
-    frame(250);
+    frame(250); frame(16);                                                      // B1-RATIO-ORDER: put on at the next frame's start
     expect(ratio.now).toBe(capOf('quality'));
     videoSettingsKeeper().set({ renderScale: 'performance' });
     expect(ratio.now, 'not before the tick').toBe(capOf('quality'));
-    frame(250);
+    frame(250); frame(16);                                                      // B1-RATIO-ORDER: put on at the next frame's start
     expect(ratio.now).toBe(capOf('performance'));
     videoSettingsKeeper().set({ renderScale: 'quality' });
-    frame(250);
+    frame(250); frame(16);                                                      // B1-RATIO-ORDER: put on at the next frame's start
     expect(ratio.now).toBe(capOf('quality'));
     // The PS2 picture on: long frames for 4 s leave the ratio where it is (`AdaptiveRatio.frame`'s hold).
     const ps2 = document.querySelector<HTMLInputElement>('input[aria-label="PS2 picture (640×448)"]')!;

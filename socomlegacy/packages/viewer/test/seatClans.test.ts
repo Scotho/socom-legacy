@@ -33,7 +33,7 @@ function feed() {
 
 describe('the protocol: seatClans is additive (COLLABORATION, "Protocol N") -- no version bump, an older page passes it by', () => {
   it('the version stays 11; the event is the room\'s whole set: tagged seats only, a seat with no tag absent', () => {
-    expect(PROTOCOL_VERSION).toBe(16);                           // WIRE-16's bump (PV.R4: the player's view's bytes); 15 PROTO-15's, 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
+    expect(PROTOCOL_VERSION).toBe(19);                           // LATER 1141's bump (the round's `at`, research 441); 18 LATER 1147's; 17 WM-DATA-17's bump (WM.R11: the body's hand byte); 16 WIRE-16's (PV.R4: the player's view's bytes); 15 PROTO-15's, 14 ER-2's, 13 PLANT-AIM's, 12 SEP-POP's; this part unchanged
     expect(JSON.parse(JSON.stringify(clans([{ id: 1, clan: 'NSW' }])))).toEqual({ type: 'seatClans', seats: [{ id: 1, clan: 'NSW' }] });
   });
 });

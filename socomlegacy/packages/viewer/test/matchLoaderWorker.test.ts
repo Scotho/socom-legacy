@@ -4,6 +4,7 @@ import { matchLoader, type MatchWorker } from '../src/matchMount';
 import { pageMatchDiag, resetPageMatchDiagForTest } from '../src/matchDiagPage';
 import { markLoad } from '../src/loadMarks';
 import type { ViewerRequest, ViewerResponse } from '../src/worker';
+import { installXboxMemorySink, XboxMemoryTrace } from '../src/xboxMemoryTrace';
 
 /**
  * Browser adaptation (no original; product track, PR #631's Xbox memory work): under the Xbox preset the match
@@ -51,7 +52,35 @@ async function answer(w: { asked: ViewerRequest[]; say: (m: unknown) => void }, 
 
 const SOURCE = { kind: 'http', baseUrl: '/maps' } as never;
 
-afterEach(() => { window.history.replaceState(null, '', '/'); });
+afterEach(() => { window.history.replaceState(null, '', '/'); installXboxMemorySink(null); });
+
+it('the opt-in record follows the actual loader replies without retaining the payload or its error text', async () => {
+  const trace = new XboxMemoryTrace({ now: () => 1 });
+  installXboxMemorySink(trace);
+  const { made, make } = fakeWorkers();
+  const loader = matchLoader(SOURCE, make, { serialWorkerRequests: false, releaseWorkerAfterLoad: true });
+  try {
+    const loaded = loader.load('mp2');
+    const w = made[0]!;
+    w.say({ kind: 'loading', id: w.asked[0]!.id, data: { pixels: new Uint8Array(512) } });
+    await answer(w);
+    expect(await loaded).not.toBeNull();
+    expect(trace.report().current.map).toBe('MP2');
+    expect(trace.report().events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ stage: 'worker-reply:loading', payloadBytes: 512 }),
+      expect.objectContaining({ stage: 'worker-reply:map' }),
+      expect.objectContaining({ stage: 'worker-reply:sound' }),
+      expect.objectContaining({ stage: 'worker-reply:soundLoops' }),
+    ]));
+    const broken = loader.load('mp6');
+    const next = made[1]!;
+    next.say({ kind: 'error', id: next.asked[0]!.id, message: 'private disc filename' });
+    next.fail();
+    expect(await broken).toBeNull();
+    expect(trace.report()).toMatchObject({ failed: true, current: { map: 'MP6' } });
+    expect(JSON.stringify(trace.report())).not.toContain('private disc filename');
+  } finally { loader.dispose(); }
+});
 
 describe('matchLoader under the Xbox preset lets its worker go once a load is in (browser adaptation, PR #631)', () => {
   it('Xbox decoding releases each asset decoder before the next one, retaining both sound replies', async () => {

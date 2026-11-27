@@ -1,4 +1,5 @@
 import type { AssetSource } from '@s2u/archive';
+import { domToast, installStreamerHotkey } from './streamerMode';
 import { openFrontEndDisc, openFrontEndImage, setDiscState, watchDiscPrompt } from './discPrompt';
 import { discLabel, discName, type DiscRequest } from './discSource';
 import { PLAYTEST_SEGMENT, TEST_ROOM_SEGMENT } from '@s2u/ui';
@@ -10,6 +11,7 @@ import { routeSegmentsOfPath } from './menuRoutes';
 import { startSource } from './source';
 import type { LaunchSheetMount, LaunchSheetOptions } from './launchSettings/sheet';
 import type { OverlayPage } from './modern/overlay';
+import type { StartMenuLauncher } from './startMenuLauncher';
 import type { SourceRequest } from './worker';
 
 /**
@@ -81,8 +83,16 @@ export interface PageLoaders {
   openDisc?: (file: File) => Promise<AssetSource>;
   /** PTT-9: the launch settings sheet (`./launchSettings/sheet`), a development build's only (absent in a release). */
   launchSettings?: () => Promise<{ mountLaunchSettings: (o: LaunchSheetOptions) => LaunchSheetMount }>;
-  /** MU2-10: the modern UI's overlay (`./modern/overlay`), mounted over the page once it has booted; absent, none. */
-  overlay?: () => Promise<{ mountPageOverlay: (doc: Document, page: OverlayPage) => unknown }>;
+  /**
+   * MU2-10: the modern UI's overlay (`./modern/overlay`), mounted over the page once it has booted; absent, none. Its
+   * handle (null where it does not mount) is kept for the START menu's SHOW LAUNCHER (WM-LAUNCHER, below).
+   */
+  overlay?: () => Promise<{ mountPageOverlay: (doc: Document, page: OverlayPage) => StartMenuLauncher | null | void }>;
+  /**
+   * WM-LAUNCHER (WM.R7; a browser adaptation): the round's START menu's module (`./startMenu`), to which the mounted
+   * overlay's handle is offered for the document (its SHOW LAUNCHER row); absent, none offered.
+   */
+  startMenu?: () => Promise<{ offerStartMenuLauncher: (doc: Document, launcher: StartMenuLauncher) => () => void }>;
   /** FORGE (the owner, 2026-10-12; in every build since FG.R9): the forge (`./forge/page`). */
   forge?: () => Promise<{ mountForge: (doc: Document) => Promise<void> }>;
 }
@@ -100,6 +110,7 @@ export const PAGE_LOADERS: PageLoaders = {
   },
   frontEnd: async () => ({ mountFrontEnd }),
   overlay: () => import('./modern/overlay'),                       // MU2-10 (MU2.R4): a release feature, every build
+  startMenu: () => import('./startMenuLauncher'),                           // WM-LAUNCHER: the import-free registry (F-WML-5/5b)
 };
 /** PTT-9 (W37.R6): the launch settings sheet, a development build's only -- folded out of a release and the demo. */
 if (import.meta.env.DEV) PAGE_LOADERS.launchSettings = () => import('./launchSettings/sheet');
@@ -216,9 +227,12 @@ export function wantsLaunchSheet(search: string): boolean {
  * inline style (`test/chrome_classes.test.ts`).
  */
 function clearPage(doc: Document, ...keep: (Element | null)[]): void {
-  for (const el of Array.from(doc.body.children)) if (!keep.includes(el)) el.remove();
+  for (const el of Array.from(doc.body.children)) if (!keep.includes(el) && !el.hasAttribute('data-xbox-diagnostics')) el.remove();
   doc.body.classList.add('ps2-look');
 }
+
+/** The windows given the page's own Streamer mode toast (STREAMER-P1): one each, however often a page boots in it. */
+const STREAMER_KEY_PAGES = new WeakSet<object>();
 
 /**
  * Boots the page for `address` (`location.pathname + location.search`; `readPageAddress`): the viewer at
@@ -226,6 +240,8 @@ function clearPage(doc: Document, ...keep: (Element | null)[]): void {
  * `startSource`, the owner's rule of 2026-09-29).
  */
 export async function bootPage(address: string, doc: Document = document, loaders: PageLoaders = PAGE_LOADERS, base: string = PAGE_BASE): Promise<PageEntry> {
+  // STREAMER-P1 (OT.R152, a browser adaptation): Ctrl+Shift+S on every page this entry boots, said by the page's own toast.
+  if (doc.defaultView && !STREAMER_KEY_PAGES.has(doc.defaultView)) { STREAMER_KEY_PAGES.add(doc.defaultView); installStreamerHotkey(doc.defaultView, domToast(doc)); }   // once a window (the review's F4)
   const entry = await bootEntry(address, doc, loaders, base);
   await mountOverlayOver(doc, entry, loaders);
   return entry;
@@ -240,10 +256,21 @@ async function mountOverlayOver(doc: Document, entry: PageEntry, loaders: PageLo
   if (!loaders.overlay) return;
   try {
     const overlay = await loaders.overlay();
-    overlay.mountPageOverlay(doc, { kind: entry.entry, frontEnd: entry.entry === 'front-end' || entry.entry === 'disc' ? entry.mount : null });
+    const handle = overlay.mountPageOverlay(doc, { kind: entry.entry, frontEnd: entry.entry === 'front-end' || entry.entry === 'disc' ? entry.mount : null });
+    // WM-LAUNCHER (WM.R7; a browser adaptation): the handle kept -- offered to the round's START menu (SHOW LAUNCHER).
+    if (handle && loaders.startMenu) await offerLauncher(doc, handle, loaders.startMenu);
   } catch (e) {
     console.error('overlay: not mounted over the page', e);
   }
+}
+
+/**
+ * WM-LAUNCHER (WM.R7; a browser adaptation): the mounted overlay's handle offered for `doc` to the round's START menu
+ * (`./startMenu` `offerStartMenuLauncher`), whose SHOW LAUNCHER row opens it. A failure is said, never the boot's.
+ */
+async function offerLauncher(doc: Document, handle: StartMenuLauncher, load: NonNullable<PageLoaders['startMenu']>): Promise<void> {
+  try { (await load()).offerStartMenuLauncher(doc, handle); }
+  catch (e) { console.error('overlay: not offered to the START menu', e); }
 }
 
 /** The page itself, as `bootPage` boots it (above). */

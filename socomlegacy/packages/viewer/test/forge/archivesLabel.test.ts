@@ -18,7 +18,9 @@ describe("the forge's archive names: the listing's label, never a raw loc key", 
 
   it("the palette's status line names the archive by labelOf, not the loaded map's own name", () => {
     const page = readFileSync(resolve(here, '../../src/forge/page.ts'), 'utf-8');
-    expect(page).toMatch(/say\(`\$\{labelOf\(entries, stem, map\.name\)\} \(\$\{stem\}\): \$\{entriesOfPalette\.length\} props`\)/);
+    // PR #5: his line goes on after the count (" of its own", and the props shared with Common); the archive's name is
+    // still labelOf's.
+    expect(page).toMatch(/say\(`\$\{labelOf\(entries, stem, map\.name\)\} \(\$\{stem\}\): \$\{entriesOfPalette\.length\} props.*`\);/);
     expect(page).not.toMatch(/say\(`\$\{map\.name\} \(\$\{stem\}\)/);
   });
 });

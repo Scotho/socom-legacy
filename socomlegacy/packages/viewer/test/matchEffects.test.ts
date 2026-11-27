@@ -7,7 +7,8 @@ import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { effectsFromDisc } from '../src/effectData';
 import { Effects } from '../src/effects';
 import { fallDeathLine, mountEffects } from '../src/matchEffects';
-import { Hud } from '../src/hud';
+import { Hud, MESSAGE_SCALE, type BannerLine } from '../src/hud';
+import { KILL_FEED_ORANGE, killFeedLine, sideNameRgb } from '../src/killFeed';
 import { killLine, NetPage, type NetPageDeps } from '../src/netPage';
 import type { WebSocketLike } from '../src/net/client';
 import type { ServerEvent } from '../src/net/protocol';
@@ -31,7 +32,7 @@ const quad = (pts: number[], material: number): WorldPoly => ({
 });
 /** A floor at y 0 over x, z -100..100 of `material`. */
 function floorGrid(material = SAND) {
-  const polys = [quad([-100, 0, -100, 100, 0, -100, 100, 0, 100, -100, 0, 100], material)];
+  const polys = [quad([-100, 0, 100, 100, 0, 100, 100, 0, -100, -100, 0, -100], material)];
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
   const owners: CollisionOwner[] = polys.map((p, i) => ({ modelName: p.modelName, path: `${p.path}${i}`, first: i, count: 1 }));
   return groundGrid(packGround(params, polys, owners));
@@ -219,6 +220,83 @@ describe('PAR-9: the fall-death message, once on each page (FUN_00547860, 0x65c4
 });
 
 /**
+ * WM-DATA-FALL (LATER 1104; look 3B2, a BROWSER ADAPTATION, product track: `./killFeed`): the offline room's fall line
+ * joins the kill feed -- posted as every networked kill is (`killFeedLine`, `NetPage`'s kill), not a plain string in
+ * colour 0. The local player is its subject (`killFeedSubject('fall', ..)`: the one who died), so it is marked; his name
+ * in his side's colour where the page knows one (no room page: the free walk's SEAL; a room page: the net client's team;
+ * an unknown team, the retry's reopened client: colour 0, never the SEAL's by default). The text is
+ * `killLine`'s exactly, at the window's scale (`MESSAGE_SCALE`, the scale a plain string posts at).
+ */
+/** A HUD whose message window records each post as given (a string, or its lines). */
+function rawHud(name = 'Tester') {
+  const hud = new Hud();
+  hud.setPlayerName(name);
+  const posts: (string | BannerLine[])[] = [];
+  hud.postMessage = ((lines: string | BannerLine[]) => { posts.push(lines); }) as typeof hud.postMessage;
+  return { hud, posts };
+}
+const ORANGE = KILL_FEED_ORANGE.map((c) => c / 128);
+
+describe('WM-DATA-FALL: the offline room\'s fall line in the kill feed, marked (look 3B2, a browser adaptation; LATER 1104)', () => {
+  it("no room: one line, a kill feed line (not a string) -- the name in the SEAL's colour, the words in colour 0, the orange mark, the window's scale; the text killLine's", () => {
+    const { hud, posts } = rawHud();
+    fallDeathLine({ hud, net: () => null })(landing(3));
+    expect(posts).toHaveLength(1);
+    const post = posts[0]!;
+    expect(typeof post).not.toBe('string');
+    const lines = post as BannerLine[];
+    expect(lines).toHaveLength(1);
+    const line = lines[0]!;
+    expect(line.text).toBe('Tester falls to their death');
+    expect(line.text).toBe(killLine('fall', null, 'Tester', null));
+    expect(line.segments).toEqual([{ text: 'Tester', rgb: sideNameRgb('seal') }, { text: ' falls to their death' }]);
+    expect(line.feedMark).toEqual(ORANGE);
+    expect(line.scale).toBe(MESSAGE_SCALE);
+    expect(line).toEqual(killFeedLine('fall', null, { name: 'Tester', side: 'seal' }, null, true, MESSAGE_SCALE));
+  });
+
+  it("a room that closed (the walk handed back) keeps the page's side, the seat's team (the client's own): a Terrorist's name in the Terrorist's colour", () => {
+    const { hud, posts } = rawHud();
+    fallDeathLine({ hud, net: () => ({ client: { state: 'closed', team: 'terrorist' } }) })(landing(3));
+    expect(posts).toHaveLength(1);
+    const line = (posts[0] as BannerLine[])[0]!;
+    expect(line.segments).toEqual([{ text: 'Tester', rgb: sideNameRgb('terrorist') }, { text: ' falls to their death' }]);
+    expect(line.feedMark).toEqual(ORANGE);
+  });
+
+  it("a client whose team is unknown (the retry's reopened client, closed or connecting): no side colour -- never the SEAL's by default -- the words and the mark as ever", () => {
+    for (const state of ['closed', 'connecting'] as const) {
+      const { hud, posts } = rawHud();
+      fallDeathLine({ hud, net: () => ({ client: { state, team: null } }) })(landing(3));
+      expect(posts).toHaveLength(1);
+      const line = (posts[0] as BannerLine[])[0]!;
+      expect(line.text).toBe(killLine('fall', null, 'Tester', null));
+      expect(line.segments).toEqual([{ text: 'Tester' }, { text: ' falls to their death' }]);
+      expect(line.feedMark).toEqual(ORANGE);
+      expect(line).toEqual(killFeedLine('fall', null, { name: 'Tester', side: null }, null, true, MESSAGE_SCALE));
+    }
+  });
+
+  it('a room live (the client open): nothing posted -- the room\'s kill line is the one', () => {
+    const { hud, posts } = rawHud();
+    fallDeathLine({ hud, net: () => ({ client: { state: 'open', team: 'seal' } }) })(landing(3));
+    expect(posts).toEqual([]);
+  });
+
+  it('no name on the HUD: DEFAULT_PLAYER, in the line\'s text and its name piece; any other landing nothing', () => {
+    const { hud, posts } = rawHud('');
+    const onLand = fallDeathLine({ hud, net: () => null });
+    for (const c of [0, 1, 2] as const) onLand(landing(c));
+    expect(posts).toEqual([]);
+    onLand(landing(3));
+    const line = (posts[0] as BannerLine[])[0]!;
+    expect(line.text).toBe(`${DEFAULT_PLAYER} falls to their death`);
+    expect(line.segments![0]).toEqual({ text: DEFAULT_PLAYER, rgb: sideNameRgb('seal') });
+    expect(line.feedMark).toEqual(ORANGE);
+  });
+});
+
+/**
  * PAR-10 (research 257 s3; research 250 s9's owed line): the water's splash and wading ripples on both pages are the
  * traversal's own (`TraversalPage`, research 86 s5.4: `FUN_005b52b0`), once it is handed the firearm's `Effects`
  * (`traversal.setEffects(firearm.effects)`) -- the menu's match never handed it any, and `/testroom` played them
@@ -231,7 +309,7 @@ function poolPage() {
     modelName: 'worldmodel', path: 'worldmodel/q', region: 0, ditype, material, ptcount: 4, cameratype: 0, points: Float32Array.from(pts),
   });
   const floor = (x0: number, z0: number, x1: number, z1: number, y: number, material?: number): WorldPoly =>
-    quadW([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], 3, material);
+    quadW([x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z0], 3, material);
   const polys = [floor(-100, -100, 100, 100, 0), floor(-100, 20, -60, 60, 6, 11)];   // the floor, a pool 6 deep (WATER)
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
   const owners: CollisionOwner[] = polys.map((p, i) => ({ modelName: p.modelName, path: `${p.path}${i}`, first: i, count: 1 }));

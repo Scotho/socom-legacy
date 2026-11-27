@@ -73,6 +73,21 @@ describe('the look law at the stick\'s words', () => {
     expect(turn(lookStickOf(2, null))).toBeGreaterThan(0);
   });
 
+  it("the mouse-as-stick law follows the chosen stick: SEAL's gain turns the same mouse speed faster than RECRUIT's (a browser adaptation)", () => {
+    // A browser adaptation (the main controller's taste call, 2026-11-24): a setting the player picks reaches every
+    // input mode that claims to follow it -- the `stick` mouse law's push goes through the player's stick curve.
+    const turn = (stick: StickConfig): number => {
+      const law = new LookLaw();
+      law.setOptions({ stick, mouse: 'stick' });
+      let r = { yaw: 0 };
+      for (let k = 0; k < 60; k++) { law.mouse(4, 0); r = law.frame(1 / 60, 0, 0); }
+      return Math.abs(r.yaw);
+    };
+    const recruit = turn(lookStickOf(0, null)), seal = turn(lookStickOf(2, null));
+    expect(recruit).toBeGreaterThan(0);
+    expect(seal).toBeGreaterThan(recruit * 1.2);
+  });
+
   it('the move stick takes the same dead zone (its watcher writes both sticks)', () => {
     expect(moveStick(0.2, 0)[0]).toBe(0);
     expect(moveStick(0.2, 0, lookStickOf(2, null).deadZone)[0]).toBeGreaterThan(0);

@@ -1,6 +1,9 @@
 import { OSK_ROWS } from '../grammar';
 import { btn, esc, ico } from '../icons';
-import { dialogHeadHtml } from './close';
+import { closeButtonHtml, dialogHeadHtml } from './close';
+import { deployPanelHtml, deploySteps } from '../deployPanel';
+import { LOAD_IN_DISC, loadInLobbyLinkAt, loadInPanelHtml } from '../../loadIn';
+import { conflictOffer } from './remap';
 import { installAppHtml } from './installApp';
 import { senderDialogHtml } from './discShare';
 import { SHARE_CLOSE_CONFIRM, SHARE_DEPLOY_CONFIRM } from '../../discShareWords';
@@ -218,15 +221,29 @@ function launchHtml(s: ConsoleState, a: Adapters): string {
   // adapters' page never signs out, and reads it as the prototype did.
   const named = s.launch.target ?? (a.launch ? null : selectedRoom(s, a)?.name ?? null);
   const room = named !== null ? { name: named } : null;
-  const name = room ? esc(room.name) : '';
-  return `<div class="cx-launch" data-key="launch" role="dialog" aria-modal="true" aria-labelledby="launch-title">
-      ${dialogHeadHtml('DEPLOYING', 'launch-title', 'cx-launch')}
-      <div class="cx-bar"><i></i></div>
-      <p>Starting SOCOM II from your disc image.</p>
-      <p class="cx-launch__note">${room ? `Room ${name} is your target. The game opens at its own LOGIN screen: sign in there, then join ${name} from the briefing rooms.` : OPENS_NOTE[skipMenuOn() ? skipMenuOpens(globalThis.location?.pathname ?? '/', String((import.meta.env as Record<string, unknown> | undefined)?.['BASE_URL'] ?? '/'), true) : 'title']}</p>
-      ${s.launch.error ? `<p class="cx-launch__note cx-field__error" role="alert">${esc(s.launch.error)}</p>` : ''}
-      <button type="button" class="cx-launch__back is-focused" data-act="press" data-b="circle" data-fk="launch-back">${btn('circle')}Back to launcher</button>
-    </div>`;
+  const path = globalThis.location?.pathname ?? '/';
+  const base = String((import.meta.env as Record<string, unknown> | undefined)?.['BASE_URL'] ?? '/');
+  const opens = skipMenuOn() ? skipMenuOpens(path, base, true) : 'title';
+  // WM-37 (`../../loadIn` `LOAD_IN_COVER_ADAPTATION`; the owner's "12 b approved on both", 2026-11-15; a browser
+  // adaptation): the hand-over drawn by the shared DEPLOYING panel (`../deployPanel`) -- its words (the opening note, a
+  // room's note), its error line, its Back button and its close button as before, the title DEPLOYING; the ordinary
+  // route's steps the disc and where the game opens, its bar waiting (no share is known). On a lobby link's address it
+  // draws the direct link's first stage (Disc) of four instead, so it and the cover after it read as one sequence.
+  const extra = {
+    titleId: 'launch-title', close: closeButtonHtml(), headClass: 'cx-launch__head', footClass: 'cx-launch__note',
+    after: `${s.launch.error ? `<p class="cx-launch__note cx-field__error" role="alert">${esc(s.launch.error)}</p>` : ''}<button type="button" class="cx-launch__back is-focused" data-act="press" data-b="circle" data-fk="launch-back">${btn('circle')}Back to launcher</button>`,
+  };
+  const open = (attrs: string, panel: string): string =>
+    `<div class="cx-launch dp-host" data-key="launch"${attrs} role="dialog" aria-modal="true" aria-labelledby="launch-title">${panel}</div>`;
+  // The review's F1: whether this start is direct (a cover after it) is `../../lobbyLinkDirect`'s own, so the foot says
+  // only what is true either way -- the link's place (`OPENS_NOTE.link`), no promise of no press.
+  if (loadInLobbyLinkAt(path, base)) return open(' data-stage="disc"', loadInPanelHtml(LOAD_IN_DISC, { ...extra, foot: OPENS_NOTE.link, enter: true }));
+  const target = room ? `Room ${room.name}` : opens === 'login' ? 'LOGIN screen' : opens === 'link' ? 'Your link' : 'Title screen';
+  return open('', deployPanelHtml({
+    kicker: 'Start', title: 'DEPLOYING', share: null, line: 'Starting SOCOM II from your disc image.', steps: deploySteps(['Disc', target], 0),
+    foot: room ? `Room ${room.name} is your target. The game opens at its own LOGIN screen: sign in there, then join ${room.name} from the briefing rooms.` : OPENS_NOTE[opens],
+    enter: true, ...extra,
+  }));
 }
 
 function statesHtml(s: ConsoleState, a: Adapters): string {
@@ -295,6 +312,11 @@ function keptConfirmHtml(s: ConsoleState): string {
  * view (retired with CX-26): the button pressed is already bound to another; Swap, Replace or Cancel, Cancel focused
  * (every console Confirm starts on its safe answer, OT.R60's one design; that view focused Swap). A Replace that would unbind Cross, Circle, START or a d-pad direction is refused in `resolveConflict`'s
  * words, on the dialog's error line, and the question stays.
+ * WM-9, a labelled departure from OT.R60 for those conflicts only (a browser adaptation; the controller's product-track
+ * call): on a rebind that conflicts with a button the menus need (START, Cross, Circle, the d-pad), the dialog opens with
+ * SWAP focused, the lead line says why, and Replace is shown unavailable there; everywhere else OT.R60's Cancel-first focus
+ * stands unchanged. Where the listening action has no button to give, Swap is unavailable too and Cancel is focused, the
+ * lead saying so (`conflictOffer`). `resolveConflict`'s refusal stays the backstop, its error line drawn as before.
  */
 export const CONFLICT_ANSWERS = ['Swap', 'Replace', 'Cancel'] as const;
 
@@ -305,13 +327,23 @@ function conflictConfirmHtml(s: ConsoleState, a: Adapters): string {
   const name = b.bindName(q.occupied);                              // an action's, or Crouch / Prone (PP-5)
   // The controller's button and the action named apart (the merge controller's wording, 2026-10-16): the d-pad's
   // four say so, and the action is set in capitals as its row draws it.
-  const label = b.label(q.physical);
-  const button = q.physical >= 12 && q.physical <= 15 ? `D-pad ${label}` : label;
+  const physical = (p: number): string => (p >= 12 && p <= 15 ? `D-pad ${b.label(p)}` : b.label(p));
+  const button = physical(q.physical);
+  const offer = conflictOffer(b);
+  const menu = offer?.menu ?? null;
+  const need = `${menu} must stay bound: the menus need it`;
+  const lead = !menu ? `${button} is already used for ${name.toUpperCase()}. Swap them, replace it, or cancel.`
+    : offer!.available[0] ? `${button} is already used for ${name.toUpperCase()}. ${need}, so swap them (${menu} moves to ${physical(offer!.old)}) or cancel.`
+      : `${button} is already used for ${name.toUpperCase()}. ${need}, and ${b.bindName(q.action)} has no button to give it, so they cannot be swapped. Cancel, then choose another button.`;
+  // WM-9: an unavailable answer stays reachable by the pointer but answers nothing (`aria-disabled`, its reason its title).
+  const why = [`${b.bindName(q.action)} has no button to give ${menu}.`, `${need}.`, ''];
   return `<div class="cx-scrim" data-key="confirm-conflict"><div class="cx-dialog" role="dialog" aria-modal="true" aria-labelledby="cf-title" style="width: 44rem">
       ${dialogHeadHtml('Button already in use', 'cf-title')}
-      <p class="cx-dialog__lead">${esc(`${button} is already used for ${name.toUpperCase()}. Swap them, replace it, or cancel.`)}</p>
+      <p class="cx-dialog__lead">${esc(lead)}</p>
       ${q.refused ? `<p class="cx-field__error" role="alert">${esc(q.refused)}</p>` : ''}
-      ${CONFLICT_ANSWERS.map((w, i) => `<button type="button" class="cx-toggle ${s.confirmRow === i ? 'is-focused' : ''}" data-act="confirm" data-i="${i}" data-fk="cf-${i}"><span>${w}</span></button>`).join('')}
+      ${CONFLICT_ANSWERS.map((w, i) => (offer?.available[i] ?? true)
+    ? `<button type="button" class="cx-toggle ${s.confirmRow === i ? 'is-focused' : ''}" data-act="confirm" data-i="${i}" data-fk="cf-${i}"><span>${w}</span></button>`
+    : `<button type="button" class="cx-toggle is-unavailable ${s.confirmRow === i ? 'is-focused' : ''}" aria-disabled="true" title="${esc(why[i]!)}" data-act="confirm" data-i="${i}" data-fk="cf-${i}"><span>${w} (unavailable)</span></button>`).join('')}
     </div></div>`;
 }
 

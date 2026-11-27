@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { liveReplays } from '../../src/console/adapters/replays';
+import { replaysOf } from '../../src/modern/replays/data';
+import { fakeSession } from '../modern/lobbies/fixtures';
 import { attachMapStillFallback, replaysHtml } from '../../src/console/render/replays';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
 import { createState, type Adapters, type ReplayRow, type ReplaysView } from '../../src/console/state';
@@ -109,7 +112,9 @@ describe('Replays: the drawer\'s map still (REPLAY-STILLS)', () => {
   }
 
   it('no still for the map (not a stem the route answers): the text as today, per the disc', () => {
-    for (const [disc, words] of [['ready', 'Map picture from your disc'], ['empty', 'Needs disc']] as const) {
+    // REPLAY-STILL-STEM (the owner, 2026-11-22): a ready disc's no-still slot says the map's name (nothing decodes the
+    // disc's picture on the launcher; was "Map picture from your disc").
+    for (const [disc, words] of [['ready', 'Frostfire'], ['empty', 'Needs disc']] as const) {
       const slot = drawDisc('Frostfire', disc);
       expect(slot.querySelector('img')).toBeNull();
       expect(slot.classList.contains('is-guide')).toBe(true);
@@ -127,8 +132,75 @@ describe('Replays: the drawer\'s map still (REPLAY-STILLS)', () => {
       expect(failed).toEqual(['MP73']);
       const again = drawDisc('MP73', 'ready');
       expect(again.querySelector('img')).toBeNull();
-      expect(again.querySelector('span')!.textContent).toBe('Map picture from your disc');
+      expect(again.querySelector('span')!.textContent).toBe('Sandstorm');   // REPLAY-STILL-STEM: the map's name (was 'Map picture from your disc')
       slot.remove();
     } finally { detach(); }
+  });
+
+  it('REPLAY-STILL-STEM (its glances F1): a LIVE-shaped row (the name in map, the stem beside) whose still fails is remembered by its STEM, so the next draw is the text, not the same broken image', () => {
+    const failed: string[] = [];
+    const detach = attachMapStillFallback(document, (stem) => { failed.push(stem); });
+    try {
+      const live = (): HTMLElement => {
+        const A: Adapters = sampleAdapters();
+        A.replays = { ...A.replays, view: () => ({ kind: 'ok', entries: [{ ...ROW('l'), map: 'Frostfire', stem: 'MP2' }] }) };
+        A.disc = { ...A.disc, state: () => 'ready' };
+        const S = createState(A);
+        S.screen = 'replays';
+        const box = document.createElement('div');
+        box.innerHTML = replaysHtml(S, A);
+        return box.querySelector<HTMLElement>('.cx-drawer__map')!;
+      };
+      const slot = live();
+      document.body.append(slot);
+      expect(slot.querySelector('img')!.getAttribute('src')).toBe('/api/maps/MP2/still.png');
+      slot.querySelector('img')!.dispatchEvent(new Event('error'));
+      expect(failed).toEqual(['MP2']);
+      const again = live();
+      expect(again.querySelector('img')).toBeNull();
+      expect(again.querySelector('span')!.textContent).toBe('Frostfire');
+      slot.remove();
+    } finally { detach(); }
+  });
+});
+
+/**
+ * DAY-STILLS (product track, a browser adaptation: the original has no Day maps): a Day replay's drawer asks central's
+ * variant still (`/api/maps/<STEM>/<variant>/still.png`); a plain replay's address is unchanged.
+ */
+describe('Replays: the drawer\'s still keyed on (stem, variant) (DAY-STILLS)', () => {
+  const drawRow = (r: ReplayRow): HTMLElement => {
+    const A: Adapters = sampleAdapters();
+    A.replays = { ...A.replays, view: () => ({ kind: 'ok', entries: [r] }) };
+    const S = createState(A);
+    S.screen = 'replays';
+    const box = document.createElement('div');
+    box.innerHTML = replaysHtml(S, A);
+    return box.querySelector<HTMLElement>('.cx-drawer__map')!;
+  };
+  it('a Day row: the Day still; a plain row: the night still unchanged', () => {
+    const day = drawRow({ ...ROW('d'), map: 'Abandoned', stem: 'MP5', variant: 'day' });
+    expect(day.querySelector('img')!.getAttribute('src')).toBe('/api/maps/MP5/day/still.png');
+    const rn = drawRow({ ...ROW('r'), map: "Rat's Nest", stem: 'MP8', variant: 'day' });
+    expect(rn.querySelector('img')!.getAttribute('src')).toBe('/api/maps/MP8/day/still.png');
+    const night = drawRow({ ...ROW('n'), map: 'Abandoned', stem: 'MP5' });
+    expect(night.querySelector('img')!.getAttribute('src')).toBe('/api/maps/MP5/still.png');
+  });
+});
+
+describe('DAY-STILLS: the live adapter carries the entry\'s variant to the row', () => {
+  it('a Day entry\'s row has variant day; a plain one none', async () => {
+    const entry = (id: string, extra: Record<string, unknown>) => ({
+      id, room: 'MP5/classic', map: 'MP5', rules: 'classic', startedAt: '2026-11-25T10:00:00.000Z', seconds: 60, players: [], ...extra,
+    });
+    const r = liveReplays(() => undefined, {
+      session: fakeSession('signed-in'),
+      source: { list: async () => replaysOf({ replays: [entry('00000000000000d1', { variant: 'day' }), entry('00000000000000a2', {})] }) },
+    });
+    await vi.waitFor(() => expect(r.view().kind).toBe('ok'));
+    const v = r.view();
+    const rows = v.kind === 'ok' ? v.entries : [];
+    expect(rows.map((x) => [x.stem, x.variant])).toEqual(expect.arrayContaining([['MP5', 'day'], ['MP5', undefined]]));
+    r.dispose();
   });
 });

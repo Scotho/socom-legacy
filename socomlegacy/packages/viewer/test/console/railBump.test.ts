@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bootConsole, type ConsolePage } from '../../src/console/app';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
+import { padRows } from '../../src/console/grammar';
 import { CATS, homeItems } from '../../src/console/state';
 import { PAGE } from './cascade';
 import { mountShell } from './shell';
@@ -59,7 +60,8 @@ describe('the rail\'s bump at its ends (LR.R3)', () => {
 
 describe('the item list\'s bump at its first and last item', () => {
   it('Up at the first item bumps the list toward the start, Down at the last toward the end', () => {
-    const n = homeItems(CATS[ctl().S.cat]!.id, ctl().S, ctl().A).length;
+    // the pad's rows (the owner, 2026-11-19: Home's walk stops before Discord and GitHub), so its last is the end
+    const n = padRows(homeItems(CATS[ctl().S.cat]!.id, ctl().S, ctl().A));
     ctl().press('up');
     expect(ctl().S.item[ctl().S.cat]).toBe(0);
     expect(list().dataset['bump']).toMatch(/^start-/);

@@ -86,7 +86,8 @@ describe.skipIf(!ISO || !existsSync(ISO))("placed gates and barriers in Play's r
       const k = face.points.length / 3;
       for (let i = 0; i < face.points.length; i += 3) { c[0] += face.points[i]! / k; c[1] += face.points[i + 1]! / k; c[2] += face.points[i + 2]! / k; }
       let planted = false;
-      for (const [dx, dz] of [[20, 0], [-20, 0], [0, 20], [0, -20]] as const) {
+      // LATER 1139: 15 u off the face (was 20), inside the hip gate (19.9 u in 3-D).
+      for (const [dx, dz] of [[15, 0], [-15, 0], [0, 15], [0, -15]] as const) {
         const eye = [c[0]! + dx, c[1]!, c[2]! + dz];
         const far = [c[0]! - dx * 10, c[1]!, c[2]! - dz * 10];
         const pick = aimPick(groundGrid(room.map.ground), eye, far, 'default');

@@ -167,7 +167,7 @@ Round-2 corrections (H4, verified V5):
   the 0x20000 escortee bit, R2-MN ([203](203-r2-mn-match-modes-net.md))).
 - "Get down" (prone 10 s) is unreachable online: the only MP orders are FOLLOW and HOLD, and the hostage's animation set
   has no prone clip.
-- Online, all AI event masks are zero (`FUN_00572d70`): **hostages do not react to gunfire or explosions**.
+- Online, all AI event masks are zero (`FUN_00572d70`): **hostages do not react to gunfire or explosions** as AI events. *Corrected 2026-11-18 (LATER 1170, research 445):* true of the AI **event** mask only -- the danger scan (`FUN_0056de10` -> `FUN_005cba20` -> `FUN_005cb870`) runs outside it, and a hostage runs (0x1b `CAiSGrenade`) from a frag or C4 it notices within the item's blast radius.
 
 ### 4.5 The body
 

@@ -128,15 +128,22 @@ describe.skipIf(!DISC)('LATER 590: no steep-rise refusal on the disc', () => {
     let d: Disc;
     beforeAll(() => { d = disc('MP7'); });
     const SPOT = [1242.1, 118.22, 1569.5] as const;
-    it('standing, heading 90 (-x): the body walks across g537 rising 6.87, and no segment meets a g537 face on the way', { timeout: 120_000 }, () => {
+    it('standing, heading 90 (-x): the body walks across g537 rising 7.06, and no segment meets a g537 face on the way', { timeout: 120_000 }, () => {
       // The walk crosses the faces on a grade of about 0.25, so the centre record at the feet + 6.5 passes over them:
       // the original's segments do not meet them, and its walk compares no rise. The interim rule held it at 0.00.
       // It also rests on `SLIDE_SPAN_MEASURE_READING` 'column' (`./steepSlide`): the faces' column span there is under
       // `SLIDE_SPAN_MIN` 4, so `FUN_0054f330` (D:L417237) leaves them unslid; under 'vertices' (8.70, 10.28) they would
       // slide the body and it would not cross. A capture of this walk settles both.
+      // LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): with the ramp read half a tick ahead the route crosses the ridge at a
+      // slightly different place (x at tick 9 -5.42 against -4.97), so the highest per-tick sample of the feet is 7.058
+      // at tick 46 (6.872 at tick 45 before the lead). It still crosses (moved 65.36) and still meets no g537 face
+      // (only g76). The port's own walk, not a capture.
       const r = walkFrom(d, SPOT, 'stand', 90);
       expect(r.moved).toBeGreaterThan(1);
-      expect(r.climbed).toBeCloseTo(6.87, 1);
+      // LATER 1194B (the walls trial, 2026-11-21; re-measured on the hub at agent/walls a6af3e96f4): with the walls met once
+      // a game frame the walk crosses in frame-sized steps, so its highest per-tick feet sample is 6.316 (was 7.058 at tick
+      // 46); it still crosses (moved 73.38) and meets no g537 face (it meets g76, nogo4 and g273). The port's own sample.
+      expect(r.climbed).toBeCloseTo(6.32, 1);
       expect([...r.hit].filter((p) => p.endsWith('/g537'))).toEqual([]);
     });
     it('standing, headings 135, 180 and 225: the body leaves the trough (the interim rule held 90, 135 and 180 at 0.00)', { timeout: 120_000 }, () => {

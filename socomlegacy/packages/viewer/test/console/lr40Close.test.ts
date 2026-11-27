@@ -129,18 +129,20 @@ describe('LR-40 (7): every category\'s list on the page hides its sub-line (LR.R
   });
 });
 
-/* ---------- 8 (F12; decision 4b): the server mark on Home only ---------- */
+/* ---------- 8: the server mark on every tab (the owner, 2026-11-18; was Home only, F12, decision 4b) ---------- */
 
-describe('LR-40 (8): the server-status mark draws on the Home category only, page and overlay', () => {
+describe('LR-40 (8): the server-status mark draws on every category, page and overlay', () => {
   const mark = (html: string): boolean => html.includes('cx-srvmark');
-  it('Home: drawn; Profile, Settings, Online, Experiments: none (LR.R31 (a)); the overlay\'s Home too (LR.R32)', () => {
+  // The owner, 2026-11-18: "please make this visible on all tabs so the donate button doesnt fly around paging between
+  // them" -- the mark drawn on every tab, so the header's donation box does not move.
+  it('Home, Profile, Settings, Online, Experiments: drawn, the overlay too', () => {
     const A = sampleAdapters();
     const S = createState(A);
     for (const mode of ['page', 'overlay'] as const) {
       S.mode = mode;
       CATS.forEach((c, i) => {
         S.cat = i;
-        expect(mark(headerHtml(S, A)), `${mode} ${c.id}`).toBe(c.id === 'home');
+        expect(mark(headerHtml(S, A)), `${mode} ${c.id}`).toBe(true);
       });
     }
   });

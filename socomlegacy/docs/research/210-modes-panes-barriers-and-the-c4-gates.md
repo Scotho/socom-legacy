@@ -403,13 +403,19 @@ dud (inside its arming 100 u) does not open it: the grenade's events do not name
 | name | value | what it stands in for | what would settle it |
 |---|---|---|---|
 | `ROOM_SKIP_EFFECTS_READING` (`viewer/src/worldState.ts`; the room's `WorldState.skipEffects`) | `true`: the room's world runs every scene death and action with `skip_effects` reading 1 | whether everything a program guards with `IF skip_effects == 0` is presentation -- the game's join replay (`FUN_002b4440` D:L156767, `JOIN_SILENT_READING`) skips it, which says so for the state a joiner must hold; read on Vigilance's and Desert Glory's `destroy_accessN` only | every guarded branch of the 22 maps' `MZANIM`s read for a non-presentation change; a capture of a joiner entering after a Vigilance barrier fell |
-| `C4_REACH_READING` (`viewer/src/equipment.ts`) | the action object's default reach, 32 u (`ACTION_RANGE_DEFAULT`, `FUN_002b49f0`), along the ground, strict: since PF-13 the struck point from the feet on the page and in the room alike (`c4InReach`) | the plant's `body+0x208 < 396` (D:L475402-475404), which research 202 s2.1 reads as the squared distance from `skel_root` to the aimed point (19.9 u) | the capture research 206 A30 owes (a `body+0x208` write breakpoint aiming at a barrier within 2 m); PF-13 kept 32 (s9.1: the room poses no `skel_root`) |
+| `C4_REACH_READING` (`viewer/src/equipment.ts`; **retired 2026-11-18 by LATER 1139**: one hip gate, |point - hip|^2 < `C4_HIP_REACH_SQ` 396, proven on r0004, research 440 s8) | was the action object's default reach, 32 u (`ACTION_RANGE_DEFAULT`, `FUN_002b49f0`), along the ground, strict: since PF-13 the struck point from the feet on the page and in the room alike (`c4InReach`) | the plant's `body+0x208 < 396` (D:L475402-475404), which research 202 s2.1 reads as the squared distance from `skel_root` to the aimed point (19.9 u) | the capture research 206 A30 owes (a `body+0x208` write breakpoint aiming at a barrier within 2 m); PF-13 kept 32 (s9.1: the room poses no `skel_root`) |
 | `C4_TARGET_READING` | retired 2026-10-05: C4's target is the destructible that takes the charge (`SceneHealth.c4TargetAt`), never `actions.rdr`'s type-less records | -- | resolved (this section; research 94 C5.1) |
 
 ## 9. The C4 and claymore gates (PF-13)
 
 The plan's PF-13 (appendix C3-X2/X3, W2-A-10; research 181 s2.5, s6.2-s6.3, s9.2; 194 s7 A10; 179 s11.13; 206 s1.2 V1
 #9; 176 s7.3). Four rules, each on the page and in the room where the room applies it.
+
+**C4-GLASS (2026-11-16; research 440; LATER 276).** C4's target is the aim's opaque record (`FUN_005aa6e0`'s
+`+0x3c0`..`+0x3dc`), so a pane, a fence or a net is looked through: the page picks with `c4AimPick` and the room's
+`c4Line` neither stops at nor walls off a face the aim looks through; the switch press keeps the old line (`actionLine`).
+The 21 pane and bottle targets the sweep lists are no longer plantable; the reach was then held for the main controller
+(research 440 sections 4, 5) and is now the hip gate for every plant (LATER 1139, research 440 s8).
 
 **The claymore and the PMN in water** (`scene/src/projectile.ts` `CLAYMORE_RULES.maxWaterDepth`): the claymore's fire
 (D:L475310-475320) reads `+0xf88` only while bit 7 of `+0x105e` is set, and `FUN_005b52b0` (D:L469852) writes `+0xf88`
@@ -456,8 +462,9 @@ the polygon its own line meets (`c4Line`). Vigilance's `access1` `di_good` reads
 **The wire and the room** (ruling PF.R18; protocol 10, additive, no bump): `throw` += `target` (a `SceneDestructible.id`)
 and `surface` (`{ path, point }`: the polygon owner the aim struck and the point). The room (`placeCharge`, C4 branch)
 refuses, in order: no target or surface, or `SceneHealth.c4TargetAt(surface.path, Explosion_Damage)` not that target
-(`no c4 target`; `FUN_002739b0`, PF.R14); the point not within `C4_REACH_READING` of the feet along the ground
-(`c4 reach`); the line from the head -- `headPoint` kept on the body's side along `headEye`, as `startRefused` stands it
+(`no c4 target`; `FUN_002739b0`, PF.R14); the point not in the hip's reach (`c4 reach`; since LATER 1139 |point -
+hip|^2 < 396 from `hipPoint`, the placing start's when the plant is its own, research 440 s8; was `C4_REACH_READING`
+from the feet along the ground); the line from the head -- `headPoint` kept on the body's side along `headEye`, as `startRefused` stands it
 -- meeting another node before the point (`c4 walled`) or not meeting the named node there (`c4 missed`); the surface
 named `INVISIBLE_DI` (`c4 surface`). Then `startRefused` and the rest as before. `target` not whole or `surface` not a
 string path and a finite point: the throw is ignored, as a malformed throw is (`roomFuzz`, `roomEquipment`). The room
@@ -469,8 +476,8 @@ longer called by the room.
 (`match/test/roomBarriers.test.ts`; on the disc, `viewer/test/accessBarriers.test.ts` picks access1's `di_good` along
 its witness segment, settles it, checks the room's line and material, and opens it).
 
-**Not done.** The plant's own clip (above). The hip-bone reach (`body+0x208 < 396`, 19.9 u from `skel_root`: research
-202 s2.1) -- the room poses no skeleton, so `C4_REACH_READING` keeps 32 u (s8.1). `body+0xe84 == 0` in the placing
+**Not done.** The plant's own clip (above). (The hip-bone reach, `body+0x208 < 396` from `skel_root`, is ported since
+2026-11-18: LATER 1139, research 440 s8 -- the room stands the hip over the feet, `hipPoint`, `C4_HIP_POINT_READING`.) `body+0xe84 == 0` in the placing
 (`FUN_005be9a0` D:L475402-475405): no writer found -- note-only (s9.1). The aim ray's length (`max(range, 600)` capped by
 the camera's `+0xec`, research 179 s11.14): the page's view ray (`WalkMode.fireAim`) stands in.
 

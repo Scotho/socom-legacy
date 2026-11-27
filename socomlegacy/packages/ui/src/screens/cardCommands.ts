@@ -82,10 +82,15 @@ export const MEMCARD_ERROR_CODE_VALVE = 'memcard_error_code';
  */
 export const CARD_STATE = { well: 0, unformatted: 1, noCard: 2, denied: 6 } as const;
 
-/** The names `CMemCardIO` and the rows use (strings at 0x3fbd08 .. 0x3fbd58, 0x3eeef0, 0x3eef00, 0x3eef20, 0x3eee38). */
+/**
+ * The names `CMemCardIO` and the rows use (strings at 0x3fbd08 .. 0x3fbd58, 0x3eeef0, 0x3eef00, 0x3eef20, 0x3eee38).
+ * R4P-249 (r0004, reading, pending review; research 143 §2): `patchGlob` is r0004's upper-case `*.ZDB`
+ * (`r0004:0x00427ca0`; r0001's 0x3fbd40 is `*.zdb`), and `patchArchive` the name r0004's space test and save ask
+ * (`r0004:0x0041a280`, `r0004:0x00427cc8`) -- the patch archive the patch download writes (`PATCH_ARCHIVE_ON_CARD_PLACEHOLDER`).
+ */
 export const CARD_PATHS = {
-  parent: '..', folderAll: './*', patchGlob: '*.zdb', patch: 'PATCHFILE.DAT', scratch: 'SCRATCHPAD.DAT',
-  iconSys: 'icon.sys', listIco: 'LIST.ICO',
+  parent: '..', folderAll: './*', patchGlob: '*.ZDB', patch: 'PATCHFILE.DAT', patchArchive: 'APACHE00.ZDB',
+  scratch: 'SCRATCHPAD.DAT', iconSys: 'icon.sys', listIco: 'LIST.ICO',
 } as const;
 export const SAVE_GAME_FORMAT = (i: number): string => `SaveGame${i}`;
 /** UISaveConfig's dummies `SaveGame0..6` (D:L124775-124782: `iVar3 < 7`). */
@@ -96,6 +101,37 @@ export const AUTOMESSAGES_UIVAR = 'AUTOMESSAGES';
 
 /** The game's space rule (`FUN_0027b3d0` D:L124930-124944): free KB, plus the folder's KB when below 3001, above 2999. */
 export const SAVE_SPACE_KB = 3000;
+/**
+ * The KB r0004's space test starts from when the card's folder holds neither `PATCHFILE.DAT` nor `APACHE00.ZDB`
+ * (`r0004:0x0027c5ac`, after the second Exists pair): the bar falls from 3000 KB to 2999. Read at its address; why one
+ * KB is not read anywhere (research 143 §4). Reading, pending review.
+ */
+export const SAVE_SPACE_NO_PATCH_KB = 1;
+/**
+ * PATCH_ARCHIVE_ON_CARD_PLACEHOLDER: the page writes no `APACHE00.ZDB` -- no patch download is ported (R293 keeps the
+ * page off servers that are not ours) -- so the card states with it (r0004's delete of `PATCHFILE.DAT`, the `*.ZDB`
+ * glob finding one) occur only on a card a test or an imported save builds. [placeholder]
+ */
+export const PATCH_ARCHIVE_ON_CARD_PLACEHOLDER = 'no APACHE00.ZDB written by the page; only a built or imported card holds one' as const;
+/**
+ * MC_NAME_CASE_READING: libmc's name match is exact-case (`@s2u/card` `wildcardMatch`), so r0001's `*.zdb` never finds
+ * `APACHE00.ZDB` and r0004's `*.ZDB` does; the real card driver's rule is not read (a GetDir of `*.zdb` against
+ * `APACHE00.ZDB` on the console settles it). [reading]
+ */
+export const MC_NAME_CASE_READING = 'exact case, as libmc matches' as const;
+/**
+ * CARD_ISSUE_REFUSED_PLACEHOLDER: r0004's Exists, DeleteFile and SaveConfig's new block post `MEMCARD_ERROR` only when
+ * the issue call itself answers below 0 (`r0004:0x003c0fb4`, `r0004:0x003c0d78`, `r0004:0x003c2354`), a negative Sync
+ * result being plain "absent" (`r0004:0x003c238c`); `CardFileIo` answers one result per command and has no refused
+ * issue, so those posts are not reached (as `MC_ISSUE_FAILURE_READING`, research 138). [placeholder]
+ */
+export const CARD_ISSUE_REFUSED_PLACEHOLDER = 'no refused issue in CardFileIo: the MEMCARD_ERROR posts not reached' as const;
+/**
+ * R0004_SPACE_SCRIPT_READING: which r0004 `.rdr` runs `IsSpaceForSaveGameFile` (row id 0x39, a table word only:
+ * `r0004:0x00408a40`) is not read; the replay lists follow r0001's `UIMemCardAnim.rdr` `save_and_leave`, which asks it
+ * before `SaveConfig` (`tools/test/cardPromptCommands.pinned.json`; `packages/card/test/mcReplay.ts`). [reading]
+ */
+export const R0004_SPACE_SCRIPT_READING = "r0001's save_and_leave order" as const;
 /** `PATCHFILE.DAT`'s KB (D:L296018) and the folder total the fillers bring it to (`2999 - used`, D:L296021-296024). */
 export const PATCH_FILLER_KB = 2000;
 export const FOLDER_FILL_KB = 2999;
@@ -184,6 +220,25 @@ export class CardCommands {
 
   /** vtable +0x10 (`FUN_003a04c0`): the handle is not negative. */
   private isOpen(): boolean { return this.fd >= 0; }
+
+  /**
+   * r0004's Exists `r0004:0x003c0f60` (r0001 `FUN_003a0950`): drained, GetDir of the name in the card's current folder
+   * (mode 0, one entry); present when the result is above 0. A negative result is absent and posts nothing; the
+   * refused-issue post is not reached (`CARD_ISSUE_REFUSED_PLACEHOLDER`).
+   */
+  private exists(name: string): boolean {
+    const card = this.drain();
+    return card.getDir(this.port, this.slot, name, 1).result > 0;
+  }
+
+  /**
+   * r0004's DeleteFile `r0004:0x003c0d20`: with a file of the object's open (vtable +0x10, `r0004:0x003c0d4c`) nothing
+   * is issued and it answers false; else drained, Delete; true when the result is 0.
+   */
+  private deleteFile(name: string): boolean {
+    if (this.isOpen()) return false;
+    return this.drain().delete(this.port, this.slot, name) === 0;
+  }
 
   /**
    * vtable +8 (`FUN_003a05a0` D:L295382-295442): the mode to libmc's flags; with 0x10 and 0x08 the file deleted first,
@@ -315,11 +370,18 @@ export class CardCommands {
   }
 
   /**
-   * `UIIsSpaceForSaveGameFile` `FUN_0027b3d0` (D:L124930-124944; 0x27b3d0-0x27b41c): the free KB; below 3001, plus the
-   * folder's KB (`FUN_003a1060`); true when the sum is not below 3000.
+   * `UIIsSpaceForSaveGameFile`, r0004's `r0004:0x0027c520` (R4P-249; reading, pending review): Exists `PATCHFILE.DAT`
+   * and, when present, Exists `APACHE00.ZDB` (`r0004:0x0027c524`-`0x0027c55c`); both -> DeleteFile `PATCHFILE.DAT`, its
+   * answer ignored (`r0004:0x0027c560`-`0x0027c570`); then Exists `PATCHFILE.DAT` again and, when absent, Exists
+   * `APACHE00.ZDB`; absent too -> the sum starts at `SAVE_SPACE_NO_PATCH_KB` (`r0004:0x0027c578`-`0x0027c5ac`). Then
+   * r0001's `FUN_0027b3d0` (D:L124930-124944; 0x27b3d0-0x27b41c, r0004's `r0004:0x0027c5b0`-`0x0027c5e8` instruction
+   * for instruction): plus the free KB; below 3001, plus the folder's KB (`FUN_003a1060`); true when not below 3000.
    */
   IsSpaceForSaveGameFile: UiCommandHandler = () => {
-    let kb = this.freeKb();
+    let kb = 0;
+    if (this.exists(CARD_PATHS.patch) && this.exists(CARD_PATHS.patchArchive)) this.deleteFile(CARD_PATHS.patch);
+    if (!this.exists(CARD_PATHS.patch) && !this.exists(CARD_PATHS.patchArchive)) kb = SAVE_SPACE_NO_PATCH_KB;
+    kb += this.freeKb();
     if (kb < 3001) kb += this.folderKb();
     return kb >= SAVE_SPACE_KB;
   };
@@ -367,9 +429,17 @@ export class CardCommands {
    * find saved by `FUN_003a1ea0` (D:L296192-296207) with the dummy text; (4) `FUN_003a1880` (D:L295995-296026): GetDir
    * `*.zdb` for one entry; none -> `PATCHFILE.DAT` of 2000 KB; then `SCRATCHPAD.DAT` of `2999 - FUN_003a1060()` KB
    * when that is above 0 (its third argument, a2, read at 0x3a1944-0x3a1958). Answer 1.
+   *
+   * r0004 (R4P-249; reading, pending review): (1) is `r0004:0x003c2290`, which after the scratch delete (as r0001,
+   * `r0004:0x003c22a0`-`0x003c2314`) asks GetDir `PATCHFILE.DAT` -- issued even with a file open -- and when found
+   * GetDir `APACHE00.ZDB`; both found and still no file open (vtable +0x10 again, `r0004:0x003c2438`) -> Delete
+   * `PATCHFILE.DAT` (`r0004:0x003c2318`-`0x003c24ac`); and (4)'s glob is `*.ZDB` (`r0004:0x00427ca0`).
    */
   SaveConfig: UiCommandHandler = (cmd: ZAnimUiCommand) => {
     if (!this.isOpen()) this.drain().delete(this.port, this.slot, CARD_PATHS.scratch);
+    if (this.exists(CARD_PATHS.patch) && this.exists(CARD_PATHS.patchArchive) && !this.isOpen()) {
+      this.drain().delete(this.port, this.slot, CARD_PATHS.patch);
+    }
     this.drain();
     const contents = this.o.config?.contents() ?? CONFIG_FILE_PLACEHOLDER;
     this.saveFile(cmd.arg, contents.size, contents.data);
@@ -420,6 +490,13 @@ export class CardCommands {
 
   /** The object's file state, for the tests. */
   fileState(): { fd: number; size: number; mode: number } { return { fd: this.fd, size: this.size, mode: this.mode }; }
+
+  /**
+   * A test seam, no behaviour of the original's (R4P-249): holds `fd` as the object's own handle, as a Close refused at
+   * submission would leave it (R143.7) -- a state the port's libmc never reaches -- so the vtable +0x10 gates of r0004's
+   * DeleteFile and SaveConfig block can be tested with a file open.
+   */
+  holdFileOpenForTest(fd: number): void { this.fd = fd; }
 
   /** The entries by their table name. */
   entries(): Record<CardCommandName, UiCommandHandler> {

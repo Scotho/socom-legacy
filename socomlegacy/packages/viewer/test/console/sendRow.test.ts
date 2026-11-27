@@ -6,7 +6,7 @@ import { prompts } from '../../src/console/render/legend';
 import {
   LAUNCH_CHECK_ROWS, LAUNCH_PADSET_ROW, LAUNCH_SEND_ROW, LAUNCH_SHARE_ROW, launchCheckRows, sendState,
 } from '../../src/console/state';
-import { SEND_ROW_LABEL, SEND_ROW_VERB, SEND_WORDS, SHARE_ROW_LABEL } from '../../src/discShareWords';
+import { SEND_ROW_LABEL, SEND_ROW_VERB, SEND_TITLE, SEND_WORDS, SHARE_ROW_LABEL } from '../../src/discShareWords';
 import { area, bootSend, click, focusedRow, panel, sendFake, toSendRow } from './sendFake';
 import { mountShell } from './shell';
 
@@ -79,6 +79,8 @@ describe('DSH-10: the "Send Game Files" row of Play\'s "Before you deploy" panel
 
   it('the plan\'s words, exactly', () => {
     expect(SEND_ROW_LABEL).toBe('Send Game Files');
+    // The send area's head (the owner, 2026-11-19: "change the wording on send game file at the top to ...").
+    expect(SEND_TITLE).toBe('Send this link to share your game files with another device');
     expect(SEND_WORDS.ready).toEqual({
       line: 'Make a link that copies your game files to another device',
       tip: 'Makes a link to the game files saved in this browser. Whoever opens it, on this network or anywhere else, asks you for a copy, and you say Yes beside the code they show. One copy at a time; keep this open while you share. Deploying stops sharing.',
@@ -163,7 +165,7 @@ describe('DSH-10: the "Send Game Files" row of Play\'s "Before you deploy" panel
     expect(b.ctl.S.chk.share).toBeFalsy();
     expect(panel()!.classList.contains('is-share'), 'the wider panel').toBe(true);
     expect(panel()!.classList.contains('is-send')).toBe(true);
-    expect(panel()!.querySelector('.cx-title')!.textContent).toBe(SEND_ROW_LABEL);
+    expect(panel()!.querySelector('.cx-title')!.textContent).toBe(SEND_TITLE);   // the head (the owner, 2026-11-19)
     expect(area()).not.toBeNull();
     expect(panel()!.querySelectorAll('.cx-r[data-id]'), 'the rows give way to the area').toHaveLength(0);
     b.ctl.press('cross');                                         // Cross in the area is its own (Copy link), not a second share

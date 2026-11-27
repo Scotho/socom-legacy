@@ -130,19 +130,35 @@ describe.skipIf(!MP72)(`Crossroads' switches on the room's world (XR-04)${MP72 ?
     expect(street(map.grid, STREETS[0])).toHaveLength(4);
   });
 
-  it('executeAction refuses the same switch while its program runs and after it was used this round; reset restores healthy and clears the use', () => {
+  it('executeAction refuses the same switch while its program runs, not after (LATER 976), but a one_shot record once a run completed; reset restores healthy and clears the use', () => {
     const { map, world } = roomWorld();
     const seal = arch('seal_demo_1');
     const i = map.meta!.actions.findIndex((a) => a.node === 'seal_callstrike_1');
     expect(world.executeAction('seal_strike1')).toBe(true);
     world.markUsed(i);
-    expect(world.executeAction('seal_strike1')).toBe(false);          // its program runs (FUN_002b44e0)
+    expect(world.executeAction('seal_strike1')).toBe(false);          // its program runs (FUN_002b44e0 D:L156798)
     stepFor(world, 2.5);
     expect(world.busy).toBe(false);
-    expect(world.actionUsed(i)).toBe(true);
-    expect(world.executeAction('seal_strike1')).toBe(false);          // used this round
-    // The other switch is its own.
+    expect(world.actionUsed(i)).toBe(true);                            // scored this round (+0x3f bit 1): no refusal of a use
+    expect(world.executeAction('seal_strike1')).toBe(true);           // LATER 976: a disc switch's second use is the original's
+    stepFor(world, 2.5);
+    // A one_shot record (bit 3; campaign M81/M82 only on the disc) is refused once a run has completed (+0x3e, D:L156799-156800).
+    const t = map.meta!.actions.findIndex((a) => a.node === 'terrorist_callstrike_1');
+    map.meta!.actions[t]!.oneShot = true;
     expect(world.executeAction('terrorist_strike1')).toBe(true);
+    expect(world.executeAction('terrorist_strike1')).toBe(false);     // running
+    stepFor(world, 2.5);
+    expect(world.executeAction('terrorist_strike1')).toBe(false);     // one_shot, a run completed
+    expect(world.actionRefusal(t)).toBe('used');
+    world.reset();
+    expect(world.actionRefusal(t)).toBeNull();
+    expect(world.executeAction('terrorist_strike1')).toBe(true);      // the round's reset clears +0x3e (D:L157454)
+    expect(world.actionRefusal(t)).toBe('busy');                       // FUN_002b46f0: its program runs (the prompt's gate)
+    // A run STOPPED counts too (STOP_ANIMATION -> FUN_0026ff20(.., 5) runs the end callback, D:L118878, D:L118599-118601).
+    world.stopProgram('terrorist_demo_site1');
+    expect(world.actionRefusal(t)).toBe('used');
+    world.reset();
+    map.meta!.actions[t]!.oneShot = undefined;
     world.reset();
     expect([world.isActive(seal.destroyed), world.isActive(seal.parts), world.isActive(seal.healthy)]).toEqual([false, false, true]);
     expect(world.actionUsed(i)).toBe(false);

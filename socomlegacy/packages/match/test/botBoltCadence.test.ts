@@ -37,9 +37,11 @@ describe("LATER 588 (c): a bot's bolt-action waits fire + lock frames", () => {
     expect(botFireFrames(r, 1)).toBe(fireFrames(r.fireWait, 1) + lockFrames(r.reloadDelayAfterShot!));
   });
 
-  it('the M40A1: 15 + 15 = 30 frames; the M87ELR: 21 + 15 = 36', () => {
-    expect(botFireFrames(bolts.find((x) => x.name === 'M40A1')!, 1)).toBe(30);
-    expect(botFireFrames(bolts.find((x) => x.name === 'M87ELR')!, 1)).toBe(36);
+  // SWAP-FIRE (r0004 0x5c76f0: single's FireWait x 1.2): the M40A1's 0.5 s -> 0.6 s, 18 frames; the M87ELR's 0.7 s -> 0.84 s,
+  // 26. Was 15 and 21: r0001's FUN_005c09f0, the wrong build under OT.R97.
+  it('the M40A1: 18 + 15 = 33 frames; the M87ELR: 26 + 15 = 41', () => {
+    expect(botFireFrames(bolts.find((x) => x.name === 'M40A1')!, 1)).toBe(33);
+    expect(botFireFrames(bolts.find((x) => x.name === 'M87ELR')!, 1)).toBe(41);
   });
 
   it('a weapon with no lock is its fire frames alone', () => {

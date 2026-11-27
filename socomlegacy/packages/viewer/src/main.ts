@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 import { Matrix4, Scene, Vector3, type Object3D } from 'three';
 import { freezeSceneMatrix } from './sceneMatrix';
+import { friendOrClanBySeat } from './streamerMode';
+import { publishCameraEffects } from './cameraEffects';
 import type { MapInfo } from '@s2u/archive';
 import { sortByPopularity } from './mapOrder';
 import { allowedMultiplayerMaps, emptyPickerStatus, parseMapAllowlist } from './multiplayerMaps';
@@ -12,6 +14,7 @@ import { FlyCamera, type Pose } from './camera';
 import { createPageShot, type PageShot } from './forge/camera/pageShot';
 import type { ViewerHook } from './hook';
 import { createSoloTestroomTarget, soloJson, type SoloTestroomTarget } from './testroom/agent/target';
+import { testroomAntialias, testroomCoplanarOffset } from './testroomAntialias';
 import { publishSoloAgentApi } from './testroom/agent/host';
 import { createLiveLocalPackDrivers } from './testroom/agent/packs';
 import { attestSoloAddress, modelPreviewAddress } from './testroom/agent/address';
@@ -36,13 +39,14 @@ import { rehearse } from './rehearsal';
 import { ELF_DEFAULT_FOGCOL, fogForExtent, type FogSettings } from './fog';
 import { brightenOf, DEFAULT_LIGHTING, type Lighting } from './lighting';
 import { Ui, type SliderName, type ToggleName } from './ui';
-import { buildWorld, type WorldView } from './world';
+import { buildWorld, setCoplanarPassOffset, type WorldView } from './world';
 import {gxApplyProgress,mountLocalTexturePacks,packTargetFor,type LocalTexturePacks,type TexturePackTarget} from './texturePackRuntime';
 import {HdServedPack,lazyHdPackDecoders} from './hdTexturePackServed';
 import {pageHdStore} from './hdTexturePackStore';
 import {ApplyFrames,hdTextures,rendererUploader} from './hdTexturePack';
 import {PackApplier,pageTextureChoice} from './packs/pagePacks';
 import {PackApplyOverlay,pagePlayLive} from './packApplyOverlay';
+import {feedPackApplyChip} from './packApplyChip';
 import { modelPackActive } from './modelPack';
 import { mappedModelIds, mappedWorldPieceIds } from './modelPackHook';
 import { bareWorldPieceWarnings, formatWorldPieceList, worldPieceLoadRequest, worldPiecesKeptLine } from './worldPieces';
@@ -62,14 +66,17 @@ import { explosionShake } from './look';
 import { mergeInput, noInput, PadWatch, padInput, pressedSince, type Input } from './gamepad';
 import { storeOf } from './mobileTip';
 import { exchangeTaps, mountTip, mountTouch, promptDeviceOf, readsPad } from './matchTouch';
+import { seatClaimDeviceOf } from './seatClaim';
 import { pageCard, pageIndexedDb, pageSettings, readLastMap, tabSettings, tipStoreOf, writeLastMap } from './pageStore';
-import { Hud, ownHudName, spectatorHudView, validClientCount } from './hud';
+import { Hud, MESSAGE_SCALE, ownHudName, spectatorHudView, validClientCount } from './hud';
+import { bindHudPointer } from './hudPointer';
 import { keepClearWatch } from './hudMessagePanel';
 import { servedRoomDetails } from './scoreboard';
-import { HudVoiceElement, voiceHudFrame } from './hudVoice';
+import { HudVoiceElement, shownVoice, voiceHudFrame } from './hudVoice';
 import { teamTagInput, teamTags } from './hudTags';
 import { readNameTags } from './nameTags';
 import { readRangeReadout } from './rangeReadout';
+import { readJoinLeaveLine } from './joinLeaveLine';
 import { RegionCull } from './regionCull';
 import { DoorPage } from './doorPage';
 import { DOOR_CLIPS, openDoorClip } from './doors';
@@ -81,11 +88,12 @@ import type { CancelCause } from './actionContext';
 import { bareMeta, GLASS_FRAGMENTS_PLACEHOLDER, WorldState } from './worldState';
 import { TacMap } from './tacMap';
 import { ScoreboardKeys } from './scoreboardKeys';
+import { damagePanelFrame, damagePanelKey } from './damagePanel';
 import { mountRoundTextLine } from './roundTextLine';
 import { rankOf } from './mapOrder';
 import { buildBody, type BodyView } from './bodyView';
 import { mountCharShadow } from './charShadow';
-import { AdaptiveRatio, pixelRatioCap, watchViewport } from './matchViewport';
+import { AdaptiveRatio, deferredRatio, pixelRatioCap, watchViewport } from './matchViewport';
 import { renderCapFor, videoSettingsKeeper } from './videoSettings';
 import { lensColours, nightVisionRow } from './nightVision';
 import { shownScopeNode } from './sights';
@@ -106,7 +114,7 @@ import { ephFrameOf } from './ephFrame';
 import { EphPause } from './ephPause';
 import { enterReplayWorld, replayWorldDeps, replayWorldHost } from './modern/replays/worldHost';
 import { readReplaySteer } from './modern/replays/worldSteer';
-import { itemIcon, kitParam, PlayerLoadout } from './loadout';
+import { firearmSlotPresent, itemIcon, kitParam, PlayerLoadout } from './loadout';
 import { padButtonsDown } from './weaponExchange';
 import { mountExchange } from './matchExchange';
 import { pressUnlessArmory, syncArmoryTouch, unlessArmory } from './armoryGlue';
@@ -122,9 +130,10 @@ import { readRules, resolveRules, writeRules } from './rules';
 import { roomsUrl } from './playersOnline';
 import { multiplayerEnabled, onlineTarget, playersPoller, singlePlayerAddress, stripMultiplayerUi } from './multiplayer';
 import type { Rules, Team } from './net/protocol';
+import { bodiesOfStates } from './pushApartPage';
 import { PLAY_CLIPS } from './animator';
 import { TRAVERSAL_CLIPS } from './traversal';
-import { TURRET_CLIPS } from './net/emplacement';
+import { mountHandOf, TURRET_CLIPS } from './net/emplacement';
 import { TraversalPage } from './traversalPage';
 import { gameAudio } from './audio';
 import { mountSound } from './matchSound';
@@ -133,6 +142,7 @@ import { WEAPON_CLIPS } from './weaponPose';
 import { dropModels, heldOfItem, WorldDrops } from './drops';
 import { pickupKitOf } from './net/pickupRules';
 import { HostagePage } from './hostagePage';
+import { hitboxTraceOn, PageHitboxTrace, pageTraceBodies } from './hitboxTrace';   // HITBOX-TRACE: a dev instrument
 import { orderCellOf, pickSurfaces } from './net/hostageOrder';
 import { setActionPickLog } from './actionPage';
 import { EQUIPMENT_SLOTS } from './equipment';
@@ -140,9 +150,12 @@ import { INVENTORY_MENU_KEYS_READING } from './inventoryMenu';
 import { WheelNotches, wheelInventory } from './inventoryWheel';
 import { THROW_CLIPS } from './throwPose';
 import { grenadePlace, mountThrowables } from './matchThrow';
-import { postScriptMessage, refusalLine } from './matchMessages';
+import { postScriptMessage, refusalLine, roundChatPost, setRoundChatIcons } from './matchMessages';
+import { roundChatIconsFrom } from './roundChatIcons';
+import { externalWhispers } from './roundChat';
 import { abortLines, MatchAbort } from './matchAbort';
 import { mountTaunts } from './matchTaunts';
+import { stickWalk } from './menuStick';
 import { mountChat } from './matchChat';
 import { mountVoice } from './voice/voiceClient';
 import { pageCardMessages } from './messageSettings';
@@ -155,6 +168,7 @@ import { localStartMenuOptions, playOptionsGlobals, sessionStartMenuOptions, Sta
 import { NativeSettings, readNativeOptionsAssets } from './nativeSettings';
 import { uiGpuSurfaceLoader, uiGpuSurfaceWiring } from './uiGpuSurfaceMount';
 import { pageDeviceClass } from './deviceClass';
+import { applyXboxPs2Effects } from './xboxPs2Effects';
 import { pageUiGpuSwitch, uiGpuDevBuild } from './uiGpuSwitch';
 import { pageNativeOptionsState } from './nativeOptionsState';
 import type { NativeOptionsState } from './nativeOptionsHost';
@@ -190,11 +204,14 @@ import { playerLanes, type LaneParts } from './matchLanes';
 import { actionHands, mountActions } from './matchActions';
 import { bombSound, ownBombBody, worldPulse } from './bombPage';
 import { withVictoryClips } from './victoryData';
+import { testroomVariant, variantBlocksOnline, variantOf, variantProfileWait } from './variants/testroomSwitch';   // DAY-3: `?variant=`, VARIANT_TESTROOM_ADAPTATION
+import { loadVariantSearch, pickedVariant, shownPickValue, type VariantPick } from './variants/pickerOptions';   // DAY-PICK: the picker's variant options
+import { variantGameName } from './variants/gameName';   // DAY-PICK: the game line's variant name (display only)
 import { drawnTurretParts, placementView } from './turretHook';
 import { wrapYaw } from './yaw';
 import { pageVideoReadout } from './perfLine';   // `window.__viewer.video`, a test instrument
 import { brightnessOfVars, frameCanvas, setBrightness } from './brightness';
-import { feedCamera, liftFog, mapFog, matchSide as sideOfMatch, setRemoteMap, standOf, TESTROOM_CAPABILITIES } from './matchCore';
+import { feedCamera, freeWalkSpawn, liftFog, mapFog, matchSide as sideOfMatch, setRemoteMap, standOf, TESTROOM_CAPABILITIES } from './matchCore';
 
 /**
  * The load budget's phase marks (PLAT-29a, research 100): the first byte and the page start now, the disc chosen
@@ -229,10 +246,18 @@ frameCanvas(canvas);   // OPT-11 (research 358): the card's BRIGHTNESS on /testr
 
 /** The page's query string, read once. */
 const SEARCH = globalThis.location?.search ?? '';
+/** DAY-PICK (VARIANT_TESTROOM_ADAPTATION): the picker's last pick (`onMapChange`); it reaches only the load it started (`loadVariantSearch`). */
+let variantPick: VariantPick | null = null;
 /** The three dev switches. `?devmode` turns all three on (`./source`). */
 const DEV = devSwitches(SEARCH);
 /** EPH-2, a browser adaptation: the parity harness's read (`__viewer.ephFrame`) answers only with the bare `?devmode`. */
 const EPH_ON = devMode(SEARCH);
+/**
+ * HITBOX-TRACE (`./hitboxTrace`; a development instrument with no original, product track): the page's trace of each drawn
+ * body's aim volumes and its offers (an order's line is the room's trace's: the eye and direction the page sent), made only under `?devmode&hitboxtrace` on a development build and read by
+ * `window.__viewer.hitboxTrace()`; null -- nothing made, nothing called -- otherwise.
+ */
+const HITBOX_TRACE = hitboxTraceOn(SEARCH) ? new PageHitboxTrace() : null;
 /**
  * EPH campaign stand (`./testroomCampaign`; a browser adaptation, a development instrument with no original; the owner,
  * 2026-10-31): a development build's `/testroom?devmode` lists the campaign mission `?map=` names, loads it offline and
@@ -304,7 +329,9 @@ if (!FLY.toggle) document.getElementById('mode')?.remove();   // before `PlayUi`
 /** reCOM mode opens on foot (owner, 2026-09-29): the map's walk starts once it is ready. Later maps keep the mode. */
 let startedWalk = false;
 function startInWalk(mapName: string): void {
-  if (!playOn || FLY_START || startedWalk) return;
+  // SEAT_CLAIM_ADAPTATION (`&spectate`): a watching hello's page starts in the spectator's camera, not on foot -- its
+  // seat's promotion stands the walk (`NetPage`'s `promoted`), so a load finishing after the welcome never flies it out.
+  if (!playOn || FLY_START || startedWalk || SPECTATE_HELLO) return;
   let tries = 0;
   const attempt = (): void => {
     if (startedWalk || loaded?.name !== mapName) return;     // entered already, or another map was picked
@@ -400,7 +427,8 @@ const doors = new DoorPage({
 });
 /**
  * MAP-07 (`./gatePage`): Death Trap's and Enowapi's lever gates. The switch prompt is the action's; the slide is the
- * room's, followed from the snapshot's door tail and drawn here. The lever handle is not drawn.
+ * room's, followed from the snapshot's door tail and drawn here. The lever handle turns on the lever's action
+ * (presentation only, LATER 307).
  */
 const gates = new GatePage({
   move: (path, delta) => { view?.moveNode(path, delta); },
@@ -432,7 +460,7 @@ const armoryTakesKeys = (): boolean => playOn && !loadingJoin.blocked && armory.
 const hud = new Hud();
 // KEYBOARD-WHISPER (OT.R48, OT.R43; research 266 §3.9): the online round's USB-keyboard line, online while a server's room holds the
 // page (not its own LoopbackMatch); no lobby session here, so a whisper is echoed and unsent (FUN_002f4860 with the lobby down).
-mountRoundTextLine({ hud, win: window, online: () => net !== null && !solo && !REPLAY_WORLD, whisper: () => { /* the lobby down: nothing sent */ }, actors: () => net?.rows ?? [], sender: () => (net ? { id: net.client.id, spectator: net.client.role !== 'player' } : null), menu: () => armoryTakesKeys() || exchange.isOpen() || inventory.isOpen() || (tauntDev?.isOpen() ?? false) });   // LATER 76; ROUND-LINE-YIELDS (#260): a closed DEV line leaves Enter to an open menu; LATER 183: the SETUP TAUNTS editor is one (its listener loads after this)
+mountRoundTextLine({ hud, win: window, online: () => net !== null && !solo && !REPLAY_WORLD, whisper: () => { /* the lobby down: nothing sent */ }, actors: () => net?.rows ?? [], sender: () => (net ? { id: net.client.id, spectator: net.client.role !== 'player' } : null), menu: () => armoryTakesKeys() || exchange.isOpen() || inventory.isOpen() || (tauntDev?.isOpen() ?? false), sendChat: (text, team) => { if (net?.client.state === 'open') net.client.send({ type: 'chat', text, ...(team ? { team: true } : {}) }); } });   // LATER 76; ROUND-LINE-YIELDS (#260): a closed DEV line leaves its keys to an open menu; LATER 183: the SETUP TAUNTS editor is one (its listener loads after this); RC-2 (V21.R15a): sendChat, ROUND_CHAT_SEND_ADAPTATION
 /** SOCOM II's tactical map (`./tacMap`, research 87 §9): `M` while walking (SELECT on the console), in the HUD pass. */
 const tacMap = new TacMap(() => walk.mode() === 'walk' && !armory.isOpen() && !loadingJoin.blocked);
 tacMap.bindKey(globalThis, () => fly.pose().yaw, testroomKbm);
@@ -473,6 +501,7 @@ const sound = mountSound({
   // AMB-1: TESTROOM_FLY_AMBIENCE_ADAPTATION (`./walkSounds`) -- the free-fly viewer with no match holds the beds off; in a
   // match (a `NetPage`: online, solo, a replay) they play in every view, the dead cycle's included (research 81 §10)
   ambienceOff: () => net === null && walk.mode() !== 'walk',
+  viewState: () => firearm.zoom.state(),   // B-86: the own step unplaced in first person and the zoom (`./walkSounds`); the firearm is mounted below, read at a step
 });
 const { roundAudio, ears } = sound;
 /**
@@ -498,6 +527,12 @@ const { menu: exchange, input: exchangeInput, refresh: refreshExchange, gate: ex
  * `&noarmory` (with `?devmode`) keeps it shut, for the specs that play a match without it.
  */
 const NO_ARMORY = DEV.tools && new URLSearchParams(SEARCH).has('noarmory');
+/**
+ * SEAT_CLAIM_ADAPTATION (a development build's switch, `&spectate`; no original): the play page's room hello asks to watch,
+ * as a game's WATCH GAME seat does (its service seats it a watcher, the page itself playing-capable, `./matchMount`) -- so
+ * the spectator view's seat claim (`./seatClaim`) can be tried in the test room. Absent: the hello as before.
+ */
+const SPECTATE_HELLO = DEV.tools && new URLSearchParams(SEARCH).has('spectate');
 /**
  * PAR-2: the screen, its live send (`./armorySend`: one change per `ARMORY_SEND_DEBOUNCE_MS`, at once in the round-end
  * interval's last `ARMORY_SEND_NOW_S`, dropped at a round's start -- ARMORY_ROUND_START_RACE_READING), its two round ends
@@ -528,7 +563,10 @@ const armoryPart = mountArmory({
   clearDecals: () => { fire.clearMarks(); effects.clearFootprints(); traversal.clearRipples(); remote.clearWakes(); },   // PAR-10: the ripples too, the others' with them
   // The throwables' own round start (`./matchThrow`, as the front end's `roundClear`): the air, the scorches and the
   // flashbang's wash -- a blind set off in the last round does not run on into the next (LATER 12, research 222 §8).
-  clearAir: () => { throws.roundStart(); drops.reset(); startMenu.roundStart(); regionCull.reset(); },   // LATER 415 F2   // PF-34: the drops go with the air (DROP_LIFETIME_PLACEHOLDER)
+  // LATER 1542 (reading, pending review), as the match mount's `roundClear`: the HUD's reset `FUN_001fb790` closes WEAPON
+  // EXCHANGE (D:L57684), the START menu (D:L57716-57717) and the Chat menu (`FUN_00235300(menu, 0)` D:L57725; here the
+  // TAUNTS menu's close only -- a held talk's end comes with R4P-318, LATER 1525) before the round start (D:L149757-149758).
+  clearAir: () => { throws.roundStart(); drops.reset(); exchangePart.reset(); startMenu.reset(); taunts.reset(); startMenu.roundStart(); regionCull.reset(); },   // LATER 415 F2   // PF-34: the drops go with the air (DROP_LIFETIME_PLACEHOLDER)
   deadZone: () => fly.lookOptions().stick.deadZone,   // LATER 408: CONTROLLER OPTIONS' DEAD ZONE, the flick read through it
 });
 const { armory, view: armoryView } = armoryPart;
@@ -610,7 +648,7 @@ const firearm = mountFirearm({
   network: () => !!NET.url,
   hands: throws.hands(actionHands(() => acts)),   // PAR-55: the action part's, asked at each call (made after the firearm)
   sound: sound.firearm,                             // the rounds and reloads, the effects' door, the goggles, another's report
-  mountedMuzzle: (id) => acts.turrets.muzzleOf(id),   // MAP-10b: a mounted body's rounds leave the turret's firepoint
+  mountedMuzzle: (id) => acts.turrets.muzzleOf(id),   // MAP-10b: marks a body mounted (its rounds draw no muzzle flash, R4P-239)
   vibration: () => startMenu.values().vibration,   // CTL-2: VIBRATION (DAT_00650698) as the START menu and the card leave it
   menuOpen: () => startMenu.isOpen(),   // CTL-2 (the review's F2): FUN_00204a40 stops the motors and the pulse
 });
@@ -692,8 +730,8 @@ const startMenu = new StartMenu({
   settings: nativeSettings,
 });
 const mountPageVoice = () => mountVoice({ net: () => net, tuners: () => sound.audio.getTuners(), headset: taunts.headset,
-  talkCue: (name, volume) => { sound.audio.play(name, null, 'play', volume); },
-});   // SVC-20b-page: shared voice client; its talk grant's cue `VOICE_TALK_CUE_ADAPTATION` (research 170 §5.4)
+  friendOrClan: friendOrClanBySeat((id) => net?.nameOf(id) ?? null),   // STREAMER-P1 (IQ-229 F1): friends & clan in a round
+});   // SVC-20b-page: shared voice client; its talk cue the original's (TALK-CUE-PCM, research 170 §5.4), on the headset
 let voice = mountPageVoice();   // CLOSE-FIX-1 F4: one a match -- disposed at the match's end (`connectNet`) and mounted afresh
 const voiceEl = new HudVoiceElement();   // MATCH-05: the HUD's voice element's state across frames (`./hudVoice`)
 /**
@@ -786,6 +824,7 @@ globalThis.addEventListener('keydown', testroomKeys((e: KeyboardEvent) => {   //
   }
   refreshExchange();
   const open = exchange.isOpen();
+  if (damagePanelKey(hud, net, e.code, true, scoreboardKeys.held())) { e.preventDefault(); e.stopImmediatePropagation(); return; }   // WM-13: Tab + I in the window is the panel's
   let taken = e.repeat ? open : exchange.key(e.code, exchangeGate());
   if (taken) exchangeInput.key(e.code, true, true, e.repeat);
   // Alive, `I` is the R2 inventory's (`./inventoryMenu`, INVENTORY_MENU_KEYS_READING), and its keys while it is open.
@@ -795,6 +834,7 @@ globalThis.addEventListener('keydown', testroomKeys((e: KeyboardEvent) => {   //
   e.stopImmediatePropagation();
 }), { capture: true });
 globalThis.addEventListener('keyup', testroomKeys((e: KeyboardEvent) => {
+  damagePanelKey(hud, net, e.code, false, scoreboardKeys.held());   // WM-13: the panel's I let go (a release is never taken)
   if (exchangeInput.key(e.code, false, false)) { e.preventDefault(); e.stopImmediatePropagation(); }
 }, true), { capture: true });
 // The PC's number keys (the owner, 2026-09-29; `./kit`'s `hotkey`; W4.R5): 1 the rifle, 2 the Mark 23, 3, 4 and 5 the
@@ -813,7 +853,7 @@ globalThis.addEventListener('keydown', testroomKeys((e: KeyboardEvent) => {   //
   if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
   switchFireMode();
 }));
-// The wheel on the kit (the owner, 2026-11-16; `./inventoryWheel`, a browser adaptation): the R2 inventory's highlight
+// The wheel on the kit (the Forge's owner (crispy, OT.R112), 2026-11-16; `./inventoryWheel`, a browser adaptation): the R2 inventory's highlight
 // open, the next slot the kit can take closed -- walking, no hold, no other menu over the game. OT.R29: a development
 // build's mouse; RB-8: the test room's while offline.
 {
@@ -1232,6 +1272,7 @@ const acts = mountActions({
   net: () => net, map: () => loaded, view: () => view, world: () => pageWorld,
   craneToggle: (valve) => cranes.toggleLocal(valve),
   gatePress: (action, seq) => gates.press(action, seq), cranePress: (valve, seq) => cranes.press(valve, seq), isCrane: (valve) => cranes.owns(valve),   // P8
+  gateLever: (action, read) => gates.present(action, read),   // LATER 307: the lever's handles turned on its action
   bombView: {
     roundAudio, hud, remotePlayers: remote, effects, worldBomb: grenade.worldBomb(),
     ownBody: ownBombBody(play, throwPose, walk, () => firearm.item() === 'pistol'),   // PB-1 (research 214 s3): the own body
@@ -1245,7 +1286,11 @@ const acts = mountActions({
   turret: {
     sound: (name, at) => { gameAudio.play(name, at, 'play', 1); },
     bodyFeet: (id) => remote.feet(id), clips: () => remote.playClips(),
-    hand: (id) => (id === net?.client.id ? walk.hand() : (net?.client.bodies().find((b) => b.id === id)?.slot === 1 ? 1 : 0)),
+    // R4P-R2 (L81; the second read): the mount clip by the hand class `+0xf79` (`mountHandOf`, r0004 0x5acbb0 D4:L452444):
+    // the firearm slot in the hand, any item over it -- the room's rule, and another body's by its slot alike.
+    hand: (id) => (id === net?.client.id ? mountHandOf(walk.hand()) : mountHandOf(net?.client.bodies().find((x) => x.id === id)?.slot === 1 ? 1 : 0)),
+    // R4P-R2 review 2 F1: this page's own kit, read at its take and kept on the mount (the room's `mountKept`).
+    kit: () => { const l = loadouts.loadout(), w = walk.hand(); return { kept: grenade.equipped() ? 'item' : w === 1 ? 'secondary' : 'primary', hasPrimary: firearmSlotPresent(l, 0), hasSecondary: firearmSlotPresent(l, 1) }; },
     round: (record, from, dir, frame, count) => firearm.turretRound(record, from, dir, frame, count),
   },
   hostages,                                        // HX-4a: the hostages' orders (research 239 s7)
@@ -1274,6 +1319,7 @@ function sessionFor(url: string): PageSession {
   return s;
 }
 let net: NetPage | null = null;
+walk.bodiesSource = () => bodiesOfStates(net?.client.bodies());   // LATER 711: the page's own body slid against the others (research 426)
 /** RB-8: the URL `net` was made with (`'loopback:'`, `'replay:'`, a server's), read only while `net` is not null. */
 let netUrl: string | null = null;
 /**
@@ -1439,9 +1485,9 @@ const DISC_CHOICE = new DiscChoice(LOAD_MARKS);
  * The player's own disc (W1.7, milestone M5): a `File` from the panel's file input or dropped on the page -- or a
  * disc request, image or picked folder (DA-3, `./discSource`) -- handed to the worker, which lists its maps by range
  * and reads the chosen archive out of it. The disc is never uploaded and the page itself reads none of it.
- * A folder (DA-4; DA-3's review F1) is checked here first, once (DA.R8): the worker trusts only a request the page
- * resolved. The order -- not over a map switch, before or after the check (MJ-3); the older disc still indexing
- * forgotten when a folder is chosen; a disc chosen meanwhile wins; a refusal said as the worker's are -- is
+ * An image or a folder (DA-4; DA-3's review F1; LATER 954) is checked here first, once (DA.R8): the worker trusts only
+ * a request the page resolved. The order -- not over a map switch, before or after the check (MJ-3); the older disc
+ * still indexing forgotten when an image or a folder is chosen; a disc chosen meanwhile wins; a refusal said as the worker's are -- is
  * `./discSource` `discOpener`'s, tested there over these parts.
  */
 const openDisc = discOpener({
@@ -1570,21 +1616,29 @@ worker.addEventListener('message', (event: MessageEvent<ViewerResponse | ModDisc
   // FP-6 item 5: an authored map's library (`loadContent`), on its own id: handed to that load, never shown.
   if (libraryAsk && message.id === libraryAsk.id) { const l = libraryAsk; libraryAsk = null; l.resolve(message.map); return; }
   if (message.id !== wantedMap) return;
-  roomLibrary = message.map;
-  const pieced = piecesOnShow(message.id, message.map);
-  shownFrom = wantedMapFrom;
-  customProps.clear();                              // PR #756 P2: every world replacement frees the custom props
-  show(pieced ? customOffline.mark(pieced.map) : message.map);
-  askSound(mapSource, message.map.path, message.map.archive);
-  askEffects(mapSource, message.map.path, message.map.archive);
-  askArmory(mapSource, message.map.path, message.map.archive);
-  if (pieced) drawContentProps(pieced.tc, message.id, pieced.props);
+  const showMap = (): void => {
+    roomLibrary = message.map;
+    const pieced = piecesOnShow(message.id, message.map);
+    shownFrom = wantedMapFrom;
+    customProps.clear();                              // PR #756 P2: every world replacement frees the custom props
+    show(pieced ? customOffline.mark(pieced.map) : message.map);
+    askSound(mapSource, message.map.path, message.map.archive);
+    askEffects(mapSource, message.map.path, message.map.archive);
+    askArmory(mapSource, message.map.path, message.map.archive);
+    if (pieced) drawContentProps(pieced.tc, message.id, pieced.props);
+  };
+  // DAY-3b (VARIANT_TESTROOM_ADAPTATION): `?variant=`'s profile fetched before `show` asks for it; null (at once) otherwise.
+  const variantWait = variantProfileWait(loadVariantSearch(SEARCH, variantPick, message.id, message.map.archive), message.map, { online: !!NET.url });
+  if (variantWait) void variantWait.then(() => { if (message.id === wantedMap) showMap(); }); else showMap();
 });
 
-ui.onMapChange((path) => {
-  if (!path) return;
+ui.onMapChange((value) => {
+  if (!value) return;
+  // DAY-PICK: a variant option loads its parent through the `?variant=` switch; a plain map clears the variant -- for this load only.
+  const { path, stem, variant } = pickedVariant(value);
   ui.setStatus(`loading ${path} ...`);
   load(path);
+  variantPick = { load: wantedMap, stem, variant };
 });
 // FP-6 item 5 (FP.R13; a test instrument's): the Custom Maps select after the map select (which stays as it is), listing the
 // Forge's rows over the page's shared source (`./forge/customMaps` `customMapRows`), read again when MODS changes the
@@ -1675,6 +1729,8 @@ function releaseTouch(): void {
 /** The pad's own input last frame, for its edges; and what the camera and the mover were fed, for the hook. */
 let padLast: Input = noInput();
 let padMerged: Input = noInput();
+/** SEAT_CLAIM_BUTTONS_ADAPTATION: the R1 button held on the pad or the touch layer this frame (the spectator's claim, `NetPage.spectatorPad`). */
+let claimR1 = false;
 /** What the game's lanes read last frame: the merged input less the lanes the R2 inventory holds (`InventoryMenu.frame`). */
 let padGame: Input = noInput();
 /** XR-06: the screen over the game last frame (the ARMORY, a menu), for the cancel on its opening. */
@@ -1690,6 +1746,7 @@ let menuOver: CancelCause | null = null;
 function padFrame(dt: number): void {
   if (nativeSettings.isOpen() && net?.client.state !== 'open') nativeSettings.interrupt();
   if (loadingJoin.blocked) {
+    claimR1 = false;                                   // SEAT_CLAIM: nothing claimed under the hold
     pads.poll(navigator);
     const held = gamePad.poll(navigator);
     touch.padConnected(readsPad(gamePad));            // MP-1 (FI.R4): the touch layer hidden while the pad read is a connected one
@@ -1711,6 +1768,7 @@ function padFrame(dt: number): void {
     fireModeInputFor(lanes).flush(padGame.fireMode);   // PAR-22: the fire-mode button flushed with the lanes' read (FUN_002dba60, research 254 s4)
     inventory.close();
     fire.release();
+    firearm.holdLevel(padMerged.fire);                 // RAISE-1577: R1's level kept through the hold, the trigger's on its first open frame
     fly.setInputSuspended(true);
     if (acts.wiring.lifecycle.down()) cancelAction('loading');   // the loading hold sees no edge: a Cross held into it is let go once, never a lost press
     voice.pad(false);                                  // SVC-20b-page (the review's F4): no talk under the hold
@@ -1729,6 +1787,8 @@ function padFrame(dt: number): void {
   // WEAPON EXCHANGE (`./weaponExchange`): closed, R2 opens it when the gate lets it; open, the d-pad, Cross, Triangle,
   // Start and R2 step it, and the game's own lanes below take nothing (HUD mode 1).
   const down = new Set([...padButtonsDown(polled), ...padButtonsDown(touch.pad)]);   // MP-1 (FI.R3): the touch pad's buttons are a pad's
+  claimR1 = down.has('R1');                            // SEAT_CLAIM_BUTTONS_ADAPTATION: R1 itself, whatever the layout's lanes
+  input = damagePanelFrame(hud, net, down, input, scoreboardKeys.held(), promptDevice());   // WM-13 (a browser adaptation): SELECT + the inventory binding in the window is the panel's
   const edges = exchangePart.edges(down);              // the buttons pressed this frame; the menu's context kept current
   exchangePart.stick(polled);                          // EXCHANGE-STICK (the owner's ruling 2026-11-12, an adaptation): open, the left stick a d-pad press
   // TAUNTS (`./matchTaunts`): `?devmode`'s SETUP TAUNTS, then the Chat menu -- open, the pad is its (research 301 §7).
@@ -1746,10 +1806,15 @@ function padFrame(dt: number): void {
   const menu = start.owns || editorOwns || chat.owns || playOn && (armory.isOpen() ? armory.pad(edges) : exchangePart.pad(edges));
   // Browser safeguard: no consumed button becomes a game press/release after close or round reset.
   input = exchangeInput.frame(input, menu);
+  // WM-STICK (OT.R130, `./menuStick`): the Circle pop-up's guard leaves a moving player his stick -- the move pair on past
+  // the ownership, the camera not suspended for the menu.
+  // The look pair too (`stickWalk`): the controller's ruling under OT.R130 (2026-11-15), the owner's to overturn -- walking
+  // under the guard, the right stick looks as with no pop-up open; a departure (the original blocks both sticks, rig read). Axes only.
+  if (chat.walk) Object.assign(input, stickWalk(chat.input));
   // RVK-B (LATER 966; a browser adaptation): framed as the replay viewer's world, its keyboard and mouse lane as a second pad
   if (REPLAY_WORLD !== null) input = readReplaySteer(REPLAY_WORLD, input, menu, { fly, wheel: canvas, spectator: net?.spectator ?? null });
   // Open, the ARMORY holds the game's input (the S3 review): the camera and the walker take no key, stick or look.
-  fly.setInputSuspended(menu);
+  fly.setInputSuspended(menu && !chat.walk);
   // Repair 2: the touch layer hidden under the open screen, its sticks and held buttons let go as it opens.
   armoryTouch = syncArmoryTouch(document.body, playOn && armory.isOpen(), armoryTouch, releaseTouch);
   ui.holdToasts(armoryTouch);                              // no toast over the screen's title bar: held till it closes
@@ -1760,7 +1825,19 @@ function padFrame(dt: number): void {
   // edges, so a released R1 never lets go of a mouse button or the touch button still held.
   // The merged lane, so the touch fire button (`touchInput.fire`) is the trigger the same way; a released R1 still never
   // lets go of a button the other source holds.
-  if (playOn && !menu && input.fire !== padMerged.fire) trigger(input.fire);
+  // Research 451 §4, §6: on the clear's reach the trigger is the merged lane less a refused open's clear, which the R2
+  // inventory below hands the game (`InventoryMenu.triggerFeed`, read before its `frame`, so the trigger keeps its place
+  // ahead of the menu's gate): the clear's up then down is a new press. The reach: walking, no menu, the walk unlocked
+  // and alive (a turret's mount and release, a spectator, the dead are locked), no turret held, the mouse not captured
+  // (`./camera`: its trigger is held only while captured), no throwable or launcher up (their trigger the hands' first,
+  // `./matchFirearm` `trigger`: whether the clear reaches a throw or a rocket is unread). Off it, the old line below
+  // exactly; idle, the same edges.
+  const walking = playOn && walk.mode() === 'walk';
+  const reach = walking && !menu && !walk.isLocked() && !walk.isDead() && acts.turrets.mounted() === null && !fly.isLocked()
+    && !grenade.equipped() && !rocket.up();
+  const fed = inventory.triggerFeed(padMerged, input, reach);
+  if (reach) { if (fed !== null) trigger(fed); }
+  else if (playOn && !menu && input.fire !== padMerged.fire) trigger(input.fire);
   // A screen taking the pad lets a held trigger go (its R1 is then owned till let go, `./exchangeInput`): else an R1 held
   // into the ARMORY and out past DONE would leave the trigger pulled, its release no edge.
   else if (menu && padMerged.fire) trigger(false);
@@ -1768,7 +1845,6 @@ function padFrame(dt: number): void {
   // d-pad Up / Down, L1, L2, Triangle, Cross and R2 are its -- and hands the game the input less the lanes it holds
   // (its buttons and Square: no stance, jump or action while open, ctrl+0x221). Only walking in play, and never while
   // WEAPON EXCHANGE has the pad.
-  const walking = playOn && walk.mode() === 'walk';
   if (!walking && inventory.isOpen()) inventory.close();
   const game = menu || !walking ? input : inventory.frame(padMerged, input, dt, frameTime.real());   // PAR-34: its idle close in real time
   // XR-06 (research 214 s4): the ARMORY's or a menu's opening (WEAPON EXCHANGE, the R2 inventory) cancels the action
@@ -1806,6 +1882,9 @@ canvas.addEventListener('pointerdown', (e) => {
 }, { capture: true });
 // WEAPON EXCHANGE open: a tap or a click on the canvas is read on the 640x448 frame as the menu's presses (`./matchTouch`).
 exchangeTaps(canvas, exchangePart);
+// WM-DATA (a browser adaptation, `./hudPointer`): the pointer over the canvas to the HUD, the scoreboard's hovered ping;
+// moves, leaves and cancels only -- no input the game reads.
+bindHudPointer(canvas, hud);
 /**
  * PAR-5 (`./matchTouch`, research 222 §11): the touch layer on the page's body -- the sticks, the buttons, the lanes they
  * hold (`touchInput`, merged with the pad's in `padFrame`) -- and WEAPON EXCHANGE's INV (WEAPON_SELECT_TOUCH_READING),
@@ -1855,6 +1934,7 @@ function setPlayMode(on: boolean, remember: boolean): void {
   if (!on) {
     armoryEntry = null;                           // Play entered again is a new entry: the offline ARMORY opens again
     fire.release();
+    firearm.holdLevel(false);                     // RAISE-1577 (the review's F3): no level recorded under a gate outlives Play
     if (walk.mode() === 'walk') walk.setMode('fly');
     ui.setWalk(false);
     const bodyBox = document.getElementById('player-body') as HTMLInputElement | null;
@@ -2015,6 +2095,7 @@ function applyToggle(name: ToggleName, on: boolean): void {
   else if (name === 'body') play.setFlyToggle(on);        // W2.2b: the body in fly mode; in play it is always shown
   else if (name === 'ps2look') {
     presentation = on ? 'ps2' : 'native';
+    applyXboxPs2Effects(firearm, pageDeviceClass(), on ? 'ps2' : 'modern');
     applyDetailDistance();                        // PF.R60: the PS2 look keeps the original's (1)
     document.body.classList.toggle('ps2-look', on);
     fit?.();
@@ -2038,7 +2119,10 @@ async function boot(): Promise<void> {
   // misreport what was played. `ready` is bounded and opens no store on a boot with no mods.
   modPanel = REPLAY_WORLD ? null : mountModPanel(document, worker, { reloadMap: () => { if (loaded?.path) load(loaded.path, true); } });
   await modPanel?.ready;
-  const created = await createRenderer(canvas!);
+  // MAC-FLOOR (INTAKE I-3; a test-room instrument): `?antialias=off|on` on the address, else the renderer's default.
+  const antialias = testroomAntialias(SEARCH);
+  setCoplanarPassOffset(testroomCoplanarOffset(SEARCH));   // MAC-FLOOR: `?coplanaroffset=on`, the detail and environment passes offset
+  const created = await createRenderer(canvas!, antialias === undefined ? {} : { antialias });
   // OT.R92 (HD-6): the HD pack made for PCSX2, test room only; it requests nothing until its switch is on. An HD pack zip
   // given to the test room's "Import pack (.zip)" is kept in this browser and used before a served one.
   // Outside the test room the texture registry stays off: nothing is registered or kept (review finding 6).
@@ -2050,11 +2134,12 @@ async function boot(): Promise<void> {
   const packFrames = new ApplyFrames();
   packFrames.setUploader(rendererUploader(created.renderer));   // after ML-9 (ML.R10): each upload timed in its frame
   // ML-9's F1: the strip in live play (Play on, walking, alive), as the match's overlay (`./matchMount`'s `packLive`).
-  const packOverlay = document.body.classList.contains('test-room') ? new PackApplyOverlay(document, () => pagePlayLive(playOn, walk.mode() === 'walk', walk.isDead())) : null;
+  const packOverlay = document.body.classList.contains('test-room') ? new PackApplyOverlay(document, () => pagePlayLive(playOn, walk.mode() === 'walk', walk.isDead()), undefined, undefined, undefined, true) : null;
+  feedPackApplyChip(() => packOverlay?.hudChip() ?? null);   // WM-PACKS-CHIP (an adaptation): in live play the HUD draws the chip (`./packApplyChip`)
   // B206 ML-6: the panel's HD switch, its status line and its texture-pack group are removed; the HD pack's words reach
   // the overlay alone.
   const hdPack: HdServedPack | null = document.body.classList.contains('test-room')
-    ? new HdServedPack(undefined, () => { packOverlay?.update(hdPack?.progress() ?? null); }, undefined, pageHdStore(),
+    ? new HdServedPack(undefined, () => { packOverlay?.update(hdPack?.progress() ?? null, 'hd'); }, undefined, pageHdStore(),
       // After ML-9 (ML.R10) and GM-13d: the pack's decodes, keys and alpha rescale in the decode worker, as the front
       // end's match does (a 16 MiB BC7 decode on the main thread was a 300 ms frame in the test room).
       lazyHdPackDecoders(() => import('./hdMenuTextures').then((m) => new m.HdMenuDecoder())),
@@ -2083,6 +2168,7 @@ async function boot(): Promise<void> {
   if (import.meta.env.DEV && devToolsEnabled(SEARCH)) { const diag = frameDiag({ scene: () => scene, bodies: () => remote.seenForDev().bodies, spectator: () => net?.spectator ?? null, clearShadow: () => charShadow.shadow.clear() }); window.__viewer.frameDiag = (v) => diag.set(v); window.__viewer.frameState = () => { diag.beforeRead(); return frameState(fly.camera, remote.seenForDev().bodies); }; }   // cps-frame-hash-4: the gate's diagnosis -- a variant on or off, and what the next render is drawn from; the same gate
   // The effects with the scene they light, the way the world is warmed (the PS2 frame's target, the hidden through
   // stand-ins): research 90 item 19, a light pass compiled for the canvas alone still stalled the first blast.
+  applyXboxPs2Effects(firearm, pageDeviceClass(), presentation === 'ps2' ? 'ps2' : 'modern');
   compileEffects = async () => { fly.camera.updateMatrixWorld(); await created.warm(scene, fly.camera); };
   warmEffects();
   const { render, resize, backend: chosen } = created;
@@ -2112,6 +2198,7 @@ async function boot(): Promise<void> {
   // drops to 1.25x, then 1x, and climbs back when it can; a desktop that never runs long never moves. Not while a map is
   // arriving, whose frames are long on purpose, and never in the PS2 presentation, whose size is the point.
   const adaptiveRatio = new AdaptiveRatio(RATIO_CAP);
+  const ratioDefer = deferredRatio();                   // B1-RATIO-ORDER (`./matchViewport` `deferredRatio`): as the match's
   // CPS-4a (CPS.R7, a browser adaptation): the page's render scale (`./videoSettings`, Balanced by default) caps the ratio
   // for the canvas's box at each fit, met at the ratio's next tick; a change in the launcher's overlay is heard.
   const videoSettings = videoSettingsKeeper();
@@ -2164,6 +2251,7 @@ async function boot(): Promise<void> {
   const frame = (): void => {
     const dt = Math.min(frameTime.frame(performance.now()), 0.1);     // a backgrounded tab must not teleport the camera (PAR-24: the real seconds kept)
     if (ephPause.held()) { requestAnimationFrame(frame); return; }   // PK-3 (`./ephPause`): paused, nothing steps or draws; the resume re-bases the clock
+    ratioDefer.apply(created);                          // B1-RATIO-ORDER: last frame's resolution step, before this frame's draw
     // R6 (the round 5b review): Play, Walk and a new map end the shot first (`mode` / `map`), so the walk's own pitch set
     // or a map's look is never read as the person's move; then the takeover test (R5-B: the person moved the camera).
     soloAgent?.shotSeams();
@@ -2197,6 +2285,8 @@ async function boot(): Promise<void> {
       gates.frame(dt);                // MAP-07: the lever gates (the server's slide, from the snapshot's door tail)
       cranes.frame(dt);               // Chain Reaction: the hooks (the server's phase, then this frame)
       acts.turrets.frame();           // MAP-10b: the held turret's look clamped, every occupied gun turned to its aim
+      fly.camera.updateMatrixWorld();
+      pageWorld?.setCamera(fly.camera.position.toArray(), fly.camera.matrixWorld.elements);   // LATER 951 / 1183: the camera a sky's program holds it at, and its turn
       pageWorld?.step(dt);            // SUP-02: the world's running scene programs (a death's sequence past its first tick)
       firearm.fireFrame(dt, walking); // W2.5: the reload, the rate, a held trigger's rounds; MAP-10b: still while mounted
       if (import.meta.env.DEV) devAfterFire();   // the panel's magazine refill, a development build's only
@@ -2207,6 +2297,7 @@ async function boot(): Promise<void> {
       sound.frame(fly.camera, walk.gameCamera());   // the game's listener is the camera (0x48dd40; #479: the game's); the reverb, the beds
       solo?.drain(performance.now());      // research 209 §18: the room's due ticks, and their detonate, before the page's fuse decides
       created.setGlow(throws.frame(dt, frameTime.real()));   // the throws, the launcher, the flashbang's wash and its glow (`./matchThrow`; PAR-34: the timed rules in real time)
+      if (throws.grenade.flashInAir()) created.promoteGlow?.();   // WM-17 (LATER 772): a flashbang in the air -- the drawn bodies' glow compiles first
       view?.frame(fly.camera, dt, firearm.renderView());   // the flares turn, the LODs pick, the oceans scroll -- before the draw (PF-29: the zoom's view; PV-7b: the watched player's while the view is drawn)
       if (rehearsal) {                 // #21: the walk's first draws, before this frame's render clears over them
         const b = rehearsal;
@@ -2228,8 +2319,8 @@ async function boot(): Promise<void> {
       firearm.aimReticle(dt);         // W2.4: the reticle on the aim point, its size, set, colour and pip
       if (!walking) tacMap.setOpen(false);
       tacMap.frame(dt);
-      net?.spectatorPad(padMerged);                 // PF-31: the spectator's pad, on release (./spectatorView)
-      const spectating = spectatorHudView(net, walk, undefined, promptDevice(), (id) => itemIcon(loadouts.tables(), id)), scoreboard = (walking || spectating !== null) && (padMerged.scoreboard || scoreboardKeys.held());   // PAR-48: a spectator's SELECT too (FUN_0022be20); LATER 118: the dead's help lines on the prompt's device
+      net?.spectatorPad(padMerged, claimR1);        // PF-31: the spectator's pad, on release (./spectatorView); SEAT_CLAIM: R1 itself
+      const spectating = spectatorHudView(net, walk, undefined, promptDevice(), (id) => itemIcon(loadouts.tables(), id), seatClaimDeviceOf(pads.count(), promptDevice(), import.meta.env.DEV, touch.touchShown())), scoreboard = (walking || spectating !== null) && (padMerged.scoreboard || scoreboardKeys.held());   // PAR-48: a spectator's SELECT too (FUN_0022be20); LATER 118: the dead's help lines on the prompt's device
       hud.setScoreboard(scoreboard);     // research 87 §12: SELECT (Tab) held; it hides the reticle too (L56808-56828)
       // PAR-94 B2/B3 (research 322 §4.1): the walker's kit neither under the ARMORY nor before the room's spawn of the page.
       const spawned = pageSpawned({ room: net !== null, spawned: ownSpawned, armoryOpen: armory.isOpen() });
@@ -2246,6 +2337,7 @@ async function boot(): Promise<void> {
         climb: traversal.hudClimb(),
         nearby: acts.prompt(walking),  // XR-06: the action context's prompt, in the picker's order (`./matchActions`)
       });
+      if (HITBOX_TRACE && net) traceHitboxFrame(HITBOX_TRACE, net);   // HITBOX-TRACE (dev only): the frame's bodies and offer, read
       {                               // MATCH-05 (research 170 §5.2, note 227 §2): the voice element and the hud_talk mark
         // LATER 671 (the v0.4.11 review's F3), SS-2 (H422 answered (a)): TEAMMATE NAMES as `./matchMount` reads it, the
         // card's 0 / 1 on or off, the look this browser's Name tags (`./nameTags`). `/testroom` has no session's set-up:
@@ -2256,7 +2348,7 @@ async function boot(): Promise<void> {
         hud.setRangeReadout(readRangeReadout() === 'on');   // HUD-ALIVE C (OT.R117, a browser adaptation): this browser's, read each frame as the look is
         const page = net;
         const vf = page ? voiceHudFrame(voiceEl, performance.now() / 1000, {
-          voice: voice.state(), self: { id: page.client.id, team: page.client.role === 'player' ? page.client.team : null },
+          voice: shownVoice(voice.state()), self: { id: page.client.id, team: page.client.role === 'player' ? page.client.team : null },
           rows: page.rows, spectators: hud.spectatorCount(), nameOf: (id) => page.displayNameOf(id), clanOf: (id) => page.client.clans.of(id),   // AD-13
           at: (id) => remote.feet(id), own: walk.feet(),
         }) : null;
@@ -2266,7 +2358,7 @@ async function boot(): Promise<void> {
         hud.setCommandMenu(taunts.isOpen());             // NU-9 T3: the Chat menu open hides the tags' texts (D:L56617-56623)
         // LATER 415: the tags read the region gate framed before the render (`./regionCull`).
         const tagGrid = walk.grid();
-        hud.setTeamTags(page ? teamTags({ ...teamTagInput(page, remote, fly.camera, voice.state(), tagGrid ? (id) => regionCull.tagDrawn(id) : undefined), original: hud.teammateNamesOriginal() }) : null);   // NU-9 T4 (research 329); LATER 671
+        hud.setTeamTags(page ? teamTags({ ...teamTagInput(page, remote, fly.camera, shownVoice(voice.state()), tagGrid ? (id) => regionCull.tagDrawn(id) : undefined), original: hud.teammateNamesOriginal() }) : null);   // NU-9 T4 (research 329); LATER 671
       }
       hud.setHostageMarks(net?.hostageMarks(loaded?.ai) ?? []);   // HX-5: the hostages' and the zones' compass marks (research 239 s7.2)
       hud.render(created.renderer);
@@ -2276,7 +2368,8 @@ async function boot(): Promise<void> {
     }
 
     // Every 200 ms (redrawing text every frame is itself a cost): the ratio checked, the frame counter, the Online line.
-    if (adaptiveRatio.frame(frameTime.real(), performance.now(), created, presentation === 'ps2' || revealing !== null)) {
+    // B1-RATIO-ORDER: decided after the draws, put on at the next frame's start (a resize now would present the frame empty).
+    if (adaptiveRatio.frame(frameTime.real(), performance.now(), ratioDefer.wrap(created), presentation === 'ps2' || revealing !== null)) {
       ui.setFps(1000 / adaptiveRatio.smoothedMs(), adaptiveRatio.smoothedMs());
       devPanel?.sample(1000 / adaptiveRatio.smoothedMs(), adaptiveRatio.smoothedMs());
       showOnline();                               // the Online line: connecting, online and the players, the retry
@@ -2345,7 +2438,7 @@ function showMaps(maps: MapInfo[], campaign: readonly string[] = []): void {
   mapList = ordered;
   const first = ordered.find((m) => m.archive.toUpperCase() === wanted)
     ?? ordered.find((m) => m.archive === DEFAULT_ARCHIVE) ?? ordered[0];
-  ui.setMaps(ordered, first?.path ?? null);
+  ui.setMaps(ordered, first ? shownPickValue(first.path, first.archive, new URLSearchParams(SEARCH).get('variant')) : null);   // DAY-PICK
   if (!first) {
     const empty = emptyPickerStatus({ discMaps: maps.length, allowlist, source: isDiscRequest(source.kind) ? 'iso' : 'served' });
     REPLAY_WORLD?.failed(empty);                       // MU-11: the replay viewer says it
@@ -2389,6 +2482,7 @@ function leaveRoom(): void {
  * connection is closed first.
  */
 function connectNet(map: LoadedMap): void {
+  if (variantBlocksOnline(map, !!NET.url) && !customOffline.has(map)) { load(map.path); return; }   // DAY-3b: never a variant in a room
   // The offline ARMORY open on this map entry while its room is made again (the clips landed late): kept open, the new
   // room made when it is left -- never opened a second time (once a map entry).
   const keepArmory = !NET.url && playOn && SOLO_MATCH && armory.isOpen() && soloAfterArmory !== null && armoryEntry === map;
@@ -2405,19 +2499,22 @@ function connectNet(map: LoadedMap): void {
     povNet: () => net?.client ?? null,              // PV-6b: the player's view's rig reads the page's client (a replay's too)
   }, {
     ...exchangePart.netHooks(),                     // answered: the menu shows the kit the room will spawn the player with
-    // The pouch too at a spawn -- the page's spent rings do not outlive a death or a round; the round's reset closes
-    // WEAPON EXCHANGE over the kit the spawn took (S8).
-    respawned: () => { ownSpawned = true; grenade.refill(); exchangePart.reset(); startMenu.reset(); },   // PAR-94 B2/B3: the room spawned the page; MATCH-01: the HUD's reset closes the START menu
+    // The pouch too at a spawn -- the page's spent rings do not outlive a death or a round. No menu closes here (LATER
+    // 1542): the round's reset (`clearAir`) closes WEAPON EXCHANGE over the kit (S8), START and TAUNTS; a respawn none.
+    respawned: () => { ownSpawned = true; grenade.refill(); },   // PAR-94 B2/B3: the room spawned the page
     // XR-06 (research 214 s4): a death cancels the action button's hold -- nothing fires, the release after it neither.
     died: () => { cancelAction('death'); },
   }, {
     ownCorpseExpired: () => play.ownCorpseExpired(), // RSP-6: the actual own-body hide state, read after this frame's play
+    joinLeaveLines: readJoinLeaveLine() === 'on',   // PRS-888 (a browser adaptation): this browser's Join/leave lines, read at the mount
     respawnInputBlocked: () => inventory.isOpen(), // RSP-8: the existing R2 input owner blocks only this new dead-press gate
     ...throws.netDeps(),                            // the throwables' (`./matchThrow`, `PART_DEPS`): the room's projectiles, a stale throw, PF-36's pids
     ...sound.netDeps(),                             // the sound's (`./matchSound`): the reload, the voices, the ring, the round's cues, the objective
     hostageState: (ev) => hostages.state(ev),       // HX-4a: the hostages' part (`PART_DEPS.hostages`, research 239 s7)
     ...taunts.netDeps(),                            // TAUNTS' (`./matchTaunts`): the room's taunts heard
     ...chat.netDeps(),                              // TACTICAL ORDERS and MESSAGES (`./matchChat`): the room's communications heard
+    // RC-3 ROUND-CHAT (V21.R15a, a browser adaptation): a round line (`chat` with `round`) on the HUD; OFF hides it
+    roundChat: roundChatPost({ hud, external: () => externalWhispers(startMenuOptions.value('EnableExternalWhispers')) }),
     ...voice.netDeps(),                             // SVC-20b-page (`./voice/voiceClient`): the floor entry and the room's voice frames
     // The world drops' (`PART_DEPS`, PF-34, research 234 s6): the room's drops, a welcome's set too; the live kit after a
     // pickup, no fill (the one firearm's `takeKit`).
@@ -2431,6 +2528,7 @@ function connectNet(map: LoadedMap): void {
     // room told at once so the seat spawns; the hello's `armory` while Play mode opens it (`&noarmory` aside).
     ...armoryPart.netDeps(),
     client: null,                                   // PT-18: the replay part's (`PART_DEPS.replay`); the page's own NetClient, the replay branch's below
+    shotLedger: DEV.tools,                          // SHOT-LEDGER, an adaptation (B-16; it never changes the game): the page's own round expectations, `?devmode` only
   });
   const stem = map.path.replace(/^.*\//, '').replace(/\.ZDB$/i, '').toUpperCase();
   // EPH campaign stand: a campaign mission is played offline, whatever Online says -- no server plays one.
@@ -2470,7 +2568,8 @@ function connectNet(map: LoadedMap): void {
           ...deps, local: NET.choice === 'local', session: sessionFor(url),
           ...(room ? { room: { ...room, session: sessionFor } } : {}),   // SA-7h S5: a standing room's door and pass; F4: each door's session
           world: () => (pageWorld?.ground === map.ground ? pageWorld : null),   // MAP-03: the room's world, off the wire
-        }, url, stem, playerName(), NET.simulate, !playOn, o.rules ?? RULES);
+          ...(playOn ? {} : { noSeatClaim: true }),   // SEAT_CLAIM_ADAPTATION: the map viewer's watcher cannot play a seat, so is offered none
+        }, url, stem, playerName(), NET.simulate, !playOn || SPECTATE_HELLO, o.rules ?? RULES);
         acts.follow(net.client);                     // wave 4: the bomb, the turrets and the switches follow this room
         reguardPacks();                              // PR #729 P1: an applied pack drawn guarded before the room's first frame
       } catch (e) {
@@ -2624,6 +2723,9 @@ function installPlayClips(): void {
   play.setClips(clips); traversal.setClips(clips); remote.setClips(clips);
 }
 function show(map: LoadedMap): void {
+  // DAY-3 (VARIANT_TESTROOM_ADAPTATION, a development instrument): `?variant=day|night`, before anything reads the map.
+  const variant = testroomVariant(loadVariantSearch(SEARCH, variantPick, wantedMap, map.archive), map, undefined, { online: !!NET.url });   // DAY-FIX2 F3: offline only
+  if (variant) { map = customOffline.has(map) ? customOffline.mark(variant.map) : variant.map; ui.setStatus(variant.line, variant.applied ? 'ok' : 'error'); }
   zombies?.reset({ restore: false });             // #395 F1: the map load makes its own room
   const t0 = performance.now();
   loaded = map;
@@ -2649,9 +2751,10 @@ function show(map: LoadedMap): void {
     ui.setFogEnabled(fog.enabled);
   }
   hud.setBitmaps(map.hud);
+  setRoundChatIcons(hud, roundChatIconsFrom(map.hud));   // ROUND-CHAT (RC-4, V21.R15a): the disc's skull, the drawn eye
   hud.setNavPoints((map.tac?.points ?? []).filter((p) => p.kind === 1));
-  hud.setGame(map.name, rankOf(map.name)?.mode ?? '');
-  hud.setGameDetails(() => (net && !solo ? servedRoomDetails(net.serverName(), map.name) : null));
+  hud.setGame(variantGameName(map.name, map.archive, variantOf(map)?.split(' ')[1]), rankOf(map.name)?.mode ?? '');
+  hud.setGameDetails(() => (net && !solo ? servedRoomDetails(net.serverName(), map.name, REPLAY_WORLD?.details?.() ?? null) : null));
   tacMap.setOpen(false);
   firearm.clearMap(map);                          // a new map: the reticle's bitmaps, no marks, no effects, full magazines
   audio.setData(null);                            // AUDIO: the old map's banks, SOILS, beds and emitters too
@@ -2669,7 +2772,9 @@ function show(map: LoadedMap): void {
   scene.add(built.group);
   // EFFECTS (research 89 §5, §13, the mark's colour): a mark, a footprint and a grenade's scorch take the drawn world's
   // colour under them, and are clipped to its triangles, shaded per vertex, as `FUN_003b3ab0` builds them.
-  throws.setMarks(firearm.setWorld(built));       // the marks' and the scorches' shade and clip
+  const marks = firearm.setWorld(built);
+  marks.clipper.worldWhole = false;               // MARK_LATE_REVEAL_ADAPTATION (research 431): whole once the props' reveal is done
+  throws.setMarks(marks);                         // the marks' and the scorches' shade and clip
   // Spend the depth buffer on this map: the near plane the game itself uses, and a far that just
   // covers the map's diagonal rather than the 40,000 the camera used to open with.
   fly.setClipPlanes(map.camera?.nearPlane ?? 4, Math.max(2000, view.box.min.distanceTo(view.box.max) * 1.6));
@@ -2738,10 +2843,14 @@ function show(map: LoadedMap): void {
   // SUP-02: a scene program's SOUND where the world places it (SCENE_SOUND_PLACE_READING) through the audio catalogue by name,
   // as the doors' are; DESTRUCTION_SOURCE logged once a node (GLASS_FRAGMENTS_PLACEHOLDER: no fragment is drawn).
   const debrisSeen = new Set<string>();
+  // LATER 1246 (the review's F1): no camera node until this map's world starts its autostarts -- a map with no page world
+  // keeps no turn from the last map's `camera_jiggle`.
+  publishCameraEffects(null);
   pageWorld = map.ground && hullGrid ? new WorldState(map.meta ?? bareMeta(), map.ground, hullGrid, {
     visible: (path, on) => { view?.setNodeActive(path, on); },
     opacity: (path, f) => { view?.setNodeOpacity(path, f); },   // PB-9b (research 284 s8): a program's opacity, the bases' pulse
     scroll: (path, u, v) => { view?.setNodeUvOffset(path, u, v); },   // LATER 782: a program's SCROLL_MOTION, the shore's wash
+    translate: (path, delta) => { view?.moveNode(path, delta); },   // LATER 951: a sky a program holds at the camera
     sound: (name, _path, volume, at) => { sound.sceneSound(name, at, volume); },   // OBF-31: none under the round screens
     // XR-04 (research 213 s4): a program's common-set effect (COMMON_EFFECT_CALL_READING) -- the call strike's fire and
     // dust -- played at the calling program's root (an arch's `worldmodel/seal_demo_1`), on a presentation run.
@@ -2761,14 +2870,17 @@ function show(map: LoadedMap): void {
   }) : null;
   if (pageWorld) pageWorld.runAutostartPrograms = true;   // AS-1: the same runner as `buildPageWorld` (the room does not)
   pageWorld?.applyInitial();
-  walk.setGround(map.ground, stand.feet, hullGrid);
+  // A BROWSER ADAPTATION (FP.R13 item 5, the free walk on a custom map): an authored content map has no measured stand,
+  // so the walk's spawn is its first side-0 on-floor slot (`./matchCore` `freeWalkSpawn`). A disc map passes
+  // `stand.feet` as before; the offline room's own spawn selection (`WalkMode.respawn`) is untouched.
+  walk.setGround(map.ground, freeWalkSpawn(stand.feet, map.slots, 'content' in map), hullGrid);
   regionCull.reset();                               // LATER 415's review, F2: a new map, new nodes
   if (import.meta.env.DEV) consumeDevSpot();   // the opening address's spot, once; a later map keeps where the player is
   doors.setMap(map.doors, map.ground);             // DOORS: on the hull the walk stands on, shut as the disc has them
   gates.setMap(map.gates, map.ground, map.doors?.length ?? 0);   // MAP-07: the same hull; the snapshot's tail, after the doors
   cranes.setMap(map.cranes, map.ground);           // Chain Reaction: on that same hull, at rest and moving
 
-  ui.select(map.path);
+  ui.select(shownPickValue(map.path, map.archive, variantOf(map)?.split(' ')[1]));   // DAY-PICK: the variant's option when drawn as one
   ui.setPanelTitle(`${map.name} (${map.archive})`);   // the folded cog's tooltip
   ui.setDiagnostics([...indexDiagnostics, ...map.diagnostics]);   // the disc's unreadable archives stay listed
 
@@ -2791,6 +2903,7 @@ function show(map: LoadedMap): void {
       `${map.collision.polygons.toLocaleString('en-GB')} collision polys`,
     ]),
     ui.isNarrow() ? `${map.loadMs} ms` : `${map.loadMs} ms load${suffix}`,
+    ...(variant ? [variant.line] : []),             // DAY-3b (the review's F4): the variant's line kept on the drawn line
     // The system's separator on every width: "  |  " five times over was most of what pushed the
     // line onto a second row at 360px, and the phone and the desktop should read as one line.
   ].join(' · '));
@@ -2837,6 +2950,7 @@ function show(map: LoadedMap): void {
         revealing = propsReveal;
         void propsReveal.done.then(async () => {
           if (stale()) return;
+          marks.clipper.worldWhole = true;          // MARK_LATE_REVEAL_ADAPTATION: the world whole, a mark over nothing is dropped
           warmedAt['props'] = performance.now();
           const g = effects.stats().loaded ? effects.warmUp() : null;
           const warming = warmScene?.(built0.warmExtras());
@@ -2870,8 +2984,9 @@ function teleport(x: number, y: number, z: number, yaw?: number): boolean {
   if (solo && !roomBody) return false;
   if (!walk.respawn([x, y, z], facing)) return false;
   if (roomBody) {
-    roomBody.sim.walker.place(x, y + probeLiftOf('stand'), z);
-    roomBody.sim.walker.state.yaw = facing;
+    roomBody.sim.walker.seed(x, y, z);                           // L208: seeded as the page's respawn,
+    roomBody.sim.walker.state.yaw = facing;                      // facing as told BEFORE the frame (option (ii) review F4)
+    roomBody.sim.walker.runSeedFrame();
   }
   return true;
 }
@@ -3048,9 +3163,22 @@ window.__viewer = {
     offer: (() => { const o = hostages.offer(); return o ? { hostage: o.hostage, cmd: o.cmd, text: o.text } : null; })(),
     offerWhy: hostages.why(),
   },
+  // HITBOX-TRACE (`./hitboxTrace`, a dev instrument): the page's trace lines, oldest first, the ring cleared; null without `?devmode&hitboxtrace`
+  hitboxTrace: () => HITBOX_TRACE?.take() ?? null,
   action: () => traversal.action(),
   ephFrame: () => ephFrameOf(EPH_ON, walk, play),                     // EPH-2 (`./ephFrame`): null without `?devmode`
+  ephWalker: () => (EPH_ON ? walk.ephWalker() : null),               // R4P-208 re-score 2, a browser adaptation: the walker, read only (EPH's per-tick turn log); null without `?devmode`
   ephPause: (on) => ephPause.set(on),                                 // PK-3 (`./ephPause`): false without `?devmode`
+  roundChatPreview: (ev) => { if (EPH_ON) roundChatPost({ hud, external: () => true })({ type: 'chat', ...ev }); return EPH_ON; },   // ROUND-CHAT: RC-4's picture, `?devmode` only
+  roundChatPreviewLines: (lines) => {                                  // ROUND-CHAT: the owner's look sheet, `?devmode` only
+    if (!EPH_ON) return false;
+    hud.clearPostsForDev();
+    hud.postMessage(lines.map((l) => {
+      const segments = l.segments.map((g) => ({ text: g.text, rgb: [g.rgb[0] / 128, g.rgb[1] / 128, g.rgb[2] / 128] as [number, number, number] }));
+      return { text: segments.map((g) => g.text).join(''), scale: MESSAGE_SCALE, rgb: segments.at(-1)!.rgb, segments, ...(l.icon ? { icon: l.icon } : {}) };
+    }));
+    return true;
+  },
   doors: () => doors.stats(),
   gates: () => gates.stats(),                                     // MAP-07: the drawn lever gates (a test instrument)
   useDoor: (i) => doors.use(i),
@@ -3124,6 +3252,7 @@ window.__viewer = {
   selectEquipment: (slot) => selectEquipment(slot),
   plantC4: () => grenade.plantC4(),
   effects: () => effects.stats(),
+  reseedEffects: (seed: number) => { if (!EPH_ON) return false; effects.reseed(seed); return true; },   // LATER 1198: devmode only
   playEffect: (name, at, kind = 'impact') => {
     // 30 units ahead of the camera unless told where; a muzzle effect with a node whose barrel runs across the view to
     // the right (the flash seen from the side), an impact at the world point facing up, the round coming down the view.
@@ -3167,6 +3296,11 @@ if (DEV.tools) setActionPickLog('change');
 // The developer's playtest overlay and its saved report (`./playtestReport`; sends nothing): a lazy chunk, `?devmode` only.
 if (DEV.tools) {
   void import('./playtestReport').then((m) => m.mountPlaytestOverlay({ document, urls: URL, now: () => performance.now() }, () => window.__viewer, () => net?.client.combatReport())).catch(() => { /* a navigation aborted the optional dev module: expected */ });
+}
+// LATER 1219's PLAYTEST INSTRUMENT (`./pressFrameSwitch`, a browser adaptation): the press timing's switch and its corner
+// label, for the owner's hands-on of both; `?devmode` only, so a release build never mounts it.
+if (DEV.tools) {
+  void import('./pressFrameSwitch').then((m) => m.mountPressFrameSwitch({ document, search: SEARCH, now: () => performance.now(), pads: () => navigator.getGamepads?.() ?? [], online: () => net !== null && !solo })).catch(() => { /* a navigation aborted the optional dev module: expected */ });
 }
 // The in-game developer panel (`./devPanel`): a development build's only, behind the one tools helper (`./devTools`).
 if (import.meta.env.DEV && devToolsEnabled(SEARCH)) void import('./devPanel').then((m) => {
@@ -3274,3 +3408,15 @@ if (import.meta.env.DEV && devToolsEnabled(SEARCH)) void import('./devPanel').th
   // A map shown before this import resolved called the no-op twice (`show`, `startInWalk`): place its spot now, once.
   if (loaded) consumeDevSpot();   // `spotDone` keeps a later call from placing it again
 }).catch(() => { /* a navigation aborted the optional dev module: expected */ });
+
+/** HITBOX-TRACE: one drawn frame -- each remote body as the aim casts on it, and the offer when it changes, with its line's meet. */
+function traceHitboxFrame(t: PageHitboxTrace, page: NonNullable<typeof net>): void {
+  const vt = page.client.viewTick(), told = page.hostages();
+  const bodies = pageTraceBodies(remote, (id) => told.get(id)?.ai ?? null);
+  t.frame(vt, bodies);
+  const o = hostages.offer(), aim = walk.fireAim();
+  const d = aim ? [aim.far[0] - aim.eye[0], aim.far[1] - aim.eye[1], aim.far[2] - aim.eye[2]] : null, l = d ? Math.hypot(d[0]!, d[1]!, d[2]!) : 0;
+  const line = aim && d && l > 0 ? { eye: aim.eye, dir: [d[0]! / l, d[1]! / l, d[2]! / l] } : null;
+  const target = o?.hostage ?? [...told.keys()][0];
+  t.offer(vt, o, o ? null : hostages.why(), line, bodies.find((b) => b.id === target)?.body ?? null);
+}

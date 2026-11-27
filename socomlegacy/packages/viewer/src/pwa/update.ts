@@ -350,6 +350,8 @@ export function watchInstalledRelease(p: InstalledReleaseOpts): void {
     onState();
   };
   void p.serviceWorker.register(p.scriptURL, { updateViaCache: 'none' }).then((reg) => {
+    // LATER 1269 (a browser adaptation): a stubbed worker that resolves with no registration keeps the page a tab, as a refusal does.
+    if (!reg) return;
     client.noteRegistration(reg);                                  // LATER 188 F5: a Shift-reload is no first install
     // Before any installed worker can show the notice, so Restart activates that worker instead of reloading cold.
     p.onRegistration?.(reg, client);

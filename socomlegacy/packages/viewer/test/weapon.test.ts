@@ -179,6 +179,34 @@ describe('the Fire set and the reload as pose layers (FUN_005e0690 pairs, animse
     expect(Array.from(sk.local[2]!)).toEqual(Array.from(partMatrix(qx(40), [-2, 6, 0])).map((v) => expect.closeTo(v, 5)));
   });
 
+  it('reuses Fire clip part samples across frames while rewriting their values', () => {
+    const stand = clip('seal_stand', 2, [{ name: 'lbicep', t: [[0, 0, 0]], q: [qx(0)] }]);
+    const fire = clip('seal_fp_stand', 2, [{ name: 'lbicep', t: [[0, 0, 0], [10, 0, 0], [10, 0, 0]], q: [qx(0), qx(80), qx(80)] }]);
+    const walk = clip('seal_walk', 2, [{ name: 'lbicep', t: [[0, 0, 0]], q: [qx(0)] }]);
+    const fireWalk = clip('seal_fp_walk', 2, [
+      { name: 'lbicep', t: [[0, 0, 0]], q: [qx(0)] }, { name: 'rbicep', t: [[0, 1, 0]], q: [qx(0)] },
+    ]);
+    const table = new Map<string, MotionEntry>([
+      ['seal_fp_stand', entry({ looped: true, maxVelocity: -1, playback: 1 })],
+      ['seal_fp_walk', entry({ looped: true, maxVelocity: -1, playback: 1 })],
+    ]);
+    const pose = new WeaponPose(new Map([[stand.name, stand], [fire.name, fire], [walk.name, walk], [fireWalk.name, fireWalk]]), table);
+    pose.fireWeight = 1;
+    const nodesAt = (base: MotionClip, phase: number) => pose.fireLayer.nodes!({ clip: base, frame: phase * 2, phase, nodes: [{ clip: base, frame: phase * 2, phase, weight: 1 }] })!;
+
+    const first = nodesAt(stand, 0);
+    const firstParts = first[0]!.parts;
+    expect(firstParts[0]!.translation[0]).toBe(0);
+    const second = nodesAt(stand, 0.5);
+
+    expect(second[0]!.parts).toBe(firstParts);
+    expect(second[0]!.parts[0]!.translation[0]).toBe(10);
+    expect(nodesAt(walk, 0)[0]!.parts).toHaveLength(2);
+    const returnedStand = nodesAt(stand, 0)[0]!.parts;
+    expect(returnedStand).toBe(firstParts);
+    expect(returnedStand).toHaveLength(1);
+  });
+
   it('plays the stance\'s still reload, in over its BlendTime default 0.4; started moving, the overlay over 0.4; the rule itself is test/reloadRun.test.ts', () => {
     const still = clip('seal_stand', 10, [{ name: 'lbicep', t: [[-2, 6, 0]], q: [qx(0)] }]);
     const reload = clip('seal_reload', 30, [{ name: 'lbicep', t: [[-2, 6, 0]], q: [qx(90)] }]);
@@ -349,6 +377,10 @@ describe('the rifle kick (FUN_005b91c0 / FUN_005b9280; DAT_00650938 = 1 in the i
     for (let i = 0; i < 120; i++) { pitch += k.frame(1 / 60, pitch); peak = Math.max(peak, pitch); }
     expect(peak - 0.1).toBeCloseTo(goal, 1);
     expect(peak - 0.1).toBeLessThanOrEqual(goal + 1e-9);
+    // LATER 1027: the peak is the original's whole game-frame steps, floor(goal / s) x s with s = KickRate x G, at any
+    // page rate (at 1/60 the page's own steps peaked at floor(goal / (KickRate / 60)) of them, up to one 60 Hz step higher).
+    const s = stand.rate * GAME_FRAME_DT;
+    expect(peak - 0.1).toBeCloseTo(Math.floor(goal / s + 1e-9) * s, 9);
     for (let i = 0; i < 120; i++) pitch += k.frame(1 / 60, pitch);
     expect(pitch).toBeCloseTo(0.1, 9);
     expect(k.stats().state).toBe(0);

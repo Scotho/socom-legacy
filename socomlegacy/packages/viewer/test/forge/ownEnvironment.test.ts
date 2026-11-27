@@ -165,7 +165,9 @@ describe("FC2-2: the contributor's steps run in the chain (composeLayoutObjects)
     expect(chain).toMatch(/composeMatchMap\([^;]*, pieceOwner\)/);
     expect(chain).toMatch(/withForgeObjects\([^;]*, layout\.objects\)/);
     expect(chain).toMatch(/withPlacedAccess\([^;]*, layout\.switches \?\? \[\], i\.switchLookOf, pieceOwner, layout\.triggers \?\? \[\]\)/);
-    expect(chain).toMatch(/if \(layout\.switches\?\.some\(\(sw\) => sw\.script \|\| sw\.piece !== undefined\) \|\| layout\.triggers\?\.length\) accessed\.map = withPieceInstances\(accessed\.map, i\.pieceOwners\)/);
+    // PR #5: the same step, its condition widened to his map script and scripted objects (`layout.mapScript`,
+    // `layout.objects?.some((o) => o.script)`), the line wrapped in two; was the switches' and triggers' alone.
+    expect(chain).toMatch(/if \(layout\.switches\?\.some\(\(sw\) => sw\.script \|\| sw\.piece !== undefined\) \|\| layout\.triggers\?\.length(?: \|\| layout\.mapScript\s+\|\| layout\.objects\?\.some\(\(o\) => o\.script\))?\) accessed\.map = withPieceInstances\(accessed\.map, i\.pieceOwners\)/);
   });
 });
 

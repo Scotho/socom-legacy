@@ -8,7 +8,7 @@ import { box, cylinder, plane, type PrimitiveOptions } from '../../src/forge/geo
 import { edgeLoop, edgeRing } from '../../src/forge/geometry/selection';
 
 /**
- * The Edit tools' rules (the owner, 2026-11-19: one to one with the reference editor) and their settings ("parametric
+ * The Edit tools' rules (the Forge's owner (crispy, OT.R112), 2026-11-19: one to one with the reference editor) and their settings ("parametric
  * values ... for each edit tool"): one case a rule.
  */
 
@@ -146,7 +146,8 @@ describe('Knife across faces', () => {
     expect(liveFaces(m).filter((f) => faceNormal(m, f)[1] > 0.9)).toHaveLength(2);
     expect(closed(m)).toBe(true);
   });
-  it('cuts straight across several faces between two edge points', () => {
+  // His own red at 0ed80a521b (the owner, 2026-11-22: "Mark as known failures"): expects 8 live faces after the cut; gets 20.
+  it.fails('cuts straight across several faces between two edge points', () => {
     const m = plane([0, 0, 0], 40, 10, 4, OPTS);
     const left = at(m, (a, b) => a[0] === -20 && b[0] === -20), right = at(m, (a, b) => a[0] === 20 && b[0] === 20);
     expect(knifeCut(m, [left, right]).edges).toHaveLength(4);

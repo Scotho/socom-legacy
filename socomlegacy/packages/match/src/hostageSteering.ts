@@ -46,7 +46,16 @@ export class HostageSteering {
     }
     return this.perturbation;
   }
-  step(dt: number, input: { yaw: number; dx: number; dz: number; throttle: number; final: boolean; link: boolean; hanging?: boolean }): { yaw: number; forward: number; dot: number } {
+  /**
+   * `final` the route's last point (the live route holds one node, D:L429514), `action` the
+   * point's action flag (bit 0 of the route node's byte at +5, D:L429560), and
+   * `movementState` the walker's `+0x3f4` (absent: not 6). SHOTS-1208 r58 (research 445 s5.10; reading, pending review):
+   * `FUN_00567900` D:L429556-429559 zeroes the requested throttle at the last point only while `+0x3f4` is NOT 6 -- in
+   * state 6, the follower's (`FUN_0056cbf0` forces 6 while follow is the top goal, D:L431676-431687; follow's enter and
+   * resume ask it, D:L510060 / D:L510104) the point's own throttle stands -- and an action point zeroes it in any state
+   * (D:L429560-429566). Held at r0004 by the key job (0x56cc40, the `+0x3f4` read at r4 0x56d71c).
+   */
+  step(dt: number, input: { yaw: number; dx: number; dz: number; throttle: number; final: boolean; link: boolean; hanging?: boolean; action?: boolean; movementState?: number }): { yaw: number; forward: number; dot: number } {
     this.side = 0; // Normal route mode supplies a zero side command; decreasing magnitude is immediate.
     const r = HOSTAGE_STEERING_READING, d = Math.hypot(input.dx, input.dz);
     const yaw = input.yaw * Math.PI / 180, fx = -Math.sin(yaw), fz = -Math.cos(yaw);
@@ -55,7 +64,7 @@ export class HostageSteering {
     // FUN_0056c340 D:L431374-431420. The constructor starts alert at zero (FUN_00574080).
     const turnCap = r.turnCap * (r.calmTurnScale * (1 - input.throttle) + input.throttle);
     const desiredTurn = dot > 1 ? 0 : dot > r.turnDot ? clamp(cross * r.turnGain, turnCap) : (cross >= 0 ? 1 : -1) * turnCap;
-    const requested = input.final ? 0 : input.link ? r.link : input.throttle;
+    const requested = (input.final && input.movementState !== 6) || input.action ? 0 : input.link ? r.link : input.throttle;
     let desiredForward = 0;
     // FUN_00567900 D:L429851-429874, ordinary actor (not subtype4).
     if (d > r.near || dot >= r.forwardDot || input.hanging) {

@@ -53,8 +53,12 @@ test('walk mode on Frostfire: one round marks the container west of spawn A and 
     [...SPAWN_A, EYE, REST_PITCH] as const);
   await page.evaluate(() => window.__viewer.walkFor(0.5, { forward: 0 }));
   // The status line is written when the world is drawn; the props (the container among them) stream in over the
-  // frames after it (`main.ts`'s reveal), and the screenshot is evidence only once they are in.
-  await page.waitForTimeout(1500);
+  // frames after it (`main.ts`'s reveal), and the screenshot is evidence only once they are in. WM-20: a mark whose clip
+  // keeps nothing while the props are still revealing is held slotless and counted only once its wall lands
+  // (MARK_LATE_REVEAL_ADAPTATION, research 431 s4), so the round waits for the reveal's end -- the marks' clipper whole
+  // (`main.ts` `show`) -- as `e2e/marksPipe.spec.ts` does; the container's side keeps clipped triangles there
+  // (`test/markClipMaps.test.ts` :70), so the pin of one mark stands. Was: a bare 1500 ms, lost under SwiftShader.
+  await expect.poll(() => page.evaluate(() => window.__viewer.links().warmed['props'] ?? null), { timeout: 120_000 }).not.toBeNull();
   await settle(page);
   // The ammo box is the in-game HUD's (`src/hud.ts`, research 87): "30/30" and "2 MAGS".
   expect((await page.evaluate(() => window.__viewer.hud())).model).toMatchObject({ rounds: 30, capacity: 30, spare: 2 });

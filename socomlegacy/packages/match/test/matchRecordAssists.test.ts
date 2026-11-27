@@ -297,3 +297,132 @@ describe('assists everywhere F1: no assist beside the killer\'s own kill, whatev
     expect(f.lastRound().seats.filter((s) => (s.assists ?? 0) > 0)).toEqual([]);
   });
 });
+
+/**
+ * WM-DATA task 2 (a) (protocol 17; product track, LCM-6a's count read, never a second one): `MatchRecorder.assistsOf`,
+ * what the room's `score` rows carry as `assists` / `roundAssists` (`RoomOptions.assistsOf`, wired by `game.ts`). The room
+ * id resolves to its record seat (`seatOf`) -- a takeover's two ids one seat, one count -- and reads the seat's match
+ * total and this round's. An abandon or a match reset zeroes the room's own counters, so the read is zeroed too -- after
+ * the reset's own close, which still carries the match's count.
+ */
+describe('WM-DATA (a): MatchRecorder.assistsOf, the score row\'s assists', () => {
+  it('A hits V, B kills: A reads one this match and this round; B (the killer) and V none', () => {
+    const f = fake();
+    f.start(1);
+    expect(f.rec.recorder.assistsOf(1)).toEqual({ match: 0, round: 0 });
+    f.rec.combatApplied(1, 2, 30);
+    f.rec.combatApplied(3, 2, 70);
+    expect(f.rec.recorder.assistsOf(1)).toEqual({ match: 0, round: 0 });      // credited at the death, not the hit
+    f.ev(1_100, kill(3, 2));
+    expect(f.rec.recorder.assistsOf(1)).toEqual({ match: 1, round: 1 });
+    expect(f.rec.recorder.assistsOf(3)).toEqual({ match: 0, round: 0 });
+    expect(f.rec.recorder.assistsOf(2)).toEqual({ match: 0, round: 0 });
+  });
+
+  it('a takeover: A hits V under ids 1 and 5, B kills -- both room ids read the one seat\'s one assist', () => {
+    const f = fake(new Set(), new Map([[5, '101']]));
+    f.start(1);
+    f.rec.combatApplied(1, 2, 30);
+    f.rec.combatApplied(5, 2, 20);
+    f.rec.combatApplied(3, 2, 50);
+    f.ev(1_100, kill(3, 2));
+    expect(f.rec.recorder.assistsOf(1)).toEqual({ match: 1, round: 1 });
+    expect(f.rec.recorder.assistsOf(5)).toEqual({ match: 1, round: 1 });
+  });
+
+  it('the next round\'s start: the round reads zero, the match keeps its count; the next match\'s first round zeroes both', () => {
+    const f = fake();
+    f.start(1);
+    f.rec.combatApplied(1, 2, 30);
+    f.ev(1_100, kill(3, 2));
+    f.end(1, false);
+    expect(f.rec.recorder.assistsOf(1)).toEqual({ match: 1, round: 1 });      // ROUND COMPLETE still reads the round's
+    f.start(2);
+    expect(f.rec.recorder.assistsOf(1)).toEqual({ match: 1, round: 0 });
+    f.rec.combatApplied(1, 4, 10);
+    f.ev(2_100, kill(3, 4));
+    expect(f.rec.recorder.assistsOf(1)).toEqual({ match: 2, round: 1 });
+    f.end(2, true);
+    expect(f.rec.recorder.assistsOf(1)).toEqual({ match: 2, round: 1 });      // GAME COMPLETE reads the match's
+    f.ev(9_000, roundStart(1));
+    expect(f.rec.recorder.assistsOf(1)).toEqual({ match: 0, round: 0 });
+  });
+
+  it('an abandon, or a match reset (the return to the lobby): zero, as the room\'s zeroed rows -- the close keeps the count', () => {
+    for (const how of ['abandoned', 'matchReset'] as const) {
+      const f = fake();
+      f.start(1);
+      f.rec.combatApplied(1, 2, 30);
+      f.ev(1_100, kill(3, 2));
+      if (how === 'abandoned') f.ev(1_200, { type: 'abandoned' } as ServerEvent);
+      else f.rec.stream.matchReset?.(1_200);
+      expect(f.rec.recorder.assistsOf(1), how).toEqual({ match: 0, round: 0 });
+      expect(f.seatOf(f.close().totals, 1), how).toMatchObject({ assists: 1 });
+      f.start(1);
+      f.rec.combatApplied(1, 2, 30);
+      f.ev(1_300, kill(3, 2));
+      expect(f.rec.recorder.assistsOf(1), how).toEqual({ match: 1, round: 1 });   // the next match counts again
+    }
+  });
+
+  it('matchRecording.assistsOf contains a failure: null (the row then carries no field), never a throw into the room', () => {
+    const f = fake();
+    f.start(1);
+    expect(f.rec.assistsOf(1)).toEqual({ match: 0, round: 0 });
+    f.rec.recorder.assistsOf = () => { throw new Error('the recorder\'s own trouble'); };
+    expect(f.rec.assistsOf(1)).toBeNull();
+  });
+});
+
+/**
+ * SA-7a (SA.R20; product track): the score rows carry assists only from a LIVE match record -- one whose match was opened
+ * (`enabled()` true at round 1's start: central's hello flag on a placed host, `game.ts`; central's own intake on a local
+ * game, `bridge.ts`). A room whose record is neither kept nor sent reads null, so its rows carry no field, on both paths
+ * alike (the replay of path A, `bridge.ts`, and of path B, `game.ts`, byte-identical: `central/test/matchProcessReplay`).
+ * Once opened it stays live for the room -- the GAME COMPLETE rows after the complete close still read the match's count,
+ * and after a reset the next match's zeroes -- so the column never comes and goes between one score and the next.
+ */
+describe('SA-7a: assists only from a live match record', () => {
+  function live(enabled: () => boolean) {
+    const source: RoomStreamSource = {
+      game: 7, match: () => ({ serial: 1, startedAt: 1_000 }), map: () => 'MP72', gameType: () => 2,
+      settings: () => ({ roundSeconds: 60, maxRounds: 1, friendlyFire: true, maxPlayers: 8, teamSize: 8, eqLimit: 0 }),
+      lobbyName: () => 'Lobby', host: () => '101', accountOf: (id) => String(100 + id), seats: () => SEATS, now: () => 9_000,
+    };
+    const rec = matchRecording(source, () => undefined, enabled);
+    const rows = score(SEATS.map((s) => row(s.id, s.team)));
+    const play = (): void => {
+      rec.stream.event(1_000, roundStart(1)); rec.onRoundStart(1); rec.stream.event(1_000, rows);
+      rec.combatApplied(1, 2, 30); rec.combatApplied(3, 2, 70); rec.stream.event(1_100, kill(3, 2));
+    };
+    const over = (): void => { rec.stream.event(1_500, roundOver(1, true)); rec.stream.event(1_500, rows); rec.onRoundOver(report(1, true)); };
+    return { rec, play, over };
+  }
+
+  it('records off (enabled false at the open): null before, during and after the match -- no field on any row', () => {
+    const r = live(() => false);
+    expect(r.rec.assistsOf(1)).toBeNull();
+    r.play();
+    expect(r.rec.assistsOf(1)).toBeNull();
+    r.over();
+    expect(r.rec.assistsOf(1)).toBeNull();
+  });
+
+  it('records on: null before the match opens; the counts once open, and still after the complete close', () => {
+    const r = live(() => true);
+    expect(r.rec.assistsOf(1)).toBeNull();                                    // the lobby's rows, before round 1's open
+    r.play();
+    expect(r.rec.assistsOf(1)).toEqual({ match: 1, round: 1 });
+    r.over();
+    expect(r.rec.recorder.isOpen).toBe(false);
+    expect(r.rec.assistsOf(1)).toEqual({ match: 1, round: 1 });               // GAME COMPLETE's rows after the close
+  });
+
+  it('enabled only after round 1 opened without it: this match stays unrecorded, so null', () => {
+    let on = false;
+    const r = live(() => on);
+    r.play();
+    on = true;
+    expect(r.rec.assistsOf(1)).toBeNull();
+  });
+});

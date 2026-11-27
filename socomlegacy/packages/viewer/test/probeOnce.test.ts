@@ -43,7 +43,7 @@ afterEach(() => { vi.restoreAllMocks(); document.body.replaceChildren(); dc.rese
 
 describe("N1b (GM-XBOX1): the page's one probe, never a second throwaway WebGL context", () => {
   it('the page probe itself makes one context, then answers from its memo', () => {
-    expect(dc.pageRendererProbe()).toEqual({ renderer: XBOX, software: false });
+    expect(dc.pageRendererProbe()).toEqual({ renderer: XBOX, software: false, parallelCompile: false, webgl2: true });
     expect(dc.pageRendererProbe().renderer).toBe(XBOX);
     expect(made).toEqual(['webgl2']);
   });
@@ -52,7 +52,7 @@ describe("N1b (GM-XBOX1): the page's one probe, never a second throwaway WebGL c
     // The probe module's own internal call, not a module stub: only getContext is observed, so the memo, the
     // null-renderer filter (`readDeviceSignals`) and `detectDeviceClass` all run as on the page.
     rendererNow = SWIFTSHADER;
-    expect(dc.pageRendererProbe()).toEqual({ renderer: SWIFTSHADER, software: true });
+    expect(dc.pageRendererProbe()).toEqual({ renderer: SWIFTSHADER, software: true, parallelCompile: false, webgl2: true });
     expect(dc.pageDeviceClass()).toBe('software');
     expect(dc.pageDeviceClass()).toBe('software');      // from the memo
     expect(made).toEqual(['webgl2']);

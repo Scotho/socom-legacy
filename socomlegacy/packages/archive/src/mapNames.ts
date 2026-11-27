@@ -119,3 +119,60 @@ export function mapLabel(text: string): string {
   if (isMapStem(text)) return mapDisplayName(text);
   return BY_NAME.get(text.toUpperCase())?.title ?? text;
 }
+
+/**
+ * DAY-1 (DAY.R2, `docs/plans/2026-11-23-day-mode.md`): a map's time of day. A variant is the pair (stem, time); the map
+ * keeps its stem everywhere, and the variant rides beside it. Product track (OT.R53): names only, no behaviour.
+ */
+export type MapVariant = 'day' | 'night';
+
+export interface MapVariantRow {
+  /** The map's stem (`MP5`): a MAP_TABLE row's, unchanged (DAY.R2: a variant never renames a stem). */
+  readonly stem: string;
+  /** The map number (the stem's digits). */
+  readonly level: number;
+  /** The time the variant draws. */
+  readonly variant: MapVariant;
+  /** The bracketed word after the map's name, in the disc's caps (`ABANDONED (DAY)`). */
+  readonly word: 'DAY' | 'NIGHT';
+  /** Whether it is in the release's offer: false until the owner accepts it (DAY.R7; DAY-R1..R3 flip it). */
+  readonly accepted: boolean;
+}
+
+const variantRow = (level: number, variant: MapVariant, accepted = false): MapVariantRow =>
+  ({ stem: `MP${level}`, level, variant, word: variant === 'day' ? 'DAY' : 'NIGHT', accepted });
+
+/**
+ * The one variant table (DAY.R2): Abandoned, Shadow Falls by day; Desert Glory by night; any other pair is refused.
+ * DAY-R1: Abandoned (Day) accepted by the owner for v0.4.32 (2026-11-24 ~05:20Z, the day-mode plan's Log).
+ * DAY-RN1: Rat's Nest (Day), on the owner's word (2026-11-24 ~17:52Z: "prepare the day version the same way we did
+ * abandoned"); accepted by him from its stills (MISSION OT.R158, 2026-11-25: "rats nest day: accepted").
+ * (MP8's own stem joins the release's offer separately, seat-lobby's RN-1: `FIRST_RELEASE_MAPS`.)
+ */
+export const MAP_VARIANTS: readonly MapVariantRow[] = [
+  variantRow(5, 'day', true),
+  variantRow(64, 'day'),
+  variantRow(6, 'night'),
+  variantRow(8, 'day', true),
+];
+
+/** The variant row for a stem (`MP5`, any case) or a level (5) and a time; undefined for a pair off the table. */
+export function mapVariant(stemOrLevel: string | number, variant: MapVariant): MapVariantRow | undefined {
+  const r = mapRow(stemOrLevel);
+  return r ? MAP_VARIANTS.find((v) => v.level === r.level && v.variant === variant) : undefined;
+}
+
+/**
+ * A variant's name in the disc's caps, as the original's screens show a map's name (`ABANDONED (DAY)`): the MAP_TABLE
+ * row's `name` and the variant's word, never a second literal of the name; undefined for a pair off the table.
+ */
+export function variantName(stemOrLevel: string | number, variant: MapVariant): string | undefined {
+  const v = mapVariant(stemOrLevel, variant);
+  return v ? `${mapRow(v.level)!.name} (${v.word})` : undefined;
+}
+
+/** A variant's name in the launcher's case, beside `mapLabel` (`Abandoned (Day)`): the row's `title` + the word. */
+export function variantTitle(stemOrLevel: string | number, variant: MapVariant): string | undefined {
+  const v = mapVariant(stemOrLevel, variant);
+  return v ? `${mapRow(v.level)!.title} (${titleCase(v.word)})` : undefined;
+}

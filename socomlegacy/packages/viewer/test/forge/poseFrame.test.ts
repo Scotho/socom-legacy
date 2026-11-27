@@ -22,6 +22,15 @@ import { assetTiles, inspector as inspectorPanel, inspectorField, pressMenubar, 
  * a read only). The page is mounted as `pagePanels.test.ts` mounts it (only the GPU and disc I/O replaced). Part B
  * (`bb74b53236`, ours: the record's lattice and bounds) turns most REDs green, each case's comment says which; the
  * `page.ts:<line>` citations are at `77ba4fcfb0`, before part B moved them.
+ *
+ * FN-4 (the Forge lane's plan `socomlegacy/docs/plans/2026-11-14-forge-next.md`, FN.R4 and FN.R5; the owner: "relative to the
+ * parent by default, and agreed with your suggestion"; a browser adaptation, FG.R2): the Inspector in ONE frame. A piece's
+ * Pitch, Yaw and Roll are one `YXZ` triple of its turn relative to its parent's TURN (qParent^-1 * qPiece, the parent's
+ * quaternion alone), whole degrees; its Scale its own size; X, Y and Z as before. A commit puts the local triple on whole
+ * degrees and the WORLD turn on the record's hundredth of a degree (record version 4 when an angle is off the whole
+ * degree, `creator-contracts` `RECORD_ANGLE_DENOMINATOR`), so what is shown is what a save and a reopen give back. The
+ * FN-4 cases are written, NOT RUN (the host rule); the expected values were computed by plain arithmetic (`YXZ`), by
+ * the seat and again by the implementer.
  */
 
 vi.mock('../../src/renderer', () => ({ createRenderer: async () => ({
@@ -35,6 +44,9 @@ vi.mock('../../src/forge/archives', () => ({ Archives: class {
   clips = async () => null;
   list = async () => ({ entries: archiveEntries, problems: [] });
   load = archiveLoad;
+  census = async () => null;
+  props = async () => null;
+  scriptNames = async () => null;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
@@ -215,16 +227,15 @@ describe('FC2-7: one frame for a piece\'s pose fields under a parent (the mounte
     oneFrame(api, 0, null, 'no parent, reopened');
   }, 90_000);
 
-  // FC2 (H453 (5), the owner's): one frame for the six pose fields is the contributor's editor's design to choose (all
-  // local, or all world); until then they show two frames under a turned parent: held as `it.fails`, registered.
-  it.fails('RED: a piece under a parent pitched 30 and rolled 20 shows its six pose fields in one frame, before and after a typed Pitch or Yaw', async () => {
-    // Expected RED: his design to decide (FC2-7, parked for the owner) -- part B (`bb74b53236`) changes no field's frame.
-    // Why, at the first `oneFrame`: the child is at the world's identity turn under a parent turned
-    // Rx(30)*Rz(20). Its Yaw field is LOCAL (`localPose` of P^-1 * C, page.ts:3105-3109, shown at 5351): the `YXZ` yaw of
-    // Rz(-20)*Rx(-30), atan2(sin20*sin30, cos30), about 11 degrees; its Pitch and Roll are WORLD (`turnOf(piece.quaternion)`,
-    // page.ts:5226-5230): 0 and 0. Read all-world, Yaw 11 / Pitch 0 / Roll 0 is 11 degrees from the identity; read
-    // all-local, Ry(11) is tens of degrees from Rz(-20)*Rx(-30) (the parent's pitch and roll are not in it). Mixed, so
-    // neither reading is within 2.5.
+  // FC2 (H453 (5), the owner's): one frame for the six pose fields was the owner's call; FN-4 makes it (FN.R4: "relative
+  // to the parent by default"), so the case is a plain `it` again and its line in `tools/test/itFailsRegister.test.ts` is gone.
+  it('RED: a piece under a parent pitched 30 and rolled 20 shows its six pose fields in one frame, before and after a typed Pitch or Yaw', async () => {
+    // Expected RED at FN-4's RED commit, at the first `oneFrame`: the child is at the world's identity turn under a parent
+    // turned Rx(30)*Rz(20); its Yaw field was LOCAL (`localPose` of P^-1 * C: about 11 degrees) and its Pitch and Roll
+    // WORLD (`turnOf(piece.quaternion)`: 0 and 0) -- mixed, so neither reading is within 2.5. Expected GREEN from FN-4's
+    // page commit: all three angles are one `YXZ` triple of P^-1 * C (the parent's turn alone), 11 / -28 / -23 here by
+    // hand (atan2 and asin of Rz(-20) Rx(-30)); a typed Pitch of 25 keeps 11 and -23 and gives 25, a typed Yaw of 45 then
+    // 45 / 25 / -23, each read back off the world turn the record keeps (on its hundredth) within a hundredth of a degree.
     const api = await mounted();
     await parentAndChild(api, [['Pitch', '30'], ['Roll', '20']], []);
     await select(api, 'piece:1');
@@ -238,11 +249,12 @@ describe('FC2-7: one frame for a piece\'s pose fields under a parent (the mounte
   }, 90_000);
 
   it('CONTROL: a piece under a parent pitched 30 and rolled 20 keeps a typed Pitch as shown through a save and a reopen', async () => {
-    // Expected GREEN today: a typed Pitch is FX-9's `commitTurnField` (page.ts:5255-5274), which sets the child's WORLD
-    // turn through `poseOn` (5262, 5240-5241): whole degrees, so the record (layout.ts `poseOf`, 2034-2052) writes exactly
-    // the scene's turn and the reopen gives it back; the Yaw field, local, is recomputed from the same two matrices. (A
-    // later frame for Pitch must keep this green: a pitch typed in the parent's frame lands the world turn off whole
-    // degrees unless it is snapped after.)
+    // FN-4: expected GREEN at its RED commit and after (re-read for the new frame, its expectations unchanged). Before
+    // FN-4 a typed Pitch set the child's WORLD pitch (`poseOn` on whole degrees). From FN-4's page commit the Pitch is the
+    // parent-relative triple's (11 / 25 / -23 here), the world turn put on the record's hundredth after -- written
+    // 27.04 / 47.52 / 11.88, a version-4 record -- so the reopen gives back the turn shown and every field. (FC2-7's note,
+    // "a pitch typed in the parent's frame lands the world turn off whole degrees unless it is snapped after", is what
+    // the hundredth answers: snapped after, on the finer lattice.)
     const api = await mounted();
     await parentAndChild(api, [['Pitch', '30'], ['Roll', '20']], []);
     await select(api, 'piece:1');
@@ -252,6 +264,9 @@ describe('FC2-7: one frame for a piece\'s pose fields under a parent (the mounte
   }, 90_000);
 
   it('RED: a piece under a parent pitched 30 and rolled 20 keeps a typed Yaw as shown through a save and a reopen', async () => {
+    // FN-4: expected GREEN at its RED commit and after (expectations unchanged). From FN-4's page commit the typed Yaw is
+    // the parent-relative triple's -- 45 / -28 / -23 -- and the world turn is put on the record's hundredth (26.15 /
+    // -14.76 / 12.61 by hand), read back as 45 within a hundredth of a degree.
     // Expected green since `bb74b53236`: the typed commit now puts the piece's world pose on the lattice (`poseOn`) inside
     // the same `carrying`; the Yaw field then reads the local yaw of the snapped turn, 45.03 here by hand, shown 45.
     // Was RED on `1abfcb3cfc`: a typed Yaw is the contributor's `setLocalAxis(s, 'yaw', v)` (page.ts:6439-6444, 3111-3115):
@@ -269,9 +284,16 @@ describe('FC2-7: one frame for a piece\'s pose fields under a parent (the mounte
   }, 90_000);
 
   it('RED: a parent scaled 2 along X then pitched 30 carries its child (turned 45 under it) on the record\'s lattice, and a save and a reopen give the child back as shown', async () => {
-    // Expected green since `bb74b53236`: `carryFollowers` puts each carried piece on the lattice (`poseOn`), so the child
-    // shows Scale 1.58 / 1 / 1.58 and a whole-degree turn, which a save and a reopen give back. The SHAPE it lost (the
-    // shear below) is not given back: what a non-uniformly scaled parent does to a turned child is his tree's design.
+    // FN-3 (ours; the owner, 2026-11-14, FN.R4): the shape is now kept. The stretch (a one-axis change) carries the child
+    // at its own size (`carriedMatrix`), and the pitch -- the parent's scale unchanged, a uniform change of factor 1 (FN-3's
+    // follow-up decides by the change) -- turns it with the parent at that size (a' * a^-1 * r: the stretch cancels): the
+    // child shows Scale 1 / 1 / 1 (the line added here, RED before FN-3 at "1.581"), its turn Rx(30) * Ry(45) put on whole
+    // degrees at the release. The rest of the case as FC2-7 wrote it. FN-4 (expectations unchanged, green before and
+    // after it): the release now keeps the child's turn RELATIVE to the parent on whole degrees (Ry(45): its fields
+    // 45 / 0 / 0) and its world turn Rx(30) * Ry(45) on the record's hundredth, which a save and a reopen give back.
+    // FC2-7's form, before FN-3: green since `bb74b53236`, `carryFollowers` putting each carried piece on the lattice
+    // (`poseOn`), so the child showed Scale 1.58 / 1 / 1.58 and a whole-degree turn, which a save and a reopen gave back;
+    // the SHAPE it lost (the shear below) was not given back. FN-3 no longer makes that shear.
     // Was RED on `1abfcb3cfc`, at the lattice line: the parent's Scale X scrub carries the child (`carrying`, page.ts:6388;
     // `carryFollowers`, 3076-3082) to P * rel = S(2,1,1) * T(50) * Ry(45), whose linear part S * Ry(45) has SHEAR (its X
     // and Z columns are (2cos45, 0, -sin45) and (2sin45, 0, cos45), not perpendicular). `Matrix4.decompose` (3079) takes
@@ -288,12 +310,18 @@ describe('FC2-7: one frame for a piece\'s pose fields under a parent (the mounte
     expect(field('Pitch').value).toBe('30');
     await select(api, 'piece:1');
     for (const label of ['Scale X', 'Scale Y', 'Scale Z']) expect(onScaleLattice(Number(field(label).value)), `the child's ${label} ${field(label).value} on the record's lattice`).toBe(true);
+    expect(['Scale X', 'Scale Y', 'Scale Z'].map((l) => field(l).value), 'FN-3: the child at its own size').toEqual(['1', '1', '1']);
     await keptThroughReopen(api, ['piece:0', 'piece:1']);
   }, 90_000);
 
-  it('RED: a parent\'s Scale X dragged toward 3 keeps its child (at Scale X 2 under it) within the record\'s 0.1..4, and a save and a reopen give it back as shown', async () => {
-    // Expected green since `bb74b53236`: the scale scrub's preview stops where the child would pass 4 (`followersFit`),
-    // the field showing the last scale that fit, which the release commits: the parent at 2, the child at 4.
+  it('RED: a parent\'s Scale X dragged to 3 leaves its child (at Scale X 2 under it) at its own size, and a save and a reopen give it back as shown', async () => {
+    // FN-3 (ours; the owner, 2026-11-14, "agreed on your lean": FN.R4): changed with the rule. Under a parent whose scale
+    // changes other than uniformly (here a one-axis stretch; FN-3's follow-up decides by the change) a carried piece keeps
+    // its own size and its turn relative to the parent's; only its place stretches (`carriedMatrix`). So the scrub is never stopped by the child here: the parent goes to 3, the child stays at Scale X
+    // 2, carried from x 50 to x 150. Expected RED before FN-3 at the parent's line ("expected '2' to be '3'"), FC2-7's
+    // stop below; GREEN after. The size bounds still stop a UNIFORM scale (the Reset case below).
+    // FC2-7's form, before FN-3: green since `bb74b53236`: the scale scrub's preview stopped where the child would pass 4
+    // (`followersFit`), the field showing the last scale that fit, which the release committed: the parent at 2, the child at 4.
     // Was RED on `1abfcb3cfc`: the scrub carries the child to S(3,1,1) * T(50) * S(2,1,1) (page.ts:6388, 3076-3082), a scale
     // of 6 along X: nothing bounds a carried follower (the Scale fields' 0.1..4 bound a scrub of the piece itself,
     // page.ts:5211, 6395). The field shows 6; the record clamps it to 4 (layout.ts:2037, `scaleOnLattice`), so the
@@ -307,9 +335,10 @@ describe('FC2-7: one frame for a piece\'s pose fields under a parent (the mounte
     await parentAndChild(api, [], [['Scale X', '2']]);
     await select(api, 'piece:0');
     scrubbedThrough('Scale X', [50, 100, 150, 200]);                 // 0.01 a pixel: 1.5, 2, 2.5, 3
-    expect(field('Scale X').value, 'the parent stopped at the last scale that keeps its child within 4').toBe('2');
+    expect(field('Scale X').value, 'FN-3: the parent at 3, nothing under it stopping it').toBe('3');
+    expect(ref(api, 'piece:1').at[0], 'FN-3: the child\'s place stretched with the parent (50 -> 150)').toBeCloseTo(150, 4);
     await select(api, 'piece:1');
-    expect(field('Scale X').value).toBe('4');
+    expect(field('Scale X').value, 'FN-3: the child at its own size').toBe('2');
     for (const label of ['Scale X', 'Scale Y', 'Scale Z']) expect(onScaleLattice(Number(field(label).value)), `the child's ${label} ${field(label).value} within 0.1..4 on the lattice`).toBe(true);
     await keptThroughReopen(api, ['piece:0', 'piece:1']);
   }, 90_000);
@@ -400,23 +429,87 @@ describe('FC2-7: one frame for a piece\'s pose fields under a parent (the mounte
     await keptThroughReopen(api, ['piece:0']);
   }, 90_000);
 
-  it('RED: a typed Scale X on a parent that would carry a piece under it past 4 is refused in words, the parent and the child as they were', async () => {
-    // Expected green since `bb74b53236`: `commitTurnField` asks `followersFit` first and refuses in
-    // `FOLLOWER_SIZE_REFUSAL`'s words (`forge/transformStubs`), nothing changed.
-    // Part B's third RED (new). Was RED on `1abfcb3cfc`: the typed scale is applied (page.ts:5266-5272), nothing
-    // checks what it would carry, and nothing is said: the parent goes to 3 (its child, not carried, stays at 2).
+  it('CONTROL: a Reset scale on a parent (uniform: 0.5 -> 1) that would carry a piece under it past 4 is refused in words, the parent and the child as they were', async () => {
+    // FN-3 (ours; the owner, 2026-11-14, FN.R4): changed with the rule. Before FN-3 this case typed Scale X 3 on a parent
+    // over a child at Scale X 2 and expected the refusal; under FN-3 a stretch (not uniform) carries the child at its own
+    // size, so that edit is taken (the scrub case above). A UNIFORM scale still scales what is under it, so the bounds are
+    // held there: the parent at 0.5 on each axis, the child at Scale X 3; the Scale row's reset takes the parent to 1, which
+    // would carry the child to 6 -- refused in `FOLLOWER_SIZE_REFUSAL`'s words, nothing changed. Expected GREEN before and
+    // after FN-3 (a uniform change composes as before: `carriedMatrix`).
+    // FC2-7's form: part B's third RED. Was RED on `1abfcb3cfc`: the typed scale was applied (page.ts:5266-5272), nothing
+    // checked what it would carry, and nothing was said.
     const api = await mounted();
-    await parentAndChild(api, [], [['Scale X', '2']]);
+    await parentAndChild(api, [['Scale X', '0.5'], ['Scale Y', '0.5'], ['Scale Z', '0.5']], [['Scale X', '3']]);
     const child0 = [...ref(api, 'piece:1').at];
     await select(api, 'piece:0');
     const revision = api.read().revision;
-    typed('Scale X', '3');
+    inspectorPanel(document).querySelector<HTMLButtonElement>('button[aria-label="Reset scale"]')!.click();
     expect(statusLine(document).textContent).toBe('A piece under it would go past the sizes a layout keeps (0.1 to 4 an axis): scale it less, or take that piece out from under it');
     expect(api.read().revision, 'no edit').toBe(revision);
-    expect(field('Scale X').value, 'the parent as it was').toBe('1');
+    expect(field('Scale X').value, 'the parent as it was').toBe('0.5');
     await select(api, 'piece:1');
-    expect(field('Scale X').value, 'the child as it was').toBe('2');
+    expect(field('Scale X').value, 'the child as it was').toBe('3');
     for (const [k, v] of child0.entries()) expect(ref(api, 'piece:1').at[k], `child axis ${k}`).toBeCloseTo(v, 6);
+  }, 90_000);
+
+  /*
+   * FN-3 (ours; the owner, 2026-11-14, "agreed on your lean", Crispy not overruling it: FN.R4; the plan
+   * `socomlegacy/docs/plans/2026-11-14-forge-next.md`; a browser adaptation, FG.R2 -- the game has no editor): a layout keeps
+   * a piece's place, turn and scale, never a slant, so a carry never reshapes. Under a parent whose scale changes other
+   * than uniformly in the edit (a stretch) a carried piece keeps its OWN size and its turn relative to the parent's; only
+   * its PLACE follows the parent's whole matrix, stretch included. A uniform change of scale still scales what is under it,
+   * on a parent already stretched too (FN-3's follow-up, the batch review's finding: decided by the change, not the
+   * parent's state; its case in `transformStubsSwitch.test.ts`). Written, not run (the host rule).
+   */
+  const scaleOf = (id: string): number[] | null => (globalThis as unknown as { __forgeScaleOf: (r: string) => number[] | null }).__forgeScaleOf(id);
+
+  it('FN-3, RED: a parent given Scale X 2 carries its child (turned 45, 50 along X) to x 100 at its own size and turn, and a reopen gives it back', async () => {
+    // Expected RED before FN-3, at the child's scale: "expected [1.58, 1, 1.58] to deeply equal [1, 1, 1]". The typed Scale
+    // X carries the child (`carrying` -> `carryFollowers`) to P' * rel = S(2,1,1) * T(50) * Ry(45), whose linear part has
+    // shear; `decompose` takes the column lengths, sqrt(2.5) = 1.581 on X and Z, and the commit's `poseOn` writes 1.58: a
+    // pose row [1, 0, 0, 1.58, 1, 1.58], the child's shape silently changed (a 10 x 10 square drawn 15.81 a side, where the
+    // parent's stretch would draw a rhombus). Expected GREEN after: the child keeps scale 1, 1, 1 (no pose row: it is
+    // turned about the vertical alone) and yaw 45; its place, 50 along the parent's X, stretched to 100.
+    const api = await mounted();
+    await parentAndChild(api, [], [['Yaw', '45']]);
+    await select(api, 'piece:0');
+    typed('Scale X', '2');
+    expect(field('Scale X').value).toBe('2');
+    expect(scaleOf('piece:0'), 'CONTROL: the parent stretched').toEqual([2, 1, 1]);
+    const check = (when: string): void => {
+      expect(recordPose(api, 1).s, `${when}: the child's record keeps its own size`).toEqual([1, 1, 1]);
+      expect((rows(api).poses ?? []).filter(([i]) => i === 1), `${when}: no pose row for the child`).toEqual([]);
+      expect(rows(api).pieces[1]![4], `${when}: the child's yaw`).toBe(45);
+      // To a millionth: a reopen decomposes the record's matrix (`Matrix4.decompose`), its turn's float noise in the scale.
+      expect(scaleOf('piece:1')!.map((v) => Math.round(v * 1e6) / 1e6), `${when}: the child drawn at its own size`).toEqual([1, 1, 1]);
+      expect(ref(api, 'piece:1').yaw, `${when}: its turn (rotation.y)`).toBeCloseTo(45 * DEG, 6);
+      const at = ref(api, 'piece:1').at;
+      expect(at[0], `${when}: its place stretched with the parent (50 -> 100)`).toBeCloseTo(100, 4);
+      expect(at[1], `${when}: y`).toBeCloseTo(0, 4);
+      expect(at[2], `${when}: z`).toBeCloseTo(0, 4);
+    };
+    check('carried');
+    await reopened(api);
+    check('reopened');
+  }, 90_000);
+
+  it('FN-3, CONTROL: a parent\'s uniform scale (the Scale row\'s reset, 0.5 -> 1) still scales its child (turned 45): twice its size, twice as far', async () => {
+    // Expected GREEN before and after FN-3: the reset is a uniform change (0.5 to 1 on each axis), so the child is composed
+    // as before (`carriedMatrix`: P' * rel), S(2) times its own size: 2, 2, 2, turned 45, its place 50 -> 100. (The brief's
+    // first form, Scale X, Y and Z each typed 2, cannot be a control: each typed axis is a stretch on its own, under which
+    // FN-3 keeps the child's size; the uniform paths are the reset, the group gizmo's scale and a single piece's XYZ
+    // scale handle, the last in `transformStubsSwitch.test.ts`'s FN-3 follow-up case.)
+    const api = await mounted();
+    await parentAndChild(api, [['Scale X', '0.5'], ['Scale Y', '0.5'], ['Scale Z', '0.5']], [['Yaw', '45']]);
+    expect(ref(api, 'piece:1').at[0], 'the child put under the parent where it stood').toBeCloseTo(50, 4);
+    await select(api, 'piece:0');
+    inspectorPanel(document).querySelector<HTMLButtonElement>('button[aria-label="Reset scale"]')!.click();
+    expect(scaleOf('piece:0'), 'the parent at 1').toEqual([1, 1, 1]);
+    expect(scaleOf('piece:1'), 'the child twice its size').toEqual([2, 2, 2]);
+    expect(recordPose(api, 1).s, 'the record: twice its size').toEqual([2, 2, 2]);
+    expect(rows(api).pieces[1]![4], 'its yaw').toBe(45);
+    expect(ref(api, 'piece:1').at[0], 'twice as far').toBeCloseTo(100, 4);
+    await keptThroughReopen(api, ['piece:0', 'piece:1']);
   }, 90_000);
 
   /**
@@ -752,9 +845,11 @@ describe('FC2-7: one frame for a piece\'s pose fields under a parent (the mounte
     expect(await api.execute('layout.import', { layout: { ...saved, switches } }, api.read().revision)).toMatchObject({ ok: true });
     await vi.waitFor(() => expect(switchYaw()).toBe(180));
     await selectAs(api, 'switch:0', 'Switch');
-    const look = (): HTMLSelectElement => inspectorPanel(document).querySelector<HTMLSelectElement>('select[aria-label="Look"]')!;
+    // His Inspector (OT.R112, 2026-11-13: "Source, Trigger ... not look"): the Look's 'prop' is the Source's Custom (page.ts
+    // `CUSTOM_TRIGGER`, '*custom'), the same rebuild (`setOpt('look', ...)`).
+    const look = (): HTMLSelectElement => inspectorPanel(document).querySelector<HTMLSelectElement>('select[aria-label="Source"]')!;
     const revision = api.read().revision;
-    look().value = 'prop';
+    look().value = '*custom';
     look().dispatchEvent(new Event('change'));
     await vi.waitFor(() => expect(api.read().revision, 'the rebuild\'s edit made').toBeGreaterThan(revision));
     expect(switchYaw(), 'the rebuilt switch').toBe(180);
@@ -849,5 +944,282 @@ describe('FC2-7: one frame for a piece\'s pose fields under a parent (the mounte
     expect(k.yaw, 'K turned with it (rotation.y)').toBeCloseTo(45 * DEG, 6);
     expect(k.at[0], 'K carried, x').toBeCloseTo(50 * Math.cos(45 * DEG), 1);
     expect(k.at[2], 'K carried, z').toBeCloseTo(-50 * Math.sin(45 * DEG), 1);
+  }, 90_000);
+
+  /*
+   * FN-4 (ours; FN.R4, FN.R5; a browser adaptation, FG.R2 -- the game has no editor): the six pose fields in one frame.
+   * Pitch, Yaw and Roll are one `YXZ` triple of the piece's turn relative to its parent's turn, typed and shown in whole
+   * degrees; a commit keeps that triple whole and the world turn on the record's hundredth (version 4 when an angle is
+   * off the whole degree). Each record value was computed by plain arithmetic in the `YXZ` order (the seat's, re-derived
+   * by the implementer: the parent's turn times the typed local triple, read back as the record's `poseOf` reads it).
+   * Written, NOT RUN (the host rule).
+   */
+  /** The record's version (`creator-contracts` `RECORD_VERSION` 3, `RECORD_VERSION_FINE_ANGLES` 4). */
+  const versionOf = (api: ForgeAgentApi): number => (api.read().layout as unknown as { version: number }).version;
+  /** The selected piece's three angle fields, in the order Yaw, Pitch, Roll. */
+  const angles = (): string[] => ['Yaw', 'Pitch', 'Roll'].map((l) => field(l).value);
+  /** Piece `i`'s pose row in the record (`[i, pitch, roll, sx, sy, sz]`), or null. */
+  const poseRowOf = (api: ForgeAgentApi, i: number): number[] | null => (rows(api).poses ?? []).find((p) => p[0] === i) ?? null;
+
+  it('FN-4, RED: under a parent pitched 30, a child given Yaw 45 then Pitch 3 shows 45 / 3 / 0, kept through a reopen; the record is version 4 (50.34 / 23.48 / 22.67)', async () => {
+    // Expected RED at the RED commit, at the first fields line: the Pitch and Roll fields read the WORLD turn, so after the
+    // Yaw the child shows 45 / -7 / 21 by hand, and a typed Pitch set the world pitch (`poseOn` on whole degrees): 41 / 3 /
+    // 21 (and the record is version 3; the seat measured a reopen reading the Pitch back as 2). Expected GREEN from the page
+    // commit: the local triple (45, 3, 0) kept whole, the world turn Rx(30) * Ry(45) * Rx(3) written on the hundredth --
+    // yaw 50.34, pitch 23.48, roll 22.67 -- which reads back as 44.997 / 3.001 / -0.002, shown 45 / 3 / 0.
+    const api = await mounted();
+    await parentAndChild(api, [['Pitch', '30']], []);
+    await select(api, 'piece:1');
+    typed('Yaw', '45');
+    expect(angles(), 'after the Yaw').toEqual(['45', '-30', '0']);
+    typed('Pitch', '3');
+    expect(angles(), 'after the Pitch').toEqual(['45', '3', '0']);
+    expect(versionOf(api), 'the record keeps the hundredth').toBe(4);
+    expect(rows(api).pieces[1]![4], 'the child\'s world yaw').toBe(50.34);
+    expect(poseRowOf(api, 1), 'the child\'s world pitch and roll').toEqual([1, 23.48, 22.67, 1, 1, 1]);
+    await keptThroughReopen(api, ['piece:0', 'piece:1']);
+    await select(api, 'piece:1');
+    expect(angles(), 'reopened').toEqual(['45', '3', '0']);
+  }, 90_000);
+
+  it('FN-4, RED: under a parent pitched 30, a child given Yaw 45 and Pitch 20 shows 45 / 20 / 0 before and after a reopen; the record 58.67 / 38.93 / 27.03', async () => {
+    // Expected RED at the RED commit (world Pitch and Roll: Yaw 35 / Pitch 20 / Roll 21 by hand). GREEN from the page
+    // commit: Rx(30) * Ry(45) * Rx(20) written 58.67 / 38.93 / 27.03 (version 4), read back 45 / 19.995 / -0.002.
+    const api = await mounted();
+    await parentAndChild(api, [['Pitch', '30']], []);
+    await select(api, 'piece:1');
+    typed('Yaw', '45');
+    typed('Pitch', '20');
+    expect(angles()).toEqual(['45', '20', '0']);
+    expect(versionOf(api)).toBe(4);
+    expect(rows(api).pieces[1]![4]).toBe(58.67);
+    expect(poseRowOf(api, 1)).toEqual([1, 38.93, 27.03, 1, 1, 1]);
+    await keptThroughReopen(api, ['piece:0', 'piece:1']);
+    await select(api, 'piece:1');
+    expect(angles(), 'reopened').toEqual(['45', '20', '0']);
+  }, 90_000);
+
+  it('FN-4, RED: under a parent at Yaw 40, Pitch 30, Roll 20, a child given Yaw 10, Pitch 85, Roll -70 shows them and keeps them through a reopen (the steep case)', async () => {
+    // Expected RED at the RED commit (world Pitch and Roll). GREEN from the page commit: each typed angle replaces one of
+    // the local triple (the child's local turn starts at -35 / -35 / 3, the inverse of the parent's), the world turn
+    // written 177.78 / 58.12 / 64.22 (version 4); near a local pitch of 85 a hundredth of the world turn moves the read
+    // yaw and roll by up to about 0.1 degree (1 / cos 85 = 11.5 times), here read back 9.970 / 84.999 / -70.032: shown
+    // 10 / 85 / -70.
+    const api = await mounted();
+    await parentAndChild(api, [['Yaw', '40'], ['Pitch', '30'], ['Roll', '20']], []);
+    await select(api, 'piece:1');
+    typed('Yaw', '10');
+    typed('Pitch', '85');
+    typed('Roll', '-70');
+    expect(angles()).toEqual(['10', '85', '-70']);
+    expect(versionOf(api)).toBe(4);
+    expect(rows(api).pieces[1]![4]).toBe(177.78);
+    expect(poseRowOf(api, 1)).toEqual([1, 58.12, 64.22, 1, 1, 1]);
+    await keptThroughReopen(api, ['piece:0', 'piece:1']);
+    await select(api, 'piece:1');
+    expect(angles(), 'reopened').toEqual(['10', '85', '-70']);
+  }, 90_000);
+
+  it('FN-4, CONTROL: a piece with no parent given Yaw 40, Pitch 30, Roll 20 writes version 3 (whole degrees, byte for byte as before)', async () => {
+    // Expected GREEN at the RED commit and after: at the top the local frame is the world's, the triple whole, so the world
+    // turn is whole and the record keeps version 3.
+    const api = await mounted();
+    expect(await api.execute('piece.place', { asset: 'MP2:crate', at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
+    await select(api, 'piece:0');
+    typed('Yaw', '40');
+    typed('Pitch', '30');
+    typed('Roll', '20');
+    expect(angles()).toEqual(['40', '30', '20']);
+    expect(versionOf(api)).toBe(3);
+    expect(rows(api).pieces[0]![4]).toBe(40);
+    expect(poseRowOf(api, 0)).toEqual([0, 30, 20, 1, 1, 1]);
+  }, 90_000);
+
+  it('FN-4, RED: a child under a parent pitched 30, its Pitch typed 25 twice: the second is no step and the fields do not drift', async () => {
+    // Expected RED at the RED commit, at the first fields line: world Pitch and Roll (Yaw 34 / Pitch 25 / Roll 21 by
+    // hand). GREEN from the page commit: the first 25 is one step (45 / 25 / 0, the world turn 61.8 / 43.35 / 29.09);
+    // the second finds the same local triple, the same world turn on the same lattice (`poseOn` is a function of the
+    // parent's turn and the whole triple alone), so `poseKept` holds: no step, the revision where it was.
+    const api = await mounted();
+    await parentAndChild(api, [['Pitch', '30']], []);
+    await select(api, 'piece:1');
+    typed('Yaw', '45');
+    typed('Pitch', '25');
+    expect(angles()).toEqual(['45', '25', '0']);
+    const revision = api.read().revision;
+    const record = JSON.stringify(rows(api));
+    typed('Pitch', '25');
+    expect(api.read().revision, 'typed again: no step').toBe(revision);
+    expect(JSON.stringify(rows(api)), 'the record as it was').toBe(record);
+    expect(angles(), 'no drift').toEqual(['45', '25', '0']);
+  }, 90_000);
+
+  it('FN-4, RED: the rotation\'s reset on a child under a parent pitched 30 shows 0 / 0 / 0, its world turn its parent\'s', async () => {
+    // Expected RED at the RED commit, at the fields line: the reset set the full local matrix's turn to none (the world
+    // turn the parent's), but Pitch showed the WORLD pitch, 30. GREEN from the page commit: the local triple 0 / 0 / 0,
+    // the world turn the parent's own (whole, so on the lattice as it is).
+    const api = await mounted();
+    await parentAndChild(api, [['Pitch', '30']], []);
+    await select(api, 'piece:1');
+    typed('Yaw', '45');
+    typed('Pitch', '25');
+    inspectorPanel(document).querySelector<HTMLButtonElement>('button[aria-label="Reset rotation"]')!.click();
+    expect(angles()).toEqual(['0', '0', '0']);
+    expect(apart(recordPose(api, 1).q, recordPose(api, 0).q), 'the child turned as its parent').toBeLessThan(1e-4);
+    await keptThroughReopen(api, ['piece:0', 'piece:1']);
+  }, 90_000);
+
+  it('FN-4, CONTROL: a parent\'s typed Yaw carries a child whose local triple is whole: the child\'s fields unchanged, and a reopen gives them back', async () => {
+    // A CONTROL, not a RED, by reading: a Yaw typed on a parent with no parent of its own premultiplies its world turn by a
+    // turn about the vertical (Ry(40) Rx(30) from Rx(30)), and the child carried with it is premultiplied by the same Ry,
+    // which changes neither its world pitch and roll (the RED commit's fields) nor its turn relative to the parent (the
+    // page commit's): Yaw 45 / Pitch 20 / Roll 0 after FN-4 (35 / 20 / 21 before it, by hand), unchanged either way. The
+    // parent's Pitch below is the RED one.
+    const api = await mounted();
+    await parentAndChild(api, [['Pitch', '30']], []);
+    await select(api, 'piece:1');
+    typed('Yaw', '45');
+    typed('Pitch', '20');
+    const before = angles();
+    await select(api, 'piece:0');
+    typed('Yaw', '40');
+    expect(field('Yaw').value).toBe('40');
+    await select(api, 'piece:1');
+    expect(angles(), 'the child\'s fields after its parent\'s Yaw').toEqual(before);
+    await keptThroughReopen(api, ['piece:0', 'piece:1']);
+    await select(api, 'piece:1');
+    expect(angles(), 'reopened').toEqual(before);
+  }, 90_000);
+
+  it('FN-4, RED: a parent\'s typed Pitch carries a child whose local triple is whole (45 / 20 / 0): the child\'s fields unchanged, and a reopen gives them back', async () => {
+    // Expected RED at the RED commit, at the first fields line: the child's Pitch and Roll were its WORLD turn's (35 / 20 /
+    // 21 there, by hand), and 36 / 35 / 36 after the parent went from 30 to 50, so even a test written for that frame
+    // would see them move. GREEN from the page commit:
+    // the carry keeps the child's turn relative to the parent (P' * P^-1 * C), read back 45.00003 / 19.995 / -0.002,
+    // so its whole triple 45 / 20 / 0 is snapped back at the commit (the parent first, then the child: `carryFollowers`
+    // in depth order), the world turn on the hundredth. Fix round 1 (F1), expectations unchanged: a carry keeps the
+    // relative turn unless it is within `LOCAL_TURN_WHOLE_EPSILON_ADAPTATION` of its whole triple, and this one is (the
+    // record's hundredth moves a turn by at most about 0.0105 degrees away from the vertical), so it is still put on
+    // 45 / 20 / 0. Fix round 3 (the constant 0.05 -> 0.1): unchanged, the same side of 0.1.
+    const api = await mounted();
+    await parentAndChild(api, [['Pitch', '30']], []);
+    await select(api, 'piece:1');
+    typed('Yaw', '45');
+    typed('Pitch', '20');
+    expect(angles()).toEqual(['45', '20', '0']);
+    await select(api, 'piece:0');
+    typed('Pitch', '50');
+    expect(field('Pitch').value).toBe('50');
+    await select(api, 'piece:1');
+    expect(angles(), 'the child\'s fields after its parent\'s Pitch').toEqual(['45', '20', '0']);
+    await keptThroughReopen(api, ['piece:0', 'piece:1']);
+    await select(api, 'piece:1');
+    expect(angles(), 'reopened').toEqual(['45', '20', '0']);
+  }, 90_000);
+
+  /*
+   * FN-4, fix round 1 (F1; ours, a browser adaptation, FG.R2 -- the game has no editor): an edit that is NOT about angles
+   * -- a carry by the parent, a typed X, Y or Z, a typed or scrubbed Scale, the gizmo's scale release -- keeps a piece's
+   * turn relative to its parent as it is, and puts only its world turn on the record's hundredth (`page.ts` `poseOn`
+   * with `whole` false; `transformStubs` `wholeOrKeptTurn`), unless that relative turn is already within
+   * `LOCAL_TURN_WHOLE_EPSILON_ADAPTATION` (0.1 degrees since fix round 3, the angle between the turns) of its whole
+   * triple, when it is put exactly on it. A Pitch, Yaw or Roll typed or let go, the rotation's reset and the gizmo's rotate release still put
+   * the relative triple on whole degrees. The pair below: a parent given Pitch 30 and Roll 20 while it has no child, a
+   * child left at the world's identity turn, then put under it through the tree (`parentAndChild`). The child's turn
+   * relative to the parent is Rz(-20) Rx(-30), `YXZ` 11.170 / -28.024 / -22.796 (plain arithmetic), 0.322 degrees from
+   * its whole triple 11 / -28 / -23 -- far outside 0.1 -- so an edit that is not about angles keeps it, and the child's
+   * world turn stays the identity. At `3a936e9c9f` (round 1) every commit put that triple on whole degrees: the child's
+   * world turn became Rz(-20) Rx(-30) snapped, times the parent's -- written yaw 359.87, pose [1, 0.08, 359.72, ...], a
+   * version-4 record (plain arithmetic, `YXZ`, read as `recordTurn` reads it), a turn of 0.322 degrees nobody asked for.
+   * Written, NOT RUN (the host rule).
+   */
+  /** The child (piece 1) still at the world's identity turn, as the record keeps it: its row's yaw 0, no pose row of its own. */
+  const childUnturned = (api: ForgeAgentApi, poses: number[][], why: string): void => {
+    expect(rows(api).pieces[1]![4], `${why}: the child's yaw (3a936e9c9f: 359.87)`).toBe(0);
+    expect(rows(api).poses, `${why}: the pose rows (3a936e9c9f: the child's [1, 0.08, 359.72, ...])`).toEqual(poses);
+    expect(versionOf(api), `${why}: whole degrees, version 3 (3a936e9c9f: 4)`).toBe(3);
+  };
+
+  it('FN-4 fix F1, RED: a parent pitched 30 and rolled 20 given X 20 carries its untouched child without turning it', async () => {
+    // Expected RED at `3a936e9c9f`, at the child's yaw: "expected 359.87 to be 0" -- the typed X's carry put the child's
+    // relative turn on whole degrees (`carryFollowers` -> `poseOn`). Expected GREEN from the fix: the carry is no angle
+    // edit, the relative turn (0.322 from whole) is kept, the world turn the identity, on the hundredth as it is.
+    const api = await mounted();
+    await parentAndChild(api, [['Pitch', '30'], ['Roll', '20']], []);
+    childUnturned(api, [[0, 30, 20, 1, 1, 1]], 'put under the parent');
+    await select(api, 'piece:0');
+    typed('X', '20');
+    expect(field('X').value).toBe('20');
+    childUnturned(api, [[0, 30, 20, 1, 1, 1]], 'carried by the parent\'s X');
+    await select(api, 'piece:1');
+    expect(angles(), 'its fields: the relative turn, shown on whole degrees').toEqual(['11', '-28', '-23']);
+  }, 90_000);
+
+  it('FN-4 fix F1, RED: the untouched child under a parent pitched 30 and rolled 20, given X 20 itself, is not turned', async () => {
+    // Expected RED at `3a936e9c9f`, at the child's yaw ("expected 359.87 to be 0"): the typed X's commit was
+    // `poseOn(s, {})`, the relative triple on whole degrees. Expected GREEN from the fix: a typed X is no angle edit.
+    const api = await mounted();
+    await parentAndChild(api, [['Pitch', '30'], ['Roll', '20']], []);
+    await select(api, 'piece:1');
+    typed('X', '20');
+    expect(field('X').value).toBe('20');
+    childUnturned(api, [[0, 30, 20, 1, 1, 1]], 'its own X typed');
+  }, 90_000);
+
+  it('FN-4 fix F1, RED: the untouched child under a parent pitched 30 and rolled 20, given Scale X 2, is scaled and not turned', async () => {
+    // Expected RED at `3a936e9c9f`, at the child's yaw ("expected 359.87 to be 0"; its pose row [1, 0.08, 359.72, 2, 1,
+    // 1]): a typed Scale was `commitTurnField` -> `poseOn` with no angle named, the relative triple on whole degrees.
+    // Expected GREEN from the fix: its pose row [1, 0, 0, 2, 1, 1], its turn the identity.
+    const api = await mounted();
+    await parentAndChild(api, [['Pitch', '30'], ['Roll', '20']], []);
+    await select(api, 'piece:1');
+    typed('Scale X', '2');
+    expect(field('Scale X').value).toBe('2');
+    childUnturned(api, [[0, 30, 20, 1, 1, 1], [1, 0, 0, 2, 1, 1]], 'its Scale X typed');
+  }, 90_000);
+
+  it('FN-4 fix F1, CONTROL: the same child given Pitch 25 -- an angle edit -- has its three fields on whole degrees, kept through a reopen', async () => {
+    // Expected GREEN at `3a936e9c9f` and after the fix: a typed Pitch names an angle, so `poseOn` puts the relative triple
+    // on whole degrees (11 / 25 / -23 from 11.170 / -28.024 / -22.796), the world turn on the hundredth (27.04 / 47.52 /
+    // 11.88, version 4), read back 10.9986 / 24.9972 / -22.9953 (plain arithmetic): shown 11 / 25 / -23 again.
+    const api = await mounted();
+    await parentAndChild(api, [['Pitch', '30'], ['Roll', '20']], []);
+    await select(api, 'piece:1');
+    typed('Pitch', '25');
+    expect(angles(), 'the relative triple on whole degrees').toEqual(['11', '25', '-23']);
+    expect(versionOf(api)).toBe(4);
+    expect(rows(api).pieces[1]![4]).toBe(27.04);
+    expect(poseRowOf(api, 1)).toEqual([1, 47.52, 11.88, 1, 1, 1]);
+    await keptThroughReopen(api, ['piece:0', 'piece:1']);
+    await select(api, 'piece:1');
+    expect(angles(), 'reopened').toEqual(['11', '25', '-23']);
+  }, 90_000);
+
+  it('FN-4 fix F1, CONTROL: no drift -- a child at 45 / 25 / 0 under a parent pitched 30, the parent\'s Yaw typed 10 to 50, keeps 45 / 25 / 0', async () => {
+    // Expected GREEN at `3a936e9c9f` and after the fix. At `3a936e9c9f` every carry put the relative triple back on whole
+    // degrees. After the fix a carry keeps it, except within `LOCAL_TURN_WHOLE_EPSILON_ADAPTATION`: the child read back off
+    // the record's hundredth is 0.00505 degrees from 45 / 25 / 0 (plain arithmetic), inside 0.1, so each carry puts it
+    // exactly there and the world turn on the hundredth again -- 61.8 / 43.35 / 29.09 at the parent's yaw 0, the yaw 10
+    // more at each step (a yaw about the vertical adds to the outer `YXZ` yaw): 111.8 / 43.35 / 29.09 at 50. (A yaw of a
+    // parent at the top cannot show a drift on its own -- it turns the child about the vertical, which keeps its
+    // lattice -- so the exception is held by the parent's Pitch case above, whose carry moves the world turn off it.)
+    const api = await mounted();
+    await parentAndChild(api, [['Pitch', '30']], []);
+    await select(api, 'piece:1');
+    typed('Yaw', '45');
+    typed('Pitch', '25');
+    expect(angles()).toEqual(['45', '25', '0']);
+    for (const yaw of ['10', '20', '30', '40', '50']) {
+      await select(api, 'piece:0');
+      typed('Yaw', yaw);
+      expect(field('Yaw').value).toBe(yaw);
+      await select(api, 'piece:1');
+      expect(angles(), `after the parent's Yaw ${yaw}`).toEqual(['45', '25', '0']);
+    }
+    expect(rows(api).pieces[1]![4], 'the child\'s world yaw').toBe(111.8);
+    expect(poseRowOf(api, 1), 'the child\'s world pitch and roll').toEqual([1, 43.35, 29.09, 1, 1, 1]);
+    await keptThroughReopen(api, ['piece:0', 'piece:1']);
+    await select(api, 'piece:1');
+    expect(angles(), 'reopened').toEqual(['45', '25', '0']);
   }, 90_000);
 });

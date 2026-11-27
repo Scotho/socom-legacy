@@ -86,6 +86,7 @@ The research notes are in [`research/`](research/); `repo/NN` is a note of the P
 | Spawn slots, tactical map | `AIMAPS.MPS` (not a ZAR) | `scene/src/aimaps.ts`, `tools/dump-aimaps.ts` | research 75 (read to its last byte; all 1,058 slots stand on the floor); `scene/test/aimaps.test.ts` |
 | LOD, fog, scrolling, facades, culling | `READERM.ZAR/lod.rdr`, the world root, node flags, GIFtags | `scene/src/lod.ts`, `viewer/src/fog.ts`, `lodFade.ts` | README "What the picture is made of"; research 82; `viewer/test/fog.test.ts`, `lodFade.test.ts` |
 | One map to glTF | any of the above | `npm run export-gltf` | for Blender or a glTF validator |
+| Abandoned (Day)'s inputs (a browser adaptation, DAY-P1a) | SOCOM (USA)'s MP5, not this disc: an input directory extracted once through the parked SOCOM 1 readers, named by `SOCOM1_MP5_DIR`, each file pinned by sha256; with this disc's `RUN/MP5.ZDB` through `loadMap` | `tools/variants/buildAbandonedDay.ts` (`tools/variants/README.md`) | `tools/test/variantsAbandonedDay.test.ts` (dev-disc: the key of a fresh load, exact share, determinism) |
 
 ### The player and the weapons
 

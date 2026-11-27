@@ -103,7 +103,9 @@ multiplayer bug (no MP archive has such a pair), but it is what lets the one exa
 
 At two passes the Seeding Chaos frame differed mostly in the stream: the console draws a dark grey translucent sheet over
 the bed, the viewer drew the brown bed alone. That is the `0x34`/`0x36` pass (research 15 §6, research 26 §3.2,
-`FUN_003b5b90`): a visual whose `vparams` byte 7 names a `Material_Palette` entry gets a second pass whose ST is the sphere
+`FUN_003b5b90`): a visual whose `vparams` byte 7 names a `Material_Palette` entry -- and whose `vparams` word has bit 14
+(0x4000) set, with `DAT_003e1460` set and `DAT_004b4a60` clear (D:L306875-306876 in `CVisual::VuUpdate` `FUN_003b4580`;
+the byte, the palette count and the record's `+0x14 == 2` follow, D:L306891-306902) -- gets a second pass whose ST is the sphere
 map of the eye ray's reflection off the vertex normal and whose alpha is `(1 + a) * vertex alpha * rim`. The block's
 numbers are the palette entry's: M51's `palEntry_5` is base (33, 33, 33, 65), uv scale 1.5, rim 100 / 0.01, `sky01.tif` --
 the live dump's block word for word. On the multiplayer maps the textured entries are bound to the water (Blood Lake,
@@ -114,10 +116,11 @@ bright. Open within it: the untextured entries (kind word 2: truck bodies, chrom
 engine gives them is not established; Vigilance's `cloud_scroll.tif` entry names a texture no library holds (a
 diagnostic, no pass); and no multiplayer console frame of water exists to check the MP maps against. *(Corrected
 2026-10-02: the untextured entries and Vigilance's unresolved `cloud_scroll.tif` were settled in round 4 below -- the
-engine itself draws them with `DAT_004b4d90`, `specular_map.tif` (`FUN_003bb2c0` for an unresolved name, `FUN_003b5f20`
-for an empty one), and so does the viewer; the `texture cloud_scroll.tif: in none of the map's ... asset libs` line
-that stays in the diagnostics records a disc fact, not a defect. Pinned by `viewer/test/heldMapAssets.test.ts`
-(SOCOM_DISC), ported from Chris's browser-beta-v5, whose "cosmetic fallback" label for it this replaces.)*
+engine itself draws them with `DAT_004b4d90`, `specular_map.tif` (`FUN_003bb2c0` for an unresolved name,
+`FUN_003b5b90` -- called from `FUN_003b5f20` -- for an empty one), and so does the viewer; the `texture
+cloud_scroll.tif: in none of the map's ... asset libs` line that stays in the diagnostics records a disc fact, not a
+defect. Pinned by `viewer/test/heldMapAssets.test.ts` (SOCOM_DISC), ported from Chris's browser-beta-v5, whose
+"cosmetic fallback" label for it this replaces.)*
 
 ### D6 — Multisampling in the PS2 presentation — **fixed** (`8394f141`)
 
@@ -204,7 +207,9 @@ commits; walk mode is not this workstream's.
   upper-wins reading; lower-wins would give 65, 1.5 % less), so the excess is more likely the base water pass or the bed
   under it than this one.
 - **The untextured palette entries** (kind word 2: truck bodies, chrome, lockers) -- **open**. The env gate is the
-  runtime record's `+0x14 == 2` (`FUN_003b6a00`), and a record with no texture falls back to `DAT_004b4d90`
+  runtime record's `+0x14 == 2` (D:L306902 in `FUN_003b4580`; `FUN_003b6a00`, cited here before and in
+  `packages/scene/src/sceneGraph.ts` until 2026-11-24, starts no function -- 0x3b6a00 lies inside `FUN_003b6870`), behind the visual word's bit 14 (D:L306876; the port does not test it, atlas lead
+  L335), and a record with no texture falls back to `DAT_004b4d90`
   (`FUN_003b5b90`); the disc's `dat[5]` is 2 on exactly these entries and 0 on the textured ones that the one live
   block shows drawing -- so either both kinds get the pass (the untextured with the default texture) or `+0x14` is not
   `dat[5]`. The palette-to-record copy is the function to read next.
@@ -218,7 +223,10 @@ commits; walk mode is not this workstream's.
   `CWorld::AddChild` (`FUN_0031f240`) gives that child a `CRenderMap` (`FUN_0031a9a0`) -- grenades, claymores and other
   SEALs never get one. Each frame `FUN_0031a180` puts the map's camera at the actor's bounds centre looking down the
   root's `ShadowVector`, far 1.5x the largest side, and fits an orthographic frustum to the eight corners with a
-  texel's margin; the actor goes into the 256x256 `ShadowX_%d` target as `0x40`'s black triangles. The projection is
+  texel's margin -- with `DAT_0045c348` clear a square one, both axes scaled by the largest of the three projected
+  extents (D:L217932-217942), and only with it set X and Y apart -- and then not from the projected corners but from
+  extents taken off the bounds before the corner loop (D:L217807-217826, D:L217943-217946; what sets `DAT_0045c348` is
+  unread; the port fits X and Y apart to the corners, atlas lead L334); the actor goes into the 256x256 `ShadowX_%d` target as `0x40`'s black triangles. The projection is
   VU1 `0x3c`/`0x3e` (disassembled at `0x2b80`): ST through the map's matrix, colour the map's (black), alpha
   `W * clamp(-D.N) * clamp((P - v).N) * clamp((far - (P - v).N) / (far - near))` with `W = ShadowWeight * 255` in
   0..128 terms -- 0.25 (the `CWorld` default at `+0x680`; no map names a `ShadowWeight`) -- blended source-alpha over
@@ -239,8 +247,9 @@ commits; walk mode is not this workstream's.
   (36-466 ms on these runs), the audio workstream's. The first paint moves 0-0.5 s later.
 - **The untextured palette entries** (`451ab170`). `FUN_003bb2c0` is the palette-to-record copy: `dat` over the 0x3c
   record, `tex_name` to `+0x38`; an entry flagged textured (`dat[7]` bit 0) becomes kind 2 with its texture resolved
-  or `DAT_004b4d90`; an unflagged one keeps its saved kind and an empty `+0x38`, which the env pass
-  (`FUN_003b5f20`) replaces by the same `DAT_004b4d90` -- the loaded texture whose name holds `specular_map` (the scan at
+  or `DAT_004b4d90`; an unflagged one keeps its saved kind and an empty `+0x38`, which the env pass's callee
+  `FUN_003b5b90` (called from `FUN_003b5f20`; D:L307723-307729, D:L307765-307769) replaces by the same `DAT_004b4d90`
+  -- the loaded texture whose name holds `specular_map` (the scan at
   decomp 49244), `specular_map.tif`, in every map. Every entry on the disc is kind 2, so the untextured ones draw the pass
   too: Frostfire's two pipe textures, Desert Glory's trucks (a glint on the cab, +23 levels over 496 pixels), Vigilance
   (MP51, five entries) and Sandstorm (MP73, two). An entry whose texture will not resolve (Vigilance's
@@ -306,13 +315,20 @@ source by a second reader), with one capture comparison each. Evidence kinds are
 ### D9 -- The engine's alpha pass is a visual flag, not a texture name -- **fixed** (this round)
 
 - **Read** (`FUN_003374c0`, `CPipe::RenderVisual`, D:L235422-235438): a visual whose `vparams` word has bit 0 set
-  and bit 8 clear -- or whose node's opacity is under 1 -- is not drawn as the walk reaches it; `FUN_003371b0`
+  and bit 8 clear -- or whose node's opacity is under 1 -- is not drawn as the walk reaches it, unless the node's
+  `+0x5f` bit 0 or the pipe's `+0x714` or `+0x711` byte is set, which draw it in place whatever its flag
+  (D:L235422-235425); and it is queued only when the opacity is above 0.0078125 -- at or below that it is neither
+  drawn nor queued (D:L235437-235438). `FUN_003371b0`
   (D:L235314-235322) puts it on the pipe's alpha list (pipe+0x638) keyed by the squared range from the camera to its
   centroid (bit 18 would force 1e8, the far end; no shipped map sets it), `FUN_00336f60` (D:L235220-235255) keeps the
   list sorted, and `FUN_00336cb0` draws it at the very end of `RenderWorld` (`FUN_00339de0` D:L237235), far to near,
   after the grid walk (D:L236851-236945), the landmarks (D:L236953-236977), the deferred-layer nodes (node flag bit
   11: Vigilance's sky dome and its four turrets, D:L236174-236181 and D:L237100-237112) and the node-level alpha list
-  (`FUN_00337f40`, node flag bit 7). reCOM's `tag_VIS_PARAMS` names bit 0 `m_parent_has_visuals`; the decompilation
+  (`FUN_00337f40` `CPipe::RenderDelayedNodes`; `CPipe::SaveDelayedNode` `FUN_003381f0` keeps a node there when the
+  node word's bit 0 and `+0x5e` bit 7 -- word bit 23 -- are both set, D:L235779; the word's bit 7, or an opacity under
+  0.9921875, only adds alpha textures -- `FUN_003383f0` `CPipe::AddAlphaTextures` for the node and for each child that
+  carries bit 0 and bit 23, D:L235803-235811; r0004's twins of `FUN_003374c0`, `FUN_003381f0`, `FUN_003383f0`,
+  `FUN_00337f40`, `FUN_003b4580` and `FUN_0031a180` are unchanged, masked). reCOM's `tag_VIS_PARAMS` names bit 0 `m_parent_has_visuals`; the decompilation
   does not bear that out. The flagged visuals (a scratch survey, not kept): Frostfire 70 (the drop shadows, the lamp
   flares and glows, the windows, the door panes), Vigilance 22 (the shadows, the chainlink doors, the puddles, the
   whispy cloud layer, an air-conditioner's logo), Desert Glory 178, Crossroads 18.
@@ -337,7 +353,9 @@ source by a second reader), with one capture comparison each. Evidence kinds are
   depth write off in either order, and under three's order the pass in the transparent list, a cutout of it too, so
   `restOrder` holds it after the walk; the material cache keys on the pass. Pinned by `worldOrder.test.ts` and
   `materialSpec.test.ts`)*; the node-level alpha list
-  (bit 7: Vigilance's `metalgrate_door`, `water_wc11`, `whispy_scroller`, `ac_unit`, `wc08`, `wc18`, `wc19b`) and the
+  (surveyed by the node word's bit 7 -- Vigilance's `metalgrate_door`, `water_wc11`, `whispy_scroller`, `ac_unit`,
+  `wc08`, `wc18`, `wc19b` -- which is the alpha-texture bit, not the list's own test of bit 0 and bit 23 above; which
+  nodes the list really holds is not re-surveyed) and the
   deferred layers (bit 11) are read but not given passes of their own -- their visuals are either alpha-pass visuals
   already or opaque, and nothing seen depends on them yet. The README's line "the engine draw order stays a switch
   until the pass that keeps a flare from cutting the wall behind it is found" (its open-items list) names this pass;

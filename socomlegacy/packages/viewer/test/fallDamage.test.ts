@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { SEAL_TUNING } from '@s2u/scene';
+import { SEAL_TUNING, type CollisionOwner, type GridParams, type WorldPoly } from '@s2u/scene';
 import { landSpeeds, landingClass as soundLandingClass } from '@s2u/sound';
 import { landingClass as moverLandingClass } from '../src/mover';
 import {
   applyFall, fallDamageFraction, fallSpeeds, freshHealth, FALL_DEATH_SPEED, FALL_HEAVY_SPEED, FALL_HURT_SPEED, FALL_SPEEDS,
-  KNOCK_LANDING_SPEED_FACTOR, MP_ARMOUR, MP_HEALTH, PARTS,
+  DIVE_LANDING_BIT3_READING, DIVE_LANDING_SPEED_FACTOR, MP_ARMOUR, MP_HEALTH, PARTS,
 } from '../src/net/damage';
+import * as damage from '../src/net/damage';
+import { groundGrid, packGround, Walker, type WalkInput } from '../src/sim';
 
 /**
  * Fall damage (research 151; `FUN_005ac1f0` D:L464866-464960): the one quantity -- the landing's contact speed against
@@ -85,11 +87,17 @@ describe('the fraction and the six parts (FUN_005ac1f0 D:L464890-464897, D:L4649
     expect(low.hp).toEqual([0, 0, 0, 0, 0, 0]);
   });
 
-  it('a blast knock\'s landing reaches the rule at its contact speed x 1.2 (FUN_00580360 D:L441929)', () => {
-    expect(KNOCK_LANDING_SPEED_FACTOR).toBe(1.2);
-    // A knock landing at 150 a second is read as 180: over the light speed, so it hurts where a plain fall at 150 does not.
+  // R4P-104 (reading, pending review): the x 1.2 is the dive's landing's alone -- r0004 0x585900 (r0001 `FUN_00580360`),
+  // its scaled call at 0x585980-0x585994 (D:L441929), reached only with `dive_to_prone` in play (r0004 0x5b5ce4-0x5b5cfc;
+  // r0001 D:L466908-466914). A knock's landing (`Fall forward` / `Fall backwards`) takes the plain speed (r0004
+  // 0x5b5aa8-0x5b5aac; r0001 D:L466836, D:L466844): the knock-named factor is gone.
+  it('a dive\'s landing reaches the rule at its contact speed x 1.2 (r0004 0x585980-0x585994; FUN_00580360 D:L441929); no knock factor', () => {
+    expect(DIVE_LANDING_SPEED_FACTOR).toBe(1.2);
+    expect(DIVE_LANDING_BIT3_READING).toBe('ignored');
+    expect('KNOCK_LANDING_SPEED_FACTOR' in damage).toBe(false);
+    // A dive landing at 150 a second is read as 180: over the light speed, so it hurts where a plain fall at 150 does not.
     expect(fallDamageFraction(150)).toBe(0);
-    expect(fallDamageFraction(150 * KNOCK_LANDING_SPEED_FACTOR)).toBeGreaterThan(0);
+    expect(fallDamageFraction(150 * DIVE_LANDING_SPEED_FACTOR)).toBeGreaterThan(0);
   });
 });
 
@@ -101,5 +109,54 @@ describe('a landing takes the body\'s own maxima (FUN_005ac1f0: +0x1014 x f; the
     expect(f).toBeGreaterThan(0);
     applyFall(h, v);
     h.hp.forEach((hp, i) => expect(hp).toBeCloseTo(max[i]! - max[i]! * f, 9));
+  });
+});
+
+// R4P-104 review F3: the dive's mark (`markDiveFall`) is the landing's the dive's fall ends in. A fall the traversal ends
+// with no landing (`setAirborne(false)`: the jump-grab, a ladder's or a hang's hand-back) ends the dive's fall with it, so
+// a later ordinary landing is not the dive's (r0004 0x5b5ce4-0x5b5cfc: `dive_to_prone` in play at THAT contact).
+describe("R4P-104 review F3: a dive's fall ended without a landing leaves no mark on a later landing", () => {
+  const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
+  const STILL: WalkInput = { forward: 0, right: 0, boost: false };
+  const FLOOR: WorldPoly = {
+    modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
+  };
+  function walker(): Walker {
+    const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
+    const w = new Walker(groundGrid(packGround(PARAMS, [FLOOR], owners)));
+    expect(w.place(0, 20, 0)).toBe(true);
+    w.settle();
+    return w;
+  }
+  /** Lifts the body `h` over the floor and ticks until it is in the air. */
+  function lift(w: Walker, h: number): void {
+    w.state.y = h;
+    for (let i = 0; i < 10 && !w.airborne; i++) w.tick(STILL);
+    expect(w.airborne).toBe(true);
+  }
+  function fallToFloor(w: Walker): void {
+    for (let i = 0; i < 600 && w.airborne; i++) w.tick(STILL);
+    expect(w.airborne).toBe(false);
+  }
+
+  it("the control: a marked dive fall lands as the dive's", () => {
+    const w = walker();
+    lift(w, 30);
+    w.markDiveFall();
+    fallToFloor(w);
+    expect(w.landing!.dived).toBe(true);
+  });
+
+  it("a marked dive fall handed back by setAirborne(false), then an ordinary fall: that landing is not the dive's", () => {
+    const w = walker();
+    lift(w, 30);
+    w.markDiveFall();
+    w.setAirborne(false);                                // the jump-grab / hand-back: no landing recorded
+    w.state.y = 0;
+    for (let i = 0; i < 30; i++) w.tick(STILL);
+    lift(w, 30);                                         // a later ordinary fall
+    fallToFloor(w);
+    expect(w.landing!.dived).toBe(false);
   });
 });

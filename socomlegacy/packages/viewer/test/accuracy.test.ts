@@ -8,6 +8,7 @@ import { groundGrid, packGround, Walker } from '../src/mover';
 import {
   Accuracy, burstScalar, DEFAULT_FIRE_MODE_FULL_AUTO_ADAPTATION, defaultFireMode, enterRaises, fireInterval, kickStarts, kickTicks, lookRates, LOOK_JUMP_READING, MAP_FOV, movementSize, nextFireMode,
   originalSpawnFireMode, penetrate, perturb, RADIUS_FACTOR, roundsPerPull, SWAP_KNOCK_READING, tangentPerPixel, TICK, type AccuracyInput,
+  AIR_BODY_VELOCITY_READING, airBloomFeed, CARRIED_FALL_Y_READING, SCOPED_SECOND_ROUND_CAP_SCALE_READING,
 } from '../src/accuracy';
 
 /**
@@ -54,7 +55,41 @@ describe('the reticle size (FUN_005c2670, FUN_005c3360)', () => {
   it('turning and pitching count 158.7 x rate^2; in the air the carried speed counts twice', () => {
     expect(movementSize(sd.stand, { ...still, yawRate: 0.2 })).toBeCloseTo(5.29 * 30 * 0.04, 9);
     expect(movementSize(sd.stand, { ...still, pitchRate: 0.3 })).toBeCloseTo(5.29 * 30 * 0.09, 9);
+    // AS-34 L78: the airborne term is |carried|^2 / 65, all three of its components (r0004 0x5c9db4-0x5c9e30, the loads
+    // 0x5c9e00/0x5c9e08/0x5c9e10 of body +0x1354..+0x135c; r0001 FUN_005c2670 D:L477334-477337).
+    expect(movementSize(sd.stand, { ...still, velocity: [20, -5, 0], carried: [20, -5, 0], airborne: true })).toBeCloseTo((425 + 425) / 65, 9);
+  });
+
+  it("AS-34 L78: in the air the carried vector counts, all three components, not the mover's own velocity", () => {
+    // The body still (a running jump's launch zeroes +0x2c..+0x34, r0004 0x583a08-0x583a10), carried (3, 4, 12): 169 / 65.
+    expect(movementSize(sd.stand, { ...still, airborne: true, velocity: [0, 0, 0], carried: [3, 4, 12] })).toBeCloseTo(169 / 65, 12);
+    // On the floor the term is off (the +0x105e bit 5 gate): a carried vector left over adds nothing.
+    expect(movementSize(sd.stand, { ...still, airborne: false, velocity: [0, 0, 0], carried: [48.8, 0, 0] })).toBe(0);
+    // No carried vector given (the room's cone, the lens): the mover's own pair with the fall's y CARRIED_FALL_Y_READING.
+    expect(CARRIED_FALL_Y_READING).toBe(0);
     expect(movementSize(sd.stand, { ...still, velocity: [20, -5, 0], airborne: true })).toBeCloseTo((425 + 400) / 65, 9);
+  });
+
+  it("AS-34 L78: a running jump's airborne frame at 48.8 u/s aims at 48.8^2 / 65 = 36.64, clamped to TargetMax 26", () => {
+    const feed = airBloomFeed({ vx: 48.8, vy: -3, vz: 0 }, { x: 48.8, z: 0, runningJump: true });
+    expect(feed).toEqual({ velocity: [0, 0, 0], carried: [48.8, 0, 0] });
+    expect(movementSize(sd.stand, { ...still, airborne: true, ...feed })).toBeCloseTo(48.8 * 48.8 / 65, 9);
+    const a = new Accuracy(HELD_RIFLE);
+    a.update(TICK, { ...still, airborne: true, ...feed });
+    expect(a.state().target).toBe(26);
+    // A flight that is not a running jump (a walk-off, a knock, a traversal's fall): the mover's velocity stays the body's
+    // (AIR_BODY_VELOCITY_READING), the carried y CARRIED_FALL_Y_READING -- today's sum, unchanged.
+    expect(AIR_BODY_VELOCITY_READING).toBe('zero after a jump launch');
+    expect(airBloomFeed({ vx: 20, vy: -5, vz: 0 }, { x: 20, z: 0, runningJump: false })).toEqual({ velocity: [20, -5, 0], carried: [20, CARRIED_FALL_Y_READING, 0] });
+    // ATLAS's bloom double-check (2026-11-24, reading): the carry at ~30 u/s (a walking jump, past RUNNING_JUMP_SPEED 15)
+    // is counted once, with no Mult: 900 / 65 = 13.85 on the SD's stand row. *Was:* the mover's (30, vy, 0) under Mult plus
+    // the pair again -- 27.7 and more, clamped to 26 (about 12 px over).
+    const walking = airBloomFeed({ vx: 30, vy: -4, vz: 0 }, { x: 30, z: 0, runningJump: true });
+    const w30 = new Accuracy(HELD_RIFLE);
+    w30.update(TICK, { ...still, airborne: true, ...walking });
+    expect(w30.state().target).toBeCloseTo(900 / 65, 9);
+    // No walker (fly mode, the turret): the mover's own, no carried vector.
+    expect(airBloomFeed({ vx: 1, vy: 2, vz: 3 }, null)).toEqual({ velocity: [1, 2, 3] });
   });
 
   it('the M4A1 grows its bloom over a burst (AccBurstCnt 4..7, AccScalar 0..0.03); the SD does not', () => {
@@ -130,17 +165,60 @@ describe('the knock (FUN_005c3360, FUN_005c2670)', () => {
     expect(a.state().size).toBe(24);                                 // TargetMax prone 24
   });
 
-  it('scoped (5+): no knock, no bloom; the first round kicks, the second drops the scope', () => {
+  it('scoped (5+): the first round kicks and adds nothing; the second drops the scope, then takes the knock and the bloom', () => {
+    // AS-34 L77 (reading, pending review): the drop r0004 0x5cd580-0x5cd5c4 (r0001 FUN_005c5340 D:L479399-479406) calls
+    // 0x5492c0(body, 1), which stores the new view in +0x200 at once (0x5492f0; r0001 FUN_005448a0 D:L410938-410941), and
+    // the round's Recoil r0004 0x5ca830 (r0001 FUN_005c3360) runs after it (r0004 0x5cdbc0; D:L479541-479542): its gate
+    // (state under 5 and not 4, D:L477752-477753) reads 1. Was pinned: `size: 1, offset: [0, 0]` after both rounds.
     const a = new Accuracy(HELD_RIFLE);
     a.trigger();
-    expect(a.round(5, 'stand')).toEqual({ dropZoom: false, kick: true });
-    expect(a.round(5, 'stand')).toEqual({ dropZoom: true, kick: false });
-    expect(a.state()).toMatchObject({ size: 1, offset: [0, 0], burst: 2 });
+    expect(a.round(5, 'stand', undefined, undefined, 3)).toEqual({ dropZoom: false, kick: true });
+    expect(a.state()).toMatchObject({ size: 1, offset: [0, 0], burst: 1 });
+    expect(a.round(5, 'stand', undefined, undefined, 3)).toEqual({ dropZoom: true, kick: false });
+    expect(a.state()).toMatchObject({ size: 8, offset: [0, -12], burst: 2 });   // KnockCount 1 < 2: the full 12; 1 + 7
     expect(kickStarts(0, 1)).toBe(false);                            // unscoped: the camera never kicks
     expect(kickStarts(1, 1)).toBe(false);
     expect(kickStarts(5, 1)).toBe(true);
     expect(kickTicks(4)).toBe(true);
     expect(kickTicks(1)).toBe(false);
+  });
+
+  it("AS-34 L77: the second scoped round's cap rides the camera scale cam+0x474 (the scope's magnification)", () => {
+    // D:L477762-477795: the clamp is ReticuleKnockMax x cam+0x474 up; the drop writes no cam+0x474 (r0004 0x5492c0's
+    // camera calls 0x292930 / 0x2928e0 write +0x480 / +0x484 only), so the scale is still the scope's 3
+    // (SCOPED_SECOND_ROUND_CAP_SCALE_READING).
+    const climbed = (): Accuracy => {
+      const a = new Accuracy(HELD_RIFLE);
+      a.trigger();
+      for (let i = 0; i < 7; i++) a.round(1, 'stand', undefined, undefined, 1);
+      expect(a.state().offset[1]).toBe(-45);
+      a.trigger();
+      return a;
+    };
+    const scoped = climbed();
+    scoped.round(5, 'stand', undefined, undefined, 3);
+    scoped.round(5, 'stand', undefined, undefined, 3);
+    expect(scoped.state().offset[1]).toBeCloseTo(-57, 9);           // -45 - 12, under the cap 45 x 3 = 135
+    const plain = climbed();                                         // the control: first person at 1x stays capped
+    plain.round(1, 'stand', undefined, undefined, 1);
+    plain.round(1, 'stand', undefined, undefined, 1);
+    expect(plain.state().offset[1]).toBe(-45);
+    expect(SCOPED_SECOND_ROUND_CAP_SCALE_READING).toBe('the running magnification at the round');
+  });
+
+  it('AS-34 L77: binoculars (4) add nothing and never drop; night vision (3) adds on every round', () => {
+    const b = new Accuracy(HELD_RIFLE);
+    b.trigger();
+    expect(b.round(4, 'stand')).toEqual({ dropZoom: false, kick: false });
+    expect(b.round(4, 'stand')).toEqual({ dropZoom: false, kick: false });
+    expect(b.state()).toMatchObject({ size: 1, offset: [0, 0], burst: 2 });
+    const n = new Accuracy(HELD_RIFLE);
+    n.trigger();
+    expect(n.round(3, 'stand')).toEqual({ dropZoom: false, kick: false });
+    expect(n.state().offset[1]).toBeCloseTo(-4.8, 9);
+    expect(n.round(3, 'stand')).toEqual({ dropZoom: false, kick: false });
+    expect(n.state()).toMatchObject({ size: 15 });
+    expect(n.state().offset[1]).toBeCloseTo(-16.8, 9);
   });
 
   it('first person (state 1, the owner 2026-10-01): knocked as unscoped, no kick, the reticle drawn full size', () => {
@@ -161,7 +239,7 @@ describe('the stance the round and the exertion read (FUN_0058a720: (body, 1) th
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
     const floor: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+      points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
     };
     const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
     const w = new Walker(groundGrid(packGround(params, [floor], owners)));
@@ -184,9 +262,11 @@ describe('the stance the round and the exertion read (FUN_0058a720: (body, 1) th
     const first = a.state().offset[1];
     a.round(0, w.posture);
     expect(first - a.state().offset[1]).toBeCloseTo(12, 9);
-    // The page's gun (`./matchFirearm`, both pages': ONE-WIRE) reads the posture (walk.posture(), the (body, 1) value), never the raw stance.
+    // The page's gun (`./matchFirearm`, both pages': ONE-WIRE) reads the stance in use (walk.stanceInUse(), FUN_0058a720(body, 1):
+    // stand in the crouched stop, else the posture; SWAPFIRE-CROUCH), never the raw stance.
     const main = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src/matchFirearm.ts'), 'utf8');
-    expect(main).toMatch(/const stance = walk\.posture\(\);\s*if \(accuracy\.round\(zoom\.state\(\), stance\)/);
+    // LATER 1141: with the round's depth ratio (the climb's cap x f); AS-34 L77: and the camera scale (the cap x cam+0x474).
+    expect(main).toMatch(/const stance = walk\.stanceInUse\(\);\s*if \(accuracy\.round\(zoom\.state\(\), stance, undefined, depth, zoom\.magnification\(\)\)/);
     // TURRET-RETICLE (#283): mounted, the reticle's stance is the turret's named reading; on foot, the raw stance as before.
     expect(main).toMatch(/rawStance: turret \? TURRET_RETICLE_STANCE_READING : walk\.stance\(\)/);
   });
@@ -482,9 +562,9 @@ describe('the exertion (body+0xeb0: FUN_00550ef0 418340-418390, FUN_00578150, FU
 });
 
 describe('the fire modes (FUN_005c0940, FUN_005c09f0, FUN_005c4600)', () => {
-  it('single 1 round a pull at FireWait, burst 3 and automatic at 0.8 x FireWait', () => {
+  it('single 1 round a pull at FireWait x 1.2 (SWAP-FIRE, r0004 0x5c76f0), burst 3 and automatic at 0.8 x FireWait', () => {
     expect([0, 1, 2, 3].map(roundsPerPull)).toEqual([0, 1, 3, 10000]);
-    expect(fireInterval(0.14, 1)).toBe(0.14);
+    expect(fireInterval(0.14, 1)).toBeCloseTo(0.168, 12);           // was 0.14: r0001's FUN_005c09f0, the wrong build
     expect(fireInterval(0.14, 2)).toBeCloseTo(0.112, 12);
     expect(fireInterval(0.14, 3)).toBeCloseTo(0.112, 12);           // 536 rounds a minute on the SD
   });

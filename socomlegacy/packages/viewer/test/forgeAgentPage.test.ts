@@ -6,7 +6,7 @@ import { FORGE_LAYOUT_KEY, FORGE_VIEW_KEY, pageSettings } from '../src/pageStore
 import { saveNamed } from '../src/forge/saves';
 import { freshSavesDb, readStoredList, writeStoredSaves } from './forge/fakeSaves';
 import type { LoadedMap } from '../src/loadMap';
-import { pressSaves, pressMenubar, pressForgeMenu } from './forge/helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
+import { pressSaves, pressForgeMenu, pressMenubar } from './forge/helpers/editor';   // FC2-4: his editor's ways in (EDITOR-MAP.md)
 
 const archiveLoad = vi.hoisted(() => vi.fn<(stem: string) => Promise<LoadedMap>>());
 const archiveEntries = vi.hoisted(() => [] as { stem: string; path: string; label: string; campaign: boolean }[]);
@@ -23,6 +23,8 @@ vi.mock('../src/forge/archives', () => ({ Archives: class {
   list = async () => ({ entries: archiveEntries, problems: [] });
   load = archiveLoad;
   census = archiveCensus;
+  props = async () => null;
+  scriptNames = async () => null;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
@@ -81,7 +83,7 @@ describe('mounted Forge agent facade', () => {
     expect(api.read().layout!.settings?.light ?? 1).toBe(1);
     expect(reset.disabled).toBe(true);
   }, 90_000);
-  it('left drag stays with the active tool and does not turn the camera; a click still places', async () => {
+  it('left drag stays with the active tool and does not turn the camera; a placing tool spawns at once, a click after it places nothing', async () => {
     document.body.replaceChildren();
     const { mountForge } = await import('../src/forge/page');
     let api!: ForgeAgentApi;
@@ -102,7 +104,10 @@ describe('mounted Forge agent facade', () => {
     expect(afterDrag.canUndo).toBe(false);
     expect(afterDrag.revision).toBe(before.revision);
     expect((afterDrag.view as typeof view).camera.yaw).toBe(view.camera.yaw);
+    // PR #5 (OT.R112: place mode removed, page.ts `spawnAtCentre`): the tool's press spawns at once; a click after it
+    // selects, it places nothing more.
     document.querySelector<HTMLButtonElement>('button[title^="Place a team A spawn"]')!.click();
+    await vi.waitFor(() => expect(api.read().layout!.spawns).toHaveLength(1));
     pointer('pointerdown', 400, 300); pointer('pointerup', 400, 300);
     expect(api.read().layout!.spawns).toHaveLength(1);
     expect(api.read().canUndo).toBe(true);
@@ -431,7 +436,8 @@ describe('mounted Forge agent facade', () => {
     const read = api.read(); const viewBefore = (read.view as { revision: number }).revision;
     // Browser adaptation: an agent camera move and a human tool click between the read and the write.
     expect(await api.execute('camera.pose', { x: 50, y: 60, z: 70, yaw: 0.3, pitch: 0.1 }, read.revision)).toMatchObject({ ok: true });
-    document.querySelector<HTMLButtonElement>('button[title^="Place a team A spawn"]')!.click();
+    // PR #5 (OT.R112): a placing tool's press now spawns (a placement, below); the tool click that changes the view only is Select's.
+    document.querySelector<HTMLButtonElement>('.fx-group--modes button.fx-tool[title^="Select"]')!.click();
     expect(api.read().revision).toBe(read.revision);
     expect(api.status().revision).toBe(read.revision);
     expect(api.status().viewRevision).toBeGreaterThan(viewBefore);
@@ -440,8 +446,9 @@ describe('mounted Forge agent facade', () => {
     // A placement the human makes between the read and the write conflicts.
     expect(await api.execute('selection.set', { refs: ['spawn:0'] }, api.read().revision)).toMatchObject({ ok: true });
     const current = api.status().revision;
-    pressMenubar(document, 'Edit', 'Duplicate');                  // EDITOR-MAP T7: Edit > Duplicate
-    expect(api.read().layout!.spawns).toHaveLength(2);
+    // PR #5: the human's placement is the Spawn SEAL tool's press, which spawns at once (Edit > Duplicate is gone from his menu).
+    document.querySelector<HTMLButtonElement>('button[title^="Place a team A spawn"]')!.click();
+    await vi.waitFor(() => expect(api.read().layout!.spawns).toHaveLength(2));
     expect((await api.execute('layout.name', { name: 'Stale' }, current)).code).toBe('STALE_REVISION');
   }, 90_000);
   it("a copied door's Map changed: its Door field resets to that map's first door, the layout the same", async () => {
@@ -457,12 +464,12 @@ describe('mounted Forge agent facade', () => {
     await mountForge(document, { onAgentReady: target => { api = target; } });
     expect(await api.execute('door.place', { at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
     const field = (label: string) => document.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
-    await vi.waitFor(() => expect([...field('Map').options].map((o) => o.value)).toContain('MP73'));
-    field('Map').focus();
-    field('Map').value = 'MP73';
-    field('Map').dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect([...field('Source').options].map((o) => o.value)).toContain('MP73'));
+    field('Source').focus();
+    field('Source').value = 'MP73';
+    field('Source').dispatchEvent(new Event('change'));
     await vi.waitFor(() => expect(((api.read().layout as unknown as { doors: unknown[][] }).doors[0]!).slice(0, 2)).toEqual(['MP73', 'door_ft1']));
-    await vi.waitFor(() => expect([field('Map').value, field('Door').value]).toEqual(['MP73', 'door_ft1']));
+    await vi.waitFor(() => expect([field('Source').value, field('Door').value]).toEqual(['MP73', 'door_ft1']));
   }, 90_000);
   it("a hostage's Map changed: its Character field resets to that map's first hostage character, the layout the same", async () => {
     document.body.replaceChildren();
@@ -474,12 +481,12 @@ describe('mounted Forge agent facade', () => {
     expect(await api.execute('type.set', { type: 4 }, api.read().revision)).toMatchObject({ ok: true });
     expect(await api.execute('hostage.place', { at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
     const field = (label: string) => document.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
-    await vi.waitFor(() => expect([...field('Map').options].map((o) => o.value)).toEqual(expect.arrayContaining(['MP6', 'MP52'])));
+    await vi.waitFor(() => expect([...field('Source').options].map((o) => o.value)).toEqual(expect.arrayContaining(['MP6', 'MP52'])));
     for (const [stem, first] of [['MP52', 'mp_algerian_h1'], ['MP6', 'mp_fem1']] as const) {
-      field('Map').focus();
-      field('Map').value = stem;
-      field('Map').dispatchEvent(new Event('change'));
-      await vi.waitFor(() => expect([field('Map').value, field('Character').value]).toEqual([stem, first]));
+      field('Source').focus();
+      field('Source').value = stem;
+      field('Source').dispatchEvent(new Event('change'));
+      await vi.waitFor(() => expect([field('Source').value, field('Hostage').value]).toEqual([stem, first]));
     }
   }, 90_000);
   it("a hostage's Map changed before the census lands: its Character field still shows that map's first hostage character (FC2-6 probe)", async () => {
@@ -506,31 +513,37 @@ describe('mounted Forge agent facade', () => {
     expect(await api.execute('hostage.place', { at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
     const field = (label: string) => document.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
     const hostage = () => ((api.read().layout as unknown as { hostages: unknown[][] }).hostages[0]![4] ?? {}) as { character?: string; source?: string };
-    await vi.waitFor(() => expect([...field('Map').options].map((o) => o.value)).toEqual(expect.arrayContaining(['MP2', 'MP6', 'MP52'])));
+    await vi.waitFor(() => expect([...field('Source').options].map((o) => o.value)).toEqual(expect.arrayContaining(['MP2', 'MP6', 'MP52'])));
     expect(archiveCensus).toHaveBeenCalled();                     // asked, and never answered: the path under probe
     for (const [stem, first, source] of [['MP52', 'mp_algerian_h1', 'MP52'], ['MP6', 'mp_fem1', 'MP6'], ['MP2', 'mp2_h1', undefined]] as const) {
-      field('Map').focus();
-      field('Map').value = stem;
-      field('Map').dispatchEvent(new Event('change'));
-      await vi.waitFor(() => expect([field('Map').value, field('Character').value]).toEqual([stem, first]));
-      await vi.waitFor(() => expect([...field('Character').options].map((o) => o.textContent).join('|')).not.toMatch(/reading/));
+      field('Source').focus();
+      field('Source').value = stem;
+      field('Source').dispatchEvent(new Event('change'));
+      await vi.waitFor(() => expect([field('Source').value, field('Hostage').value]).toEqual([stem, first]));
+      await vi.waitFor(() => expect([...field('Hostage').options].map((o) => o.textContent).join('|')).not.toMatch(/reading/));
       await new Promise(r => setTimeout(r, 0));
-      expect(field('Character').value).toBe(first);               // the read done: never left ''
+      expect(field('Hostage').value).toBe(first);               // the read done: never left ''
       expect(hostage().character).toBe(first);
       if (source) expect(hostage().source).toBe(source);
       else expect(hostage()).not.toHaveProperty('source');       // home: the base's own character, nothing lent
     }
   }, 90_000);
-  it('Escape on any tool goes back to Select and lets the selection go', async () => {
+  it('Escape lets the selection go; a placing button spawns, selects and arms no tool (PR #5)', async () => {
     document.body.replaceChildren();
     const { mountForge } = await import('../src/forge/page');
     let api!: ForgeAgentApi;
     await mountForge(document, { onAgentReady: target => { api = target; } });
     expect(await api.execute('door.place', { at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
     expect(api.read().selection).toEqual(['door:0']);
-    for (const title of ['Place a turret', 'Place a door', 'Place a hostage']) {
+    // PR #5 (seat-forge, item A7): a placing button arms no tool now -- it spawns its object at the view's centre and
+    // selects it (`spawnAtCentre`, the Forge's owner's choice, OT.R112); Escape lets the selection go, Select the tool.
+    // Spawns, a tactical point: kinds that need no disc map (this file's archives are mocked).
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }));
+    expect(api.read().selection).toEqual([]);
+    for (const title of ['Place a team A spawn', 'Place a team B spawn', 'Place a tactical point']) {
       [...document.querySelectorAll('button')].find((b) => b.title.startsWith(title))!.click();
-      expect((api.read().view as { tool: string }).tool).not.toBe('select');
+      await vi.waitFor(() => expect(api.read().selection).toHaveLength(1));
+      expect((api.read().view as { tool: string }).tool).toBe('select');
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }));
       expect((api.read().view as { tool: string }).tool).toBe('select');
       expect(api.read().selection).toEqual([]);
@@ -546,53 +559,10 @@ describe('mounted Forge agent facade', () => {
     expect(await api.execute('layout.new', {}, api.read().revision)).toMatchObject({ ok: true });
     expect(api.read().layout!.settings).toMatchObject({ timeOfDay: 1 });
   }, 90_000);
-  it('every placing tool previews its placement under the cursor and stays the tool, placing again on each click', async () => {
-    document.body.replaceChildren();
-    const { mountForge } = await import('../src/forge/page');
-    let api!: ForgeAgentApi;
-    await mountForge(document, { onAgentReady: target => { api = target; } });
-    const input = document.querySelector<HTMLElement>('.fx-input')!;
-    input.setPointerCapture = vi.fn(); input.releasePointerCapture = vi.fn();
-    input.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 } as DOMRect);
-    const pointer = (type: string, x: number, y: number) => {
-      const e = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
-      Object.defineProperties(e, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } });
-      input.dispatchEvent(e);
-    };
-    document.querySelector<HTMLButtonElement>('button[title^="Place a team A spawn"]')!.click();
-    pointer('pointermove', 400, 300);
-    await vi.waitFor(() => expect(input.dataset['ghost']).toBe('spawnA'));        // the spawn's own marker, translucent
-    for (const x of [400, 420, 440]) { pointer('pointerdown', x, 300); pointer('pointerup', x, 300); }
-    expect(api.read().layout!.spawns).toHaveLength(3);
-    expect((api.read().view as { tool: string }).tool).toBe('spawnA');
-    expect(input.dataset['ghost']).toBe('spawnA');                                // still previewing the next
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }));
-    expect(input.dataset['ghost']).toBeUndefined();                               // Select: no preview
-  }, 90_000);
-  it("the wheel turns a placing tool's object as the Place tool's, a turn step a notch", async () => {
-    document.body.replaceChildren();
-    const { mountForge } = await import('../src/forge/page');
-    let api!: ForgeAgentApi;
-    await mountForge(document, { onAgentReady: target => { api = target; } });
-    const input = document.querySelector<HTMLElement>('.fx-input')!;
-    input.setPointerCapture = vi.fn(); input.releasePointerCapture = vi.fn();
-    input.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 } as DOMRect);
-    const pointer = (type: string, x: number, y: number) => {
-      const e = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX: x, clientY: y });
-      Object.defineProperties(e, { pointerId: { value: 1 }, pointerType: { value: 'mouse' } });
-      input.dispatchEvent(e);
-    };
-    document.querySelector<HTMLButtonElement>('button[title^="Place a team A spawn"]')!.click();
-    pointer('pointermove', 400, 300);
-    pointer('pointerdown', 400, 300); pointer('pointerup', 400, 300);
-    input.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, deltaMode: 0, cancelable: true, bubbles: true }));
-    pointer('pointerdown', 420, 300); pointer('pointerup', 420, 300);
-    const spawns = (api.read().layout as unknown as { spawns: unknown[][] }).spawns;
-    const yawOf = (row: unknown[]) => Number(row[row.length - 1] === true ? row[row.length - 2] : row[row.length - 1]);
-    const step = (api.read().view as { turnStep: number }).turnStep;
-    const turned = ((yawOf(spawns[1]!) - yawOf(spawns[0]!)) % 360 + 360) % 360;
-    expect(turned).toBe(step);                                                      // one notch up: the step, to the left
-  }, 90_000);
+  // RETIRED with PR #5 (seat-forge, item A7), place mode removed by the Forge's owner (OT.R112): 'every placing tool
+  // previews its placement under the cursor and stays the tool, placing again on each click' and 'the wheel turns a
+  // placing tool's object as the Place tool's, a turn step a notch' -- no tool stays armed, no ghost follows the cursor
+  // (`./forge/spawnAtOnce.test.ts` holds the new behaviour).
   it("duplicate and copy/paste copy every kind of placement, a named one taking the next name", async () => {
     document.body.replaceChildren();
     const { mountForge } = await import('../src/forge/page');
@@ -600,21 +570,22 @@ describe('mounted Forge agent facade', () => {
     await mountForge(document, { onAgentReady: target => { api = target; } });
     expect(await api.execute('point.place', { at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
     const key = (code: string, ctrl = false) => window.dispatchEvent(new KeyboardEvent('keydown', { code, key: code.replace('Key', '').toLowerCase(), ctrlKey: ctrl, bubbles: true }));
-    key('KeyD', true);                                                     // duplicate: his Ctrl+D (keys.ts:148; EDITOR-MAP T7), was C alone
+    pressMenubar(document, 'Edit', 'Duplicate');                           // duplicate: Edit > Duplicate, no key (the owner, 2026-11-22; Ctrl+D is his geo.quadSlice)
     await vi.waitFor(() => expect((api.read().layout as unknown as { tacPoints?: unknown[] }).tacPoints ?? []).toHaveLength(2));
     key('KeyC', true); key('KeyV', true);                                  // copy, paste
     await vi.waitFor(() => expect((api.read().layout as unknown as { tacPoints?: unknown[] }).tacPoints ?? []).toHaveLength(3));
     const names = (api.read().layout as unknown as { tacPoints: unknown[][] }).tacPoints.map((r) => r[0]);
     expect(new Set(names).size).toBe(3);
   }, 90_000);
-  it('the placing tools sit on a row of their own under the toolbar; Select and Place stay on the toolbar', async () => {
+  it('the placing tools sit on a row of their own under the toolbar; Select stays on the toolbar, Place gone with place mode (PR #5)', async () => {
     document.body.replaceChildren();
     const { mountForge } = await import('../src/forge/page');
     await mountForge(document, { onAgentReady: () => undefined });
     const top = document.querySelector('.fx-top')!, row = document.querySelector('.fx-tools-row')!;
     expect(row).not.toBeNull();
     const titled = (root: Element, t: string) => [...root.querySelectorAll('button')].some((b) => b.title.startsWith(t));
-    expect([titled(top, 'Select'), titled(top, 'Place: the object chosen')]).toEqual([true, true]);
+    // PR #5 (OT.R112, place mode removed): the Place tool is gone from his toolbar; Select stays.
+    expect([titled(top, 'Select'), titled(top, 'Place: the object chosen')]).toEqual([true, false]);
     for (const t of ['Place a door', 'Place a gate', 'Place a damage trigger', 'Place a ladder', 'Place a turret', 'Place a hostage', 'Place a team A spawn']) {
       expect(titled(row, t), t).toBe(true);
       expect(titled(top, t), t).toBe(false);

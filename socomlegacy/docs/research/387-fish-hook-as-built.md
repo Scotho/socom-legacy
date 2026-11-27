@@ -92,7 +92,7 @@ a shield above 0 on another map: LATER 776. A blast reaches a plank as it reache
 at `access_action3`'s node breaks `plankaccess1` 83 u off -- **the port's reach, not a reading of the original's**: which
 destructibles a blast asks is `SCENE_BLAST_REACH_PLACEHOLDER` (viewer `sceneHealth.ts`: the nearest point of the target's
 box inside the radius, then the line to its midpoint -- the original's struck-object list is unread) and the line is
-two-sided (`BLAST_REACH_LINE_SIDES_READING`).
+one-sided since LATER 1087 (b), 2026-11-19 (`BLAST_REACH_LINE_SIDES_READING`; was two-sided).
 The death runs the plank's own sequence, `EXECUTE_ACTION set_plankN`, once: `FUN_00273a50` starts it with entries of
 types 2, 6 and 5 (D:L121004-121059), and the record is spent.
 
@@ -238,8 +238,9 @@ are marked.
 - **`SCENE_BLAST_REACH_PLACEHOLDER`** (research 209 §14, 210, 235): which destructibles a blast asks -- the port's
   nearest-point-in-radius stand-in for the original's struck-object list (unread); the barriers' and the planks' reach,
   and the M67-at-`access3` plank break (§2.2), rest on it.
-- **`BLAST_REACH_LINE_SIDES_READING`** (research 386 §8): the blast's line to a destructible held two-sided; the
-  barriers' and the planks' reach is measured on it.
+- **`BLAST_REACH_LINE_SIDES_READING`** (research 386 §8): the blast's line to a destructible -- held two-sided when this
+  note was written, one-sided since LATER 1087 (b), 2026-11-19 (the original's hull batch, research 430 s3.1); the
+  barriers' and the planks' reach here was measured on the two-sided line.
 - **LATER 776**: the port's death check skipped after a refused shield (§2.2).
 - **LATER 782**: the boats' rock, the wash strokes and the shore's texture scroll built (§12); the strokes and the
   scroll since built (§12.7), the rock still owed.
@@ -347,9 +348,11 @@ given, flag 2: (0, 0, 0) to (d, 0, 0), or back), its profile at +0x38: speeds (0
 and `water` draw (`water_washup.tif`, research 330 §6) and carry no collision.
 
 Flag bit 11 of the boats' programs (0x800) starts them through `FUN_00271250` (the set's first start, `FUN_0026c600`
-D:L116360-116362) rather than `FUN_002713f0` (D:L116370): it walks the scene graph and starts a copy on every node
-named as the animation's root (`FUN_00271110` D:L119222ff, the name compare `FUN_00198f18` at D:L119234). MP71 holds
-one node of each rocker's name, so one run each, as the port's AS-1 start.
+D:L116360-116362) rather than `FUN_002713f0` (D:L116370): it walks the scene graph for the nodes named as the
+animation's root (`FUN_00271110` D:L119222ff, the name compare `FUN_00198f18` at D:L119234). The root itself is bound
+and started (D:L119236-119238); on another node of that name a program in mode 3 (`+4 & 7`) sets bit 0x80 and rebinds
+and starts the current tail, and any other mode allocates a copy and starts that (D:L119241-119251). MP71 holds one
+node of each rocker's name, so one run each, as the port's AS-1 start.
 
 ### 12.3 What the commands do
 

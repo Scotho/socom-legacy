@@ -21,7 +21,21 @@ export const PAD_BUTTON_NAMES: readonly string[] = ['Cross', 'Circle', 'Square',
  * layout's taught raw-to-standard map (`./padLayout`), absent for a standard pad and for one not taught.
  */
 export interface ControllerConfig { version: 1; bindings: number[]; deadZone: number; crouch: number; prone: number; nativePressure?: boolean; layout?: PadLayout }
-export const defaultController = (): ControllerConfig => ({ version: 1, bindings: Array.from({ length: 16 }, (_, i) => i), deadZone: 0.15, crouch: -1, prone: -1 });
+/**
+ * PAD_DEAD_ZONE_DEFAULT_ADAPTATION (WM-PAD-DEADZONE, WM-52; MISSION OT.R133; product track, a browser adaptation's
+ * default). The owner, 2026-11-15, verbatim: "one little one to throw in the pile - set the stick drift default down to
+ * 5% after the convo with sharky". The "Pad dead zone (this browser)" of a pad with nothing saved (`defaultController`;
+ * the settings row's default and what its reset and Restore defaults write): 0.05, replacing the launcher's 0.15
+ * (`./gamepad` `PAD_DEAD_ZONE`) as the default. A saved profile carries its own dead zone and keeps it (WM.R20).
+ * `PAD_DEAD_ZONE` is not this: it stays 0.15, the adapter's and the touch stick's shaping constant and the value PZG's
+ * code compares a zone with -- so a pad at this default runs PZG's off-the-default path (`./controllerInput`
+ * `calibrateStick`): zero inside 5 percent, the pad's own push past it, no rescale. Declared here, not in `./gamepad`
+ * (which re-exports it): `./gamepad` imports `./controllerModern`, which imports this module and builds its stored key
+ * from `SETUP_KEY` as it loads, so an import of `./gamepad` from here is a loop that leaves that key undefined
+ * (`test/padDeadZoneDefault.test.ts`).
+ */
+export const PAD_DEAD_ZONE_DEFAULT_ADAPTATION = 0.05;
+export const defaultController = (): ControllerConfig => ({ version: 1, bindings: Array.from({ length: 16 }, (_, i) => i), deadZone: PAD_DEAD_ZONE_DEFAULT_ADAPTATION, crouch: -1, prone: -1 });
 /**
  * The logical buttons the menus need to proceed: Cross, Circle, START (the review's last round), and the d-pad's four
  * directions (task W2ibPC6c: the START menu's leave and abort confirms start on NO and reach YES only by d-pad Left,
@@ -103,6 +117,15 @@ export const STANCE_MODE_KEY = 's2u.startup.v1.stanceMode';
 /** STM.R1 (the owner, 2026-10-30: "our two triangle modes. COMBINED and SEPARATE"): the Stance mode's words, the roller's (Options > Controller, Button mapping). */
 export const STANCE_MODE_WORDS: Readonly<Record<StanceMode, string>> = { pop: 'COMBINED', separate: 'SEPARATE' };
 /**
+ * STANCE-HELP-DS3 (the owner, 2026-11-25: players don't find how DS3 pressure is turned on; a browser adaptation, OT.R28,
+ * product track): where pressure is turned on, in the Stance mode row's own about. The requirements and the path are the
+ * Connect row's and its failure lines' (`./console/render/remap` `PRESSURE_HELP`, `PRESSURE_ABSENT_WRAPPED`, the
+ * `pressureConnect` row; the row lives in Button mapping, `./console/adapters/options` REMAP_ROW). It names SEPARATE
+ * without a colon, so the about still splits into its two mode lines at 'SEPARATE:'.
+ */
+export const STANCE_MODE_PRESSURE_NOTE = 'Light or firm Triangle pressure needs a USB DualShock 3 in Chrome or Edge with no driver wrapper: '
+  + 'turn it on in Button mapping > Connect USB pressure controller, then choose SEPARATE.';
+/**
  * STM.R1 ("There should be tooltips explaining these two modes concicesly"): the Stance mode row's tooltip, one line per
  * mode -- the row's `about`, which the console shows in its side panel (it has no hover): Options > Controller's row and
  * the Button mapping's alike. SEPARATE's line is STM.R1's Prone on Triangle's button (`./controllerInput`
@@ -110,7 +133,8 @@ export const STANCE_MODE_WORDS: Readonly<Record<StanceMode, string>> = { pop: 'C
  * F1); Crouch unbound until chosen (STM.R1a).
  */
 export const STANCE_MODE_ABOUT = 'COMBINED: Triangle does it all -- tap to crouch, hold to go prone or dive; press Square during the drop or dive to pop back up. '
-  + 'SEPARATE: Crouch and Prone get their own buttons; Prone takes Triangle\'s button, and Triangle stops changing stance while Prone is bound.';
+  + 'SEPARATE: Crouch and Prone get their own buttons; Prone takes Triangle\'s button, and Triangle stops changing stance while Prone is bound.'
+  + ' ' + STANCE_MODE_PRESSURE_NOTE;
 /**
  * The saved stance mode: SEPARATE when chosen, else COMBINED. STM.R1 (the owner, 2026-10-30, reversing OBF-11's
  * `STANCE_SEPARATE_OFFERED_ADAPTATION`, which answered COMBINED whatever was saved): SEPARATE is offered again, so the

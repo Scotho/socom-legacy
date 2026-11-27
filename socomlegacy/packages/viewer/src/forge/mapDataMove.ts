@@ -2,7 +2,7 @@ import type { AiMaps } from '@s2u/scene';
 import { locateAiCell } from '../../../match/src/hostagePath';
 
 /**
- * A base map's own data objects moved by a layout (`Layout.movedData`; the owner, 2026-11-12: "allow all map objects to
+ * A base map's own data objects moved by a layout (`Layout.movedData`; the Forge's owner (crispy, OT.R112), 2026-11-12: "allow all map objects to
  * be moveable ... from spawns to views"; a browser adaptation, FG.R2 -- the game has no editor). As a taken-out
  * objective (`./mapDataHide`), the disc's map is untouched: this layout's editor (the Map Data rows, their billboards)
  * and its match read each moved object at its new place. Each is keyed by its kind and a name stable across a reload:
@@ -55,7 +55,8 @@ export function withMovedData<T extends MovableMap>(map: T, moved: ReadonlyMap<s
   const ai = map.ai ?? null;
   const placeSlot = <S extends { side: number; index: number; position: readonly number[] }>(kind: string, s: S): S => {
     const p = at(`${kind}:${slotName(s)}`);
-    return p ? { ...s, position: p } : s;
+    // L208 (LATER 1419): a slot moved to a new place drops its source's cell y (`SpawnSlot.cellY`), seeded at its own y + 1.
+    return p ? { ...s, position: p, cellY: undefined } : s;
   };
   if (map.slots) out['slots'] = map.slots.map((s) => placeSlot('slot', s));
   if (map.respawns) out['respawns'] = map.respawns.map((s) => placeSlot('respawn', s));

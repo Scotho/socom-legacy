@@ -55,10 +55,11 @@ export interface AfterShotKeys { reloadAfterShot?: boolean; reloadDelayAfterShot
 
 /**
  * The lock after a round leaves (`FUN_005c5340` L479321-479343), seconds, or null for none: the held item (the kit's
- * selected slot) not `LOCK_EXEMPT`, a round left in the magazine (the last one reloads instead, L479317-479320), the
+ * selected slot) not `LOCK_EXEMPT`, a round left in the magazine (the last one reloads instead, L479318-479321), the
  * fired record -- the weapon's, or in a round mode the round's (`lVar15`) -- a `ReloadAfterShot` one, and the firing
  * carrier not the MGL (L479325: `lVar13->ID != 0x8e`). The lock is its `ReloadDelayAfterShot`, else the default.
- * (The RPG's round arms it even on its last round, to feed the next: the rockets are M7's, not modelled here.)
+ * (The RPG's round arms it even on its last round, to feed the next -- r0004 0x5cd330-0x5cd338, r0001 D:L479339-479342:
+ * the launcher's wait, `./net/fireGate` `rocketLockSeconds` and `rocketWaitFrames`, LATER 1365.)
  */
 export function afterShotLock(held: number, fired: AfterShotKeys, roundsLeft: number, carrier: number | null): number | null {
   if (LOCK_EXEMPT.has(held) || roundsLeft <= 0 || !fired.reloadAfterShot || carrier === ITEM.MGL) return null;

@@ -78,9 +78,10 @@ transcription routes every hostage out of the jail **through the doorway (102..1
     BELIEVED: the hardware meaning of clock select 3.
   - An INQUEUE path (state 1) gets its planner created (`FUN_00510e40` D:L382474), and `find_path` runs to the time
     limit.
-  - A finished leg deletes the planner (`FUN_00512560` D:L383103: resets every touched cell to dir 8 and f = g = -1),
-    then `plan_complete` `FUN_005273c0` (D:L393419). That queues the next leg or finalises (`FUN_005278c0` →
-    post-process `FUN_005267a0`).
+  - A finished leg deletes the planner (`FUN_00512560` D:L383103: resets dir to 8 and g to -1 on both lists' cells and
+    f to -1 on the open cells only, D:L383127-383146 -- a closed cell's f was set to -1 at its pop, D:L382661-382662
+    -- so every touched cell ends at dir 8, f = g = -1), then `plan_complete` `FUN_005273c0` (D:L393419). That queues
+    the next leg or finalises (`FUN_005278c0` → post-process `FUN_005267a0`).
 - **`PathPlanImmediate`** `FUN_00510390` (D:L381943) runs the same with an unlimited budget. The link-graph builder
   uses it.
 - **The planner object** (`FUN_00510e40`): [0] the cost model (by CAiPath+9; vtables below), [1] the leg's CAiMap,
@@ -249,13 +250,14 @@ In CAiSFollow sub 2, any state other than COMPLETE with points goes to sub 8: a 
    2. **UpdatePointFlags** `FUN_00525520` (D:L392594);
    3. **UpdatePathWidth** `FUN_00525340(path, 5)` when app flag 4.
 3. **SmoothPath** (`FUN_00526380` D:L393020), for COMPLETE paths: **SmoothPathLeg** `FUN_00525810` (D:L392683) on
-   every leg, then compaction `FUN_00527ce0` (D:L393777: drop points whose loc is the null loc 0). **SmoothPathLeg**,
-   for a leg spanning stored indices [e..s] (s = the leg's start end) when s−e > 2:
+   every leg, then compaction `FUN_00527ce0` (D:L393777: drop points whose column and row equal the invalid-loc object
+   `DAT_0065aed0`'s -- sector 0x3f, col/row 0x1fff, note 404 -- D:L393796-393815, so a real (0, 0) point survives).
+   **SmoothPathLeg**, for a leg spanning stored indices [e..s] (s = the leg's start end) when s−e > 2:
    - anchor a = s; for i = s−1 down to e+1:
      - the shortcut is a candidate unless P[a], P[i] or P[i−1] is "gated";
      - gated = an action cell of type WINDOW or MPBOMB (or ITEM, for P[i]), or a no-action cell of soil 6 climb;
      - a candidate needs the **line walk** P[a] → P[i−1] to pass;
-     - if it passes, P[i] is deleted (set to the null loc); else a = i.
+     - if it passes, P[i] is deleted (set to the invalid-loc object `DAT_0065aed0`, D:L392801 -- not a zero loc); else a = i.
 4. **Line walk** `FUN_00537e50(0.2, map, A, B, FUN_00525c80, ctx)` (D:L403319).
    - Endpoints: cell centres. An action cell with m_offset ≠ 8 is nudged 0.75 units along GetDirVec(offset)
      (0x65b030, `FUN_00519130`).

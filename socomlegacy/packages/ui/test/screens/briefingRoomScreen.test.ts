@@ -138,6 +138,11 @@ describe.skipIf(!HAVE)(`the BRIEFING ROOM over the machine${HAVE ? '' : ' (no di
     const l1 = r.uiVars.find(PLAYER_INFO_VAR1)!.value;
     const tail = l1.type === 'array' ? l1.value.slice(13).map((row) => (row.type === 'array' ? row.value.map((c) => (c.type === 'string' ? c.value : c.type === 'array' ? (c.value[1] as { value: string }).value : '')) : [])) : [];
     expect(tail).toEqual([['ONLINE:', '0 min.'], ['BRIEFING ROOM:', 'Alpha'], ['GAME:', 'In Lobby']]);
+    // LATER 1546: the page's own WRAPPEDTEXT `bar_title` (pop_missionBack's child, on PLAYER_INFO_NAME_VAR) draws the
+    // name -- the dialog's second `bar_title`, after the top-level TEXT the room's ONSTART titles (FUN_003792f0, per item).
+    const page = r.node('pop_missionBack')!.children.find((c) => c.name === 'bar_title')!;
+    expect(page.content?.kind === 'wrapped' ? page.content.lines.map((l) => String.fromCharCode(...l.bytes)).join(' ').trim() : null).toBe('Echo');
+    expect(r.text('bar_title')).toEqual([r.loc.byId.get(522)!]);           // the top-level title keeps the room's #522
   });
 
   it('ONL-23a: the chat panel drawn as the disc draws it -- #519 over CHATLIST on MEDIUS_CHAT_RECV_VAR, empty before a line; the help bar\'s TEXT CHAT', async () => {

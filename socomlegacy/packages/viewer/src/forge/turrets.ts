@@ -1,5 +1,5 @@
 import { Matrix4, Vector3 } from 'three';
-import type { CollisionOwner, TurretPlacement, WorldPoly } from '@s2u/scene';
+import { movedWalk, type CollisionOwner, type TurretPlacement, type WorldPoly } from '@s2u/scene';
 import type { LoadedMap } from '../loadMap';
 import { under } from '../mapMeta';
 import { groundPolygons, packGround } from '../mover';
@@ -151,13 +151,14 @@ export function withPlacedTurrets(map: LoadedMap, placed: readonly TurretMarker[
     props.push(...copiedProps(t, m, root, foreign));
     turrets.push(copiedPlacement(t, m, root, turrets.length, marker.yaw));
     if (polys) for (const { owner, polys: own } of t.owners) {
-      const { frame: _f, restFrame: _r, ...rest } = owner as CollisionOwner & { restFrame?: unknown };
+      // LATER 1094 (the review of fc0cb0622b, B1): the template's walk is the template's place; the copy's is moved by `m`.
+      const { frame: _f, restFrame: _r, nodes: _n, filed: _fd, filedByCover: _fc, filedWithPolys: _fw, ...rest } = owner as CollisionOwner & { restFrame?: unknown };
       const path = `${root}${owner.path.slice(t.placement.root.length)}`;
-      owners.push({ ...rest, path, first: polys.length, count: own.length });
+      owners.push({ ...rest, ...movedWalk(owner, Float32Array.from(m.elements)), path, first: polys.length, count: own.length });
       for (const { frame: _pf, ...poly } of own as (WorldPoly & { frame?: unknown })[]) polys.push({ ...poly, path, points: movedPoints(m, poly.points) });
       collided = true;
     }
   });
-  const ground = collided && map.ground && polys ? packGround(map.ground.grid, polys, owners) : map.ground;
+  const ground = collided && map.ground && polys ? packGround(map.ground.grid, polys, owners, map.ground.defaultMaterial) : map.ground;   // FLE-2 (F4)
   return { map: { ...map, props, turrets, textures, textureFlags, ...(textureMips ? { textureMips } : {}), ...(ground ? { ground } : {}) }, unplaced };
 }

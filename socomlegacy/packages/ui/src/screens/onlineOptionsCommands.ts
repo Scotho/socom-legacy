@@ -1,5 +1,6 @@
 import type { UiCommandHandler, UiCommandHost } from '../uiCommands';
 import type { UiVarManager } from '../uiVars';
+import { censorHashC } from './briefingRoomChat';
 
 /**
  * ONLINE OPTIONS' PLAYER DESCRIPTION (OPT-15, web sprint 22; web research 265 §1): `SetPlayerDescription`, row 101 of
@@ -29,9 +30,12 @@ import type { UiVarManager } from '../uiVars';
  *
  * **The port** (W22.R1: a page never reports a result). The text goes to the services' owner-fields operation
  * (`/lobby/owner-fields`, `packages/central/src/ownerFields.ts`), which writes the record's +0x9f and nothing else, and
- * answers the stored text; the variable is set from that answer, as the callback sets it from the field. No text filter
- * stands between (`CHAT_FILTER_PLACEHOLDER`'s default, the server's: the TextFilter's words are Sony's, unread). With no
- * service, or no answer, nothing changes: a request never answered, as the console's would be with no reply.
+ * answers the stored text; the variable is set from that answer, as the callback sets it from the field. R4P-324: r0004's
+ * description (0x00317b00) tail-jumps to `Censor` (0x00311fc0, at 0x317b08), whose copy takes `#` and 0xb2 for every
+ * typed `#C`, and its callback 0x00317b10 sets `PlayerDescription` from the reply -- so the page sends `censorHashC` of
+ * the text (`CENSOR_HASH_C_READING`) and the variable ends rewritten. No word filter stands between
+ * (`CHAT_FILTER_PLACEHOLDER`'s default, the server's: the TextFilter's words are Sony's, unread). With no service, or no
+ * answer, nothing changes: a request never answered, as the console's would be with no reply.
  *
  * Pure: no DOM, no viewer, no `tools/` (web sprint 6 package boundaries).
  */
@@ -99,11 +103,14 @@ export interface OnlineOptionsCommandsOptions {
 export class OnlineOptionsCommands {
   constructor(private readonly o: OnlineOptionsCommandsOptions) {}
 
-  /** `FUN_00277640`: the variable's string sent; the answer's text written back into the variable; answers 1. */
+  /**
+   * `FUN_00277640`: the variable's string sent, `#C`-rewritten as r0004's `Censor` rewrites it (`CENSOR_HASH_C_READING`,
+   * 0x317b08); the answer's text written back into the variable; answers 1.
+   */
   SetPlayerDescription: UiCommandHandler = () => {
     const v = this.o.uiVars.find(PLAYER_DESCRIPTION_VAR);
     if (v?.value?.type !== 'string' || !this.o.service) return true;
-    this.o.service.setDescription(v.value.value).then((reply) => {
+    this.o.service.setDescription(censorHashC(v.value.value)).then((reply) => {
       const held = this.o.uiVars.find(PLAYER_DESCRIPTION_VAR);
       if (held) this.o.uiVars.set(held, { type: 'string', value: reply.description });
     }, () => { /* a request never answered */ });

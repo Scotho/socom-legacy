@@ -132,6 +132,20 @@ function that takes the player's control away, read as the death path (BELIEVED,
 with neither `PD` nor `TYPE_DEATH_DAMAGE` is dropped (D:L246745-246748). Not built: the menus are the only place these
 lines play in the port.
 
+### 2.4 A mission's close (R4P-250)
+
+The atlas-parity r0004 rule (row 64): at a mission's close r0004 drops the WAITING headset lines, r0001 keeps them to
+play after, and a line already playing on the TV is not cut. **Holds by construction today** (reading, pending review):
+the port's headset `stream` sink is unwired -- none of the six hosts that make a UI sound output passes one:
+`frontEnd.ts:1211` (`pageUiSounds`, `{ music }` only), `main.ts:694`, `playerSettings.ts:319`, `forge/match.ts:146`,
+`console/sounds.ts:62` and `tauntEditor.ts:45` -- so
+`uiSoundHost.ts:80` (`if (!opts.stream) return false`, reached from `headset.push` at :94) refuses every start, and
+`headsetQueue.ts`'s `drain` (:72-77) drops a refused line and frees the slot at once: no line waits, none plays, so there
+is nothing for a close to keep or cut. `roundAudio.ts`'s `reset()` (:300-306) leaves its own queue empty and stops the
+slot. Guarded by `packages/viewer/test/headsetCloseGuard.test.ts`. LATER 1452: WHEN the sink is wired, the r0004 rule
+(a close drops the waiting lines; a playing line is not cut) must be added, and that guard's first part replaced by its
+test.
+
 ## 3. Stop on exit
 
 ### 3.1 The record

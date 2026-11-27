@@ -4,17 +4,17 @@ import { coverageWords } from './materialCoverage';
 import { groundPolygons, type GroundData } from '../mover';
 
 /**
- * FORGE (a browser adaptation, no original): the collision drawn -- the one view of it (the owner, 2026-11-15: "there
+ * FORGE (a browser adaptation, no original): the collision drawn -- the one view of it (the Forge's owner (crispy, OT.R112), 2026-11-15: "there
  * should not be two different ways to see collision"): the Draw menu's Collision hull, and collision editing's, which
  * turns that switch on. Each polygon's face see-through and its edges, coloured by what it is to the walk, and a legend
  * of the colours in the viewport's lower left.
  */
 
 /**
- * The colours, by what a polygon is to the walk -- the game's own types only (the owner, 2026-11-15: a steep floor, the
+ * The colours, by what a polygon is to the walk -- the game's own types only (the Forge's owner (crispy, OT.R112), 2026-11-15: a steep floor, the
  * slope's and no type of the game's, not shown): a floor (ditype bit 0, the ground probe's, at any slope), a
  * side-only surface, a climbable one (a climb flag 1-5, the ladder's 2 among them), one the probe skips (cameratype bit
- * 0). Green, red and violet (the owner, 2026-11-15, as recommended): about 120 degrees apart in the hues the selection's
+ * 0). Green, red and violet (the Forge's owner (crispy, OT.R112), 2026-11-15, as recommended): about 120 degrees apart in the hues the selection's
  * orange and the hover's sky blue leave free, so no two types overlapping blend to a third type's colour (red over green
  * a brown, not a yellow); the red short of pure, which goes muddy over the map's warm textures at the faces' opacity.
  * A pass-through white, its fill fainter (`HULL_FAINT_OPACITY`): the walk does not see it, and it does not wash out what
@@ -23,7 +23,7 @@ import { groundPolygons, type GroundData } from '../mover';
 export const HULL_COLOURS = { floor: 0x35d07f, wall: 0xe8343a, climb: 0x9b5cff, skip: 0xffffff } as const;
 export type HullKind = keyof typeof HULL_COLOURS;
 
-/** The legend's rows (the owner, 2026-11-15: "a legend at the bottom left, similar to the ai map legend"), in order. */
+/** The legend's rows (the Forge's owner (crispy, OT.R112), 2026-11-15: "a legend at the bottom left, similar to the ai map legend"), in order. */
 export const HULL_LEGEND: readonly { kind: HullKind; label: string; note: string }[] = [
   { kind: 'floor', label: 'Floor', note: 'stood on (ditype bit 0); blocks as a wall too where steep' },
   { kind: 'wall', label: 'Wall', note: 'side only (ditype bit 1): blocks, never stood on' },
@@ -40,7 +40,7 @@ export interface HullViewPoly {
 }
 
 /**
- * What the view colours by (the owner, 2026-11-20: the Collision layer's Surface properties shown, as the Surface panel
+ * What the view colours by (the Forge's owner (crispy, OT.R112), 2026-11-20: the Collision layer's Surface properties shown, as the Surface panel
  * sets them; a browser adaptation): the type to the walk (the default), indoors or not, the reverb zone (indoors or
  * outdoors and its entry), the material. Indoors and the reverb zone are read only from a floor the camera's probe stands
  * on (`readByCamera` in `./geometry/hullGeometry`): every other polygon is drawn grey and faint, as one whose value is
@@ -48,7 +48,7 @@ export interface HullViewPoly {
  */
 export type HullColourBy = 'type' | 'indoors' | 'reverb' | 'material' | 'camera';
 /**
- * The properties, in the Collision section's Property list and the legend's (the owner, 2026-11-20: "paint every property
+ * The properties, in the Collision section's Property list and the legend's (the Forge's owner (crispy, OT.R112), 2026-11-20: "paint every property
  * type when we switch the mode"): choosing one colours the view by it and makes it what Paint, Sample and Apply set.
  */
 export const HULL_COLOUR_BY: readonly { by: HullColourBy; label: string; note: string }[] = [
@@ -159,7 +159,7 @@ export function hullViewBuffers(polys: Iterable<HullViewPoly>, by: HullColourBy 
  * it, as it hides the world (was: over everything) -- never fogged, its colours the segments' own, translucent.
  */
 export function hullLineMaterial(): LineBasicMaterial {
-  // Solid (the owner, 2026-11-15): where fills pile up, each face's own edge still names its type.
+  // Solid (the Forge's owner (crispy, OT.R112), 2026-11-15): where fills pile up, each face's own edge still names its type.
   return new LineBasicMaterial({ vertexColors: true, fog: false, depthTest: true, depthWrite: false, transparent: true, opacity: 1 });
 }
 
@@ -238,7 +238,7 @@ export function materialName(index: number, defaultMaterial?: string | null): st
   return MATERIAL_NAMES[index] ?? `UNKNOWN (${index})`;
 }
 /**
- * A material's name with what it lacks on the disc (`./materialCoverage`; the owner, 2026-11-20): the Material lists'
+ * A material's name with what it lacks on the disc (`./materialCoverage`; the Forge's owner (crispy, OT.R112), 2026-11-20): the Material lists'
  * words -- "BROKEN GLASS · broken: ...", "GLASS · no footsteps". Material 0 by the map's default surface's name.
  */
 export function materialLabel(index: number, defaultMaterial?: string | null): string {
@@ -289,7 +289,7 @@ export function drawHullLegend(host: HTMLElement, counts: ReadonlyMap<string, nu
   head.className = 'fx-ai-legend__head';
   head.append(doc.createTextNode(title));
   if (o.onBy) {
-    // The Colour by switch (the owner, 2026-11-20), in the head beside the title.
+    // The Colour by switch (the Forge's owner (crispy, OT.R112), 2026-11-20), in the head beside the title.
     const sel = doc.createElement('select');
     sel.className = 'fx-select fx-hull-colour-by';
     sel.setAttribute('aria-label', 'Colour the collision by');
@@ -299,7 +299,7 @@ export function drawHullLegend(host: HTMLElement, counts: ReadonlyMap<string, nu
     sel.addEventListener('change', () => { o.onBy!(sel.value as HullColourBy); sel.blur(); });
     head.append(sel);
   }
-  // Every kind a row (the owner, 2026-11-15: the Ladder row missing on a map with none), a kind the map lacks dimmed.
+  // Every kind a row (the Forge's owner (crispy, OT.R112), 2026-11-15: the Ladder row missing on a map with none), a kind the map lacks dimmed.
   const rows = legendRows(counts, o).flatMap((k) => {
     const empty = (counts.get(k.key) ?? 0) === 0;
     const row = doc.createElement('div');

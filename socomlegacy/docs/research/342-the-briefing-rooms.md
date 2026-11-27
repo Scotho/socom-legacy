@@ -22,7 +22,7 @@ R161.1-R161.5), 162 (the join: R162.1, R162.4) and 163 (CREATE GAME's play list)
 |---|---|---|---|
 | R342.1 | **The retail client has no reader of `mp_rooms.rdr`.** Every `.rdr` is found by its member name (`FUN_0032f630` -> `FUN_0032c040`, the name's basename looked up in each mounted archive); the loader's 29 calls with a literal name name other files, and every call handed a name traces to an ELF string, a format whose result cannot be this name (`%sLOC.rdr`), a SWITCHMENU target, the program's arguments or disc data; the one direct call of `FUN_0032c040` asks for `chartype.rdr` (D:L405178), and the 27 direct archive lookups (`FUN_00258650`, `FUN_00258740`: models, textures, map and save data) are held by the byte search. No executable on the disc holds the bytes `rooms` in any case, and the disc holds `mp_rooms` once: READERC's own key. R128.11 is settled: no reader (`MP_ROOMS_READER_READING`, research 128 §8, answered here) | D:L230477-230619, D:L228183-228231; §1.2's list | §1.1-§1.3 |
 | R342.2 | **The table looks like a development leftover carried from SOCOM 1**, read by neither the online nor the LAN path: SOCOM 1's `mp_rooms.rdr` (reCOM's data) holds 15 rooms of the same shape and `LIMIT` 256, the first six of them the same names in the same order; SOCOM II's keeps those six, adds ASIA EAST and ASIA WEST, and puts four test rooms first; its game lists name "TBD MP53", "TBD MP62" and "Test MP99", list map 63 ("After Hours", no `RUN/MP63.ZDB` on the disc) and never map 64 (`RUN/MP64.ZDB`, Shadow Falls) | the pin; reCOM `data/s1/common/dialog/mp_rooms.rdr`; the disc's `RUN/` | §1.4 |
-| R342.3 | **What the room list takes from each 0xed answer**: a success status, a world id from 0, the players (+0x20), MaxPlayers (+0x22), SecurityLevel (+0x24), GenericField1 (+0x28), the name (+0x2c, 64 bytes), EndOfList (+0x6c). It draws three columns: the name, the players as `# of PLAYERS`, and GenericField1's low four bits as the four rank icons. MaxPlayers and SecurityLevel are kept and never drawn | D:L184900-184969, D:L184974-185054 | §2.1 |
+| R342.3 | **What the room list takes from each 0xed answer**: a success status, a world id from 0, the players (+0x20), MaxPlayers (+0x22), a word at +0x24 (copied unchanged to the room record and never drawn; its name unsettled -- the matched header calls it GameWorldCount, not SecurityLevel), GenericField1 (+0x28), the name (+0x2c, 64 bytes), EndOfList (+0x6c). It draws three columns: the name, the players as `# of PLAYERS`, and GenericField1's low four bits as the four rank icons. MaxPlayers and the +0x24 word are kept and never drawn | D:L184900-184969, D:L184974-185054 | §2.1 |
 | R342.4 | **The order is the client's**: GenericField1's high half ascending, then the name's length, then the name without case. With GenericField1 0 on all eight, the list reads EU EAST, EU WEST, US EAST, US WEST, ASIA EAST, ASIA WEST, AUSTRALIA, US CENTRAL; only the server's high half can give the table's own order | D:L185059-185086 | §2.2 |
 | R342.5 | **The client hides only** a room with no name, a "+Clan - " room not the member's own clan's, and a name opening "Medius" (case as written). Nothing hides a test room: a room is shown if and only if the server lists it | D:L184995-185006 | §2.2 |
 | R342.6 | **A room's limit is the server's to enforce**: the client reads MaxPlayers only into CreateChannel1 (state 20, not reached from the list, R162.1); a full room is the server's JoinChannel refusal ("Cannot join room. It may be full.", S:0x3f49a0). A room record made by the client defaults MaxPlayers to 256 (0x100) before the server's value overwrites it | D:L185223; D:L190249; research 154 §2 | §2.3 |
@@ -39,8 +39,11 @@ R161.1-R161.5), 162 (the join: R162.1, R162.4) and 163 (CREATE GAME's play list)
 which cuts the name to its basename (`strrchr` of '/', then of '\\', D:L228194-228205) and walks the mounted
 archives (the list at 0x488514, D:L228207-228221) asking each for a member of that name (`FUN_00258650`, D:L228221) --
 by name only; nothing in it or in the archive helpers beside it (`FUN_0032c1e0` open, D:L228236-228264; `FUN_0032c2b0`
-close, D:L228269-228305; `FUN_0032c570` index each, D:L228364-228374) walks an archive's members by index. Not found,
-it opens the name as a file.
+close, D:L228269-228305; `FUN_0032c570` `CRdrArchive::OpenAll`, D:L228364-228374, which reopens each mounted archive
+through `ReOpen` `FUN_00258b40` with 1, 1 -- r0004's twin `FUN_00349b80`, D4:L249549-249563, adds on a failed reopen a
+call `FUN_00311470(0x14e)`, D4:L249557-249560, which acts only when the global `DAT_004446f8`'s byte +0x117 is 4 or 6:
+it then calls `FUN_003112c0(0x452730, 0x14e)` and `FUN_0022ed10`, not read here, D4:L215042-215053) walks an archive's
+members by index. Not found, it opens the name as a file.
 
 `readerc.zar` (S:0x3e1da8, S:0x3e2da0, S:0x3f1898) is mounted from two directories. From "run/ui" (`RUN/UI/READERC.ZAR`,
 the one holding `mp_rooms.rdr`): at the UI's start (`FUN_001f4860`, D:L54801, S:0x3e2db0) and at a mission's load
@@ -139,12 +142,14 @@ holds. What SA-17 needs of it:
 ### 2.1 The fields (R342.3)
 
 The request is ChannelList_ExtraInfo0 (Lobby 0xec), PageID 1, PageSize 999 (`FUN_002e3aa0`, D:L184880-184895). Each
-0xed answer reaches `FUN_002e3b00` (D:L184900-184969): a non-success status (`FUN_002f42d0`, "RoomList") is dropped;
-a world id below 0 is dropped (D:L184914); a name already held (`strcmp`, D:L184917-184925) is overwritten in place,
+0xed answer reaches `FUN_002e3b00` (D:L184900-184969): a non-success status (`FUN_002f42d0`, "RoomList") is dropped; a
+world id below 0 is dropped (D:L184914); a name already held (`strcmp`, D:L184917-184925) is overwritten in place,
 else a record is added (`FUN_002e4240`, D:L185208-185233, copying with `FUN_002e4300`, D:L185238-185277). The fields
-kept: status +0x18, world id +0x1c, players +0x20, MaxPlayers +0x22 (D:L184950, D:L185264), SecurityLevel +0x24,
-GenericField1 +0x28, the name +0x2c (64 bytes), EndOfList +0x6c, which draws (D:L184964). GenericField2-4, a game
-count and GenericFieldLevel are not in the client's answer at all (its name follows GenericField1 at +0x2c).
+kept: status +0x18, world id +0x1c, players +0x20, MaxPlayers +0x22 (D:L184950, D:L185264), the word at +0x24 (copied
+unchanged to the record's +0x30 -- `FUN_002e4300` writes from the record + 0xc, D:L185238-185268, D:L184951 -- and
+never drawn; its name unsettled: the matched header calls it GameWorldCount, not SecurityLevel), GenericField1 +0x28,
+the name +0x2c (64 bytes), EndOfList +0x6c, which draws (D:L184964). GenericField2-4, a game count and
+GenericFieldLevel are not in the client's answer at all (its name follows GenericField1 at +0x2c).
 
 The draw (`FUN_002e3cc0`, D:L184974-185054) reads of each record only the name (record +0x38), the players (+0x2c) and
 GenericField1 (+0x34): a row is [name, players, then 1, 2, 3, 4 for each low bit set -- all four when the low four bits

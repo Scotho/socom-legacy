@@ -145,3 +145,82 @@ export const XBOX_GRAPHICS_ADAPTATION = 'webgl2' as const;
 export function classGraphics(graphics: GraphicsBackendPreference, deviceClass: DeviceClass, _overridden: boolean): GraphicsBackendPreference {
   return deviceClass === 'xbox' && (graphics === 'auto' || graphics === 'webgpu') ? XBOX_GRAPHICS_ADAPTATION : graphics;
 }
+
+/**
+ * MAC-FLOOR step 1 (INTAKE I-3, tier 1 row 18; player report B-64; a browser adaptation, product track, no original: the
+ * console had one renderer): the WebGL renderer strings of an Apple GPU -- Apple silicon's Mac parts (Chrome's ANGLE
+ * "ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Pro, ...)", Firefox's "Apple M2"), the phone and tablet parts
+ * ("Apple A17 Pro GPU") and Safari's masked "Apple GPU" -- which Safari reports for EVERY Mac, an Intel one included, so
+ * Safari on any Mac and on iOS draws WebGL2 under Automatic: a conservative call (Safari's WebGPU is not Dawn and was not
+ * tested on the fault). Chrome or Firefox on an Intel or AMD Mac names its part and is not one (its GPU does not draw in
+ * tiles; untested there), nor is a virtual machine's "Apple Paravirtual device".
+ */
+export const APPLE_GPU_RENDERER_ADAPTATION = /\bApple (?:M\d+|A\d+|GPU)\b/;
+
+/** Whether a WebGL renderer string names an Apple GPU (`APPLE_GPU_RENDERER_ADAPTATION`); an absent string is not one. */
+export function appleGpu(renderer: string | null): boolean {
+  return renderer !== null && APPLE_GPU_RENDERER_ADAPTATION.test(renderer);
+}
+
+/** The page's probe (made once a page load, `pageRendererProbe`) names an Apple GPU. Never throws. */
+export function pageAppleGpu(): boolean {
+  try { return appleGpu(pageRendererProbe().renderer); } catch { return false; }
+}
+
+/**
+ * MAC-FLOOR: the backend Automatic draws on with an Apple GPU outside a Chromium browser -- Safari (any Mac, iOS, iPadOS)
+ * and Firefox -- a browser adaptation (`appleGraphics`). MAC-AUTO-WEBGPU: Safari's WebGPU (not Dawn) is untested on the
+ * fault and its masked "Apple GPU" string names every Mac, so it stays WebGL2 under Automatic until a tester's run on it.
+ */
+export const APPLE_GRAPHICS_ADAPTATION = 'webgl2' as const;
+
+/**
+ * MAC-AUTO-WEBGPU (the controller's order 2026-11-23 on the owner's standing word, "if it comes back that webgpu works, we
+ * can go back to allowing auto to use webgpu where appropriate"; a browser adaptation, product track): the backend
+ * Automatic draws on with an Apple GPU in a CHROMIUM browser (Chrome, Edge). A tester's M1 Pro (Lightspeed, PR #870's
+ * comment 2026-11-23T04:03Z; Chrome 157, WebGPU adapter apple/metal-3, v0.4.30 fecc6ba05d; a rendered browser run, 120
+ * poses a check) drew WebGPU with the invariant mark alone (`./invariantPosition`, kept on every Apple GPU) within one
+ * edge of WebGL2: Fish Hook 1 of 120 flagged (33 before), the held pose 0 of 30 (30 before), Frostfire 3 (32),
+ * Crossroads 1 (11), Desert Glory 2 (19); no page error or black canvas in 17 loads. The coplanar offset changed nothing
+ * and stays off. Safari was not run.
+ */
+export const APPLE_CHROMIUM_GRAPHICS_ADAPTATION = 'webgpu' as const;
+
+/** ANGLE's Metal renderer in a WebGL renderer string: Chrome's and Edge's (Safari masks its string; Firefox names the part). */
+const ANGLE_METAL_RENDERER = /\bANGLE Metal Renderer\b/;
+
+/**
+ * MAC-AUTO-WEBGPU: whether the browser is Chromium -- its client hints (`navigator.userAgentData.brands`, Chromium's own,
+ * secure pages only) name Chromium, or, on a page without them (a LAN address), its WebGL renderer string is ANGLE's Metal
+ * renderer, which only a Chromium browser reports on a Mac. Safari (no client hints, "Apple GPU") and Firefox ("Apple M2")
+ * are not. Never throws.
+ */
+export function chromiumBrowser(nav: { userAgentData?: { brands?: readonly { brand: string }[] } } | undefined, renderer: string | null): boolean {
+  try {
+    if (nav?.userAgentData?.brands?.some((b) => b.brand === 'Chromium')) return true;
+  } catch { /* a hint that throws is no hint */ }
+  return renderer !== null && ANGLE_METAL_RENDERER.test(renderer);
+}
+
+/** The page's browser is Chromium (`chromiumBrowser` on the page's navigator and its probe's renderer). Never throws. */
+export function pageChromium(): boolean {
+  try {
+    return chromiumBrowser((globalThis as { navigator?: { userAgentData?: { brands?: readonly { brand: string }[] } } }).navigator, pageRendererProbe().renderer);
+  } catch { return false; }
+}
+
+/**
+ * MAC-FLOOR step 1: the backend a resolved choice asks for on an Apple GPU. A tester's M1 Pro (Chrome 157, 2026-11-21,
+ * agent-mail evidence/floor-flicker-mac-2026-11-21/RESULTS.md: a rendered browser run, 120 poses a check) drew the world's
+ * detail pass missing in 32 px screen tiles on WebGPU on all four maps tried, and clean on WebGL2 at the same poses; so
+ * Automatic ('auto') drew WebGL2 there. MAC-AUTO-WEBGPU (2026-11-23): with the invariant mark the tiles are gone on
+ * WebGPU in Chrome, so in a Chromium browser Automatic draws WebGPU again (`APPLE_CHROMIUM_GRAPHICS_ADAPTATION`), and
+ * elsewhere -- Safari, Firefox -- WebGL2 (`APPLE_GRAPHICS_ADAPTATION`) until tested. A player's own WebGPU (saved, handed
+ * in, or the address's `?renderer=webgpu`), WebGL2 and the Xbox pick are kept: only 'auto' changes. `./renderer`'s
+ * `createRenderer` applies it after `classGraphics`; the match entry gate and the video page's Detected line read it too.
+ * Which backend draws the same picture, nothing the game does.
+ */
+export function appleGraphics(graphics: GraphicsBackendPreference, apple: boolean, chromium: boolean = pageChromium()): GraphicsBackendPreference {
+  if (!apple || graphics !== 'auto') return graphics;
+  return chromium ? APPLE_CHROMIUM_GRAPHICS_ADAPTATION : APPLE_GRAPHICS_ADAPTATION;
+}

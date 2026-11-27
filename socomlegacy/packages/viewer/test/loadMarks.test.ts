@@ -60,7 +60,7 @@ describe('IP3 bbXnSJNH (a measurement instrument, no original): the lobby match 
 
   it('is wired at each phase: the front end, the match mount and the client', () => {
     const fe = src('frontEnd.ts');
-    expect(fe).toMatch(/load: \(mission\) => \{ markLoad\('load-start'\);/);
+    expect(fe).toMatch(/load: \(mission, variant\) => \{ markLoad\('load-start'\);/);
     expect(fe).toMatch(/markLoad\('decode-done'\)/);
     expect(fe).toMatch(/start: \(m\) => \{ loadingHide\.hold\(\); markLoad\('start'\);/);
     expect(fe).toMatch(/markLoad\('mounted'\)/);
@@ -106,6 +106,6 @@ describe('IP3 bbXnSJNH (a measurement instrument, no original): the lobby match 
     c.at(110); markLobbyPrepared(false, c.perf);
     expect(loadSummary(c.perf)).toEqual({ 'load-start': 0, lobbyPrepared: false });
     expect(() => { markLobbyPrepared(true, { mark: () => { throw new Error('quota'); } }); }).not.toThrow();
-    expect(src('frontEnd.ts')).toMatch(/markLobbyPrepared\(l\.holds\(mission\) !== null\)/);
+    expect(src('frontEnd.ts')).toMatch(/markLobbyPrepared\(l\.holds\(mission, variant\) !== null\)/);
   });
 });

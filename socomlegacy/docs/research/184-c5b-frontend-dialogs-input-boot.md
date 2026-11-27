@@ -36,7 +36,7 @@ Five findings change code that is in the port now:
 
 1. **`DPTOFP_ROUNDING_READING` is wrong.** The game's `dptofp` truncates toward zero, so `SuspendMenuInput 0.15` is
    0x3e199999, not 0x3e19999a. PROVEN two ways: the machine code, and a unicorn run of the game's own function.
-2. **`SKB_BLANK_READING` is wrong for two keys on the US grid.** Š (U+0160, cell 352) and Ÿ (U+0178, cell 376) count as
+2. *(2026-11-24, R4P-233: `SKB_BLANK_READING` now follows r0004 -- the space only -- superseding this item; see research 119.)* **`SKB_BLANK_READING` is wrong for two keys on the US grid.** Š (U+0160, cell 352) and Ÿ (U+0178, cell 376) count as
    white space in the original, because the ctype lookup runs past the end of its table. PROVEN from the ELF's static
    bytes.
 3. **`SKB_FIT_READING` differs at the edges.** The original's width test includes each word's trailing spaces, and a
@@ -395,7 +395,7 @@ c < 0x472f reads a static byte, PROVEN by the ELF. For c >= 0x4d2f the read land
 
 **The results** (`skb_blank.py`, output `skb_blank.out`):
 - Below 256, the white space is 0x09-0x0d and 0x20.
-- Above 256, **5446 code points under 0x472f have the bit set**. Among the US grid's integer cells: **U+0160 (cell 352,
+- *(2026-11-24, R4P-233: `SKB_BLANK_READING` now follows r0004 -- the space only -- superseded for the port by r0004's space-only test; see research 119.)* Above 256, **5446 code points under 0x472f have the bit set**. Among the US grid's integer cells: **U+0160 (cell 352,
   Š) byte 0x1d and U+0178 (cell 376, Ÿ) byte 0x0a are white space**. U+201E (8222) and U+20AC (8364) are not.
 
 **Answer.** A text made only of Š, Ÿ and spaces is blank in the original: the name is refused or treated as empty, as
@@ -815,7 +815,7 @@ I then checked each claim against `$PORT` to confirm that the port does what the
 | 13 | `IsNetwork` answers 0 offline (the port gives 1) | C5b | CONFIRMED | 0x27e6d0 = `lbu 0x45a0c1`; 0 in all 5 menu dumps; the port's placeholder answers true |
 | 14 | `CheckTeamStatus` answers 0 offline, "0 while no game exists" | C5b | CONFIRMED-WITH-CORRECTION | the answer 0 is right, the reason is wrong: 0x437ce8 is **non-zero** (0x869360) in every menu dump; the 0 comes from 0x45a0c0 = 0 and 0x441470 = 0 |
 | 15 | `MediusEnabled` answers 1 | C5b | CONFIRMED | 0x27aff0 = `lbu 0x45a1c8`; the boot store at 0x1eac08; 1 in the dumps; the zero at 0x402874 is the static initializer, which runs first |
-| 16 | Š (U+0160) and Ÿ (U+0178) count as blank in the soft keyboard | C5b | CONFIRMED | `andi 0xffff; lb 0x1d08d1(c); andi 8` at 0x39975c; bytes 0x1d / 0x0a, the same in title_pcsx2.rdram |
+| 16 | Š (U+0160) and Ÿ (U+0178) count as blank in the soft keyboard | C5b | CONFIRMED | `andi 0xffff; lb 0x1d08d1(c); andi 8` at 0x39975c; bytes 0x1d / 0x0a, the same in title_pcsx2.rdram *(2026-11-24, R4P-233: `SKB_BLANK_READING` now follows r0004 -- the space only -- superseding the U+0160 / U+0178 remark; see research 119.)* |
 | 17 | `MENU_TICK_RATE` = 30 Hz (`DAT_003e1400` = 30) | C5b | CONFIRMED-WITH-CORRECTION | the cap word is 30, but the frame is 2 fields: 525 HBLANKs, dt 0.033367 s, 29.97 Hz in all three PCSX2 dumps (C6's figure); "30 Hz" is nominal |
 
 ### 10.2 Claim 12: `atofF32` truncates -- CONFIRMED

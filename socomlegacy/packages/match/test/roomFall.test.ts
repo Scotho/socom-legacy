@@ -5,10 +5,11 @@ import type { CollisionOwner, GridParams, SpawnSlot, WorldPoly } from '@s2u/scen
 import { FsAssetSource } from '@s2u/archive/node';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import {
-  encodeCommands, fallDamageFraction, groundGrid, KNOCK_LANDING_SPEED_FACTOR, loadSimMap, MP_ARMOUR, MP_HEALTH, packGround, PROTOCOL_VERSION,
-  probeLiftOf, type ServerEvent, type SimMap,
+  encodeCommands, fallDamageFraction, groundGrid, DIVE_LANDING_SPEED_FACTOR, loadSimMap, MP_ARMOUR, MP_HEALTH, packGround, PROTOCOL_VERSION,
+  Button, probeLiftOf, type Command, type ServerEvent, type SimMap,
 } from '../../viewer/src/sim';
 import { PART } from '../../viewer/src/net/damage';
+import type { Traversal } from '../../viewer/src/traversal';
 import { Room, type Conn } from '../src/room';
 
 /**
@@ -26,7 +27,7 @@ const FIXTURES = resolve(process.env.S2U_TEST_FIXTURES || resolve(dirname(fileUR
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
 };
 
 function map(): SimMap {
@@ -37,6 +38,24 @@ function map(): SimMap {
   });
   const slots = [0, 1, 2, 3].flatMap((i) => [slot(0, i, -400, -200 + i * 50), slot(1, i, 400, -200 + i * 50)]);
   return { stem: 'MP99', name: 'FLAT', ground, grid: groundGrid(ground), spawns: null, slots, respawns: [], notes: [] };
+}
+
+/**
+ * R4P-104: a ledge -- the side-1 half (x >= `edge`) a floor `height` up, the rest at 0 -- with the Terrorists' slots on
+ * the ledge at x 400 facing -x, toward its edge (a test adaptation: synthetic geometry, as `map`).
+ */
+function ledgeMap(height: number, edge: number): SimMap {
+  const poly = (x0: number, x1: number, y: number, path: string): WorldPoly => ({
+    modelName: 'worldmodel', path, region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
+    points: Float32Array.from([x0, y, -1000, x1, y, -1000, x1, y, 1000, x0, y, 1000]),
+  });
+  const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 2 }];
+  const ground = packGround(PARAMS, [poly(edge, 1000, height, 'worldmodel/ledge'), poly(-1000, edge, 0, 'worldmodel/floor')], owners);
+  const slot = (side: 0 | 1, index: number, x: number, y: number, z: number): SpawnSlot => ({
+    side, index, position: [x, y, z], onFloor: true, step: side === 0 ? 2 : 6, facing: side === 0 ? [1, 0] : [-1, 0], loc: { map: 0, x: 0, z: 0 },
+  });
+  const slots = [0, 1, 2, 3].flatMap((i) => [slot(0, i, -400, 0, -200 + i * 50), slot(1, i, 400, height, -200 + i * 50)]);
+  return { stem: 'MP99', name: 'LEDGE', ground, grid: groundGrid(ground), spawns: null, slots, respawns: [], notes: [] };
 }
 
 class Client implements Conn {
@@ -53,7 +72,7 @@ class Client implements Conn {
 }
 
 /** Two players seated (a SEAL and a Terrorist: classic launches at once, the countdown off), stood on the floor. */
-function setup(opts: ConstructorParameters<typeof Room>[2] = {}, m: SimMap = map()) {
+function setup(opts: ConstructorParameters<typeof Room>[2] = {}, m: SimMap = map(), warm = 30) {
   let now = 0, seed = 1;
   const room = new Room(m, null, { now: () => now, random: () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }, launchCountdownS: 0, ...opts });
   const join = (id: number): Client => {
@@ -63,18 +82,19 @@ function setup(opts: ConstructorParameters<typeof Room>[2] = {}, m: SimMap = map
   };
   const a = join(1), b = join(2);
   /** Every player sends a command at rest -- `walking` holds its stick forward -- and the room steps, `n` times. */
-  const settle = (n = 60, walking: number | null = null): void => {
+  /** `held` (R4P-104): what player 1's commands carry besides (the dive's prone press, the prone stance held after). */
+  const settle = (n = 60, walking: number | null = null, held: Partial<Command> = {}): void => {
     for (let i = 0; i < n; i++) {
       for (const id of [1, 2]) {
         const p = room.player(id);
         if (!p) continue;
-        room.binary(id, encodeCommands({ viewTick: room.tick, commands: [{ seq: p.sim.seq + 1, forward: id === walking ? 1 : 0, right: 0, yaw: p.sim.walker.state.yaw, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 }] }));
+        room.binary(id, encodeCommands({ viewTick: room.tick, commands: [{ seq: p.sim.seq + 1, forward: id === walking ? 1 : 0, right: 0, yaw: p.sim.walker.state.yaw, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0, ...(id === 1 ? held : {}) }] }));
       }
       room.step();
       now += 1000 / 60;
     }
   };
-  settle(30);
+  settle(warm);
   for (const c of [a, b]) c.events.length = 0;
   return { room, a, b, settle };
 }
@@ -215,22 +235,102 @@ describe('a fall the room measures (research 151; FUN_005ac1f0 D:L464866-464960)
     expect(sum(after) - sum(p.health.hp)).toBeGreaterThan(0);
   });
 
-  it('a blast knock\'s landing is read at its speed x 1.2 (FUN_00580360 D:L441929): a 70-unit knock-down hurts as a 101-unit fall', () => {
+  // R4P-104 (reading, pending review): a knock's landing (`Fall forward` / `Fall backwards` at the contact, r0004
+  // 0x5b5a64-0x5b5a88) calls the fall's damage with the PLAIN contact speed (0x5b5aa8-0x5b5aac; the kept +0x1368 at
+  // 0x5b5b60-0x5b5b64; r0001 D:L466836, D:L466844). The x 1.2 is the dive's landing's alone (0x585980-0x585994, below).
+  it('a blast knock\'s landing is read at its plain contact speed (r0004 0x5b5aa8-0x5b5aac; D:L466836): no x 1.2', () => {
     const { room, a, settle } = setup();
     const p = room.player(1)!;
     const w = p.sim.walker;
-    w.state.y += 70;                                     // sqrt(2 x 235 x 70) = 181.4 a second; x 1.2 = 217.7
+    w.state.y += 70;                                     // sqrt(2 x 235 x 70) = 181.4 a second: class 1
     expect(w.knock([0, 0, 0], 'fallForward')).toBe(true);
     settle(120);
     const landing = w.landing!;
     expect(landing.knocked).toBe(true);
     expect(landing.clip).toBe('landDeath');              // `Land forward`, the knock's landing clip (research 85 s12)
-    const f = fallDamageFraction(landing.speed * KNOCK_LANDING_SPEED_FACTOR);
-    expect(f).toBeGreaterThan(fallDamageFraction(landing.speed));
-    expect(f).toBeGreaterThan(0.65);
+    const f = fallDamageFraction(landing.speed);
+    expect(f).toBeGreaterThan(0);
+    expect(f).toBeLessThan(fallDamageFraction(landing.speed * DIVE_LANDING_SPEED_FACTOR));
     MP_HEALTH.forEach((m, i) => expect(p.health.hp[i], `part ${i}`).toBeCloseTo(m * (1 - f), 9));
+    expect(landing.dived).toBe(false);
     expect(a.of('hurt')).toHaveLength(1);
     expect(p.alive).toBe(true);
+  });
+
+  // R4P-104 (reading, pending review): the dive's landing (r0004 0x585900, r0001 `FUN_00580360` D:L441912-441950),
+  // reached with `dive_to_prone` in play at the contact (r0004 0x5b5ce4-0x5b5cfc; r0001 D:L466908-466914), calls the
+  // fall's damage at the contact speed x 1.2 (0x585980-0x585994; D:L441929). The port's dive that leaves an edge ends
+  // as the walker's own fall (viewer `traversal.ts`), so the walker carries the dive to that landing (`Landing.dived`).
+  // The ledge: 50 units at x 340; the Terrorist (player 1) at x 400 runs 40 commands toward it (to about x 363, at the
+  // run's 65 a second) and dives: the dive carries it off the edge and it lands about 157 a second (under the light
+  // speed's 170.7; x 1.2 about 188, over it). A walk-off from the same edge lands under the light speed and takes 0.
+  it('a dive carried off a 50-unit edge lands at its speed x 1.2 (r0004 0x585980-0x585994; D:L441929); a walk-off from it takes 0', () => {
+    const { room, a, settle } = setup({}, ledgeMap(50, 340));
+    const p = room.player(1)!;
+    const w = p.sim.walker;
+    expect(w.state.y).toBe(50);
+    settle(40, 1);
+    expect((p.sim.moves as Traversal).state().kind).toBe('none');
+    settle(1, 1, { buttons: Button.Stance, stance: 2 });
+    expect((p.sim.moves as Traversal).state().kind, 'the dive taken').toBe('dive');
+    settle(150, null, { stance: 2 });
+    expect(w.state.y).toBe(0);
+    const landing = w.landing!;
+    expect(landing.knocked).toBe(false);
+    expect(fallDamageFraction(landing.speed)).toBe(0);   // the plain speed would take nothing
+    const f = fallDamageFraction(landing.speed * DIVE_LANDING_SPEED_FACTOR);
+    expect(f).toBeGreaterThan(0);
+    MP_HEALTH.forEach((m, i) => expect(p.health.hp[i], `part ${i}`).toBeCloseTo(m * (1 - f), 9));
+    expect(landing.dived).toBe(true);
+    expect(a.of('hurt')).toHaveLength(1);
+    expect(p.alive).toBe(true);
+
+    const off = setup({}, ledgeMap(50, 340));
+    const q = off.room.player(1)!;
+    off.settle(150, 1);                                  // walked straight off the same edge
+    expect(q.sim.walker.state.y).toBe(0);
+    expect(q.sim.walker.landing!.dived).toBe(false);
+    expect(fallDamageFraction(q.sim.walker.landing!.speed)).toBe(0);
+    expect(q.health.hp).toEqual([...MP_HEALTH]);
+    expect(off.a.of('hurt')).toEqual([]);
+  });
+
+  // R4P-104: r0004's online spare (0x5b2168-0x5b21a4) keys on the controller's class (`CSealCtrlAi`), and the port's CPU
+  // seats are its own adaptation (`MATCH_BOT_FALL_ADAPTATION`, AS-09): a seat with `sim.ai` set takes fall damage as a
+  // player does. A pin, green before the change, that must stay green: the spare never keys on `sim.ai`.
+  it('a match bot (sim.ai) takes fall damage as a player: 85 units take max x f, 130 kill as a fall (MATCH_BOT_FALL_ADAPTATION)', () => {
+    const { room, a, settle } = setup();
+    const p = room.player(1)!;
+    p.sim.ai = true;
+    drop(room, 1, 85);
+    settle(90);
+    const f = fallDamageFraction(p.sim.walker.landing!.speed);
+    expect(f).toBeGreaterThan(0.37);
+    expect(f).toBeLessThan(0.39);
+    MP_HEALTH.forEach((m, i) => expect(p.health.hp[i], `part ${i}`).toBeCloseTo(m * (1 - f), 9));
+    expect(a.of('hurt')).toHaveLength(1);
+    const deadly = setup();
+    const q = deadly.room.player(1)!;
+    q.sim.ai = true;
+    drop(deadly.room, 1, 130);
+    deadly.settle(120);
+    expect(q.alive).toBe(false);
+    expect(deadly.a.of('kill')[0]).toMatchObject({ killer: null, victim: 1, how: 'fall', cause: 7 });
+  });
+
+  // R4P-104: r0004's landing runs when the mission's wait (+0x108, set to 10.0 at its open) is out OR in a network game
+  // (0x5b52d8-0x5b5300; r0001 D:L466654 has the wait alone): online there is no 10-second grace. A pin, green before the
+  // change, that must stay green: the room's first ticks land and hurt as any other.
+  it('no grace online (r0004 0x5b52d8-0x5b5300): a drop of 85 at the round\'s first tick takes max x f', () => {
+    const { room, a, settle } = setup({}, map(), 0);
+    const p = room.player(1)!;
+    expect(room.tick).toBe(0);
+    drop(room, 1, 85);
+    settle(90);
+    const f = fallDamageFraction(p.sim.walker.landing!.speed);
+    expect(f).toBeGreaterThan(0.37);
+    MP_HEALTH.forEach((m, i) => expect(p.health.hp[i], `part ${i}`).toBeCloseTo(m * (1 - f), 9));
+    expect(a.of('hurt')).toHaveLength(1);
   });
 
   it('with the combat report on, the fall is reported to the faller alone: request fall, applied, the player its own attacker', () => {
@@ -274,11 +374,14 @@ describe('a fall on Frostfire (the MP2 fixture; research 151 §4)', () => {
     expect(w.state.x).toBeLessThan(525);
     const landing = w.landing!;
     expect(landing.cls).toBe(2);
-    expect(landing.speed).toBeGreaterThan(219);
-    expect(landing.speed).toBeLessThan(223);
+    // FLE-1 (2026-11-19; research 151 s8, `LANDING_FRAME_READING`): the walk-off lands a game frame after the frame that
+    // reaches the floor, handing (K + 1) g dt -- 102 under 235 is reached on frame K = 28 (28 x 29 / 2 x g dt^2 = 106.2), so
+    // 29 g dt = 227.40 (was: under 223, the contact frame's sqrt(2 x 235 x 102) + one tick's g dt).
+    expect(landing.speed).toBeCloseTo(29 * 235 * (525 / 15734), 6);
     const f = fallDamageFraction(landing.speed);
-    expect(f).toBeGreaterThan(0.72);
-    expect(f).toBeLessThan(0.79);
+    // FLE-1: at 227.40 (29 steps) the fraction is 0.849 (was 0.72-0.79 at the contact frame's speed); still alive.
+    expect(f).toBeGreaterThan(0.84);
+    expect(f).toBeLessThan(0.86);
     MP_HEALTH.forEach((max, i) => expect(p.health.hp[i], `part ${i}`).toBeCloseTo(max * (1 - f), 9));
     expect(p.alive).toBe(true);
     const hurt = a.of('hurt');

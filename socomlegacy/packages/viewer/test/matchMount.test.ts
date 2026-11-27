@@ -9,11 +9,15 @@ import type { RdrNode } from '@s2u/archive';
 import { pinnedMatchSocket } from '../src/connectHost';
 import { GameSocketHost, type GameLobbyHandOff } from '../src/gameLobbyHost';
 import { FlyCamera } from '../src/camera';
+import type { VideoShape } from '../src/shape';
 import { Hud, MESSAGE_SCALE } from '../src/hud';
 import { HUD_LIBRARIES } from '../src/hudAssets';
-import { StartMenu } from '../src/startMenu';
+import { offerStartMenuLauncher, StartMenu } from '../src/startMenu';
 import { PlayerLoadout } from '../src/loadout';
 import { Effects } from '../src/effects';
+import { ParticleSystem } from '../src/particles';
+import * as deviceClassification from '../src/deviceClass';
+import { XBOX_PS2_MARKS_OFF_HELD } from '../src/xboxPs2Effects';
 import { Fire } from '../src/fire';
 import { Kit } from '../src/kit';
 import { Reticle } from '../src/reticle';
@@ -25,7 +29,7 @@ import { RocketLauncher } from '../src/rocket';
 import { INVENTORY_IDLE_CLOSE, InventoryMenu } from '../src/inventoryMenu';
 import type { WorldPoly } from '@s2u/scene';
 import { deferredMatch, LobbyMatch, MATCH_END_RETURN_READING, type LobbyMatchReturn, type MatchHandle } from '../src/lobbyMatch';
-import { MATCH_MOUNT_PARTS_PLACEHOLDER, MATCH_WINDOW_HOOK, matchLighting, matchLoader, mountMatch, type MatchAssets, type MatchMountOptions, type MatchWorker, type MatchRenderer, type MatchWindow, type MatchWindowHook } from '../src/matchMount';
+import { MATCH_MOUNT_PARTS_PLACEHOLDER, MATCH_WINDOW_HOOK, matchLighting, matchLoader, mountMatch, prepareMount, type MatchAssets, type MatchMountOptions, type MatchWorker, type MatchRenderer, type MatchWindow, type MatchWindowHook } from '../src/matchMount';
 import { FRONT_END_CAPABILITIES, type MatchCapabilities } from '../src/matchCore';
 import { DEFAULT_LIGHTING } from '../src/lighting';
 import type { LoadedMap, LoadedMesh } from '../src/loadMap';
@@ -532,6 +536,63 @@ describe('mountMatch: the match built from parameters, with no /testroom markup 
     expect(m.ended()).toBe(GAME_ENDED_DIALOG_READING);
     m.close();
   });
+
+  it('XBOX-WARM (review F7): after the attach the world waits for the prepare compiles; once drawn, it is never held again', async () => {
+    let busy = 2;
+    const r = fakeRenderer();
+    const seen: number[] = [];
+    const t = options(handOff('seal'), {
+      assets: Promise.resolve({ map: synthetic(), clips: null }),
+      renderer: () => Promise.resolve({ ...r.r, compilesBusy: () => busy } as unknown as MatchRenderer),
+      firstFrame: () => { seen.push(r.drawn.length); },
+    } as Partial<MatchMountOptions>);
+    const m = mountMatch(document.body, t.o);
+    await flush();
+    t.w.step(5);
+    expect(r.drawn).toHaveLength(0);                                                    // held: the bodies' compiles still queued
+    expect(seen).toEqual([]);
+    busy = 0;
+    t.w.step(2);
+    expect(seen).toEqual([2]);                                                          // two drawn frames once idle: the first frame
+    busy = 5;
+    t.w.step(3);
+    expect(r.drawn).toHaveLength(5);                                                    // after the first frame: never held
+    m.close();
+  });
+
+  it('XBOX-WARM (review F7): stage 1 is never held -- the prepared report comes after two world frames whatever the queue', async () => {
+    const r = fakeRenderer();
+    const w = fakeWindow();
+    const told: boolean[] = [];
+    const p = prepareMount(document.body, {
+      assets: Promise.resolve({ map: synthetic(), clips: null }), win: w.win,
+      renderer: () => Promise.resolve({ ...r.r, compilesBusy: () => 7 } as unknown as MatchRenderer),
+      prepared: (ok) => { told.push(ok); },
+    });
+    await flush(); await flush();
+    w.step(3);
+    expect(told).toEqual([true]);                                                       // not held: the room's loaded keeps its time
+    expect(r.drawn.length).toBeGreaterThanOrEqual(2);
+    p.drop();
+  });
+
+  it('XBOX-WARM (delta review F5): attached before its prepared report, the held frames still count toward it (worldReady)', async () => {
+    const r = fakeRenderer();
+    const w = fakeWindow();
+    const told: boolean[] = [];
+    const x = handOff('seal');
+    const p = prepareMount(document.body, {
+      assets: Promise.resolve({ map: synthetic(), clips: null }), win: w.win,
+      renderer: () => Promise.resolve({ ...r.r, compilesBusy: () => 7 } as unknown as MatchRenderer),
+      prepared: (ok) => { told.push(ok); },
+    });
+    const m = p.attach(document.body, { client: x.h.client, events: [welcome], handOff: x.h, holds: () => {}, win: w.win } as never);
+    await flush(); await flush();
+    w.step(3);
+    expect(r.drawn).toHaveLength(0);                                                    // attached and the queue busy: held
+    expect(told).toEqual([true]);                                                       // yet the prepared report keeps its time
+    m.close();
+  });
 });
 
 /**
@@ -556,7 +617,7 @@ describe('KEYBOARD-WHISPER: the online round text line in the front end match', 
       { id: 2, name: 'socomc', team: 'seal', kills: 0, deaths: 0, score: 0, alive: true, ping: 0 },
       { id: 3, name: 'kilo', team: 'terrorist', kills: 0, deaths: 0, score: 0, alive: true, ping: 0 },
     ], timeLeft: null, spectators: [], wins: { seal: 0, terrorist: 0 } } as unknown as ServerEvent);
-    t.w.key('Enter');                                                     // a development build: ENTER opens the line (ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION)
+    t.w.key('Backquote');                                                 // a development build: tilde opens the line (ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION; V21.R15a, RC-2, replaced ENTER)
     typeKeys(t.w, W_KILO_HI);
     t.w.step(2);
     const hook = (t.o.win as unknown as Record<string, MatchWindowHook | undefined>)[MATCH_WINDOW_HOOK]!;
@@ -565,7 +626,7 @@ describe('KEYBOARD-WHISPER: the online round text line in the front end match', 
     t.w.step(1);
     expect(sent).toEqual([]);
     expect(shown(t)).toContain(':: Player "kilo" is unavailable');
-    typeKeys(t.w, ['Enter', 'Slash', 'KeyW', 'Space', 'KeyL', 'KeyI', 'KeyM', 'KeyA', 'Space', 'KeyY', 'KeyO', 'Enter']);
+    typeKeys(t.w, ['Backquote', 'Slash', 'KeyW', 'Space', 'KeyL', 'KeyI', 'KeyM', 'KeyA', 'Space', 'KeyY', 'KeyO', 'Enter']);
     t.w.step(1);
     expect(sent).toEqual([['yo', 'lima']]);
     expect(shown(t)).toContain('yo');
@@ -574,13 +635,46 @@ describe('KEYBOARD-WHISPER: the online round text line in the front end match', 
     t.w.key('KeyQ');
     expect(sent).toHaveLength(1);
   });
+  // RC-2 (V21.R15a; `ROUND_CHAT_SEND_ADAPTATION`, a browser adaptation beside OT.R48): a non-whisper line goes on the game
+  // socket as the page's `chat` request -- plain as `{ type: 'chat', text }`, `/team <text>` with `team: true`; a `/w` line
+  // stays the lobby's whisper and never reaches the game socket.
+  it('RC-2: a plain line and a `/team` line go on the game socket as `chat`; a `/w` line does not', async () => {
+    const x = handOff();
+    const sent: [string, string][] = [];
+    const t = options(x, { textLine: { online: () => true, whisper: (msg, name) => { sent.push([msg, name]); } } });
+    const m = mountMatch(document.body, t.o);
+    await flush();
+    typeKeys(t.w, ['Backquote', 'KeyG', 'KeyO', 'Enter']);
+    typeKeys(t.w, ['Backquote', 'Slash', 'KeyT', 'KeyE', 'KeyA', 'KeyM', 'Space', 'KeyH', 'KeyI', 'Enter']);
+    typeKeys(t.w, ['Backquote', 'Slash', 'KeyW', 'Space', 'KeyL', 'KeyI', 'KeyM', 'KeyA', 'Space', 'KeyY', 'KeyO', 'Enter']);
+    t.w.step(1);
+    const chats = (x.socks.at(-1) as unknown as { sent: unknown[] }).sent
+      .filter((d): d is string => typeof d === 'string').map((d) => JSON.parse(d) as { type: string }).filter((e) => e.type === 'chat');
+    expect(chats).toEqual([{ type: 'chat', text: 'go' }, { type: 'chat', text: 'hi', team: true }]);
+    expect(sent).toEqual([['yo', 'lima']]);
+    m.release();
+  });
+  // ROUND_CHAT_ENTER_OPENS_ADAPTATION (product track; the owner, 2026-11-23: "also make enter open chat" / "while in a match
+  // even with keyboard on"): ENTER opens the closed DEV line untyped, as tilde does; ENTER then sends and closes.
+  it('ENTER opens the line as tilde does: ENTER, a line, ENTER goes on the game socket as `chat`', async () => {
+    const x = handOff();
+    const t = options(x, { textLine: { online: () => true, whisper: () => undefined } });
+    const m = mountMatch(document.body, t.o);
+    await flush();
+    typeKeys(t.w, ['Enter', 'KeyG', 'KeyO', 'Enter']);
+    t.w.step(1);
+    const chats = (x.socks.at(-1) as unknown as { sent: unknown[] }).sent
+      .filter((d): d is string => typeof d === 'string').map((d) => JSON.parse(d) as { type: string }).filter((e) => e.type === 'chat');
+    expect(chats).toEqual([{ type: 'chat', text: 'go' }]);
+    m.release();
+  });
   it('not online (ComeFromLan set), or no line given: nothing typed', async () => {
     for (const extra of [{ textLine: { online: () => false, whisper: () => { throw new Error('sent'); } } }, {}] as Partial<MatchMountOptions>[]) {
       const x = handOff();
       const t = options(x, extra);
       const m = mountMatch(document.body, t.o);
       await flush();
-      typeKeys(t.w, ['Enter', ...W_KILO_HI, 'Enter']);
+      typeKeys(t.w, ['Backquote', ...W_KILO_HI, 'Enter']);              // tilde: the DEV line's open key since V21.R15a (RC-2)
       t.w.step(2);
       const hook = (t.o.win as unknown as Record<string, MatchWindowHook | undefined>)[MATCH_WINDOW_HOOK]!;
       expect(hook.hud().model.textLine ?? null).toBeNull();
@@ -974,7 +1068,7 @@ describe('sprint 29 wave 4: the front end match mirrors main.ts\'s view and spec
     ['PF-29: the world frame takes the firearm\'s render view -- the zoom\'s own, or the watched player\'s while the player\'s view is drawn (PV-7b; `MatchFirearm.renderView`)',
       /view\?\.frame\(fly\.camera, dt, firearm\.renderView\(\)\);/, /view\?\.frame\(fly\.camera, dt, firearm\.renderView\(\)\);/],
     ['PF-31: the pad reaches the spectator once a frame (NetPage.spectatorPad)',
-      /net\?\.spectatorPad\(padMerged\);/, /net\?\.spectatorPad\(padMerged\);/],
+      /net\?\.spectatorPad\(padMerged, claimR1\);/, /net\?\.spectatorPad\(padMerged, claimR1\);/],
   ];
   for (const [what, inMain, inCopy] of pairs) {
     it(`${what}: main.ts has it and matchMount.ts copies it`, () => {
@@ -1012,7 +1106,7 @@ describe('sprint 29 wave 4: the front end match mirrors main.ts\'s view and spec
 const floorQuad = (points: number[]): WorldPoly =>
   ({ modelName: 'worldmodel', path: 'worldmodel/q', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from(points) });
 const grounded = (): LoadedMap => {
-  const polys = [floorQuad([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200])];
+  const polys = [floorQuad([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200])];
   const ground = packGround(
     { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 },
     polys, polys.map((q, i) => ({ modelName: q.modelName, path: `${q.path}${i}`, first: i, count: 1 })),
@@ -1043,8 +1137,12 @@ async function armed(o: { team?: 'seal' | 'terrorist'; blocked?: () => boolean }
  * 0.1001 s, which seven page frames of 16 ms (0.112 s) always hold wherever the press falls (was: seven page ticks of
  * 0.1 s in doubles) -- and the round leaves there. A test about what a round does, not about the raise, steps this many
  * frames after its press.
+ * LATER 1147 (research 443), restated: was 7. The raise is asked up only at the held answer, the press's second read
+ * (`FUN_005dfe30(.., 1)`, D:L453633-453634; `FUN_002c60c0` D:L166671-166686), so it reads 1 at the end of the press's
+ * game frame + 1 + `RAISE_REFUSAL_FRAMES` -- four game frames, 0.1335 s, which nine page frames of 16 ms (0.144 s)
+ * always hold.
  */
-const RAISE_STEPS = 7;
+const RAISE_STEPS = 9;
 
 describe('ONL-18d: the firearm in the front end match (main.ts gunplay, copied)', () => {
   it('R1 fires through NetPage and its socket only: each round the room is sent is a NetPage.fireEvent', async () => {
@@ -1195,7 +1293,7 @@ describe('PAR-1: WEAPON EXCHANGE and the dead\'s prompt in the front end match (
 
   // Research 253 s5's owed case: the mounted match with a map arsenal (`exchangeArsenal`: pkmArsenal's pattern, a rifle
   // added), so R2 opens the menu on the front end itself -- the open, the confirm's loadout request and the room's answer.
-  it("dead with a map arsenal: R2 opens WEAPON EXCHANGE, Cross's pick of the other rifle sends the side's list as the loadout request, the room's answer is the menu's kit; the spawn closes it", async () => {
+  it("dead with a map arsenal: R2 opens WEAPON EXCHANGE, Cross's pick of the other rifle sends the side's list as the loadout request, the room's answer is the menu's kit; a respawn leaves it open, the round's reset closes it (LATER 1542)", async () => {
     const map = grounded();
     (map as unknown as { arsenal: unknown }).arsenal = exchangeArsenal;
     const a = await armed({}, { assets: Promise.resolve({ map, clips: null }) });
@@ -1219,7 +1317,11 @@ describe('PAR-1: WEAPON EXCHANGE and the dead\'s prompt in the front end match (
     expect(hook.weaponSelect().loadout).toEqual([62, 15, 122, 151, 194]);               // the room's answer on the rows
     a.x.say({ type: 'spawn', id: 2, at: [0, 0, 0], yaw: 0, after: 0, kit: [62, 15, 122, 151, 194] } as unknown as ServerEvent);
     a.t.w.step(1);
-    expect(hook.weaponSelect().screen).toBe('closed');                                   // the round's reset closed it
+    // LATER 1542: a spawn closes no menu (the original's mid-round respawn, FUN_00547350 / FUN_00598b90, calls no HUD close)
+    expect(hook.weaponSelect().screen).not.toBe('closed');
+    a.x.say({ type: 'roundStart', round: 2, seconds: 360, wins: { seal: 0, terrorist: 0 }, rounds: 11, epoch: 2, startTick: 0 } as unknown as ServerEvent);
+    a.t.w.step(1);
+    expect(hook.weaponSelect().screen).toBe('closed');                                   // the round's reset closed it (FUN_001fb790 D:L57684)
     a.m.close();
   });
 });
@@ -1265,6 +1367,31 @@ describe('PAR-5: the dead exchange on coarse input in the front end match (./mat
     expect(document.body.classList.contains('touch')).toBe(false);
     expect(listeners.left()).toEqual([]);
     expect(t.w.live.size).toBe(0);
+  });
+});
+
+// WM-DATA, the scoreboard's hover source (a browser adaptation, `./hudPointer`): the match's canvas feeds its HUD the
+// pointer in drawing-buffer pixels (`Hud.setPointer`), clears it on a leave, and stops with the match (its abort signal).
+describe('WM-DATA: the pointer over the match\'s canvas reaches its HUD (./hudPointer, a browser adaptation)', () => {
+  it('a move feeds Hud.setPointer in buffer pixels; a leave clears it; after the close nothing is fed', async () => {
+    const setPointer = vi.spyOn(Hud.prototype, 'setPointer');
+    const map = grounded();
+    const x = handOff();
+    const t = options(x, { assets: Promise.resolve({ map, clips: null }) });
+    const m = mountMatch(document.body, t.o);
+    await flush();
+    t.w.step(2);
+    vi.spyOn(m.canvas, 'getBoundingClientRect').mockReturnValue({ left: 10, top: 20, width: 320, height: 224, right: 330, bottom: 244, x: 10, y: 20, toJSON: () => ({}) });
+    const ev = (type: string, clientX = 0, clientY = 0): void => { m.canvas.dispatchEvent(new PointerEvent(type, { pointerId: 1, pointerType: 'mouse', clientX, clientY, bubbles: true })); };
+    ev('pointermove', 170, 132);
+    expect(setPointer).toHaveBeenLastCalledWith({ x: (160 * m.canvas.width) / 320, y: (112 * m.canvas.height) / 224 });
+    ev('pointerleave');
+    expect(setPointer).toHaveBeenLastCalledWith(null);
+    m.close();
+    const calls = setPointer.mock.calls.length;
+    ev('pointermove', 170, 132);
+    expect(setPointer).toHaveBeenCalledTimes(calls);
+    setPointer.mockRestore();
   });
 });
 
@@ -1571,27 +1698,34 @@ describe('TAUNTS in the front end match (one wiring with /testroom: ./matchTaunt
 
   it('a Circle tap opens the Chat menu on the session\'s five; R1 held into it fires no more, held through its close neither; a fresh pull fires', async () => {
     const a = await armed({}, withTaunts());
-    a.t.w.step(2);
-    expect(hook(a).taunts().custom).toEqual(['ONE', 'TWO', 'CUSTOM TAUNT 03', 'FOUR', 'FIVE']);
-    a.press(5, true);                                                                    // R1 held: the rifle fires
-    a.t.w.step(RAISE_STEPS);                                                             // LATER 180: up from the spawn's lowered rifle
-    expect(a.fires().length).toBeGreaterThan(0);
-    a.press(1, true); a.t.w.step(1); a.press(1, false); a.t.w.step(1);                   // Circle tapped
-    expect(hook(a).taunts().open).toBe(true);
-    // Open, the camera takes no input and the walk holds for the menu, as /testroom's `menu` does (the review's finding 3).
-    const suspended = vi.spyOn(FlyCamera.prototype, 'setInputSuspended'), hold = vi.spyOn(WalkMode.prototype, 'holdForMenu');
-    a.t.w.step(1);
-    expect([suspended.mock.calls.at(-1)?.[0], hold.mock.calls.at(-1)?.[0]]).toEqual([true, true]);
-    const held = a.fires().length;
-    a.t.w.step(10);
-    expect(a.fires().length).toBe(held);                                                 // the trigger let go at the open
-    a.press(3, true); a.t.w.step(1); a.press(3, false); a.t.w.step(1);                   // Triangle let go at the root: closed
-    expect(hook(a).taunts().open).toBe(false);
-    a.t.w.step(10);
-    expect(a.fires().length).toBe(held);                                                 // R1 still the menu's until let go
-    a.press(5, false); a.t.w.step(1); a.press(5, true); a.t.w.step(3);
-    expect(a.fires().length).toBeGreaterThan(held);
-    a.m.close();
+    // Closed in `finally`: a failure here must not leak the mount's videoV2 listener (matchMount.ts:1040-1048,
+    // videoSettings.ts:465) into the tests after it (VS-4 F2 failed on that leak).
+    try {
+      a.t.w.step(2);
+      expect(hook(a).taunts().custom).toEqual(['ONE', 'TWO', 'CUSTOM TAUNT 03', 'FOUR', 'FIVE']);
+      a.press(5, true);                                                                    // R1 held: the rifle fires
+      a.t.w.step(RAISE_STEPS);                                                             // LATER 180: up from the spawn's lowered rifle
+      expect(a.fires().length).toBeGreaterThan(0);
+      a.press(1, true); a.t.w.step(1); a.press(1, false); a.t.w.step(1);                   // Circle tapped
+      expect(hook(a).taunts().open).toBe(true);
+      // Open, the camera takes no input and the walk holds for the menu, as /testroom's `menu` does (the review's finding 3).
+      const suspended = vi.spyOn(FlyCamera.prototype, 'setInputSuspended'), hold = vi.spyOn(WalkMode.prototype, 'holdForMenu');
+      a.t.w.step(1);
+      expect([suspended.mock.calls.at(-1)?.[0], hold.mock.calls.at(-1)?.[0]]).toEqual([true, true]);
+      const held = a.fires().length;
+      a.t.w.step(10);
+      expect(a.fires().length).toBe(held);                                                 // the trigger let go at the open
+      a.press(3, true); a.t.w.step(1); a.press(3, false); a.t.w.step(1);                   // Triangle let go at the root: closed
+      expect(hook(a).taunts().open).toBe(false);
+      a.t.w.step(10);
+      expect(a.fires().length).toBe(held);                                                 // R1 still the menu's until let go
+      // The fresh pull's round leaves at the second game-frame step that reads R1 down (FUN_002c60c0 D:L166671-166686,
+      // research 443); two kit steps take at most 66.7 ms, so five 16 ms page frames (80 ms) always hold them.
+      a.press(5, false); a.t.w.step(1); a.press(5, true); a.t.w.step(5);
+      expect(a.fires().length).toBeGreaterThan(held);
+    } finally {
+      a.m.close();
+    }
   });
 
   it('the open asks the throwables to cancel an uncommitted held grenade (GrenadeThrower.cancelMenuHold, held by test/grenade.test.ts) and sends no throw', async () => {
@@ -1648,6 +1782,30 @@ describe('MATCH-01: the in-round START menu in the front end match (./startMenu,
     a.m.close();
     expect(disposed).toHaveBeenCalledTimes(1);
   });
+
+  // WM-LAUNCHER (WM.R7; product track, a browser adaptation): the page's overlay offered for the match's document
+  // (`offerStartMenuLauncher`, as `../src/pageEntry` does) is the START menu's SHOW LAUNCHER, its LAST row (WM-R20-FOLDS
+  // item 1), one UP from RESUME (the walk wraps); CROSS on it opens the overlay once and closes the START menu.
+  it('WM-LAUNCHER: SHOW LAUNCHER from the round\'s START menu opens the page\'s overlay once and closes the menu', async () => {
+    const shown = vi.spyOn(Hud.prototype, 'setStartMenu');
+    let isOpen = false;
+    const overlay = { open: vi.fn(() => { isOpen = true; }), isOpen: () => isOpen };
+    const undo = offerStartMenuLauncher(document, overlay);
+    try {
+      const a = await armed();
+      settle(a);
+      tap(a, 9);                                                                         // START: open
+      expect(shown.mock.calls.at(-1)?.[0]).toBe(true);
+      a.t.w.step(5, 100);                                                                // the cursor's gate
+      tap(a, 12);                                                                        // UP (wrapping): SHOW LAUNCHER, the last row
+      a.t.w.step(5, 100);
+      tap(a, 0);                                                                         // CROSS
+      a.t.w.step(1);
+      expect(overlay.open).toHaveBeenCalledTimes(1);
+      expect(shown.mock.calls.at(-1)?.[0]).toBe(false);                                 // the START menu closed, the HUD shown
+      a.m.close();
+    } finally { undo(); }
+  });
 });
 
 describe('OT.R29 (controller only): a release build hands no key to the match\'s padFrame', () => {
@@ -1675,7 +1833,7 @@ describe('OT.R29 (controller only): a release build hands no key to the match\'s
 const BARRIER = 'worldmodel/access1=access1/good_parts/di_good';
 const barrierMap = (): LoadedMap => {
   const polys = [
-    floorQuad([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]),
+    floorQuad([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]),
     { ...floorQuad([130, 0, 150, 130, 0, 250, 130, 60, 250, 130, 60, 150]), path: BARRIER, ditype: 2, material: 7 },
   ];
   const ground = packGround(
@@ -1697,10 +1855,10 @@ const barrierMap = (): LoadedMap => {
 };
 
 describe('MATCH-GAPS: the claymore\'s message line and C4\'s world in the front end match (research 222 §4 rows 14-15, §9)', () => {
-  /** The match on the barrier's map, the room's spawn 20 units short of it (inside C4's 32: `C4_REACH_READING`). */
+  /** The match on the barrier's map, the room's spawn 15 units short of it (LATER 1139: was 20; inside the hip gate's 19.9). */
   async function atBarrier() {
     const x = handOff('seal');
-    x.say({ type: 'spawn', id: 2, at: [110, 0, 200], yaw: 0, after: 0 } as unknown as ServerEvent);
+    x.say({ type: 'spawn', id: 2, at: [115, 0, 200], yaw: 0, after: 0 } as unknown as ServerEvent);
     const t = options(x, { assets: Promise.resolve({ map: barrierMap(), clips: null }) });
     const m = mountMatch(document.body, t.o);
     await flush();
@@ -1741,7 +1899,7 @@ describe('MATCH-GAPS: the claymore\'s message line and C4\'s world in the front 
     const source = (g as unknown as { source: { grid(): unknown; aim?(): unknown } }).source;
     expect(source.grid()).toBe(world!.grid);
     // The reticle east onto the barrier from the SEAL's eye (the aim alone stood in for: no pad turn in this test).
-    source.aim = () => ({ eye: [110, 12, 200], far: [410, 12, 200] });
+    source.aim = () => ({ eye: [115, 12, 200], far: [415, 12, 200] });
     const placed: { item: string; target?: number | null }[] = [];
     g.on('place', (p) => { placed.push({ item: p.item, target: p.target }); });
     // The disc's C4 record (`zweapon.rdr` ID 151: Explosion_Damage 18; `test/equipmentPage.test.ts`'s), the map's
@@ -2472,7 +2630,9 @@ describe("ACT-3: the hold on Cross (XR-06's lifecycle on the menu-launched match
     const mountPad = bodyOf(mount, /const padFrame = \(dt: number, now: number\): void => \{/, /\n {2}\};\n/);
     order(mountPad, [
       /if \(held && acts\.wiring\.lifecycle\.down\(\)\) acts\.cancel\('loading'\);/, /pads\.poll\(nav\);/, /gamePad\.poll\(nav\);/,
-      /o\.settings\?\.frame\(now, down, polled, touch\.pad\);/, /const start = startMenu\.pad\(down, mergeInput\(touch\.input, pad\), dt\);/,
+      // WM-13: the damage panel's gate on the merged lanes, before WEAPON EXCHANGE's edges and the START menu (`./damagePanel`).
+      /const padIn = damagePanelFrame\(hud, net, down, mergeInput\(touch\.input, pad\), scoreboardKeys\.held\(\), promptDeviceOf\(pads\.count\(\), 'pad'\)\);/,
+      /o\.settings\?\.frame\(now, down, polled, touch\.pad\);/, /const start = startMenu\.pad\(down, padIn, dt\);/,
       /const menu = start\.owns \|\| chat\.owns \|\| \(armory\.isOpen\(\) \? armory\.pad\(edges\) : exchange\.pad\(edges\)\);/,
       /const input = exchange\.input\.frame\(chat\.input, menu\);/, /firearm\.triggerLane\(padMerged, input\);/,
       /const game = menu \|\| !walking \? input : throws\.inventory\.frame\(padMerged, input, dt, frameTime\.real\(\)\);/,
@@ -2611,13 +2771,17 @@ describe('ACT-2: the turret on the menu-launched match (research 215 s7, turret-
     seat(a.x, 3);
     expect(other!(3)?.clip).toBe(TURRET_MOUNT_CLIPS.rifle);
     expect(grabs().at(-1)).toEqual(['.GRAB_TURRET', [1, 10, -16], 'play', 1]);
-    // `mountedMuzzle`: its round flashed at the turret's firepoint (`TurretPage.muzzleOf`), not at its rifle.
+    // `mountedMuzzle` (R4P-239): a mounted body's round draws no muzzle flash -- no node, neither the firepoint nor its rifle.
     const firepoint = Float32Array.from(mp51Turret().firepointMatrix!);
-    vi.spyOn(TurretPage.prototype, 'muzzleOf').mockImplementation((id) => (id === 3 ? firepoint : null));
+    const muzzleOf = vi.spyOn(TurretPage.prototype, 'muzzleOf').mockImplementation((id) => (id === 3 ? firepoint : null));
+    const rifle = vi.spyOn(RemotePlayers.prototype, 'weaponFrame');
     const onRound = vi.spyOn(Effects.prototype, 'onRound').mockImplementation(() => {});
     a.x.say({ type: 'shot', id: 3, weapon: 62, from: [0, 12, -24], to: [0, 12, -60], normal: null, material: null } as unknown as ServerEvent);
-    const flash = onRound.mock.calls.at(-1)?.[1] as { node: { elements: number[] } } | null | undefined;
-    expect(flash?.node ? Array.from(flash.node.elements) : null).toEqual(Array.from(firepoint));
+    a.t.w.step(4);                                                                       // R4P-253: shown from the copy's count, at the next game frame
+    expect(onRound, 'the round still reaches the effects (its tracer, its impact)').toHaveBeenCalled();
+    expect(onRound.mock.calls.at(-1)?.[1], 'R4P-239: no muzzle node').toBeNull();
+    expect(muzzleOf, 'the mounted wiring was asked (mountedMuzzle -> muzzleOf)').toHaveBeenCalledWith(3);
+    expect(rifle, 'never the rifle in its hand').not.toHaveBeenCalled();
     a.m.close();
   });
 
@@ -2647,7 +2811,7 @@ describe('ACT-2: the turret on the menu-launched match (research 215 s7, turret-
   it("turret-feel's five main.ts lines are matchMount.ts's: TURRET_CLIPS in the clips list, mountedMuzzle, the turret dep's five, the two setMountPose", () => {
     const src = (f: string): string => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src', f), 'utf-8');
     const main = src('main.ts'), mount = src('matchMount.ts');
-    for (const [f, text, audio, map] of [['main.ts', main, 'gameAudio', 'loaded'], ['matchMount.ts', mount, 'sound\\.audio', 'map']] as const) {
+    for (const [f, text, audio, map, nade] of [['main.ts', main, 'gameAudio', 'loaded', 'grenade'], ['matchMount.ts', mount, 'sound\\.audio', 'map', 'throws\\.grenade']] as const) {
       expect(text, f).toMatch(/\.\.\.BINOCULAR_CLIPS, \.\.\.TURRET_CLIPS\]/);
       expect(text, f).toMatch(/\n\s+mountedMuzzle: \(id\) => acts\.turrets\.muzzleOf\(id\),/);
       // The hands (the trigger, the box, the mount: ACT-1's; the box's icon and mode: PAR-55's) through the part's actionHands.
@@ -2659,7 +2823,12 @@ describe('ACT-2: the turret on the menu-launched match (research 215 s7, turret-
         String.raw`mountActions\(\{[\s\S]{0,2000}?\n\s+turret: \{`,
         String.raw`\n\s+sound: \(name, at\) => \{ ${audio}\.play\(name, at, 'play', 1\); \},`,
         String.raw`\n\s+bodyFeet: \(id\) => remote\.feet\(id\), clips: \(\) => remote\.playClips\(\),`,
-        String.raw`\n\s+hand: \(id\) => \(id === net\?\.client\.id \? walk\.hand\(\) : \(net\?\.client\.bodies\(\)\.find\(\(b\) => b\.id === id\)\?\.slot === 1 \? 1 : 0\)\),`,
+        // R4P-R2 (L81; r0004 0x5acbb0; the second read, 2026-11-24): the hand by the hand class `+0xf79` (`mountHandOf`): the
+        // firearm slot in the hand, as the other side's; review 2 F1: the own kit read at the take (`kit`). Both pages alike but the thrower's name.
+        String.raw`\n\s+// R4P-R2 \(L81; the second read\)[^\n]*\n\s+//[^\n]*`,
+        String.raw`\n\s+hand: \(id\) => \(id === net\?\.client\.id \? mountHandOf\(walk\.hand\(\)\) : mountHandOf\(net\?\.client\.bodies\(\)\.find\(\(x\) => x\.id === id\)\?\.slot === 1 \? 1 : 0\)\),`,
+        String.raw`\n\s+// R4P-R2 review 2 F1[^\n]*`,
+        String.raw`\n\s+kit: \(\) => \{ const l = loadouts\.loadout\(\), w = walk\.hand\(\); return \{ kept: ${nade}\.equipped\(\) \? 'item' : w === 1 \? 'secondary' : 'primary', hasPrimary: firearmSlotPresent\(l, 0\), hasSecondary: firearmSlotPresent\(l, 1\) \}; \},`,
         String.raw`\n\s+round: \(record, from, dir, frame, count\) => firearm\.turretRound\(record, from, dir, frame, count\),`,
         String.raw`\n\s+\},[\s\S]{0,200}?\n\s*\}\);`,
         String.raw`\n\s*walk\.setMountPose\(\(\) => acts\.turrets\.ownPose\(\)\);[^\n]*`,
@@ -2827,13 +2996,19 @@ describe('PAR-34 group 1: the rifle at 5 fps (research 252 s3; ACT.R8)', () => {
     }
   });
 
-  /** R1 tapped once, then idle at `ms` a frame: the real time (s) from the release's frame to the raise's first ask down. */
+  /**
+   * R1 tapped once, then idle at `ms` a frame: the real time (s) from the release's frame to the raise's first ask down.
+   * LATER 1147 (research 443): the raise hears the kit's held read (`Fire.padHeldRead`), the pad's state 2 -- the press's
+   * second read (`FUN_002c60c0` D:L166671-166686) -- so the tap is held through two kit steps (80 ms: at 60 Hz five
+   * frames; at 5 fps the clamped frame's two or three steps); a tap the second read never sees is no trigger edge to the
+   * controller (`FUN_00594cf0` D:L453543-453565). Was: one frame at either rate.
+   */
   async function lowersAfter(ms: number): Promise<number | null> {
     const request = vi.spyOn(WeaponRaise.prototype, 'request');
     const a = await armed();
     a.t.w.step(3);
     a.press(5, true);
-    a.t.w.step(1, ms);
+    for (let i = 0; i < Math.ceil(80 / ms); i++) a.t.w.step(1, ms);
     a.press(5, false);
     a.t.w.step(1, ms);                                                                   // the release's frame: its edge resets the countdown
     let real = 0, at: number | null = null;
@@ -2993,10 +3168,10 @@ describe("PAR-12 and PAR-3 through the mount (research 255 s6: the integrator's 
     t.w.step(13);                                                                        // 60 fps
     keeper.set({ renderScale: 'performance' });
     expect(ratios).toEqual([1]);                                                         // not before the tick
-    t.w.step(13);
+    t.w.step(14);                                                                        // B1-RATIO-ORDER: put on at the next frame's start
     expect(ratios).toEqual([1, 0.75]);                                                   // 0.75 of Balanced
     keeper.set({ renderScale: 'quality' });
-    t.w.step(13);
+    t.w.step(14);
     expect(ratios.at(-1)).toBe(renderCapFor('quality', globalThis.devicePixelRatio, wantsTouchControls(), 1, 1).ratioCap);
     // Shadows: on (the default), the character shadow's frame line runs each frame (a renderer without targets: `clear`);
     // off, cleared once and its frame skipped.
@@ -3148,7 +3323,13 @@ describe('PAR-2: the seat ARMORY dormant on the menu match -- no hello asks the 
   });
   it('finding 5: the right mouse button steps no zoom under the open ARMORY (main.ts\'s gate)', () => {
     const mount = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src/matchMount.ts'), 'utf-8');
-    expect(mount).toMatch(/const onMouseDown = \(e: MouseEvent\): void => \{ if \(e\.button === 2 && !armory\.isOpen\(\) && !\(o\.blocked\?\.\(\) \?\? false\)\) firearm\.stepZoom\('cycle'\); \};/);
+    // PR #5 (crispy's import, 0ed80a521b): the handler's one line became a block -- RB-8's first line (OT.R114: a release
+    // build steps the zoom only for a `kbm` page while offline) and then the same gate, unchanged, on its own line.
+    const dev = String.raw`import\.meta\.en` + String.raw`v\.DEV`;                   // split: the leak check's key-file name
+    expect(mount).toMatch(new RegExp(String.raw`const onMouseDown = \(e: MouseEvent\): void => \{\n\s+if \(!` + dev + String.raw` && !kbmNow\(\)\) return;[^\n]*\n\s+if \(e\.button === 2 && !armory\.isOpen\(\) && !\(o\.blocked\?\.\(\) \?\? false\)\) firearm\.stepZoom\('cycle'\);\n\s+\};`));
+    // main.ts's own, the gate this one copies: no zoom step while its ARMORY is open.
+    const main = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src/main.ts'), 'utf-8');
+    expect(main).toMatch(new RegExp(String.raw`canvas\.addEventListener\('mousedown', \(e\) => \{ if \(e\.button === 2 && \(` + dev + String.raw` \|\| testroomKbm\(\)\) && !armory\.isOpen\(\) && !loadingJoin\.blocked\) stepZoom\('cycle'\); \}\);`));
   });
 });
 
@@ -3339,15 +3520,24 @@ describe('SA-6c: the front end\'s match retries through the lobby\'s provider (G
 describe('PAR-48c: the spectator HUD\'s view is the frame\'s, not the draw\'s', () => {
   const watcher = { ...welcome, role: 'spectator', team: null, queue: 0, phase: 'play' } as unknown as ServerEvent;
   const hookOf = (t: ReturnType<typeof options>) => (t.o.win as unknown as Record<string, MatchWindowHook | undefined>)[MATCH_WINDOW_HOOK]!;
+  // LATER 1092 (a test's hygiene, no game behaviour): every mount a case opens is closed after it, pass or fail -- a case
+  // that threw before its own `m.close()` left its match mounted, and that match then answered the next describe's
+  // spies (VS-4's 'review F2' read the adaptive ratio's target twice). `close` is once (`if (gone) return`), so a case's
+  // own close stands.
+  const opened: ReturnType<typeof mountMatch>[] = [];
+  const mount = (o: MatchMountOptions): ReturnType<typeof mountMatch> => { const m = mountMatch(document.body, o); opened.push(m); return m; };
+  afterEach(() => { for (const m of opened.splice(0)) m.close(); });
 
   it('a WATCH GAME spectator whose renderer has not come: the free camera\'s view all the same, and nothing drawn', async () => {
     const x = handOff('seal', undefined, watcher);
     const t = options(x, { events: [watcher], renderer: () => new Promise<MatchRenderer>(() => {}) });
-    const m = mountMatch(document.body, t.o);
+    const m = mount(t.o);
     await flush();
     t.w.step(3);
     expect(m.net()?.client.role).toBe('spectator');
-    expect(hookOf(t).hud().model.spectator).toEqual({ path: 'spectator', followed: null, stats: null });
+    // WM-PV-HINT F1: the front end's match carries the player's view (`./matchNet` `spectatePov`), so it is offered on this
+    // path whether or not the renderer has come, and the help stands raised (`povRaise`) -- nothing jumps when it is taken.
+    expect(hookOf(t).hud().model.spectator).toEqual({ path: 'spectator', followed: null, stats: null, povRaise: true });
     expect(t.r.drawn).toHaveLength(0);                                               // the renderer never came: no draw
     expect(hookOf(t).drawing()).toBe(false);
     m.close();
@@ -3357,7 +3547,7 @@ describe('PAR-48c: the spectator HUD\'s view is the frame\'s, not the draw\'s', 
     const x = handOff('seal', undefined, watcher);
     let give: (r: MatchRenderer) => void = () => {};
     const t = options(x, { events: [watcher], renderer: () => new Promise<MatchRenderer>((r) => { give = r; }) });
-    const m = mountMatch(document.body, t.o);
+    const m = mount(t.o);
     await flush();
     expect(hookOf(t).drawing()).toBe(false);
     give(t.r.r);
@@ -3378,7 +3568,7 @@ describe('PAR-48c: the spectator HUD\'s view is the frame\'s, not the draw\'s', 
       const s = this.spectator as unknown as { modeNow: string; targetNow: number | null };
       s.modeNow = 'follow'; s.targetNow = 3;                                                // the pad's follow of kilo, this frame
     });
-    const m = mountMatch(document.body, t.o);
+    const m = mount(t.o);
     await flush();
     expect(hookOf(t).drawing()).toBe(true);
     t.w.step(1);
@@ -3404,11 +3594,12 @@ describe('VS-4: the frame cap in the front end\'s match skips draws, never steps
     const nets = vi.spyOn(NetPage.prototype, 'frame');
     const huds = vi.spyOn(Hud.prototype, 'render');
     const shadows = vi.spyOn(CharacterShadow.prototype, 'clear');
+    const particles = vi.spyOn(ParticleSystem.prototype, 'update');
     const x = handOff();
     const t = options(x);
     const m = mountMatch(document.body, t.o);
     await flush();
-    walks.mockClear(); nets.mockClear(); huds.mockClear(); shadows.mockClear();
+    walks.mockClear(); nets.mockClear(); huds.mockClear(); shadows.mockClear(); particles.mockClear();
     const before = t.r.drawn.length;
     for (let i = 0; i < 600; i++) {
       if (change && i === change.at) keeper.set({ frameCap: change.cap });
@@ -3420,9 +3611,11 @@ describe('VS-4: the frame cap in the front end\'s match skips draws, never steps
       readout: document.querySelector<HTMLElement>('[data-match-fps]')?.textContent ?? null,
       netSeconds: nets.mock.calls.reduce((sum, c) => sum + (c[3] ?? c[0]), 0),
       draws: t.r.drawn.length - before, huds: huds.mock.calls.length, shadows: shadows.mock.calls.length,
+      particleSteps: particles.mock.calls.length,
+      particleDraws: particles.mock.calls.filter((c) => c[2] !== false).length,
     };
     m.close();
-    walks.mockRestore(); nets.mockRestore(); huds.mockRestore(); shadows.mockRestore();
+    walks.mockRestore(); nets.mockRestore(); huds.mockRestore(); shadows.mockRestore(); particles.mockRestore();
     localStorage.clear();
     return out;
   }
@@ -3439,6 +3632,10 @@ describe('VS-4: the frame cap in the front end\'s match skips draws, never steps
     expect(Math.abs(capped.draws - 300)).toBeLessThanOrEqual(1);                       // the world's render: half
     expect(Math.abs(capped.huds - off.huds / 2)).toBeLessThanOrEqual(1);              // the HUD's render: half
     expect(Math.abs(capped.shadows - off.shadows / 2)).toBeLessThanOrEqual(1);        // the shadow's frame: half
+    expect(capped.particleSteps).toBe(600);
+    expect(off.particleSteps).toBe(600);
+    expect(off.particleDraws).toBe(off.draws);
+    expect(capped.particleDraws).toBe(capped.draws);
   });
 
   it('cap 60 and 120 on a 60 Hz display draw every frame (Review focus 2); a cap set mid-match is heard at once', async () => {
@@ -3447,6 +3644,8 @@ describe('VS-4: the frame cap in the front end\'s match skips draws, never steps
     const mid = await run(0, { at: 300, cap: 30 });
     expect(mid.walks).toBe(600);
     expect(Math.abs(mid.draws - 450)).toBeLessThanOrEqual(1);                          // 300 Off, then 150 at 30
+    expect(mid.particleSteps).toBe(600);
+    expect(mid.particleDraws).toBe(mid.draws);
   });
 
   it('review F1: under a cap the readout shows the drawn rate -- cap 30 at 60 Hz reads 30 fps; Off reads the display\'s 60', async () => {
@@ -3547,7 +3746,7 @@ describe('VS-7: Automatic in the front end\'s match -- the first-match probe and
       const renderer: MatchRenderer = { ...t.r.r, setPixelRatio: (v) => { ratios.push(v); ratio = v; }, pixelRatio: () => ratio };
       const m = mountMatch(document.body, { ...t.o, renderer: () => Promise.resolve(renderer) });
       await flush();
-      if (mid) { mid(); t.w.step(13); }
+      if (mid) { mid(); t.w.step(14); }                // B1-RATIO-ORDER: the tick's step put on at the next frame's start
       m.close();
       return ratios;
     };
@@ -3644,6 +3843,24 @@ describe('OT.R79: the front end\'s match draws VIDEO MODE\'s picture', () => {
   };
   afterEach(() => { vi.restoreAllMocks(); });
 
+  it('Xbox PS2: the mounted match applies the reduced effects and restores them on a live picture change', async () => {
+    vi.spyOn(deviceClassification, 'pageDeviceClass').mockReturnValue('xbox');
+    const marks = vi.spyOn(Fire.prototype, 'setDecalLimit');
+    // XBOX-INTEGRATE: the bullet marks stay on, every class and picture, until the owner's word (`XBOX_PS2_MARKS_OFF_HELD`).
+    const ps2Marks = XBOX_PS2_MARKS_OFF_HELD ? 150 : 0;
+    const { m, pic } = await mounted('ps2');
+    try {
+      expect(marks).toHaveBeenLastCalledWith(ps2Marks);
+      pic!.set('modern');
+      expect(marks).toHaveBeenLastCalledWith(150);
+      pic!.set('ps2');
+      expect(marks).toHaveBeenLastCalledWith(ps2Marks);
+    } finally { m.close(); }
+    const calls = marks.mock.calls.length;
+    pic!.set('modern');
+    expect(marks.mock.calls).toHaveLength(calls);
+  });
+
   // VS-6 (the spec's §4.2 Texture filtering; a browser adaptation): the keeper's `filtering` applied live under the
   // Modern picture (`./experimentalWorldSampling` `setWorldAnisotropy`), never under PS2; the match's close lets it go.
   it("VS-6: Texture filtering follows the keeper live -- Anisotropic on under Modern, never under PS2, off at the close", async () => {
@@ -3730,6 +3947,108 @@ describe('OT.R79: the front end\'s match draws VIDEO MODE\'s picture', () => {
     expect(rec.experimental.every((on) => !on)).toBe(true);
     expect(m.canvas.classList.contains('s2u-picture-ps2')).toBe(false);
     m.close();
+  });
+
+  // VIDEO-SHAPE phase A (a browser adaptation, product track): the shape beside the picture -- fill (today's Modern), 4:3
+  // (the original's framing, the canvas's own 4:3 box), 4:3 stretched (the 4:3 buffer on the whole canvas). Both 4:3
+  // shapes draw the PS2 picture's projection; PS2 is unchanged (its 640 x 448 frame and box, no 4:3 class).
+  describe('VIDEO-SHAPE: the shape, under the Modern picture', () => {
+    const shapeSource = (start: VideoShape) => {
+      let s = start;
+      const heard = new Set<(v: VideoShape) => void>();
+      return {
+        get: () => s,
+        observe: (f: (v: VideoShape) => void) => { heard.add(f); return () => { heard.delete(f); }; },
+        set: (v: VideoShape) => { s = v; for (const f of [...heard]) f(v); },
+        heard: () => heard.size,
+      };
+    };
+    const shaped = async (picture: 'modern' | 'ps2', start: VideoShape | null, area = { width: 1920, height: 1080 }) => {
+      vi.spyOn(Element.prototype, 'clientWidth', 'get').mockReturnValue(area.width);
+      vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(area.height);
+      const aspect = vi.spyOn(FlyCamera.prototype, 'setAspect');
+      const x = handOff();
+      const fake = fakeRenderer(), r = recording(fake.r), pic = source(picture), sh = start === null ? null : shapeSource(start);
+      const t = options(x, { renderer: () => Promise.resolve(r.r), picture: pic, ...(sh ? { shape: sh } : {}) });
+      const m = mountMatch(document.body, t.o);
+      await flush();
+      return { m, rec: r.rec, pic, sh, aspect: () => aspect.mock.calls.at(-1)?.[0] };
+    };
+    const ps2Aspect = async (): Promise<number | undefined> => { const { m, aspect } = await shaped('ps2', null); const a = aspect(); m.close(); vi.restoreAllMocks(); return a; };
+
+    it('no shape named: fill -- the canvas\'s own size and aspect, no 4:3 class', async () => {
+      const { m, rec, aspect } = await shaped('modern', null);
+      expect(rec.resized.at(-1)).toEqual([1920, 1080]);
+      expect(aspect()).toBeCloseTo(1920 / 1080, 9);
+      expect(m.canvas.classList.contains('s2u-shape-43')).toBe(false);
+      m.close();
+    });
+
+    it('fill: the canvas\'s size, its own aspect', async () => {
+      const { m, rec, aspect } = await shaped('modern', 'fill');
+      expect(rec.resized.at(-1)).toEqual([1920, 1080]);
+      expect(aspect()).toBeCloseTo(1920 / 1080, 9);
+      expect(m.canvas.classList.contains('s2u-shape-43')).toBe(false);
+      m.close();
+    });
+
+    it('4:3: the 4:3 buffer, the PS2 picture\'s projection, the 4:3 class (never the PS2 one)', async () => {
+      const want = await ps2Aspect();
+      const { m, rec, aspect } = await shaped('modern', '4:3');
+      expect(rec.resized.at(-1)).toEqual([1440, 1080]);
+      expect(aspect()).toBe(want);
+      expect(m.canvas.classList.contains('s2u-shape-43')).toBe(true);
+      expect(m.canvas.classList.contains('s2u-picture-ps2')).toBe(false);
+      expect(rec.presentation.at(-1)).toBe('native');
+      m.close();
+    });
+
+    it('4:3 stretched: the same 4:3 buffer and projection on the whole canvas -- no 4:3 class', async () => {
+      const want = await ps2Aspect();
+      const { m, rec, aspect } = await shaped('modern', '4:3-stretched');
+      expect(rec.resized.at(-1)).toEqual([1440, 1080]);
+      expect(aspect()).toBe(want);
+      expect(m.canvas.classList.contains('s2u-shape-43')).toBe(false);
+      m.close();
+    });
+
+    it('a window narrower than 4:3 (a phone held upright): 4:3 is limited by its width', async () => {
+      const { m, rec } = await shaped('modern', '4:3', { width: 390, height: 844 });
+      expect(rec.resized.at(-1)).toEqual([390, 292.5]);
+      m.close();
+    });
+
+    it('a live shape change re-applies; the teardown stops following it and takes the class off', async () => {
+      const { m, rec, sh, aspect } = await shaped('modern', 'fill');
+      sh!.set('4:3');
+      expect(rec.resized.at(-1)).toEqual([1440, 1080]);
+      expect(m.canvas.classList.contains('s2u-shape-43')).toBe(true);
+      sh!.set('4:3-stretched');
+      expect(m.canvas.classList.contains('s2u-shape-43')).toBe(false);
+      expect(rec.resized.at(-1)).toEqual([1440, 1080]);
+      sh!.set('fill');
+      expect(rec.resized.at(-1)).toEqual([1920, 1080]);
+      expect(aspect()).toBeCloseTo(1920 / 1080, 9);
+      sh!.set('4:3');
+      const canvas = m.canvas;
+      m.release();
+      expect(sh!.heard()).toBe(0);
+      expect(canvas.classList.contains('s2u-shape-43')).toBe(false);
+    });
+
+    it('PS2 unchanged under every shape: the 640 x 448 frame, its class, no 4:3 class; back to Modern takes the shape', async () => {
+      for (const s of ['fill', '4:3', '4:3-stretched'] as const) {
+        const { m, rec, pic } = await shaped('ps2', s);
+        expect(rec.resized.at(-1)).toEqual([640, 448]);
+        expect(m.canvas.classList.contains('s2u-picture-ps2')).toBe(true);
+        expect(m.canvas.classList.contains('s2u-shape-43')).toBe(false);
+        pic.set('modern');
+        expect(rec.resized.at(-1)).toEqual(s === 'fill' ? [1920, 1080] : [1440, 1080]);
+        expect(m.canvas.classList.contains('s2u-shape-43')).toBe(s === '4:3');
+        m.close();
+        vi.restoreAllMocks();
+      }
+    });
   });
 
   it('the return (release): the body\'s classes as they were, the picture no longer followed, the canvas\'s classes off', async () => {
@@ -4153,4 +4472,120 @@ describe('AQ-17: the dynamic render scale reads the frame\'s real time, not the 
     expect(p.ratio()).toBeCloseTo(floor, 9);
     expect(low / at).toBeGreaterThan(0.5);
   }, 60_000);
+});
+
+// B1-RATIO-ORDER (the owner's black-flicker report, 2026-11-21, via the controller; product track: the dynamic resolution
+// is the port's own adaptation, no original): a frame's draw is never followed, in the same frame, by a drawing-buffer
+// resize. A resize clears the canvas, so a resize after the draw hands the browser an empty frame to present -- one black
+// frame per step, and steps come only under load (a firefight). The step lands at the START of the next frame, before
+// its draw. A fake renderer logs 'draw' and 'resize'; a marker separates the frames.
+describe('B1-RATIO-ORDER: the dynamic resolution never resizes after a frame has drawn', () => {
+  it('slow frames (a panic step down) and a cap change: every resize comes before its frame\'s draw, none after', async () => {
+    localStorage.clear();
+    const x = handOff();
+    const t = options(x);
+    const log: string[] = [];
+    let ratio = 2;
+    const renderer: MatchRenderer = {
+      ...t.r.r,
+      render: (...a: Parameters<MatchRenderer['render']>) => { log.push('draw'); t.r.r.render(...a); },
+      setPixelRatio: (v) => { log.push('resize'); ratio = v; }, pixelRatio: () => ratio,
+    };
+    const m = mountMatch(document.body, { ...t.o, renderer: () => Promise.resolve(renderer) });
+    await flush();
+    log.length = 0;
+    const frames = (n: number, ms: number): void => { for (let i = 0; i < n; i++) { log.push('|'); t.w.step(1, ms); } };
+    frames(40, 16);                                    // settle at 60 fps
+    frames(40, 60);                                    // a firefight: frames over the panic time, the ratio steps down
+    videoSettingsKeeper().set({ renderScale: 'performance' });
+    frames(20, 16);                                    // the cap moved: met at the next tick
+    m.close();
+    const perFrame = log.join(' ').split('|').map((f) => f.trim().split(' ').filter(Boolean));
+    expect(perFrame.flat().filter((e) => e === 'resize').length, 'the run stepped the ratio').toBeGreaterThan(0);
+    const late = perFrame.map((f, i) => ({ i, f })).filter(({ f }) => f.lastIndexOf('resize') > f.indexOf('draw') && f.includes('draw'));
+    expect(late, 'frames with a resize after their draw').toEqual([]);
+    // The review's finding 1: a resize in a frame that draws nothing clears the canvas with nothing drawn over it.
+    expect(perFrame.filter((f) => f.includes('resize') && !f.includes('draw')), 'frames resized with no draw').toEqual([]);
+  });
+
+  it("the review's finding 1: under a frame cap (Lite's 30 on a 60 Hz display) a step is never put on in a frame that skips its draw", async () => {
+    localStorage.clear();
+    videoSettingsKeeperV2().set({ frameCap: 30 });
+    const x = handOff();
+    const t = options(x);
+    const log: string[] = [];
+    let ratio = 2;
+    const renderer: MatchRenderer = {
+      ...t.r.r,
+      render: (...a: Parameters<MatchRenderer['render']>) => { log.push('draw'); t.r.r.render(...a); },
+      setPixelRatio: (v) => { log.push('resize'); ratio = v; }, pixelRatio: () => ratio,
+    };
+    const m = mountMatch(document.body, { ...t.o, renderer: () => Promise.resolve(renderer) });
+    await flush();
+    log.length = 0;
+    const frames = (n: number, ms: number): void => { for (let i = 0; i < n; i++) { log.push('|'); t.w.step(1, ms); } };
+    frames(60, 1000 / 60);                             // settle: every other frame draws
+    for (let cycle = 0; cycle < 8; cycle++) {          // load and relief in turns: steps down, then climbs, on both frame parities
+      frames(20, 80);
+      for (let k = 0; k < 330; k++) {
+        // The cap moved mid-run (the player's Resolution scale): a step at the next tick, on a frame the cap may skip;
+        // a browser's jitter puts the 200 ms tick on both of the cap's frame parities.
+        if (k % 41 === 0) videoSettingsKeeperV2().set({ renderScalePct: k % 82 === 0 ? 80 : 90 });
+        frames(1, k % (7 + cycle) === 0 ? 9 : 1000 / 60);
+      }
+    }
+    m.close();
+    localStorage.clear();
+    const perFrame = log.join(' ').split('|').map((f) => f.trim().split(' ').filter(Boolean));
+    expect(perFrame.filter((f) => !f.includes('draw')).length, 'the cap skipped frames').toBeGreaterThan(0);
+    expect(perFrame.flat().filter((e) => e === 'resize').length, 'the run stepped the ratio').toBeGreaterThan(0);
+    expect(perFrame.filter((f) => f.includes('resize') && !f.includes('draw')), 'frames resized with no draw').toEqual([]);
+    expect(perFrame.filter((f) => f.includes('draw') && f.lastIndexOf('resize') > f.indexOf('draw')), 'frames with a resize after their draw').toEqual([]);
+  });
+});
+
+// LATER 1321 (product track: the frame cap and the canvas fit are the port's adaptations, no original; found by B1's
+// fresh re-review): a window, visual-viewport or rotation resize between frames runs `fit`, whose `renderer.resize`
+// clears the canvas; if the next animation frame is one the cap skips (Lite's 30, the Xbox's Automatic), the cleared
+// canvas is what the browser presents -- one black frame. The frame after any resize draws, cap or not.
+describe('LATER 1321: a resize between frames is drawn over on the very next frame, whatever the frame cap', () => {
+  it("under a cap of 30 on a 60 Hz display, a window resize before a frame the cap would skip: that frame draws", async () => {
+    localStorage.clear();
+    videoSettingsKeeperV2().set({ frameCap: 30 });
+    const x = handOff();
+    const t = options(x);
+    const log: string[] = [];
+    const renderer: MatchRenderer = {
+      ...t.r.r,
+      render: (...a: Parameters<MatchRenderer['render']>) => { log.push('draw'); t.r.r.render(...a); },
+      resize: () => { log.push('resize'); },
+    };
+    const heard = new Map<string, Set<EventListener>>();
+    const win = {
+      ...t.w.win,
+      addEventListener: (type: string, fn: EventListener) => { t.w.win.addEventListener(type, fn); (heard.get(type) ?? heard.set(type, new Set()).get(type)!).add(fn); },
+      removeEventListener: (type: string, fn: EventListener) => { t.w.win.removeEventListener(type, fn); heard.get(type)?.delete(fn); },
+    };
+    const m = mountMatch(document.body, { ...t.o, renderer: () => Promise.resolve(renderer), win });
+    await flush();
+    const fire = (type: string): void => { for (const fn of [...(heard.get(type) ?? [])]) fn(new Event(type)); };
+    expect(heard.get('resize')?.size, 'the mount hears the window resize').toBeGreaterThan(0);
+    t.w.step(60, 1000 / 60);                           // settle: every other frame draws
+    log.length = 0;
+    // A resize between every pair of frames at both of the cap's parities, then the next frame: it must draw.
+    for (let k = 0; k < 24; k++) {
+      log.push('|');
+      fire(k % 3 === 2 ? 'orientationchange' : 'resize');
+      t.w.step(1, 1000 / 60);
+      log.push('|');
+      for (let j = 0; j < k % 4; j++) { t.w.step(1, 1000 / 60); log.push('|'); }   // move the next resize across the cap's parity
+    }
+    m.close();
+    localStorage.clear();
+    const segments = log.join(' ').split('|').map((f) => f.trim().split(' ').filter(Boolean));
+    const afterResize = segments.filter((f) => f[0] === 'resize');
+    expect(afterResize.length, 'resizes fired').toBe(24);
+    expect(segments.filter((f) => f.length === 0).length, 'the cap still skips frames with no resize').toBeGreaterThan(0);
+    expect(afterResize.filter((f) => !f.includes('draw')), 'a resize left on a frame that drew nothing').toEqual([]);
+  });
 });

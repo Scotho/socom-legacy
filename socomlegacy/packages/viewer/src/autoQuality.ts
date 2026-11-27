@@ -1,5 +1,6 @@
 import { pageDeviceClass, pageRendererProbe, XBOX_GRAPHICS_ADAPTATION, type DeviceClass } from './deviceClass';
 import { ADAPTIVE_V2_ADAPTATION, type AdaptiveOptions } from './matchViewport';
+import type { VideoPicture } from './picture';
 import { readPreference, savePreference } from './startupSettings';
 import { PRESET_VALUES, type Preset, type Rows } from './videoSettings';
 
@@ -24,16 +25,33 @@ type Named = typeof LADDER[number];
  */
 export const CLASS_START_ADAPTATION: Readonly<Record<DeviceClass, Readonly<Rows>>> = Object.freeze({
   /**
-   * The Xbox preset's set: WebGL2, no edge smoothing, 720p at 75 %, no shadows (CPS's 1.9 ms lever), at most 60 drawn.
+   * The Xbox preset's set: WebGL2, no edge smoothing, 720p at 75 %, no shadows (CPS's 1.9 ms lever), at most 30 drawn.
    * F2 (the S1/S2 review, gmxbox1c): its backend is `./deviceClass` `XBOX_GRAPHICS_ADAPTATION`, the one `classGraphics` gives.
+   * WM-5a (the weekend mega sprint, 2026-11-14; the owner's word in seat redotcom-8f: "move forward on the defaults that
+   * allowed xboxes to join today (ps2 mode and 30fps i think)"): the 30 cap, beside the PS2 picture's start
+   * (`CLASS_PICTURE_ADAPTATION`) -- on the second developer's physical report from his console (stable at 30 fps in PS2
+   * mode with the 30 cap, with bots and people), not a measurement of ours.
    */
-  get xbox(): Rows { return { ...PRESET_VALUES.performance, graphics: XBOX_GRAPHICS_ADAPTATION, antialias: false, ceiling: 720, renderScalePct: 75, shadows: 'off', frameCap: 60 }; },
+  get xbox(): Rows { return { ...PRESET_VALUES.performance, graphics: XBOX_GRAPHICS_ADAPTATION, antialias: false, ceiling: 720, renderScalePct: 75, shadows: 'off', frameCap: 30 }; },
   get software(): Rows { return { ...PRESET_VALUES.performance, shadows: 'off', ceiling: 720 }; },
-  /** Balanced: at most ratio 1, as a Balanced touch browser draws today (Quality's 1.5 touch cap is one step up). */
-  get touch(): Rows { return { ...PRESET_VALUES.balanced, shadows: 'medium' }; },
+  /**
+   * Balanced: at most ratio 1, as a Balanced touch browser draws today (Quality's 1.5 touch cap is one step up). WM-5a: no
+   * shadows (the Xbox row's lever); the PS2 picture and the 30 cap are NOT a phone's start -- on a capable phone a visible
+   * downgrade, and nothing measures the weak ones yet.
+   */
+  get touch(): Rows { return { ...PRESET_VALUES.balanced, shadows: 'off' }; },
   get lowMemory(): Rows { return { ...PRESET_VALUES.performance }; },
   get standard(): Rows { return { ...PRESET_VALUES.balanced }; },
   get high(): Rows { return { ...PRESET_VALUES.quality }; },
+});
+
+/**
+ * WM-5a (a browser adaptation, no original; the owner's word and the evidence at the Xbox row above): the picture each
+ * class starts in where none is saved and Lite lays none (`./picture` `pictureDefault`) -- laid under the saved choice, never
+ * written over it, and no row of the video settings (the picture is VIDEO MODE's own key, `./picture` `PICTURE_KEY`).
+ */
+export const CLASS_PICTURE_ADAPTATION: Readonly<Record<DeviceClass, VideoPicture>> = Object.freeze({
+  xbox: 'ps2', software: 'modern', touch: 'modern', lowMemory: 'modern', standard: 'modern', high: 'modern',
 });
 
 /** The dynamic scale's floor under Automatic, a share of the cap, per class (a browser adaptation; one table for VS-9's cells). */

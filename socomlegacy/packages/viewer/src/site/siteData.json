@@ -1,5 +1,5 @@
 {
-  "commit": "932d0f672ad11d02d58ef9ff4ed0f1788c70031a",
+  "commit": "2369539d72",
   "sprints": [
     {
       "number": 6,
@@ -1061,6 +1061,11 @@
       "title": "Vigilance bots using the Frostfire foundation"
     },
     {
+      "id": "2026-10-30-account-ban",
+      "date": "2026-10-30",
+      "title": "The account ban -- plan"
+    },
+    {
       "id": "2026-10-30-community-host-tier",
       "date": "2026-10-30",
       "title": "Community host tier (single-user, unranked hosts) -- plan"
@@ -1266,6 +1271,11 @@
       "title": "The shadow PC (SPC) -- plan"
     },
     {
+      "id": "2026-11-10-xbox-live-memory",
+      "date": "2026-11-10",
+      "title": "Xbox live match loading memory"
+    },
+    {
       "id": "2026-11-11-forge-export-sprint",
       "date": "2026-11-11",
       "title": "The Forge export sprint (FX) -- plan"
@@ -1301,9 +1311,19 @@
       "title": "Crispy's \"Forge/custom maps\" brought in (FORGE-CRISPY2) -- plan"
     },
     {
+      "id": "2026-11-13-round-chat",
+      "date": "2026-11-13",
+      "title": "Round chat (V21.R15a) -- plan"
+    },
+    {
       "id": "2026-11-14-fire-layer",
       "date": "2026-11-14",
       "title": "FIRE-LAYER -- the room's hit pose lays the Fire set -- plan"
+    },
+    {
+      "id": "2026-11-14-forge-next",
+      "date": "2026-11-14",
+      "title": "The Forge's next batch (FORGE-NEXT) -- plan (a DRAFT: scoped, nothing built)"
     },
     {
       "id": "2026-11-14-move-parity",
@@ -1314,6 +1334,56 @@
       "id": "2026-11-14-v0422-release",
       "date": "2026-11-14",
       "title": "v0.4.22 -- the release after v0.4.21 -- plan"
+    },
+    {
+      "id": "2026-11-14-weekend-mega",
+      "date": "2026-11-14",
+      "title": "The weekend mega sprint (WM) -- plan"
+    },
+    {
+      "id": "2026-11-14-xbox-fullscreen-resize-test",
+      "date": "2026-11-14",
+      "title": "Xbox fullscreen sizing and PS2 graphics handoff -- plan"
+    },
+    {
+      "id": "2026-11-15-fall-leave-edge",
+      "date": "2026-11-15",
+      "title": "The fall's leave-the-edge and landing frames (R145) -- plan"
+    },
+    {
+      "id": "2026-11-15-xbox-ps2-effects",
+      "date": "2026-11-15",
+      "title": "Xbox PS2 combat effects and memory candidate"
+    },
+    {
+      "id": "2026-11-17-hosting-donations",
+      "date": "2026-11-17",
+      "title": "Server hosting donations -- plan"
+    },
+    {
+      "id": "2026-11-21-mega-sprint",
+      "date": "2026-11-21",
+      "title": "The mega sprint, 2026-11-21 to v0.4.30 -- plan"
+    },
+    {
+      "id": "2026-11-22-desert-glory-respawn",
+      "date": "2026-11-22",
+      "title": "Desert Glory respawn -- plan"
+    },
+    {
+      "id": "2026-11-23-day-mode",
+      "date": "2026-11-23",
+      "title": "Map time-of-day variants (Abandoned (Day), Shadow Falls (Day), Desert Glory (Night)) -- plan"
+    },
+    {
+      "id": "2026-11-23-next-sprints",
+      "date": "2026-11-23",
+      "title": "The sprints after v0.4.30 (v0.4.31 onward) -- plan"
+    },
+    {
+      "id": "2026-11-24-v0432-batch",
+      "date": "2026-11-24",
+      "title": "v0.4.32 -- the batch -- plan"
     }
   ],
   "issues": {
@@ -1401,6 +1471,46 @@
     }
   },
   "news": [
+    {
+      "date": "2026-11-26",
+      "id": "2026-11-24-v0432-batch",
+      "title": "v0.4.32 -- the batch",
+      "summary": "ship v0.4.32 -- the owner's IN picks that are merged, reviewed and green by the freeze; everything else goes to the quick patch (the owner's 20:02Z word) or v0.4.33, and is told to him as a fact.",
+      "state": "landed",
+      "source": "docs/plans/2026-11-24-v0432-batch.md, ## Log, 2026-11-26"
+    },
+    {
+      "date": "2026-11-18",
+      "id": "2026-11-14-weekend-mega",
+      "title": "The weekend mega sprint (WM)",
+      "summary": "the batch after v0.4.22, run from seat redotcom-8f with the owner's authority: everything in progress, scoped or ready, the owner's weekend list and the starter batch from the bug-report review, each item scoped, risk assessed, assigned to…",
+      "state": "closed",
+      "source": "docs/plans/2026-11-14-weekend-mega.md, ## Log, 2026-11-18"
+    },
+    {
+      "date": "2026-11-15",
+      "id": "2026-11-14-forge-next",
+      "title": "The Forge's next batch (FORGE-NEXT)",
+      "summary": "the Forge's next batch, scoped for the main controller and the owner to order: the vanilla Map Settings online (class 1), switches and ambient objects as agent features, the Inspector in one frame with finer angles, a stretch that never re…",
+      "state": "closed",
+      "source": "docs/plans/2026-11-14-forge-next.md, ## Log, 2026-11-15"
+    },
+    {
+      "date": "2026-11-14",
+      "id": "2026-11-11-players-view",
+      "title": "The player's view (spectating and replays)",
+      "summary": "a watcher -- a dead player watching a teammate, a spectator following a player, a replay's viewer -- can switch to the watched player's own picture: his third-person camera, his scope, first-person, binocular and night-vision views, moving…",
+      "state": "closed",
+      "source": "docs/plans/2026-11-11-players-view.md, ## Log, 2026-11-14"
+    },
+    {
+      "date": "2026-11-14",
+      "id": "2026-11-14-fire-layer",
+      "title": "FIRE-LAYER -- the room's hit pose lays the Fire set",
+      "summary": "a raised rifle poses the room's hit body as the page draws it -- the Fire set at the raise weight -- so a round at the arm, hand or head a player sees meets the box the original would; and a recording keeps what a field report's shot needs…",
+      "state": "closed",
+      "source": "docs/plans/2026-11-14-fire-layer.md, ## Log, 2026-11-14"
+    },
     {
       "date": "2026-11-13",
       "id": "2026-11-12-v0421-release",

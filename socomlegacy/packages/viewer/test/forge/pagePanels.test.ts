@@ -5,13 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeAgentApi } from '../../src/forge/agent/api';
 import type { ForgePanel } from '../../src/forge/shell/panel';
-import type { ForgePanelContext } from '../../src/forge/shell/context';
 import type { LoadedMap } from '../../src/loadMap';
 import { freshSavesDb } from './fakeSaves';
 // FC2-4: found and pressed through the contributor's editor (`./helpers/EDITOR-MAP.md`).
 import {
   assetTile, assetTiles, dockOf, inspector as inspectorPanel, inspectorField, menubarRow, menuOpen, menuRow, openMenu, outliner,
-  outlinerSection, panel, panelMounted, showPanel, showTab, snapToggle, tabButton, userRows,
+  outlinerSection, panel, panelMounted, showPanel, showTab, tabButton, userRows,
 } from './helpers/editor';
 
 /**
@@ -20,8 +19,9 @@ import {
  * pass."; "please make mouse wheel spin assets in forge too. Esc to cancel selection" ... "when you have an item queued
  * to place"; a browser adaptation, FG.R2 -- the game has no editor, nothing here is the original's): on the mounted
  * Forge, D5 / FUI.R21 the one asset list, D3 its polish, D6 / FUI.R22 the right dock's tabs that filter, D2 its one
- * section style, D1 the tooltip on that list, D4 the wheel and Escape with a prop queued. The page is mounted as
- * `pagePalette.test.ts` mounts it (only the GPU and disc I/O replaced); IndexedDB is `fake-indexeddb`.
+ * section style, D1 the tooltip on that list (D4, the wheel and Escape with a prop queued, retired with place mode,
+ * PR #5). The page is mounted as `pagePalette.test.ts` mounts it (only the GPU and disc I/O replaced); IndexedDB is
+ * `fake-indexeddb`.
  */
 
 vi.mock('../../src/renderer', () => ({ createRenderer: async () => ({
@@ -35,6 +35,9 @@ vi.mock('../../src/forge/archives', () => ({ Archives: class {
   clips = async () => null;
   list = async () => ({ entries: archiveEntries, problems: [] });
   load = archiveLoad;
+  census = async () => null;
+  props = async () => null;
+  scriptNames = async () => null;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
@@ -47,15 +50,16 @@ async function syntheticArchive(stem: string, models: readonly string[]): Promis
     props: models.map((modelName) => ({ modelName, parts: [floorMesh(4)], matrices: IDENTITY.slice(), order: 0, alternate: false, facade: 0, lod: null, paths: [`world/${modelName}`] })),
   } as LoadedMap;
 }
-function probePanel(): { panel: ForgePanel; ctx: () => ForgePanelContext | null } {
-  let ctx: ForgePanelContext | null = null;
-  const panel: ForgePanel = { id: 'probe', title: 'Probe', dock: 'workspace', order: 90, defaultOpen: false, padLegend: [],
-    mount: (_host, c) => { ctx = c; return { dispose: () => undefined }; } };
-  return { panel, ctx: () => ctx };
-}
 const css = readFileSync(resolve(here, '../../src/forge/forge.css'), 'utf8').replace(/\r\n/g, '\n').replace(/\/\*[\s\S]*?\*\//g, '');
 const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ selectors: m[1]!.trim().split(/\s*,\s*/), body: m[2]! }));
 const ruleOf = (selector: string): string => rules.filter((r) => r.selectors.includes(selector)).map((r) => r.body).join(';');
+/**
+ * A rule whose selector is one `:is(...)` list holding `selector` (the contributor's switch rule, OT.R112: forge.css's
+ * `:is(.fx-toggle input[type=checkbox], ...)`), not its pseudo-classes' or pseudo-elements' (`:checked`, `::after`).
+ */
+const ruleWithinIs = (selector: string): string => rules
+  .filter((r) => { const all = r.selectors.join(', '); return all.startsWith(`:is(${selector}, `) && all.endsWith(')'); })
+  .map((r) => r.body).join(';');
 
 describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
   beforeEach(() => {
@@ -142,7 +146,7 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     expect(row.matches('.fx-chips')).toBe(false);
     expect(row.querySelector('input.fx-search')).not.toBeNull();
     expect([...row.querySelectorAll('button.fx-chip')].map((b) => b.getAttribute('aria-label') ?? b.textContent))
-      .toEqual(['All', 'Favourites', 'Characters', 'Asset view options']);
+      .toEqual(['Favourites', 'Characters', 'Asset view options']);   // his row: no 'All' chip (OT.R112)
     expect(row.querySelector('[aria-label="Asset view options"] svg')).not.toBeNull();
     // The format (list / grid) at the browser's foot, under the list.
     const modes = assetsPanel!.querySelector<HTMLElement>('.fx-asset-display-modes')!;
@@ -546,116 +550,17 @@ describe('FUI-22: the Forge\'s panels pass on the mounted page', () => {
     expect(tip()!.hidden).toBe(true);
   }, 90_000);
 
-  it('D4: with a prop queued a wheel notch turns it one turn step and the camera keeps its speed; with none the wheel is the camera\'s; Escape cancels the queue, then the selection', async () => {
-    const probe = probePanel();
-    const api = await mounted([probe.panel]);
-    await vi.waitFor(() => expect(probe.ctx()).not.toBeNull());
-    const editor = probe.ctx()!.editor!;
-    const input = document.querySelector<HTMLElement>('.fx-input')!;
-    input.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON: () => ({}) });
-    const speed = (): string => document.querySelector('.fx-cell--speed')!.textContent ?? '';
-    const yaw = (): number => { const p = editor.projectDrop(400, 300); expect('yaw' in p, JSON.stringify(p)).toBe(true); return (p as { yaw: number }).yaw; };
-    const wheel = (deltaY: number): WheelEvent => { const e = new WheelEvent('wheel', { deltaY, bubbles: true, cancelable: true }); input.dispatchEvent(e); return e; };
-    const turn = (a: number, b: number): number => Math.round((((b - a) * 180 / Math.PI) % 360 + 540) % 360 - 180);
-    // A placement selected, then a prop queued (the Place tool, a chosen prop).
-    expect(await api.execute('piece.place', { asset: 'MP2:crate', at: [0, 0, 0] }, api.read().revision)).toMatchObject({ ok: true });
-    expect(api.read().selection).toEqual(['piece:0']);
-    tile('MP2:barrel').click();
-    expect((api.read().view as { tool: string }).tool).toBe('place');
-    const turnStep = (api.read().view as { turnStep: number }).turnStep;
-    expect(turnStep).toBe(15);
-    const before = yaw(), was = speed();
-    expect(wheel(-100).defaultPrevented).toBe(true);
-    expect(turn(before, yaw()), 'one notch, one turn step').toBe(15);
-    wheel(-100);
-    expect(turn(before, yaw())).toBe(30);
-    wheel(100);
-    expect(turn(before, yaw())).toBe(15);
-    expect(speed(), 'the camera unmoved').toBe(was);
-    expect(document.querySelector('.fx-status-msg')!.textContent).toMatch(/15°/);
-    // Escape (the owner, 2026-11: "on any of the tools ... set the current tool to select tool and deselect any objects"):
-    // the queue cancelled, the Select tool, and the selection dropped, at once.
-    key('Escape');
-    expect((api.read().view as { tool: string }).tool).toBe('select');
-    expect(probe.ctx()!.palette!.chosen()).toBeNull();
-    expect(api.read().selection).toEqual([]);
-    // Nothing queued: the wheel is the camera's -- in the forge it moves the camera along its look, its speed kept.
-    const at = (): unknown => (api.read().view as { camera: unknown }).camera;
-    const from = JSON.stringify(at());
-    wheel(-100);
-    await vi.waitFor(() => expect(JSON.stringify(at())).not.toBe(from));
-    expect(speed()).toBe(was);
-  }, 90_000);
-
-  it('F1 (the review): a new palette row starts unturned; with snap on a changed Turn step keeps the carried turn on the new grid', async () => {
-    const probe = probePanel();
-    const api = await mounted([probe.panel]);
-    await vi.waitFor(() => expect(probe.ctx()).not.toBeNull());
-    const editor = probe.ctx()!.editor!;
-    const input = document.querySelector<HTMLElement>('.fx-input')!;
-    input.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON: () => ({}) });
-    const yaw = (): number => { const p = editor.projectDrop(400, 300); expect('yaw' in p, JSON.stringify(p)).toBe(true); return (p as { yaw: number }).yaw; };
-    const wheel = (deltaY: number): void => { input.dispatchEvent(new WheelEvent('wheel', { deltaY, bubbles: true, cancelable: true })); };
-    const turn = (a: number, b: number): number => Math.round((((b - a) * 180 / Math.PI) % 360 + 540) % 360 - 180);
-    tile('MP2:barrel').click();
-    const before = yaw();
-    wheel(-100); wheel(-100);
-    expect(turn(before, yaw())).toBe(30);
-    tile('MP2:crate').click();
-    expect(turn(before, yaw()), 'another prop picked: unturned').toBe(0);
-    // Snap on: three notches (45 deg) at 15, then the step 20: the carried turn lies on the 20 deg grid.
-    expect(await api.execute('snap.set', { on: true, rotation: 15 }, api.read().revision)).toMatchObject({ ok: true });
-    expect(snapToggle(document, 'Rotation snap').classList.contains('is-on')).toBe(true);   // EDITOR-MAP V1: his snap pill
-    wheel(-100); wheel(-100); wheel(-100);
-    expect(await api.execute('snap.set', { on: true, rotation: 20 }, api.read().revision)).toMatchObject({ ok: true });
-    const deg = (yaw() * 180) / Math.PI;
-    const r = ((deg % 20) + 20) % 20;
-    expect(Math.min(r, 20 - r), 'the yaw on the new grid').toBeLessThan(0.01);
-  }, 90_000);
-
-  describe('FUI-22 fold: every route to a new asset starts it unturned; re-picking the same asset keeps its turn', () => {
-    const setup = async () => {
-      const probe = probePanel();
-      const api = await mounted([probe.panel]);
-      await vi.waitFor(() => expect(probe.ctx()).not.toBeNull());
-      const editor = probe.ctx()!.editor!;
-      const input = document.querySelector<HTMLElement>('.fx-input')!;
-      input.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON: () => ({}) });
-      const yaw = (): number => (editor.projectDrop(400, 300) as { yaw: number }).yaw;
-      const wheel = (deltaY: number): void => { input.dispatchEvent(new WheelEvent('wheel', { deltaY, bubbles: true, cancelable: true })); };
-      const turn = (a: number, b: number): number => Math.round((((b - a) * 180 / Math.PI) % 360 + 540) % 360 - 180);
-      tile('MP2:barrel').click();
-      const before = yaw();
-      wheel(-100); wheel(-100);
-      expect(turn(before, yaw())).toBe(30);
-      return { api, yaw, before, turn };
-    };
-    it('the pad menu\'s Props screen: a different prop arrives unturned', async () => {
-      const { yaw, before, turn } = await setup();
-      openMenu(document);                                           // map T1: Controls > Forge menu (M), the pointer's way
-      const props = await vi.waitFor(() => { const r = document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="props"]'); expect(r).not.toBeNull(); return r!; });
-      props.click();
-      const cell = await vi.waitFor(() => { const r = document.querySelector<HTMLElement>('.fx-menu li[data-forge-menu-row="prop-MP2:crate"]'); expect(r).not.toBeNull(); return r!; });
-      cell.click();
-      expect(turn(before, yaw()), 'chooseProp: unturned').toBe(0);
-    }, 90_000);
-    it('the pad\'s previous/next prop step: the next prop arrives unturned', async () => {
-      const { yaw, before, turn } = await setup();
-      key('BracketRight', ']');
-      expect(tile('MP2:crate').classList.contains('is-on')).toBe(true);
-      expect(turn(before, yaw()), 'stepAsset: unturned').toBe(0);
-    }, 90_000);
-    it('the seam\'s choose (palette.choose): a different prop arrives unturned', async () => {
-      const { api, yaw, before, turn } = await setup();
-      expect(await api.execute('palette.choose', { asset: 'MP2:crate' }, api.read().revision)).toMatchObject({ ok: true });
-      expect(turn(before, yaw()), 'the facade choose: unturned').toBe(0);
-    }, 90_000);
-    it('re-picking the same asset keeps its turn', async () => {
-      const { yaw, before, turn } = await setup();
-      tile('MP2:barrel').click();
-      expect(turn(before, yaw())).toBe(30);
-    }, 90_000);
-  });
+  // RETIRED with PR #5 (seat-forge, item A7), place mode removed by the Forge's owner (crispy, OT.R112): a tile's click
+  // spawns its prop at the view's centre and selects it (page.ts `choosePaletteRow` -> `spawnAtCentre`), nothing is
+  // queued, the wheel over the view is always forwarded to the camera, and `projectDrop`'s turn is the facing alone
+  // (`placementYaw`) -- so no wheel-turned ghost carries a turn. Retired by title: 'D4: with a prop queued a wheel notch
+  // turns it one turn step and the camera keeps its speed; with none the wheel is the camera's; Escape cancels the queue,
+  // then the selection'; 'F1 (the review): a new palette row starts unturned; with snap on a changed Turn step keeps the
+  // carried turn on the new grid'; and the 'FUI-22 fold: every route to a new asset starts it unturned; re-picking the
+  // same asset keeps its turn' group's four: 'the pad menu's Props screen: a different prop arrives unturned', 'the
+  // pad's previous/next prop step: the next prop arrives unturned', 'the seam's choose (palette.choose): a different prop
+  // arrives unturned', 're-picking the same asset keeps its turn'. Escape's deselect is `./spawnAtOnce.test.ts`'s; the
+  // wheel as the camera's with a selection is owed a case once a run shows it.
 
   it('F2 (the review): picking a tile by its button keeps focus on the redrawn tile and the tooltip on it', async () => {
     await mounted();
@@ -684,8 +589,8 @@ describe('FUI-22: the View panel\'s detail distance draws as a slider, not a swi
     expect(input.classList.contains('fx-range')).toBe(true);
     expect(row.classList.contains('fx-toggle')).toBe(true);
     expect(ruleOf('.fx-toggle input')).toBe('');
-    expect(ruleOf('.fx-toggle input[type=checkbox]')).toMatch(/appearance:\s*none/);
-    expect(ruleOf('.fx-toggle input[type=checkbox]')).toMatch(/width:\s*28px/);
+    expect(ruleWithinIs('.fx-toggle input[type=checkbox]')).toMatch(/appearance:\s*none/);
+    expect(ruleWithinIs('.fx-toggle input[type=checkbox]')).toMatch(/width:\s*28px/);
     expect(ruleOf('.fx-detail-distance .fx-range')).toMatch(/flex:\s*1 1 auto/);
   });
 });

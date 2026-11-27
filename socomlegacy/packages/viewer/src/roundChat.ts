@@ -5,7 +5,9 @@ import type { RoundQueueLine } from '@s2u/ui';
  * one definition stays the only one.
  */
 export type { RoundQueueLine };
-import { MESSAGE_SCALE, type BannerLine, type Hud } from './hud';
+import { streamerChatShows } from './streamerMode';
+import { MESSAGE_SCALE } from './hudLayout';
+import type { BannerLine, Hud } from './hud';
 import { messageLine } from './matchMessages';
 
 /**
@@ -63,6 +65,10 @@ export function externalWhispers(global: number | undefined): boolean {
 export function roundQueueLine(line: RoundQueueLine, o: { external: boolean; inRound(name: string): boolean }): BannerLine | null {
   // KEYBOARD-WHISPER: the round state's own line (`own`, `FUN_002f4ba0` -> `FUN_001ecc40`) is posted, not queued: no test.
   if (!line.own && line.kind === ROUND_LINE_KIND.whisper && !o.external && !o.inRound(line.name)) return null;
+  // STREAMER-P1 (a browser adaptation, `./streamerMode`): Chat from others; refused, the line is not posted --
+  // and no count line either, the round's HUD being what a stream shows.
+  // A whisper or a universe line from someone not in the round is heard as from outside a match (the review's F1).
+  if (!line.own && !streamerChatShows(o.inRound(line.name) ? 'match' : 'lobby', { name: line.name })) return null;
   return messageLine(line.text, line.kind, MESSAGE_SCALE);
 }
 

@@ -256,6 +256,14 @@ describe('Custom matches: the data (FG-46)', () => {
     expect(customMatchAddress('L1', { devmode: false, devtools: true, server: null }, '/')).toBe('/forge/lobby/L1?devtools');
     expect(customMatchAddress('L1', { devmode: false, devtools: true, server: 'http://host.test:8787' }, '/')).toBe('/forge/lobby/L1?devtools&server=http%3A%2F%2Fhost.test%3A8787');
     expect(customMatchAddress('L1', { devmode: true, devtools: true, server: null }, '/')).toBe('/forge/lobby/L1?devmode');   // devmode already includes it
+    // N03-RECOVERY-ON review F1 (2026-11-25): a player's explicit graphicsrecovery is carried, devmode or not, so an
+    // explicit notice is never dropped into the reload default on joining; absent or unknown, nothing is written.
+    expect(customMatchAddress('L1', { devmode: false, server: null, graphicsrecovery: 'notice' }, '/')).toBe('/forge/lobby/L1?graphicsrecovery=notice');
+    expect(customMatchAddress('L1', { devmode: false, server: null, graphicsrecovery: 'reload' }, '/')).toBe('/forge/lobby/L1?graphicsrecovery=reload');
+    expect(customMatchAddress('L1', { devmode: true, server: 'http://host.test:8787', graphicsrecovery: 'notice' }, '/'))
+      .toBe('/forge/lobby/L1?devmode&server=http%3A%2F%2Fhost.test%3A8787&graphicsrecovery=notice');
+    expect(customMatchAddress('L1', { devmode: false, server: null, graphicsrecovery: null }, '/')).toBe('/forge/lobby/L1');
+    expect(customMatchAddress('L1', { devmode: false, server: null, graphicsrecovery: 'yes' }, '/')).toBe('/forge/lobby/L1');
     // The forge reads it as its own link: its page, its lobby, and the same server the console's requests go to.
     expect(FORGE_SEGMENT).toBe('forge');
     expect(FORGE_LOBBY_PARAM).toBe('lobby');

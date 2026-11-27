@@ -104,6 +104,8 @@ describe('the run (`./effectRunner`): OBJECT_OPACITY_FROM_TO as FUN_0025f880 tic
     expect(log).toEqual(['2 on']);
     expect(run.finished).toBe(false);
     run.update(0.5);
+    expect(log).toEqual(['2 on']);                  // LATER 1426: a WAIT holds at equality (research 89 s1.1)
+    run.update(1 / 60);
     expect(log).toEqual(['2 on', '2 off']);
     expect(run.finished).toBe(true);
     run.update(0.5);

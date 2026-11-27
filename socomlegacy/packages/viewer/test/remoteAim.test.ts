@@ -59,7 +59,7 @@ function rig(bodies: BodyState[]) {
 const EYE: V3 = [0, 15, 0], AHEAD: V3 = [0, 0, -1];
 
 describe('the others\' bodies under the reticle (RemotePlayers.aimDistance)', () => {
-  it("HIT-POSE (research 217 s3.6): a played copy is met on its drawn skeleton's capsules (Play.drawnCapsules), as the room meets its live pose; a hostage stays on its idle set", () => {
+  it("HIT-POSE (research 217 s3.6): a played copy is met on its drawn skeleton's capsules (Play.drawnCapsules), as the room meets its live pose; a hostage too (LATER 831), its idle set only undrawn", () => {
     // The drawn body: one box 6 u to the right of the snapshot's feet (a pose the idle set does not have).
     const drawn = placedVolumes([0, 0, -60], 0, [box(2, [4.5, 2, -1.5], [7.5, 18, 1.5])]);
     DRAWN.caps = drawn;
@@ -69,12 +69,20 @@ describe('the others\' bodies under the reticle (RemotePlayers.aimDistance)', ()
       expect(remote.aimDistance(right, AHEAD, 1000)).toBeCloseTo(rayBody(right, AHEAD, 1000, drawn)!.t, 6);
       expect(remote.aimDistance(EYE, AHEAD, 1000)).toBeNull();                  // the idle set's line: not the drawn body
       expect(remote.aimBodies(right, AHEAD, 1000).map((h) => h.id)).toEqual([2]);
-      // A hostage (an escortee) keeps its idle set whatever its copy draws (the room's `hostageVolumes`).
+      // LATER 831 (research 237 s2.5): a hostage (an escortee) is met on its drawn body too -- the copy's No_weapon pose, as
+      // the room's hostage poser judges it (`Room.hostagePose`, the posed boxes on its rewind) -- aimDistance and the
+      // order's pick (aimBodies) alike; it was its idle set whatever its copy drew.
       const hostage = new RemotePlayers(new Scene()), camera = new PerspectiveCamera();
       hostage.setMap({ body: {} } as LoadedMap, DEFAULT_LIGHTING, null);
       hostage.setEscortee(240, 0);
       hostage.frame(1 / 60, [state(240, [0, 0, -60])], camera);
+      expect(hostage.aimDistance(right, AHEAD, 1000)).toBeCloseTo(rayBody(right, AHEAD, 1000, drawn)!.t, 6);
+      expect(hostage.aimDistance(EYE, AHEAD, 1000)).toBeNull();                 // the idle set's line: not the drawn body
+      expect(hostage.aimBodies(right, AHEAD, 1000).map((h) => h.id)).toEqual([240]);
+      // A copy not yet played (no drawn body: no clips, no pose): the idle set, as the room's fallback without motion.
+      DRAWN.caps = null;
       expect(hostage.aimDistance(EYE, AHEAD, 1000)).toBeCloseTo(rayBody(EYE, AHEAD, 1000, bodyVolumes([0, 0, -60], 0, 'stand', null))!.t, 6);
+      expect(hostage.aimDistance(right, AHEAD, 1000)).toBeNull();
     } finally {
       DRAWN.caps = null;
     }

@@ -1,4 +1,5 @@
 import { DIALOG_EVENTS } from '../dialog';
+import { ownNameDrawn } from '../text/ownNameDisplay';
 import type { UiCommandHandler, UiCommandHost } from '../uiCommands';
 import type { UiVarManager, UiVarValue } from '../uiVars';
 import { VALVE_TYPE, valveTypeOf, type ValveStore } from '../valves';
@@ -289,7 +290,7 @@ export interface BriefingRoomService {
 }
 
 /** The lobby (0x44f370) the join stands on: ONL-07's client. */
-export type RoomLobby = Pick<LobbyClient, 'up' | 'state' | 'queueState' | 'setHandler'> & Partial<Pick<LobbyClient, 'onReset'>>;
+export type RoomLobby = Pick<LobbyClient, 'up' | 'state' | 'queueState' | 'setHandler'> & Partial<Pick<LobbyClient, 'onReset' | 'account'>>;
 
 // ---- the game list's record and row ----
 
@@ -953,7 +954,10 @@ export class BriefingRoomCommands {
     if (room) {
       const list = this.players.get(room) ?? [];
       list.sort((a, b) => (a.accountName < b.accountName ? -1 : a.accountName > b.accountName ? 1 : 0));
-      for (const p of list) rows.push(roomPlayerRow(p));
+      // IQ-183 (a browser adaptation, `../text/ownNameDisplay`): the own row (the session's account, case-blind) drawn
+      // by the page's rule, sorted by its own name still.
+      const own = this.o.lobby?.account?.()?.toLowerCase() ?? null;
+      for (const p of list) rows.push(roomPlayerRow(own !== null && p.accountName.toLowerCase() === own ? { ...p, accountName: ownNameDrawn(p.accountName) } : p));
     }
     const vars = this.o.uiVars;
     const v = vars.find(ROOM_PLAYER_LIST_VAR);

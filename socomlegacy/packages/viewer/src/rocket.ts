@@ -1,9 +1,10 @@
 import { Group, Vector3 } from 'three';
-import { segmentHit, type Grid, type KitRound, type KitTable, type Loadout, type V3, type WeaponPoint } from '@s2u/scene';
+import { GAME_FRAME_DT, segmentHit, type Grid, type KitRound, type KitTable, type Loadout, type V3, type WeaponPoint } from '@s2u/scene';
 import { muzzlePoint } from './heldItem';
 import { EQUIPMENT_SLOTS, equipmentKind, launcherRaiseSeconds, rocketLaunch, rocketRoundOf, slotSelectable, wadingDepth, type LauncherFrom } from './equipment';
 import type { KitRounds } from './firearms';
 import type { MagazineRing } from './magazines';
+import { rocketWaitFrames } from './net/fireGate';
 import type { PlaySnapshot } from './walk';
 
 /**
@@ -13,14 +14,16 @@ import type { PlaySnapshot } from './walk';
  *   (the LAW HEAT, 185; the RPG, 186). `3`/`4`/`5` on the launcher's slot raise it -- `FUN_005bdc30` lets a rocket
  *   launcher up only while the kit holds a round it fires (`FUN_005c45c0`) -- and never on the round's (a round is a fire
  *   mode of its carrier, `FUN_003c5d20`).
- * - **The fire** (`FUN_005c6600` redirects the carrier's slot to its round's; `FUN_005c09f0` at the round's `FireWait`,
- *   3 s): the rocket leaves the launcher's `firepoint` (the held model's muzzle; else the eye) straight at the point
- *   under the reticle -- no loft, `FUN_005bf8a0` lofts only the 40 mm carriers -- at its `Muzzle_Velocity`
- *   (`ROCKET_LAUNCH_SPEED_READING`), then accelerates without a fall (`./grenade`'s flight of it, `stepGrenade`); each
- *   shot fires the `Backblast` backwards from the muzzle (`FUN_003d2d70`, the `backblast` event; the room deals it).
+ * - **The fire** (`FUN_005c6600` redirects the carrier's slot to its round's; r0004 0x5c76f0, r0001 `FUN_005c09f0`, at
+ *   the round's `FireWait` 3 s, x 1.2 in the round's mode at r0004 -- LATER 1365): the rocket leaves the launcher's
+ *   `firepoint` (the held model's muzzle; else the eye) straight at the point under the reticle -- no loft,
+ *   `FUN_005bf8a0` lofts only the 40 mm carriers -- at its `Muzzle_Velocity` (`ROCKET_LAUNCH_SPEED_READING`), then
+ *   accelerates without a fall (`./grenade`'s flight of it, `stepGrenade`); each shot fires the `Backblast` backwards
+ *   from the muzzle (`FUN_003d2d70`, the `backblast` event; the room deals it).
  * - **One round at a time**: the LAW HEAT's one shot; the RPG's after-shot lock (`ReloadDelayAfterShot` 1 s) walks to
- *   the next kit slot holding RPG rounds (`FUN_005c3000`), inside the round's `FireWait` -- so a rocket every 3 s while
- *   rounds last (`KitRounds`, one ring a round slot).
+ *   the next kit slot holding RPG rounds (`FUN_005c3000`), its frames ADDED to the round's wait (LATER 1365,
+ *   `./net/fireGate` `rocketWaitFrames`) -- so a LAW HEAT 108 game frames after the last, an RPG 138, while rounds last
+ *   (`KitRounds`, one ring a round slot).
  * - **Drawn** (research 94 §C8): the launcher's model on the right hand's held node while it is up (`heldNode`), on the
  *   `launcher` node on `spinehi` while carried (`carryNode`; its pose there is the clips' `launcher` track, not probed:
  *   `HOLSTER_TRACK_READING` -- hung at the node's origin).
@@ -65,13 +68,14 @@ export interface RocketLaunch {
   /** LATER 503: the launch's id in the launcher's journal (`RocketLauncher.refund`), page-local, never on the wire. */
   shot: number;
   /**
-   * TRIGGER-SWAP fold: the round's FireWait, which the launch writes on the kit's one rate timer `kit+0x81c`
-   * (`FUN_005be9a0` D:L475514-475517) -- handed to the firearm at the lower (`./matchThrow`, `Fire.holdWait`).
+   * TRIGGER-SWAP fold: the round's wait, which the launch writes on the kit's one rate timer `kit+0x81c`
+   * (`FUN_005be9a0` D:L475514-475517) -- handed to the firearm at the lower (`./matchThrow`, `Fire.holdWait`). LATER 1365:
+   * the scaled wait and the RPG's lock, as the launcher's own (`rocketWaitFrames` x `GAME_FRAME_DT`); was the raw 3 s.
    */
   fireWait: number;
 }
 
-/** LATER 503: the launches a stale may yet give back -- a page's bookkeeping, no game value (rockets leave 3 s apart). */
+/** LATER 503: the launches a stale may yet give back -- a page's bookkeeping, no game value (rockets leave seconds apart). */
 const ROCKET_JOURNAL = 8;
 
 export interface RocketEvents {
@@ -267,15 +271,18 @@ export class RocketLauncher {
     const shot = ++this.shotSerial;                              // LATER 503: its ring read before it leaves, journalled after
     const waitBefore = this.wait, before = ring.state();
     ring.fire();
-    // The round's FireWait (`kit+0x8b8`), which holds its after-shot feed (`ReloadDelayAfterShot` 1 s) inside it.
-    this.wait = Math.max(round.fireWait, round.reloadAfterShot ? round.reloadDelayAfterShot : 0);
+    // LATER 1365 (reading, pending review; research 84 s6): the round's FireWait x 1.2 in its round mode (r0004 0x5c76f0)
+    // set on `kit+0x81c`, and the RPG round's 1 s lock on `kit+0x820` (r0004 0x5cd330-0x5cd338), whose frames add to it
+    // (r0004 0x5c7d94-0x5c7e20): 108 game frames (the LAW HEAT), 138 (the RPG). Was max(FireWait, the lock), unscaled.
+    const wait = rocketWaitFrames(roundId, round) * GAME_FRAME_DT;
+    this.wait = wait;
     this.waitSerial++;
     this.journal.push({ shot, ring, before, wait: waitBefore, waitSerial: this.waitSerial });
     if (this.journal.length > ROCKET_JOURNAL) this.journal.shift();
     this.launched++;
     const e: RocketLaunch = {
       launcher: id, round: { id: roundId, name: round.record.name }, record: round.record, from, dir: out.dir, velocity: out.velocity, to,
-      rounds: this.roundsFor(id), shot, fireWait: round.fireWait,
+      rounds: this.roundsFor(id), shot, fireWait: wait,
     };
     this.lastLaunch = { from, velocity: out.velocity, to, round: round.record.name };
     this.emit('launch', e);

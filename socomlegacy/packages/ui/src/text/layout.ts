@@ -45,8 +45,17 @@ export interface TextStyle {
   color: readonly [number, number, number];
   /** +0x54 on the GS scale. */
   alpha: number;
-  /** +0x8c: the `#B` state the text starts in (a WRAPPEDTEXT line inherits it). */
+  /** +0x8c: the `#B` state the text starts in (a WRAPPEDTEXT line inherits it); ignored while bright is disabled. */
   bold?: boolean;
+  /**
+   * r0004's bright-text enable `DAT_004a1d70` (R4P-237 / LEADS L355; a reading of r0004's machine code, pending
+   * review): set only for the draw of a CWrappedText bound to the UIVAR `UsagePolicy` (`FUN_003979e0`
+   * 0x397a78-0x397aa8; cleared 0x397eac), so default false. Off, `#B` is not recognised at a glyph start (SeekGlyph
+   * 0x37fcb0-0x37fcd0) or after a glyph (Advance 0x380104-0x380170) and `#`, `B` lay out as glyphs; the start state
+   * is forced off (ctor 0x380230-0x380250); no 1.5x alpha (ctor 0x3802e4-0x3802f4, Advance 0x37fe9c-0x37feac).
+   * r0001 had no such gate (D:L260507-260515, D:L260628-260633, D:L260681-260705).
+   */
+  brightEnabled?: boolean;
   /** vtable+0x88, the line pitch: 0 for TEXT (`0x1fe1a0` returns 0), `SPACING` for TELETYPE and the wrapped lines. */
   linePitch?: number;
   rows?: { foot: number; head: number };
@@ -122,9 +131,10 @@ const isHashB = (codes: readonly number[], i: number): boolean => codes[i] === 0
  * - HCENTERED takes half the measured width off the pen, RIGHT_JUSTIFIED all of it, each truncated (D:L260684-260692);
  *   the width is the SUM of the lines, and a break returns the pen to the node's x, not to a centred one.
  * - `\n` moves the pen down `int(pitch)` and skips one space after it (D:L260497-260505); a TEXT's pitch is 0.
- * - `#B` toggles the bright state (the alpha x 1.5): at a glyph's start it is skipped (D:L260507-260515); after a
- *   glyph it is skipped and the pen moves by the width of the `B`, not of the glyph before it (the advance decodes
- *   the character at the pointer the recursion left, D:L260624-260639).
+ * - `#B`, while bright is enabled (`brightEnabled`; R4P-237, r0004), toggles the bright state (the alpha x 1.5): at a
+ *   glyph's start it is skipped (D:L260507-260515); after a glyph it is skipped and the pen moves by the width of the
+ *   `B`, not of the glyph before it (the advance decodes the character at the pointer the recursion left,
+ *   D:L260624-260639). While it is disabled (every text but the UsagePolicy wrapped text) `#` and `B` are glyphs.
  * - a glyph without `color` gets the face's drop shadow first (when the face has one): the shadow colour at
  *   `min(alpha, int(opacity x 128))`, displaced by the shadow's offset x S; a glyph with `color` is drawn in it at the
  *   text's alpha, with no shadow.
@@ -143,9 +153,11 @@ export function layoutText(face: TextFace, codes: readonly number[], x: number, 
     if (style.hcentered) pen.x = toInt(fsub(pen.x, fmul(measure.width, 0.5)));
     if (style.rightJustified) pen.x = toInt(fsub(pen.x, measure.width));
   }
-  let bold = style.bold ?? false;
+  // R4P-237: r0004 gates the start copy, both `#B` tests and the 1.5x on the bright enable (TextStyle.brightEnabled).
+  const brightOn = style.brightEnabled ?? false;
+  let bold = brightOn && (style.bold ?? false);
   const textColour = (): [number, number, number, number] =>
-    packedWords([toInt(style.color[0]), toInt(style.color[1]), toInt(style.color[2]), toInt(bold ? fmul(BOLD_ALPHA, style.alpha) : style.alpha)]);
+    packedWords([toInt(style.color[0]), toInt(style.color[1]), toInt(style.color[2]), toInt(bold && brightOn ? fmul(BOLD_ALPHA, style.alpha) : style.alpha)]);
   const shadowColour = (): [number, number, number, number] => {
     const sh = face.shadow!;
     const cap = toInt(fmul(sh.opacity, 128));
@@ -167,7 +179,7 @@ export function layoutText(face: TextFace, codes: readonly number[], x: number, 
         if (codes[i] === 0x20) i++;
         continue;
       }
-      while (isHashB(codes, i)) { i += 2; bold = !bold; if (codes[i] === undefined) return; }
+      while (brightOn && isHashB(codes, i)) { i += 2; bold = !bold; if (codes[i] === undefined) return; }
       const g = lookupGlyph(face, codes[i]!).glyph;
       if (g && g.elements.length > 0) {
         glyph = g; elem = 0;
@@ -214,7 +226,7 @@ export function layoutText(face: TextFace, codes: readonly number[], x: number, 
     }
     let from = i;
     i++;
-    while (isHashB(codes, i)) {
+    while (brightOn && isHashB(codes, i)) {
       i++;                 // to the 'B'; the recursion reads the character from there
       bold = !bold;
       from = i;

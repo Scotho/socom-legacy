@@ -205,7 +205,12 @@ test('walk mode on Frostfire draws the console\'s HUD at the console frame\'s pi
   await page.evaluate(() => window.__viewer.setCamera({ x: 897.5, y: 115.4, z: 975, yaw: 180, pitch: -9.167 }));
   await page.evaluate(() => window.__viewer.walkFor(0.2, { forward: 0 }));
   await settle(page);
-  expect((await page.evaluate(() => window.__viewer.hud())).model.action).toBe('door');
+  // LATER 1246: Frostfire runs `camera_jiggle`, whose `camera_effects` turns the view (and so the door pick's ray) through a
+  // ~0.026-degree loop every 4.0 s. This spot is wdoor_2's door/frame edge (`PICK_TIE_READING`: the leaf and the frame's
+  // `warehouse/wintdi` both at 20.0 along), so the prompt comes and goes with the sway, as the original's does at an edge
+  // (PC 1's capture of r0004, rig/L1246-PC1/: door_rg_1's pick flips door <-> wall every 4.003 s, ~2.05 s on). One read
+  // can land in the off phase: the prompt is polled across one 4.0 s sway period and must show at least once.
+  await expect.poll(async () => (await page.evaluate(() => window.__viewer.hud())).model.action, { timeout: 4_500, intervals: [100] }).toBe('door');
   await page.evaluate(([x, y, z, eye]) => window.__viewer.setCamera({ x, y: y + eye, z, yaw: 180, pitch: -9.167 }), [...SPAWN_A, EYE] as const);
   await page.evaluate(() => window.__viewer.walkFor(0.2, { forward: 0 }));
   await settle(page);

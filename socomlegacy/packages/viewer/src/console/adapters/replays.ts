@@ -125,8 +125,10 @@ export function liveReplays(notify: () => void, deps: ReplaysDeps = {}): LiveRep
   // SA-9b: a row's `id` is its key (`replayKey`), what the console hands back to `watch`.
   const rowOf = (r: ReplayEntry): ReplayRow => ({
     // MN-1 (OT.R113): the map named (`@s2u/archive` `mapDisplayName`), never its stem; the key keeps the stem.
-    id: replayKey(r), map: mapDisplayName(r.map), rules: r.rules, when: r.startedAt.slice(0, 16).replace('T', ' '),
+    // REPLAY-STILL-STEM: the stem kept beside the name, for the drawer's still (MN-1 had left the stem test nothing to match).
+    id: replayKey(r), map: mapDisplayName(r.map), stem: r.map, rules: r.rules, when: r.startedAt.slice(0, 16).replace('T', ' '),
     length: durationText(r.seconds), players: r.players.length, names: r.players.map((p) => p.name).join(', '),
+    ...(r.variant ? { variant: r.variant } : {}),                                  // DAY-STILLS: the drawer's variant still
     // RV-4 (the RV-12 review): the record's result, when it holds one, as the section's card says it.
     ...(r.result ? { result: resultWords(r.result), end: r.result.matchOver ? 'match-over' as const : 'cut-short' as const } : {}),
   });

@@ -7,7 +7,7 @@ import type { Button } from './console/state';
 import type { DiscExtractRecord, ExtractEnv, ExtractHooks, ExtractionState } from './discExtract';
 import { extractionState, storageOf, storedExtraction } from './discExtractRecord';
 import { folderRequestFromInput, openFrontEndDisc, watchDiscPrompt } from './discPrompt';
-import { assetSourceFor, type DiscRequest, type SourceRequest, type StoredRequest } from './discSource';
+import { assetSourceFor, openDisc, type DiscRequest, type SourceRequest, type StoredRequest } from './discSource';
 import { sameIdentity } from './discStored';
 
 /**
@@ -195,7 +195,10 @@ async function startOf(doc: Document, deps: DiscStartDeps): Promise<SourceReques
  * The forge's start order (FG.R12 with DX-3): the kept extraction when whole -- with the launcher's stored copy (DA-8), or
  * else the remembered disc whose permission is granted (DA-7), as its fallback for what the read set leaves out (the
  * paths outside the set: `fallback: 'outside'`; the campaign maps are in the set since FI.R6's second revision) when that disc is the same one -- before the copy, before the
- * remembered disc; null: none of them, the forge's card asks.
+ * remembered disc; null: none of them, the forge's card asks. Not whole, the copy or the remembered disc is taken only
+ * when its identity says it is a SOCOM II disc (LATER 954 (2), DA.R8: another game's copy, or a folder with no
+ * `SYSTEM.CNF`, was taken unchecked; now the card asks, with its usual words -- why the copy or the remembered disc was
+ * passed over is not said; a disc handed to the card is checked and refused on its line, `forgeCardDisc`).
  */
 export interface ForgeStartParts {
   state(): Promise<ExtractionState>;
@@ -220,7 +223,21 @@ export async function forgeDiscStart(parts: ForgeStartParts): Promise<SourceRequ
       return storedRequestOf(record, disc, 'outside');
     }
   }
-  return (await parts.copy()) ?? (await parts.remembered());
+  const socom = async (disc: DiscRequest | null): Promise<DiscRequest | null> => (disc && (await identity(disc)) ? disc : null);
+  return (await socom(await parts.copy())) ?? (await socom(await parts.remembered()));
+}
+
+/**
+ * LATER 954 (2): the disc the forge's "Your disc" card is given (an image, a picked folder, the remembered disc once its
+ * permission is granted), checked before the forge opens it, as the test room's are (`openDisc`, DA.R8, probing
+ * `SYSTEM.CNF`): answers the disc, or fails in the identity's or the reader's words, which the card says on its line.
+ */
+export async function forgeCardDisc(
+  disc: DiscRequest,
+  check: (disc: DiscRequest, probe: string) => Promise<unknown> = openDisc,
+): Promise<DiscRequest> {
+  await check(disc, 'SYSTEM.CNF');
+  return disc;
 }
 
 /* ---------- this module's own DOM, where there is no console (the invite entry) ---------- */

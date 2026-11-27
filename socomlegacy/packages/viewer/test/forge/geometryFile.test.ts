@@ -4,7 +4,7 @@ import { box, plane } from '../../src/forge/geometry/primitives';
 import type { WorldGeometry } from '../../src/forge/geometry/world';
 
 /**
- * The edited geometry as a file (the Forge geometry audit's bug 1, the owner, 2026-11-16: "Edits aren't saved"): what a
+ * The edited geometry as a file (the Forge geometry audit's bug 1, the Forge's owner (crispy, OT.R112), 2026-11-16: "Edits aren't saved"): what a
  * layout's geometry asset holds read back exactly -- every point, corner, face and style; deleted faces kept as holes
  * (a face's index is its name); a mesh several objects share written once and shared again; what the base gives back
  * (the hull as read, the original mesh) named, not written.

@@ -8,7 +8,7 @@ import {
   canMount, clampAim, firepointFrame, gunDelta, gunLine, holdStep, mountClipOf, mountSteerTicks, muzzleAt, oneShotPhase, ReleaseTravel, SeatSteer, seatTurn, TURRET_HOLD_CLIP, turretStow,
   TURRET_RELEASE_WAIT_READING, TURRET_RELEASE_WAIT_TICKS,
   type MountShape,
-  type HoldMover, type TurretWire,
+  type HoldMover, type TurretWire, releaseHandOf,
 } from './net/emplacement';
 import { fireAllowed } from './net/fireCapability';
 import { TICK_HZ, type ClientEvent, type ServerEvent, type TurretMags, type TurretWireYaw } from './net/protocol';
@@ -176,15 +176,11 @@ export const TURRET_MOUNT_ASK_WINDOW_READING = 2;
  */
 export const TURRET_OWN_RELOAD_TELL_ADAPTATION = 60;
 
-/**
- * [placeholder] RESUME-MOUNTED (PB-2c's review F1; research 215 s4): the pitch (degrees) a free gun is drawn at on a page
- * that joined after its last occupant left it turned. The welcome carries the room's yaw (`gunYaw`) but no pitch: the room
- * keeps none. The original's freed gun keeps its whole world matrix, pitch included -- `FUN_003a7350` copies the gun part's
- * world matrix into the turret's `+0x2c0` each turret tick (D:L299409-299411, under `+0x3a4` bit 2 clear), and the round's
- * reset `FUN_003aa9d0` restores the rounds and `+0x3c0` only (D:L301337-301338) -- so the level rest is the port's
- * stand-in. Settled by the room keeping the occupant's pitch at the release, as it keeps `gunYaw`, and the wire carrying it.
- */
-export const TURRET_FREE_GUN_PITCH_PLACEHOLDER = 0;
+// TURRET_FREE_GUN_PITCH (2026-11-23, R2-FIRE-3 s9; retires TURRET_FREE_GUN_PITCH_PLACEHOLDER): a free gun a welcome names is
+// drawn at the room's pitch as well as its yaw -- the room keeps the occupant's pitch at the release beside `gunYaw` and the
+// wire carries it (`gunPitch`, absent while level). The original's freed gun keeps its whole world matrix: `FUN_003a7350`
+// copies the gun part's world matrix into `+0x2c0` each turret tick (D:L299409-299411), and the round's reset
+// `FUN_003aa9d0` restores the rounds and `+0x3c0` only (D:L301337-301338).
 
 /** What the page lends the turrets. */
 export interface TurretPageDeps {
@@ -206,8 +202,27 @@ export interface TurretPageDeps {
   sound?(name: string, at: V3 | null): void;
   /** Another body's feet as drawn (`./remotePlayers` `feet`), for its sounds; absent or null, none. */
   bodyFeet?(id: number): V3 | null;
-  /** The hand a body holds -- 0 the rifle, 1 the pistol -- its mount clip's choice (`+0xf79`); absent, the rifle. */
+  /**
+   * The hand a body's mount clip is of -- 0 the rifle's, 1 the pistol's; absent, the rifle. R4P-R2 (L81; the second read,
+   * 2026-11-24): the caller hands `./net/emplacement` `mountHandOf` of the hand class -- the firearm in the hand, any item
+   * over it (selecting one never writes `+0xf79`, D4:L502932-502964), the rifle's with none (0x5acbb0, D4:L452444).
+   */
   hand?(id: number): 0 | 1;
+  /**
+   * R4P-R2 (L67; reading, pending review): this page's own hold released by the room (or its predicted release
+   * confirmed): r0004's release selects a firearm, not the slot kept at the mount (0x54a900, D4:L452157-452169;
+   * `./net/emplacement` `dismountSlot`) -- the caller puts an item in the hand away. Not for a take the room refused (no
+   * release ran: `untook`). Absent: nothing.
+   */
+  drawn?(): void;
+  /**
+   * R4P-R2 review 2 F1: this page's own kit -- what a take keeps (the primary, the secondary, or an item over either: the
+   * room's `mountKept`) and the firearm slots present (`../loadout` `firearmSlotPresent`). Read at this page's own take and
+   * kept on its mount (`MountMark.kit`), as the room keeps `mountKept` at its take; the release's reversed clip is
+   * `./net/emplacement` `releaseHandOf` over it (the room's `dismountHand`), for the predicted travel and the drawn clip.
+   * Another body's release takes the room's word (`releaseHand` on the release). Absent: the mount's clip.
+   */
+  kit?(): OwnKit;
   /** The pack's clips' key counts and `motion.rdr`'s entries, for the clips' runs (`./play` `PlayClips`); absent, no pose. */
   clips?(): { clips: readonly { name: string; frameCount: number }[]; table: readonly (readonly [string, Pick<MotionEntry, 'playback' | 'noFire'>])[] | null } | null;
   /** Seconds, the poses' clock; absent, `performance.now()`'s. */
@@ -329,8 +344,13 @@ function shrinkOffset(o: readonly [number, number, number], by: number): [number
   return [o[0] * k, o[1] * k, o[2] * k];
 }
 
+/** R4P-R2 review 2 F1: this page's own kit at its take (`TurretPageDeps.kit`). */
+export interface OwnKit { kept: 'primary' | 'secondary' | 'item'; hasPrimary: boolean; hasSecondary: boolean }
+
 interface MountMark {
   turret: number; at: number; hand: 0 | 1; facing: number;
+  /** R4P-R2 review 2 F1: this page's own kit at its take (`TurretPageDeps.kit`); another body's: absent. */
+  kit?: OwnKit;
   /**
    * LATER 91: `at` dated off the mount broadcast's `steer.ticks` (the room's start); absent, the event's arrival. Since
    * LATER 96 (F3) only this page's own mount, and only from a room that sends `ticks` without `after`.
@@ -428,14 +448,19 @@ export class TurretPage {
    * whole word: a gun it does not list is at rest); none: the placement's own facing.
    */
   private readonly gunYaw = new Map<number, number>();
+  /** TURRET_FREE_GUN_PITCH: each turret's gun pitch as the room told it (`gunPitch`; absent on the wire, level). */
+  private readonly gunPitch = new Map<number, number>();
   /** RESUME-MOUNTED: the free guns a welcome named left turned (`gunYaw`), drawn by `frame` at that yaw until occupied. */
   private readonly unseen = new Set<number>();
   /**
    * RESUME-MOUNTED (the review's finding 1): each gun's yaw as the room last told this page (a `turret` event's exact
    * `gunYaw`, or a welcome's free gun it draws), kept across a welcome: a free gun a later welcome names at the same yaw is
-   * one this page saw left so and drew where its occupant left it (pitch included), so it is not redrawn at the stand-in.
+   * one this page saw left so and drew where its occupant left it (pitch included), so it is not redrawn (unless the
+   * told pitch changed: `toldPitch`).
    */
   private readonly told = new Map<number, number>();
+  /** TURRET_FREE_GUN_PITCH: the pitch told beside `told`'s yaw (level when the wire carried none). */
+  private readonly toldPitch = new Map<number, number>();
   /** The map the last welcome named: `told` is let go at another's (turret ids restart per map). */
   private toldMap: string | null = null;
   /**
@@ -467,8 +492,9 @@ export class TurretPage {
       const travelling = this.ownRelease !== null;
       this.ownRelease = null;                                        // LATER 109: the room's whole word too
       this.gunYaw.clear();
+      this.gunPitch.clear();
       this.unseen.clear();
-      if (ev.map !== this.toldMap) { this.told.clear(); this.toldMap = ev.map; }   // ids restart per map
+      if (ev.map !== this.toldMap) { this.told.clear(); this.toldPitch.clear(); this.toldMap = ev.map; }   // ids restart per map
       this.setHeld(null);
       if (travelling && this.held === null) this.deps.setLocked(false);
       for (const t of ev.turrets ?? []) this.take(t, true);
@@ -486,15 +512,20 @@ export class TurretPage {
    * owner changes: the sound at the body (`TURRET_SOUNDS`), the clip (`turretPose`). A welcome's (`late`) is the state as
    * it stands: no sound, the hold.
    */
-  private take(t: TurretWireYaw & { steer?: { ticks: number; after?: number }; mags?: TurretMags; refused?: 'mounting' | 'reload' }, late = false): void {
+  private take(t: TurretWireYaw & { steer?: { ticks: number; after?: number }; mags?: TurretMags; refused?: 'mounting' | 'reload'; releaseHand?: 0 | 1 }, late = false): void {
     // PB-2c's review F1 (research 215 s7.1): the room's gun yaw where the wire carries it, in place of the one this page
     // last drew -- so the mount's facing below is the room's `SeatSteer.toward` (a gun turned before this page joined).
     const yaw = typeof t.gunYaw === 'number' && Number.isFinite(t.gunYaw) ? t.gunYaw : null;
     if (yaw !== null) this.gunYaw.set(t.id, yaw);
-    // The review's finding 1: a welcome's free gun is drawn at the room's yaw only when this page did not see it left there.
-    if (late && t.occupant === null && yaw !== null && this.told.get(t.id) !== yaw) this.unseen.add(t.id);
+    // TURRET_FREE_GUN_PITCH: the room's pitch where the wire carries it; its absence is a level gun.
+    const pitch = typeof t.gunPitch === 'number' && Number.isFinite(t.gunPitch) ? t.gunPitch : 0;
+    this.gunPitch.set(t.id, pitch);
+    // The review's finding 1: a welcome's free gun is drawn at the room's yaw (and pitch) only when this page did not see it
+    // left there -- a gun turned while the page was away in pitch alone is redrawn too (the turret review's N4).
+    const away = this.told.get(t.id) !== yaw || (this.toldPitch.get(t.id) ?? 0) !== pitch;
+    if (late && t.occupant === null && yaw !== null && away) this.unseen.add(t.id);
     else if (t.occupant !== null) this.unseen.delete(t.id);
-    if (yaw !== null && (!late || t.occupant === null)) this.told.set(t.id, yaw);
+    if (yaw !== null && (!late || t.occupant === null)) { this.told.set(t.id, yaw); this.toldPitch.set(t.id, pitch); }
     const was = this.wire.get(t.id)?.occupant ?? null;
     // A1 (LATER 239, 217, 218, 243; research 215 s8.6 "A1"; `./net/emplacement` MOUNT_WORD_BOUND_ADAPTATION): every page is
     // told a reserved turret's occupant at once -- the original's one word (`FUN_0061e6d0` D:L529429-529433 -> each peer
@@ -533,7 +564,7 @@ export class TurretPage {
     }
     if (untake) this.deps.untook?.();                                // the mount itself goes below, undrawn
     const predicted = this.predicted !== null && this.predicted.turret === t.id && was !== null && was === this.self() ? this.predicted : null;
-    if (predicted && t.occupant === null) this.predicted = null;
+    if (predicted && t.occupant === null) { this.predicted = null; this.deps.drawn?.(); }   // R4P-R2: the release confirmed
     else if (predicted && was !== null && t.occupant === was && (t.refused === 'mounting' || t.refused === 'reload')) {   // LATER 219: 'reload' too
       this.predicted = null;
       this.ownRelease = null;                                        // LATER 109: the room never released; the hold again
@@ -546,7 +577,9 @@ export class TurretPage {
         const m = this.mounts.get(drawnWas);
         this.mounts.delete(drawnWas);
         if (!late && !(predicted && t.occupant === null) && !untake) {   // LATER 525: a refused take draws no release
-          this.releases.set(drawnWas, { turret: t.id, at: now, hand: m?.hand ?? this.hand(drawnWas), facing: m?.facing ?? 0 });
+          // R4P-R2 review 1 F1: the reversed clip the room chose (`releaseHand`), else this page's own choice from what its
+          // take kept (review 2 F1: `releaseOf`), else the mount's.
+          this.releases.set(drawnWas, { turret: t.id, at: now, hand: t.releaseHand ?? this.releaseOf(m) ?? m?.hand ?? this.hand(drawnWas), facing: m?.facing ?? 0 });
           this.deps.sound?.(TURRET_SOUNDS.release, this.feetOf(drawnWas));
         }
       }
@@ -570,6 +603,7 @@ export class TurretPage {
         const waitFrom = late && drawnNow === this.self() ? { waitFrom: now } : {};   // LATER 151's review F1
         this.mounts.set(drawnNow, {
           turret: t.id, at, hand: this.hand(drawnNow), facing, ...(wired ? { wired: true as const } : {}), ...(keyed ? { after } : {}), ...waitFrom,
+          ...this.keptAt(drawnNow),
         });
         if (!late) this.deps.sound?.(TURRET_SOUNDS.mount, this.feetOf(drawnNow));
       }
@@ -589,7 +623,10 @@ export class TurretPage {
     this.wire.set(t.id, { id: t.id, occupant: t.occupant, ammo: t.ammo });
     const self = this.self();
     if (self !== null && drawnNow === self && this.predicted?.turret !== t.id) this.setHeld(t.id);   // LATER 104: not while predicted; A1: nor reserved
-    else if (this.held === t.id) this.setHeld(null);
+    else if (this.held === t.id) {
+      this.setHeld(null);
+      if (!untake) this.deps.drawn?.();                              // R4P-R2 (L67): the weapon drawn after a release of its own
+    }
     const mags = t.mags;
     if (mags && this.held === t.id && t.occupant === self) this.tookMags(mags);
   }
@@ -644,7 +681,7 @@ export class TurretPage {
     this.ownRelease = null;                                          // LATER 109: a mount during the reversed clip (FUN_005a6fc0)
     this.releases.delete(self);
     const facing = this.gunYaw.get(id) ?? this.placement(id)?.facing ?? 0;
-    this.mounts.set(self, { turret: id, at: this.now(), hand: this.hand(self), facing, after: m - 1, word: true });
+    this.mounts.set(self, { turret: id, at: this.now(), hand: this.hand(self), facing, after: m - 1, word: true, ...this.keptAt(self) });
     this.deps.sound?.(TURRET_SOUNDS.mount, this.feetOf(self));
     this.setHeld(id);
     this.carried = carried !== null ? { turret: id, until: carried } : null;
@@ -710,8 +747,10 @@ export class TurretPage {
       return;
     }
     const at = this.now() - ev.steer.ticks / TICK_HZ;
+    const was = this.mounts.get(self);
     this.mounts.set(self, {
-      turret: ev.turret, at, hand: this.mounts.get(self)?.hand ?? this.hand(self), facing: ev.steer.toward, ...(seatOff !== null ? { seatOff } : {}),
+      turret: ev.turret, at, hand: was?.hand ?? this.hand(self), facing: ev.steer.toward, ...(seatOff !== null ? { seatOff } : {}),
+      ...(was?.kit ? { kit: was.kit } : this.keptAt(self)),
     });
     this.turning = { at, ticks: ev.steer.ticks };
     this.resumedAt = at;                                            // T81-4: no own steer from mid-way
@@ -737,6 +776,29 @@ export class TurretPage {
   /** The turret this page's player holds (the room's word), or null. */
   mounted(): number | null {
     return this.held;
+  }
+
+  /**
+   * R4P-R2 review 2 F1: this page's own kit read at its take (`TurretPageDeps.kit`), for the mount's mark -- as the room
+   * keeps `mountKept` at its take (`room.ts` `takeMount`); another body's: nothing.
+   */
+  private keptAt(id: number): { kit?: OwnKit } {
+    const kit = id === this.self() ? this.deps.kit?.() : undefined;
+    return kit ? { kit } : {};
+  }
+
+  /** R4P-R2 review 2 F1: the release's reversed clip from what the mount's take kept (`releaseHandOf`), or none known. */
+  private releaseOf(m: MountMark | undefined): 0 | 1 | undefined {
+    return m?.kit ? releaseHandOf(m.kit.kept, m.kit.hasPrimary, m.kit.hasSecondary) : undefined;
+  }
+
+  /**
+   * R4P-R2 review 1 F3: whether this page's own release's reversed clip is carrying its body (`ownRelease`) -- the turret
+   * set's span after the hold. Not `releasing` (LATER 104's: the predicted release on its way, `predicted`; box a's TS2393:
+   * the first build named this the same and shadowed it).
+   */
+  releaseTravelling(): boolean {
+    return this.ownRelease !== null;
   }
 
   /**
@@ -932,7 +994,9 @@ export class TurretPage {
     if (self === null || id === null) return;
     const mount = this.mounts.get(self) ?? null;
     const heldYaw = this.holdYaw?.yaw ?? null;                       // LATER 109: the yaw the hold last laid (before setHeld clears it)
-    const mark: MountMark = { turret: id, at: this.now(), hand: mount?.hand ?? this.hand(self), facing: mount?.facing ?? 0 };
+    // R4P-R2 review 1 F1, review 2 F1: the release's own clip and travel by the room's choice over what this page's take
+    // kept (`releaseOf`), never the kit at the press.
+    const mark: MountMark = { turret: id, at: this.now(), hand: this.releaseOf(mount ?? undefined) ?? mount?.hand ?? this.hand(self), facing: mount?.facing ?? 0 };
     this.mounts.delete(self);
     this.releases.set(self, mark);
     this.deps.sound?.(TURRET_SOUNDS.release, this.deps.feet());
@@ -1037,11 +1101,11 @@ export class TurretPage {
   frame(): void {
     const self = this.self();
     const now = this.now();
-    // RESUME-MOUNTED (PB-2c's review F1): a free gun a welcome named left turned, drawn at the room's yaw and the stand-in
-    // pitch (TURRET_FREE_GUN_PITCH_PLACEHOLDER) until someone takes it; a gun this page saw released stays where it drew it.
+    // RESUME-MOUNTED (PB-2c's review F1): a free gun a welcome named left turned, drawn at the room's yaw and pitch
+    // (TURRET_FREE_GUN_PITCH) until someone takes it; a gun this page saw released stays where it drew it.
     for (const id of this.unseen) {
       const w = this.wire.get(id), t = this.placement(id), yaw = this.gunYaw.get(id);
-      if (w?.occupant === null && t && yaw !== undefined) this.deps.move(t.parts.gun, gunDelta(t, yaw, TURRET_FREE_GUN_PITCH_PLACEHOLDER));
+      if (w?.occupant === null && t && yaw !== undefined) this.deps.move(t.parts.gun, gunDelta(t, yaw, this.gunPitch.get(id) ?? 0));
     }
     for (const w of this.wire.values()) {
       if (w.occupant === null || this.reserved.has(w.id)) continue;   // A1: a reserved gun stays until its take
@@ -1327,7 +1391,7 @@ export class TurretPage {
 
   /**
    * The firepoint's world matrix (three's column-major order; `TURRET_MUZZLE_NODE_READING`) of the turret body `id` holds,
-   * at its aim, or null: another's round leaves there, and its muzzle effect is placed there, not on the rifle in its hand.
+   * at its aim, or null: another's round leaves there; since R4P-239 it only marks the body mounted (no muzzle flash drawn).
    */
   muzzleOf(id: number): Float32Array | null {
     for (const w of this.wire.values()) {

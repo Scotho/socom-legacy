@@ -6,6 +6,7 @@ import { sampleAdapters } from '../../src/console/sampleAdapters';
 import { REMAP_ROW, type Adapters, type OptCat } from '../../src/console/state';
 import type { LauncherState } from '../../src/modern/launcherState';
 import { mountShell } from './shell';
+import { MODS_LINK_ROW, TEXTURE_PACK_ROW, TEXTURES_SECTION } from '../../src/console/texturePackSetting';
 
 /**
  * LATER 294, slice 3 of `docs/specs/2026-10-28-settings-organisation.md` (product track, a browser adaptation): headings
@@ -46,11 +47,13 @@ const headings = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>
 
 /**
  * VS-2: Display's browser rows (`VIDEO_SCHEMA`'s launcher rows under Automatic, the page's picture, Name tags and -- HUD-ALIVE
- * C, OT.R117 -- the Range readout in the same Picture group with no heading of its own, Restore defaults, This device).
+ * C, OT.R117 -- the Range readout and -- PRS-888 -- the Join/leave lines in the same Picture group with no heading of its own, Restore defaults, This device);
+ * WM-R20-FOLDS (b): the colour filter under every preset, after the Range readout (`adapters/options.test.ts`'s BROWSER).
+ * WM-PACKS-SETTING (a browser adaptation): the Textures rows last -- Texture pack and its link to Mods.
  */
-const BROWSER_DISPLAY = ['video-preset', 'render-scale', 'video-ceiling', 'video-frame-cap', 'show-fps', 'shadows', 'detail-distance', 'video-antialias', 'graphics-backend', 'video-picture', 'name-tags', 'range-readout', 'video-restore', 'device-memory', 'device-detected', 'perf-line'];
+const BROWSER_DISPLAY = ['video-preset', 'render-scale', 'video-ceiling', 'video-frame-cap', 'show-fps', 'shadows', 'detail-distance', 'video-antialias', 'graphics-backend', 'video-picture', 'video-shape', 'clan-tags', 'name-tags', 'range-readout', 'join-leave-line', 'video-colour-filter', 'video-restore', 'device-memory', 'device-detected', 'perf-line', TEXTURE_PACK_ROW, MODS_LINK_ROW];
 /** VS-2: the spec §4.2's groups after the first, each heading its group's first row (the first group's row carries "This browser"). */
-const DISPLAY_GROUPS: readonly (readonly [string, string])[] = [['render-scale', 'Display'], ['shadows', 'Detail'], ['graphics-backend', 'Renderer'], ['video-picture', 'Picture'], ['device-memory', 'This device']];
+const DISPLAY_GROUPS: readonly (readonly [string, string])[] = [['render-scale', 'Display'], ['shadows', 'Detail'], ['graphics-backend', 'Renderer'], ['video-picture', 'Picture'], ['device-memory', 'This device'], [TEXTURE_PACK_ROW, TEXTURES_SECTION]];
 const CARD_CONTROLS = ['SelectedControllerConfig', 'VIBRATION_CONTROLLER', 'AutoAim', 'INVERT_PITCH_CONTROLLER', 'FIREMODESWAP_CONTROLLER', 'stick_preset', 'STICK_SENSITIVITY', 'STICK_INERTIA', 'STICK_DEADZONE'];
 const ROWS = {
   // HD-4: Display's "Video" row (the page's picture) leads the browser's rows, under the same heading.
@@ -58,7 +61,7 @@ const ROWS = {
   display: ['BRIGHTNESS', 'BOBBING_1ST_PERSON', 'DISPLAY_MP_TEAM_NAMES', 'ScreenOriginX', 'ScreenOriginY', ...BROWSER_DISPLAY],   // SS-1 D4: Help windows not offered
   controller: ['stance-mode', 'pad-device', 'pad-dead', REMAP_ROW, 'controller-labels', ...CARD_CONTROLS],
   controllerOverlay: ['stance-mode', 'pad-device', 'pad-dead', REMAP_ROW, 'controller-labels', OVERLAY_BUTTON_ROW, ...CARD_CONTROLS],
-  communication: ['EnableExternalWhispers', 'mic-on', 'mic-device'],
+  communication: ['EnableExternalWhispers', 'mic-on', 'mic-device', 'streamer-mode'],   // STREAMER-P1: the master row last
 };
 
 /** Each tab's owner heading: its words (the spec's) and the row it sits above; VS-2: Display's group headings after it (`more`). */
@@ -114,18 +117,25 @@ describe('LATER 294 slice 3: headings on Display, Controller and Communication',
     });
   }
 
-  it('Audio and the launcher-only tabs carry no new heading; Appearance\'s Theme panel keeps its own two', () => {
+  it('the launcher-only tabs carry no new heading; Appearance\'s Theme panel keeps its own two', () => {
     const { options } = boot({ touch: true });
-    for (const id of ['audio', 'appearance', 'app', 'account', 'mobile']) {
+    for (const id of ['appearance', 'app', 'account', 'mobile']) {
       expect(cat(options, id).rows.filter((r) => r.section !== undefined)).toEqual([]);
     }
     expect(options.panel?.('theme')?.rows.filter((r) => r.section !== undefined).map((r) => r.section)).toEqual(['Theme', 'Background picture']);
+  });
+
+  // LATER 1177(b): Audio's one browser-kept row, the ambience volume, under "This browser" after the memory card's rows,
+  // as Display's and Communication's are (was: Audio carried no heading, all its rows the card's).
+  it('Audio heads its browser row, the ambience volume, "This browser"; no other heading', () => {
+    const { options } = boot({ touch: true });
+    expect(cat(options, 'audio').rows.filter((r) => r.section !== undefined).map((r) => [r.id, r.section])).toEqual([['ambience-volume', 'This browser']]);
   });
 });
 
 describe('LATER 294 slice 3: no heading above the rows that lead a tab, when a tab has no card rows', () => {
   const EMPTY = [
-    { tab: 'communication', groups: ['communication'], rows: ['mic-on', 'mic-device'], more: [] },
+    { tab: 'communication', groups: ['communication'], rows: ['mic-on', 'mic-device', 'streamer-mode'], more: [] },
     { tab: 'display', groups: ['display', 'console'], rows: BROWSER_DISPLAY, more: DISPLAY_GROUPS },
   ];
   for (const c of EMPTY) {

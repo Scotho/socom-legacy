@@ -9,6 +9,7 @@ import {
 } from './soundData';
 import { LONG_LOOP_SECONDS_PLACEHOLDER, LOOP_FADE_SECONDS_PLACEHOLDER, LOOP_SECONDS_PLACEHOLDER } from './loopLength';
 import type { RenderedSound } from '@s2u/sound';
+import { soundPayload, type SoundLoadPhaseName, type SoundLoadPhaseSample } from './soundLoadProfile';
 import { effectsFromDisc, effectTransferables, type EffectData } from './effectData';
 import { armoryFromDisc, armoryTransferables, type ArmoryData } from './armoryData';
 import { loadingFromDisc, loadingTransferables, loadWithScreen, type LoadingScreen } from './loadingAssets';
@@ -63,7 +64,8 @@ export type ViewerRequest =
   /** A map's sound (socomlegacy/docs/research/81, `./soundData`): its banks, the script, the materials, the weapons, the callbacks. */
   | { kind: 'sound'; id: number; source: SourceRequest; path: string; archive: string; cuesFrom?: { path: string; archive: string }; /** A forge switch's sounds, by the map each is from (`soundFromDisc` `lend`). */ lend?: { from: string; names: string[] }[]; /** A forge layout's surfaces beyond the map's own (`soundFromDisc` `surfacesIn`). */ surfaces?: { floors: string[]; all: string[] };
     /** A forge layout's ambient effects' loops (`./forge/forgeObjects` `forgeAmbientEmitters`), sounded as the map's emitters. */
-    emitters?: SoundData['emitters'] }
+    emitters?: SoundData['emitters'];
+    /** Experimental numeric loading measurements only; ordinary callers omit this. */ profileSound?: boolean }
   /** EFFECTS: a map's effect programs, models, textures and mark tables (socomlegacy/docs/research/89, `./effectData`). */
   | { kind: 'effects'; id: number; source: SourceRequest; path: string; archive: string; borrow?: { path: string; names: string[] } | { path: string; names: string[] }[] }
   /** The pre-round ARMORY's layout, scripts, strings, fonts, models, bitmaps and roster for a map (web sprint 5, `./armoryData`). */
@@ -119,9 +121,14 @@ export type ViewerResponse =
  */
 export type ModDiscReply = { kind: 'mod-disc'; paths: string[] };
 
+/** Four bounded numeric samples only for an explicitly profiled sound request.
+ * Like ModDiscReply, this belongs to its opting-in listener, not the ordinary
+ * ViewerResponse protocol consumed by the match and production viewer. */
+export type SoundPhaseReply = { kind: 'soundPhase'; id: number; sample: SoundLoadPhaseSample };
+
 /** Worker globals without pulling the WebWorker lib in beside the DOM one (they collide on `self`). */
 const ctx = self as unknown as {
-  postMessage(message: ViewerResponse | ModDiscReply, transfer?: Transferable[]): void;
+  postMessage(message: ViewerResponse | ModDiscReply | SoundPhaseReply, transfer?: Transferable[]): void;
   addEventListener(type: 'message', handler: (event: MessageEvent<ViewerInbound>) => void): void;
 };
 
@@ -155,10 +162,17 @@ ctx.addEventListener('message', (event: MessageEvent<ViewerInbound>) => {
         const data = await soundFromDisc(sourceFor(request.source), request.path, request.archive, request.cuesFrom, request.lend, request.surfaces);
         if (request.emitters?.length) data.emitters.push(...request.emitters);   // a forge layout's ambient loops, rendered with the map's
         data.loopsFollow = true;
+        const profile = request.profileSound === true ? (phase: SoundLoadPhaseName, loops?: readonly { sound: RenderedSound }[]) => {
+          ctx.postMessage({ kind: 'soundPhase', id: request.id, sample: { phase, atUnixMs: Date.now(), ...soundPayload(data, loops) } });
+        } : null;
+        profile?.('worker-data-ready');
         // The loops are rendered from the bank bytes before those are handed over, and sent after the data.
         const loops = renderAmbienceLoops(data, LOOP_SECONDS_PLACEHOLDER, LOOP_FADE_SECONDS_PLACEHOLDER, LONG_LOOP_SECONDS_PLACEHOLDER);
+        profile?.('worker-loops-ready', loops);
         renderReverb(data);                           // the reverb's response here, not on the page's unlock
+        profile?.('worker-reverb-ready', loops);
         ctx.postMessage({ kind: 'sound', id: request.id, data }, [...soundTransferables(data), ...reverbTransferables(data)]);
+        profile?.('worker-data-sent', loops);
         ctx.postMessage({ kind: 'soundLoops', id: request.id, loops }, loopTransferables(loops));
       } else if (request.kind === 'effects') {
         // Never an error either: a part that will not read is left out and named in `missing`.

@@ -52,12 +52,12 @@ describe('VS-1: the video schema', () => {
       ['shadows', 'detail'], ['detailDistance', 'detail'], ['antialias', 'detail'], ['filtering', 'detail'],
       ['graphics', 'renderer'], ['power', 'renderer'], ['colourFilter', 'picture'],
     ]);
-    expect(VIDEO_SCHEMA.filter((r) => r.customOnly).map((r) => r.key)).toEqual(['filtering', 'power', 'colourFilter']);
+    expect(VIDEO_SCHEMA.filter((r) => r.customOnly).map((r) => r.key)).toEqual(['filtering', 'power']);   // WM-R20-FOLDS (b): the colour filter under every preset
     expect(VIDEO_SCHEMA.filter((r) => r.surfaces.includes('native')).map((r) => r.key)).toEqual(['renderScalePct', 'overlay', 'shadows']);
     for (const r of VIDEO_SCHEMA) expect(r.surfaces, String(r.key)).toEqual(expect.arrayContaining(['launcher', 'overlay']));
     const row = (k: string) => VIDEO_SCHEMA.find((r) => r.key === k)!;
-    expect(row('preset').values!.map((v) => v.word)).toEqual(['Automatic', 'Performance', 'Balanced', 'Quality', 'Custom']);
-    expect(row('ceiling').values!.map((v) => [v.value, v.word])).toEqual([[720, '720p'], [1080, '1080p'], [1440, '1440p'], [0, 'Native']]);
+    expect(row('preset').values!.map((v) => v.word)).toEqual(['Automatic', 'Performance', 'Balanced', 'Quality', 'Lite', 'Custom']);
+    expect(row('ceiling').values!.map((v) => [v.value, v.word])).toEqual([[720, '720p'], [1080, '1080p'], [1440, '1440p'], [0, 'Native'], [-1, 'Device']]);
     expect(row('frameCap').values!.map((v) => [v.value, v.word])).toEqual([[0, 'Off'], [30, '30'], [60, '60'], [120, '120']]);
     expect(row('frameCap').effect).toMatch(/[Vv]sync/);
     expect(row('overlay').values!.map((v) => v.word)).toEqual(['Off', 'FPS', 'FPS + frame time + ping']);
@@ -85,6 +85,7 @@ describe('VS-1: the video schema', () => {
     expect(PRESET_VALUES.balanced).toEqual({ ...common, renderScalePct: 100, ceiling: 1440, shadows: 'medium' });
     expect(PRESET_VALUES.performance).toEqual({ ...common, renderScalePct: 75, ceiling: 1080, shadows: 'off' });
     expect(PRESET_VALUES.quality).toEqual({ ...common, renderScalePct: 100, ceiling: 0, shadows: 'medium' });
+    expect(PRESET_VALUES.lite).toEqual({ ...common, renderScalePct: 75, ceiling: 720, shadows: 'off', frameCap: 30, antialias: false });   // WM-5a: the Xbox row's antialias; its graphics stays Automatic's
     for (const [name, values] of Object.entries(PRESET_VALUES)) {
       for (const r of VIDEO_SCHEMA) {
         if (r.key === 'preset') continue;
@@ -99,7 +100,7 @@ describe('VS-1: the video schema', () => {
     expect(PAGE_SETTING_KEYS).toContain(VIDEO_SETTINGS_KEY_V2);
     expect(VIDEO_PRESET_DEFAULT_ADAPTATION).toBe('auto');
     expect([RENDER_SCALE_PCT_MIN_ADAPTATION, RENDER_SCALE_PCT_MAX_ADAPTATION, RENDER_SCALE_PCT_STEP_ADAPTATION]).toEqual([50, 100, 5]);
-    expect(PRESET_FREE_ROWS_ADAPTATION).toEqual(['overlay']);
+    expect(PRESET_FREE_ROWS_ADAPTATION).toEqual(['overlay', 'colourFilter']);   // WM-R20-FOLDS item 3: the filter is no preset's
     expect(VIDEO_SETTINGS_V2_ADAPTATION).toMatch(/no original/);
     expect(Object.keys(video).filter((n) => /_(PLACEHOLDER|READING)$/.test(n))).toEqual([]);   // product track: no value of the original here
   });
@@ -128,7 +129,9 @@ describe('VS-2: the launcher, the overlay and the native screen draw from VIDEO_
         const row = displayRows(o).find((x) => x.id === VIDEO_ROW_IDS[r.key])!;
         expect(row.about, String(r.key)).toBe(r.effect);
         expect(row.note.includes(GRAPHICS_BACKEND_APPLY_NOTE), String(r.key)).toBe(r.apply === 'nextMatch');
-        if (r.key !== 'preset') expect(row.values, String(r.key)).toEqual(r.values!.map((v) => v.word));
+        // VIDEO-SHAPE: the ceiling's words carry the size drawn for the shape and this window, e.g. "1440p (1920 x 1440)"
+        if (r.key === 'ceiling') (row.values ?? []).forEach((w, i) => expect(w, String(r.key)).toMatch(new RegExp(`^${r.values![i]!.word} \\(\\d+ x \\d+\\)$`)));
+        else if (r.key !== 'preset') expect(row.values, String(r.key)).toEqual(r.values!.map((v) => v.word));
       }
     } finally { o.dispose(); }
   });
@@ -240,5 +243,49 @@ describe('VS-2: the launcher, the overlay and the native screen draw from VIDEO_
       expect(step(VIDEO_ROWS.shadows, (v) => v.shadows)).toEqual([{ box: VIDEO_ROW_TOGGLE_BOXES.shadows[1], value: 'off' }, { box: VIDEO_ROW_TOGGLE_BOXES.shadows[0], value: 'medium' }]);
       expect(step(VIDEO_ROWS.showFps, (v) => v.overlay)).toEqual([{ box: VIDEO_ROW_TOGGLE_BOXES.showFps[0], value: 'fps' }, { box: VIDEO_ROW_TOGGLE_BOXES.showFps[1], value: 'off' }]);
     } finally { s.close(); }
+  });
+});
+
+/**
+ * WM-5a (the weekend mega sprint; product track, a browser adaptation -- the second developer's physical report from his
+ * console, not measured by us): the Lite preset (the controller's ruling A, seat 8f: renamed from "Low power", a value
+ * of the Power preference row on the same page), one choice beside Performance / Balanced / Quality -- at most 30
+ * frames a second, shadows off, antialias off, 720p at 75 %; choosing it saves the PS2 picture where none is saved
+ * (ruling B, `test/picture.test.ts`).
+ */
+describe('WM-5a: the Lite preset', () => {
+  beforeEach(() => { localStorage.clear(); });
+  afterEach(() => { localStorage.clear(); });
+
+  it('chosen, it writes its rows and is kept; a deviation flips it to Custom; read back from the store', () => {
+    const k = videoSettingsKeeperV2();
+    k.set({ preset: 'lite' });
+    const { overlay: _o, ...rows } = PRESET_VALUES.lite;
+    expect(k.get()).toMatchObject({ preset: 'lite', ...rows });
+    expect(JSON.parse(localStorage.getItem(VIDEO_SETTINGS_KEY_V2)!).preset).toBe('lite');
+    expect(readVideoSettingsV2()).toMatchObject({ preset: 'lite', frameCap: 30, shadows: 'off', ceiling: 720, renderScalePct: 75, antialias: false, graphics: 'auto' });
+    k.set({ frameCap: 60 });
+    expect(k.get()).toMatchObject({ preset: 'custom', frameCap: 60 });
+  });
+
+  it("a saved Xbox pick is kept when Lite is chosen (the preset names no renderer, so it never rewrites the renderer's key)", () => {
+    localStorage.setItem(graphicsBackend.GRAPHICS_BACKEND_KEY, 'xbox');
+    const k = videoSettingsKeeperV2();
+    k.set({ preset: 'lite' });
+    expect(localStorage.getItem(graphicsBackend.GRAPHICS_BACKEND_KEY)).toBe('xbox');
+    expect(k.get().preset).toBe('lite');
+  });
+
+  it("the native VIDEO OPTIONS' RENDER SCALE under Lite lights the tier its 720p stands for (PERFORMANCE)", () => {
+    videoSettingsKeeperV2().set({ preset: 'lite' });
+    expect(videoRowsKeeperV2().get().renderScale).toBe('performance');
+  });
+
+  it("its words: one line in the preset row's effect, no claim about any device", () => {
+    const effect = VIDEO_SCHEMA.find((r) => r.key === 'preset')!.effect;
+    // Ruling B (the controller, ~05:50Z, until the owner answers): Lite keeps laying PS2 pixels where no Sharpness is saved,
+    // and the row says so, in the page's new names, at the moment Lite is chosen.
+    expect(effect).toMatch(/Lite: For consoles and low-power devices: 720p at 75 %, at most 30 frames a second, no shadows, antialias off\. Lite also draws PS2 pixels unless you choose a Sharpness\./);
+    expect(effect).not.toMatch(/Low power/);
   });
 });

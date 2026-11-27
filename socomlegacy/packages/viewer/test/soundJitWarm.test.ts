@@ -91,11 +91,11 @@ describe.skipIf(!haveDisc)('the synth warmed at the load (SOUND_JIT_WARM_ADAPTAT
     console.log(`[jit-warm] before (cold synth): ${before.join(', ')}\n[jit-warm] warm renders (ms each, in pump order): ${warmCost.join(' ')}\n[jit-warm] after: ${after.join(', ')}`);
   });
 
-  it('the warm leaves the shared generator and grain memory untouched: the first plays match an unwarmed audio, byte for byte', async () => {
+  it.each([0, 4 * 1024 * 1024])('the warm leaves RNG and grain memory untouched with %s scratch bytes: first plays match byte for byte', async (voiceScratchBytes) => {
     const d = await data();
     const warmRng = seeded(11), coldRng = seeded(11);
     const warmOut = new Recorder(), coldOut = new Recorder();
-    const warm = new GameAudio(warmOut, warmRng.next), cold = new GameAudio(coldOut, coldRng.next);
+    const warm = new GameAudio(warmOut, warmRng.next, { voiceScratchBytes }), cold = new GameAudio(coldOut, coldRng.next);
     warm.setData(d); cold.setData(d);
     drain(warm);
     expect(warmRng.draws()).toBe(0);                            // the warm drew nothing from the shared generator
@@ -104,6 +104,11 @@ describe.skipIf(!haveDisc)('the synth warmed at the load (SOUND_JIT_WARM_ADAPTAT
     expect(warmOut.played).toHaveLength(PROBES.length * 2);
     expect(warmOut.played.map(pcm)).toEqual(coldOut.played.map(pcm));
     expect(warmRng.draws()).toBe(coldRng.draws());
+    const scratch = (warm as unknown as { voiceScratch?: { retainedBytes: number } }).voiceScratch;
+    if (voiceScratchBytes) expect(scratch?.retainedBytes).toBe(voiceScratchBytes);
+    else expect(scratch).toBeUndefined();
+    warm.setData(null);
+    expect(scratch?.retainedBytes ?? 0).toBe(0);
   });
 
   it('pump renders each warm-set sound once, at most one a pump; a play after renders once more (nothing cached)', async () => {

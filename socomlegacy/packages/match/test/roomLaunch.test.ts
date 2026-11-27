@@ -15,7 +15,7 @@ function flatMap(): SimMap {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const floor: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
   };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const ground = packGround(params, [floor], owners);
@@ -198,5 +198,27 @@ describe('SWITCH TEAMS: a waiting player to the other side when it has room (FUN
     expect(g.room.lobby.teamCounts()).toEqual({ seal: 8, terrorist: 8 });
     expect(g.room.switchTeam(1)).toBeNull();
     expect(g.room.switchTeam(2)).toBeNull();
+  });
+  it('WM-51 (WM.R21, a departure on the owner\'s word): a SEAL and a Terrorist trade at 8 v 8 -- each told `left` then `joined` on its new side; not once launched', () => {
+    const g = gameRoom();
+    g.join(1, 'p1', true);
+    for (let id = 2; id <= 16; id++) g.join(id, `p${id}`);
+    const s = 1, t = 2;                                          // the host on the SEALs; the next joiner a Terrorist
+    expect(g.room.player(s)!.team).toBe('seal');
+    expect(g.room.player(t)!.team).toBe('terrorist');
+    const watcher = g.clients.get(3)!;
+    const from = watcher.events.length;
+    expect(g.room.tradeTeams(s, t)).toBe(true);
+    expect(g.room.player(s)!.team).toBe('terrorist');
+    expect(g.room.player(t)!.team).toBe('seal');
+    expect(g.room.lobby.teamCounts()).toEqual({ seal: 8, terrorist: 8 });
+    const told = watcher.events.slice(from);
+    for (const [id, team] of [[s, 'terrorist'], [t, 'seal']] as const) {
+      const mine = told.filter((e) => (e.type === 'left' || e.type === 'joined') && e.id === id);
+      expect(mine.map((e) => e.type)).toEqual(['left', 'joined']);
+      expect(mine[1]).toMatchObject({ type: 'joined', id, team });
+    }
+    expect(g.room.launch(0)).toBe(true);
+    expect(g.room.tradeTeams(s, t)).toBe(false);
   });
 });

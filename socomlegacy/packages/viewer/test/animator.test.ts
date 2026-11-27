@@ -16,7 +16,7 @@ import {
 import { BLEND_TIME_DEFAULT, MOTION_CLIPS, SEAL_ANIMS, oneShotSeconds } from '../src/locomotion';
 import { clipsFromPack, motionTableFromArchive, type MotionEntry } from '../src/motionTable';
 import { moverSnapshot, SWAP_OVERLAY_SECONDS, TICK, Walker, type GroundMotion, type MoverAction, type WalkInput } from '../src/walk';
-import { buildGrid, handAnim, PLACE_CLAYMORE_ANIM, THROW_ANIMS, type CollisionOwner, type GridParams, type WorldPoly } from '@s2u/scene';
+import { buildGrid, PISTOL_HAND_ANIMS, PLACE_CLAYMORE_ANIM, THROW_ANIMS, type CollisionOwner, type GridParams, type WorldPoly } from '@s2u/scene';
 import { bodyOf, snapshotOf } from '../src/net/body';
 import { ThrowPose, throwPoseEnds } from '../src/throwPose';
 import { WeaponPose } from '../src/weaponPose';
@@ -871,7 +871,7 @@ describe("the running jump through the animator: launch, then the run, never a f
   it('each frame of a flat running jump with the stick held plays the run, the launch, the run', () => {
     const poly: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]),
+      points: Float32Array.from([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400]),
     };
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
     const owners: CollisionOwner[] = [{ modelName: poly.modelName, path: poly.path, first: 0, count: 1 }];
@@ -1083,7 +1083,7 @@ describe('PAR-85: the throw on top of the stack, its legs and its blends (resear
     anim.addPoseLayer(throwPose.layer);
     const poly: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]),
+      points: Float32Array.from([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400]),
     };
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
     const w = new Walker(buildGrid(params, [], [], [poly], [{ modelName: poly.modelName, path: poly.path, first: 0, count: 1 }]));
@@ -1098,10 +1098,14 @@ describe('PAR-85: the throw on top of the stack, its legs and its blends (resear
       throwPose.step(TICK);
       anim.step(TICK, { ...moverSnapshot(w, null, 0, extra.turnRate ?? 0), ...extra });
     };
-    /** The release on the page: the mover's hold, then the throw's clip it carries (`./matchThrow` `throwStart`). */
+    /**
+     * The release on the page: the mover's hold, then the throw's clip it carries (`./matchThrow` `throwStart`). `pistol`:
+     * the pistol pair's record (`PISTOL_HAND_ANIMS`), started as the pose machinery's case of a pistol one-shot -- since
+     * LATER 1442 the sidearm's standing throw plays the rifle's clip (`handAnim`).
+     */
     const push = (pistol = false): void => {
       expect(w.hold(THROW)).toBe(true);
-      expect(throwPose.start(handAnim(THROW_ANIMS.standThrow, pistol), true)).toBe(true);
+      expect(throwPose.start(pistol ? PISTOL_HAND_ANIMS.seal_throwgrenade! : THROW_ANIMS.standThrow, true)).toBe(true);
     };
     const key = (name: string, part: string, time: number, loop: boolean): number[] =>
       sampleClip(byName.get(name)!, time, { loop }).parts.find((p) => p.name === part)!.rotation;
@@ -1211,7 +1215,7 @@ describe('PAR-85: the throw on top of the stack, its legs and its blends (resear
     for (let i = 0; i < 40; i++) { c.throwPose.step(TICK); c.anim.step(TICK, crouchWalk); }
     expect(c.anim.stats().play).toBe('loco:crouch:1');
     const legs = Array.from(c.sk.local[1]!), root = Array.from(c.sk.local[0]!);
-    expect(c.throwPose.start(handAnim(THROW_ANIMS.standThrow, true), true)).toBe(true);
+    expect(c.throwPose.start(PISTOL_HAND_ANIMS.seal_throwgrenade!, true)).toBe(true);   // the record (LATER 1442)
     const holding: MoverSnapshot = { ...REST, stance: 'crouch', crouched: true, hold: THROW };
     for (let i = 0; i < 60; i++) {
       c.throwPose.step(TICK);
@@ -1273,7 +1277,7 @@ describe('PAR-85: the throw on top of the stack, its legs and its blends (resear
     anim.addPoseLayer(throwPose.layer);
     const poly: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]),
+      points: Float32Array.from([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400]),
     };
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
     const w = new Walker(buildGrid(params, [], [], [poly], [{ modelName: poly.modelName, path: poly.path, first: 0, count: 1 }]));
@@ -1342,10 +1346,13 @@ describe('PAR-85: the throw on top of the stack, its legs and its blends (resear
   // -- the top drawn alone, the push's snapshot over its BlendTime (none: 0.4), the pop at the hold's end over the
   // uncovered play's, a part the pistol's version lacks holding the pose drawn. *Was*: a layer fading in linearly over
   // 0.4 over the live play beneath, out over 0.4 from its last key on its own clock.
-  /** The placing on the page: the mover's hold, then the clip it carries (`./matchThrow` `throwStart`). */
+  /**
+   * The placing on the page: the mover's hold, then the clip it carries (`./matchThrow` `throwStart`). `pistol`: the pistol
+   * pair's record (`PISTOL_HAND_ANIMS`), the machinery's case -- since LATER 1442 the sidearm places with the rifle's clip.
+   */
   const place = (r: ReturnType<typeof rig>, pistol = false): void => {
     expect(r.w.hold(PLACE)).toBe(true);
-    expect(r.throwPose.start(handAnim(PLACE_CLAYMORE_ANIM, pistol), true)).toBe(true);
+    expect(r.throwPose.start(pistol ? PISTOL_HAND_ANIMS.seal_place_claymore! : PLACE_CLAYMORE_ANIM, true)).toBe(true);
   };
 
   it("NU-8b B3: a claymore's placing from the run eases the drawn run into the clip over its BlendTime (0.4), the run kept beneath, the layer at 1", () => {

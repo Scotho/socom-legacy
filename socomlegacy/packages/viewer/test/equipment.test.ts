@@ -5,7 +5,7 @@ import {
 } from '@s2u/scene';
 import { fixture } from '../../archive/test/fixtures';
 import {
-  ACTION_RANGE_DEFAULT, C4_AIM_SETTLE_S, C4_PLANT_CLIP, C4_PLANT_SECONDS, C4_PLANT_TRIGGER, C4_REACH_READING, C4_REFUSED_MATERIAL, C4Settle,
+  ACTION_RANGE_DEFAULT, C4_AIM_SETTLE_S, C4_PLANT_CLIP, C4_PLANT_SECONDS, C4_PLANT_TRIGGER, C4_HIP_REACH_SQ, C4_REFUSED_MATERIAL, C4Settle,
   EQUIPMENT_SLOTS, LAUNCHER_RAISE_CLIPS, backblastReaches, launcherLowerSeconds, launcherRaiseFrom, launcherRaiseSeconds, c4PlantAllowed, c4PlantSeconds, c4TargetOf, equipmentKind, pouchOf, rocketLaunch, rocketRoundOf,
   LAUNCHER_BODY_READING, slotSelectable, throwableOf, wadingDepth,
 } from '../src/equipment';
@@ -98,7 +98,7 @@ describe('C4 (research 94 §C5.1, SUP-03, PF-13): a timed charge planted on the 
   const aim = (path: string, x: number): { path: string; point: V3 } => ({ path, point: [x, 20, 0] });
 
   it("C4 targets are the health-bound destructibles the charge's 18 qualifies for (FUN_002739b0), never actions.rdr's type-less records: C4_TARGET_READING retired", () => {
-    const feet: V3 = [90, 0, 0];
+    const feet: V3 = [90, 11.484, 0];                                                     // LATER 1139: the hip (c4TargetOf measures from it)
     expect(c4TargetOf(health, aim(blocks[0]!.path, 100), feet, 18)).toBe(0);          // the barrier: 17 <= 18
     expect(c4TargetOf(health, aim('worldmodel/access1=access1/access_action1', 100), feet, 18)).toBeNull();   // the action: no block
     expect(c4TargetOf(health, aim(blocks[1]!.path, 100), feet, 18)).toBeNull();        // the base: 21 > 18
@@ -107,13 +107,18 @@ describe('C4 (research 94 §C5.1, SUP-03, PF-13): a timed charge planted on the 
     expect(c4TargetOf(health, null, feet, 18)).toBeNull();                              // the reticle on nothing
   });
 
+  // LATER 1139: one hip gate, |point - hip|^2 < 396 in 3-D (FUN_005be9a0 D:L475400-475405), proven on r0004 by the capture
+  // agent-mail/evidence/later1139-c4reach (2026-11-18: +0x208 <= 395.68 prompts, >= 396.23 does not). The point is (100, 20, 0).
   it.each([
-    ['at the barrier', [90, 0, 0], 0],
-    ['the hit 32 along the ground (C4_REACH_READING, strict): refused', [68, 0, 0], null],
-    ['the hit 31 along the ground, 40 below: taken (no height test)', [69, -40, 0], 0],
-  ] as const)('%s', (_what, feet, want) => {
-    expect(C4_REACH_READING).toBe(ACTION_RANGE_DEFAULT);
-    expect(c4TargetOf(health, aim(blocks[0]!.path, 100), feet, 18)).toBe(want);
+    ['the hip 10 short, level: taken', [90, 20, 0], 0],
+    ['the hip 19.8 short, level: taken', [80.2, 20, 0], 0],
+    ['the hip 20 short, level: refused', [80, 20, 0], null],
+    ['the hip 15 along and 13.5 below (3-D 20.18): refused -- height counts', [85, 6.5, 0], null],
+    ['the hip 31 along, 40 below: refused (was taken by the 32 u ground reach, C4_REACH_READING retired)', [69, -20, 0], null],
+  ] as const)('%s', (_what, hip, want) => {
+    expect(C4_HIP_REACH_SQ).toBe(396);
+    expect(ACTION_RANGE_DEFAULT).toBe(32);                                                 // the action's reach, no longer C4's
+    expect(c4TargetOf(health, aim(blocks[0]!.path, 100), hip, 18)).toBe(want);
   });
 
   it('the plant needs the target settled 0.2 s under the reticle (kit +0x8a4, FUN_005be6f0 D:L475130-475197) and its surface not INVISIBLE_DI (005c1970): c4PlantAllowed', () => {
@@ -171,7 +176,7 @@ describe('the claymore and the PMN in water (PF-13; research 181 s6.2)', () => {
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
     const q = (y: number, material: number, path: string): WorldPoly => ({
       modelName: 'worldmodel', path, region: 0, ditype: 3, material, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-100, y, -100, 100, y, -100, 100, y, 100, -100, y, 100]),
+      points: Float32Array.from([-100, y, 100, 100, y, 100, 100, y, -100, -100, y, -100]),
     });
     const polys = [q(0, 7, 'worldmodel/floor'), q(5, MATERIAL_WATER, 'worldmodel/pool')];
     const grid = buildGrid(params, [], [], polys, polys.map((p, i) => ({ modelName: 'worldmodel', path: p.path, first: i, count: 1 })));

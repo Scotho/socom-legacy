@@ -111,6 +111,35 @@ alpha. After a glyph, a `#B` is skipped and the pen moves by the width of the `B
 decodes the character at the pointer the recursion left, D:L260624-260639). The pitch is the class's vtable+0x88:
 **0 for TEXT** (0x1fe1a0), `SPACING` (+0xbc) for the TELETYPE and the wrapped lines (0x36afb0).
 
+The `#B` paragraph above is r0001's (the decompilation's reading, where `#B` always toggles and brightens). r0004 (read
+from the recompiler's r0004 lift and the r0004 image's bytes, for R4P-237) differs:
+
+**r0004: `#B` is gated** (R4P-237; atlas-parity's lead L355, `socomlegacy/docs/atlas/LEADS.md:122` on `agent/spc-atlas`
+at `d51d93173f`, not yet in this branch). Bright text is enabled by a global flag at 0x004a1d70, which the wrapped
+text's draw (the r0004 function `FUN_003979e0`, at 0x003979e0; its r0001 twin is `FUN_003794b0` D:L273082-273197, which has no such
+test) sets at 0x397aa8 only when the name of the bound UIVAR (widget +0x9c, then +0x14)
+equals the literal at 0x00425238 (bytes `55 73 61 67 65 50 6f 6c 69 63 79 00`, "UsagePolicy"), and clears at 0x397eac.
+With the flag off:
+
+- `#B` is not recognised: not at a glyph's start (SeekGlyph 0x37fcb0-0x37fcd0; D4:L282139-282150 as L355 cites it) and
+  not after a glyph (Advance 0x380104-0x380170; D4:L282259-282287); both characters are drawn as glyphs with their own
+  widths and steps;
+- the start bright state is forced 0 (constructor 0x380230-0x380250; D4:L282316-282344), so a line carried in bold draws
+  plain;
+- there is no 1.5x (0x3802e4-0x3802f4, 0x37fe9c-0x37feac; the 1.5 is at 0x0040b508).
+
+The flag's set and clear sit at D4:L295746-295751 and D4:L295831 as L355 cites them. The D4 export was not on this host,
+so every D4 range above is L355's, matched to the addresses by function and not opened here; a host with D4 should
+confirm them. The measure (0x00380450) never knew `#B`: it counts two glyphs in both states.
+
+*Level:* **reading** (the r0004 lift and the image's bytes; a non-author re-read agreed), pending a capture. *The
+capture that would settle it:* a PCSX2 frame of r0004 with a chat line or a player name holding `#B` (expected: two
+glyphs, no brightening) and the usage-policy page with `#B` (markers hidden, 1.5x), or a memory read of 0x004a1d70
+across a frame.
+
+The port: `ui/src/text/layout.ts` `TextStyle.brightEnabled` (off by default), set by `compositor/dialogScreen.ts`
+`BRIGHT_TEXT_UIVAR` for a WRAPPEDTEXT bound to `UsagePolicy`.
+
 A quad (D:L260367-260446), with dy = baseline + DispPos.y and h the element's rows:
 
 | corner | term (times S, plus the pen) |
@@ -283,5 +312,6 @@ source.
 | `LISTBOX_SELECTED_ALPHA_READING` (`packages/ui/src/text/states.ts`) | the selected row's alpha (+0xe0) | 80, the reset's value (`FUN_00376420` D:L271267-271290); other writers not traced -- PLAT-15 | reading |
 | `ARROW_VISIBILITY_READING` (named in `packages/ui/src/text/wrapped.ts`) | which of the arrow image's vtable+0x18 / +0x1c hides | +0x18 hide, +0x1c show: the only reading under which the up arrow is hidden at scroll 0 | reading |
 | `SHORT_GLYPH_CODE_READING` (`packages/ui/src/text/face.ts`) | the code of a short-form glyph record (no `Code`) | the engine takes an int node's value, a string's first byte, else 0 (D:L256806-256820); `parseRdr` drops the types, so an integer-spelled token reads as an int, another number as a float (0), the rest as strings. Unreachable on the disc (all 351 records carry `Code`) | reading |
+| `HASH_C_GLYPH_ALIAS_READING` (`packages/ui/src/text/face.ts`; the HUD face built from it in `packages/viewer/src/hudFont.ts` `BY_CODE`, so a `#C` received in a round draws `#C`, not the stand-in `#W`) | glyph 0xb2 of a face, which r0004's `Censor` writes over a typed `#C` (research 263 §3a) | r0004's loader 0x003796b0, on the `Code` path only (0x379760), parses a `C` (0x43) record a second time into 0xb2 (0x37979c-0x3797cc) with its texture (0x3797d8) and baseline (0x3797e0-0x3797f8); the tail that writes kerning and `color` (0x3799c4-0x379a80) is not reached, so kerning 0, no colour, advance -1 (0x379cd0-0x379d08); a second `C` record appends to it. 0xb8 from `B` (0x379804-0x37980c) is not built: `Censor` never writes it. r0001's `FUN_0035bef0` has neither (L113). Both disc faces' one `C` record makes it: 167 and 185 glyphs | reading, pending review (R4P-324, 2026-11-23); settled by a frame of a received `#C` line on r0004 |
 | `LOC_TEXT_BYTES_READING` (`packages/ui/src/text/codes.ts`) | a table string's bytes, from the decoded text | 0x80-0x7FF re-encoded as two bytes; a lone 0x80-0xBF byte would not round-trip. Exact on the five front-end tables (the dev-disc test round-trips every string) | reading |
 | `CAPTION_FACE_DEFAULT_READING` (named in `packages/ui/test/text/textDisc.test.ts`) | the face of a widget with no `FONT` | the dialog's `FONT` face (menu +0x210, D:L263505); the hand-over to the nodes not traced | note only |

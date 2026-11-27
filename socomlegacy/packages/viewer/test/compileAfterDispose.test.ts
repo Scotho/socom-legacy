@@ -26,7 +26,7 @@ vi.mock('three/webgpu', async (importOriginal) => {
       has: () => false, get: () => ({}),
       createRenderPipeline() { seen.pipelines++; },
     };
-    async init() {} setClearColor() {} setPixelRatio() {} setSize() {}
+    async init() {} setClearColor() {} setPixelRatio() {} setSize() {} setDrawingBufferSize() {}
     getRenderTarget() { return this.target; } setRenderTarget(t: unknown) { this.target = t; }
     getDrawingBufferSize(v: { set(x: number, y: number): unknown }) { return v.set(1280, 720); }
     initRenderTarget() {} render() {}

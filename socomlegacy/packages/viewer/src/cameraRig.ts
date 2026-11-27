@@ -1,5 +1,5 @@
 import {
-  GAME_FRAME_DT, isCameraSurface, segmentHit, segmentHits, surfaceWord, SURFACE_SIDE, SURFACE_SKIP, type Grid, type WorldPoly,
+  ALL_LAYERS, GAME_FRAME_DT, isCameraSurface, segmentHit, segmentHits, surfaceWord, SURFACE_SIDE, SURFACE_SKIP, type Grid, type WorldPoly,
 } from '@s2u/scene';
 import { isCameraClassSurface, type Stance } from './mover';
 
@@ -128,22 +128,37 @@ export const SCOPE_EYE_READING = {
 export interface ProneEyeTerms { look: number; groundNormalY: number }
 
 /**
- * The prone eye's look term q as page and room take it: a level look (q's meaning is owed: research 180 §1.3, "its
- * exact meaning is owed"; at a level or downward look max(6q, 0) is 0). Was `PRONE_EYE_TERMS_PLACEHOLDER`'s `look`;
- * its `groundNormalY` is now the body's own (`proneEyeTerms`, PRONE-TILT-2 (2)). Flat and level, the eye is 3.6 over the
- * root and 4.9 ahead.
+ * PRONE_EYE_LOOK (reading, pending review; patches-contrib's read, seat-kill's non-author re-read CONFIRMED WITH
+ * CORRECTIONS): the prone eye's look term q is the render camera's row 2 y -- `cam+0xb4` -> `+0x24`, the camera-to-world
+ * matrix's backward axis (r0001 D:L139390-139391 maps (0,0,-far) through it; r0004's `FUN_0029c3e0` reads the same
+ * field, 0x29c3e0 by the bytes -- no r0004 decompilation on this host), so q = -(world forward).y = sin(look DOWN) on a
+ * level actor: POSITIVE looking down. `FUN_0029ae50` floors 6q at 0 by a branch (r0001 D:L142591-142602, r0004
+ * 0x29c4d0-0x29c594): looking down the eye rises `6q x 2 / max(n_y, 0.5)`, level or up its share is 0. *Was*
+ * `PRONE_EYE_LOOK_PLACEHOLDER = 0` (before it `PRONE_EYE_TERMS_PLACEHOLDER`'s `look`), whose note had the sign backwards
+ * ("at a level or downward look max(6q, 0) is 0").
+ * 'same-command': page and room take q from the SAME command's pitch -- the gated look (`looked.pitch`, as
+ * `./net/moverSim` lays it) -- by the controller's ruling, where the original's view reads the node before this update's
+ * write, so q is one camera update old (r0004 0x29b080 before 0x29b114; r0001 D:L142025): a 1/30 s departure, LATER 1438.
+ * Named departure (the fresh review's F2): the original's look term exists only in the HEAD view (`FUN_0029ae50` is
+ * called from the head view's case and `FUN_0029a3f0`); the port's `headPoint` rises in every view, so in third person
+ * a prone body looking down has its aim anchor up to 4.10 higher than the original's.
+ * The start tolerance (`room.ts` `startRefused`, `./net/startLine`) keeps a LEVEL head: the original's starts leave from
+ * the hand or firepoint, which do not rise with the look (seat-kill's paths read). Not read, not built: whether a prone
+ * actor's matrix carries the ground tilt, which would put the slope into q (F7), and the camera blend `cam+0x45` / a
+ * non-null parent `cam+0xb8` that also shape row 2, e.g. the first frame after a view switch (F8).
  */
-export const PRONE_EYE_LOOK_PLACEHOLDER = 0;
+export const PRONE_EYE_LOOK_READING = 'same-command' as const;
 
 /**
  * PRONE-TILT-2 (2) (research 217 s7.7; reading, pending review): the prone eye's terms for a body whose saved floor normal
  * has y `groundNormalY` -- `FUN_0029ae50` reads the body's `+0x1348` (D:L142596), the y of the normal `FUN_0059b440`
  * saves at `+0x1344..+0x134c` each grounded tick (`./mover` `Walker.floorNormal`; not the tilt's `+0x410`). The room's
  * frame carries it (`./net/shotCone` `AimFrame.groundNormalY`, the room's walker's after the command) and the page takes
- * its own walker's, so the two place the same eye. Absent (a body with no walker): flat, 1.
+ * its own walker's, so the two place the same eye. Absent (a body with no walker): flat, 1. `pitch`: the look in degrees,
+ * up positive (`PRONE_EYE_LOOK_READING`'s q); absent, level.
  */
-export function proneEyeTerms(groundNormalY = 1): Readonly<ProneEyeTerms> {
-  return { look: PRONE_EYE_LOOK_PLACEHOLDER, groundNormalY };
+export function proneEyeTerms(groundNormalY = 1, pitch = 0): Readonly<ProneEyeTerms> {
+  return { look: 0 - Math.sin((pitch * Math.PI) / 180), groundNormalY };   // 0 - x: a level look's +0, not -0   // q = sin(look down); the port's pitch is up-positive
 }
 const FLAT_PRONE_EYE: Readonly<ProneEyeTerms> = proneEyeTerms();
 
@@ -238,15 +253,27 @@ export const newPassState = (): PassState => ({ dist: 10000, hold: 0 });
  * surfaces by default mode 1's: bit 19 skipped, bit 18 tested, a VOLUMETRIC material skipped (`./mover`
  * `isCameraClassSurface`, `FUN_002d2890` D:L174845-174864; research 230 §3.4) -- the page's pass and the room's
  * reproduction of it (`./net/shotCone` `reproducedEye`) alike; a peek's is `isPeekCameraSurface`.
+ *
+ * One-sided (LATER 1057, issue #812; reading, pending review; research 382 s8, research 281 s4.3): the main probe
+ * (`FUN_0031e0a0` D:L143385 -> `FUN_002d4780` D:L220094 -> `FUN_002d2890` D:L175777-175788) and the four side probes
+ * (`FUN_0031de90` D:L143549 -> `FUN_002d3cf0` D:L219997 -> `FUN_002d3030` D:L175698-175710) both set the side mode
+ * `DAT_003df270` = 0x20 for a collider whose `+0x80` bit 1 is clear (D:L174831-174837; type 2's D:L175277-175282,
+ * from D:L175246), and the hull's colliders clear it (`FUN_00316e30` D:L215827-215828): a face counts only entered
+ * from its front, `segmentHits`' `frontOnly` (LATER 250's form). The port takes every polygon of its grid as the hull's;
+ * a collider with bit 1 set is two-sided in the original (`FUN_0032ad20` D:L227610-227611, what it makes not read) and
+ * none is told apart here. Was two-sided: a standing SEAL under MP72's gray tent valance, met from inside, had the boom
+ * pulled 26.80 -> 0.75 in one tick and held 1.5 s. The drawn camera's own casts (`./playerCamera` `draw`, H309) stay
+ * two-sided: an adaptation, not this pass.
  */
 export function cameraPass(grid: Grid | null, target: Vec3, eye: Vec3, state: PassState, dt: number = PASS_TICK,
   accept: (p: WorldPoly) => boolean = isCameraClassSurface): Vec3 {
-  const hit = (a: Vec3, b: Vec3): Vec3 | null => (grid ? segmentHit(grid, a, b, accept)?.point ?? null : null);
+  const cast = (a: Vec3, b: Vec3) => (grid ? segmentHits(grid, a, b, accept, ALL_LAYERS, true) : []);   // LATER 1057: front entries only
+  const hit = (a: Vec3, b: Vec3): Vec3 | null => cast(a, b)[0]?.point ?? null;
   const toTarget = sub(target, eye);
   const dir = unit(toTarget);
   const reach = length(toTarget) + CAM_MARGIN;
   // FUN_0029cd20: the main probe's pick, and DAT_00416038 -- any hit at all, kept or passed over.
-  const hits = grid ? segmentHits(grid, target, sub(target, scale(dir, reach)), accept) : [];
+  const hits = cast(target, sub(target, scale(dir, reach)));
   const any = hits.length > 0;
   const main = hits.find((h) => h.poly.cameratype !== 1 || length(sub(h.point, target)) > TYPE_ONE_CLEAR)?.point ?? null;
   if (state.hold > 0) state.hold -= dt;

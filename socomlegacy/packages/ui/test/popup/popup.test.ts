@@ -14,7 +14,7 @@ import { textFace } from '../text/fixtures';
 // (the logoff, `dlgWorldOfSOCOM` `exit_lobby`, research 118 §4); expected values worked from the cited lines.
 
 /** The animation's name table the command indexes (`FUN_0026ed60`): index 0 `NA`, as every zAnim table. */
-const NAMES = ['NA', 'popupOp.tif', 'active_back.tif', 'pop_butt.tif', 'AreYouSure', 'INPUT_STRING', 'ABC CBA', 'Keep', 'C'];
+const NAMES = ['NA', 'popupOp.tif', 'active_back.tif', 'pop_butt.tif', 'AreYouSure', 'INPUT_STRING', 'ABC CBA', 'Keep', 'C', 'You'];   // LATER 359b: dlgNetError's errno-32 popup's name
 const N = (s: string): number => NAMES.indexOf(s);
 const LOC: Record<number, string> = { 793: 'ABC CAB BCA ACB BAC CBA ABC CAB BCA ACB BAC CBA ABC CAB BCA ACB BAC CBA', 246: 'A', 253: 'B', 422: 'CC' };
 
@@ -71,11 +71,12 @@ class Host implements PopupHost {
   take(): PopupSound[] { return this.sounds.splice(0); }
 }
 
-const make = (input: string | null = null) => {
+const make = (input: string | null = null, nameText?: (name: string) => string | null) => {
   const face = textFace(), valves = new ValveStore();
   const popup = new Popup({
     face: (n) => (n === 'font_t' ? face : null), font: 'font_t', captions: null, uiVars: null, valves,
     locText: (id) => LOC[id] ?? null, name: (_c, i) => NAMES[i] ?? null, hasTexture: () => true, inputString: () => input,
+    ...(nameText ? { nameText } : {}),
   });
   return { popup, face, valves, host: new Host() };
 };
@@ -286,6 +287,22 @@ describe('the text (FUN_00379f70 via the popup\'s text object, research 118 §3)
     expect(popup.text.lines.length).toBeGreaterThan(1);
     popup.command(popupCmd(LOGOFF));
     expect(popup.text.lines.every((l) => l.color.every((c) => c === 128))).toBe(true);
+  });
+
+  // LATER 359b, NET-RES-3 (an intended divergence under OT.R77, the second): a text-id-0 popup's name answered by the
+  // context's `nameText` draws that text; unanswered (null) or with no hook, the name exactly as before.
+  it("LATER 359b: a text-id-0 popup's name answered by nameText draws the answer; null or no hook, the name as before", () => {
+    const named = make(null, (n) => (n === 'You' ? 'Your seat in this game was released.' : null)).popup;
+    named.command(popupCmd({ ...GOODBYE, textId: 0, textName: N('You') }));
+    expect(named.text.lines.map((l) => String.fromCharCode(...l.codes)).join(' ')).toBe('Your seat in this game was released.');
+    const asked = make(null, () => null).popup, plain = make(null).popup;
+    asked.command(popupCmd({ ...GOODBYE, textId: 0, textName: N('You') }));
+    plain.command(popupCmd({ ...GOODBYE, textId: 0, textName: N('You') }));
+    expect(asked.text.lines).toEqual(plain.text.lines);                       // the untouched path, byte for byte
+    expect(plain.text.lines.map((l) => String.fromCharCode(...l.codes)).join(' ')).toBe('You');
+    const loc = make(null, () => 'never').popup, base = make(null).popup;      // a text id: never asked
+    loc.command(popupCmd(LOGOFF)); base.command(popupCmd(LOGOFF));
+    expect(loc.text.lines).toEqual(base.text.lines);
   });
 
   it('INPUT_STRING (the name at +0, id 0) is the context\'s input string (D:L266839-266843)', () => {

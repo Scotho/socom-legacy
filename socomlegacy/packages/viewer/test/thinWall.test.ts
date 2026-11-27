@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { beforeAll, describe, expect, it } from 'vitest';
-import { buildGrid, isWallSurface, polygonNormal, probeGround, selectFloor, type CollisionOwner, type Grid, type GridParams, type WorldPoly } from '@s2u/scene';
+import { buildGrid, GAME_FRAME_DT, isWallSurface, polygonNormal, probeGround, selectFloor, type CollisionOwner, type Grid, type GridParams, type WorldPoly } from '@s2u/scene';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import {
   BODY_RADIUS, groundGrid, groundPolygons, PRONE_FAN_READING, WALL_PROBE_READING, Walker, wallProbeHeights,
@@ -24,7 +24,7 @@ const facing = (x: number, z: number, tx: number, tz: number): number => Math.at
 function floor(minX: number, minZ: number, maxX: number, maxZ: number, y: number): WorldPoly {
   return {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([minX, y, minZ, maxX, y, minZ, maxX, y, maxZ, minX, y, maxZ]),
+    points: Float32Array.from([minX, y, maxZ, maxX, y, maxZ, maxX, y, minZ, minX, y, minZ]),
   };
 }
 
@@ -76,13 +76,14 @@ describe('a synthetic crate of zero-thickness faces', () => {
 
   // SEGMENT-BODY (re-judged throughout; research 217 s2.9): the disc's stand-off (`BODY_RADIUS`, research 359's stood-off
   // centre) is gone; the invariant kept is the one this file is for -- the centre never crosses the face. A run stops where
-  // the centre line (1.1 x 1.4 x 3.5 = 5.39; the head line takes the muzzle only prone) first crosses it, plus a move.
+  // the centre line (1.1 x 1.4 x 3.5 = 5.39; the head line takes the muzzle only prone) first crosses it, plus a move --
+  // a game frame's (LATER 1194, H404 (b): the segments cast once a frame on its whole displacement; was a 60 Hz tick's).
   it('a run into a long thin face stops at the segments\' reach and does not cross', () => {
     const w = face();
     for (let i = 0; i < 180; i++) w.tick(FORWARD);
     expect(w.state.x).toBeLessThan(WALL);
     expect(WALL - w.state.x).toBeGreaterThanOrEqual(1.1 * 1.4 * 3.5 - 0.05);
-    expect(WALL - w.state.x).toBeLessThan(1.1 * 1.4 * 3.5 + 65 / 60 + 0.05);
+    expect(WALL - w.state.x).toBeLessThan(1.1 * 1.4 * 3.5 + 65 * GAME_FRAME_DT + 0.05);
     expect(w.state.y).toBeCloseTo(0, 3);
   });
 

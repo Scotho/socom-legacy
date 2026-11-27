@@ -5,6 +5,7 @@ import { TICK_HZ } from '../../viewer/src/sim';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fireCycleTicks, fireScheduleTicks } from '../../viewer/src/net/fireGate';
+import { afterShotLock } from '../../viewer/src/firearms';
 import type { AimFrame } from '../../viewer/src/net/shotCone';
 import { ROOM_RAISE_TRUST_ADAPTATION, START_REACH_PLACEHOLDER } from '../src/room';
 import { burst, fastest, forger, launchAfter, M4A1, RECORDS, type Around } from './helpers/fireCadence';
@@ -34,23 +35,53 @@ const F3_COST = 0.05;
 
 /**
  * The original's rounds over the same trigger (a transcription, apart from the port's kit): a game frame every
- * `GAME_FRAME_DT` reads the trigger as the page frame holding that moment has it; down after up starts the pull's count
- * (`FUN_005c0ae0` D:L476381-476382, D:L476439); the gate fires while the timer is 0 and the count is under the pull's
- * rounds (D:L476446-476448), setting the timer to the wait (`FUN_005be9a0` D:L475517); then the timer runs down a frame
- * and clamps at 0 (`FUN_005c0fd0` D:L476643-476647), in float32. Rounds within the run's length less `tail` seconds.
+ * `GAME_FRAME_DT` reads the trigger as the page frame holding that moment has it, through the pad layer (LATER 1147,
+ * research 443 §1: `FUN_002d9ff0` D:L179137-179168, down 0 -> 1, 3 -> 1, 1 -> 2; up 1|2 -> 3, 3 -> 0) and its "held"
+ * query, state 2 only (`FUN_002c60c0` D:L166671-166686); a read not held clears the pull's count -- ctrl+0x118, stepped
+ * from the held answer alone, reads 0 or 3 whenever it is false (`FUN_00594cf0` D:L453543-453565; the review F1), and 0
+ * or 3 clears it (`FUN_005c0ae0` D:L476380-476382, D:L476399-476400); the gate fires while the trigger reads held, the timer is 0 and the count is under
+ * the pull's rounds (D:L476439-476448), setting the timer to the wait (`FUN_005be9a0` D:L475517); then the timer runs down
+ * a frame and clamps at 0 (`FUN_005c0fd0` D:L476643-476647), in float32. Rounds within the run's length less `tail`
+ * seconds. Was (before LATER 1147): the round on the first down read, the count started by down after up.
+ *
+ * `lock` (the review F2): a bolt's or a pump's after-shot lock, in seconds -- the port's own source of it, `afterShotLock`
+ * (`../../viewer/src/firearms`: the fired record's `ReloadDelayAfterShot`, else 0.01, when it is a `ReloadAfterShot` one;
+ * `FUN_005c5340` D:L479321-479343), as `lockFrames` counts it: set at a round, the kit's `+0x820` holds the frames after
+ * it -- run down a game frame at a time in float32, ended on the frame it goes below 0, that frame included
+ * (`FUN_005c0fd0` D:L476550-476560) -- and those frames run no fire tick (D:L476549-476563): the pad is still stepped
+ * (the controller's, before the kit), but no count is cleared, no round leaves and the fire timer is not run down.
  */
-function originalRounds(frames: readonly number[], held: (i: number) => boolean, wait: number, perPull: number, tail: number): number {
+/**
+ * LATER 1147: the first kit read after the burst starts -- the helper's kit runs 6 s of page frames before it
+ * (`./helpers/fireCadence` `burst`), its clock continuous, so its reads fall `ceil(6 / frame) x frame - 6` s into the burst
+ * and a frame apart. The original's reads are taken at the same phase, so the two counts read the same page frames.
+ */
+const KIT_LEAD = Math.ceil(6 / GAME_FRAME_DT) * GAME_FRAME_DT - 6;
+
+/**
+ * LATER 1147: the trigger as the console's fastest re-press reads it -- down two game frames, up one (research 443 §1: the
+ * round on the second down read, a 3 clearing the count) -- on each page frame, by the game frame its start lies in on the
+ * kit's clock (`KIT_LEAD`). Was (LATER 587): pressed and let go before each page frame's kit ran, which the console never
+ * reads (no read sees it down) and the page now fires nothing on.
+ */
+const tapsOfThree = (frames: readonly number[]): boolean[] => {
+  let t = 0;
+  return frames.map((d) => { const k = Math.floor((t + GAME_FRAME_DT - KIT_LEAD) / GAME_FRAME_DT + 1e-9); t += Math.min(d, 0.1); return k % 3 !== 2; });
+};
+
+function originalRounds(frames: readonly number[], held: (i: number) => boolean, wait: number, perPull: number, tail: number, lock: number | null = null): number {
   const f = Math.fround, dt = f(GAME_FRAME_DT);
   const total = frames.reduce((a, b) => a + Math.min(b, 0.1), 0);   // the page's clamp, as the helper's `run`
-  let i = 0, end = Math.min(frames[0]!, 0.1), timer = 0, count = 0, was = false, rounds = 0;
-  for (let k = 0; k * GAME_FRAME_DT < total - tail; k++) {
-    const t = k * GAME_FRAME_DT;
+  let i = 0, end = Math.min(frames[0]!, 0.1), timer = 0, count = 0, pad = 0, rounds = 0, left = -1;
+  for (let k = 0; KIT_LEAD + k * GAME_FRAME_DT < total - tail; k++) {
+    const t = KIT_LEAD + k * GAME_FRAME_DT;
     while (t >= end - 1e-12 && i < frames.length - 1) { i++; end += Math.min(frames[i]!, 0.1); }
     const down = held(i);
-    if (!down || !was) count = 0;
-    if (down && timer <= 0 && count < perPull) { rounds++; count++; timer = f(wait); }
+    pad = down ? (pad === 1 || pad === 2 ? 2 : 1) : (pad === 1 || pad === 2 ? 3 : 0);
+    if (left >= 0) { left = f(left - dt); if (left < 0) left = -1; continue; }   // the lock's frame: no fire tick
+    if (pad !== 2) count = 0;
+    if (pad === 2 && timer <= 0 && count < perPull) { rounds++; count++; timer = f(wait); if (lock !== null) left = f(lock); }
     timer = Math.max(0, f(timer - dt));
-    was = down;
   }
   return rounds;
 }
@@ -69,6 +100,9 @@ function lockFrames(rec: WeaponRecord): number {
   do { left = f(left - dt); n++; } while (!(left < 0));
   return n;
 }
+
+/** The review F2: the after-shot lock's seconds after a round of `rec` (the port's `afterShotLock`, a magazine not run out), or null. */
+const lockOf = (rec: WeaponRecord): number | null => afterShotLock(rec.id, rec, 1, rec.id);
 
 /** Rounds named on the same command as the round before them: two of one long page frame (LATER 338). */
 const shared = (named: number[]): number => named.filter((s, i) => i > 0 && named[i - 1] === s).length;
@@ -127,16 +161,207 @@ describe("LATER 326 (#455): a page's held burst at its own frame rate -- its kit
     expect(fired, `${fired} of ${sent} fired`).toBeLessThanOrEqual(Math.floor(4 / I) + 2);
   });
 
-  it("a 250 ms hitch mid-burst (the page clamps it to 0.1 s): each round at its own game frame's command, none sharing one (LATER 338); at most the one at the floor's step refused, 'rate' (LATER 336), none 'cone'", () => {
+  // LATER 336: the line's best offset (`Player.lagFloor`, as `eventClock` dates a round) stepping between two rounds. The
+  // seat's offset moved as the room's catch-up of a long frame's commands moves it (a step down, measured +1 to -4 ticks
+  // at a 250 ms hitch); the schedule (`fireClock`) kept in the offset the round is dated with.
+  type Floor = { lagFloor: { cur: number; prev: number } };
+  const stepFloor = (by: number) => (seat: unknown): void => {
+    const f = (seat as Floor).lagFloor, at = Math.min(f.cur, f.prev);
+    f.cur = at + by; f.prev = at + by;
+  };
+  const rateTicks = fastest(M4A1) * TICK_HZ;
+  const honest = Array.from({ length: 12 }, (_, k) => Math.ceil(k * rateTicks - 1e-9));   // round k at its rate's command
+
+  it("LATER 336: a steady page firing at the record's rate, its line's best offset stepping down 4 ticks before any one round: every round fired", () => {
+    expect(forger(M4A1, 0, 2, { at: honest }), 'no step').toEqual({ fired: honest.length, sent: honest.length });
+    for (let j = 1; j < honest.length; j++) {
+      const step = stepFloor(-4);
+      const got = forger(M4A1, 0, 2, { at: honest, around: (call, seat) => { if (call === j) step(seat); } });
+      expect(got, `the step before round ${j}`).toEqual({ fired: honest.length, sent: honest.length });
+    }
+  });
+
+  it("LATER 336: a forger naming a round every cycle's commands, its line slowing 4 ticks every 2 s (the offset stepping up): no more fired than the steady line's, nor than the record's rate allows", () => {
+    const I = fastest(M4A1), gap = Math.ceil(I * TICK_HZ - 1 - 1e-9);
+    const steady = forger(M4A1, gap, 8);
+    const slowing = forger(M4A1, gap, 8, { delay: (t) => (t < 360 ? 0 : 4 * (1 + Math.floor((t - 360) / 120))) });
+    expect(slowing.sent).toBe(steady.sent);
+    expect(slowing.fired, `${slowing.fired} of ${slowing.sent}, steady ${steady.fired}`).toBeLessThanOrEqual(steady.fired);
+    expect(slowing.fired).toBeLessThanOrEqual(Math.floor(8 / I) + 2);
+  });
+
+  it("a 250 ms hitch mid-burst (the page clamps it to 0.1 s): each round at its own game frame's command, none sharing one (LATER 338); none refused -- the round dated across the line's best offset's step is fired (LATER 336), none 'cone'", () => {
     const frames = [...Array(30).fill(1 / 60), 0.25, ...Array(60).fill(1 / 60)];
     const { tally, named, rows } = burst(M4A1, 60, 0, frames);
     expect(shared(named), rows.join(' ')).toBe(0);
     // LATER 338: the rounds keep the kit's spacing through the hitch -- no gap under the rate's whole commands.
     for (let i = 1; i < named.length; i++) expect(named[i]! - named[i - 1]!, rows.join(' ')).toBeGreaterThanOrEqual(Math.floor(fastest(M4A1) * TICK_HZ));
-    // LATER 336 (the room's, open): the round dated across the line's best offset's step is refused 'rate' on the room's clock.
+    // LATER 336: the round dated across the line's best offset's step is judged against a schedule kept in the same offset
+    // (was: refused 'rate' on the room's clock, the schedule laid under the offset before the step).
     expect(tally['fire: cone'] ?? 0, rows.join(' ')).toBe(0);
-    expect(tally['fire: rate'] ?? 0, rows.join(' ')).toBeLessThanOrEqual(1);
-    expect((tally.fired ?? 0) + (tally['fire: rate'] ?? 0), rows.join(' ')).toBe(named.length);
+    expect(tally['fire: rate'] ?? 0, rows.join(' ')).toBe(0);
+    expect(tally.fired ?? 0, rows.join(' ')).toBe(named.length);
+  });
+
+  // LATER 336, the fresh review of ef03a719bf (F1-F4): the schedule's shift follows what the dating did -- its own rise in
+  // full, a fall only within the credit the dating itself is bounded by (`FIRE_STALL_CREDIT_TICKS`) -- so the stated cost
+  // of a lag switch (`room.ts` FIRE_STALL_CREDIT_TICKS: at most (21 + 3 + 1) / rate + 1 rounds in one tick, a lock at most 24
+  // ticks early) holds. Each run counts the rounds the room fired per tick of its own clock.
+  const perTick = (): { at: (tick: number) => void; most: () => number } => {
+    const n = new Map<number, number>();
+    return { at: (tick) => { n.set(tick, (n.get(tick) ?? 0) + 1); }, most: () => Math.max(0, ...n.values()) };
+  };
+  const tickBound = Math.floor((21 + 4) / rateTicks) + 1;          // 5 for the M4A1 (the cycle the rate less a tick: `keepSchedule`)
+  type Lock = { reloadUntil: [number, number]; lockStart: [number, number] };
+
+  it("LATER 336 (review F1): a forger 60 ticks behind delivering its held commands at once (the offset stepping down 60): at most (21 + 3 + 1) / rate + 1 rounds in any one tick", () => {
+    const ticks = perTick();
+    const got = forger(M4A1, 6, 8, { delay: (t) => (t < 660 ? 60 : 0), onFired: ticks.at });
+    expect(got.fired).toBeGreaterThan(0);
+    expect(ticks.most(), `${got.fired} of ${got.sent}`).toBeLessThanOrEqual(tickBound);
+  });
+
+  it("LATER 336 (review F1, the lock): a reload laid while 60 behind, its held commands delivered before its end: no round fired more than 24 ticks before the lock's end on the room's clock", () => {
+    let L = 0;
+    forger(M4A1, 0, 1, { at: [], reloads: [10], onReload: (_tick, seat) => { const s = seat as Lock; L = s.reloadUntil[0] - s.lockStart[0]; } });
+    expect(L).toBeGreaterThan(30);
+    const deliver = Math.max(300, L + 60), r = deliver - 20 - L;   // the lock's last commands delivered 20 before their tick
+    let laid = -1, end = -1;
+    const after: number[] = [];
+    forger(M4A1, 6, Math.ceil((deliver + 120) / TICK_HZ), {
+      delay: (t) => (t < 360 + deliver ? 60 : 0), reloads: [r],
+      onReload: (tick, seat) => { const s = seat as Lock; if (laid < 0 && s.lockStart[0] >= 0) { laid = tick; end = tick + s.reloadUntil[0] - s.lockStart[0]; } },
+      onFired: (tick) => { if (laid >= 0 && tick > laid) after.push(tick); },
+    });
+    expect(laid).toBeGreaterThan(0);
+    expect(after.length).toBeGreaterThan(0);
+    expect(after[0]!, `laid ${laid}, ends ${end}`).toBeGreaterThanOrEqual(end - 24);
+  });
+
+  it("LATER 336 (review F2): an honest chain whose line falls 54 ticks behind for good (over the 21-tick credit): no more refused than before LATER 336, through the offset's rise when the old best leaves the window", () => {
+    const chain = Array.from({ length: Math.floor(8 / fastest(M4A1)) }, (_, k) => Math.ceil(k * rateTicks - 1e-9));
+    let last = -1;
+    const refused: number[] = [];
+    const got = forger(M4A1, 0, 8, {
+      at: chain, delay: (t) => (t < 390 ? 0 : 54),
+      around: (call) => { if (last >= 0) refused.push(chain[last]!); last = call; }, onFired: () => { last = -1; },
+    });
+    if (last >= 0) refused.push(chain[last]!);
+    // Measured at f6a3e33d78 (before LATER 336, the schedule never shifted): 72 of 83 fired, one refused while the old best
+    // left the window (the round at command 219 of the burst; the line fell at 30, so the rise lands from 180 to 330).
+    // ef03a719bf (the raw offset's step, 54 against the dating's 21) refused seven there (185 to 214, 288).
+    expect(got.sent).toBe(chain.length);
+    expect(got.fired, `${got.fired} of ${got.sent}; refused ${refused.join(' ')}`).toBeGreaterThanOrEqual(72);
+    expect(refused.filter((c) => c >= 150 && c <= 330).length, `refused ${refused.join(' ')}`).toBeLessThanOrEqual(1);
+  });
+
+  it("LATER 336 (review F3): a forger's line falling 60 behind for 6 s (the offset stepping up, its dating clamped then risen) and then delivering at once (down): at most (21 + 3 + 1) / rate + 1 rounds in one tick, and no more over the run than the steady line's", () => {
+    const steady = forger(M4A1, 6, 10);
+    const ticks = perTick();
+    const got = forger(M4A1, 6, 10, { delay: (t) => (t < 400 ? 0 : t < 760 ? 60 : 0), onFired: ticks.at });
+    expect(got.sent).toBe(steady.sent);
+    expect(ticks.most(), `${got.fired} of ${got.sent}`).toBeLessThanOrEqual(tickBound);
+    expect(got.fired).toBeLessThanOrEqual(steady.fired);
+  });
+
+  it("LATER 336 (review F4): a reload laid after its line's best offset stepped up 10 (a slower line, the old best left the window): the honest rounds from the lock's end all fired -- the lock laid in the offset it is dated with", () => {
+    let L = 0;
+    forger(M4A1, 0, 1, { at: [], reloads: [10], onReload: (_tick, seat) => { const s = seat as Lock; L = s.reloadUntil[0] - s.lockStart[0]; } });
+    expect(L).toBeGreaterThan(30);
+    const r = 330, from = r + L;                                  // the line 10 behind from tick 10 of the burst: rolled by 330
+    const at = [0, 6, ...Array.from({ length: 6 }, (_, k) => from + Math.ceil(k * rateTicks - 1e-9))];
+    const got = forger(M4A1, 0, Math.ceil((from + 60) / TICK_HZ), { at, reloads: [r], delay: (t) => (t < 370 ? 0 : 10) });
+    expect(got, 'all fired').toEqual({ fired: at.length, sent: at.length });
+  });
+
+  // LATER 336's re-review (finding 1): the slack is the exact one (`Room.scheduleLaid`'s recurrence), so a lay at the clamp
+  // (a stall of the line over FIRE_STALL_CREDIT_TICKS) no longer spends it for the life: it returns as fire pauses.
+  it("LATER 336 (re-review finding 1): a 250 ms hitch a second after a 500 ms stall of the line, in the same life: the hitch refuses nothing -- the slack the stall's lay at the clamp took returns as fire pauses", () => {
+    const frames = [...Array(30).fill(1 / 60), ...Array(30).fill(1 / 60), ...Array(60).fill(1 / 60), 0.25, ...Array(60).fill(1 / 60)];
+    const hold = frames.map((_, i) => i >= 30 && i < 60);                // the line holds 500 ms of the page's frames
+    const hitch = burst(M4A1, 60, 0, frames, { hold });
+    const none = burst(M4A1, 60, 0, frames.map((d) => (d === 0.25 ? 1 / 60 : d)), { hold });
+    // The stall's own refusal (its lateness over FIRE_STALL_CREDIT_TICKS + FIRE_ARRIVAL_JITTER_TICKS: the stated cost),
+    // measured one; the hitch adds none. Was (the least over every lay since the spawn): the hitch's round refused 'rate'.
+    expect(none.tally['fire: rate'] ?? 0, none.rows.join(' ')).toBeLessThanOrEqual(1);
+    expect(hitch.tally['fire: rate'] ?? 0, hitch.rows.join(' ')).toBe(none.tally['fire: rate'] ?? 0);
+    expect(Object.keys(hitch.tally).sort(), hitch.rows.join(' ')).toEqual(Object.keys(none.tally).sort());
+    expect(hitch.tally.fired ?? 0, hitch.rows.join(' ')).toBe(hitch.named.length - (hitch.tally['fire: rate'] ?? 0));
+  });
+
+  // LATER 336's re-review (finding 5): FIRE_STALL_CREDIT_TICKS's window form, a delivery split over ticks. For rounds k..n
+  // fired, (n - 1 - k) rate <= S_n - S_k + 24 - cycle (`Room.keepSchedule`), the cycle the rate less a tick: in any span of
+  // W ticks between two rounds fired, at most floor((W + 21 + 4) / rate) + 1.
+  it("LATER 336 (re-review finding 5): a forger 60 ticks behind delivering its held commands over three ticks (60 -> 40 -> 20 -> 0): in any W ticks at most (W + 21 + 4) / rate + 1 rounds", () => {
+    for (const gap of [5, 6]) {
+      const ticks: number[] = [];
+      const got = forger(M4A1, gap, 8, { delay: (t) => (t < 660 ? 60 : t < 661 ? 40 : t < 662 ? 20 : 0), onFired: (tick) => { ticks.push(tick); } });
+      expect(got.fired, `gap ${gap}`).toBeGreaterThan(0);
+      const over: string[] = [];
+      for (let i = 0; i < ticks.length; i++) for (let j = i; j < ticks.length; j++) {
+        const W = ticks[j]! - ticks[i]!;
+        if (j - i + 1 > Math.floor((W + 21 + 4) / rateTicks) + 1) over.push(`${j - i + 1} rounds over ticks ${ticks[i]}..${ticks[j]}`);
+      }
+      expect(over, `gap ${gap}: ${got.fired} of ${got.sent}`).toEqual([]);
+    }
+  });
+
+  // LATER 336's delta review (finding 1): an after-shot lock is laid with its timer part alone and lengthened by its clip
+  // when the timer runs out (`Room.afterShotPick`). Its slack must bind the lengthened lock: a lock whose slack was dropped
+  // just before the pick (a fire near the timer's end) and then lengthened had none, and a fall of the line's offset then
+  // moved it by `scheduleSlack`, up to its lead over the dating more -- at most FIRE_SCHEDULE_SLACK_ADAPTATION (2; 1.52
+  // ticks for the M4A1, so one whole tick measured), the locking round fired inside the tolerance of the round before.
+  /**
+   * The case's run, `at` the commands that name a round (LOCK-END-RELIEF split it in two: since a lock refusal on the
+   * room's clock alone goes through `refuseRound`, it sets the cadence's last round as an early round does, so a client
+   * naming a round at EVERY command is refused 'rate' one tick inside the cycle from then on and lands none after the
+   * lock -- fewer, never more; the bound below is unchanged and asserted over what lands).
+   */
+  const lengthenedLockRun = (at: number[]): { laid: number; L: number; after: number[] } => {
+    type Seat = Lock & { records: WeaponRecord[]; lockKind: [string | null, string | null]; lockClock: [number, number] };
+    // A staged record (the M4A1's rate, a 0.5 s after-shot timer, a 1 s clip by its `ReloadTime`) in the slot from the
+    // locking round on: the rounds before it (an M4A1's) lay no lock, so the locking round can follow them by a cycle.
+    const bolt = { ...M4A1, magazine: 1000, reloadAfterShot: true, reloadDelayAfterShot: 0.5, reloadTime: 1 } as WeaponRecord;
+    const clips = { clips: [], table: new Map(), roots: new Map() } as unknown as NonNullable<Parameters<typeof forger>[3]>['clips'];
+    // The line 5 behind from before the burst (its best offset there). Rounds 0 and 5 (an M4A1's, no lock) on that line, at
+    // the schedule's least gaps (the chain runs 1.52 ahead of round 10's dating); round 10 (the locking one) 26 behind, 21
+    // over the best: its lock's slack 0, its schedule's 1.52. A round named at every command from the timer's end less 6
+    // on: those decided before the pick drop the lock's slack (its timer part within 3 of the room's clock), then the pick
+    // lengthens it. At 430 the line on time (5 faster than its best: the dating's offset falling 5), the rounds after
+    // dated at their own tick. Measured at 09f8ae1461: the first taken one tick before laid + L - 24.
+    let laid = -1, start = -1, L = 0, seat: Seat | null = null;
+    const after: number[] = [];
+    const got = forger(M4A1, 0, 4, {
+      at, clips, delay: (t) => (t < 374 ? 5 : t < 430 ? 26 : 0),
+      around: (call, s) => {
+        seat = s as Seat;
+        seat.records[0] = call < 2 ? { ...M4A1, magazine: 1000 } as WeaponRecord : bolt;
+        if (start >= 0 && seat.lockKind[0] === 'afterShot' && seat.lockStart[0] === start) L = seat.reloadUntil[0] - seat.lockStart[0];
+      },
+      onFired: (tick) => {
+        if (laid < 0) { if (seat!.lockKind[0] === 'afterShot') { laid = tick; start = seat!.lockStart[0]; } return; }
+        if (tick > laid) after.push(tick);
+      },
+    });
+    expect(laid, `${got.fired} of ${got.sent}`).toBeGreaterThan(0);
+    expect(L, 'the lock lengthened by its clip').toBeGreaterThan(Math.floor(0.5 * TICK_HZ) + 30);
+    return { laid, L, after };
+  };
+
+  it("LATER 336 (delta finding 1): an after-shot lock lengthened by its clip after a fire at its timer's end (its slack dropped), then the line's offset falling: no round fired more than 24 ticks before the lengthened lock's end on the room's clock", () => {
+    // A round named at every command from the timer's end less 6 on (the case as written for LATER 336): the bound holds
+    // over every round taken after the lock (since LOCK-END-RELIEF none is: see `lengthenedLockRun`).
+    const { laid, L, after } = lengthenedLockRun([0, 5, 10, ...Array.from({ length: 130 }, (_, k) => 34 + k)]);
+    // The premise held, not only the bound (the glance's F1): a client naming a round at every command lands none after
+    // the lock -- each one-tick-inside round refused 'rate' re-plants the cadence (fewer rounds, never more).
+    expect(after, 'a round at every command lands none after the lock').toEqual([]);
+    for (const t of after) expect(t, `laid ${laid}, the lengthened lock ${L} ticks: ends ${laid + L}`).toBeGreaterThanOrEqual(laid + L - 24);
+  });
+
+  it("LATER 336 (delta finding 1), at the weapon's own cadence (a round every 6 commands, over the M4A1's 5.76-tick rate): rounds land after the lengthened lock, none more than 24 ticks before its end on the room's clock", () => {
+    const { laid, L, after } = lengthenedLockRun([0, 5, 10, ...Array.from({ length: 22 }, (_, k) => 34 + 6 * k)]);
+    expect(after.length, 'rounds land after the lock (the bound is measured, not vacuous)').toBeGreaterThan(0);
+    for (const t of after) expect(t, `laid ${laid}, the lengthened lock ${L} ticks: ends ${laid + L}`).toBeGreaterThanOrEqual(laid + L - 24);
   });
 });
 
@@ -150,11 +375,14 @@ describe("LATER 347: repeated short bursts at the page's own cone corner -- the 
     expect(s.tally, `${name} ${fps} fps`).toEqual({ fired: s.named.length });
   });
 
-  it("the mechanism: the press's round named at the previous frame's command (the page before LATER 347) puts the room's cone a round behind -- refused 'cone'", () => {
-    // The room blooms that round before the press's edge (`ShotCone.tick`) starts the pull's count again, so the burst's
-    // second round takes the entry knock again: about 7 px less knock a press than the page's, carried press to press.
+  // LATER 1147 (research 443): was "the mechanism: the press's round named at the previous frame's command (the page before
+  // LATER 347) puts the room's cone a round behind -- refused 'cone'" (more than 50). Every round now leaves at a kit step,
+  // its press already read twice and its commands carrying the Trigger, so no round is named before its press's command
+  // whatever the naming rule: the mechanism is gone.
+  it("the mechanism gone: with every round at a kit step, naming a press's round at the previous frame's command changes nothing -- none refused", () => {
     const s = burst(M4A1, 60, 0.42, undefined, { corner: true, presses: 20, gap: 0.3, pressAtPrevious: true });
-    expect(s.tally['fire: cone: cone'] ?? 0).toBeGreaterThan(50);
+    expect(s.named.length).toBeGreaterThanOrEqual(60);
+    expect(s.tally).toEqual({ fired: s.named.length });
   });
 });
 
@@ -167,15 +395,18 @@ describe("LATER 587: a page's semi-automatic pressed every page frame, every wea
   // the tightest. A weapon whose after-shot lock holds the kit (a bolt's, a pump's) fires its lock's frames slower
   // (`lockFrames`, LATER 330), every round still the room's.
   const SINGLE = Object.values(RECORDS).filter((r) => r.fireModes.includes(1));
+  // LATER 1147 (research 443): pressed as fast as the console reads it -- down two game frames, up one (`tapsOfThree`) --
+  // in single; the original's count the transcription's on the same taps (`originalRounds`, the bolt and pump guns' lock
+  // in it: the review F2, was "the bolt guns aside"). Was: pressed and let go before each page frame's kit (`mash`), against round j at j x q.
   it.each([30, 60, 144])("%s fps: every single-mode weapon fires the original's rounds, the room refusing none", (fps) => {
     const off: string[] = [];
     let total = 0;
     for (const rec of SINGLE) {
       const q = (fireFrames(rec.fireWait, 1) + lockFrames(rec)) * GAME_FRAME_DT, seconds = Math.max(1.5, 5 * q);
-      const { tally, named } = burst(rec, fps, seconds, undefined, { mash: true });
+      const frames = Array(Math.round(seconds * fps)).fill(1 / fps), held = tapsOfThree(frames);
+      const { tally, named } = burst(rec, fps, 0, frames, { held, mode: 1 });
       total += named.length;
-      // The original's count over the run: round j at j x q, on the page by a page frame after it (the run's last frame).
-      const due = Math.floor((seconds - 2 / fps) / q) + 1;
+      const due = originalRounds(frames, (i) => held[i]!, fireInterval(rec.fireWait, 1), 1, 2 / fps, lockOf(rec));
       if (named.length < due || (tally.fired ?? 0) !== named.length) off.push(`${rec.name}: ${named.length} rounds of the original's ${due}, ${JSON.stringify(tally)}`);
     }
     expect(SINGLE.length).toBeGreaterThan(30);
@@ -200,12 +431,14 @@ describe("LATER 587: a page's semi-automatic pressed every page frame, every wea
     for (const seed of [11, 4242, 777]) {
       for (const rec of SINGLE) {
         const q = (fireFrames(rec.fireWait, 1) + lockFrames(rec)) * GAME_FRAME_DT, frames = frameLengths(seed, lo, hi, Math.max(4, 3 * q));
-        const { tally, named, rows } = burst(rec, 60, 0, frames, { mash: true });
+        // LATER 1147 (research 443): the console's fastest re-press (`tapsOfThree`), in single (was: `mash`, which no read sees).
+        const held = tapsOfThree(frames);
+        const { tally, named, rows } = burst(rec, 60, 0, frames, { held, mode: 1 });
         const fast = chainOff(named, q);
         if (named.length < 3 || (tally.fired ?? 0) !== named.length || fast >= 0) off.push(`seed ${seed} ${rec.name}: ${JSON.stringify(tally)}, chain round ${fast} ${rows.filter((r) => !r.endsWith(':fired')).slice(0, 4).join(' ')}`);
-        // F3's cost: no fewer than the original's rounds over the run (round j at j x q, a bolt's or a pump's lock in it,
-        // LATER 330; the last page frame's part aside) less F3_COST.
-        const total = frames.reduce((a, b) => a + b, 0), due = Math.floor((total - hi / 1000) / q) + 1, got = new Set(named).size;
+        // F3's cost: no fewer than the original's rounds over the same taps (`originalRounds`, the bolt and pump guns' lock
+        // in it: the review F2, was "the bolt guns aside") less F3_COST. Was: round j at j x q, against a press every page frame.
+        const due = originalRounds(frames, (i) => held[i]!, fireInterval(rec.fireWait, 1), 1, hi / 1000, lockOf(rec)), got = new Set(named).size;
         if (got < due * (1 - F3_COST)) off.push(`seed ${seed} ${rec.name}: ${got} rounds, under the original's ${due} less ${F3_COST * 100}%`);
       }
     }
@@ -268,10 +501,10 @@ describe("LATER 587's second review, LATER 588 (a): taps held and let go on the 
           const { tally, named, rows } = burst(rec, 60, 0, frames, { held, mode });
           rounds += named.length;
           if ((tally.fired ?? 0) !== named.length) off.push(`seed ${seed} ${rec.name} m${mode}: ${JSON.stringify(tally)} ${rows.filter((x) => !x.endsWith(':fired')).slice(0, 3).join(' ')}`);
-          // F3's cost on uneven frames: no fewer than the original's rounds over the same taps less F3_COST (the bolt
-          // guns aside: the original's count here leaves their lock out).
-          if (lo !== hi && !(rec as { reloadDelayAfterShot?: number }).reloadDelayAfterShot) {
-            const due = originalRounds(frames, (i) => held[i]!, fireInterval(rec.fireWait, mode), roundsPerPull(mode), hi / 1000);
+          // F3's cost on uneven frames: no fewer than the original's rounds over the same taps less F3_COST (the bolt and
+          // pump guns' lock in the count: the review F2, was "the bolt guns aside").
+          if (lo !== hi) {
+            const due = originalRounds(frames, (i) => held[i]!, fireInterval(rec.fireWait, mode), roundsPerPull(mode), hi / 1000, lockOf(rec));
             if (named.length < due * (1 - F3_COST)) off.push(`seed ${seed} ${rec.name} m${mode}: ${named.length} rounds, under the original's ${due} less ${F3_COST * 100}%`);
           }
         }
@@ -309,6 +542,27 @@ describe("P3-room (AR-4): the launched round on the rifle's schedule (fireGate),
     expect(launchAfter(CARRIER, [0, 6], 12)).toEqual({ rifle: 2, launched: false });
     expect(launchAfter(CARRIER, [0, 6], 14)).toEqual({ rifle: 2, launched: true });
     expect(launchAfter(CARRIER, [0], 6)).toEqual({ rifle: 1, launched: true });
+  });
+
+  // LATER 336's re-review (finding 6): the launched round's lock is laid in the offset it is dated with (`Room.layLock`).
+  // The rifle's rounds laid while the line's best offset stood 10 lower; the offset back up before the round: the lock
+  // laid with the schedule kept into the new offset, so the rifle's rounds from the lock's end all fire. Laid unshifted
+  // (`setLock` at the dating, the schedule's offset left behind), the next rifle round's keep would lift it 10 more and
+  // refuse the rounds at its end 'reload or empty'.
+  it("LATER 336 (re-review finding 6): the M4A1-M203's round laid after its line's best offset rose 10 -- its 2 s after-shot lock in the offset it is dated with: the rifle's rounds from the lock's end all fired", () => {
+    type Floor = { lagFloor: { cur: number; prev: number }; reloadUntil: [number, number]; lockStart: [number, number] };
+    let was = 0;
+    const around = (t: number, seat: unknown, room: unknown): void => {
+      const f = (seat as Floor).lagFloor;
+      if (t === -1) { was = Math.min(f.cur, f.prev); f.cur = was - 10; f.prev = was - 10; }   // the rifle's rounds 10 lower
+      if (t === 20) { f.cur = was; f.prev = was; }                                             // back up before the round
+      if (t === 21) (room as { flying: unknown[] }).flying.length = 0;   // its flight not this test's (its blast reaches the seat)
+    };
+    let L = 0;
+    launchAfter(CARRIER, [0, 6], 20, { lockS: 2, around: (t, seat, room) => { around(t, seat, room); if (t === 22) { const s = seat as Floor; L = s.reloadUntil[0] - s.lockStart[0]; } } });
+    expect(L).toBeGreaterThan(Math.round(TICK_HZ) + 10);               // past the round's own FireWait (1 s)
+    const post = [0, 8, 16].map((k) => 20 + L + k);           // on the console's period (`fireScheduleTicks` 8)
+    expect(launchAfter(CARRIER, [0, 6, ...post], 20, { lockS: 2, around }), `the lock ${L} ticks`).toEqual({ rifle: 2 + post.length, launched: true });
   });
 
   /**

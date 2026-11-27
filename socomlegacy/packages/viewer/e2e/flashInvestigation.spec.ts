@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type {} from '../src/hook';
 import { holdReleased } from './loadHold';
+import { crouchedRoomThrow } from './roomOwnFrag';
 
 test('all flash levels render their onset and recovery in native and PS2 pictures', async ({ page }, info) => {
   await page.addInitScript(() => Object.defineProperty(navigator, 'gpu', { configurable: true, value: undefined }));
@@ -85,10 +86,16 @@ test('Frostfire flash: capture visible gameplay before, during and after the eff
     await page.evaluate(yaw => window.__viewer.setCamera({ yaw }), yaw);
     await page.waitForTimeout(500);
     await page.locator('#view').screenshot({ path: info.outputPath(`frostfire-${yaw}-before.png`) });
-    expect(await page.evaluate(() => window.__viewer.selectItem('Mark141'))).toBe(true);
     const bangs = await page.evaluate(() => window.__viewer.audio().byName['.MARK_141_FLASH'] ?? 0);
-    expect(await page.evaluate(() => window.__viewer.throwGrenade(0.1))).not.toBeNull();
-    await expect.poll(() => page.evaluate(() => window.__viewer.whiteOut().level), { timeout: 8000 }).not.toBeNull();
+    // B-06 (merge 7967d16bee) refuses a weak STANDING lob at some MP2 spots and latches the aim origin at the select
+    // (LATER 1357): WXO-OWNFRAG's crouched throw (`./roomOwnFrag`, from SELFKILL-CROUCH's crouch-and-settle), not a
+    // self-kill -- crouched and settled BEFORE the Mark141 is selected, the spec's own look kept (this yaw, the set
+    // pitch), a refusal facing 90 deg on; the flashbang must leave the hand (a ThrowInfo) before the white-out is awaited.
+    const { info: flashThrow } = await crouchedRoomThrow(page, `Frostfire ${yaw}`, { hold: 0.1, tries: 4,
+      select: async () => { expect(await page.evaluate(() => window.__viewer.selectItem('Mark141'))).toBe(true); } });
+    expect(flashThrow).not.toBeNull();
+    await expect.poll(() => page.evaluate(() => window.__viewer.whiteOut().level),
+      { timeout: 8000, message: `Frostfire ${yaw}: the flashbang left the hand, no white-out within 8 s` }).not.toBeNull();
     await page.waitForTimeout(300);
     evidence.push(await page.evaluate(() => ({ flash: window.__viewer.whiteOut(), stats: window.__viewer.stats(), loading: window.__viewer.loading() })));
     await page.locator('#view').screenshot({ path: info.outputPath(`frostfire-${yaw}-flash.png`) });

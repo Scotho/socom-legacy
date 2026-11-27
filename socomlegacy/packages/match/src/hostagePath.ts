@@ -50,11 +50,41 @@ export const HOSTAGE_AI_COLLISION_READING = { radius: 5, cap: 5 } as const;
 const DIR = [[0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1]] as const;
 /** FUN_00519130 D:L386475, captured DAT_0065ab38; endpoint scale DAT_0065b030 (research 333 §5). */
 const DIAGONAL_AXIS = 0.7071067690849304;
+/**
+ * `FUN_00519130` (GetDirVec, D:L386473-386531; r0004 `FUN_005193f0` D4:L423529-423587) for an action's offset nibble,
+ * as WalkLine moves an endpoint (`FUN_00537e50` D:L403393-403401, D:L403421-403429): the unit step of `DIR` (the
+ * diagonals 0.7071067690849304 per axis) for 0..7, none for 8 (the caller's test), and the default case -- north, no
+ * diagonal factor -- for 9..15 (D:L386525-386528; A1b).
+ */
+function actionDirVec(offset: number): readonly [number, number] | undefined {
+  const n = offset & 15;
+  if (n === 8) return undefined;
+  if (n > 8) return [0, -1];
+  const d = DIR[n]!, axis = n & 1 ? DIAGONAL_AXIS : 1;
+  return [d[0] * axis, d[1] * axis];
+}
 const key = (v: AiLoc): string => `${v.map}:${v.x}:${v.z}`;
 const same = (a: AiLoc, b: AiLoc): boolean => a.map === b.map && a.x === b.x && a.z === b.z;
 const manhattan = (a: AiLoc, b: AiLoc): number => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
 const signed16 = (n: number): number => (n << 16) >> 16;
 const bits = new DataView(new ArrayBuffer(4));
+
+/**
+ * `FUN_00518b60` (D:L386241-386308): the octant (0 -z, 2 +x, 4 +z, 6 -x; the AI grid's step `DIR`) nearest a flat
+ * direction -- the hemisphere scan (6, 7, 0, 1, 2 when its z is not positive, else 2..6), strict improvement only, the
+ * first tie kept, a candidate needing a positive dot (the score starts at 1). Lifted from `markObstacle` for LATER 1226's
+ * cover search (`./hostageDanger` `coverCell`), unchanged.
+ */
+export function octantOf(direction: readonly [number, number]): number {
+  const first = direction[1] <= 0 ? 6 : 2;
+  let selected = first, score = 1;
+  for (let i = first; i < first + 5; i++) {
+    const n = i & 7, d = DIR[n]!, axis = n & 1 ? DIAGONAL_AXIS : 1;
+    const candidate = 1 - (direction[0] * d[0] * axis + direction[1] * d[1] * axis);
+    if (candidate < score) { score = candidate; selected = n; }
+  }
+  return selected;
+}
 
 /** EE positive finite arithmetic rounds each operation toward zero, not IEEE nearest (research 200 §1.3). */
 function ee(n: number): number {
@@ -203,11 +233,10 @@ export class HostagePathPlanner {
     if (!sub || this.word(from) === null) return false;
     const f = (n: number): number => n < 0 ? -ee(-n) : ee(n);
     const endpoint = (loc: AiLoc): [number, number, number] => {
-      const a = this.action(loc), d = a && a.offset !== 8 ? DIR[a.offset] : undefined;
-      const axis = a && (a.offset & 1) ? DIAGONAL_AXIS : 1;
-      return [f(f(f(sub.min[0] + f(sub.cellSize[0] * 0.5)) + f(loc.x * sub.cellSize[0])) + (d ? f(f(d[0] * axis) * 0.75) : 0)),
+      const a = this.action(loc), d = a ? actionDirVec(a.offset) : undefined;
+      return [f(f(f(sub.min[0] + f(sub.cellSize[0] * 0.5)) + f(loc.x * sub.cellSize[0])) + (d ? f(f(d[0]) * 0.75) : 0)),
         aiCellY(sub, this.word(loc)!),
-        f(f(f(sub.min[2] + f(sub.cellSize[1] * 0.5)) + f(loc.z * sub.cellSize[1])) + (d ? f(f(d[1] * axis) * 0.75) : 0))];
+        f(f(f(sub.min[2] + f(sub.cellSize[1] * 0.5)) + f(loc.z * sub.cellSize[1])) + (d ? f(f(d[1]) * 0.75) : 0))];
     };
     const a = endpoint(from), b = !Array.isArray(to) ? endpoint(to as AiLoc) : to as readonly [number, number, number], dx = f(b[0] - a[0]), dz = f(b[2] - a[2]);
     const length = f(Math.sqrt(f(f(dx * dx) + f(dz * dz)))), inverse = length ? f(1 / length) : 1;
@@ -307,14 +336,7 @@ export class HostagePathPlanner {
    */
   markObstacle(raw: AiLoc, direction: readonly [number, number], contact: AiLoc): void {
     if (this.word(raw) !== null) {
-      const first = direction[1] <= 0 ? 6 : 2;
-      let selected = first, score = 1;
-      for (let i = first; i < first + 5; i++) {
-        const n = i & 7, d = DIR[n]!, axis = n & 1 ? DIAGONAL_AXIS : 1;
-        const candidate = 1 - (direction[0] * d[0] * axis + direction[1] * d[1] * axis);
-        if (candidate < score) { score = candidate; selected = n; }
-      }
-      const d = DIR[selected]!, neighbor = { ...raw, x: raw.x + d[0], z: raw.z + d[1] };
+      const d = DIR[octantOf(direction)]!, neighbor = { ...raw, x: raw.x + d[0], z: raw.z + d[1] };
       if (this.traversable(neighbor)) this.runtime.markCollision(neighbor, this.word(neighbor)!);
     }
     const word = this.word(contact);
@@ -356,6 +378,14 @@ export class HostagePathPlanner {
   }
   private marker(loc: AiLoc): AiMarker | undefined {
     return this.ai.maps[loc.map]?.markers.find((v) => same(v.loc, loc));
+  }
+  /** LATER 1245: a bit-7 cell's marker type (`FUN_00530d10`'s record, bits 23-27 of its word), or null. */
+  markerType(loc: AiLoc): number | null {
+    return this.action(loc)?.type ?? null;
+  }
+  /** LATER 1226: a bit-7 cell's marker record direction nibble (`FUN_00516910`; 8 = none), or null (`hostageDanger` `coverCell`). */
+  markerOffset(loc: AiLoc): number | null {
+    return this.action(loc)?.offset ?? null;
   }
   private action(loc: AiLoc): { type: number; invalid: boolean; direction: number; offset: number } | null {
     if (!((this.word(loc) ?? 0) & 128)) return null;
@@ -405,10 +435,9 @@ export class HostagePathPlanner {
     return true;
   }
   private endpoint(loc: AiLoc): [number, number] {
-    const a = this.action(loc), d = a && a.offset !== 8 ? DIR[a.offset] : undefined;
+    const a = this.action(loc), d = a ? actionDirVec(a.offset) : undefined;
     const sub = this.ai.maps[loc.map]!;
-    const scale = a && (a.offset & 1) ? DIAGONAL_AXIS : 1;
-    return [loc.x + 0.5 + (d ? d[0] * scale * 0.75 / sub.cellSize[0] : 0), loc.z + 0.5 + (d ? d[1] * scale * 0.75 / sub.cellSize[1] : 0)];
+    return [loc.x + 0.5 + (d ? d[0] * 0.75 / sub.cellSize[0] : 0), loc.z + 0.5 + (d ? d[1] * 0.75 / sub.cellSize[1] : 0)];
   }
   private gated(loc: AiLoc, middle: boolean): boolean {
     const a = this.action(loc);

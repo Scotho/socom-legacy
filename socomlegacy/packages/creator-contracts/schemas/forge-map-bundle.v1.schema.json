@@ -49,13 +49,13 @@
       }
     },
     "layoutRecordV3": {
-      "description": "A Forge layout record, version 3 (forge-layout). Only its identity is held here; every other field is the record's own reader's (packages/creator-contracts/src/layout.ts, readCreatorRecord).",
+      "description": "A Forge layout record, version 3 or 4 (forge-layout; version 4 keeps a piece's yaw, pitch and roll on a hundredth of a degree and is written only when one is off the whole degree). Only its identity is held here; every other field is the record's own reader's (packages/creator-contracts/src/layout.ts, readCreatorRecord).",
       "type": "object",
       "required": ["schema", "version", "name", "base"],
       "additionalProperties": true,
       "properties": {
         "schema": { "const": "forge-layout" },
-        "version": { "const": 3 },
+        "version": { "enum": [3, 4] },
         "name": { "type": "string", "minLength": 1, "maxLength": 48 },
         "base": { "type": "string", "minLength": 1 },
         "contentBase": {

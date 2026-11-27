@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_RIFLE, HELD_SIDEARM, arsenalOf, type CollisionOwner, type GridParams, type Loadout, type SpawnSlot, type WorldPoly } from '@s2u/scene';
+import { DEFAULT_RIFLE, HELD_SIDEARM, M67, arsenalOf, type CollisionOwner, type GridParams, type Loadout, type SpawnSlot, type WorldPoly } from '@s2u/scene';
 import {
   cameraLook, centreClaim, encodeCommands, EYE_HEIGHT, faceToward, groundGrid, packGround, PROTOCOL_VERSION, TICK_HZ,
   type Command, type ServerEvent, type SimKits, type SimMap,
@@ -20,7 +20,7 @@ type V3 = [number, number, number];
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
 };
 function map(): SimMap {
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
@@ -54,10 +54,10 @@ const AT: readonly V3[] = [[0, 0, 0], [0, 0, -200], [0, 0, 600], [100, 0, 0]];
  * One scripted sequence: player 1 shoots his teammate 4 once, then the enemy 2 until he falls; then the room runs on.
  * Returns every connection's frames and each player's state at the end.
  */
-function script(opts: Partial<RoomOptions>) {
+function script(opts: Partial<RoomOptions>, k: SimKits | null = kits()) {
   let seed = 1;
   const random = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-  const room = new Room(map(), null, { now: () => 0, random, allowFriendlyFire: true, ...opts }, null, kits());
+  const room = new Room(map(), null, { now: () => 0, random, allowFriendlyFire: true, ...opts }, null, k);
   const cs = AT.map((_, i) => {
     const c = new Client();
     room.hello(i + 1, c, { type: 'hello', version: PROTOCOL_VERSION, name: `P${i + 1}`, map: 'MP99', session: tok(i + 1) }, `10.0.0.${i + 1}`);
@@ -138,5 +138,60 @@ describe('LCM-6a: Room.combat()\'s onCombatApplied observer changes nothing the 
     script({ combatReport: true, onCombatApplied: (a, t, h) => { on.push([a, t, h]); } });
     expect(off.length).toBeGreaterThan(0);
     expect(off).toEqual(on);
+  });
+});
+
+describe('WM-DATA task 4: the observer\'s additive fourth argument, { weapon, part, tick }', () => {
+  type Hit = { weapon: string; part: number | null; tick: number };
+  it('each call carries the hit: the weapon as the kill names it, the struck part\'s number, the room\'s tick', () => {
+    const calls: { a: number; t: number; h: number; hit: Hit | undefined }[] = [];
+    const run = script({ combatReport: true, onCombatApplied: (a, t, h, hit?: Hit) => { calls.push({ a, t, h, hit }); } });
+    const applied = (run.cs[0]!.events().filter((e) => e.type === 'combat') as CombatReport[])
+      .filter((e) => e.status === 'applied' && !e.friendlyFire && !e.selfDamage && e.damageApplied > 0);
+    expect(calls.length).toBe(applied.length);
+    const killed = run.cs[0]!.events().find((e) => e.type === 'kill') as Extract<ServerEvent, { type: 'kill' }>;
+    expect(typeof killed.weapon).toBe('string');
+    calls.forEach((c, i) => {
+      expect(c.hit).toBeDefined();
+      expect(c.hit!.weapon).toBe(killed.weapon);                   // the kill's own naming (`weaponName`)
+      expect(c.hit!.part).toBe(applied[i]!.part);                  // the report's struck part
+      expect(c.hit!.tick).toBe(applied[i]!.tick);                  // the room's tick at the hit
+      expect(Number.isSafeInteger(c.hit!.tick) && c.hit!.tick >= 0).toBe(true);
+    });
+  });
+
+  it('an old three-argument observer still compiles and is told the same calls', () => {
+    const three: [number, number, number][] = [], four: [number, number, number][] = [];
+    const old: (attackerId: number, targetId: number, healthTaken: number) => void = (a, t, h) => { three.push([a, t, h]); };
+    script({ onCombatApplied: old });
+    script({ onCombatApplied: (a, t, h, _hit) => { four.push([a, t, h]); } });
+    expect(three.length).toBeGreaterThan(0);
+    expect(three).toEqual(four);
+  });
+
+  it("the weapon named as the kill names it with no kit table (kits null): the firearm record's own name", () => {
+    const calls: Hit[] = [];
+    const run = script({ onCombatApplied: (_a, _t, _h, hit?: Hit) => { if (hit) calls.push(hit); } }, null);
+    const killed = run.cs[0]!.events().find((e) => e.type === 'kill') as Extract<ServerEvent, { type: 'kill' }> | undefined;
+    expect(killed).toBeDefined();
+    expect(calls.length).toBeGreaterThan(0);
+    expect(killed!.weapon).not.toBe('');
+    for (const c of calls) expect(c.weapon).toBe(killed!.weapon);
+  });
+
+  it('a thrown item not in the arsenal (the baked M67) named as its kill names it: weaponName(r.id, r.name)', () => {
+    const calls: Hit[] = [];
+    const run = script({ onCombatApplied: (_a, _t, _h, hit?: Hit) => { if (hit) calls.push(hit); } });
+    calls.length = 0;
+    const room = run.room as unknown as {
+      combat(a: unknown, t: unknown, d: Record<string, unknown>): void; weaponName(id: number, fallback: string): string; player(id: number): { health: { hp: number[]; armour: number[] } };
+    };
+    const target = room.player(3), attacker = room.player(1);
+    const healthBefore = target.health.hp.map((h) => h + 1), armourBefore = [...target.health.armour];
+    room.combat(attacker, target, { request: 'blast', status: 'applied', weapon: M67.id, part: null, hitLocations: [{ part: 3, rawDamage: 1 }, { part: 4, rawDamage: 1 }], healthBefore, armourBefore, killed: false });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.weapon).toBe(room.weaponName(M67.id, M67.name));   // the blast's kill: `weaponName(t.record.id, t.record.name)`
+    expect(calls[0]!.weapon).toBe(M67.name);                             // the test kit's arsenal names none: the record's name
+    expect(calls[0]!.part).toBeNull();
   });
 });

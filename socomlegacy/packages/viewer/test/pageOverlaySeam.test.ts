@@ -260,3 +260,49 @@ describe('MU2-10: what the overlay reads of the page kind (the session and the r
     expect(forge.includes(`classList.remove('${FORGE_MATCHING_CLASS}')`)).toBe(false);
   });
 });
+
+/**
+ * WM-LAUNCHER (WM.R7; product track, a browser adaptation): the seam keeps the overlay's handle -- once mounted, it is
+ * offered to the round's START menu for this document (`../src/startMenu` `offerStartMenuLauncher`, its SHOW LAUNCHER
+ * row); a page with no overlay (a null mount) offers none, and the row is absent there.
+ */
+describe('WM-LAUNCHER: the seam keeps the overlay\'s handle for the START menu\'s SHOW LAUNCHER', () => {
+  function withHandle(handle: { open(): void; isOpen(): boolean } | null) {
+    const offered: [Document, unknown][] = [];
+    const t = loaders();
+    const l: PageLoaders = {
+      ...t.loaders,
+      overlay: async () => ({ mountPageOverlay: () => handle }),
+      startMenu: async () => ({ offerStartMenuLauncher: (doc: Document, h: { open(): void; isOpen(): boolean }) => { offered.push([doc, h]); return () => {}; } }),
+    };
+    return { l, offered };
+  }
+
+  it('the mounted overlay\'s handle is offered for the page\'s document, once, on every page kind it mounts over', async () => {
+    for (const address of ['/setup?devmode', '/testroom?map=MP2', '/forge']) {
+      loadPage();
+      const handle = { open: () => {}, isOpen: () => false };
+      const w = withHandle(handle);
+      await bootPage(address, document, w.l);
+      expect(w.offered, address).toEqual([[document, handle]]);
+    }
+  });
+
+  it('no overlay mounted (null): nothing offered', async () => {
+    const w = withHandle(null);
+    await bootPage('/setup?devmode', document, w.l);
+    expect(w.offered).toEqual([]);
+  });
+
+  it('the page\'s own loaders offer it through the START menu\'s module, the one the match reads', async () => {
+    expect(typeof PAGE_LOADERS.startMenu).toBe('function');
+    const m = await PAGE_LOADERS.startMenu!();
+    const { offerStartMenuLauncher, startMenuLauncher } = await import('../src/startMenu');
+    expect(m.offerStartMenuLauncher).toBe(offerStartMenuLauncher);
+    const handle = { open: () => {}, isOpen: () => false };
+    const undo = m.offerStartMenuLauncher(document, handle);
+    expect(startMenuLauncher(document)).toBe(handle);
+    undo();
+    expect(startMenuLauncher(document)).toBeNull();
+  });
+});

@@ -68,6 +68,11 @@ export interface PlacedModel {
   /** Per chunk: its `Material_Palette` entry, 1-based, 0 for none (`SceneNode.visualMaterials`). Absent on one built by hand. */
   material?: number[];
   /**
+   * Per chunk: its band in the world root's `LOD_Object`, 1-based, 0 for none (`SceneNode.visualBands`,
+   * `LOD_VISUAL_BAND_READING`, research 439). Absent on one built by hand.
+   */
+  band?: number[];
+  /**
    * PF-30, per chunk: whether its detail pass may draw (`visualHasDetail`: `vparams` bit 14, `DETAIL_BIT14_READING`).
    * Absent on a placement built by hand.
    */
@@ -324,6 +329,7 @@ export function placeInstances(models: SceneNode[], rootName = 'worldmodel'): Pl
       cull: Array.from({ length: f.node.visuals }, (_, v) => ((f.node.visualParams[v] ?? VISUAL_FLAG_CULL) & VISUAL_FLAG_CULL) !== 0),
       alphaPass: Array.from({ length: f.node.visuals }, (_, v) => visualInAlphaPass(f.node.visualParams[v] ?? 0)),
       material: Array.from({ length: f.node.visuals }, (_, v) => f.node.visualMaterials?.[v] ?? 0),
+      band: Array.from({ length: f.node.visuals }, (_, v) => f.node.visualBands?.[v] ?? 0),
       detail: Array.from({ length: f.node.visuals }, (_, v) => visualHasDetail(f.node.visualParams[v] ?? 0)),
       centres: Array.from({ length: f.node.visuals }, (_, v) => f.node.visualCentres?.[v] ?? null),
       detailRanges: Array.from({ length: f.node.visuals }, (_, v) => f.node.visualDetailRanges?.[v] ?? null),

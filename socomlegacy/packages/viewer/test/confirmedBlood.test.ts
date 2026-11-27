@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PerspectiveCamera } from 'three';
 import { FsAssetSource } from '@s2u/archive/node';
-import { HELD_RIFLE, HELD_SIDEARM, materialTable } from '@s2u/scene';
+import { GAME_FRAME_DT, HELD_RIFLE, HELD_SIDEARM, materialTable } from '@s2u/scene';
 import { Effects } from '../src/effects';
 import { effectsFromDisc, type EffectData } from '../src/effectData';
 import { Hud } from '../src/hud';
@@ -45,9 +45,12 @@ function page() {
       return socket;
     },
   };
-  new NetPage(deps, 'ws://test/ws', 'MP2', 'Tester', undefined, false, 'classic');
+  const net = new NetPage(deps, 'ws://test/ws', 'MP2', 'Tester', undefined, false, 'classic');
   socket!.onopen?.({} as Event);
-  const server = (ev: ServerEvent): void => { socket!.onmessage?.({ data: JSON.stringify(ev) } as MessageEvent); };
+  const camera = new PerspectiveCamera();
+  // R4P-253: another player's shot is shown from the copy's count, one a game frame (REMOTE_SHOT_DRAIN_PER_TICK_READING):
+  // each event here is followed by one game frame, so a shot sent alone is shown before the next line reads it.
+  const server = (ev: ServerEvent): void => { socket!.onmessage?.({ data: JSON.stringify(ev) } as MessageEvent); net.frame(GAME_FRAME_DT, camera, false); };
   server({
     type: 'welcome', id: 1, version: 9, map: 'MP2', tick: 0, role: 'player', team: 'seal', queue: 0, name: 'Tester',
     players: [], rules: 'classic', round: 1, rounds: 11, ghost: false, epoch: 0, env: { revision: 0, epoch: 0, states: [] },

@@ -581,9 +581,19 @@ counted off the disc by PAR-50, below).
   - *The repair.* `V:mover.ts` `isCameraClassSurface` (`isCameraSurface` -- bit 1 set, bit 19 clear -- and not
     VOLUMETRIC by the raw index) and `cameraClassClear(grid, a, b)` (`segmentHit` with that filter: D16's `modelGate`,
     the nearest hit; clear when none or type 1). `Walker.headroom` casts it from the idle hips + 2 to the feet + 19 / +
-    12; `Walker.jumpClear` from the stance's idle head + 1 up 20 (`JUMP_HEAD_READING`, §3.4.1). `jump` does **not** ask
-    `jumpClear` yet: D13's refusal is capture-gated (PTW.R1; §3.1's D13 row, §7), so its `it.fails` roof cases stand and
-    the query is written and held. The walk's other probes (`isWallSurface`, the prone gate, the ground probe) keep their
+    12; `Walker.jumpClear` from the stance's idle head + 1 up 20 (`JUMP_HEAD_READING`, §3.4.1). **Since 2026-11-22
+    (B-20) `jump` asks `jumpClear`**: r0004's jump 0x583490 asks the ray 0x584670 (r0001's `FUN_0057f150` bar
+    relocations) at 0x583530, its fourth gate, and a hit refuses the standing and the running jump (pilot key job B-20,
+    a reading pending review); B-20's capture of r0004 (Shadow PC 1, unreviewed) refused a standing jump under
+    Frostfire's tunnel roof 6 of 6. The main controller ruled those the capture PTW.R1 waited for; D13's two roof cases
+    now pass. Still open: the head's height (`JUMP_HEAD_READING`) and D13's crouch-running half. **A known bias**
+    (B-20's fresh review, F1): the running jump's ray also starts from the idle stand head 17.394, 1.6-2.0 above the
+    port's posed running head (`POSED_HEAD_READING`, 15.40-15.76), so its top is 38.39 where the posed head's is near
+    36.4-36.8, and a roof in that band refuses a running jump the original may take (PC 4's MP2 census: 2,489 of 7,879
+    blocked cells have a roof 36-38 over the floor); crouched and moving the bias runs the other way. Follow-up: the
+    moving head from the posed table (a reading, pending review); the settling capture, a running jump on r0004 under a
+    37-38 ceiling. The capture's own press points are held by `packages/viewer/test/b20JumpRoof.test.ts` (MP2: the ray
+    clear where the running jump went, closed where the standing jump was refused). The walk's other probes (`isWallSurface`, the prone gate, the ground probe) keep their
     own filters; `segment.ts`'s `isCameraSurface` (the camera's) is unchanged, its material half still unmodelled there.
     One `Walker` serves the page and the room.
   - *Held by* `packages/viewer/test/parity/movement.test.ts`, the PAR-50 block, each case for both rays: a type-2
@@ -657,7 +667,7 @@ counted off the disc by PAR-50, below).
 
 | name | value | what it stands in for | what would settle it |
 |---|---|---|---|
-| `JUMP_HEAD_READING` (`viewer/src/mover.ts`) | `'idle'`: the jump ray's foot is the stance's idle head (`seal_stand` 17.394, `seal_crouch` 10.138) + 1, up 20 | the posed head node `actor+0x308` at the press (`FUN_0057f150` D:L441263-441271), which moves with the clip (research 217 §2.3) | D13's capture (§7): a jump pressed standing and crouch-running under a low roof, the head node's height and the ray's answer; until then `jump` does not ask the ray (PTW.R1) |
+| `JUMP_HEAD_READING` (`viewer/src/mover.ts`) | `'idle'`: the jump ray's foot is the stance's idle head (`seal_stand` 17.394, `seal_crouch` 10.138) + 1, up 20 | the posed head node `actor+0x308` at the press (`FUN_0057f150` D:L441263-441271), which moves with the clip (research 217 §2.3) | D13's capture (§7): a jump pressed standing and crouch-running under a low roof, the head node's height and the ray's answer (`jump` asks the ray since B-20, 2026-11-22: the r0004 read and a standing-jump capture; the head's height is still this reading) |
 
 ## 4. Input timing, edges and buffering
 
@@ -1419,7 +1429,7 @@ Source inspection of the game ELF's decompilation; the six flinches' `looped` th
   port has no buffer to remove: `Walker.jump` answers the press at once on both movers.
 - *`FUN_0057e1b0`'s tests* (D:L440787-440810), in order: the controller's vtable `+0x34` answers 0 (D:L440789-440792;
   what it answers is not read here); not airborne (`+0x105e` bit 0x20) and the lock `+0x135c` run out (D:L440793); the
-  floor's normal y `+0x1348` at least `DAT_0044c268` (D:L440799); the head ray `FUN_0057f150` (D:L440800; D13's, owed);
+  floor's normal y `+0x1348` at least `DAT_0044c268` (D:L440799); the head ray `FUN_0057f150` (D:L440800; asked by the port since B-20, r0004 0x583530);
   `FUN_005b4340(actor, 0xb)` (D:L440806) -- its common gates read the state, the top's action and its state byte `+0x2b`
   (D:L469320-469335), its 0xb case the stance (2, prone, refused) and `+0x528` (D:L469466-469475), never the play's
   flags `+0x28`; then `+0xeac` 0 and the state `+0x174` not 9 nor 10 (D:L440807-440808), `FUN_00589900` (D:L440808),

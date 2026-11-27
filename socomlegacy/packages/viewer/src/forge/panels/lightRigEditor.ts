@@ -146,7 +146,7 @@ export function buildLightRigEditor(doc: Document, hooks: LightRigHooks): LightR
     body.append(h, forgeEl(doc, 'p', 'fx-dim fx-setting-note', source));
   };
   /**
-   * A property row (the owner, 2026-11-12: "Property Text | Widget, where all the widgets are all left aligned to the
+   * A property row (the Forge's owner (crispy, OT.R112), 2026-11-12: "Property Text | Widget, where all the widgets are all left aligned to the
    * largest text in that property table"): its label in the panel's label column (`.fx-prop-table`), its widgets after.
    */
   const row = (label: string, ...kids: (HTMLElement | string)[]): HTMLElement => {

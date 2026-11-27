@@ -36,6 +36,21 @@ export function placementsOf(map: Pick<LoadedMap, 'props'>, keys: Iterable<strin
     if (isWorldFacadeProp(p)) continue;   // FACADES-2: as the server's `archiveParts`, which reads none
     for (let i = 0; i < p.matrices.length / 16; i++) if (want.has(KEY_OF(p.modelName, p.matrices, i * 16))) out.add(`${prop}:${i}`);
   }
+  // LATER 999 (the review's F1): a clutter instance drawn in several parts is one object -- every part carries the
+  // instance's path `clutter/<model>#<record>` and the hull's owners hang under it -- so a part hidden hides every part of
+  // its instance, in whichever entry it is drawn, or its collision would go while the rest of it still draws.
+  const instances = new Set<string>();
+  for (const key of out) {
+    const [prop, index] = key.split(':').map(Number) as [number, number];
+    const path = map.props[prop]?.paths?.[index];
+    if (path?.startsWith('clutter/') && path.includes('#')) instances.add(path);
+  }
+  if (instances.size > 0) {
+    for (const [prop, p] of map.props.entries()) {
+      if (isWorldFacadeProp(p)) continue;
+      p.paths?.forEach((path, i) => { if (instances.has(path)) out.add(`${prop}:${i}`); });
+    }
+  }
   return out;
 }
 
@@ -174,7 +189,7 @@ export function groundWithout(map: Pick<LoadedMap, 'props'>, ground: GroundData,
     owners.push({ ...o, first: polys.length });
     for (let i = o.first; i < o.first + o.count; i++) polys.push(all[i]!);
   }
-  return packGround(ground.grid, polys, owners);
+  return packGround(ground.grid, polys, owners, ground.defaultMaterial);   // FLE-2 (F4): the map's default soil
 }
 
 /**

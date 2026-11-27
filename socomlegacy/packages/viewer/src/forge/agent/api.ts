@@ -33,6 +33,8 @@ export interface ForgeAgentCatalogue {
   hidden: string[];
   /** The base map's own bomb start and its MPBOMB actions, as the disc's map carries them (`../../loadMap`). */
   objectives: { bombStart: [number, number, number] | null; bombSites: unknown[] };
+  /** Every named point of the base map an agent can frame with `camera.objective` (`./editorFacade` `objectivePointsOf`). */
+  objectivePoints: { name: string; kind: string; team: number | null; at: [number, number, number] }[];
 }
 /** The editor's switches the view carries (`../page` `VIEW_TOGGLES`). */
 export type ForgeAgentViewToggle = 'wireframe' | 'untextured' | 'collision' | 'grid' | 'spawns' | 'fog' | 'shadows' | 'detail' | 'billboards'

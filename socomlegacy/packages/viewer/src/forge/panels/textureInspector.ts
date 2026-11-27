@@ -5,7 +5,7 @@ import type { DetailChange, Justify, MappingChange } from '../geometry/texturing
 import type { TextureStateView } from '../geometry/editor';
 
 /**
- * Geometry mode's texturing in the Inspector, as a level editor's face edit panel lays it out (the owner, 2026-11-17:
+ * Geometry mode's texturing in the Inspector, as a level editor's face edit panel lays it out (the Forge's owner (crispy, OT.R112), 2026-11-17:
  * texturing as a level editor does it: Align, Scale, Shift, Rotate, Fit, Justify; a browser
  * adaptation, FG.R2): two folding sections in the dock's one section look (`.fx-fold`).
  * - **Texture State**: the selected faces' Scale (world units a texel, U and V), Shift (texels) and Rotate (degrees),
@@ -15,12 +15,12 @@ import type { TextureStateView } from '../geometry/editor';
  *   bottom, centre), and "Treat as one" (Fit and Justify over the selection together, else each face alone).
  * Every press is one edit (one undo step), on the faces the Select tool has (a face selection, or whole objects).
  *
- * The assists for someone new to texturing (the owner, 2026-11-17: "easy ... for noobs ... but also stay standard") are
+ * The assists for someone new to texturing (the Forge's owner (crispy, OT.R112), 2026-11-17: "easy ... for noobs ... but also stay standard") are
  * the same numbers shown or set another way, never a state of their own: Units (Texels, a level editor's; or Metres -- Scale as
  * the size of one copy of the texture, Shift as a part of one copy), Reset (world-aligned at the texture's natural size,
  * as the map's own makers laid it), and a warning when the texture is stretched or far off that size, with Fix (Reset).
  *
- * Texture State's Detail (the owner, 2026-11-18: per mesh, as the original holds it): whether the texture's detail pass
+ * Texture State's Detail (the Forge's owner (crispy, OT.R112), 2026-11-18: per mesh, as the original holds it): whether the texture's detail pass
  * (its manifest `detail` record) is drawn over the faces -- the visual's `vparams` bit 14 -- and its Distance, the
  * visual's own gate range (`detail_buff`, kept squared; shown as the distance, in world units or metres). Both are the
  * engine's per-visual words (`../geometry/texturing` `DetailChange`): set on faces sharing a draw, they split them into

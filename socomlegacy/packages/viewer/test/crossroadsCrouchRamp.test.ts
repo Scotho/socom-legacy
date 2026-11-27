@@ -36,7 +36,11 @@ describe.skipIf(!MP72)(`Crossroads tower ramp crouch movement${MP72 ? '' : ` (${
       expect(w.place(x, downhill ? 121 : 92, downhill ? 1333 : 1280)).toBe(true);
       w.state.yaw = downhill ? 0 : 180;
       w.stance = 'crouch';
-      for (let i = 0; i < 90; i++) w.tick(still);
+      // LATER 1194B (the walls trial, 2026-11-21): rest to a game frame's end (`throttleFrameEnds`: 3, 5, 7 ... from the
+      // placing), so the stick's first tick starts a frame and is read at once (LATER 1219, `Walker.idleRead`: a press
+      // from rest is read at a frame's start, as the original copies the pad's axes once a frame). After 90 ticks the
+      // first stick tick fell inside a frame: read as rest, the crouch run's posture stood a tick late.
+      for (let i = 0; i < 89; i++) w.tick(still);
       let inclineTicks = 0;
       for (let i = 0; i < 600 && (downhill ? w.state.z > target : w.state.z < target); i++) {
         w.tick({ forward: push, right: 0, boost: false });

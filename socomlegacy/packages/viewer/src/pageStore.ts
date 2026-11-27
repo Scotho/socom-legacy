@@ -41,6 +41,9 @@ export const PAGE_SETTING_KEYS: readonly string[] = [
   's2u.viewer.graphicsDemoted',      // graphicsDemotion.ts GRAPHICS_DEMOTED_KEY: why Automatic was set to WebGL2 after a WebGPU error (WG-7)
   's2u.viewer.look',                 // ui.ts: the picture (ps2 / modern)
   's2u.viewer.picture',              // picture.ts PICTURE_KEY: the front end's picture, VIDEO MODE's (OT.R79: modern / ps2 / experimental)
+  's2u.viewer.shape',                // shape.ts SHAPE_KEY: the match canvas's shape, fill / 4:3 / 4:3-stretched (VIDEO-SHAPE, a browser adaptation)
+  's2u.viewer.lightweightMatch',     // lightweightMatchOptIn.ts LIGHTWEIGHT_MATCH_KEY: the match engine, '1' lightweight / '0' standard / else the class's default (Options > Display "Match engine", the Xbox class only)
+  's2u.viewer.ps2ProfilePrior',      // picture.ts PS2_PROFILE_PRIOR_KEY: the Xbox class's own rows kept while #810's PS2 shortcut holds
   's2u.viewer.detailDistance',       // detailDistance.ts DETAIL_DISTANCE_KEY: the detail distance factor, launcher Options and the Forge (PF.R60)
   's2u.viewer.volume',               // ui.ts: the page's volume slider
   's2u.viewer.muted',                // ui.ts: the page's mute
@@ -51,8 +54,19 @@ export const PAGE_SETTING_KEYS: readonly string[] = [
   's2u.viewer.video',                // videoSettings.ts VIDEO_SETTINGS_KEY: render scale and shadows, one JSON value (CPS.R7, a browser adaptation)
   's2u.viewer.video2',               // videoSettings.ts VIDEO_SETTINGS_KEY_V2: the video settings v2, one JSON value (VS-1, a browser adaptation)
   's2u.viewer.videoAuto',            // autoQuality.ts VIDEO_AUTO_KEY: Automatic's first-match probe result, one JSON value (VS-7, a browser adaptation)
+  's2u.viewer.clanTagsInLabels',     // clanTagOption.ts CLAN_TAGS_KEY: clan tags in the in-play name labels, shown / hidden (PSR-5, R4P.R11, a browser adaptation)
   's2u.viewer.nameTags',             // nameTags.ts NAME_TAGS_KEY: the teammates' name tags' look, original / modern (SS-2, H422 (a), a browser adaptation)
   's2u.viewer.rangeReadout',         // rangeReadout.ts RANGE_READOUT_KEY: the info box's range readout, off / on (HUD-ALIVE C, OT.R117, a browser adaptation)
+  's2u.viewer.joinLeaveLine',        // joinLeaveLine.ts JOIN_LEAVE_LINE_KEY: the join and leave lines on the message window, off / on (PRS-888, a browser adaptation)
+  's2u.viewer.ambienceVolume',       // ambienceVolume.ts AMBIENCE_VOLUME_KEY: the ambience's own volume, '50'..'100' by tens (v0.4.26's '0'..'40' read as '50'), '100' unset (LATER 1177(b), a browser adaptation)
+  's2u.graphicsAutoReloadAt',        // graphicsLost.ts GRAPHICS_AUTO_RELOAD_STAMP_KEY: the last automatic graphics reload's time, this tab only (sessionStorage; N-03, a browser adaptation)
+  's2u.graphicsAutoReloadCount',     // graphicsLost.ts GRAPHICS_AUTO_RELOAD_COUNT_KEY: the tab's automatic graphics reloads, capped (sessionStorage; N-03, a browser adaptation)
+  's2u.viewer.streamer.on',          // streamerMode.ts STREAMER_KEYS.on: Streamer mode on / off (STREAMER-P1, OT.R152, a browser adaptation)
+  's2u.viewer.streamer.voiceIn',     // streamerMode.ts STREAMER_KEYS.voiceIn: Voice from others
+  's2u.viewer.streamer.myVoice',     // streamerMode.ts STREAMER_KEYS.myVoice: My voice
+  's2u.viewer.streamer.chatIn',      // streamerMode.ts STREAMER_KEYS.chatIn: Chat from others
+  's2u.viewer.streamer.details',     // streamerMode.ts STREAMER_KEYS.details: Room and account details, shown / hidden
+  's2u.viewer.streamer.saved',       // streamerMode.ts STREAMER_KEYS.saved: the sub-rows kept while the mode is On (JSON), restored at Off
   's2u.viewer.glowScale',            // glowScale.ts GLOW_SCALE_KEY: the flashbang glow target's scale, auto / full / half (GLOW-STEPDOWN, a browser adaptation)
   's2u.startup.v1',                  // startupSettings.ts SETUP_KEY: the setup page's prefix
   's2u.startup.v1.pad.selection',    // setupPad.ts PAD_SELECTION_KEY (a pad's own profile is `s2u.startup.v1.pad.<id JSON>`, controllerInput.ts)
@@ -77,6 +91,11 @@ export const PAGE_SETTING_KEYS: readonly string[] = [
   's2u-forge-assets-browser',         // forge/page.ts: the Assets tab's list/grid mode and tile size (a browser adaptation)
   's2u-forge-mode-docks',            // forge/page.ts FORGE_MODE_LAYOUTS_KEY: Object and Modelling mode's own dock layouts (a browser adaptation)
   's2u-forge-object-view',           // forge/page.ts FORGE_OBJECT_VIEW_KEY: Object mode's Display and Overlays settings while in Modelling (a browser adaptation)
+  's2u-forge-shortcuts',             // forge/shortcuts.ts STORE_KEY: the editor's customised shortcut keys (public PR #5, a browser adaptation)
+  's2u-forge-program-sidebar',       // forge/panels/scriptGraph.ts LEGEND_KEY: the script graph's legend width (public PR #5, a browser adaptation)
+  's2u-forge-tool-settings',         // forge/geometry/editor.ts TOOL_SETTINGS_KEY: the Edit tools' settings (public PR #5, a browser adaptation)
+  's2u-forge-shape-settings',        // forge/geometry/editor.ts SHAPE_SETTINGS_KEY: Create's shape settings (public PR #5, a browser adaptation)
+  'forge.aiNav',                     // forge/page.ts AI_NAV_KEY: AI Navigation's overlay switches (public PR #5, a browser adaptation)
   'forge.agent.pairedClients',       // agent/setup.ts AGENT_PAIRED_CLIENTS_KEY: the agents this browser paired once; their setup folds (AX-U)
   'forge.agent.resume',              // agent/connection.ts AGENT_RESUME_KEY: the gateway's one-time resume ticket, this tab only (sessionStorage, AX-9)
   'forge.agent.gateway',             // agent/setup.ts AGENT_GATEWAY_KEY: the connection service's address, the Connect moment's field (LATER 423, FP-14)
@@ -97,6 +116,8 @@ export const PAGE_SETTING_KEYS: readonly string[] = [
   's2u.console.v1.soundVolume',      // console/adapters/options.ts CONSOLE_KEYS.soundVolume: their volume (CX-52)
   's2u-forge-lobby-window',          // forge/lobby/window.ts FORGE_LOBBY_WINDOW_KEY: the lobby popup's place and size
   's2u.console.agreement.v1',        // console/adapters/session.ts AGREEMENT_ACCEPTED_KEY: the accounts' agreement accepted (AGREEMENT-ONCE)
+  's2u.xboxDiagnostics.current.v1', // xboxDiagnostics: bounded opt-in local trace
+  's2u.xboxDiagnostics.failure.v1', // last failed trace, preserved across reload
   's2u.replay.camera.v1',            // modern/replays/cameraChoice.ts REPLAY_CAMERA_KEY: the replay viewer's camera choice (RV2-06, RV2.R1)
 ];
 
@@ -114,6 +135,11 @@ export const pageReport = reportOnce();
 
 /** The page's own settings, on localStorage (asked for at each call: in some browsers reaching it throws). */
 export const pageSettings = new Settings(() => globalThis.localStorage, pageReport);
+
+/** The same guarded storage boundary for an instrument mounted in a supplied window. */
+export function pageSettingsFor(win: Pick<Window, 'localStorage'>): Settings {
+  return new Settings(() => win.localStorage, pageReport);
+}
 
 /** The tab's settings, on sessionStorage (the phone tip's "shown this visit"). */
 export const tabSettings = new Settings(() => globalThis.sessionStorage, pageReport);
@@ -218,10 +244,20 @@ export function openPageRecords(factory: () => IDBFactory | null | undefined, re
     }
     let settled = false;
     req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains(PAGE_RECORDS_STORE)) req.result.createObjectStore(PAGE_RECORDS_STORE);
+      // LATER 1270 (a browser adaptation): WebKit can fire the upgrade with no database on the request. The open is refused
+      // as unavailable (the path a browser with no IndexedDB takes) and the upgrade aborted, so no store-less database opens.
+      const db = req.result as IDBDatabase | undefined;
+      if (!db) {
+        settled = true;
+        reject(new StoreError('unavailable', 'open', undefined, new Error('the browser gave the upgrade no database')));
+        try { req.transaction?.abort(); } catch { /* already finished */ }
+        return;
+      }
+      if (!db.objectStoreNames.contains(PAGE_RECORDS_STORE)) db.createObjectStore(PAGE_RECORDS_STORE);
     };
     req.onsuccess = () => {
-      if (settled) { req.result.close(); return; }            // given up as blocked: not kept
+      // Given up (blocked, or LATER 1270's upgrade with no database -- its review F2: then there may be none here): not kept.
+      if (settled) { req.result?.close(); return; }
       settled = true;
       resolve(req.result);
     };
@@ -281,6 +317,8 @@ export function openPageRecords(factory: () => IDBFactory | null | undefined, re
 }
 
 /**
+ * **The Forge's edited geometry** (public PR #5; `./forge/geometryStore`, its own database `s2u-forge-geometry`): each edit's
+ * mesh file by its hash, kept in this browser, a browser adaptation (FG.R2).
  * **The test room's uploaded texture packs** (GX-27; `./texturePackStore`, its own database `s2u.texturePacks`): the
  * browser's `IDBFactory`, or null where reaching it throws or there is none -- the uploads then say they are
  * unavailable and the served packs work as before. A **browser adaptation** (H135): an artist's packs, never the game's.

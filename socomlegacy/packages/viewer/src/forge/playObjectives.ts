@@ -28,7 +28,7 @@ export function playObjectives<T extends ObjectiveMap & { ai?: AiMaps; escortees
   given: T, layout: Pick<Layout, 'objectives' | 'hostages' | 'extractionZones'>, lent: EscorteeStart | undefined, blocked: string | null = null,
 ): { map: T; why: string | null; hostagesLeft: number; hostagesOffGrid: number; hostagesPastBound: number; zonesLeft: number } {
   // The layout's placed pieces add nothing to the AI map, as the original's scene objects add nothing but a configured
-  // vehicle's footprint (research 335 section 5; the owner, 2026-11-16: "whatever the engine puts"): a hostage meets a
+  // vehicle's footprint (research 335 section 5; the Forge's owner (crispy, OT.R112), 2026-11-16: "whatever the engine puts"): a hostage meets a
   // prop at run time and marks the cells it touches (`FUN_00556ee0`, `match/src/hostageObstacles.ts`).
   const map: T = given;
   const type = layout.objectives?.gameType;

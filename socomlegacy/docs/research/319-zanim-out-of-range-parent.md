@@ -165,8 +165,9 @@ This is the lookup a parent-0 reference falls back to (§1.2). By search mode:
 - **Search 1** matches no branch, so it finds nothing: a search-1 reference is beneath the root or null.
 
 This settles the order `NODE_REF_SCOPE_READING` and `SCENE_INSTANCE_SCOPE_READING` read for search 0 and 1: beneath the
-root first, then the world for search 0, then nothing for search 1. Two parts stay unread: the find-by-name's depth (the
-argument 1 to the node's +0x24 method) and the three lookups not opened above.
+root first, then the world for search 0, then nothing for search 1. The find-by-name's depth (the argument 1 to the
+node's +0x24 method) is read since 2026-11-24 (reading, pending review): deep, the direct children first (§4.2 U6).
+The three lookups not opened above stay unread.
 
 ### 1.6 Beside the brief: the record's other bits, as the code uses them
 
@@ -375,7 +376,13 @@ run at 76f831e29 over the dev host's disc tree, are under each item; the open te
   as `FUN_002713f0` does (§1.4). Settled by opening those two functions, and needed only if U1 finds bit 11 on
   `otc_posechar`. *Survey:* bit 11 is clear on it (and on the other three `otc_` animations), so not needed for it.
 - **U6. The find-by-name's depth** (argument 1 to the node's +0x24 method; §1.5), shared with
-  `SCENE_INSTANCE_SCOPE_READING`. Settled by opening that method.
+  `SCENE_INSTANCE_SCOPE_READING`. *Settled 2026-11-24 (LATER 1513), reading, pending review:* the +0x24 method is
+  `FUN_00315d00`, zdb::CNode::FindChild (D:L215253-215290; r0004's `FUN_003332a0`, the same bytes). It compares the
+  node's direct children (+0x70, count +0x6c) by name first (D:L215270-215279); only when none matches and its flag is
+  non-zero does it call each child's own +0x24 with the same name and flag (D:L215280-215286) -- a deep search, the
+  direct children before any grandchild. Both name lookups pass 1 (D:L118197, D:L118221-118227), so both are deep. All
+  nine zdb vtables at +0x60 in the atlas's vtable data (CNode, CCamera, CCell, CLightMap, CLight, CModel, CRenderMap,
+  CWorld, CLensFlare) hold `FUN_00315d00` at +0x24; an override in a class outside those lists is unproven.
 
 ## 5. Readings and placeholders (candidates for the build)
 
@@ -383,4 +390,4 @@ run at 76f831e29 over the dev host's disc tree, are under each item; the open te
 |---|---|---|---|---|
 | `ZANIM_PARENT_SENTINEL_READING` | a node reference's parent byte: 0 none; 0xf9 the animation's instance, else its root reference's node; 0xfa the caller's node; else an index into the animation's references | `FUN_0026f4e0` D:L118159-118179 and its zero-extended argument (0x26f600, 0x26f518-0x26f544), §1.2-§1.3 | a reviewer's re-read; one memory read of `otc_posechar`'s reference-2 slot on a campaign map after the round's start (its node's parent is the animation's instance or root) | in code: `packages/scene/src/zanim.ts` (PAR-92 B1, 2026-10-14); reading, pending review. *Was:* *note only*: a candidate, B1 |
 | `ZANIM_PARENT_OUT_OF_TABLE_PLACEHOLDER` (was `ZANIM_PARENT_OUT_OF_TABLE_READING`) | untraced: a parent byte at or past the count that is not 0xf9 or 0xfa leaves its reference unresolved, and the archive is kept | the original, which the port does not follow there (§1.2): for count .. 254 the table grows with blank references and the blank resolves by the animation's name 0, a lookup not traced; for 255 the growth loop never ends | U3's survey: if no reference on the disc has such a parent, the placeholder stays a guard that never runs; if one has, trace the name-0 lookup on that map. *PAR-92 B4:* none on the 34 maps (§4.2 U3, U4): a guard that never runs on retail data | in code: `packages/scene/src/zanim.ts` (PAR-92 B1, 2026-10-14); placeholder. *Was:* *note only*: a candidate, B1. *F1; was:* `ZANIM_PARENT_OUT_OF_TABLE_READING`, "resolves to nothing", read from the growth alone |
-| `ZANIM_PARENT_SCOPE_READING` | a reference with a non-zero parent is placed beneath its parent's placement only, never in the world; `root` beneath the root's placement | `FUN_0026f4e0` D:L118221-118228 (no world fallback, the search mode unread) and §1.3 | U6, for the depth; U4, for whether any multiplayer placement moves (*PAR-92 B4:* MP11's and MP62's `gatehand` saves move onto their own levers, §4.2 U4) | in code: `packages/viewer/src/mapMeta.ts`, read by `sceneHealth.ts` `placeRefs` (PAR-92 B2, 2026-10-14); reading, pending review; read by `worldState.ts`'s run-time calls too; the page's effects owed (§4.1). *Was:* *note only*: a candidate, B2 |
+| `ZANIM_PARENT_SCOPE_READING` | a reference with a non-zero parent is placed beneath its parent's placement only, never in the world; `root` beneath the root's placement | `FUN_0026f4e0` D:L118221-118228 (no world fallback; both lookups pass 1, deep (§4.2 U6), D:L118197, D:L118221-118227) and §1.3 | *U6 settled 2026-11-24:* deep (`FindChild`, §4.2 U6); U4, for whether any multiplayer placement moves (*PAR-92 B4:* MP11's and MP62's `gatehand` saves move onto their own levers, §4.2 U4) | in code: `packages/viewer/src/mapMeta.ts`, read by `sceneHealth.ts` `placeRefs` (PAR-92 B2, 2026-10-14); reading, pending review; read by `worldState.ts`'s run-time calls too; the page's effects owed (§4.1). *Was:* *note only*: a candidate, B2 |

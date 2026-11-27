@@ -5,6 +5,7 @@ import { expect, test } from '@playwright/test';
 import type {} from '../src/hook';
 import { buildIso } from '../../archive/test/isoImage';
 import { TEST_ROOM } from './urls';
+import { IMAGE_SYSTEM_CNF } from './fixtureImage';
 import { holdReleased } from './loadHold';
 
 /**
@@ -25,7 +26,8 @@ test.use({ storageState: { cookies: [], origins: [] } });
 
 test.beforeAll(() => {
   mkdirSync(dirname(ISO), { recursive: true });
-  writeFileSync(ISO, buildIso([{ path: 'RUN/MP2.ZDB', bytes: new Uint8Array(readFileSync(MP2)) }], 'SCUS_97275'));
+  // LATER 954: the test room checks an image's identity first (DA.R8): the retail line's SYSTEM.CNF, generated.
+  writeFileSync(ISO, buildIso([{ path: 'SYSTEM.CNF', bytes: new TextEncoder().encode(IMAGE_SYSTEM_CNF) }, { path: 'RUN/MP2.ZDB', bytes: new Uint8Array(readFileSync(MP2)) }], 'SCUS_97275'));
 });
 
 test('a player in Play cannot reach the fly camera by any input', async ({ page }) => {

@@ -61,7 +61,7 @@ import { kitGameType, loadKitSource } from '../loadout';
 import { noteDiscSource } from '../pwa/fileDisc';
 import { storedCopyRequest } from '../discCopy';
 import { extractionState, storedExtraction } from '../discExtractRecord';
-import { forgeDiscStart } from '../discStart';
+import { forgeCardDisc, forgeDiscStart } from '../discStart';
 import { sourceWhere } from '../discStored';
 import { accountServiceBase, pinnedMatchSocket, type PinnedSocketUrl } from '../connectHost';
 import { pageSession } from '../modern/session';
@@ -91,7 +91,7 @@ import {
 import { defaultLobbyName, forgetStaleHost, joinLockedLobby, leaveLobbyInOrder, lobbyHostProof, lobbyMenuItems, lobbyPasswordField, lobbySocketOf, lobbyVisibilityToggle, typingTarget, type LobbyHostProof } from './lobbyPage';
 import { BLANK_LIBRARY, blankLibraryMap, composeMatchMap, floorMesh } from './matchMap';
 import { mapWithArsenal } from './arsenalSetting';
-import { rosterChoices, rosterStems, type RosterMap } from './rosterSetting';
+import { rosterChoices, rosterStems, withRoster, type RosterMap } from './rosterSetting';
 import { withExtrasSettings, withLoadingTitle } from './worldSettings';
 import { composeLayoutFinish, composeLayoutObjects, layoutOwnSites } from './composeLayout';
 import { LoadingPanel } from '../loadingPanel';
@@ -116,7 +116,7 @@ import {
   archiveStem, assetId, DEFAULT_SETTINGS, emptyLayout, newLayout, originalTimeOf, FORGE_GAME_TYPE_NAME, LAYOUT_NAME_MAX, layoutDownloadName, layoutIds, modeCaption, NPC_BEHAVIOURS, parseAssetId, parseCamera,
   serializeLayout, settingsOf, withIds, placementKey, type LightRigSetting, type BombObjectives, type Piece, type ForgeGameType, type Layout, type LayoutBase, type LayoutCamera, type LayoutSettings,
   type NpcBehaviour, BOMB_SITE_REACH, } from './layout';
-import { blankFloorOf, bombMarkerPlaysIn, breachReady, forgeTypeUnplayable, type ObjectiveMap } from './objectives';
+import { blankFloorOf, bombMarkerPlaysIn, breachReady, forgeTypeUnplayable, usesBaseBomb, type ObjectiveMap } from './objectives';
 import { under as mapUnder } from '../mapMeta';
 import type { WeaponSoundEntry } from '../soundData';
 import { COMMON_SCRIPT_EFFECTS, commonScriptNames, lentAccessAssets, lentScriptAssets, mergeLent, scriptEffectsOf, scriptSoundsOf, scriptSteps, type LentScriptAssets } from './scriptAssets';
@@ -179,7 +179,7 @@ import { buildSurfaceInspector } from './panels/surfaceInspector';
 import { buildScriptGraph, type FlagUse, type GraphStep, type LegendFlag, type LegendSequence, type ScriptView } from './panels/scriptGraph';
 import { FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION } from './transformStubs';
 // FC2-7 (ours): `FOLLOWER_SIZE_REFUSAL`, `scaleWithinRecord` -- a carried piece kept within the record's size bounds.
-import { FOLLOWER_SIZE_REFUSAL, PACK_PIECE_POSE_REFUSAL, PIECE_PITCH_LIMIT, scaleOnLattice, scaleWithinRecord, signedDegrees, snappedScale, snappedTurn, turnOf, turnQuaternion, type PieceTurn } from './transformStubs';
+import { FOLLOWER_SIZE_REFUSAL, PACK_PIECE_POSE_REFUSAL, PIECE_PITCH_LIMIT, recordTurn, scaleOnLattice, scaleWithinRecord, signedDegrees, snappedScale, snappedTurn, turnOf, turnQuaternion, wholeOrKeptTurn, type PieceTurn } from './transformStubs';
 import { scrubAllNumbers, scrubbing, scrubLive, wheelAllNumbers, type ScrubDetail } from './scrub';
 import { buildOutliner, OUTLINER_KINDS, outlinerPanel, spawnSlotRows } from './panels/outlinerPanel';
 import { mapDataGroups, type MapDataSource } from './mapData';
@@ -199,7 +199,7 @@ import {
 } from './mapDataBillboards';
 import { buildDetailDistance, buildRenderScale, detailDistanceMenuItem, renderScaleMenuItem, VIEW_MENU_ROWS, viewMenuSection, type DetailDistanceHooks, type RenderScaleHooks } from './panels/viewPanel';
 import { detailDistanceFor, detailDistanceKeeper } from '../detailDistance';
-import { AdaptiveRatio, pixelRatioCap, type RatioTarget } from '../matchViewport';
+import { AdaptiveRatio, deferredRatio, pixelRatioCap, type RatioTarget } from '../matchViewport';
 import { wantsTouchControls } from '../touch';
 import { renderCapFor, videoSettingsKeeper } from '../videoSettings';
 import { buildSettings, drawCustomModes, formatSetting, MODE_OPTION_PREFIX, modeOptionValue, settingsPanel } from './panels/settingsPanel';
@@ -267,7 +267,7 @@ const FLOOR_STEP = 100;
 const VIEW_ARROW_LENGTH = 60;
 /**
  * The blank floor's guide in a neutral gray (the owner, 2026-11-06; an editor guide, never drawn in a match): its centre
- * lines, its lines, its ground -- the ground the dark grey the floor plane is drawn in once its geometry opens (the owner,
+ * lines, its lines, its ground -- the ground the dark grey the floor plane is drawn in once its geometry opens (the Forge's owner (crispy, OT.R112),
  * 2026-11-17: "when I create a new empty map is starts off white, but when I switch mode it works"; `./geometry/primitives`
  * `UNTEXTURED_FLOOR_COLOR_ADAPTATION` as it renders), so a new map's ground is one colour from the start.
  */
@@ -302,7 +302,7 @@ function paintGhost(root: Object3D, admitted: boolean): void {
       m.transparent = true;
       m.opacity = GHOST_OPACITY_ADAPTATION;
       // Its depth written, so the workplane's grid (drawn after it, `./mapGrid`) is hidden where the ghost is in front of
-      // it and drawn over it where it stands behind (the owner, 2026-11-17: "the pot is behind the workplane, so it should
+      // it and drawn over it where it stands behind (the Forge's owner (crispy, OT.R112), 2026-11-17: "the pot is behind the workplane, so it should
       // be drawn behind because we have snap to workplane off"); seated on the workplane, it is drawn after the grid
       // (`ghostOverWorkplane`).
       m.depthWrite = true;
@@ -318,7 +318,7 @@ function paintGhost(root: Object3D, admitted: boolean): void {
 }
 
 
-/** The object pickers' two headed sections (an At, an Object, a linked Prop: the owner, 2026-11-14). */
+/** The object pickers' two headed sections (an At, an Object, a linked Prop: the Forge's owner (crispy, OT.R112), 2026-11-14). */
 const OWN_OBJECTS_GROUP = 'Your objects';
 const MAP_OBJECTS_GROUP = 'Map objects';
 
@@ -364,7 +364,7 @@ const AMBIENT_DEFAULT_RANGE: [number, number] = [160, 430];
 /** The asset browser's map choice that is no one map (`showEveryMap`): its first, every map's. */
 const PALETTE_ALL = '*all';
 /**
- * The asset browser's Common (the owner, 2026-11-13: "All, Common, then all the maps"; "do the same for all the asset
+ * The asset browser's Common (the Forge's owner (crispy, OT.R112), 2026-11-13: "All, Common, then all the maps"; "do the same for all the asset
  * types"): what the maps share, so a map lists only its own -- the props of a shared library (`libraryProps` `shared`:
  * a model of another archive's library, the Pave Hawk's, the turrets'), the sounds every map's banks hold (the guns'
  * with them), the called effects every map has. A scene object (a door, a gate...) is a copy of one map's own: none.
@@ -387,22 +387,22 @@ const parseTextureAsset = (asset: string): { source: string; name: string } | nu
 };
 type ObjectTab = 'props' | 'texture' | 'characters' | 'sound' | 'effect' | 'ambient' | 'door' | 'ladder' | 'turret' | 'barrier' | 'switch' | 'gate' | 'flare';
 /**
- * The asset browser's tabs (the owner, 2026-11-13: "the cleanest separations of asset/object types ... the true asset
+ * The asset browser's tabs (the Forge's owner (crispy, OT.R112), 2026-11-13: "the cleanest separations of asset/object types ... the true asset
  * engine types"): the disc's own kinds of asset -- its props (models), its characters (`chartype`), its sounds (the
  * banks and their `sounds.rdr` entries) and its programs (zAnim: self-starting ambient ones and called effects alike)
  * -- then the scene objects a map's copy is placed whole as (each the Place tool's), kept as they were for now.
  */
-/** The Characters tab shown: off for now (the owner, 2026-11-13: "hide the character assets for now"). */
+/** The Characters tab shown: off for now (the Forge's owner (crispy, OT.R112), 2026-11-13: "hide the character assets for now"). */
 const CHARACTERS_TAB_SHOWN = false;
 const OBJECT_TABS: readonly (readonly [ObjectTab, string])[] = [
-  // Characters hidden for now (the owner, 2026-11-13: placed NPCs are the Forge's own, not a disc object; `CHARACTERS_TAB_SHOWN`).
+  // Characters hidden for now (the Forge's owner (crispy, OT.R112), 2026-11-13: placed NPCs are the Forge's own, not a disc object; `CHARACTERS_TAB_SHOWN`).
   ['props', 'Props'], ...(CHARACTERS_TAB_SHOWN ? [['characters', 'Characters'] as const] : []),
   ['door', 'Door'], ['ladder', 'Ladder'], ['turret', 'Turret'], ['barrier', 'Damage trigger'], ['switch', 'Switch'], ['gate', 'Gate'], ['flare', 'Flare'],
-  // The sounds, the effects and the programs last (the owner, 2026-11-13; the effects a tab of their own, 2026-11-14:
+  // The sounds, the effects and the programs last (the Forge's owner (crispy, OT.R112), 2026-11-13; the effects a tab of their own, 2026-11-14:
   // "split out the effects from the programs asset").
-  // The self-starting programs called Emitters (the owner, 2026-11-14: "use emitters").
+  // The self-starting programs called Emitters (the Forge's owner (crispy, OT.R112), 2026-11-14: "use emitters").
   ['sound', 'Sounds'], ['effect', 'Effects'], ['ambient', 'Emitters'],
-  // The textures a disc asset of their own (the owner, 2026-11-16: "a whole new category in the asset browser for
+  // The textures a disc asset of their own (the Forge's owner (crispy, OT.R112), 2026-11-16: "a whole new category in the asset browser for
   // textures"): each map's asset libraries' (`../mapTextures` `textureCatalog`), laid in Geometry mode -- last, as no
   // texture is dropped on the world in Object mode ("move the textures button ... to the last item").
   ['texture', 'Textures'],
@@ -414,6 +414,13 @@ const tabWords = (word: string): string => { const w = word.toLowerCase(); retur
 type ObjectRef = { source: string; name: string };
 /** The object kinds an asset id names (a ladder is a prop: its tile is its prop's own id). */
 type ObjectKind = 'door' | 'turret' | 'gate' | 'barrier' | 'flare' | 'switch' | 'ambient';
+/**
+ * The tree (a browser adaptation, FG.R2): a placement under a moved one (`followersOf`), taken at the edit's start -- `a`
+ * its nearest moved ancestor, `rel` its matrix in `a`'s (a^-1 * r). FN-3 (ours; the owner, 2026-11-14, FN.R4): and what
+ * a carry whose scale change is not uniform keeps (`carriedMatrix`) -- `aScale` `a`'s scale then (the change's start),
+ * `turn` its turn relative to `a`'s (qa^-1 * qr), `size` its own scale.
+ */
+type Follower = { r: Object3D; a: Object3D; rel: Matrix4; aScale: Vector3; turn: Quaternion; size: Vector3 };
 /**
  * An object's asset id (a browser adaptation, FG.R2): `<kind>.<map>:<name>` -- `door.MP2:bdoor_4` -- so the asset
  * browser's tiles, its thumbnails and its drag (`../creator/assetsForgePanel`, the editor seam) carry it as a prop's
@@ -476,11 +483,11 @@ const VIEW_TOGGLES = [
   { id: 'wireframe', label: 'Wireframe', group: 'Draw', on: false },
   { id: 'untextured', label: 'Untextured highlight', group: 'Draw', on: false },
   { id: 'collision', label: 'Collision hull', group: 'Draw', on: false },
-  { id: 'grid', label: 'Workplane', group: 'Draw', on: false },   // the owner, 2026-11-16: "don't call it Map grid, instead call it workplane"
+  { id: 'grid', label: 'Workplane', group: 'Draw', on: false },   // the Forge's owner (crispy, OT.R112), 2026-11-16: "don't call it Map grid, instead call it workplane"
   { id: 'spawns', label: 'Gizmos', group: 'Overlays', on: true },
-  // The map's AI grid (`./aiMapOverlay`; the owner, 2026-11-12): every walkable cell, coloured by its soil.
+  // The map's AI grid (`./aiMapOverlay`; the Forge's owner (crispy, OT.R112), 2026-11-12): every walkable cell, coloured by its soil.
   { id: 'aimap', label: 'AI Navigation', group: 'Overlays', on: false },
-  // The selected faces' texture repeats drawn over them on Geometry mode's Texture layer (the owner, 2026-11-17; a UV
+  // The selected faces' texture repeats drawn over them on Geometry mode's Texture layer (the Forge's owner (crispy, OT.R112), 2026-11-17; a UV
   // checker's overlay, `GeometryEditor.setTextureGrid`).
   { id: 'texgrid', label: 'Texture grid', group: 'Draw', on: false },
   { id: 'fog', label: 'Fog', group: 'World', on: true },
@@ -498,7 +505,7 @@ type ViewToggle = (typeof VIEW_TOGGLES)[number]['id'];
  * viewport draw settings"; `./splitViews` `ViewLook.draw`): those that only show or hide what is drawn, set again at each
  * view's draw. Textured, Lit and Untextured highlight rewrite every material (Lit every vertex colour), Fog the scene's
  * fog and clear, the World group's others the draw order, and the picture the renderer: those stay every view's. The
- * Gizmos (`spawns`) are the Overlays menu's, shared by every view as its other switches are (the owner, 2026-11-13).
+ * Gizmos (`spawns`) are the Overlays menu's, shared by every view as its other switches are (the Forge's owner (crispy, OT.R112), 2026-11-13).
  */
 const VIEW_DRAW_OWN = ['geometry', 'wireframe', 'collision', 'grid', 'aimap', 'shadows', 'detail', 'alternate'] as const satisfies readonly ViewToggle[];
 
@@ -565,7 +572,7 @@ const ICON: Record<string, string> = {
   snap: '<path d="M4 4h4v4H4zM16 4h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4zM8 6h8M8 18h8M6 8v8M18 8v8"/>',
   gridSnap: '<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/>',
   // Surface snapping: a box set down on a surface, an arrow bringing it down.
-  // The Workplane and Surface Snapping menu's (the owner, 2026-11-17: "we may need a better icon for it"): a plane in
+  // The Workplane and Surface Snapping menu's (the Forge's owner (crispy, OT.R112), 2026-11-17: "we may need a better icon for it"): a plane in
   // perspective, its up arrow standing on it.
   workplaneSnap: '<path d="M2 18l5-4h15l-5 4z"/><path d="M12 16V5"/><path d="M9 8l3-3 3 3"/>',
   surfaceSnap: '<path d="M3 20h18"/><path d="M7 16l5-2.5 5 2.5-5 2.5z"/><path d="M7 16v-3.5l5-2.5 5 2.5V16"/><path d="M12 3v4.5M9.8 5.6L12 7.8l2.2-2.2"/>',
@@ -691,6 +698,10 @@ interface LobbyHere {
   shown: boolean;
   /** The lobby closed or the seat ended: the window stays with its notice until closed. */
   ended: boolean;
+  /** H460 fix round 3 (finding 3): a `launchLobbyMatch` of this lobby is under way (its start to its `finally`). */
+  launching?: boolean;
+  /** H460 fix round 3 (finding 3): a launch of this lobby was told while one was under way, and held. */
+  launchMissed?: boolean;
 }
 
 /**
@@ -1118,18 +1129,18 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // No base list on the toolbar (the owner, 2026-11-06): New asks for the base (`chooseNewBase`). `baseSel` stays, off
   // the page, the list of bases New offers and the row the current base answers to (`baseValue`).
   const baseGroup = group(newBtn, openBtn, saveBtn, layoutNameIn, file);   // Saves beside Open (the owner, 2026-11-06)
-  // The editor's modes (the owner, 2026-11-15), picked on the toolbar, each setting both bars up: Object mode, Select and
+  // The editor's modes (the Forge's owner (crispy, OT.R112), 2026-11-15), picked on the toolbar, each setting both bars up: Object mode, Select and
   // Place on the toolbar and the objects to place on the object bar; Modelling mode (`./geometry/editor`), the selection
   // modes (Object, Vertex, Edge, Face) on the toolbar and the modelling tools (Create, Edit, Texture, ...) on the object bar.
   const editModeSel = el(doc, 'select', 'fx-select fx-edit-mode');
   editModeSel.setAttribute('aria-label', 'Editor mode');
   editModeSel.title = 'The editor mode: Object places and moves objects; Geometry builds and edits the level geometry -- its objects, faces, edges and vertices -- and, on its Collision layer, the collision';
-  // "Geometry mode" (the owner, 2026-11-15: named as the Outliner's Geometry folder it fills); `modelling` its value still.
-  // The collision is a layer of Geometry mode (the owner, 2026-11-15: "we only have a geometry mode, but in the second
+  // "Geometry mode" (the Forge's owner (crispy, OT.R112), 2026-11-15: named as the Outliner's Geometry folder it fills); `modelling` its value still.
+  // The collision is a layer of Geometry mode (the Forge's owner (crispy, OT.R112), 2026-11-15: "we only have a geometry mode, but in the second
   // toolbar, we have a dropdown that has geometry layer and a collision layer"): `./geometry/editor`'s Layer picker.
-  // AI Navigation mode (the owner, 2026-11-16: "move ai navigation to it's own mode in the top toolbar"): the AI grid shown,
+  // AI Navigation mode (the Forge's owner (crispy, OT.R112), 2026-11-16: "move ai navigation to it's own mode in the top toolbar"): the AI grid shown,
   // its switches and its brush (`./aiPaint`) on the second toolbar.
-  // "Mode:" before the list, the list the modes' names alone (the owner, 2026-11-16: "add a Mode label ... remove the
+  // "Mode:" before the list, the list the modes' names alone (the Forge's owner (crispy, OT.R112), 2026-11-16: "add a Mode label ... remove the
   // mode word").
   editModeSel.id = 'fx-edit-mode';
   const editModeLabel = el(doc, 'label', 'fx-mode-section__label fx-bar-label', 'Mode');
@@ -1147,7 +1158,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const editModePicked = (): 'object' | 'modelling' | 'navigation' => (navOn ? 'navigation' : geometry?.isActive() ? 'modelling' : 'object');
   /** AI Navigation mode on (`setNavigation`). */
   let navOn = false;
-  // "Tools" before Select (the owner, 2026-11-16), as Geometry mode's "Select" and "Layer" label theirs.
+  // "Tools" before Select (the Forge's owner (crispy, OT.R112), 2026-11-16), as Geometry mode's "Select" and "Layer" label theirs.
   const placeGroup = group(el(doc, 'span', 'fx-mode-section__label fx-bar-label', 'Tools'), modeBtns.select);
   placeGroup.classList.add('fx-group--modes');
   const geometryModeTools = el(doc, 'div', 'fx-group--modes fx-geo-mode-tools');
@@ -1163,13 +1174,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** Made with the page's gizmo, below; null until then (the toolbar and `setMode` run first). */
   let geometry: GeometryEditor | null = null;
   /**
-   * Each editor mode's own dock layout (the owner, 2026-11-15: "everytime we switch modes, save the current layout for
+   * Each editor mode's own dock layout (the Forge's owner (crispy, OT.R112), 2026-11-15: "everytime we switch modes, save the current layout for
    * that mode, so that when we come back it restores the layout the user had"): the one left kept, the one entered put
    * back. Kept across visits (`FORGE_MODE_LAYOUTS_KEY`), with the mode the docks show now. Modelling's asset browser is
-   * shown on its Textures (the owner, 2026-11-16: "show the asset browser in geometry mode"; `geometryAssets`).
+   * shown on its Textures (the Forge's owner (crispy, OT.R112), 2026-11-16: "show the asset browser in geometry mode"; `geometryAssets`).
    */
   const FORGE_MODE_LAYOUTS_KEY = 's2u-forge-mode-docks';
-  // AI Navigation mode keeps a layout of its own too (the owner, 2026-11-16: "hide the asset browser, similar to what we
+  // AI Navigation mode keeps a layout of its own too (the Forge's owner (crispy, OT.R112), 2026-11-16: "hide the asset browser, similar to what we
   // did for the geometry mode"): its first time, the asset browser closed.
   type EditorMode = 'object' | 'modelling' | 'navigation';
   const modeLayouts = ((): { now: EditorMode; object?: string; modelling?: string; navigation?: string } => {
@@ -1306,10 +1317,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   assetLoopSoundsToggle.type = 'checkbox';
   assetLoopSoundsToggle.setAttribute('aria-label', 'Loop sounds & effects');
   assetLoopSoundsLabel.title = "Previewed sounds, effects and emitters play round again until stopped; off, once";
-  // Its effects too (the owner, 2026-11-14: "make the loop setting affect the effect as well"): a previewed effect plays again at its end.
+  // Its effects too (the Forge's owner (crispy, OT.R112), 2026-11-14: "make the loop setting affect the effect as well"): a previewed effect plays again at its end.
   assetLoopSoundsLabel.append(assetLoopSoundsToggle, el(doc, 'span', '', 'Loop sounds & effects'));
   assetViewPopup.append(assetLoopSoundsLabel);
-  // Preview volume (the owner, 2026-11-14: "a slider to control the sound preview volume ... some assets are really
+  // Preview volume (the Forge's owner (crispy, OT.R112), 2026-11-14: "a slider to control the sound preview volume ... some assets are really
   // loud"): every sound the asset browser and the Inspector's previews play, 0 to 100 %; kept with the view.
   const assetVolumeLabel = el(doc, 'label', 'fx-asset-preview-toggle fx-asset-preview-volume');
   const assetVolumeSlider = el(doc, 'input');
@@ -1322,7 +1333,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   assetVolumeLabel.title = 'How loud previewed sounds play (the game itself unchanged)';
   assetVolumeLabel.append(el(doc, 'span', '', 'Preview volume'), assetVolumeSlider, assetVolumeValue);
   assetViewPopup.append(assetVolumeLabel);
-  // Textures sorted by name, or by how much the map uses them (the owner, 2026-11-17: texturing easy to start, kept
+  // Textures sorted by name, or by how much the map uses them (the Forge's owner (crispy, OT.R112), 2026-11-17: texturing easy to start, kept
   // standard -- an asset browser's sort): kept in this browser.
   const TEXTURE_SORT_KEY = 's2u-forge-texture-sort';
   const textureSortLabel = el(doc, 'label', 'fx-asset-preview-toggle fx-asset-sort');
@@ -1334,7 +1345,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   textureSortLabel.append(el(doc, 'span', '', 'Sort textures'), textureSortSel);
   textureSortSel.addEventListener('change', () => { writeKey(TEXTURE_SORT_KEY, textureSortSel.value); drawAssets(); });
   assetViewPopup.append(textureSortLabel);
-  chipChars.hidden = true;                                     // a tab now (the owner, 2026-11-13): Characters
+  chipChars.hidden = true;                                     // a tab now (the Forge's owner (crispy, OT.R112), 2026-11-13): Characters
   chips.append(chipFav, chipChars, assetViewPopupButton, assetViewPopup);
   filters.append(search, chips);
   const assetsFoot = el(doc, 'div', 'fx-assets-foot');
@@ -1400,7 +1411,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const outlinerDom = buildOutliner(doc);
   const { list: outliner, search: outlinerSearch, filter: outlinerFilter, filterSummary: outlinerFilterSummary, filterList: outlinerFilterList } = outlinerDom;
   /**
-   * The Outliner's rename key (the owner, 2026-11-20: "make f2 rename"; the shortcut list's `outliner.rename`): the list
+   * The Outliner's rename key (the Forge's owner (crispy, OT.R112), 2026-11-20: "make f2 rename"; the shortcut list's `outliner.rename`): the list
    * takes the focus when clicked; F2 renames the selected row -- a folder in its row, anything else in the Inspector's
    * Name field. (Its arrow keys were taken out again: "remove the arrows keys from the outliner, they are broken".)
    */
@@ -1661,7 +1672,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // The viewport and the status bar.
   const viewport = el(doc, 'main', 'fx-viewport');
   /**
-   * The viewport's legends stacked in its lower left (the owner, 2026-11-15: "when we have both collision hull and ai
+   * The viewport's legends stacked in its lower left (the Forge's owner (crispy, OT.R112), 2026-11-15: "when we have both collision hull and ai
    * mode on, the legends overlap, please make them stack"): the AI map's and the collision's, each shown as its own is.
    */
   const legendStack = el(doc, 'div', 'fx-legend-stack');
@@ -1715,7 +1726,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // The collision hull and the map grid under Draw (the owner, 2026-11-11: no Overlays section here).
   addViewportToggle('collision', 'Collision hull');
   addViewportToggle('grid', 'Workplane');
-  addViewportToggle('aimap', 'AI Navigation');                       // the map's AI grid (`./aiMapOverlay`; the owner, 2026-11-12)
+  addViewportToggle('aimap', 'AI Navigation');                       // the map's AI grid (`./aiMapOverlay`; the Forge's owner (crispy, OT.R112), 2026-11-12)
   addViewportToggle('texgrid', 'Texture grid');                      // the selected faces' texture repeats, on the Texture layer (2026-11-17)
   modeGroup('World');
   addViewportToggle('fog', 'Fog');
@@ -1735,7 +1746,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /**
    * The snaps in the viewport as Unreal's viewport toolbar draws them (the owner, 2026-11-11: "make it like unreal ... they
    * also split grid snap and rotation snap into different menus"; a browser adaptation, FG.R2): a pill a snap -- its
-   * switch, an icon lit while it is on, then its step's dropdown: the ladder's steps only (the owner, 2026-11-15: "remove
+   * switch, an icon lit while it is on, then its step's dropdown: the ladder's steps only (the Forge's owner (crispy, OT.R112), 2026-11-15: "remove
    * the input box for custom snap. I don't want a user to snap to like 7"). `field` holds the step, never shown.
    */
   const snapPill = (iconName: string, label: string, unit: string, ladder: readonly number[], extraHint = '') => {
@@ -1774,14 +1785,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     };
     return { pill, toggle, menu, summary, field, presets, draw, panel };
   };
-  // The grid's snap is the workplane's (the owner, 2026-11-17: "rename grid snap to workplane snap, everywhere in the forge
-  // app where we say grid, use workplane instead"); no key named (the owner: "Remove the g shortcut to turn off the snaps
+  // The grid's snap is the workplane's (the Forge's owner (crispy, OT.R112), 2026-11-17: "rename grid snap to workplane snap, everywhere in the forge
+  // app where we say grid, use workplane instead"); no key named (the Forge's owner (crispy, OT.R112): "Remove the g shortcut to turn off the snaps
   // (it conflicts with grouping)": G groups, `./keys`).
   const gridSnapUi = snapPill('gridSnap', 'Workplane snap', '', GRID_STEP_LADDER);
   const turnSnapUi = snapPill('angleSnap', 'Rotation snap', '°', TURN_STEP_LADDER);
   const viewportGridIn = gridSnapUi.field;
   /*
-   * Snap by (`snapByObject`, `snapByGeometry`; the owner, 2026-11-17: "move the snap by settings into the [Workplane &
+   * Snap by (`snapByObject`, `snapByGeometry`; the Forge's owner (crispy, OT.R112), 2026-11-17: "move the snap by settings into the [Workplane &
    * Surface menu] ... add a snap by bounds setting ... both modes should have the same settings"): Pivot, Centre and
    * Bounds in both modes, each mode its own choice -- its own section of the Workplane & Surface menu (placed below).
    */
@@ -1814,7 +1825,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   snapBySection.append(snapByRow);
   /**
    * Snap by's buttons lit for the mode shown (each mode its own choice). Centre and Bounds snap along the world's axes, so
-   * with the Local gizmo they are greyed and Pivot lit -- the snap the gizmo then uses (the owner, 2026-11-17: "how do we
+   * with the Local gizmo they are greyed and Pivot lit -- the snap the gizmo then uses (the Forge's owner (crispy, OT.R112), 2026-11-17: "how do we
    * make it more clear that bounds is only used in world mode ... Maybe we can disable bounds when in local mode?"); the
    * choice kept for World again.
    */
@@ -1835,15 +1846,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       b.setAttribute('aria-selected', String(on));
     }
   };
-  // Its dropdown's title (the owner, 2026-11-17: "rename it to just snap step").
+  // Its dropdown's title (the Forge's owner (crispy, OT.R112), 2026-11-17: "rename it to just snap step").
   const gridStepTitle = gridSnapUi.panel.querySelector('.fx-snap-panel-title');
   if (gridStepTitle) gridStepTitle.textContent = 'Snap step';
   /*
-   * The workplane (the owner, 2026-11-16: "a feature to change the workplane ... a button to set the current workplane
+   * The workplane (the Forge's owner (crispy, OT.R112), 2026-11-16: "a feature to change the workplane ... a button to set the current workplane
    * from a click/sample button and a reset button"; height only; a browser adaptation, FG.R2): the grid's own dropdown
    * says where it is, and sets it -- picked off a surface, in any view (Pick), or reset flat at 0 -- kept with the view's
-   * settings. No typed height (the owner, 2026-11-16: "Remove the workplane height setting"). Its section is the first of
-   * the Workplane and Surface Snapping menu (the owner, 2026-11-17: "move the workplane settings and shortcuts to the
+   * settings. No typed height (the Forge's owner (crispy, OT.R112), 2026-11-16: "Remove the workplane height setting"). Its section is the first of
+   * the Workplane and Surface Snapping menu (the Forge's owner (crispy, OT.R112), 2026-11-17: "move the workplane settings and shortcuts to the
    * surface snapping settings button. This menu is now for Workplane and Surface Snapping settings"), over surface
    * snapping's, set apart.
    */
@@ -1858,7 +1869,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   workplaneResetBtn.title = 'The workplane back flat at height 0 (a top, bottom or side view: facing it, through the origin)';
   workplaneButtons.append(workplanePickBtn, workplaneResetBtn);
   const workplaneNormal = el(doc, 'div', 'fx-workplane-normal', 'Flat at height 0');
-  // Shown or not (the owner, 2026-11-16: "add a setting to toggle the workplane from that dropdown as well"): the Display
+  // Shown or not (the Forge's owner (crispy, OT.R112), 2026-11-16: "add a setting to toggle the workplane from that dropdown as well"): the Display
   // menu's Workplane switch, the same setting (`view.grid`).
   const workplaneShowRow = el(doc, 'label', 'fx-toggle fx-workplane-show');
   const workplaneShowIn = doc.createElement('input');
@@ -1895,7 +1906,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   surfacePanel.append(el(doc, 'div', 'fx-snap-panel-title fx-snap-section-start', 'Surface snapping'));
   // The owner, 2026-11-17: "the surface snapping text should say Enable Surface Snapping"; the rows below depend on it.
   const surfaceIn = surfaceRow('Enable Surface Snapping', "Dragging the move gizmo's centre seats the selection on the surface under the pointer; the settings below apply only while it is on");
-  // FX-9 made it real (the owner, 2026-11-16: "now that we can adjust rotation x/y/z now, please fix the rotate to surface
+  // FX-9 made it real (the Forge's owner (crispy, OT.R112), 2026-11-16: "now that we can adjust rotation x/y/z now, please fix the rotate to surface
   // normal setting"): the record keeps a piece's pitch and roll, so a tilt to the surface survives a save.
   const workplaneSnapIn = surfaceRow('Snap to Workplane', "A prop dragged in from the assets and the move gizmo's centre seat what they move on the workplane under the pointer (this menu's Workplane sets it), not on the surface there -- tilted to it with Snap to Surface Normal");
   /**
@@ -1914,7 +1925,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       row?.setAttribute('aria-disabled', String(off));
     };
     grey(workplaneSnapIn, !surfaceSnap || !view.grid);
-    // Pick greyed while the workplane is hidden (the owner, 2026-11-17: "pick and reset buttons should be disabled if
+    // Pick greyed while the workplane is hidden (the Forge's owner (crispy, OT.R112), 2026-11-17: "pick and reset buttons should be disabled if
     // show workplane is disabled"; then "reset should still work if disabled"): Reset stays live, and the middle click
     // shows the workplane and picks (`surfaceSummary`'s auxclick). A pick under way ends.
     workplanePickBtn.disabled = !view.grid;
@@ -1922,7 +1933,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     grey(surfaceNormalIn, !surfaceSnap);
     grey(surfaceOffsetIn, !surfaceSnap);
   };
-  // Named Snap to Surface Normal (the owner, 2026-11-17: "rename Snap to Surface Normal"; it was Rotate to Surface Normal).
+  // Named Snap to Surface Normal (the Forge's owner (crispy, OT.R112), 2026-11-17: "rename Snap to Surface Normal"; it was Rotate to Surface Normal).
   const surfaceNormalIn = surfaceRow('Snap to Surface Normal', "A prop dragged in from the assets, or by the move gizmo's centre, tilts so its up follows the surface under the pointer, keeping its turn (props only: markers, ladders and pack pieces stay upright)");
   const surfaceOffsetRow = el(doc, 'label', 'fx-viewport-snap-field fx-surface-offset');
   surfaceOffsetRow.append(el(doc, 'span', '', 'Surface Offset'));
@@ -1933,7 +1944,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   surfaceOffsetIn.setAttribute('aria-label', 'Surface offset');
   surfaceOffsetRow.append(surfaceOffsetIn);
   surfacePanel.append(surfaceOffsetRow);
-  surfacePanel.append(snapBySection);                         // Snap by last (the owner, 2026-11-17: "move the Snap by to the bottom of the popup")
+  surfacePanel.append(snapBySection);                         // Snap by last (the Forge's owner (crispy, OT.R112), 2026-11-17: "move the Snap by to the bottom of the popup")
   surfaceMenu.append(surfaceSummary, surfacePanel);
   texturedInput.addEventListener('change', () => {
     texturedOn = texturedInput.checked;
@@ -2009,7 +2020,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const onlyUserIn = billboardToggle('Only user data');
   onlyUserIn.closest('label')!.title = "Hide the map's own data (its spawns, doors, actions...), keeping your own placements' marks";
   onlyUserIn.addEventListener('change', () => { onlyUserData = onlyUserIn.checked; applyView(); });
-  // The Select tool's Select hidden overlays (the owner, 2026-11-13: "also add this select option in the overlays
+  // The Select tool's Select hidden overlays (the Forge's owner (crispy, OT.R112), 2026-11-13: "also add this select option in the overlays
   // menu"): the same one setting, here beside the switches that hide the kinds.
   const overlaySelectHiddenIn = billboardToggle('Select hidden overlays');
   overlaySelectHiddenIn.closest('label')!.title = 'A kind switched off here can still be clicked or boxed: a door, turret or prop by its model, a spawn or zone where its mark would be. Off, a hidden kind is passed over';
@@ -2362,7 +2373,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     popup.addEventListener('toggle', () => { if (popup.open) hideCameraSpeedFeedback(); });
   }
   /**
-   * Every dropdown of the Forge closed by a press outside it (the owner, 2026-11-12: "When I click outside of this filter
+   * Every dropdown of the Forge closed by a press outside it (the Forge's owner (crispy, OT.R112), 2026-11-12: "When I click outside of this filter
    * popup, close it ... for all popup windows in the forge app"; a browser adaptation, FG.R2): the viewport's, the
    * Outliner's Filter (`.fx-viewport-modes`), the snaps', the camera's, the HUD's More, the split view's -- and any other
    * marked `data-forge-popup`. A section's fold (`.fx-panel`, `.fx-fold`) is no popup and stays as it is. The menu bar's
@@ -2869,6 +2880,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // `../matchRenderer` `ratioTargetOf` reads it. The keeper is the Draw dropdown's (`videoSettings`, above).
   let renderScale = videoSettings.get().renderScale;
   const adaptiveRatio = new AdaptiveRatio(pixelRatioCap(globalThis.devicePixelRatio, wantsTouchControls()));
+  const ratioDefer = deferredRatio();                         // B1-RATIO-ORDER (`../matchViewport` `deferredRatio`): as the match's
   const ratioTarget: RatioTarget | null = typeof created.setPixelRatio === 'function' && typeof created.pixelRatio === 'function' ? created : null;
   const fit = (): void => {
     // Not before the stylesheet is in (a development build injects it late): unstyled, the viewport takes its height
@@ -3076,7 +3088,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       scene.add(mapHostageGuides);
     }
     // The new guides under the switches as they stand (the Gizmos switch, each kind's, Only user data): drawn afresh they
-    // were all shown -- a delete's redraw brought back guides the Overlays had off (the owner, 2026-11-13).
+    // were all shown -- a delete's redraw brought back guides the Overlays had off (the Forge's owner (crispy, OT.R112), 2026-11-13).
     if (!playing) applyGuides();                               // Play keeps its own (all hidden)
   }
   /** The Billboards dropdown's settings on the marks: shown on a disc map, on top or not, each kind's switch. */
@@ -3126,7 +3138,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   // The geometry mode (`./geometry/editor`; a browser adaptation, FG.R2): the base map's world edited as a level editor edits a
   // map. Its pointer and keys are its own while it is on; the page lets go of its selection and gizmo.
   /**
-   * Geometry mode's Inspector (the owner, 2026-11-15: "show the transform for geometry objects, and allow the user to edit
+   * Geometry mode's Inspector (the Forge's owner (crispy, OT.R112), 2026-11-15: "show the transform for geometry objects, and allow the user to edit
    * these values, but only when in object mode ... basically equivalent to moving the gizmo"): the Inspector's own look
    * (`buildInspector`), its Transform the object selection's (`GeometryEditor.objectTransform`), in the placements'
    * Inspector's place while the mode is on. A row typed or scrubbed moves the selection as the gizmo would (one undo step).
@@ -3140,7 +3152,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   if (geoProps) geoProps.hidden = true;
   const geoTransform = geoInspector.body.querySelector<HTMLElement>('[data-inspect-section="transform"]');
   /**
-   * The Texture layer's Texture State and Modify Texture (a level editor's face edit; the owner, 2026-11-17), in the
+   * The Texture layer's Texture State and Modify Texture (a level editor's face edit; the Forge's owner (crispy, OT.R112), 2026-11-17), in the
    * Transform's place while the layer is on: every press one edit on the selected faces (`./panels/textureInspector`).
    */
   const textureInspector = buildTextureInspector(doc, {
@@ -3156,7 +3168,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   });
   geoInspector.body.append(...textureInspector.sections);
   /**
-   * The Collision layer's Surface (the owner, 2026-11-20): the selected faces' material, indoors, reverb zone, camera
+   * The Collision layer's Surface (the Forge's owner (crispy, OT.R112), 2026-11-20): the selected faces' material, indoors, reverb zone, camera
    * pass-through and region (`./panels/surfaceInspector`), under the Transform while the layer is on; each change one edit.
    */
   const surfaceInspector = buildSurfaceInspector(doc, {
@@ -3197,7 +3209,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (const [part, b] of geoResets) b.hidden = !t || t[part].every((v, k) => Math.abs(v - GEO_DEFAULTS[part][k]!) < 1e-4);
   };
   /**
-   * A row dragged (or wheeled) shown live (the owner, 2026-11-15: "dragging in the transform fields live updated the
+   * A row dragged (or wheeled) shown live (the Forge's owner (crispy, OT.R112), 2026-11-15: "dragging in the transform fields live updated the
    * object in real time ... all cases where we can live drag a gizmo"): the selection carried as a gizmo drag carries it,
    * on either layer (`GeometryEditor.previewObjectTransform`), no edit; Escape puts it back, the release's `change` is the
    * one edit (`setObjectTransform`, which lets the preview go first).
@@ -3218,7 +3230,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     });
   }
   /**
-   * The rows' resets (the owner, 2026-11-15: "add these reset buttons to the geometry objects as well"): each row back to
+   * The rows' resets (the Forge's owner (crispy, OT.R112), 2026-11-15: "add these reset buttons to the geometry objects as well"): each row back to
    * the placements' Inspector's defaults -- position 0, rotation 0, scale 1 -- moving the selection as the gizmo would
    * (one undo step).
    */
@@ -3231,6 +3243,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   geometry = new GeometryEditor({
     doc, scene, input, modeTools: geometryModeTools, tools: geometryTools, statusHost: viewport, legendHost: () => { if (!legendStack.isConnected) viewport.append(legendStack); return legendStack; }, camera: () => fly.viewportCamera(), say,
     navigating: () => fly.navigating(),
+    matchHeld: () => match !== null,                             // OT.R68: a match started in Geometry mode reads no editor key
     onHistory: () => refreshUndo(),
     // A tool run again with a setting changed (`amend`): folded into its own step, never a new one.
     onEdit: (label, amend) => { if (amend) foldGeometryNext = true; recordGeometryStep(label); drawGeoInspector(); },
@@ -3259,14 +3272,16 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       fitToolbar();
       // The viewport's Scale shows for the geometry, which scales; leaving it, the placements' stub hides again.
       scaleBtn.hidden = !on && FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION;
-      scaleBtn.title = `Scale with the gizmo${on ? '' : ' (not wired yet)'}${keyOf('app.scale')}`;
+      // FX-9 beside PR #5: a placed piece's scale IS wired here (`./transformStubs`, the switch off), and where it is not the
+      // button is hidden (the line above), so the tooltip no longer calls it a stub outside Geometry mode.
+      scaleBtn.title = `Scale with the gizmo${keyOf('app.scale')}`;
       if (!on && FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION && gizmo.mode === 'scale') setGizmo('translate');
       pushGizmo();
       applyView();                                             // the Wireframe: the faces' edges in the mode, the triangles out of it
     },
     // A Build: the hull the placements rest on too (Place, the gizmo's snap), not only the collision view.
     onBuilt: () => { refreshPlacementGround(); scheduleHull(); },
-    // A drag's collision drawn as it goes (the owner, 2026-11-15: "see the colors move as i edit the geometry"): at once,
+    // A drag's collision drawn as it goes (the Forge's owner (crispy, OT.R112), 2026-11-15: "see the colors move as i edit the geometry"): at once,
     // the placed pieces' composed over it as the view has them; the drag over, the edit's own rebuild draws it.
     onCollisionPreview: (ground) => {
       if (!ground) { hullPreviewSeq++; if (hullWanted()) scheduleHull(); return; }
@@ -3279,7 +3294,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     },
     // Collision editing draws in the one collision view (`./hull`), turning Draw's Collision hull on while it lasts.
     // Only on the mode's turn (`inCollisionMode`): the Collision hull switch held on (`syncViewLocks`), the world's wireframe.
-    // The Collision section's Property (the owner, 2026-11-20): the collision view coloured by it, kept for this browser.
+    // The Collision section's Property (the Forge's owner (crispy, OT.R112), 2026-11-20): the collision view coloured by it, kept for this browser.
     onSurfaceProperty: (by) => { hullColourBy = by; scheduleHull(); },
     defaultMaterial: () => hullLegendWords().defaultMaterial,
     onCollisionView: (on) => {
@@ -3295,7 +3310,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     propsShown: (on) => setPropsShown(on),
     // A Layer turned (Geometry, Collision, Texture): the view's locks as the layer wants them (Wireframe free on Texture).
     onLayer: () => { editModeSel.value = editModePicked(); syncViewLocks(); applyView(); drawGeoInspector(); },
-    // The Texture button (the owner, 2026-11-16): the mini asset browser on Textures, the base's own map its Source.
+    // The Texture button (the Forge's owner (crispy, OT.R112), 2026-11-16): the mini asset browser on Textures, the base's own map its Source.
     browseTextures: (anchor) => openAssetPicker(null, 'texture', textureHome(), anchor,
       (asset) => (parseTextureAsset(asset) ? () => { void chooseTexture(asset); } : null)),
     // The edited world takes the base world's place for what the page keeps on a world: its texture pack (ML-3), the
@@ -3313,7 +3328,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     editModeSel.blur();                                        // the keys go back to the viewport
   });
   /**
-   * AI Navigation mode (the owner, 2026-11-16: "move ai navigation to it's own mode in the top toolbar. add the ai
+   * AI Navigation mode (the Forge's owner (crispy, OT.R112), 2026-11-16: "move ai navigation to it's own mode in the top toolbar. add the ai
    * navigation menu settings into the mode's toolbar settings. then introduce a similar workflow to the collision paint
    * but for ai navigation tiles"; a browser adaptation, FG.R2): the AI map held on (`syncViewLocks`), the selection let
    * go, a left press the brush's (`./aiPaint`) -- the camera keeps its own buttons -- and the second toolbar its Soil,
@@ -3321,7 +3336,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const aiPaint = new AiPaintTool({
     doc, input, scene, say,
-    active: () => navOn,
+    active: () => navOn && match === null,                       // OT.R68: a match started in AI Navigation mode reads no editor key
     cellAt: (ndc) => {
       const ai = paintedAiNow();
       const hit = ai ? pickSurface(ndc, []) : null;
@@ -3381,7 +3396,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       navToggle('Legend', 'legend', 'The AI map legend in the viewport'),
     ),
   );
-  // Select, Paint, Sample and Apply on the top toolbar, first, called Tools (the owner, 2026-11-17: "for all the tools
+  // Select, Paint, Sample and Apply on the top toolbar, first, called Tools (the Forge's owner (crispy, OT.R112), 2026-11-17: "for all the tools
   // section in geometry and ai nav mode, move it to the top toolbar like the object mode, and call it Tools").
   navModeTools.append(el(doc, 'span', 'fx-mode-section__label fx-bar-label', 'Tools'), aiPaint.toolRow);
   /** AI Navigation mode on or off (the mode picker; Geometry mode taken up leaves it). */
@@ -3391,7 +3406,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (on) geometry?.setActive(false);
     navOn = on;
     if (!on) aiPaint.leave();
-    // Its overlays off on entering, as Geometry mode's (the owner, 2026-11-17: "allow overlays in geometry and ai nav
+    // Its overlays off on entering, as Geometry mode's (the Forge's owner (crispy, OT.R112), 2026-11-17: "allow overlays in geometry and ai nav
     // mode, but have it off by default"): the Overlays menu free to turn them on; Object mode's put back on leaving.
     if (on) enterOverlaysOffView(); else leaveModellingView();
     select(null);
@@ -3417,13 +3432,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const mapPropProxy = new Object3D();
   scene.add(mapPropProxy);
   /**
-   * A movable map data object's gizmo stand-in (`./mapDataMove`; the owner, 2026-11-12): the gizmo sits on it at the
+   * A movable map data object's gizmo stand-in (`./mapDataMove`; the Forge's owner (crispy, OT.R112), 2026-11-12): the gizmo sits on it at the
    * object's place; its drag's end is the object's move, one edit (`commitMapDataMove`). Its turn is not kept.
    */
   const mapDataProxy = new Object3D();
   scene.add(mapDataProxy);
   /**
-   * A rules entity's gizmo stand-in (the owner, 2026-11-12: "do it for rule entities as well"): the gizmo sits on it at
+   * A rules entity's gizmo stand-in (the Forge's owner (crispy, OT.R112), 2026-11-12: "do it for rule entities as well"): the gizmo sits on it at
    * the entity's place; its drag's end is the entity's move by the difference, the planner's edit (`piece.move`), as its
    * Inspector fields make it. Its turn is not kept.
    */
@@ -3433,7 +3448,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The gizmo's space (`spaceBtn`, `setGizmoSpace`): its handles on the world's axes or the placement's own. Kept with the view. */
   let gizmoSpace: 'world' | 'local' = 'world';
   /** The placements under the dragged ones (`followersOf`), carried along each step of a drag. */
-  let dragFollow: { r: Object3D; a: Object3D; rel: Matrix4 }[] | null = null;
+  let dragFollow: Follower[] | null = null;
   /** FC2-7 (ours): a scale drag's last scale that kept every carried piece within the record's bounds. */
   let dragScaleKept: Vector3 | null = null;
   /** FC2 (ours; the review's F2): a turn drag's last turn that kept every carried pack piece level (`followersWithin`). */
@@ -3454,7 +3469,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   let surfaceSnap = true;
   /**
-   * Snap by (the owner, 2026-11-17: "in object mode it should snap to center/pivot, and in geometry to edges. build it and
+   * Snap by (the Forge's owner (crispy, OT.R112), 2026-11-17: "in object mode it should snap to center/pivot, and in geometry to edges. build it and
    * add the setting"): what of the selection lands on the grid when the move gizmo drags it -- Object mode its pivot (the
    * object's own origin; a group's middle) or its middle (`centreSnapDrag`); Geometry mode its nearest edges or its middle
    * (`GeometryEditor` `snapBy`). Kept with the view's settings, each mode's own.
@@ -3462,7 +3477,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   type SnapBy = 'pivot' | 'centre' | 'bounds';
   let snapByObject: SnapBy = 'pivot';
   let snapByGeometry: SnapBy = 'bounds';
-  /** Ctrl held (the owner, 2026-11-17: "make ctrl drag the snap"): the gizmo's snaps the other way for the drag. */
+  /** Ctrl held (the Forge's owner (crispy, OT.R112), 2026-11-17: "make ctrl drag the snap"): the gizmo's snaps the other way for the drag. */
   let ctrlSnapFlip = false;
   /** Snap by Centre's or Bounds' drag: where the dragged began and its box then; null otherwise. */
   let centreDrag: { p0: Vector3; min: Vector3; max: Vector3 } | null = null;
@@ -3473,7 +3488,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   let workplane: Workplane = flatWorkplane(0);
   /**
-   * Each view's own workplane (the owner, 2026-11-16: "when switching to the different views it should automatically
+   * Each view's own workplane (the Forge's owner (crispy, OT.R112), 2026-11-16: "when switching to the different views it should automatically
    * switch the workplane to that view perspective. but when we go back to perspective it should restore the workplane
    * from before we switched"): the perspective view's (kept with the view's settings), and each orthographic view's --
    * facing it, as last picked there (this session) -- `workplane` the shown view's (`workplaneForView`).
@@ -3482,7 +3497,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const orthoWorkplanes = new Map<ForgeViewportView, Workplane>();
   let workplaneView: ForgeViewportView = 'perspective';
   /**
-   * Snap to Workplane (Surface snapping's setting; the owner, 2026-11-16: "add a snap to workplane settings in the surface
+   * Snap to Workplane (Surface snapping's setting; the Forge's owner (crispy, OT.R112), 2026-11-16: "add a snap to workplane settings in the surface
    * snapping settings, but have it default to off"): a spawn and the move gizmo's centre seat what they move on the
    * workplane under the pointer, not on the surface there -- tilted to it with Snap to Surface Normal.
    */
@@ -3500,7 +3515,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The next geometry step is the same gesture's as the layout step just recorded: folded into it (`foldGeometryEdit`). */
   let foldGeometryNext = false;
   /**
-   * The map props a group's drag carries (the owner, 2026-11-16: "allow me to move the map props and geometry at the same
+   * The map props a group's drag carries (the Forge's owner (crispy, OT.R112), 2026-11-16: "allow me to move the map props and geometry at the same
    * time, it is just transform data being manipulated"), taken over at its first move (`takeBaseProps`), as one map
    * prop's drag takes it over (`duplicateMapPropForDrag`): each the layout's own piece at its place, the original hidden.
    */
@@ -3515,7 +3530,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     dragNdc.set(((e.clientX - r.left) / Math.max(1, r.width)) * 2 - 1, -((e.clientY - r.top) / Math.max(1, r.height)) * 2 + 1);
   }, true);
   /**
-   * One snap for every gizmo drag (the owner, 2026-11-12: "Unify them all. If a user wants to move it off the ground they
+   * One snap for every gizmo drag (the Forge's owner (crispy, OT.R112), 2026-11-12: "Unify them all. If a user wants to move it off the ground they
    * can use the other axes"): while the move gizmo's centre handle (`XYZ`) drags, what it drags is seated on the surface
    * under the pointer -- one placement on its box's foot (`seatOn`), a switch mounted on the wall it is over and a ladder
    * stood against it (`dragWallPose`, as a spawn is), several by their lowest member, a moved map data object or
@@ -3545,7 +3560,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (!dragFrom || groupDragLow === null || pendingGroupPropDrag) return;
       const hit = dragSurface(dragNdc, [...picks.items, ...(dragFollow ?? []).map((f) => f.r)]);
       if (!hit) return;
-      // Snap to Surface Normal (the owner, 2026-11-16: "does not seem to work if we have multiple objects selected"): the
+      // Snap to Surface Normal (the Forge's owner (crispy, OT.R112), 2026-11-16: "does not seem to work if we have multiple objects selected"): the
       // group tilted as one about its centre so its up is the surface's normal, its lowest foot on the point -- pieces
       // alone (a marker turns about the vertical only, a pack piece keeps a turn about it: `transformRefusal`).
       const tiltable = surfaceNormalOn() && picks.items.every((r) => kindOf(r) === 'Piece' && !packPiece(r)) && !(dragFollow ?? []).some((f) => packPiece(f.r));
@@ -3578,7 +3593,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     seatPiece(r, hit);
   };
   /**
-   * The one way a placement is seated on what is under the pointer (the owner, 2026-11-17: "No place tool just drag asset
+   * The one way a placement is seated on what is under the pointer (the Forge's owner (crispy, OT.R112), 2026-11-17: "No place tool just drag asset
    * in and use the move tool ... it should be unified and a single code path"): the centre handle's drag and a prop
    * dragged in from the asset browser (`propDrop`) alike -- a switch or a ladder on the wall it is over, Snap to Surface
    * Normal's tilt, else its foot on the surface; then Snap by as the axis handles snap (`snapSeatAcross`), seated again
@@ -3609,7 +3624,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     centreDrag = null;
   };
   /**
-   * The centre handle's snap (the owner, 2026-11-17: "using the gizmo center should work the same way as I was using a
+   * The centre handle's snap (the Forge's owner (crispy, OT.R112), 2026-11-17: "using the gizmo center should work the same way as I was using a
    * handle. remove any special logic we had before for it and now use this logic"): the axis handles' own snap
    * (`snapByAxes`, the drag's start's box carried) on x and z, after the seat. The shift, or null (not taken).
    */
@@ -3699,7 +3714,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** What a placement is seated on under `ndc`: the workplane while Snap to Workplane is on (the surface where it misses), else the surface (`pick`). */
   /**
-   * Snap to Workplane in effect: on, and the workplane shown (the owner, 2026-11-16: "when the workplane is off, disable the
+   * Snap to Workplane in effect: on, and the workplane shown (the Forge's owner (crispy, OT.R112), 2026-11-16: "when the workplane is off, disable the
    * snap to workplane setting and don't snap to the workplane but instead do what we did before"). Kept as set while hidden.
    */
   const workplaneSnapOn = (): boolean => surfaceSnap && workplaneSnap && view.grid;
@@ -3709,7 +3724,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** What a gizmo drag is seated on under `ndc`: as `placePick`, the surface past `skip` (`pickSurface`). */
   const dragSurface = (ndc: Vector2, skip: readonly Object3D[]): Intersection | null => (workplaneSnapOn() ? nearerOfWorkplane(pickSurface(ndc, skip), ndc) : pickSurface(ndc, skip));
   /**
-   * The workplane where the pointer sees it, else the surface (the owner, 2026-11-17: "if the grid goes under the current
+   * The workplane where the pointer sees it, else the surface (the Forge's owner (crispy, OT.R112), 2026-11-17: "if the grid goes under the current
    * geometry, then don't place on the hidden workplane but on the geometry above it" -- a wall's workplane behind the
    * ground the pointer is on): `surface` when it is nearer along the ray than the workplane is by more than
    * `WORKPLANE_SEE_TOLERANCE` (a hair, so a workplane picked off that very surface still takes it), else the workplane's
@@ -4022,10 +4037,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // piece a save keeps. FC2-6 (ours): a turn about Y alone too -- the record keeps a whole degree of yaw, a piece's and
     // a marker's (`creator-contracts` `wholeDeg`), and a typed Yaw is put there (FC2-7) -- and a marker turned is put on
     // its whole degree of yaw (`yawTo`); before, a Y-ring turn was kept as it was let go, a fraction a save then dropped.
+    // FN-4 (ours): a piece's lattice is two steps since (`poseOn`): its turn relative to its parent's on whole degrees, its
+    // world turn on the record's hundredth; a marker's yaw stays a whole degree. A group's pieces go parents first
+    // (`parentsFirst`), so a piece under another picked one is put there against its parent's turn as that was just put.
     // A move that tilted its piece to the surface (Snap to Surface Normal, `surfaceTilt`) is put on the lattice too.
     const posed = gizmo.mode === 'scale' || gizmo.mode === 'rotate' || dragTilted;
     dragTilted = false;
-    const onLattice = !posed ? [] : group ? picks.items.filter((r) => !isMarker(r))
+    const onLattice = !posed ? [] : group ? parentsFirst(picks.items.filter((r) => !isMarker(r)))
       : selected && gizmo.object === selected && kindOf(selected) === 'Piece' ? [selected] : [];
     const markersTurned = gizmo.mode !== 'rotate' ? [] : group ? picks.items.filter(isMarker)
       : selected && gizmo.object === selected && isMarker(selected) ? [selected] : [];
@@ -4034,7 +4052,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const dragged = group ? picks.items : selected && gizmo.object === selected ? [selected] : [];
     carrying(dragged, () => {
       for (const r of onLattice) {
-        const pose = poseOn(r);
+        // FN-4, fix round 1 (F1; ours): a rotate's release is about angles (its relative triple put on whole degrees);
+        // a scale's is not (its relative turn kept, `poseOn`'s `whole`) -- for a single piece and a group's pieces alike.
+        const pose = poseOn(r, {}, [r.scale.x, r.scale.y, r.scale.z], gizmo.mode === 'rotate');
         r.quaternion.copy(pose.q);
         r.scale.set(...pose.s);
         r.updateMatrix();
@@ -4071,15 +4091,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const hullFaces = hullFaceMaterial();
   const hullFaintFaces = hullFaceMaterial(HULL_FAINT_OPACITY);
   /**
-   * The one collision view (`./hull`; the owner, 2026-11-15: "there should not be two different ways to see collision"):
+   * The one collision view (`./hull`; the Forge's owner (crispy, OT.R112), 2026-11-15: "there should not be two different ways to see collision"):
    * the layout's hull, or collision editing's hull objects while it is on, drawn with its legend in the viewport.
    */
   let hullView: ReturnType<typeof buildHullView> | null = null;
   let hullLegend: HTMLDivElement | null = null;
   /**
-   * What the collision view colours by (`./hull` `HullColourBy`; the owner, 2026-11-20: the Surface properties shown): the
+   * What the collision view colours by (`./hull` `HullColourBy`; the Forge's owner (crispy, OT.R112), 2026-11-20: the Surface properties shown): the
    * legend's switch and the Collision section's Property. Collision (the type) each time the view opens -- Display's
-   * Collision hull turned on, or the Collision layer entered (the owner, 2026-11-20: "always make the collision type the
+   * Collision hull turned on, or the Collision layer entered (the Forge's owner (crispy, OT.R112), 2026-11-20: "always make the collision type the
    * default one you open up to") -- and kept nowhere.
    */
   let hullColourBy: HullColourBy = 'type';
@@ -4092,7 +4112,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     scheduleHull();
   };
   /**
-   * The materials the layout's hull is made of, by SOILS name (`../soundData` `soundFromDisc` `surfacesIn`; the owner,
+   * The materials the layout's hull is made of, by SOILS name (`../soundData` `soundFromDisc` `surfacesIn`; the Forge's owner (crispy, OT.R112),
    * 2026-11-20: a material the map does not use was silent): its floors' and every polygon's, material 0 the layout's
    * default surface (none when the layout keeps the map's, whose sounds the map has).
    */
@@ -4113,7 +4133,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return { defaultMaterial: settings.defaultMaterial ?? home?.grenade?.defaultMaterial ?? null, reverb: settings.reverb ?? home?.reverb ?? null };
   };
   /**
-   * The Draw switches the editor's modes set (the owner, 2026-11-15): the Collision hull on and greyed in Collision mode
+   * The Draw switches the editor's modes set (the Forge's owner (crispy, OT.R112), 2026-11-15): the Collision hull on and greyed in Collision mode
    * ("disable toggling off collision hull in collision mode ... always on"); the Wireframe on and greyed in Geometry mode,
    * and off on entering Collision mode, free there ("not lock the wireframe to on in collision mode ... toggled off by
    * default"). Each put back as it was before the editor's modes when they end (Object mode).
@@ -4139,7 +4159,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     else if (!coll && collisionLock.before !== null) { view.collision = collisionLock.before; collisionLock.before = null; }
     lockInput('collision', coll, 'Always on in Collision mode');
     // Wireframe: on (held) on the Geometry layer, off on entering the Collision layer; on the Texture layer free, as it
-    // came (the owner, 2026-11-16: "allow the wireframe mode to be turned off, but ... when we go back to geometry layer,
+    // came (the Forge's owner (crispy, OT.R112), 2026-11-16: "allow the wireframe mode to be turned off, but ... when we go back to geometry layer,
     // it is turned on and cannot be turned off" -- the Geometry layer's turn on again, `mode` changed). Object mode's own is put back by
     // the mode's own keeping (`enterModellingView` / `leaveModellingView`, which keep the whole Object-mode view): kept
     // here too, it was kept after `enterModellingView` had turned it on, and put that back (a browser run, 2026-11-15).
@@ -4243,7 +4263,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   let propsHidden: Object3D[] = [];
   /**
-   * The layout's own placed props hidden by View > Props too (the owner, 2026-11-15): kept as a switch the placements'
+   * The layout's own placed props hidden by View > Props too (the Forge's owner (crispy, OT.R112), 2026-11-15): kept as a switch the placements'
    * visibility answers to (`applyEditorHidden`), so a redraw of it does not bring them back.
    */
   let userPropsOff = false;
@@ -4274,7 +4294,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const folderName = (o: Object3D): string => (o.userData['forgeFolder'] as { name: string }).name;
   const newFolder = (name: string): Object3D => { const f = new Object3D(); f.name = `folder ${name}`; f.userData['forgeFolder'] = { name }; return f; };
   /**
-   * The folders selected from their rows (the owner, 2026-11-12: "be able to select/delete folders in the outliner"): a
+   * The folders selected from their rows (the Forge's owner (crispy, OT.R112), 2026-11-12: "be able to select/delete folders in the outliner"): a
    * folder's click picks it with what it holds; Delete then takes it out with everything under it. Kept only while the
    * selection is still the picked folders' own (`showSelection` lets them go otherwise).
    */
@@ -4299,9 +4319,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return out;
   };
   /** Each placement under one of `movers` (and not one itself), with its place relative to its nearest moving ancestor. */
-  const followersOf = (movers: readonly Object3D[]): { r: Object3D; a: Object3D; rel: Matrix4 }[] => {
+  const followersOf = (movers: readonly Object3D[]): Follower[] => {
     const moving = new Set(movers);
-    const out: { r: Object3D; a: Object3D; rel: Matrix4 }[] = [];
+    const out: Follower[] = [];
     if (parentOf.size === 0 || moving.size === 0) return out;
     for (const r of roots) {
       if (moving.has(r)) continue;
@@ -4310,9 +4330,50 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (!a) continue;
       a.updateMatrix();
       r.updateMatrix();
-      out.push({ r, a, rel: a.matrix.clone().invert().multiply(r.matrix) });
+      // FN-3 (ours): and what a stretching carry keeps (`carriedMatrix`): `a`'s scale, the turn relative to `a`'s, its size.
+      out.push({ r, a, rel: a.matrix.clone().invert().multiply(r.matrix),
+        aScale: a.scale.clone(), turn: a.quaternion.clone().invert().multiply(r.quaternion), size: r.scale.clone() });
     }
     return out;
+  };
+  /**
+   * FN-3 (ours; the owner, 2026-11-14, "agreed on your lean", Crispy not overruling it: FN.R4): how far the factors of a
+   * scale's change on its three axes may differ (relative to the largest) and still be one factor -- float noise only (a
+   * browser adaptation's own tolerance, no game value).
+   */
+  const FOLLOWER_UNIFORM_SCALE_EPSILON = 1e-6;
+  /**
+   * FN-3's follow-up (ours; the FORGE-NEXT batch review's finding): whether a scale's change from `from` to `to` is one
+   * factor on every axis (`FOLLOWER_UNIFORM_SCALE_EPSILON`) -- an unchanged scale is, the factor 1. An axis at 0 at the
+   * start (never on the record, 0.1..4) gives a factor that is not finite, and so no uniform change.
+   */
+  const uniformChange = (from: Vector3, to: Vector3): boolean => {
+    const k = [to.x / from.x, to.y / from.y, to.z / from.z];
+    return k.every(Number.isFinite)
+      && Math.max(...k) - Math.min(...k) <= FOLLOWER_UNIFORM_SCALE_EPSILON * Math.max(...k.map(Math.abs), 1);
+  };
+  /**
+   * FN-3 (ours; the owner, 2026-11-14, FN.R4: his lean was a rotation-only carry under a one-axis STRETCH): where a
+   * follower goes with its moved ancestor `a` as it stands now. A layout keeps a piece's place, turn and scale, never a
+   * slant, so a carry never reshapes. FN-3's follow-up (the batch review's finding: a uniform scale of a parent already
+   * stretched left its children's size): decided by the CHANGE of `a`'s scale in the edit (`aScale`, its start, to now),
+   * never by `a`'s state.
+   * - A uniform change (one factor k on every axis; a pure move or turn is k = 1): a^-1 * r composed back
+   *   (`a.matrix * rel`), as before FN-3 -- the follower scaled by k about `a`. It never shears, whatever `a`'s stretch
+   *   and the follower's turn: with a = T R S at the start and a' = T' R' (k S) now, and r = Tr Rr Sr,
+   *   a' * a^-1 * r = T' R' k S S^-1 R^-1 T^-1 Tr Rr Sr = T' R' k R^-1 (T^-1 Tr) Rr Sr; the stretch cancels (S S^-1) and
+   *   k is a scalar, so this is a place, the turn R' R^-1 Rr and the follower's own scale times k (k Sr): no slant.
+   * - Any other change (a one-axis stretch, or (2,2,1) -> (2,2,2)): a' = T' R' (D S) with D not a scalar leaves
+   *   R' D R^-1 Rr Sr, a shear when the follower's turn relative to `a` is not square to D's axes (S(2,1,1) * Ry(45) is a
+   *   rhombus, and its decompose a different square). So the follower keeps its OWN size (`size`) and its turn relative
+   *   to `a`'s (`turn`), and only its PLACE follows `a`'s whole matrix, the stretch included (`rel`'s position in `a`'s
+   *   frame).
+   */
+  const carriedMatrix = ({ a, rel, aScale, turn, size }: Follower): Matrix4 => {
+    a.updateMatrix();
+    if (uniformChange(aScale, a.scale)) return a.matrix.clone().multiply(rel);
+    const place = new Vector3().setFromMatrixPosition(rel).applyMatrix4(a.matrix);
+    return new Matrix4().compose(place, a.quaternion.clone().multiply(turn), size);
   };
   /**
    * FC2 (ours; the hand-merge review's F1 and F3, 2026-11-13): a placement that is not a piece -- a marker: a spawn, an
@@ -4332,16 +4393,24 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     r.updateMatrix();
   };
   /** The followers put back at their places relative to their moved ancestors (`followersOf`). */
-  const carryFollowers = (follow: readonly { r: Object3D; a: Object3D; rel: Matrix4 }[], commit = false): void => {
-    for (const { r, a, rel } of follow) {
-      a.updateMatrix();
-      a.matrix.clone().multiply(rel).decompose(r.position, r.quaternion, r.scale);
+  const carryFollowers = (follow: readonly Follower[], commit = false): void => {
+    // FN-4 (ours): parents before what is under them (`followersOf` gives the layout's own order, where a child may come
+    // before its parent), so a commit puts each carried piece on the lattice relative to its parent's turn as that parent
+    // was just put there (`poseOn`): A over B over C, A moved, puts B then C. Its place comes from the moved ancestor
+    // either way (`carriedMatrix`), so the order changes nothing else.
+    const ordered = [...follow].sort((a, b) => depthOf(a.r) - depthOf(b.r));
+    for (const f of ordered) {
+      const { r } = f;
+      carriedMatrix(f).decompose(r.position, r.quaternion, r.scale);   // FN-3 (ours): never reshaped (`carriedMatrix`)
       yawOnly(r);                                                // FC2 (ours): a carried marker turns about the vertical alone (F3)
-      // FC2-7 (ours): a carried piece put on the record's lattice (`poseOn`: whole degrees, scale steps of 0.01) when the
+      // FC2-7 (ours): a carried piece put on the record's lattice (`poseOn`: FN-4, fix round 1, a carry is no angle edit --
+      // its turn relative to its parent's kept, whole only within `LOCAL_TURN_WHOLE_EPSILON_ADAPTATION`, its world turn on
+      // the record's hundredth; scale steps of 0.01) when the
       // carry ends an edit (`commit`), so the piece shown is the one a save, a reopen and a lobby give back. A preview (a
       // scrub's step, a drag's, a cancel's put-back) is never snapped -- FX-9's rule: `carrying` takes the follower's place
       // afresh each step, so a snap a step would add up -- and the release snaps once. Its bounds are kept before the edit
-      // (`followersFit`), never clamped here; a shear its parent's scale gave it is not held (the tree's design, FC2-7).
+      // (`followersFit`), never clamped here. (FC2-7 let a parent's stretch give it a shear that was then dropped; since
+      // FN-3 no carry makes one: `carriedMatrix`.)
       if (commit && kindOf(r) === 'Piece') { const pose = poseOn(r); r.quaternion.copy(pose.q); r.scale.set(...pose.s); }
       r.updateMatrix();
     }
@@ -4369,11 +4438,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * (`PACK_PIECE_POSE_REFUSAL`), which its own fields and the group gizmo keep, held for it when a parent carries it;
    * any piece keeps the record's size bounds (`FOLLOWER_SIZE_REFUSAL`).
    */
-  const followersWhy = (follow: readonly { r: Object3D; a: Object3D; rel: Matrix4 }[]): string | null => {
-    for (const { r, a, rel } of follow) {
+  const followersWhy = (follow: readonly Follower[]): string | null => {
+    for (const f of follow) {
+      const { r } = f;
       if (kindOf(r) !== 'Piece') continue;
-      a.updateMatrix();
-      const m = a.matrix.clone().multiply(rel);
+      const m = carriedMatrix(f);                                // FN-3 (ours): where the carry would put it (`carriedMatrix`)
       const s = new Vector3().setFromMatrixScale(m);
       if (packPiece(r) && offVertical(m)) return PACK_PIECE_POSE_REFUSAL;
       if (!scaleWithinRecord([s.x, s.y, s.z])) return FOLLOWER_SIZE_REFUSAL;
@@ -4381,7 +4450,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return null;
   };
   /** FC2-7 (ours): whether each piece under `follow`'s ancestors may be carried where it stands now (`followersWhy`). */
-  const followersWithin = (follow: readonly { r: Object3D; a: Object3D; rel: Matrix4 }[]): boolean => followersWhy(follow) === null;
+  const followersWithin = (follow: readonly Follower[]): boolean => followersWhy(follow) === null;
   /**
    * FC2-7 (ours): why `move` on `movers` may not be made -- a piece under them past the record's size bounds, or (FC2,
    * ours: F2) a pack piece under them tilted or scaled (`followersWhy`) -- or null. `move` is tried and the movers put
@@ -4451,6 +4520,30 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (axis === 'yaw') { const e = new Euler().setFromQuaternion(q, 'YXZ'); e.y = (v * Math.PI) / 180; q.setFromEuler(e); } else pos[axis] = v;
     setLocalMatrix(r, new Matrix4().compose(pos, q, sc));
   };
+  /**
+   * FN-4 (ours; the Forge lane's plan `docs/plans/2026-11-14-forge-next.md`, FN.R4: the owner, "relative to the parent by
+   * default"; a browser adaptation, FG.R2 -- the game has no editor): a PIECE's Pitch, Yaw and Roll are one `YXZ` triple
+   * of its turn relative to its parent's TURN -- qParent^-1 * qPiece, the parent's quaternion alone, never its scale or
+   * place (a stretched parent would otherwise give a slanted frame no turn reads) -- and its world turn at the top. X, Y,
+   * Z and a marker's Yaw stay local through the full matrix (`localMatrixOf`); a piece's Scale is its own size.
+   */
+  const parentTurnOf = (r: Object3D): Quaternion => {
+    const p = parentOf.get(r);
+    return p ? p.quaternion.clone() : new Quaternion();
+  };
+  /** FN-4: `q` (a piece's world turn; its own by default) relative to the piece's parent's turn. */
+  const localTurnOf = (r: Object3D, q: Quaternion = r.quaternion): Quaternion => parentTurnOf(r).invert().multiply(q);
+  /** FN-4: the world turn of a piece whose turn relative to its parent's is `local`. */
+  const worldTurnOf = (r: Object3D, local: Quaternion): Quaternion => parentTurnOf(r).multiply(local);
+  /** FN-4: a piece's three angle fields: its parent-relative turn on whole degrees (`snappedTurn`), signed, `YXZ`. */
+  const shownTurn = (r: Object3D): PieceTurn => snappedTurn(turnOf(localTurnOf(r)));
+  /** FN-4: how many placements are above `r` in the tree (0 at the top). */
+  const depthOf = (r: Object3D): number => { let n = 0; for (let a = parentOf.get(r); a; a = parentOf.get(a)) n++; return n; };
+  /**
+   * FN-4 (ours): `items` with every parent before what is under it (a stable sort by depth), so a commit that puts each
+   * piece on the lattice relative to its parent's turn (`poseOn`) finds that parent already put there.
+   */
+  const parentsFirst = <T extends Object3D>(items: readonly T[]): T[] => items.map((r) => ({ r, d: depthOf(r) })).sort((a, b) => a.d - b.d).map((x) => x.r);
   /**
    * The placements hidden in the editor (the owner, 2026-11-11: "object hiding in the tree"; the Outliner's eye): each and
    * everything under it undrawn, unpicked and unmarked here -- as the engine's own inactive node hides its subtree (its
@@ -4526,7 +4619,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The tab left on entering Geometry mode (`geometryAssets`), put back on leaving it. */
   let tabBeforeGeometry: ObjectTab | null = null;
   /**
-   * Geometry mode's asset browser (the owner, 2026-11-16: "show the asset browser in geometry mode ... only texture is
+   * Geometry mode's asset browser (the Forge's owner (crispy, OT.R112), 2026-11-16: "show the asset browser in geometry mode ... only texture is
    * accessible"): shown, on its Textures tab, the base's own map its Source, the other tabs not pressable (`drawAssetList`);
    * leaving the mode, the tab it was on again.
    */
@@ -4592,7 +4685,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let playLoading: 'direct' | 'loading' = 'direct';
   let selectUserProps = true;
   /**
-   * The Select tool's Geometry (the owner, 2026-11-16: "allow to select meshes when in normal object mode ... should be on
+   * The Select tool's Geometry (the Forge's owner (crispy, OT.R112), 2026-11-16: "allow to select meshes when in normal object mode ... should be on
    * by default"): a click or Ctrl-click picks a whole geometry object -- the map's world sections and the objects made in
    * Geometry mode -- beside the placements, for the gizmo to move (`geoPicks`); off, geometry is passed over.
    */
@@ -4600,7 +4693,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The geometry objects picked in Object mode, by id (the drawn layer's: `GeometryEditor.objectAt`). */
   const geoPicks = new Set<string>();
   /**
-   * Select hidden overlays (the owner, 2026-11-13: "allow objects to be selectable ... even when their billboards are
+   * Select hidden overlays (the Forge's owner (crispy, OT.R112), 2026-11-13: "allow objects to be selectable ... even when their billboards are
    * hidden"; on by default; a browser adaptation, FG.R2): a kind whose billboards are switched off (or every billboard
    * off) is still picked -- its object by a click on it, a mark-only one where its mark would be. Off, as before: a kind
    * switched off is passed over.
@@ -4643,7 +4736,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     for (const id of VIEW_DRAW_OWN) { const on = l.draw?.[id]; if (typeof on === 'boolean') view[id] = on; }
   };
   /**
-   * A view's look with the overlays everyone shares (the owner, 2026-11-13: toggling a kind in one view shows it so in
+   * A view's look with the overlays everyone shares (the Forge's owner (crispy, OT.R112), 2026-11-13: toggling a kind in one view shows it so in
    * every view): the billboards' switches, Only user data, the flare glows and the light arrows the menus' now; the
    * view's own Draw switches (`VIEW_DRAW_OWN`) kept.
    */
@@ -4663,7 +4756,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The base's own grid the overlay is of (the disc's, or the blank floor's `floorAiMaps`): drawn as the layout paints it. */
   let aiMapOf: AiMaps | null = null;
   /**
-   * The layout's painted AI cells (`Layout.aiSoil`, `./aiSoil`; the owner, 2026-11-16): each by its key to its soil. The
+   * The layout's painted AI cells (`Layout.aiSoil`, `./aiSoil`; the Forge's owner (crispy, OT.R112), 2026-11-16): each by its key to its soil. The
    * grid as the layout has it (`paintedAiNow`) is the base's with them, made once a change and kept, a stroke writing its
    * cells into it as it goes (`paintAiCell`); the overlay, its routes, Check and Play read it.
    */
@@ -4706,17 +4799,17 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return true;
   };
   /**
-   * The AI map's layer switches (the owner, 2026-11-12: "all the navigation specific toggles"; AI Navigation mode's View
+   * The AI map's layer switches (the Forge's owner (crispy, OT.R112), 2026-11-12: "all the navigation specific toggles"; AI Navigation mode's View
    * now): the soil tiles, the links, the hostage routes and the legend -- under the AI map switch, which shows or hides
    * them all. Kept in this browser (a convenience: absent or unreadable, all on).
    */
   const AI_NAV_KEY = 'forge.aiNav';
   const aiNav = { cells: true, links: true, routes: true, legend: true };
   try {
-    const kept = JSON.parse(globalThis.localStorage?.getItem(AI_NAV_KEY) ?? 'null') as Partial<typeof aiNav> | null;
+    const kept = JSON.parse(pageSettings.get(AI_NAV_KEY) ?? 'null') as Partial<typeof aiNav> | null;
     if (kept) for (const k of Object.keys(aiNav) as (keyof typeof aiNav)[]) { const v = kept[k]; if (typeof v === 'boolean') aiNav[k] = v; }
   } catch { /* all on */ }
-  const keepAiNav = (): void => { try { globalThis.localStorage?.setItem(AI_NAV_KEY, JSON.stringify(aiNav)); } catch { /* this session only */ } };
+  const keepAiNav = (): void => { pageSettings.set(AI_NAV_KEY, JSON.stringify(aiNav)); };   // refused: this session only
   /** Its legend in the viewport's lower left (`drawAiMapLegend`): made at the first show, drawn again with each build. */
   let aiMapLegend: HTMLDivElement | null = null;
   const aiLegendKinds = el(doc, 'div', 'fx-ai-legend__kinds');
@@ -4725,10 +4818,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The links between sub-maps (`buildAiLinks`), built with the tiles. */
   let aiLinks: ReturnType<typeof buildAiLinks> | null = null;
   /**
-   * The route preview (`buildAiRoutes`; the owner, 2026-11-12): every hostage start -- the map's own (`LoadedMap.escortees`)
+   * The route preview (`buildAiRoutes`; the Forge's owner (crispy, OT.R112), 2026-11-12): every hostage start -- the map's own (`LoadedMap.escortees`)
    * and the placed ones -- to the cheapest extraction zone, the map's own (kind 1) and the placed ones. Drawn again with
    * each edit while the overlay shows (`changed`), on the grid as the layout paints it. The placed props add nothing to
-   * the grid, as the original's add nothing (research 335 section 5; the owner, 2026-11-16: "whatever the engine puts"):
+   * the grid, as the original's add nothing (research 335 section 5; the Forge's owner (crispy, OT.R112), 2026-11-16: "whatever the engine puts"):
    * a route may cross one, which in a match the hostage meets and marks (`FUN_00556ee0`, soil 13).
    */
   let aiRoutes: ReturnType<typeof buildAiRoutes> | null = null;
@@ -4844,7 +4937,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * the menus untouched.
    */
   const applyViewMarks = (look: ViewLook | null): void => {
-    // The overlays are one setting for every view (the owner, 2026-11-13: "a shared unified state for overlay settings"):
+    // The overlays are one setting for every view (the Forge's owner (crispy, OT.R112), 2026-11-13: "a shared unified state for overlay settings"):
     // a view brings its own Draw switches only (`sharedLook`).
     const want = look ? sharedLook(look) : lookNow();
     const marks = lookKey(want), draws = drawKey(want);
@@ -4989,10 +5082,10 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     mapGrid.setWorkplane(workplane);
     drawSnapBy();
     const wpFlat = isFlatWorkplane(workplane);
-    // A flat one's height said; a tilted one's normal not (the owner, 2026-11-17: "Remove the tilted normal text").
+    // A flat one's height said; a tilted one's normal not (the Forge's owner (crispy, OT.R112), 2026-11-17: "Remove the tilted normal text").
     workplaneNormal.textContent = wpFlat ? `Flat at height ${workplane.at[1]}${workplane.n[1] > 0 ? '' : ', facing down'}` : '';
     workplaneNormal.hidden = !wpFlat;
-    // The pill its step alone (the owner, 2026-11-16: "don't show tilted or whatever the direction is"); where the
+    // The pill its step alone (the Forge's owner (crispy, OT.R112), 2026-11-16: "don't show tilted or whatever the direction is"); where the
     // workplane is, the dropdown's line says, and the pill's tooltip.
     gridSnapUi.summary.title = `Workplane snap: its step, and the workplane${wpFlat ? (workplane.at[1] ? ` (at height ${workplane.at[1]})` : '') : ' (tilted)'}`;
     workplaneSnapIn.checked = workplaneSnap;
@@ -5124,7 +5217,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   syncGeometryDependents();
   drawBillboardSwitches();                                    // the Billboards dropdown as the view was kept
   /**
-   * Modelling mode's view (the owner, 2026-11-15): on entering it, the Wireframe on and every overlay off -- the Gizmos,
+   * Modelling mode's view (the Forge's owner (crispy, OT.R112), 2026-11-15): on entering it, the Wireframe on and every overlay off -- the Gizmos,
    * the AI map, the billboards, the flare glows, the light rig's arrows; on leaving it, the Display and Overlays settings
    * as they were before, every one. The ones kept are written down meanwhile (`FORGE_OBJECT_VIEW_KEY`), so a page left in
    * Modelling opens with them again (it opens in Object mode).
@@ -5148,7 +5241,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /**
    * A mode's view with every overlay off (Geometry's and AI Navigation's, entered): Object mode's kept first (put back
    * by `leaveModellingView`), then the Gizmos, the billboards, the flare glows and the light rig's arrows off -- each
-   * free to turn on again in the Overlays menu (the owner, 2026-11-17: "allow overlays ... but have it off by default").
+   * free to turn on again in the Overlays menu (the Forge's owner (crispy, OT.R112), 2026-11-17: "allow overlays ... but have it off by default").
    */
   const enterOverlaysOffView = (): void => {
     objectViewKept ??= keepObjectView();
@@ -5182,7 +5275,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * another view mid-gesture, with a menu open, or while a layout loads.
    */
   /**
-   * A split's other views (the owner, 2026-11-15): every view but the first with its Wireframe and Map grid on -- in
+   * A split's other views (the Forge's owner (crispy, OT.R112), 2026-11-15): every view but the first with its Wireframe and Map grid on -- in
    * Modelling mode the edges alone, its Geometry off (as a level editor's 2D views are); in Object mode over its Geometry, kept on
    * (Textured is every view's, untouched). The first (the perspective) is left as the user set it. Set when the layout
    * changes (not when a kept split is first laid: it opens as it was) and when the mode changes (`force`); a view's own
@@ -5436,7 +5529,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
     if (envEditable()) rigEditor.draw();
     rigEditor.body.hidden = !envEditable();
-    // The disc's read-only copy only where the rig cannot be edited (the owner, 2026-11-12: "only show the editable
+    // The disc's read-only copy only where the rig cannot be edited (the Forge's owner (crispy, OT.R112), 2026-11-12: "only show the editable
     // version if possible"): the editor already shows the same light rig, fog, night and shadows.
     environmentDom.info.hidden = envEditable();
     placeLightingRows();
@@ -5878,7 +5971,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const settledLayout = (): Layout | null => { const l = layoutNow(false); return l && viewCamera ? { ...l, camera: viewCamera } : l; };
   /**
-   * The map script (`Layout.mapScript`; the owner, 2026-11-13: "the native style map script ... the same node script ui"):
+   * The map script (`Layout.mapScript`; the Forge's owner (crispy, OT.R112), 2026-11-13: "the native style map script ... the same node script ui"):
    * the editor's copy, keyed in its store by an object of its own (`scriptEditors` keys a script by its owner). The Script
    * editor shows it (`scriptView` 'map'); the Map panel's Script button opens it there.
    */
@@ -6020,7 +6113,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** FUI-4: the issues the last check found (the issues chip), until an edit makes it stale (`changed`). */
   let lastIssues: number | null = null;
   /** Undo and redo over the layout's text (`./history`): a step at the end of each edit. */
-  // Selections are steps too (the owner, 2026-11-15), so the history holds more of them than the layout's 100 alone.
+  // Selections are steps too (the Forge's owner (crispy, OT.R112), 2026-11-15), so the history holds more of them than the layout's 100 alone.
   const history = new History<string>('', 300);
   /**
    * Bug 20 (one history across the modes, as Unreal's and Blender's undo): the geometry beside the history --
@@ -6060,7 +6153,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     saveSoon();
   };
   /**
-   * Bug 1 (the Forge geometry audit; the owner, 2026-11-16: "Edits aren't saved. A reload, a base switch or opening a
+   * Bug 1 (the Forge geometry audit; the Forge's owner (crispy, OT.R112), 2026-11-16: "Edits aren't saved. A reload, a base switch or opening a
    * layout loses everything, with no warning"; a browser adaptation, FG.R2): the geometry a layout saves is an asset of
    * its own in this browser (`./geometryStore`, by its content's hash), the layout naming it (`Layout.geometry`), as
    * A level editor keeps a map's mesh edits in its `.vmap`. `geoSaved`: the asset of the geometry at a revision (`geometryKey`),
@@ -6139,7 +6232,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The open's geometry name, taken by the history's reset (`openLayoutNow`): the asset at revision 0 of the new generation. */
   let pendingGeometryRef: string | null = null;
   /**
-   * Selection in the history (the owner, 2026-11-15: "make selection part of the undo history, from face, point, edge,
+   * Selection in the history (the Forge's owner (crispy, OT.R112), 2026-11-15: "make selection part of the undo history, from face, point, edge,
    * object, outliner, etc. in general any selection pattern should be part of the undo"; as Unreal's selection is a
    * transaction): every step keeps the whole selection (`selRecord`) -- the placements, the map's props, its data items,
    * a rules entity, the geometry's mode and its points, edges, faces or objects. A selection made, however it was made
@@ -6313,8 +6406,18 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * writes its authoring envelope (`./rulesAuthoring` `forgeAuthoringText`); without, the record exactly as before.
    */
   const autosaveText = (l: ForgeLayout): { text: string } | { why: string } => forgeAuthoringText(l, l.name?.trim() || AUTOSAVE_NAME);
-  const writeAutosaveNow = async (laid: Layout): Promise<void> => {
-    if (keepEarlier) return;
+  /**
+   * R7-5 kept over bug 1's geometry wait: the text a pagehide's hand-off would name (`autosaveOnHide`: `withGeometryNow`)
+   * is this page's write in flight from the call, before any await, until the whole write settles (thrown or not); the
+   * write itself (`writeAutosaveAfter`) waits for the geometry and counts its own text as before.
+   */
+  const writeAutosaveNow = (laid: Layout): Promise<void> => {
+    if (keepEarlier) return Promise.resolve();
+    const now = autosaveText(withGeometryNow(laid));
+    const run = writeAutosaveAfter(laid);
+    return 'why' in now ? run : forgeSaves.pending('autosave', now.text, run);
+  };
+  const writeAutosaveAfter = async (laid: Layout): Promise<void> => {
     const l = await withGeometry(laid);                       // bug 1: the edited geometry's asset named
     const made = autosaveText(l);
     if ('why' in made) {
@@ -6347,6 +6450,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const changed = (): void => {
     agentMark();                                              // browser adaptation: the agent's layout revision
     saveSoon();
+    redrawn();
+  };
+  /**
+   * What follows an edit but the revision and the autosave: a scrub's preview redraws by it alone (the owner,
+   * 2026-11-22, "Fix it": a preview is no edit; its release is the one step, `changed`).
+   */
+  const redrawn = (): void => {
     lastIssues = null;                                        // FUI-4: an edit makes the last check stale
     refreshCounts();
     refreshGameTypes();                                       // FG-51: Demolition's readiness follows the markers
@@ -6388,7 +6498,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return o.geometry.boundingBox!.clone().applyMatrix4(m);
   };
   /**
-   * A map prop's whole box at its placement (the owner, 2026-11-17: "object snap to bounds still doesn't work when
+   * A map prop's whole box at its placement (the Forge's owner (crispy, OT.R112), 2026-11-17: "object snap to bounds still doesn't work when
    * dragging from the center gizmo"): every one of its drawn meshes' (a tent's five, a warehouse's thirty), as a piece's
    * box spans all of its (`objectBox`) -- not the one mesh found or struck first. `o` at `m` where none is found.
    */
@@ -7019,7 +7129,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   scene.add(switchLinks);
   let switchLinksKey = '';
   /**
-   * A switch on a prop's reach (the owner, 2026-11-14: "why do custom switches not draw the blue gizmo like the other
+   * A switch on a prop's reach (the Forge's owner (crispy, OT.R112), 2026-11-14: "why do custom switches not draw the blue gizmo like the other
    * switches"): its reach and height reach round the prop's middle, drawn as `addSwitchGuide` draws a switch's own --
    * `SWITCH_REACH_COLOUR`, its floor filled -- rebuilt with the link lines (`syncSwitchLinks`).
    */
@@ -7028,7 +7138,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const syncSwitchLinks = (): void => {
     const pts: number[] = [];
     const reachSegs: number[] = [], reachTris: number[] = [];
-    // No explosion step's radius drawn (the owner, 2026-11-13: "remove the mpbomb explosion gizmo": its spheres filled the view).
+    // No explosion step's radius drawn (the Forge's owner (crispy, OT.R112), 2026-11-13: "remove the mpbomb explosion gizmo": its spheres filled the view).
     const here = (r: Object3D): number[] => [r.position.x, r.position.y, r.position.z];
     for (const r of roots) {
       // A custom damage trigger's line to its prop (`triggerLinkPlace`).
@@ -7158,7 +7268,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (o.script) objectScript.set(r, scriptFromFile(o.script, ownLists()));
     // Its look its billboard (`userEmitters`), its View switch theirs; its audio script its own copy.
     r.userData['forgeObject'] = { kind: o.kind, source: o.source, name: o.name };
-    // Its gizmo (the owner, 2026-11-14: "make that gizmo stay, even after I drop it ... a permanent gizmo, just like the
+    // Its gizmo (the Forge's owner (crispy, OT.R112), 2026-11-14: "make that gizmo stay, even after I drop it ... a permanent gizmo, just like the
     // rest of the gizmos"): the small ring its ghost shows (`ghostRing`), kept on it -- the Gizmos switch and the View's
     // Emitters switch show and hide it as every guide (`applyGuides`); never picked (its pick box is the marker's).
     const ring = ghostRing(MAP_DATA_MARKS['userEmitters']?.colour ?? '#38d0e8');
@@ -7247,8 +7357,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const kindOf = (r: Object3D): string => (objectOf(r) ? 'Emitter' : bombKindOf(r) ? 'Objective' : r.userData['forgeHostage'] ? 'Hostage' : r.userData['forgeZone'] ? 'Zone' : r.userData['forgePoint'] ? 'Tactical point' : r.userData['forgeView'] ? 'Spectator view' : r.userData['forgeTurret'] ? 'Turret' : r.userData['forgeDoor'] ? 'Door' : r.userData['forgeGate'] ? 'Gate' : r.userData['forgeBarrier'] || r.userData['forgeTrigger'] ? 'Damage trigger' : r.userData['forgeSwitch'] ? 'Switch' : npcOf(r) ? 'NPC' : r.userData['forgeFlare'] !== undefined ? 'Flare' : r.userData['forgeRespawn'] ? 'Respawn point' : r.userData['forgeSpawn'] ? 'Spawn' : 'Piece');
   /**
    * The Inspector's pitch, roll and scale (a browser adaptation, FG.R2; FX-9, FX.R3: made real). A single piece shows its
-   * own values, read off its matrix in the `YXZ` order (`./transformStubs` `turnOf`, so yaw stays the turn about Y), the
-   * pitch and the roll signed (the record's roll is 0..359; the field converts, `signedDegrees`); anything else -- a
+   * own values, read in the `YXZ` order (`./transformStubs` `turnOf`, so yaw stays the turn about Y) -- FN-4: off its turn
+   * relative to its parent's (`shownTurn`), the same triple as its Yaw, on whole degrees -- the
+   * pitch and the roll signed (the record's roll is 0..359.99; the field converts, `signedDegrees`); anything else -- a
    * group, a map prop, a marker, a rules entity -- has them off, as its record keeps a yaw alone. Each field holds the
    * record's bounds (pitch -90..90, scale 0.1..4 an axis), so a scrub stops at them; an edit is `commitTurnField`'s.
    */
@@ -7263,6 +7374,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** FX-9 (T10): a creator pack's piece, which keeps a turn about the vertical at its own size (`PACK_PIECE_POSE_REFUSAL`). */
   const packPiece = (r: Object3D): boolean => r.userData['forgeContent'] !== undefined && r.userData['forgeContent'] !== null;
+  /**
+   * FN-4 (ours): the Yaw field's value for the selected placement `r`, in `deg`'s form: a piece's from its turn relative to
+   * its parent's (`shownTurn`, one triple with its Pitch and Roll), any other kind's local yaw through the full matrix as
+   * before (`localPose`).
+   */
+  const yawShown = (r: Object3D): string => String(r === turnedPiece() ? deg((shownTurn(r).yaw * Math.PI) / 180) : deg(localPose(r).yaw));
   const stubTitles = stubFields.map((f) => f.title);
   const fillStubFields = (force = false): void => {
     const piece = turnedPiece();
@@ -7270,7 +7387,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // Off for anything but a piece, under the lobby's lock, and for a pack's piece -- its reason in the title (the
     // sheet's one disabled look, its reason said).
     stubFields.forEach((f, i) => { f.disabled = !piece || pack || editsLocked(); f.title = pack ? PACK_PIECE_POSE_REFUSAL : stubTitles[i] ?? f.title; });
-    const turn = piece ? turnOf(piece.quaternion) : null;
+    // FN-4 (ours): the Pitch and Roll are the piece's turn relative to its parent's, one `YXZ` triple with its Yaw
+    // (`shownTurn`; the world turn at the top); its Scale its own size
+    const turn = piece ? shownTurn(piece) : null;
     const scaled = (v: number): string => String(Math.round(v * 1000) / 1000);
     const show = (f: HTMLInputElement, v: string): void => { if (force || doc.activeElement !== f) f.value = v; };
     show(fpitch, turn ? String(signedDegrees(turn.pitch)) : '');
@@ -7280,12 +7399,25 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     show(fsz, piece ? scaled(piece.scale.z) : '');
   };
   /**
-   * FX-9: a piece's turn and scale on the record's lattice (`./transformStubs` `snappedTurn`, `snappedScale`: whole
-   * degrees, the pitch within -90..90, the gimbal's one form, a scale of 0.01 within 0.1..4), so the piece in memory, in
-   * the undo history and in a lobby is the one a save and a reopen give back. `turn` and `scale` default to its own.
+   * FX-9: a piece's turn and scale on the record's lattice, so the piece in memory, in the undo history and in a lobby is
+   * the one a save and a reopen give back; a scale of 0.01 within 0.1..4 (`./transformStubs` `snappedScale`). FN-4 (ours;
+   * FN.R4, FN.R5): the turn in two steps -- its turn RELATIVE TO ITS PARENT'S (`localTurnOf`, with `turn`'s fields in
+   * place of that triple's) on whole degrees (`snappedTurn`: the pitch within -90..90, the gimbal's one form), then the
+   * WORLD turn that gives (`worldTurnOf`) on the record's hundredth of a degree, in the record's own form (`recordTurn`).
+   * At the top the two are one, so a parentless piece stays on whole degrees and its record version 3. `turn` and `scale`
+   * default to its own.
+   * FN-4, fix round 1 (F1; ours): `whole` says whether the edit is about angles -- true by default exactly when `turn`
+   * names a field (a Pitch, Yaw or Roll typed or let go from a scrub, the rotation's reset); the gizmo's release passes it,
+   * true for a rotate. When false (a carry, a typed X, Y or Z, a typed or scrubbed Scale, the gizmo's scale release) the
+   * turn relative to the parent is KEPT as it is (`wholeOrKeptTurn`: put exactly on its whole triple only within
+   * `LOCAL_TURN_WHOLE_EPSILON_ADAPTATION`, so a whole-degree child does not drift), and only the world turn goes on the
+   * hundredth: a layout saved before FN-4, whose nested pieces keep a WORLD turn on whole degrees, is never turned by a move.
    */
-  const poseOn = (r: Object3D, turn: Partial<PieceTurn> = {}, scale: readonly number[] = [r.scale.x, r.scale.y, r.scale.z]): { q: Quaternion; s: [number, number, number] } =>
-    ({ q: turnQuaternion(snappedTurn({ ...turnOf(r.quaternion), ...turn })), s: snappedScale(scale) });
+  const poseOn = (r: Object3D, turn: Partial<PieceTurn> = {}, scale: readonly number[] = [r.scale.x, r.scale.y, r.scale.z],
+    whole = turn.yaw !== undefined || turn.pitch !== undefined || turn.roll !== undefined): { q: Quaternion; s: [number, number, number] } => {
+    const local = whole ? turnQuaternion(snappedTurn({ ...turnOf(localTurnOf(r)), ...turn })) : wholeOrKeptTurn(localTurnOf(r));
+    return { q: turnQuaternion(recordTurn(worldTurnOf(r, local))), s: snappedScale(scale) };
+  };
   /** FX-9: whether `r` already is at that pose (a turn within float noise, the scale exactly): an edit to it is none. */
   const poseKept = (r: Object3D, pose: { q: Quaternion; s: readonly number[] }): boolean =>
     Math.abs(pose.q.dot(r.quaternion)) > 1 - 1e-12 && pose.s[0] === r.scale.x && pose.s[1] === r.scale.y && pose.s[2] === r.scale.z;
@@ -7297,7 +7429,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /**
    * FX-9: a Pitch, Roll or Scale field's value committed (its `change`: Enter, leaving the field, a scrub let go) as one
    * step, as Yaw's is (FUI-6): a turn through `piece.rotate` ("Rotate"), a scale through `placement.set`'s `scale` ("Set
-   * scale"). The field then shows the value kept: a finer one rounded, one past the record's bounds held at them.
+   * scale"). The field then shows the value kept: a finer one rounded, one past the record's bounds held at them. FN-4
+   * (ours): a Pitch or Roll is one of the piece's turn relative to its parent's (`poseOn`), as its Yaw is.
    */
   const commitTurnField = (f: HTMLInputElement): void => {
     const piece = turnedPiece();
@@ -7416,7 +7549,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (active !== fx) fx.value = String(Math.round(local.position.x));
     if (active !== fy) fy.value = String(Math.round(local.position.y));
     if (active !== fz) fz.value = String(Math.round(local.position.z));
-    if (active !== fyaw) fyaw.value = String(deg(local.yaw));
+    if (active !== fyaw) fyaw.value = yawShown(s);                  // FN-4 (ours): a piece's from its Pitch and Roll's triple
   };
   /** The rules entity the Inspector shows (picked from its Outliner row, nothing else selected), or undefined. */
   const inspectedEntity = (): { ref: string; at: [number, number, number]; yaw: number | null } | undefined =>
@@ -7440,6 +7573,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const away = (v: number, d: number): boolean => Math.abs(v - d) > RESET_EPSILON;
     const turned = (a: number): boolean => away(Math.cos(a), 1);   // a whole turn is home
     const local = s ? (() => { const pos = new Vector3(), q = new Quaternion(), sc = new Vector3(); localMatrixOf(s).decompose(pos, q, sc); return { pos, q }; })() : null;
+    // FN-4 (ours): a piece's rotation is its turn relative to its parent's (`localTurnOf`), the frame its fields show
+    if (s && local && s === turnedPiece()) local.q.copy(localTurnOf(s));
     const movedKey = !s && !entity && mapDataSelected ? movedDataKeyOf(mapDataSelected) : null;
     resetPosition.hidden = !open || !(local ? local.pos.toArray().some((v) => away(v, 0)) : entity ? entity.at.some((v) => away(v, 0))
       : movedKey ? movedData.has(movedKey) : false);   // a moved map object: back to the disc's own place
@@ -7641,7 +7776,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * damage trigger or flare may be copied from (the owner, 2026-11-10: "every asset from every map available at all times").
    */
   /**
-   * A map choice's group (the owner, 2026-11-13: "add the headers Multiplayer/Campaign the same way it is shown in the
+   * A map choice's group (the Forge's owner (crispy, OT.R112), 2026-11-13: "add the headers Multiplayer/Campaign the same way it is shown in the
    * asset browser ... unify the look and feel of these maps lists"): a disc map's Multiplayer or Campaign, a category
    * of every map's (Weapons, Common: a `*` value) Across maps; anything else (Custom) none.
    */
@@ -7763,7 +7898,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   const ADD_KINDS = STEP_KINDS.filter(([d]) => d !== 'endWhile' && d !== 'end' && d !== 'elseif' && d !== 'else');
   /**
-   * A script in the Inspector -- the one script (the owner, 2026-11-13: "a fully generic scripting way of doing things that
+   * A script in the Inspector -- the one script (the Forge's owner (crispy, OT.R112), 2026-11-13: "a fully generic scripting way of doing things that
    * is unified"): a switch's pull, a damage trigger's death, an effect object's round. Each step a row of what it does
    * (Move up, Move down, Remove: a While or an If with its End), then its own fields; then Add a step. `title` the list's
    * head, `self` what a step with no At acts at (the switch, the prop, the object).
@@ -7792,7 +7927,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     };
     // The objects a step names: the layout's own first, then the map's; their values `piece:i`, `barrier:i`, `gate:i`, `map:path`.
     const modelOf = (r: Object3D): string => { const id = parseAssetId(String(r.userData['forgePiece'] ?? '')); return id ? id.model : 'piece'; };
-    // In two headed sections (the owner, 2026-11-14): Your objects, then Map objects.
+    // In two headed sections (the Forge's owner (crispy, OT.R112), 2026-11-14): Your objects, then Map objects.
     const objectOptions: (readonly [string, string, boolean, string])[] = [
       ...own.pieces.map((r, i) => [`piece:${i}`, `Your prop ${i + 1} \u00b7 ${modelOf(r)}`, false, OWN_OBJECTS_GROUP] as const),
       ...own.barriers.map((r, i) => [`barrier:${i}`, `Your damage trigger ${i + 1} \u00b7 ${accessLabel(r)}`, false, OWN_OBJECTS_GROUP] as const),
@@ -7839,7 +7974,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       out.push({ label: title, kind: 'select', value: '', options: [['', steps.length ? `${steps.length} command${steps.length === 1 ? '' : 's'}` : 'No commands yet']], disabled: true, set: () => undefined,
         gap: true, stepsStart: true,
         title: "Run top to bottom, as the game runs its own programs' commands. A ~ sound loops at its place from the start (the game's rule)",
-        // Its node view (the owner, 2026-11-13: "a script tab and link it to the script section in the properties panel").
+        // Its node view (the Forge's owner (crispy, OT.R112), 2026-11-13: "a script tab and link it to the script section in the properties panel").
         browse: { icon: icon('nodes'), title: 'Open in the Program editor (its nodes)', open: () => { shellUi.reveal('script'); drawScriptGraph(); } } });
       // Its sequences, named (edited in the Script editor's tabs; a Call sequence step starts one).
       if (opts.seq === undefined && seqNames.length) {
@@ -7877,7 +8012,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           const head: readonly (readonly [string, string])[] = mode === 'if'
             ? [['flag', 'A valve is'], ['game', 'A game valve is'], ['chance', 'A random chance']]
             : [['ever', 'For ever'], ['flag', 'While a valve is\u2026'], ['game', 'While a game valve is\u2026']];
-          // Each part its own block (the owner, 2026-11-13: "command | cond1 | join | cond2 | join | cond3").
+          // Each part its own block (the Forge's owner (crispy, OT.R112), 2026-11-13: "command | cond1 | join | cond2 | join | cond3").
           field(mode === 'if' ? 'Test' : 'Runs', { kind: 'select', value: kind, options: head, groupGap: true,
             title: mode === 'if' ? "A valve's value (every program of the layout shares its valves), one of the game's own valves (the bomb's state ...), or a random chance each time it runs (RANDOM_WEIGHT)"
               : 'For ever (its commands run once a tick until the program is stopped), or while a test holds: tested each time round, past End while once it does not',
@@ -7960,13 +8095,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           (st.more ?? []).forEach((_, j) => termRows(j));
           // Another test, joined by AND or OR (as many as a file holds).
           if ((st.more?.length ?? 0) < SCRIPT_TERMS_MAX) {
-            // Its words a greyed head (never a choice: the owner, 2026-11-13), then AND or OR.
+            // Its words a greyed head (never a choice: the Forge's owner (crispy, OT.R112), 2026-11-13), then AND or OR.
             field('Add a test', { kind: 'select', value: '', groupGap: true,
               options: [['', '+ Add a test\u2026', true], ['and', 'AND another test (both hold)'], ['or', 'OR another test (either holds)']] as const,
               title: "Another test joined to the condition: AND, both must hold; OR, either may (the game's EXPRESSION operators)",
               set: (v) => { if (v !== 'and' && v !== 'or') return; change('more', at((l) => { const s0 = l[k]!; l[k] = { ...s0, more: [...(s0.more ?? []), { join: v, flag: s0.flag ?? 'flag', value: 1 }] }; })); } });
           }
-          // How it reads, whole -- one test or many (the owner, 2026-11-13: "even if we only have 1 condition"): as written, and a word when AND and OR mix with no brackets.
+          // How it reads, whole -- one test or many (the Forge's owner (crispy, OT.R112), 2026-11-13: "even if we only have 1 condition"): as written, and a word when AND and OR mix with no brackets.
           {
             const words = conditionWords(st);
             out.push({ label: `${n}. Reads`, kind: 'select', value: 'x', disabled: true, options: [['x', conditionMixed(st) ? `${words}  \u00b7 left to right` : words]] as const,
@@ -7974,7 +8109,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
                 : 'The whole condition, as the game reads it', set: () => undefined });
           }
         };
-        // An emitter's own At (the owner, 2026-11-14: "remove 'the object' and just keep the emitter"): no "The object"
+        // An emitter's own At (the Forge's owner (crispy, OT.R112), 2026-11-14: "remove 'the object' and just keep the emitter"): no "The object"
         // entry -- its own row (`Your Emitter · ...`) stands for it, shown for a step that names no place.
         const selfIndex = objectOf(s) ? own.objects.indexOf(s) : -1;
         const objectField = (label: string, key: 'target' | 'at', none: string | null): void => field(label, {
@@ -8070,9 +8205,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
                 : st.name && !names.some(([n]) => n === st.name) ? [[st.name, st.name] as const, ...names] : names,
               title: kind === 'sound' ? "The category's or the map's sounds" : "The category's or the map's effects (those that draw where they are called)",
               set: (v) => { if (v) change('name', at((l) => { l[k] = { ...l[k]!, name: String(v) }; })); },
-              // The mini asset browser (the owner, 2026-11-13: "add the asset mini browser button in the nodes as well"): the
+              // The mini asset browser (the Forge's owner (crispy, OT.R112), 2026-11-13: "add the asset mini browser button in the nodes as well"): the
               // Sounds or the Programs tab, at this step's map (Common for a category's); a tile its name and its map.
-              // Its preview beside the browse button (the owner, 2026-11-14): a sound's card with its timeline, an effect's
+              // Its preview beside the browse button (the Forge's owner (crispy, OT.R112), 2026-11-14): a sound's card with its timeline, an effect's
               // live particles -- the From map's (the match's own for a category's).
               ...(st.name && (st.from && !st.from.startsWith('*') ? st.from : home) ? { peek: previewIcon(kind === 'sound' ? 'sound' : 'effect',
                 st.from && !st.from.startsWith('*') ? st.from : home, st.name, `${ref}:${opts.seq ?? 'run'}:${k}`) } : {}),
@@ -8301,7 +8436,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     scriptEditors(s, ref, triggerScript.get(s) ?? { steps: [] }, off, out, { store: triggerScript, death: true });
   }
   /**
-   * An asset tile dropped on the selection's Source or its object row (the owner, 2026-11-13: "drag and drop assets from
+   * An asset tile dropped on the selection's Source or its object row (the Forge's owner (crispy, OT.R112), 2026-11-13: "drag and drop assets from
    * the asset browser into the inspector ... It should automatically adjust the source from the asset"; a browser
    * adaptation): the tile's map and its object taken at once, as choosing both there would -- a door's, a turret's, a
    * flare's, a gate's, a damage trigger's (a custom one made that disc one again), a ladder's, a switch's look, a
@@ -8376,7 +8511,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return null;
   };
   /**
-   * The mini asset browser (the owner, 2026-11-13: "opens a mini popup asset browser filtered to that item type, where I
+   * The mini asset browser (the Forge's owner (crispy, OT.R112), 2026-11-13: "opens a mini popup asset browser filtered to that item type, where I
    * can pick and browse for my asset ... the same as the asset browser, but without the tabs"; a browser adaptation): the
    * asset browser itself, lent to a popup by the row -- its tab the row's kind, its tabs hidden, its Source the object's
    * -- a tile's click taken by the object as its drop is (`assetDropPlan`). Closed (a pick, Escape, a click outside, its
@@ -8413,7 +8548,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     list.scrollTop = p.scroll;
   };
   /**
-   * The asset browser as its panel shows it, a still copy (the owner, 2026-11-13: "the asset browser content on the dock
+   * The asset browser as its panel shows it, a still copy (the Forge's owner (crispy, OT.R112), 2026-11-13: "the asset browser content on the dock
    * window gets hidden ... it should not"): left in the panel while the browser itself is lent to the mini browser --
    * its fields' values, its list's scroll and its thumbnails as they were, inert (a press on it closes the mini browser,
    * the browser back in its place).
@@ -8457,7 +8592,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     assetsSurface.classList.add('is-picking');
     if (assetPickSize) { popup.style.width = `${assetPickSize.w}px`; popup.style.height = `${assetPickSize.h}px`; }
     doc.body.append(popup);
-    // At the Inspector's left (the owner, 2026-11-13: "place it the left side of the inspector"), level with the row;
+    // At the Inspector's left (the Forge's owner (crispy, OT.R112), 2026-11-13: "place it the left side of the inspector"), level with the row;
     // inside the window (its right where the Inspector is docked left).
     const r = anchor.getBoundingClientRect();
     const panel = (anchor.closest('.fx-inspector') ?? anchor).getBoundingClientRect();
@@ -8535,7 +8670,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const tab = pickTabOf(s);
     const source = String(editors.find((e) => e.label === 'Source')?.value ?? '');
     const word = OBJECT_TABS.find(([k]) => k === tab)?.[1] ?? 'asset';
-    // The browse button on the object row (the owner, 2026-11-13: "not on the source row ... on the second row").
+    // The browse button on the object row (the Forge's owner (crispy, OT.R112), 2026-11-13: "not on the source row ... on the second row").
     const browse = tab ? { icon: icon('panelAssets'), title: `Browse ${tabWords(word)}`, disabled: editsLocked() || lockedOf(s),
       open: (anchor: HTMLElement) => openAssetPicker(s, tab, source, anchor) } : undefined;
     return editors.map((e, i) => {
@@ -8546,7 +8681,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     });
   };
   /**
-   * A single sound's or effect's emitter (the owner, 2026-11-14: "don't call them Custom ... make the hidden repeat
+   * A single sound's or effect's emitter (the Forge's owner (crispy, OT.R112), 2026-11-14: "don't call them Custom ... make the hidden repeat
    * visible"; a browser adaptation, FG.R2 -- the editor's view, the program unchanged): its program is one SOUND or one
    * EFFECT (CALL), alone -- once, or a `~` sound that loops by the game's own rule -- or followed by a WAIT and a LOOP (its
    * Repeat). Null for any other program: that one is shown as its commands.
@@ -8562,7 +8697,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return null;
   };
   /**
-   * An emitter's rows after its Emitter, the same for a map's own and a single sound's or effect's (the owner, 2026-11-14:
+   * An emitter's rows after its Emitter, the same for a map's own and a single sound's or effect's (the Forge's owner (crispy, OT.R112), 2026-11-14:
    * "unify them"): Does (its particles, sound and light), Plays at (where it stands; a map's own says where its map has
    * it), each sound's hearing (its RANGE), then the caller's Repeat and Your program. `sounds` null while being read;
    * `pending` (any) for a Does still being read.
@@ -8583,14 +8718,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     } else if (names.length) info('Sounds', `${names.join(', ')} (reading their ranges…)`, 'The sounds its program plays');
   };
   /**
-   * A Custom emitter's rows after its Source and Emitter (the owner, 2026-11-14: "those should say custom ... just like
+   * A Custom emitter's rows after its Source and Emitter (the Forge's owner (crispy, OT.R112), 2026-11-14: "those should say custom ... just like
    * how damage trigger or switch works ... no matter if I place a native emitter, a sound, or an effect"): Does (what
    * its program's SOUND and EFFECT commands draw and play), Plays at, each sound's hearing, then its Repeat -- Once or
    * again every N seconds while its program is a single sound or effect (`simpleEmitterOf`: its WAIT and LOOP written
    * for you), a `~` sound's own loop, else as its program runs. Its commands follow (`scriptEditors`).
    */
   /**
-   * A native emitter's Repeat (the owner, 2026-11-14: "for native emitters don't show any of this internal logic ...
+   * A native emitter's Repeat (the Forge's owner (crispy, OT.R112), 2026-11-14: "for native emitters don't show any of this internal logic ...
    * generic for all native emitters"): again and again (its own LOOP or WHILE), or once at the round's start -- its
    * looping sounds going on all the same; reading while its map is read.
    */
@@ -8657,7 +8792,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (!program) return [];
       const fo: ForgeObjectData = { kind: 'ambient', source: baseMap.archive, name: program };
       const prog = ambientProgramNow(fo);
-      // A placed emitter's rows, read only (the owner, 2026-11-14: "unify them"): its Emitter with its preview, Does,
+      // A placed emitter's rows, read only (the Forge's owner (crispy, OT.R112), 2026-11-14: "unify them"): its Emitter with its preview, Does,
       // Plays at, each sound's hearing, Repeat.
       const rows: InspectorEditor[] = [];
       rows.push({ label: 'Source', kind: 'select', value: 'x', disabled: true, options: [['x', `${baseMap.archive} (this map's own)`] as const],
@@ -8720,7 +8855,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (doorOwn) out.push(...copyEditors('door', ref, doorOwn, off, (v) => entityEdit('placement.set', { ref, field: 'model', value: v })));
     // A placed ladder: its Map and its Ladder, as a door's; either a change of the piece's asset (`placement.set` model).
     const ladderAsset = s.userData['forgeLadder'] ? parseAssetId(String(s.userData['forgePiece'] ?? '')) : null;
-    // A placed prop: its Source and its Prop, as every copied object's (the owner, 2026-11-13: "add the Source/Prop drop
+    // A placed prop: its Source and its Prop, as every copied object's (the Forge's owner (crispy, OT.R112), 2026-11-13: "add the Source/Prop drop
     // downs to inspector for props"): any map, each with its own props counted (one with none greyed), then that map's
     // props -- its own, then a shared library's (Common's) -- either a change of the piece's asset (`placement.set` model).
     const propAsset = !ladderAsset && s.userData['forgePiece'] ? parseAssetId(String(s.userData['forgePiece'])) : null;
@@ -8790,7 +8925,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         }, true);
       };
       const onProp = switchPropMode.has(s);
-      // Its Source and its Trigger, as every copied object's (the owner, 2026-11-13: "consistent with the rest of the
+      // Its Source and its Trigger, as every copied object's (the Forge's owner (crispy, OT.R112), 2026-11-13: "consistent with the rest of the
       // objects. Source, Trigger ... not look"): Custom (a prop you link) or the map whose switch it copies -- the lever
       // panel Death Trap's gate's (`DEFAULT_GATE`), the radio Sujo's (`RADIO_LOOK_SOURCES`) -- then that map's switch.
       const radioHome = RADIO_LOOK_SOURCES.find((m) => !absent.has(m)) ?? RADIO_LOOK_SOURCES[0];
@@ -8875,7 +9010,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         } });
       // Its script (the owner, 2026-11-08): a row a step -- what it does, then what on -- an Add row, the toggle's second
       // list, and whether it can be used again. Each change one edit.
-      // Its prompt (the owner, 2026-11-13: removed, then "add back the switch.prompt dropdown"): its action's own until set.
+      // Its prompt (the Forge's owner (crispy, OT.R112), 2026-11-13: removed, then "add back the switch.prompt dropdown"): its action's own until set.
       const ownWord = ownRec?.bitmap ? bitmapWords(ownRec.bitmap) : "the look's";
       out.push({ label: 'Prompt', kind: 'select', value: opts.prompt ?? '', covers: ['switch.prompt'], disabled: off,
         options: [['', `Its action's own (${ownWord})`] as const, ...[...new Set(Object.values(ACTION_ICONS))].map((b) => [b, bitmapWords(b)] as const)],
@@ -8895,7 +9030,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       num('Reach', 'range', ownRec?.range, 'How near along the ground the player stands to use it, world units');
       num('Height reach', 'elevation', ownRec?.elevation, 'How near in height (-1: no height test)');
       num('Points', 'points', ownRec?.points, 'Points for the player who uses it, once a round');
-      // Its steps last (the owner, 2026-11-13: "move the reach, height reach, points ... above the steps").
+      // Its steps last (the Forge's owner (crispy, OT.R112), 2026-11-13: "move the reach, height reach, points ... above the steps").
       if (ownScript) scriptEditors(s, ref, ownScript, off, out);
     }
     if (pieceTrigger.has(s)) triggerEditors(s, ref, off, out);
@@ -8923,7 +9058,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           refreshInspector();
         }, true);
       };
-      // Its Source and its Program, as every copied object's (the owner, 2026-11-13: "do the same for the effect/program
+      // Its Source and its Program, as every copied object's (the Forge's owner (crispy, OT.R112), 2026-11-13: "do the same for the effect/program
       // inspector ... keep it consistent across all objects"): Custom (a scripted effect, `FORGE_SCRIPT_OBJECT`: your own
       // steps) or the map whose ambient program it copies, each map with its count (`mapChoices`), one with none greyed.
       const scripted = isScriptObject(fobj);
@@ -8933,7 +9068,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         set: (v) => {
           const stem = String(v);
           if (stem === CUSTOM_TRIGGER) {
-            // Made Custom: an empty program of your own (the owner, 2026-11-14: "just make it an empty one. don't try to
+            // Made Custom: an empty program of your own (the Forge's owner (crispy, OT.R112), 2026-11-14: "just make it an empty one. don't try to
             // copy the emitter into our own script"), as a Custom damage trigger or switch starts.
             if (!scripted) setObj('model', { kind: 'ambient', source: fobj.source, name: FORGE_SCRIPT_OBJECT, script: { steps: [] } });
             return;
@@ -8953,15 +9088,15 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           options: list ? (list.some(([n]) => n === fobj.name) ? list : [[fobj.name, fobj.name] as const, ...list]) : [[fobj.name, 'Loading\u2026'] as const],
           title: "The map's emitter: its program's particles, sound and light, as its map plays it from the round's start",
           set: (v) => setObj('model', { kind: 'ambient', source: fobj.source, name: String(v) }),
-          // Its preview beside the browse button (the owner, 2026-11-14: "move the preview button next to the asset
+          // Its preview beside the browse button (the Forge's owner (crispy, OT.R112), 2026-11-14: "move the preview button next to the asset
           // browser button ... just like the sound and effect"): its particles live, its sounds played with them.
           ...(fobj.source ? { peek: previewIcon('program', fobj.source, fobj.name, ref,
             copyList('ambient', fobj.source)?.find(([n]) => n === fobj.name)?.[1].includes('sound') !== false) } : {}) });
         // What it is (read off its map: `ambientProgramsOf`, its sounds' script entries): what it does, where its map has it,
         // each sound's hearing -- full volume inside the first distance, silent past the second (10 units a metre).
-        // The rows every emitter has, in one order (`emitterInfoRows`; the owner, 2026-11-14: "unify them").
+        // The rows every emitter has, in one order (`emitterInfoRows`; the Forge's owner (crispy, OT.R112), 2026-11-14: "unify them").
         const prog = ambientProgramNow(fobj);
-        // Generic for every native emitter (the owner, 2026-11-14): what it does, where, how it repeats -- never its
+        // Generic for every native emitter (the Forge's owner (crispy, OT.R112), 2026-11-14): what it does, where, how it repeats -- never its
         // program's inner sounds or branches.
         emitterInfoRows(out, prog, prog ? prog.root : undefined, null, prog ? [] : null);
         if (objectScript.has(s)) {
@@ -8971,7 +9106,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         // Its sound: its effect's own, or its sounds written as a script of the game's own commands (the owner, 2026-11-10:
         // "make it fully scriptable ... I don't want to have any custom behaviour"). The script starts as its program's own
         // sound commands (`scriptOfProgram`) where they are those commands alone.
-        // Shown only while it has a program of its own already (the owner, 2026-11-14: "it should not show the Your
+        // Shown only while it has a program of its own already (the Forge's owner (crispy, OT.R112), 2026-11-14: "it should not show the Your
         // program property unless we have selected the source as custom"): your own program is Source's Custom now; this
         // row only takes an older own program back off it.
         if (objectScript.has(s)) out.push({ label: 'Your program', kind: 'select', value: 'custom', disabled: off,
@@ -9033,7 +9168,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (mapDataSelected) commitMapDataMoves([{ item: mapDataSelected, at }]);
   }
   /**
-   * The map data objects the gizmo moves (the owner, 2026-11-13: "I can select multiple map objects, but not move them
+   * The map data objects the gizmo moves (the Forge's owner (crispy, OT.R112), 2026-11-13: "I can select multiple map objects, but not move them
    * together"): the one selected, or the several picked (a box, Ctrl) with nothing of the layout's or a map prop picked
    * -- each one that moves (`movedDataKeyOf`; a door, a turret... stays). None while edits are held.
    */
@@ -9091,7 +9226,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     drawScriptGraph();
   };
   /**
-   * The Script panel (the owner, 2026-11-13: "a nice nodal ui that makes sense for our custom scripting ... a nodal view of
+   * The Script panel (the Forge's owner (crispy, OT.R112), 2026-11-13: "a nice nodal ui that makes sense for our custom scripting ... a nodal view of
    * the same underlying data. Create a script tab and link it to the script section in the properties panel"; a browser
    * adaptation): the selection's script -- a switch's, a custom damage trigger's death, an effect object's -- as nodes
    * (`./panels/scriptGraph`), each change made through the Inspector's own rows (`scriptEditors`): one script, two views.
@@ -9240,7 +9375,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       }
     }
     const flags: LegendFlag[] = [...by.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, f]) => ({ name, here: f.here, uses: f.uses }));
-    // The program shown's own named sequences (the owner, 2026-11-13: another program's are not its to call), each with its Call and Stop commands.
+    // The program shown's own named sequences (the Forge's owner (crispy, OT.R112), 2026-11-13: another program's are not its to call), each with its Call and Stop commands.
     const sequences: LegendSequence[] = layoutScripts().filter(({ owner }) => owner === shown).flatMap(({ owner, who, sc }) => {
       const lists: [number | null, string, EditorStep[]][] = [[null, who, sc.steps], ...(sc.sequences ?? []).map((q, i): [number, string, EditorStep[]] => [i, `${who} \u203a ${q.name}`, q.steps])];
       return (sc.sequences ?? []).map((q, i): LegendSequence => ({
@@ -9253,7 +9388,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     scriptGraph.legend({ flags, sequences, games: SCRIPT_GAME_VALUES.map((g) => [g, GAME_VALUE_WORDS[g].label.replace(/\s*\(.*\)$/, '')] as const) });
   };
   /**
-   * The Original map tab (the owner, 2026-11-13: "see the official maps' map scripting node network ... how they do
+   * The Original map tab (the Forge's owner (crispy, OT.R112), 2026-11-13: "see the official maps' map scripting node network ... how they do
    * certain things"): the base map's own programs as `@s2u/scene` decodes them (`MapMeta.scene.programs`) -- the round's
    * `objectives` first, then the rest by name -- one sequence at a time, each command a node in the editor's own words
    * where a script step stands for it (IF, WHILE, WAIT, VALVE as SET, MESSAGE, SOUND, CALL ...), else the engine's own
@@ -9417,7 +9552,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     };
   };
   /**
-   * The Map panel's Script row (the owner, 2026-11-13: "add a script button in the map panel so that we can see it
+   * The Map panel's Script row (the Forge's owner (crispy, OT.R112), 2026-11-13: "add a script button in the map panel so that we can see it
    * easily"): the map script in the Script editor, with its count of steps.
    */
   {
@@ -9438,7 +9573,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     mapScriptCount = (): void => { const n = mapScriptNow().steps.length; count.textContent = n ? `${n} command${n === 1 ? '' : 's'}` : 'empty'; };
   }
   shell.register({
-    // In the centre, a tab beside the Viewport (the owner, 2026-11-13: "move the script editor to the center panel by
+    // In the centre, a tab beside the Viewport (the Forge's owner (crispy, OT.R112), 2026-11-13: "move the script editor to the center panel by
     // default"); its tab's own name, so a layout kept from before places it there anew.
     id: 'script', title: 'Program editor', dock: 'center', order: 1, defaultOpen: true, tab: 'Program editor', padLegend: [],
     mount(host) {
@@ -9466,7 +9601,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (entity) { if (entity.yaw !== null) entityEdit('piece.rotate', { refs: [entity.ref], yaw: -entity.yaw }); return; }
     const s = isGroup() ? null : selected;
     if (!s) return;
-    const home = (): void => { const pos = new Vector3(), q = new Quaternion(), sc = new Vector3(); localMatrixOf(s).decompose(pos, q, sc); setLocalMatrix(s, new Matrix4().compose(pos, new Quaternion(), sc)); };
+    // FN-4 (ours): a piece home is its local triple 0 / 0 / 0 in its fields' frame -- its parent's own turn, put on the
+    // record's lattice (`poseOn`), its place and its own size kept; any other kind through the full local matrix as before.
+    const piece = s === turnedPiece();
+    const home = (): void => {
+      if (piece) { s.quaternion.copy(poseOn(s, { yaw: 0, pitch: 0, roll: 0 }).q); s.updateMatrix(); return; }
+      const pos = new Vector3(), q = new Quaternion(), sc = new Vector3(); localMatrixOf(s).decompose(pos, q, sc); setLocalMatrix(s, new Matrix4().compose(pos, new Quaternion(), sc));
+    };
     // FC2 (ours; the review's F2): refused in words when it would tilt a pack piece under it (a tilted parent turned home
     // takes the tilt out of what it carries); a turn cannot change a carried piece's size (`followersRefusal`).
     const why = followersRefusal([s], home);
@@ -9504,7 +9645,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   let scrubOrigin: { r: Object3D; position: Vector3; quaternion: Quaternion; scale: Vector3 } | null = null;
   /**
-   * The rest of the gizmo's kinds followed live too (the owner, 2026-11-15: "this should work for all cases where we can
+   * The rest of the gizmo's kinds followed live too (the Forge's owner (crispy, OT.R112), 2026-11-15: "this should work for all cases where we can
    * live drag a gizmo"): a group's members carried by the centre's change, as its gizmo drag carries them (put back before
    * the release's edit, which moves them from where they stood); a map data object's and a rules entity's stand-in (the
    * gizmo) at the value, as their gizmo drag moves it, the object itself moved by the release's edit as there.
@@ -9521,7 +9662,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const otherScrub = (f: HTMLInputElement, value: number, cancelled: boolean): boolean => {
     const axis: number = f === fx ? 0 : f === fy ? 1 : f === fz ? 2 : -1;
     if (isGroup()) {
-      if (cancelled || axis < 0) { endOtherScrub(); changed(); return true; }
+      if (cancelled || axis < 0) { endOtherScrub(); redrawn(); return true; }   // a put-back: nothing was saved, nothing to save
       if (!groupScrub) { const c = groupCentre(); if (!c) return true; groupScrub = { items: [...picks.items], poses: picks.items.map(poseOf), centre: c }; }
       const g = groupScrub;
       const d: [number, number, number] = [0, 0, 0];
@@ -9529,7 +9670,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       carrying(g.items, () => { const moved = movedBy(g.poses, d); g.items.forEach((r, i) => applyPose(r, moved[i]!)); });
       placePivot();
       refreshBox();
-      changed();
+      redrawn();                                               // a preview, as a single piece's: no step, no save (the release is the edit)
       return true;
     }
     const entity = !selected && !baseSelected ? inspectedEntity() : undefined;
@@ -9558,6 +9699,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         carrying([o.r],() => { o.r.position.copy(o.position); o.r.quaternion.copy(o.quaternion); o.r.scale.copy(o.scale); o.r.updateMatrix(); yawOnly(o.r); });
         refreshBox();
         showResets();
+        redrawn();                                             // the collision view and the counts follow the put-back
         return;
       }
       const s = isGroup() || baseSelected ? null : selected;
@@ -9571,17 +9713,23 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         else if (f === fyaw) {
           // FC2 (ours; the batch review's B-3): the preview stops where the Yaw would tilt a pack piece -- the selected one
           // under a tilted parent, or one under it (`turnRefusal`) -- the field showing the last yaw that kept them level,
-          // which its release commits, as the Pitch and Roll previews stop (F2).
-          if (turnRefusal(s, () => setLocalAxis(s, 'yaw', value)) === null) setLocalAxis(s, 'yaw', value);
-          else f.value = String(deg(localPose(s).yaw));
+          // which its release commits, as the Pitch and Roll previews stop (F2). FN-4 (ours): a piece's Yaw moves its
+          // turn relative to its parent's (the triple from the scrub's origin, `localTurnOf`), unsnapped; a marker's as before.
+          const turnYaw = s === turnedPiece()
+            ? (() => { const q = worldTurnOf(s, turnQuaternion({ ...turnOf(localTurnOf(s, origin.quaternion)), yaw: value })); return (): void => { s.quaternion.copy(q); s.updateMatrix(); }; })()
+            : (): void => setLocalAxis(s, 'yaw', value);
+          if (turnRefusal(s, turnYaw) === null) turnYaw();
+          else f.value = yawShown(s);
         } else if (s === turnedPiece()) {
-          const from = turnOf(origin.quaternion);
+          // FN-4 (ours): the Pitch and Roll previews move the piece's turn relative to its parent's, from the scrub's origin,
+          // unsnapped (FC2-7's rule: a preview is never snapped); the field, if it stops, shows that local value
+          const from = turnOf(localTurnOf(s, origin.quaternion));
           if (f === fpitch || f === froll) {
             // FC2 (ours; the review's F2): the preview stops where it would tilt a pack piece under it -- the field shows the
             // last turn that kept it level, which its release commits -- as the scale's preview stops at the size bounds.
-            const q = turnQuaternion(f === fpitch ? { ...from, pitch: value } : { ...from, roll: value });
+            const q = worldTurnOf(s, turnQuaternion(f === fpitch ? { ...from, pitch: value } : { ...from, roll: value }));
             if (followersFit([s], () => s.quaternion.copy(q))) s.quaternion.copy(q);
-            else { const t = turnOf(s.quaternion); f.value = String(signedDegrees(f === fpitch ? t.pitch : t.roll)); }
+            else { const t = turnOf(localTurnOf(s)); f.value = String(signedDegrees(f === fpitch ? t.pitch : t.roll)); }
           } else {
             // FC2-7 (ours): the preview stops where a piece under it would leave the record's bounds -- the field shows the
             // last scale that kept them, which its release commits (the gizmo's scale stops so too).
@@ -9594,7 +9742,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       if (cancelled) scrubOrigin = null;
       refreshBox();
       showResets();
-      changed();                                               // what follows a gizmo drag follows it: the collision view, the rules
+      redrawn();                                               // what follows a gizmo drag follows it: the collision view, the rules (no step, no save: the release's)
     });
     f.addEventListener('change', () => { scrubOrigin = null; placeScrubbed = null; endOtherScrub(); });
   }
@@ -9645,26 +9793,33 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       // parent no vertical -- so it is refused in `PACK_PIECE_POSE_REFUSAL`'s words when it would tilt a pack piece, the
       // selected one or one it carries (`turnRefusal`, tried before the commit's snap, as the scrub's preview is): nothing
       // moved, the field showing the yaw kept, as the typed Pitch is refused (F2).
+      // FN-4 (ours): a piece's Yaw is one of its parent-relative triple (`poseOn`'s `turn`, with its Pitch and Roll); X, Y,
+      // Z and a marker's Yaw local through the full matrix (`setLocalAxis`) as before.
+      const pieceYaw = f === fyaw && s === turnedPiece();
       if (f === fyaw) {
-        const why = turnRefusal(s, () => setLocalAxis(s, 'yaw', v));
-        if (why !== null) { notifier.refused(why); f.value = String(deg(localPose(s).yaw)); refreshBox(); return; }
+        const why = turnRefusal(s, pieceYaw
+          ? () => { s.quaternion.copy(worldTurnOf(s, turnQuaternion({ ...turnOf(localTurnOf(s)), yaw: v }))); s.updateMatrix(); }
+          : () => setLocalAxis(s, 'yaw', v));
+        if (why !== null) { notifier.refused(why); f.value = yawShown(s); refreshBox(); return; }
       }
       // FUI-6: the move's or the turn's entry; the field takes no edit under a lobby's hold (it is closed), as before.
       personEdit(f === fyaw ? 'piece.rotate' : 'piece.move', { refs: selectionIds() }, () => {
-        // Local to its parent (`setLocalAxis`), its children with it.
+        // Local to its parent (`setLocalAxis`; FN-4: a piece's Yaw by `poseOn` below), its children with it.
         carrying([s], () => {
-          setLocalAxis(s, f === fx ? 'x' : f === fy ? 'y' : f === fz ? 'z' : 'yaw', v);
+          if (!pieceYaw) setLocalAxis(s, f === fx ? 'x' : f === fy ? 'y' : f === fz ? 'z' : 'yaw', v);
           // FC2-7 (ours): a piece's world turn and scale put on the record's lattice (`poseOn`, as `commitTurnField`), so a
           // Yaw typed or let go from a scrub -- fractional, or local to a tilted parent -- is the one a save, a reopen and a
           // lobby give back; its children carried with the pose kept. A scrub's live preview is not snapped (FX-9's rule).
-          if (kindOf(s) === 'Piece') { const pose = poseOn(s); s.quaternion.copy(pose.q); s.scale.set(...pose.s); s.updateMatrix(); }
+          // FN-4 (ours): the typed Yaw goes in here, its parent-relative triple on whole degrees, the world turn on the hundredth;
+          // fix round 1 (F1): a typed X, Y or Z names no angle, so its parent-relative turn is kept (`poseOn`'s `whole`).
+          if (kindOf(s) === 'Piece') { const pose = poseOn(s, pieceYaw ? { yaw: v } : {}); s.quaternion.copy(pose.q); s.scale.set(...pose.s); s.updateMatrix(); }
         }, true);                                                // FC2-7 (ours): the commit -- what it carries snapped once
         // FC2-7 (ours): the field typed into shows the value KEPT, whatever holds the focus (the Inspector's fill leaves the
         // focused field alone), as `commitTurnField` does with `fillStubFields(true)` -- in the fill's own form (the local
         // place rounded, the local yaw by `deg`): a Yaw of 45.5 kept as 46 shows 46. Not a scrub's live step (that is the
-        // `fx-scrub` listener); its release comes here.
+        // `fx-scrub` listener); its release comes here. FN-4: a piece's Yaw from its parent-relative triple (`yawShown`).
         const kept = localPose(s);
-        f.value = f === fyaw ? String(deg(kept.yaw)) : String(Math.round(kept.position[f === fx ? 'x' : f === fy ? 'y' : 'z']));
+        f.value = f === fyaw ? yawShown(s) : String(Math.round(kept.position[f === fx ? 'x' : f === fy ? 'y' : 'z']));
         refreshBox();
         edit();
       }, true);
@@ -9769,7 +9924,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }, true);
   };
   /**
-   * The selected folders deleted with everything under them (the owner, 2026-11-12: "It should delete the folder and all
+   * The selected folders deleted with everything under them (the Forge's owner (crispy, OT.R112), 2026-11-12: "It should delete the folder and all
    * the children objects"), and any other placement picked with them -- one edit. A locked placement in them refuses it.
    */
   const deleteFolders = (): void => {
@@ -9799,13 +9954,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       showSelection();
     }, true);
   };
-  /** G (the owner, 2026-11-12): the selection's placements and folders grouped into a new folder; refused with none. */
+  /** G (the Forge's owner (crispy, OT.R112), 2026-11-12): the selection's placements and folders grouped into a new folder; refused with none. */
   const groupSelection = (): void => {
     if (!picks.items.some((o) => roots.includes(o)) && !folderPicks.size) { notifier.refused('Select objects to group them'); return; }
     addFolder();
   };
   /**
-   * Shift+G (the owner, 2026-11-12): the selected folders taken out, what they held kept -- or, with no folder selected,
+   * Shift+G (the Forge's owner (crispy, OT.R112), 2026-11-12): the selected folders taken out, what they held kept -- or, with no folder selected,
    * the folder each selected placement sits directly in.
    */
   const ungroupSelection = (): void => {
@@ -10004,7 +10159,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    */
   const OUTLINER_EYE_SHOWN = false;
   /**
-   * A level's indent: one caret's width (20px; the owner, 2026-11-13: "the same as c4d's"), so a child's caret sits where
+   * A level's indent: one caret's width (20px; the Forge's owner (crispy, OT.R112), 2026-11-13: "the same as c4d's"), so a child's caret sits where
    * its parent's caret ends and its icon one caret further in.
    */
   const OUTLINER_INDENT_PX = 20;
@@ -10113,7 +10268,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const assetDragOver = (e: DragEvent): boolean =>
     !outlinerDrag && !!e.dataTransfer?.types.includes(ASSET_DRAG_MIME) && !!assetTiles?.dragToken();
   /**
-   * An asset tile dropped on the Outliner (the owner, 2026-11-12: "instantiates the asset that position in the tree (user
+   * An asset tile dropped on the Outliner (the Forge's owner (crispy, OT.R112), 2026-11-12: "instantiates the asset that position in the tree (user
    * objects only) and creates the asset at the center point in the viewport from the camera's view"): placed at the view's
    * centre as a drop on the world would place it (`AssetTiles.dropAtCentre`), then put before, after or inside `target`
    * (null: at the top's end, where a new placement lands already). Two steps: the placement, then its place in the tree.
@@ -10137,7 +10292,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The Outliner's two top-level sections folded (`drawOutliner`): the map's own objects, the user's. */
   const foldedSections = new Set<'map' | 'user'>();
   /**
-   * The Map Objects' kinds unfolded (the owner, 2026-11-13: "put each object type into its own folder"): the editor's
+   * The Map Objects' kinds unfolded (the Forge's owner (crispy, OT.R112), 2026-11-13: "put each object type into its own folder"): the editor's
    * view alone -- a group a kind, drawn by the Outliner, never a folder of the layout (`Layout.folders`) nor written
    * anywhere. Every kind starts folded.
    */
@@ -10233,7 +10388,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const holdsPicked = (o: Object3D): boolean => pickedBelow.has(o);
     /**
      * A row's fold caret, where it has children (the one tree only); a row without, the caret's room kept empty
-     * (the owner, 2026-11-13: children read as siblings when a parent's caret pushed its icon to its children's column).
+     * (the Forge's owner (crispy, OT.R112), 2026-11-13: children read as siblings when a parent's caret pushed its icon to its children's column).
      */
     const addCaret = (li: HTMLLIElement, o: Object3D): void => {
       const kids = nestedView ? childrenOf(o).length : 0;
@@ -10452,7 +10607,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       li.append(words);
       li.classList.toggle('is-on', folderPicks.has(f) || (held.length > 0 && held.every((o) => picks.has(o))));
       li.classList.toggle('is-implicit', !li.classList.contains('is-on') && holdsPicked(f));
-      // No \u2715 of its own (the owner, 2026-11-12): Shift+G ungroups it, Delete takes it out with what it holds.
+      // No \u2715 of its own (the Forge's owner (crispy, OT.R112), 2026-11-12): Shift+G ungroups it, Delete takes it out with what it holds.
       // A click selects the folder itself (Delete takes it out with everything in it) and what it holds; Ctrl / Meta adds
       // it to the selection, or takes it out again.
       li.addEventListener('click', (e) => {
@@ -10697,12 +10852,12 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       row.hidden = folded;                                    // under a folded row: drawn, unseen (a drag may open it)
       return [row, ...inner(depth + 1, folded || foldedRows.has(r))];
     };
-    // Geometry (the owner, 2026-11-15; bug 18: "we need to see all the world geometry in the outliner. so all the map
+    // Geometry (the Forge's owner (crispy, OT.R112), 2026-11-15; bug 18: "we need to see all the world geometry in the outliner. so all the map
     // sections"; then "add the geometry folder to either map objects or user objects, depending if we created it"): every
     // geometry object, as a level editor's Outliner lists them -- the map's own world sections in a Geometry folder under Map
     // Objects, each box, plane, sphere, cylinder and piece made in one under User Objects. A click selects it in Geometry
     // mode (the mode turned on), Shift or Ctrl adds it or takes it out; a double-click frames it.
-    // The geometry's two layers, each a folder of its own in both sections at all times (the owner, 2026-11-15: "create
+    // The geometry's two layers, each a folder of its own in both sections at all times (the Forge's owner (crispy, OT.R112), 2026-11-15: "create
     // another folder called collision and put the collision geometry in there. always show both these folders in all
     // modes at all time"); a row of the layer not open switches to it when clicked (`GeometryEditor.selectObject`).
     const matches = (o: { name: string }): boolean => !q || o.name.toLowerCase().includes(q);
@@ -10713,7 +10868,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       li.dataset['geometryObject'] = o.id;
       li.insertAdjacentHTML('beforeend', icon('geometry'));
       li.append(el(doc, 'span', 'fx-row-label', o.name), el(doc, 'span', 'fx-dim', o.kind === 'world' ? 'section' : o.kind));
-      // Object mode (the owner, 2026-11-16: "when I click on the geometry object in the outliner it should not switch to
+      // Object mode (the Forge's owner (crispy, OT.R112), 2026-11-16: "when I click on the geometry object in the outliner it should not switch to
       // geometry mode. it should just be a normal select like I did in the viewport"): a drawn object's row picks it as a
       // click in the viewport does (`geoPicks`), beside the placements; its double-click opens Geometry mode on it. A
       // collision object's row opens its layer in Geometry mode as before (Object mode moves the drawn layer only).
@@ -10809,7 +10964,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const empty = indented(el(doc, 'li', 'fx-empty',
         q ? 'No matches' : roots.length ? 'Nothing the Filter shows' : 'Nothing placed yet: click an asset or an object button to spawn it'));
       empty.dataset['userEmpty'] = '';                         // an asset tile dropped here is placed (`dropAssetInOutline`)
-      treeRoots.push(...(userRows.length ? userRows : [empty]));
+      treeRoots.push(...(userCount > 0 ? userRows : [empty, ...userRows]));   // the hint beside his empty folder rows (the owner, 2026-11-22: "Show it when only folders exist")
     }
     // Map Objects: the base map's own, read only, by kind as the Overlays menu lists them.
     if (baseMap) {
@@ -10988,14 +11143,14 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     refreshInspector();
     drawOutliner();
     highlightSelectionMark();                                  // a selected map data item's mark, or a map prop's
-    noteSelectionSoon();                                       // a selection step, when it changed (the owner, 2026-11-15)
+    noteSelectionSoon();                                       // a selection step, when it changed (the Forge's owner (crispy, OT.R112), 2026-11-15)
   };
   /** That one alone (a plain click), or nothing selected (Circle's tap, Esc): the group cleared. */
   const lockedOf = (r: Object3D): boolean => r.userData['forgeLock'] === true;
   // A locked placement is selectable (the owner, 2026-11-11: "selectable, but not deletable or editable"): its Inspector
   // shows it, every edit of it refused (no gizmo, its fields greyed, Delete and Cut pass it over).
   /**
-   * Select All / Invert Selection in the Forge editor (the owner, 2026-11-20: "we probably need it to work with normal
+   * Select All / Invert Selection in the Forge editor (the Forge's owner (crispy, OT.R112), 2026-11-20: "we probably need it to work with normal
    * non geometry objects, for like props, doors, etc"): every placement of the layout that is shown (its User Objects:
    * props, doors, spawns, objectives...) -- or, inverted, those of them not selected now. The map's own props and data
    * stay out, as a box leaves them out by default. Every other selection let go first, as a click's.
@@ -11114,7 +11269,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const bounds = new Box3();
     for (const prop of basePicks.items) bounds.union(prop.box);
     for (const root of picks.items) bounds.union(new Box3().setFromObject(root));
-    // The geometry objects picked in Object mode (the viewport's or the Outliner's: the owner, 2026-11-16), by their boxes.
+    // The geometry objects picked in Object mode (the viewport's or the Outliner's: the Forge's owner (crispy, OT.R112), 2026-11-16), by their boxes.
     for (const id of geoPicks) { const b = geoBox(id); if (b) bounds.union(b); }
     // Map items picked together (a box, the Outliner's Shift / Ctrl): their places, each with a little room round it.
     for (const spec of dataPicks.values()) bounds.union(new Box3().setFromCenterAndSize(new Vector3(...spec.at), new Vector3(20, 20, 20).addScalar(spec.reach ?? 0)));
@@ -11226,7 +11381,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     say('Workplane through the origin, facing the view');
   });
   workplaneSnapIn.addEventListener('change', () => { workplaneSnap = workplaneSnapIn.checked; drawPlacement(); writeView(); });
-  // The Workplane and Surface Snapping button, middle-clicked (the owner, 2026-11-17: "middle clicking the grid snap button
+  // The Workplane and Surface Snapping button, middle-clicked (the Forge's owner (crispy, OT.R112), 2026-11-17: "middle clicking the grid snap button
   // should start the sample workplane process. shift + middle click to reset"; then "move the workplane settings and
   // shortcuts to the surface snapping settings button"): its Pick, or Shift's Reset. The press's own default (the
   // browser's autoscroll) taken off.
@@ -11237,7 +11392,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     e.stopPropagation();
     surfaceMenu.open = false;
     if (e.shiftKey) { workplaneResetBtn.click(); return; }
-    // Hidden: shown first, then the pick (the owner, 2026-11-17: "If I have workplane disabled, but I press the mmb on
+    // Hidden: shown first, then the pick (the Forge's owner (crispy, OT.R112), 2026-11-17: "If I have workplane disabled, but I press the mmb on
     // the button it should enable it and start sampling").
     if (!view.grid) { view.grid = true; applyView(); }
     if (!workplanePicking) workplanePickBtn.click();
@@ -11255,11 +11410,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return new Vector3().setComponent(i, -Math.sign(look.getComponent(i)));
   };
   /**
-   * The workplane a pick at `ndc` would set, and the point it shows it at: an orthographic view's facing it (the owner,
+   * The workplane a pick at `ndc` would set, and the point it shows it at: an orthographic view's facing it (the Forge's owner (crispy, OT.R112),
    * 2026-11-16: "it should not snap to the surface normal but should always be in the direction of that perspective. it
    * is merely a height from that pov"), a perspective view's onto the surface as it lies ("it should align to the sampled
    * position's normal") -- its normal on the side it was clicked from; exactly at the clicked point, the snap step left out
-   * (the owner, 2026-11-17: "The sample workplane button should not take into account the snap step ... it should just be
+   * (the Forge's owner (crispy, OT.R112), 2026-11-17: "The sample workplane button should not take into account the snap step ... it should just be
    * whatever the ground normal is"): the grid's lift and depth pull draw it over that surface. Null: nothing there.
    */
   const workplanePickAt = (ndc: Vector2): { w: Workplane; at: Vector3 } | null => {
@@ -11271,7 +11426,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return { w, at: onWorkplane(w, hit.point, null) };
   };
   /**
-   * The pick's preview (the owner, 2026-11-16: "draw a normal arrow with a circle in the direction the workplane's up will
+   * The pick's preview (the Forge's owner (crispy, OT.R112), 2026-11-16: "draw a normal arrow with a circle in the direction the workplane's up will
    * be, so it is easier to visualize where the plane will be set"; a browser adaptation): under the cursor while picking,
    * an arrow along the would-be workplane's normal standing on a mini plane lying in it, sized to the view, drawn over everything.
    */
@@ -11283,7 +11438,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   workplanePreview.userData['forgeLightingInstrument'] = true;
   {
     const lineMat = new LineBasicMaterial({ color: WORKPLANE_PREVIEW_COLOUR, depthTest: false, transparent: true });
-    // A mini plane (the owner, 2026-11-16: "instead of a circle draw a mini plane"): a square 2 across in the would-be
+    // A mini plane (the Forge's owner (crispy, OT.R112), 2026-11-16: "instead of a circle draw a mini plane"): a square 2 across in the would-be
     // workplane, its edge and a cross of grid lines over a see-through fill.
     const ring = new BufferGeometry();
     const pts: number[] = [];
@@ -11398,7 +11553,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     npcChoice = c; spawnAtCentre({ kind: 'npc' });              // spawned at the view's centre, as every tile's object
   };
   /**
-   * The one way anything is spawned (the owner, 2026-11-17: "everything should go through a single unified code path ...
+   * The one way anything is spawned (the Forge's owner (crispy, OT.R112), 2026-11-17: "everything should go through a single unified code path ...
    * click to spawn object/asset in viewport ... it should not do the ghost stuff anymore or have any of the left over place
    * tool code"; a browser adaptation, FG.R2): a prop of the assets or an object of the objects' row (a spawn, a door, an
    * emitter...). The real object is made, selected and seated by the centre handle's own seat (`seatPiece`, begun by
@@ -11657,7 +11812,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** A drag that left the viewport (or Escape): its spawn taken out. */
   const dragPlaceLeave = (): void => { if (spawnDrop) dropEnd(false); };
   /**
-   * The asset tiles' own drag (the owner, 2026-11-14: "drag and drop still feels janky and slow"; a browser adaptation,
+   * The asset tiles' own drag (the Forge's owner (crispy, OT.R112), 2026-11-14: "drag and drop still feels janky and slow"; a browser adaptation,
    * FG.R2): the pointer's, never the browser's -- a native drag runs in the system's drag loop (Windows': its frames and
    * its events throttled), so a tile is dragged by its pointer moves. Over the viewport the asset spawns at once
    * (`dragPlaceEnter`: the object itself, moved by the pointer as the centre handle moves it) and a release keeps it; over an Outliner row or an Inspector row with a drop, a release drops it there
@@ -11691,7 +11846,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   const overViewport = (t: EventTarget | null): boolean => t instanceof Node && (t === input || input.contains(t));
   /**
-   * A Textures tile hovered on Geometry mode's Texture layer (the owner, 2026-11-17: try before you apply, as modelling
+   * A Textures tile hovered on Geometry mode's Texture layer (the Forge's owner (crispy, OT.R112), 2026-11-17: try before you apply, as modelling
    * tools preview a material): its texture shown on the selected faces, no edit (`GeometryEditor.previewTextureName`);
    * the pointer leaving the tile, or pressing it (a click applies, a drag drops), puts them back first.
    */
@@ -11709,7 +11864,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   list.addEventListener('pointerdown', endHoverTexture, true);
   // No browser drag from a tile (the Characters' aside): the pointer's own instead.
   list.addEventListener('dragstart', (e) => { if (!showChars) { e.preventDefault(); e.stopPropagation(); } }, true);
-  // An asset taken (a click to place it, or a drag) in Modelling mode goes back to Object mode first (the owner,
+  // An asset taken (a click to place it, or a drag) in Modelling mode goes back to Object mode first (the Forge's owner (crispy, OT.R112),
   // 2026-11-15): placing is Object mode's. Capture, so the tile's own pick and drag run in Object mode.
   list.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || !geometry?.isActive()) return;
@@ -11740,7 +11895,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const over = overViewport(e.target);
     // A texture: nothing spawns, the chip by the pointer the whole way (the face it lands on lit by the editor's hover).
     if (parseTextureAsset(d.asset)) {
-      // Over a prop or a placed object, the chip says the drop is refused (the owner, 2026-11-16: "let the user know
+      // Over a prop or a placed object, the chip says the drop is refused (the Forge's owner (crispy, OT.R112), 2026-11-16: "let the user know
       // this cannot be done"); over the geometry, or off the viewport, the texture's name.
       const refused = over && textureTargetAt(ndcAtClient(e.clientX, e.clientY)) === 'prop';
       tileDragChip.textContent = refused ? TEXTURE_ON_PROP_REFUSAL : d.asset.slice(d.asset.indexOf(':') + 1);
@@ -11883,7 +12038,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   scene.add(ambientGuides);
   let ambientGuideKey = '';
   /**
-   * Taken out (the owner, 2026-11-13: "remove the sphere gizmo from effects ... it clogs up the viewport"): no effect
+   * Taken out (the Forge's owner (crispy, OT.R112), 2026-11-13: "remove the sphere gizmo from effects ... it clogs up the viewport"): no effect
    * draws its hearing; the switch kept off so a guide drawn before stays unseen. The drawing below is kept for a return.
    */
   const AMBIENT_GUIDES_SHOWN = false;
@@ -11912,7 +12067,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The ambient effect sounding now (`<map>:<program>`): what the Inspector's one Play / Stop button reads. */
   let ambientPlaying: string | null = null;
   /**
-   * Each play's turn (the owner, 2026-11-14: "sometimes ... it gets stuck playing looping"): a play still reading its
+   * Each play's turn (the Forge's owner (crispy, OT.R112), 2026-11-14: "sometimes ... it gets stuck playing looping"): a play still reading its
    * sounds when another starts, or a stop comes, is let go on arrival -- never left sounding with no handle to stop it.
    */
   let ambientTurn = 0;
@@ -11946,7 +12101,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     say(h.played ? `${source}: playing ${sound}` : `${source}: ${sound} would not play`, !h.played);
   };
   /**
-   * A Sound or Effect command's preview (the owner, 2026-11-14: "a preview button ... live in the ui, not in game"; "a
+   * A Sound or Effect command's preview (the Forge's owner (crispy, OT.R112), 2026-11-14: "a preview button ... live in the ui, not in game"; "a
    * preview window for the sound as well ... the progress bar"; a browser adaptation, FG.R2 -- the editor's own look): a
    * small card beside its icon -- an effect's particles live (`ambientPreview`, the asset browser's hover preview's own
    * runner and picture), a sound's card (its speaker) played with its timeline under it (`previewSoundNamed`) -- until
@@ -11995,7 +12150,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         const live = await ambientPreview(archives.sourceRequest(), source, name, kind === 'program', () => assetLoopSounds).catch(() => null);
         return live ? { object: live.object, name, source, collision: 'particles', dispose: live.dispose, progress: live.progress } : null;
       },
-      // A program's bar (the owner, 2026-11-14: "a progress bar in the preview for program assets ... link it to the loop
+      // A program's bar (the Forge's owner (crispy, OT.R112), 2026-11-14: "a progress bar in the preview for program assets ... link it to the loop
       // settings"): its sounds' timeline while they play (looped or once, as Loop sounds & effects says), else its
       // particles' own (`ambientPreview`'s: replayed at its end while looping; none for one that burns for ever).
       ...(kind === 'program' ? { progress: () => (ambientPlaying === soundKey ? ambientAudio?.timeline?.()?.fraction ?? null : null) } : {}),
@@ -12120,7 +12275,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** The tiles of an object tab: the chosen map's copies of that kind (`copyList`), a ladder's as its prop, the switch's looks. */
   /**
-   * The Effect tab's tiles (the owner, 2026-11-13: "a unified effect object"): the map's ambient effects, then its single
+   * The Effect tab's tiles (the Forge's owner (crispy, OT.R112), 2026-11-13: "a unified effect object"): the map's ambient effects, then its single
    * effects (the script's "Play an effect": `scriptNamesOf`, each one not an ambient effect already) and its sounds --
    * each placed as one effect object (`./forgeObjects` `scriptObjectData`: run, wait, again).
    */
@@ -12155,7 +12310,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return more === null ? null : shown(more);
   };
   /**
-   * The Sounds tab's tiles, by the map choice (the owner, 2026-11-13: "each map sound to only refer to sounds for that
+   * The Sounds tab's tiles, by the map choice (the Forge's owner (crispy, OT.R112), 2026-11-13: "each map sound to only refer to sounds for that
    * map"): a map its own sounds -- its list less what every map has (`scriptCommonNow`, once every map is read: null till
    * then) and less the guns' (`weaponSoundsNow`); Common what every map has, the guns' with it; All both, each once. A
    * sound every map has is placed from the match's own map (it is in every map's banks).
@@ -12182,7 +12337,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return n ? own(stem, n) : null;
   };
   /**
-   * The Textures tab's tiles, by the Source (the owner, 2026-11-16: "all, shared ... and per map"; no Weapons of its own:
+   * The Textures tab's tiles, by the Source (the Forge's owner (crispy, OT.R112), 2026-11-16: "all, shared ... and per map"; no Weapons of its own:
    * "move it to the all or shared"), each texture sorted by its library's place on the disc (`../mapTextures`
    * `textureScopeOf`): a map its own libraries' (`//mp/<map>/...`); Common every common library's -- the guns'
    * (`//common/assetlib/weapons`) among them -- each once; All both.
@@ -12235,7 +12390,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const objectTilesOwn = (kind: Exclude<ObjectTab, 'props' | 'texture' | 'characters' | 'sound' | 'effect'>): { id: string; name: string; meta: string }[] | null => {
     const stem = paletteStem();
     if (kind === 'switch') {
-      // Each look under the map whose object it copies (the owner, 2026-11-13: "these assets don't belong to every map"):
+      // Each look under the map whose object it copies (the Forge's owner (crispy, OT.R112), 2026-11-13: "these assets don't belong to every map"):
       // the lever panel Death Trap's gate's (`DEFAULT_GATE`), the radio Sujo's (else Enowapi's, `switchLookOf`). All both;
       // Common none (a look is one map's own object).
       const home = (look: SwitchLookId): string => (look === 'radio' ? RADIO_LOOK_SOURCES.find((m) => !absent.has(m)) ?? RADIO_LOOK_SOURCES[0] : DEFAULT_GATE.source);
@@ -12332,7 +12487,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /**
    * A Textures tile dropped on the viewport at `n`: laid on the faces it lands on (`GeometryEditor.dropTexture`) -- in
-   * Object mode on the whole geometry object under it (the owner, 2026-11-16: "only apply to the whole object geometry
+   * Object mode on the whole geometry object under it (the Forge's owner (crispy, OT.R112), 2026-11-16: "only apply to the whole object geometry
    * and not per face/edge/point"). The level geometry's alone: a prop is a disc prototype drawn again where it is placed
    * (`./library`), its textures its model's, none of them a placement's own.
    */
@@ -12452,7 +12607,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /**
    * Each texture's record as its picture was read (`../mapTextures` `TextureInfo`), in words for its tooltip's info line
-   * (the owner, 2026-11-17: "in the texture hover preview in the asset browser can you also list the image width/height
+   * (the Forge's owner (crispy, OT.R112), 2026-11-17: "in the texture hover preview in the asset browser can you also list the image width/height
    * and any other data that makes sense to show"): its size, its texel format, its alpha, its filter, its levels.
    */
   const textureInfos = new Map<string, string>();
@@ -12503,7 +12658,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
   };
   /**
-   * The Source's maps, each with what it has of the tab's kind (the owner, 2026-11-13: "the same for the asset browser,
+   * The Source's maps, each with what it has of the tab's kind (the Forge's owner (crispy, OT.R112), 2026-11-13: "the same for the asset browser,
    * depending on which tab is selected", as the Inspector's Map choices count theirs): its count, "loading\u2026" until read,
    * "none" -- greyed, not choosable -- where it has none (the one chosen never greyed). A map's own: its own props,
    * sounds and called effects (none every map has: Common's), its ambient programs, its copies of a scene object's kind,
@@ -12567,7 +12722,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       // Geometry mode: Textures alone (nothing else is placed in it).
       b.disabled = !!geometry?.isActive() && k !== 'texture';
     }
-    // Favourites (on or off) every tab's (the owner, 2026-11-13); the program filter Programs'.
+    // Favourites (on or off) every tab's (the Forge's owner (crispy, OT.R112), 2026-11-13); the program filter Programs'.
     chipFav.hidden = showChars;
     search.placeholder = showChars ? 'Search characters…' : objectTab === 'props' ? 'Search props…' : `Search ${tabWords(OBJECT_TABS.find(([k]) => k === objectTab)?.[1] ?? '')}…`;
     if (showChars) { drawCharacters(); return; }
@@ -12686,7 +12841,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     assetLoopSounds = assetLoopSoundsToggle.checked;           // from the next play on
     writeView();
   });
-  // The All chip gone (the owner, 2026-11-13: "useless now"): Favourites a toggle, off is every prop.
+  // The All chip gone (the Forge's owner (crispy, OT.R112), 2026-11-13: "useless now"): Favourites a toggle, off is every prop.
   chipFav.addEventListener('click', () => { filter = filter === 'favs' && !showChars ? 'all' : 'favs'; showChars = false; drawAssets(); });
   chipChars.addEventListener('click', () => { showChars = true; drawAssets(); });
   /**
@@ -13095,7 +13250,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /**
    * The base's hull the placements rest on: an edited geometry's last Build in place of the disc's or the blank floor's
    * (`./geometry/editor` `editedMap`, `editedBlank`; as Play's ground, `composeGround`), so a cube made in Geometry mode is
-   * a surface Place and the gizmo's snap seat on (the owner, 2026-11-15).
+   * a surface Place and the gizmo's snap seat on (the Forge's owner (crispy, OT.R112), 2026-11-15).
    */
   function editedBaseGround(): GroundData | null {
     if (base?.kind === 'blank') return geometry?.editedBlank()?.ground ?? floorGround(FLOOR_SIZE);
@@ -13121,7 +13276,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const hulls = new Map<string, WorldPoly[] | null>();
   const hullOf = async (asset: string): Promise<WorldPoly[] | null> => {
     if (!hulls.has(asset)) {
-      const id = parseAssetId(asset);
+      const id = asset === FORGE_BLOCK ? null : parseAssetId(asset);   // FN-7 (ours; LATER 1034): the block has no disc hull
       if (!id || absent.has(id.archive)) hulls.set(asset, null);
       else {
         const map = await archives.load(id.archive).catch(() => null);
@@ -14000,7 +14155,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
    * through; `map`, the base map's own props alone -- the placements looked through.
    */
   /**
-   * The world's drawn surfaces a pick strikes (the owner, 2026-11-15: "the snap to surface seemed to completely break when
+   * The world's drawn surfaces a pick strikes (the Forge's owner (crispy, OT.R112), 2026-11-15: "the snap to surface seemed to completely break when
    * we introduced the geometry mode"): the base view (its world, hidden under an edit, and its props), the edited
    * geometry's own view once there is one (`GeometryEditor.drawnWorld`, a blank map's floor among it), and the blank
    * floor's plane while it shows.
@@ -14105,7 +14260,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const ladderFronts = new Map<string, [number, number] | null>();
   const ladderFrontOf = async (asset: string): Promise<[number, number] | null> => {
     if (ladderFronts.has(asset)) return ladderFronts.get(asset)!;
-    const id = parseAssetId(asset);
+    // FN-7 (ours; LATER 1034): the forge's own block is no disc prop -- its `forge` prefix is no archive to load.
+    const id = asset === FORGE_BLOCK ? null : parseAssetId(asset);
     const lib = id ? await hostageLibOf(id.archive) : null;
     const front = (lib && id ? ladderPropsOf(lib).find((l) => l.model === id.model)?.front : undefined) ?? null;
     ladderFronts.set(asset, front);
@@ -14144,7 +14300,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   };
   /** At the centre or the pointer: select, or place; `toggle` (FG-47: Shift / Ctrl, Cross held) adds or takes out, in any tool. */
   /**
-   * How the Select tool takes what it finds (the owner, 2026-11-16: "holding shift + click should be additive not toggle
+   * How the Select tool takes what it finds (the Forge's owner (crispy, OT.R112), 2026-11-16: "holding shift + click should be additive not toggle
    * selection. ctrl + click should be toggleable"): `only` it alone (a plain click), `add` it added (Shift; never taken
    * out), `toggle` it in or out (Ctrl), `remove` it taken out (a Ctrl drag's paint).
    */
@@ -14253,7 +14409,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return !chose || world || g.distance < chose.distance - 1e-3 ? g.id : null;
   };
   const act = (ndc: Vector2, how: SelectOp | boolean = 'only'): void => {
-    // A click's way with the selection (the owner, 2026-11-16): alone, Shift's added, Ctrl's in or out (`true`: Ctrl's).
+    // A click's way with the selection (the Forge's owner (crispy, OT.R112), 2026-11-16): alone, Shift's added, Ctrl's in or out (`true`: Ctrl's).
     const op: SelectOp = how === true ? 'toggle' : how === false ? 'only' : how;
     if (busy) return;
     const surfaceHit = pick(ndc);
@@ -14270,7 +14426,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     return new Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   };
   input.addEventListener('contextmenu', (e) => e.preventDefault());
-  // A double-click on a geometry object in Object mode (the owner, 2026-11-16: "double clicking geo to go geo mode is
+  // A double-click on a geometry object in Object mode (the Forge's owner (crispy, OT.R112), 2026-11-16: "double clicking geo to go geo mode is
   // good"): Geometry mode on, that object selected in it -- as its Outliner row's double-click.
   input.addEventListener('dblclick', (e) => {
     if (busy || playing || e.button !== 0 || e.altKey || !geometry || geometry.isActive()) return;
@@ -14284,7 +14440,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   /** The pointer's last place: Play stands under it when the camera has no floor (FG-50). */
   let pointerClient: { x: number; y: number } | null = null;
   input.addEventListener('pointerdown', (e) => {
-    // Alt-drag copies (the owner, 2026-11-17: "make ctrl drag the snap, and make the alt+drag to copy"; it was Ctrl).
+    // Alt-drag copies (the Forge's owner (crispy, OT.R112), 2026-11-17: "make ctrl drag the snap, and make the alt+drag to copy"; it was Ctrl).
     duplicateModifierOnPointerDown = e.button === 0 && e.altKey;
     setCtrlSnapFlip(e.ctrlKey || e.metaKey);
   }, true);
@@ -14300,7 +14456,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (e.button !== 0 || gizmo.dragging) return;
     if (gizmo.axis !== null) return;                     // the gizmo's own drag
     lastNdc = ndcOf(e);
-    // A pointer's modifiers, read off the click (no key listener): Ctrl (Cmd) toggles, Shift adds (the owner, 2026-11-16).
+    // A pointer's modifiers, read off the click (no key listener): Ctrl (Cmd) toggles, Shift adds (the Forge's owner (crispy, OT.R112), 2026-11-16).
     const clickOp: SelectOp = e.ctrlKey || e.metaKey ? 'toggle' : e.shiftKey ? 'add' : 'only';
     if (!busy) {
       // FG-47: on a placement, at once as before (Shift / Ctrl adds or takes out); on none, a box if the pointer drags,
@@ -14313,7 +14469,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }
   });
   /**
-   * A press of the Select tool (the owner, 2026-11-16: "remove box select mode in the normal object mode"; earlier, "just
+   * A press of the Select tool (the Forge's owner (crispy, OT.R112), 2026-11-16: "remove box select mode in the normal object mode"; earlier, "just
    * have the same drag to select like we do in geometry tool, keep it consistent across all the tools"): let go where it
    * began, a click (`act`: what is under it, as `op` says); dragged, a paint -- what the pointer passes over is taken (a
    * plain drag starting the selection afresh, Shift's adding to it), or (Ctrl's) taken out, as Geometry mode's drag does.
@@ -14436,9 +14592,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         if (!gizmo.dragging && !(a === 'scale' && FORGE_TRANSFORM_STUBS_HIDDEN_ADAPTATION && !geometry?.isActive())) setGizmo(a);
         break;
       case 'snap': setSnap(!snapAny()); break;
-      // Q (the owner, 2026-11-12): the gizmo's World / Local, as its button.
+      // Q (the Forge's owner (crispy, OT.R112), 2026-11-12): the gizmo's World / Local, as its button.
       case 'space': setGizmoSpace(gizmoSpace === 'world' ? 'local' : 'world'); say(gizmoSpace === 'world' ? 'Gizmo: World' : 'Gizmo: Local'); break;
-      // G / Shift+G (the owner, 2026-11-12): the selection grouped into a new folder, or its folders taken out.
+      // G / Shift+G (the Forge's owner (crispy, OT.R112), 2026-11-12): the selection grouped into a new folder, or its folders taken out.
       case 'selectAll': if (!playing) selectAllPlaced(false); break;
       case 'invert': if (!playing) selectAllPlaced(true); break;
       case 'group': if (!playing) groupSelection(); break;
@@ -14537,7 +14693,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     remove();
   };
   /**
-   * Paste (Ctrl+V): the latest copy -- the placements' (at the cursor, as before), the geometry's (in place: the owner,
+   * Paste (Ctrl+V): the latest copy -- the placements' (at the cursor, as before), the geometry's (in place: the Forge's owner (crispy, OT.R112),
    * 2026-11-16, "keep it in the same position"; a copy made in Geometry mode too), or both when one Copy took both.
    */
   const pasteClipboard = (): void => {
@@ -14704,6 +14860,39 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     }), true);
   };
   /**
+   * Edit > Duplicate (the owner, 2026-11-22: "Restore the menu row, no key" -- Ctrl+D is his `geo.quadSlice`): the
+   * selection's copy beside it, one step -- a group's through `duplicateGroup` -- as before his import (0ed80a521b^).
+   */
+  const duplicate = (): void => {
+    if (isGroup()) { duplicateGroup(); return; }
+    const s = selected;
+    if (!s || refuseEdit()) return;
+    const before = selectionIds();
+    const asset = s.userData['forgePiece'] as string | undefined;
+    const team = s.userData['forgeSpawn'] as 'A' | 'B' | undefined;
+    const npc = npcOf(s);
+    if (bombKindOf(s)) { say('one of each bomb marker: move the one placed'); return; }
+    personEdit('selection.duplicate', {}, (step) => {
+      const place = (r: Object3D): void => {
+        r.position.copy(s.position).add(new Vector3(gridStep * 2, 0, 0));
+        r.quaternion.copy(s.quaternion);
+        r.scale.copy(s.scale);
+        yawOnly(r);                                              // FC2 (ours; FC2-6): a copied marker's turn re-derives `rotation` in XYZ: its yaw saved as shown
+        freshName(r);
+        addPlacement(r);
+        select(r);
+        edit(before, step);
+      };
+      const cloned = markerClone(s);
+      if (cloned) place(cloned);
+      else if (s.userData['forgeRespawn']) place(respawnMarker(s.userData['forgeRespawn'] as 'A' | 'B'));
+      else if (team) place(spawnMarker(team));
+      else if (npc) place(newNpc(npc.side, npc.type));
+      else if (asset && s.userData['forgeMissing']) place(contentOf(missingPiece(asset), s.userData['forgeContent']));
+      else if (asset) void newPiece(asset, s.userData['forgeContent']).then((r) => { if (r) place(contentOf(r, s.userData['forgeContent'])); });
+    }, true);
+  };
+  /**
    * The map props among `keys` (their placement keys) whose collision hiding them cannot take out (`./hide`
    * `placementOwners`: no hull owner of their own) -- each by its model, once. Said after a hide (the owner, 2026-11-06):
    * the prop is gone from the drawing, and, if it is solid in the game, its collision may stay in the map's.
@@ -14727,7 +14916,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     notifier.refused(`Hidden, but no collision of its own was found for ${named}: if it is solid in the game, its collision is part of the map and stays (an invisible wall)`);
   };
   const remove = (): void => {
-    // The geometry objects picked in Object mode (the owner, 2026-11-16): deleted with the rest -- after it, and folded
+    // The geometry objects picked in Object mode (the Forge's owner (crispy, OT.R112), 2026-11-16): deleted with the rest -- after it, and folded
     // into its step when the rest made one, so one undo puts all of it back.
     if (geoPicks.size && geometry) {
       if (refuseEdit()) return;
@@ -15045,16 +15234,20 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   let leaveScope: (() => void) | null = null;
   const enterMatchScope = (): void => { leaveScope?.(); leaveScope = hdTextures.enterScope(FORGE_MATCH_TEXTURE_SCOPE); };
   const leaveMatchScope = (): void => { leaveScope?.(); leaveScope = null; };
-  const endMatch = (): void => {
-    leaveMatchScope();
+  /**
+   * H460 fix round 2: the match's view torn down -- `endMatch`'s and `returnToLobby`'s one way, so the two cannot drift.
+   * `letGo` lets the match go (`endMatch`: its close; `returnToLobby`: nothing, released already), `lobbyAfter` runs where
+   * `endMatch` has always left its lobby. False when there was no match (nothing torn down past the rules). Each caller
+   * leaves the match's texture scope first (`leaveMatchScope`, PR #729's pin: `endMatch`'s first line).
+   */
+  const dropMatchView = (letGo: (m: ForgeMatch) => void, lobbyAfter: () => void): boolean => {
     agentPlay.port.end('Forge Play ended');
     rulesPresenter.clear();                                   // FCW-32 round 2: the rules' words go with the match
-    if (!match) return;
-    match.close();
+    if (!match) return false;
+    letGo(match);
     match = null;
     syncRulesGizmos();                                        // FCW-32 step 4 (D4): the editor's again
-    const leftLobby = matchOfLobby;
-    if (matchOfLobby) { matchOfLobby = false; leaveLobby(); }
+    lobbyAfter();
     forgePad.reset();                                         // the exit chord, still held, is not a press here
     matchHost.replaceChildren();
     matchHost.hidden = true;
@@ -15063,7 +15256,40 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (doc.pointerLockElement) doc.exitPointerLock();
     fit();
     restorePlace();                                          // FG-50: the camera, the selection and the tool, as they were
+    return true;
+  };
+  const endMatch = (): void => {
+    leaveMatchScope();
+    const leftLobby = matchOfLobby;                         // `dropMatchView` changes it only in `lobbyAfter`, below
+    if (!dropMatchView((m) => { m.close(); }, () => { if (matchOfLobby) { matchOfLobby = false; leaveLobby(); } })) return;
     if (!leftLobby) say('building');                         // LATER 215's review F2: leaveLobby said it, then a joiner's line
+  };
+  /**
+   * H460 fix round 2 (the main controller, 2026-11-15: "BUILD THE PAGE's RETURN under H460 as fix round 2, for the FULL
+   * GAME only"; a browser adaptation, product track): the room came back to its lobby after a full game
+   * (`ForgeMatch.returned`) -- the match lets go of the lobby's socket open (`release`), the match's view goes as
+   * `endMatch` takes it down, and the same lobby takes the socket back (`ForgeLobbySession.resume`), its window shown
+   * again: READY and LAUNCH for the next match, on the same seat. A joiner's own layout is not brought back (the lobby goes
+   * on). A socket no longer open at the return (`release` null) is today's end: `endMatch`, the lobby left.
+   */
+  const returnToLobby = (): void => {
+    const l = lobby;
+    const m = match;
+    const r = m && l && matchOfLobby ? m.release() : null;
+    if (!r || !l) { endMatch(); return; }
+    leaveMatchScope();
+    dropMatchView(() => {}, () => { matchOfLobby = false; });
+    // H460 fix round 3 (the fresh review's finding 5): the window mounted and shown BEFORE `resume` tells the lobby's
+    // listeners, so a host hand-on during the match notices "You host this lobby now ..." in it (`enterLobby`'s `onLobby`
+    // calls `l.popup?.notice`), and the window's own `onLobby` redraws it with the returned view. In the one synchronous
+    // moment between the two -- no frame is drawn in it -- the window holds the session's last view from before the
+    // hand-off (the launch's, `launched` true: READY, SWITCH, ARMORY and LAUNCH closed) and no seat of its own (`me()` is
+    // null while the session holds no client); `resume` then draws the room's returned view over it in the same task.
+    showLobbyWindow(l);
+    l.session.resume(r.client, r.view);
+    setAddress(l.id);
+    drawLobbyBtn();
+    say(`back in the lobby ${l.name}`);
   };
   matchBack.addEventListener('click', endMatch);
   /**
@@ -15099,6 +15325,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const playerSide = npcs && (playSide === 'seal' || playSide === 'terrorist') ? playSide : playerSideOf(markers);
     // FC2.R8 (ONLINE_HELD_SETTINGS_ADAPTATION, a hold of ours): the lobby's match (`npcs` false) plays none of the Map
     // Settings the match server does not apply yet, the creator's as a joiner's (central's copy holds none); Play all.
+    // FN-1a: the arsenal, EQlimit and RESPAWN are off the list -- the room applies them -- so they compose here too;
+    // FN-1b: the character roster too (the room lends its kits and hit skeletons, `forgeRoomRoster`).
     const own = settingsOf(npcs ? layout : withoutHeldSettings(layout));
     const fit = npcsThatFit(markers, playerSide, own.players);
     // Each piece's name in the hull (`composeGround`'s `forge/piece_<its place among the roots>`): its drawn placements
@@ -15224,7 +15452,9 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const own = kept
       ? { ai: kept.ai, hostages: kept.escortees?.length ?? 0, zones: kept.ai ? zonesOfKind(kept.ai, 1).length : 0,
         safety: !!kept.ai?.maps.some((s) => s.zones.some((z) => z.name.toLowerCase() === 'safety')),
-        bomb: { start: !!kept.bombStart, seal: !!plantSite('seal', kept.meta?.actions ?? []), terrorist: !!plantSite('terrorist', kept.meta?.actions ?? []) } }
+        bomb: { start: !!kept.bombStart, seal: !!plantSite('seal', kept.meta?.actions ?? []), terrorist: !!plantSite('terrorist', kept.meta?.actions ?? []) },
+        // FN-5 (FG-51 as kept, FN.R4): Demolition on the base's own bomb, by the rule Play applies (`./objectives`).
+        baseBomb: usesBaseBomb(l.objectives, kept) }
       : { ai: paintedAiNow() ?? floorAiMaps(FLOOR_SIZE), hostages: 0, zones: 0 };
     return checkMap(l, ground, pieces, polyCount, disc, own);
   };
@@ -15664,51 +15894,118 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     else if (back.unheld && back.keepEarlier) say('Your own layout needs a map this page cannot open, so it is kept until you edit', true);
     else sayAside(back);
   };
-  /** The room started the match: the window closes, the layout is composed as Play's, the match mounted on the lobby's client. */
+  /**
+   * H460 fix round 2: each lobby's window mount (`enterLobby`'s `mountForgeLobby(...)`, its host seams), kept so a return
+   * from the match and a slow page's dropped launch mount the same window again; the session's own listeners
+   * (`onLaunch`, `onEnd`, `onLobby`) stay as `enterLobby` added them, never added twice.
+   */
+  const lobbyWindows = new WeakMap<LobbyHere, () => void>();
+  const showLobbyWindow = (l: LobbyHere): void => {
+    lobbyWindows.get(l)?.();
+    l.shown = true;
+    l.popup?.setShown(true);
+    drawLobbyBtn();
+  };
+  // H460 fix round 4 (the first typecheck's reds): `launchLobbyMatch` sets `l.popup = null` and `l.launchMissed = false`,
+  // and the compiler keeps those narrowings across its awaits and its calls -- though `showLobbyWindow` mounts the window
+  // again and a second launch sets the flag meanwhile. Read through these, each is the record's own declared type.
+  const lobbyWindowOf = (l: LobbyHere): LobbyHere['popup'] => l.popup;
+  const launchWasMissed = (l: LobbyHere): boolean => l.launchMissed === true;
+  /**
+   * The room started the match: the window closes, the layout is composed as Play's, the match mounted on the lobby's client.
+   *
+   * H460 fix round 3 (the fresh review's finding 3; a browser adaptation, product track): one launch of a lobby at a time
+   * (`l.launching`, from the start to the outer `finally`), since a launch is told again after a return (`resume`, the
+   * slow page's un-launch) and a page still loading could be told the next one. A launch told while one is under way
+   * starts no second load: it is held (`l.launchMissed`). In each order:
+   * - the next launch is told during this load, before its check below: the check finds the session launched again and
+   *   this load hands off -- to the NEW launch (the un-launch emptied the old one's events and round start), so the held
+   *   launch is served by this one and nothing is taken up;
+   * - the room took the launch back and launched no other before the check: the launch is dropped (the window again); a
+   *   launch told after this call's end finds none under way and starts its own load as before;
+   * - the room launched again and took that back too before the check: dropped; the session not launched at the end, so
+   *   nothing is taken up;
+   * - dropped while a launch was held and the session is launched at the end: that launch is taken up then, once, by a
+   *   fresh call. (By reading the drop runs to the `finally` with no await between, so this order cannot arise today;
+   *   it is kept so a real launch is never lost if one comes.)
+   * A load that fails, or a lobby left, takes up nothing (the lobby is gone).
+   */
   const launchLobbyMatch = async (l: LobbyHere): Promise<void> => {
     l.popup?.dispose();
     l.popup = null;
-    l.shown = false;
-    drawLobbyBtn();
-    if (playing) stopPlay();
-    padMenu.close();
-    for (let i = 0; busy && i < 100; i++) await new Promise((r) => setTimeout(r, 100));   // a load under way finishes first
-    if (lobby !== l || match) return;
-    busy = true;
-    busyCause = 'lobbyMatch';
-    showLoading('Starting the lobby\'s match');
+    // H460 fix round 3 (finding 3): a launch under way holds this one -- its window was already down (the two lines above
+    // change nothing then: no path mounts the window while a launch is under way but that launch's own end).
+    if (l.launching) { l.launchMissed = true; return; }
+    l.launching = true;
+    l.launchMissed = false;
+    let dropped = false;
+    // H460 fix round 3 (finding 6): the end's words, as `enterLobby`'s `onEnd` words them, heard while this launch is under
+    // way -- the window is down then, so that handler's own notice has no window to go to.
+    const ending: { words: string | null } = { words: null };
+    const offEnd = l.session.onEnd((_code, reason) => { ending.words = lobbyEndWords(reason, l.guest) ?? 'The lobby ended'; });
     try {
-      const m = await composeForMatch(false);
-      if (!m) throw new Error('this base has no hull to play on');
-      const [clips, rawExtras] = await Promise.all([archives.clips(MATCH_CLIPS), matchExtras(archives.sourceRequest(), m.c.groundMap, await cueDonorFor(m.c.groundMap.archive), m.lentAssets, layoutSurfaces(m.c.ground))]);
-      const extras = withExtrasSettings(rawExtras, m.own).extras;        // the layout's surface and reverb (`./worldSettings`)
-      if (lobby !== l) return;
-      const h = l.session.handOff();
-      if (!h) throw new Error('the lobby ended before its match');
-      select(null);
-      doc.body.classList.add(FORGE_MATCHING_CLASS);
-      holdEditor(true);
-      matchHost.hidden = false;
-      drawMatchBack();
-      matchHost.replaceChildren(matchBack, statusChips.matchElement);   // FUI-4: the agent's chip beside Back
-      enterMatchScope();
-      match = startForgeLobbyMatch(matchHost, {
-        map: m.map, clips, effects: extras.effects, sound: extras.sound, handOff: h, pinned: l.pinned, gameName: l.name, lateJoiner: l.lateJoiner,
-        forgeLighting: forgeLightingOptions(m.own, baseMap, (base?.kind === 'blank' || base?.kind === 'map') && !!m.own.fogColor), brighten: matchBrightenOf(m.own), ...(m.gameMode ? { gameMode: m.gameMode } : {}), source: archives.sourceRequest(),   // F7 (a): the overlay's cues read from it
-      });
-      matchOfLobby = true;
-      say(m.unplayable ? `the lobby's match · ${l.name} · ${m.unplayable}` : `the lobby's match · ${l.name}`, m.unplayable !== undefined);
-    } catch (e) {
-      // The FG-48 re-review's F1: a failure after the hand-off left no socket with the session (`./match` closed the
-      // client it was handed, or `endMatch` the match's), so `leaveLobby` sends nothing after it -- the socket's close
-      // was the hand-on; one before the hand-off still holds the socket, and the leave keeps F2's order.
-      endMatch();
-      doc.body.classList.remove(FORGE_MATCHING_CLASS);
-      holdEditor(false);
-      matchHost.hidden = true;
-      say(`the lobby's match would not start: ${e instanceof Error ? e.message : String(e)}`, true);
-      leaveLobby();
-    } finally { busy = false; showLoading(null); }
+      l.shown = false;
+      drawLobbyBtn();
+      if (playing) stopPlay();
+      padMenu.close();
+      for (let i = 0; busy && i < 100; i++) await new Promise((r) => setTimeout(r, 100));   // a load under way finishes first
+      if (lobby !== l || match) return;
+      busy = true;
+      busyCause = 'lobbyMatch';
+      showLoading('Starting the lobby\'s match');
+      try {
+        const m = await composeForMatch(false);
+        if (!m) throw new Error('this base has no hull to play on');
+        const [clips, rawExtras] = await Promise.all([archives.clips(MATCH_CLIPS), matchExtras(archives.sourceRequest(), m.c.groundMap, await cueDonorFor(m.c.groundMap.archive), m.lentAssets, layoutSurfaces(m.c.ground))]);
+        const extras = withExtrasSettings(rawExtras, m.own).extras;        // the layout's surface and reverb (`./worldSettings`)
+        if (lobby !== l) return;
+        // H460 fix round 2, the slow page: the room played its match to a full game and came back to its lobby while this
+        // page composed (the session no longer launched): this launch is dropped -- no hand-off, the window again.
+        if (!l.session.isLaunched()) {
+          dropped = true;
+          showLobbyWindow(l);
+          // H460 fix round 3 (finding 6): a lobby that ENDED after the un-launch takes an ended lobby's path -- `enterLobby`'s
+          // `onEnd` already marked it ended, cleared the address and said the words; its window (shown just above) carries
+          // the end's words as its notice and stays until its close (LEAVE then lets the lobby go), never a live lobby's.
+          if (l.ended) { lobbyWindowOf(l)?.notice(ending.words ?? 'The lobby ended'); return; }
+          say(`the lobby's match ended before this page finished loading: back in the lobby ${l.name}`, true);
+          return;
+        }
+        const h = l.session.handOff();
+        if (!h) throw new Error('the lobby ended before its match');
+        select(null);
+        doc.body.classList.add(FORGE_MATCHING_CLASS);
+        holdEditor(true);
+        matchHost.hidden = false;
+        drawMatchBack();
+        matchHost.replaceChildren(matchBack, statusChips.matchElement);   // FUI-4: the agent's chip beside Back
+        enterMatchScope();
+        match = startForgeLobbyMatch(matchHost, {
+          map: m.map, clips, effects: extras.effects, sound: extras.sound, handOff: h, pinned: l.pinned, gameName: l.name, lateJoiner: l.lateJoiner,
+          forgeLighting: forgeLightingOptions(m.own, baseMap, (base?.kind === 'blank' || base?.kind === 'map') && !!m.own.fogColor), brighten: matchBrightenOf(m.own), ...(m.gameMode ? { gameMode: m.gameMode } : {}), source: archives.sourceRequest(),   // F7 (a): the overlay's cues read from it
+        });
+        matchOfLobby = true;
+        say(m.unplayable ? `the lobby's match · ${l.name} · ${m.unplayable}` : `the lobby's match · ${l.name}`, m.unplayable !== undefined);
+      } catch (e) {
+        // The FG-48 re-review's F1: a failure after the hand-off left no socket with the session (`./match` closed the
+        // client it was handed, or `endMatch` the match's), so `leaveLobby` sends nothing after it -- the socket's close
+        // was the hand-on; one before the hand-off still holds the socket, and the leave keeps F2's order.
+        endMatch();
+        doc.body.classList.remove(FORGE_MATCHING_CLASS);
+        holdEditor(false);
+        matchHost.hidden = true;
+        say(`the lobby's match would not start: ${e instanceof Error ? e.message : String(e)}`, true);
+        leaveLobby();
+      } finally { busy = false; showLoading(null); }
+    } finally {
+      // H460 fix round 3 (finding 3): the launch under way ends; a launch held meanwhile is taken up once, only when this
+      // one was dropped and the session is launched now (the order list above).
+      offEnd();
+      l.launching = false;
+      const again = dropped && launchWasMissed(l) && lobby === l && !l.ended && !match && l.session.isLaunched();
+      l.launchMissed = false;
+      if (again) void launchLobbyMatch(l);
+    }
   };
   /**
    * Into the lobby `id`: its socket opened (the hello's `forge`), the window mounted over the forge, the address its link.
@@ -15732,16 +16029,29 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const client = openLobbySocket({ url: sock.url, id: o.id, hostTicket: o.hostTicket, ticket: o.ticket, token: sock.token, name: '' });
     const stem = lobbyMapStem(o.layout);
     const players = settingsOf(o.layout).players;
+    // FN-1a fix round 2 (research 424 section 7): the lobby's ARMORY restricts as its room does -- the layout's EQlimit
+    // by the room's own mapping (`roomOptionsOf`, which `ForgeGame.roomOptions` calls; research 362 section 2).
+    const eqLimit = roomOptionsOf(settingsOf(o.layout)).eqLimit ?? 0;
     let armory: Promise<ArmoryData> | null = null;
     const session = new ForgeLobbySession(client, {
       title: () => ({ name: o.name, map: stem, players }),
       armoryData: () => {
         const own = baseMap ?? charMap;
         if (!own) return null;
-        // The ARMORY's valves the layout's over the map's (`./arsenalSetting`), as the lobby's match plays them: the map's
-        // own while the arsenal is held from online lobbies (FC2.R8, `withoutHeldSettings`).
-        const map = mapWithArsenal(own, settingsOf(withoutHeldSettings(o.layout)).arsenal).map;
-        armory ??= lobbyArmoryData(archives.sourceRequest(), map);
+        // The ARMORY's valves the layout's over the map's (`./arsenalSetting`), as the lobby's match plays them: the
+        // layout's as the lobby holds it (FC2.R8, `withoutHeldSettings`; FN-1a lifted the arsenal: the room plays it too).
+        // FN-1a fix round 2: its type kits are this map's too (`./match` `lobbyArmoryOver`), the kits the room gives.
+        // FN-1b (research 425 section 4): the roster first, then the arsenal, as the lobby's match composes them
+        // (`./composeLayout` `composeLayoutFinish`; its donors loaded as `composeForMatch` loads them) and the room lends
+        // them (`forgeRoomRoster`), the roster handed to the data so the window offers the room's columns and kits.
+        armory ??= (async () => {
+          const played = settingsOf(withoutHeldSettings(o.layout));
+          const donors = new Map<string, RosterMap>();
+          for (const stem of rosterStems(played.characters)) { const lib = await hostageLibOf(stem); if (lib) donors.set(stem, lib); }
+          const rostered = withRoster(own, played.characters, (s) => donors.get(s) ?? null).map;
+          const map = mapWithArsenal(rostered, played.arsenal).map;
+          return lobbyArmoryData(archives.sourceRequest(), map, played.characters);
+        })();
         return armory;
       },
     });
@@ -15800,7 +16110,13 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       }
       hosting = now;
     });
-    l.popup = mountForgeLobby(doc.body, { ...session.deps(doc, () => { if (lobby === l) leaveLobby(); }), visibility, password, kick, end }, { paint: painter.paint });
+    // H460 fix round 2: the window's mount, kept for the return after a full game (`showLobbyWindow`).
+    const mountWindow = (): void => {
+      l.popup?.dispose();
+      l.popup = mountForgeLobby(doc.body, { ...session.deps(doc, () => { if (lobby === l) leaveLobby(); }), visibility, password, kick, end }, { paint: painter.paint, eqLimit: () => eqLimit });
+    };
+    lobbyWindows.set(l, mountWindow);
+    mountWindow();
     session.onLaunch(() => { if (lobby === l) void launchLobbyMatch(l); });
     session.onEnd((_code, reason) => {
       if (lobby !== l) return;
@@ -15832,7 +16148,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     if (refuseMissingPacks('Create lobby')) return;
     // R3-B (item 6; H273, H274): a lobby plays the disc's own content -- a layout that needs a creator pack or names a
     // creator mode is refused before anything is asked or posted, in the policy's own words (central refuses it too).
-    // FC2.R8: asked of the layout as it is sent (`withoutHeldSettings`), so held Map Settings strip, not refuse; told in a line.
+    // FC2.R8: asked of the layout as it is sent (`withoutHeldSettings`), so held Map Settings strip, not refuse; told in a line
+    // naming only those still held (the four world settings; FN-1a lifted the arsenal, EQlimit, RESPAWN, FN-1b the roster).
     const online = onlineRecordRefusal(recordOfLayout(withoutHeldSettings(withGeometryNow(l, true)), l.name?.trim() || 'Layout'));   // bug 1: its geometry too
     if (online.length) { notifier.refused(online.map((d) => d.text).join(' ')); return; }
     const held = heldSettingsOf(l);
@@ -15858,7 +16175,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     say('making the lobby…');
     try {
       // The tree is the editor's own (`withoutTree`): the lobby plays every placement at its own world place. The held Map
-      // Settings stay here (FC2.R8, `withoutHeldSettings`): central takes none the match server does not apply.
+      // Settings stay here (FC2.R8, `withoutHeldSettings`): central takes none the match server does not apply; the
+      // arsenal, EQlimit and RESPAWN go with the layout (FN-1a: the room applies them), and the roster (FN-1b).
       const made = await createLobby(lobbyBase(), name, withoutHeldSettings(withoutTree(l)), ticket, undefined, { listed: visibilityToggle.listed(), password: passwordField.password() });
       if (!made.ok) { say(`the lobby was not made: ${made.words}`, true); return; }
       if (made.stale) pop('Your sign-in had ended: you host as a guest');
@@ -16097,7 +16415,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     const next = await layoutForSelect(chosen, paletteStem() || entries[0]?.stem || BLANK_LIBRARY).catch((e: unknown) => { say(String(e), true); return null; });
     if (!next) return;
     if (!(await saveFirstOrStay())) return;
-    // A new map opens with the world drawn as the game draws it (the owner, 2026-11-18: "on by default ... when creating
+    // A new map opens with the world drawn as the game draws it (the Forge's owner (crispy, OT.R112), 2026-11-18: "on by default ... when creating
     // new maps (even with base map)" -- the detail textures, then the fog, the drop shadows, the flare glows and the graded
     // alpha blend "just like the detail texture"): each turned off by hand is turned on again here, off only by hand.
     view.fog = true;
@@ -16464,21 +16782,23 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       { label: 'Undo', icon: icon('undo'), keys: keyLabel('app.undo'), act: undo, enabled: () => !undoBtn.disabled },
       { label: 'Redo', icon: icon('redo'), keys: keyLabel('app.redo'), act: redo, enabled: () => !redoBtn.disabled },
       'rule',
-      // Geometry mode (the owner, 2026-11-16): the rows are the geometry's own (`GeometryEditor.command`), as their keys are.
+      // Geometry mode (the Forge's owner (crispy, OT.R112), 2026-11-16): the rows are the geometry's own (`GeometryEditor.command`), as their keys are.
       { label: 'Cut', icon: icon('cut'), keys: keyLabel('app.cut'), act: () => (geoEdits() ? geometry!.command('cut') : cutSelection()), enabled: () => (geoEdits() ? geometry!.canCommand('cut') : unlocked()) },
       { label: 'Copy', icon: icon('copy'), keys: keyLabel('app.copy'), act: () => (geoEdits() ? geometry!.command('copy') : copySelection()), enabled: () => (geoEdits() ? geometry!.canCommand('copy') : unlocked()) },
       { label: 'Paste', icon: icon('paste'), keys: keyLabel('app.paste'), act: () => (geoEdits() ? geometry!.command('paste') : pasteClipboard()), enabled: () => (geoEdits() ? geometry!.canCommand('paste') : clipboard.length > 0 || !!geometry?.hasClip()) },
+      // Duplicate (the owner, 2026-11-22: "Restore the menu row, no key"): Object mode's only; off while Geometry mode edits.
+      { label: 'Duplicate', icon: icon('duplicate'), act: () => { if (!geoEdits()) duplicate(); }, enabled: () => !geoEdits() && picks.size > 0 },
       'rule',
       { label: 'Delete', icon: icon('trash'), keys: keyLabel(geoEdits() ? 'geo.delete' : 'forge.delete'), act: () => (geoEdits() ? geometry!.command('delete') : remove()), enabled: () => (geoEdits() ? geometry!.canCommand('delete') : !delBtn.disabled) },
       'rule',
-      // Select All and Invert (the owner, 2026-11-20): Geometry mode's own there, the placements' elsewhere.
+      // Select All and Invert (the Forge's owner (crispy, OT.R112), 2026-11-20): Geometry mode's own there, the placements' elsewhere.
       { label: 'Select All', keys: keyLabel(geoEdits() ? 'geo.selectAll' : 'forge.selectAll'), act: () => (geoEdits() ? geometry!.selectAll(false) : selectAllPlaced(false)), enabled: () => !playing },
       { label: 'Invert Selection', keys: keyLabel(geoEdits() ? 'geo.invert' : 'forge.invert'), act: () => (geoEdits() ? geometry!.selectAll(true) : selectAllPlaced(true)), enabled: () => !playing },
       'rule',
-      // Edit > Preferences (the owner, 2026-11-20): the shortcut editor (`./shortcutEditor`).
+      // Edit > Preferences (the Forge's owner (crispy, OT.R112), 2026-11-20): the shortcut editor (`./shortcutEditor`).
       { label: 'Preferences…', icon: icon('gear'), act: () => openShortcutEditor(doc) },
     ]);
-    // The AI Navigation menu is gone (the owner, 2026-11-16: "add the ai navigation menu settings into the mode's toolbar
+    // The AI Navigation menu is gone (the Forge's owner (crispy, OT.R112), 2026-11-16: "add the ai navigation menu settings into the mode's toolbar
     // settings"): its layer switches are AI Navigation mode's View (`navToggle`); the map's switch the Overlays menu's.
     topMenu('Window', () => [
       ...(shell.windowItems?.() ?? []).map((p): MenuRow => ({
@@ -17287,7 +17607,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       ran = true;
       void buildObject(o).then((r) => {
         if (!r) { done(false); return; }
-        // Any throw on the way answered as a refusal (the owner, 2026-11-14: "it gets stuck"): the drop's promise always
+        // Any throw on the way answered as a refusal (the Forge's owner (crispy, OT.R112), 2026-11-14: "it gets stuck"): the drop's promise always
         // settles, so the asset browser's drag never hangs on "Release to place".
         try {
         const before = selectionIds();
@@ -17340,7 +17660,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
         // An object of the browser's tabs (`parseObjectAsset`) built as its tool builds it; a prop as before.
         const obj = parseObjectAsset(asset);
         const build = (): Promise<Object3D | null> => (obj ? buildObject(obj) : newPiece(asset)).catch(() => null);
-        // A drag's (`background`; the owner, 2026-11-14: "if the asset has not loaded yet, make sure we can still place
+        // A drag's (`background`; the Forge's owner (crispy, OT.R112), 2026-11-14: "if the asset has not loaded yet, make sure we can still place
         // it, but load the asset in the background"): an empty holder staged at once, the model joining it once read. The
         // drop never waits on it: a placement builds its own (`placeObjectAt`, `piece.place`).
         const later = options?.background ? build() : null;
@@ -17368,7 +17688,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
             }
           });
         }
-        // An emitter's ghost runs its particles (`ambientPreview`) about its marker -- read in the background (the owner,
+        // An emitter's ghost runs its particles (`ambientPreview`) about its marker -- read in the background (the Forge's owner (crispy, OT.R112),
         // 2026-11-14: "make the placement responsive ... load the asset in the background"): the marker's ghost shows and
         // drops at once; the particles join it once read, or are let go if it was placed or dropped meanwhile.
         if (obj?.kind === 'ambient' && soundOfAssetName(obj.name) === null) {
@@ -17745,7 +18065,8 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       const p = readPad();
       const chord = FORGE_MATCH_EXIT_CHORD.every((b) => !!p?.buttons[b]?.pressed);
       rulesPresenter.frame({ cross: !!p?.buttons[0]?.pressed });   // FUI-23: the held cues; Cross (button 0) their gesture
-      if (match.ended() || chord) endMatch();
+      if (matchOfLobby && match.returned()) returnToLobby();   // H460 fix 2: back in the lobby after a full game
+      else if (match.ended() || chord) endMatch();
       requestAnimationFrame(frame);
       return;
     }
@@ -17785,6 +18106,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
     // host's schedule -- each enabled system's `frame(dt)`, dt in seconds -- once a drawn frame, never under a match.
     extensions?.frame(dt);
     syncAxisWidget();
+    ratioDefer.apply(ratioTarget);                           // B1-RATIO-ORDER: last frame's resolution step, before this frame's draw
     if (splitDraws.length) {
       // Each view as its own camera sees the map: the world's camera-facing work (facades, LOD fades, the sky) for it,
       // the placed flares turned to it, its marks, the one gizmo sized for it; the active view last, so the scene is
@@ -17807,7 +18129,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
       mapGrid.orient(fly.viewportCamera());
       created.render(scene, fly.viewportCamera());
     }
-    adaptiveRatio.frame(realDt, now, ratioTarget, view.ps2 || busy);   // FP-2: `../matchMount`'s tail; held under the PS2 frame and while the page loads
+    adaptiveRatio.frame(realDt, now, ratioDefer.wrap(ratioTarget), view.ps2 || busy);   // B1-RATIO-ORDER: put on at the next frame's start. FP-2: `../matchMount`'s tail; held under the PS2 frame and while the page loads
     frames++;
     if (now - fpsAt > 500) {
       sFps.textContent = `${Math.round((frames * 1000) / (now - fpsAt))} fps · ${created.backend}`;
@@ -17851,8 +18173,11 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
           + 'A browser opens its file chooser only for a click or a tap, never for a controller button: choose it with the pointer once, and the launcher remembers it.');
         const foot = el(doc, 'footer');
         let handle: CardHandle | null = null;
-        const opened = (r: DiscRequest | null): void => { if (r) { handle?.close(); resolve(r); } };
         const fail = (e: unknown): void => { line.textContent = `That disc could not be opened: ${e instanceof Error ? e.message : String(e)}`; };
+        // LATER 954 (2): checked first (`forgeCardDisc`, DA.R8), so another game's disc is refused on this line, the card kept;
+        // only the newest pick's check answers (a disc picked meanwhile wins, as `discOpener`'s `call !== opening`).
+        let pick = 0;
+        const opened = (r: DiscRequest | null): void => { if (!r) return; const mine = ++pick; void forgeCardDisc(r).then(() => { if (mine === pick) { handle?.close(); resolve(r); } }, (e: unknown) => { if (mine === pick) fail(e); }); };
         if (remembered && state.permission === 'prompt') {
           const go = el(doc, 'button', 'fx-tool fx-primary', `Continue with ${remembered.meta.name}`);
           go.addEventListener('click', () => {
@@ -17942,7 +18267,7 @@ async function mountForgePage(doc: Document, options: MountForgeOptions | undefi
   const listOrStop = async (): Promise<boolean> => {
     try {
       ({ entries, problems } = await archives.list());
-      // The multiplayer maps by name (the owner, 2026-11-13: "list them in alphabetical order ... don't sort the
+      // The multiplayer maps by name (the Forge's owner (crispy, OT.R112), 2026-11-13: "list them in alphabetical order ... don't sort the
       // campaigns"), then the campaign's missions in their own order -- every map list reads this: the asset browser's,
       // the base's, New's and the Inspector's Map choices.
       entries = [...entries].sort((a, b) => Number(a.campaign) - Number(b.campaign)

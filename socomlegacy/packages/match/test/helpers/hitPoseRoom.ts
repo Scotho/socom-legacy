@@ -10,6 +10,8 @@ import { decodeSnapshot, encodeSnapshot } from '../../../viewer/src/net/codec';
 import type { clipsFromPack, motionTableFromArchive } from '../../../viewer/src/motionTable';
 import { TRAVERSAL_CLIPS } from '../../../viewer/src/traversal';
 import { FIRE_VERSIONS } from '../../../viewer/src/weaponPose';
+import { THROW_CLIPS } from '../../../viewer/src/throwPose';
+import { ALL_RELOAD_CLIPS } from '../../../viewer/src/reloadClip';
 import type { SimSkeleton } from '../../../viewer/src/simMap';
 import { Room, type Conn } from '../../src/room';
 import type { RoomRecorder } from '../../src/replay/recorder';
@@ -30,7 +32,7 @@ export type V3 = [number, number, number];
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
 };
 function map(perSide = 4): SimMap {
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
@@ -58,9 +60,11 @@ export const EXTRAS = { alive: true, weapon: 0 as const, aiming: false, trigger:
 export const CROUCH_WALK = 0.6;
 /**
  * The clips the page draws a copy with (`PLAY_CLIPS`, the traversal moves' and, FIRE-LAYER FL-1, the rifle's Fire versions
- * out of its `WEAPON_CLIPS`: `HIT_POSE_CLIPS`). This file's copy lays no Fire layer; `../hitPoseFireLayer.test.ts` does.
+ * out of its `WEAPON_CLIPS`, PRONE-THROW-HITBOX, the hands' `THROW_CLIPS`, and, RELOAD-HITPOSE, the reloads' `ALL_RELOAD_CLIPS`:
+ * `HIT_POSE_CLIPS`). This file's copy lays no Fire, throw or reload layer; `../hitPoseFireLayer.test.ts`,
+ * `../hitPoseThrowLayer.test.ts` and `../hitPoseReloadLayer.test.ts` do.
  */
-export const PAGE_CLIPS = [...new Set([...PLAY_CLIPS, ...TRAVERSAL_CLIPS, ...Object.values(FIRE_VERSIONS)])];
+export const PAGE_CLIPS = [...new Set([...PLAY_CLIPS, ...TRAVERSAL_CLIPS, ...Object.values(FIRE_VERSIONS), ...THROW_CLIPS, ...ALL_RELOAD_CLIPS])];
 
 type Surface = { distance: number; tag?: { id: number; part: number } };
 type Rewind = { rewoundBodies(p: unknown, from: V3, dir: V3, reach: number, at: number): Surface[] };

@@ -1,10 +1,11 @@
 import type { MotionClip } from '@s2u/scene';
-import { groundGrid, isPushedClip, launcherBaseCommand, launcherClipName, type PickupClipName, launcherMovingLowerCommands, LAUNCHER_SET_MOVES_READING, launcherStickLowers, moverSnapshot, playedOutCommand, probeLiftOf, reloadHold, rootY, STANCES, TICK, Walker, type ActionEnd, type GroundData, type HoldClip, type HoldPass, type LauncherUp, type MoverState, type PlaySnapshot, type PopOutcome, type PushedClip, type PushedTop, type Stance, type SwapPick, type SwapProgress, type TraversalHooks, type TraversalKept, type WalkerState, type WalkInput } from './mover';
+import { groundGrid, isPushedClip, launcherBaseCommand, launcherClipName, type PickupClipName, launcherMovingLowerCommands, LAUNCHER_SET_MOVES_READING, launcherStickLowers, moverSnapshot, playedOutCommand, probeLiftOf, reloadHold, rootY, STANCES, TICK, MAX_TICKS, Walker, type ActionEnd, type GroundData, type HoldClip, type HoldPass, type LauncherUp, type MoverState, type PlaySnapshot, type PopOutcome, type PushedClip, type PushedTop, type Stance, type SwapPick, type SwapProgress, type TraversalHooks, type TraversalKept, type WalkerState, type WalkInput } from './mover';
+import type { OtherBody } from './pushApart';
 import type { Grid } from '@s2u/scene';
 import type { TraversalPose } from './animator';
 import { Button, COMMAND_STANCE_CODES, holdBits, STANCE_CODES, type Command } from './net/protocol';
 import { MoverSim, type LauncherClip } from './net/moverSim';
-import { aimPitchLimitsOf, LookGate, LookLog, OPEN_LOOK_CONTEXT, type LookContext } from './net/lookGate';
+import { aimPitchLimitsOf, aimPostureOf, LookGate, LookLog, OPEN_LOOK_CONTEXT, type LookContext } from './net/lookGate';
 import { offlineRoomLookRate } from './net/loopback';
 import { applyKnock, mountFallRefuses, mountPop, type Knock } from './net/blast';
 import { fireCapability } from './net/fireCapability';
@@ -16,16 +17,18 @@ import { quantiseCommand } from './net/codec';
 import { shortTurn, wrapYaw } from './yaw';
 import type { GroundWish, Pose } from './camera';
 import { headEye, headViewNear, PlayerCamera, INIT_AIM_PITCH, viewFar, type Vec3 } from './playerCamera';
-import { proneEyeTerms, scopeEye, toWorld } from './cameraRig';
+import { localCamera, proneEyeTerms, scopeEye, toWorld } from './cameraRig';
+import { repitchToward } from './headRepitch';                 // FP-REPITCH: the view switch's one-shot re-pitch
+import { cameraEffectsTurn, turnLook } from './cameraEffects';
 import { deathStickOf, newDeathCamera, takeDeathControl } from './deathCamera';
 import { KEY_STANCE, popStance as popOnMover, pressInWater, PRONE_POP_ADAPTATION, StanceButton, STANCE_HOLD_S_PLACEHOLDER, type StanceMode } from './stanceButton';
 import { keyboardSite } from './keyboardTesting';
 import { fallCovers, flinchOnTop, landingPops, type StackPop } from './stillReloadLife';
-import type { ReloadItem } from './reloadClip';
+import { reloadHolds, STANCE_POP_FRAME_COMMANDS, type ReloadItem } from './reloadClip';
 import { flinchCovered, flinchCutAt, flinchLanded, type FlinchCut } from './net/flinchReload';
 import { reloadCutOf } from './reloadLock';
 import { LAUNCHER_RAISE_CLIPS, type LauncherFrom } from './equipment';
-import { climbHoldsBody } from './traversal';
+import { reloadRefusedBy } from './traversal';
 
 /**
  * The walk mode over the mover: the headless mover and its rules live in `./mover` (web sprint 3's shared sim, M2:
@@ -168,7 +171,7 @@ export interface WalkCameraState {
 export type PhasedPose = (() => TraversalPose | null) & { at?: (seconds: number) => void };
 
 /**
- * The Ctrl keys, C's twins on the stance (the owner, 2026-11-16: "make ctrl work to crouch in play mode and test room
+ * The Ctrl keys, C's twins on the stance (the Forge's owner (crispy, OT.R112), 2026-11-16: "make ctrl work to crouch in play mode and test room
  * mode"; a browser adaptation, the PC's crouch key -- the original reads a pad): a tap crouches, a hold goes prone, as C.
  */
 export const STANCE_CTRL_KEYS: ReadonlySet<string> = new Set(['ControlLeft', 'ControlRight']);
@@ -179,6 +182,11 @@ export class WalkMode {
   /** MAP-02: the hull's grid (`gridOfGround`). */
   private hullGrid: Grid | null = null;
   private walker: Walker | null = null;
+  /**
+   * LATER 711 (research 426): the other players' bodies the page's own walker is slid against (`Walker.bodies`), handed in
+   * by the page (`./main`, `./matchMount`: the client's bodies at the view tick); null offline with no other body.
+   */
+  bodiesSource: (() => readonly OtherBody[]) | null = null;
   /**
    * EPH-TILT (a browser adaptation, product track, OT.R53): the walker for the emulator parity harness's dev-mode read
    * (`./ephFrame` `tiltOf`, which feature-detects PRONE-TILT's `rootTilt` and reads only); null before the first walk.
@@ -366,6 +374,12 @@ export class WalkMode {
     const base = !opts.flinch && opts.relog ? at.flinch : undefined;
     if (this.moves && (this.moves.busy() || this.moves.pose())) this.moves.reset();
     w.restoreState(at.walker);
+    // LATER 1055 (research 423): a state kept before the page heard its kill was saved alive (`restoreState` lays `dead_`
+    // back with the rest); the room ran every command after its kill on a dead body -- its blast death lays the knock and
+    // then kills at the same command (`room.ts` `blast` then `kill`), so a knock's re-run (`from` after `knockedAfter`)
+    // runs nothing but dead commands -- and its mover dead pushes no get-up (`FUN_00589aa0` D:L446682-446683,
+    // D:L446715-446716: state 8). So a dead page lays its death back here: no re-run revives the corpse.
+    if (this.dead) w.dead = true;
     w.state.x += at.shift[0]; w.state.y += at.shift[1]; w.state.z += at.shift[2];
     w.shiftAirHit(at.shift[0], at.shift[2]);                    // LATER 890 (review F1): the kept last hit with the body
     w.state.yaw = look.ref.yaw; w.state.pitch = look.ref.pitch;
@@ -508,6 +522,8 @@ export class WalkMode {
   /** OBF-1: the head view's near plane last handed the camera (`HEAD_VIEW_NEAR_ADAPTATION`), null for the map's. */
   private viewNear: number | null = null;
   private drawnFar: Vec3 | null = null;
+  /** AIM-AT-REST: this frame's third-person drawn camera displaced off the game's (`CameraView.slid`); the head view never. */
+  private drawnSlid = false;
   /** Jumps taken: the animator sees a take-off by the count, whenever between two frames it came. */
   private jumps = 0;
   /** Zoomed past third person (first person, the night vision, the scope; `main.ts`): the view from the head. */
@@ -593,8 +609,19 @@ export class WalkMode {
   private taps = 0;
   private weapon_: 0 | 1 = 0;
   private trigger_ = false;
-  /** Dead or spectating in a networked round: the mover takes no stick and no presses. */
-  private locked = false;
+  /** Dead or spectating in a networked round (`setLocked`). */
+  private lockedOn = false;
+  /**
+   * LATER 580 (`setRoundHold`): the round screens' hold, asked each frame; null with no networked page. Under it the
+   * mover is not stepped (`heldFrame`) and, as `locked`, takes no stick and no presses.
+   */
+  private roundHold: (() => boolean) | null = null;
+  /** The real time `heldFrame` has not yet spent on a held command (a tick's part), from the hold's start. */
+  private heldTime = 0;
+  /** The mover takes no stick and no presses: dead or spectating (`setLocked`), or under the round screens (`roundHold`). */
+  private get locked(): boolean {
+    return this.lockedOn || this.roundHold?.() === true;
+  }
   /** Dead (the net client's `kill` until its `spawn`): the look is not the mover's and the camera is the death's. */
   private dead = false;
   private tickLook: [number, number, number] = [0, 0, 0];
@@ -746,8 +773,13 @@ export class WalkMode {
     // PAR-82 (research 251 s12.3): the fall covers no hold standing in for `Rifle m203 reload` (`fallCovers`), as the room's.
     w.holdCovered = () => { const f = this.stillClip?.family?.() ?? null; return f === null || fallCovers(f); };
     w.climbLock = () => this.climbLocked();                      // NU-1b B1: the offer's refusals the mover does not carry
+    const hand = m as (TraversalHooks & { handRefusesClimb?: (() => boolean) | null }) | null;
+    if (hand && 'handRefusesClimb' in hand) hand.handRefusesClimb = () => this.handRefusal?.() ?? false;   // R4P-243 (L367)
     w.pistolHand = () => this.weapon_ === 1;                     // LATER 509: the hand, for the gate's throw term
     w.launcherSetOn = () => this.launcherSetOn();                // LATER 504: the launcher's set kneels the mover
+    w.turretSetOn = () => this.turretSet?.() === true;           // R4P-R2 review F3: the turret set, as the room's mover
+    w.launcherMountOn = () => this.launcherUp !== null;          // WEAPON-LINE: the launcher the mount until its put-away
+    w.handGrenadeUp = () => this.handGrenadeSource?.() ?? false;   // GRENADE-LOWERS: no weapon line with a hand grenade up
     w.oneShotOnTop = () => this.oneShotOnTop();                  // LATER 512c: a stance request waits under the flinch's slot
     w.pushedOnTop = () => this.pushedTop();                      // the door-open body hold: the push's clip holds the body
     if (!this.heard.has(w)) {                                    // PAR-19: every mover the walk makes is heard (`onActionEnd`)
@@ -799,12 +831,34 @@ export class WalkMode {
   private reloadLock: ((cmd: number) => boolean) | null = null;
 
   /**
+   * R4P-243 (ATLAS L367; `./traversal` `Traversal.handRefusesClimb`; reading, pending review): whether the item in hand
+   * is one the kit's selectability refuses (r0004 `FUN_00598d30` D4:L493145-493148, D4:L493164-493168, isSelectableItem
+   * 0x5c47e0 = `./equipment` `slotSelectable`) -- the climb, the step-up and the ladder are not offered then;
+   * `./matchThrow` sets it. Null: none refused.
+   */
+  setHandRefusesClimb(refuses: (() => boolean) | null): void {
+    this.handRefusal = refuses;
+  }
+  private handRefusal: (() => boolean) | null = null;
+
+  /**
+   * GRENADE-LOWERS part 1 (`Walker.handGrenadeUp`; reading, pending review): whether the page's hand holds a hand grenade
+   * (class 'y', `./weaponRaise` `handGrenade`) -- every mover the walk makes casts no weapon line then (PC 2's
+   * L1578-PROBE-WEAPONS, GRENADE-LOWER-r0004), as the room's mover answers it from the seat's hand (match `room.ts`
+   * `watchMoves`). `./matchFirearm` sets it. Null: none up.
+   */
+  setHandGrenadeUp(read: (() => boolean) | null): void {
+    this.handGrenadeSource = read;
+  }
+  private handGrenadeSource: (() => boolean) | null = null;
+
+  /**
    * NU-1b B5 (research 313 sections 5 and 8.1; `./traversal` `CLIMB_RELOAD_REFUSED_READING`): a climb's clip or the hang
-   * holds the walk's mover now (`climbHoldsBody` of the move's clip) -- `./fire` `FireSource.climbHolds`, which refuses a
+   * holds the walk's mover now (`reloadRefusedBy` of the move's clip: a climb or, LATER 562, a ladder) -- `./fire` `FireSource.climbHolds`, which refuses a
    * reload's start then (`FUN_005b4340(actor, 3)` D:L477404).
    */
   climbHolds(): boolean {
-    return this.walking && climbHoldsBody(this.moves?.pose()?.clip);
+    return this.walking && reloadRefusedBy(this.moves?.pose()?.clip);   // LATER 562: and a ladder's clips
   }
 
   /**
@@ -1083,8 +1137,38 @@ export class WalkMode {
 
   /** Dead or spectating: the mover takes no stick and no presses (the Action press still goes to the server). */
   setLocked(on: boolean): void {
-    this.locked = on;
+    this.lockedOn = on;
     if (!on) { this.mountTook = null; this.takeKept = null; }    // LATER 524, 525: the turret's hold let go (`./matchActions`): the take is over
+  }
+
+  /**
+   * LATER 580 (research 81 §13, research 122 §14; reading, pending review): the round screens' hold, laid by the
+   * networked page (`NetPage`: its `screenUp`, from the first screen frame to the next `roundStart`); null lets it go.
+   * MPExitState alone is ticked under ROUND COMPLETE, FINAL ROUND and GAME COMPLETE (`FUN_002aa490` D:L151127-151134
+   * pushes it, `FUN_002ce9e0` D:L171877-171888 ticks the stack's top, `FUN_00223680` D:L75935-75936 pops it at the next
+   * round's restart: r0001's lines; at r0004, the review of LATER 580 sections 1-2, reading, pending review: 0x2abf30
+   * on the host's +0x117 at 4 or 6, the push 0x2ec290 at 0x2ac0a8; 0x2eb8f0 the stack's update; 0x223680 the pop at
+   * 0x22383c; the actor scheduler 0x4a1620 runs only from CCoreState's tick 0x1ebed0), so the local SEAL's walk is not
+   * ticked, alive or dead: under the hold the mover takes no stick and no press and is not stepped -- a body in the
+   * air, a falling corpse, held where it is -- while a command a tick still goes to the room, empty (no stick, no
+   * button, no stance, at the facing held), and the room steps no mover there either (match `room.ts`
+   * `roundScreensUp`).
+   *
+   * Two things the hold leaves, named. The walker's game-frame phase (the frame `Walker.advance` counts, its press and
+   * idle reads) does not advance while the held frames count ticks: harmless, since a hold ends only at a placing (the
+   * next round's respawn renumbers the frames); the page's own corpse is held from its first screen frame, about a
+   * round trip after the room's, and is never reconciled (the 580 delta review's D3, beside F3). And the start: the room holds from `lastResult.at + ENGINE_READ_S` on
+   * its clock, the page from its first screen frame, `ROUND_SCREENS_AFTER_S` after the `roundOver` arrived -- about a
+   * round trip later, so the page has walked that much further than the room's frozen body, and the client's reconcile
+   * lays the difference back under the first screen (`nudge`, not stopped by the hold: a short slide or a snap, then
+   * held there). That is the network's cost, an adaptation of the port's netcode (the original client's correction
+   * under MPExitState is not read); the room's place is the one restored. `of`: a let-go (null) only of that hold, so a
+   * closing page never lets go of the hold a newer page laid.
+   */
+  setRoundHold(hold: (() => boolean) | null, of?: () => boolean): void {
+    if (hold === null && of !== undefined && this.roundHold !== of) return;
+    this.roundHold = hold;
+    this.heldTime = 0;
   }
 
   /**
@@ -1330,6 +1414,14 @@ export class WalkMode {
   launcherSetOn(): boolean { return flinchOnTop(this.launcherSet, this.taps + 1); }
 
   /**
+   * R4P-R2 review 1 F3 (L106; reading, pending review): whether the turret anim set is on this page's body -- mounted, or
+   * its release's reversed clip (`./net/emplacement` `onTurretSet`; `./matchActions` sets it from `./turretPage`) -- as
+   * the room's mover is told it (`room.ts`), so no `Jump fall` begins here where the room's refuses it (r0004 0x583400,
+   * D4:L481315; `Walker.turretSetOn`). Null: never.
+   */
+  turretSet: (() => boolean) | null = null;
+
+  /**
    * LATER 512c (research 92 section 4, "LATER 512c's reading"; PTW.R3 with `room.ts`, the room's mover's
    * `oneShotOnTop`): the flinch's slot -- the flinch, or a door's `Open door` over it, or the flinch it hands back at its
    * pop (`flinchCut`) -- on top on the command run now (`taps + 1`), read after the tick's pop (`[start, until)`): a stance
@@ -1337,8 +1429,31 @@ export class WalkMode {
    * (`flinchAir`): the fall's play is the top then.
    */
   private oneShotOnTop(): boolean {
-    return this.rerunSlot ? this.rerunSlot() : this.slotAt(this.taps + 1);
+    return (this.rerunSlot ? this.rerunSlot() : this.slotAt(this.taps + 1)) || this.stillClipOnTop();
   }
+
+  /**
+   * B-18 (research 150 section 5, "B-18"; the cases it names proven or reading one by one in research 150 (KILL2 capture: the gate and the one-frame pop proven, the rest reading); PTW.R3 with
+   * `room.ts`'s `oneShotOnTop` on `reloadLife`): the still reload's or after-shot's clip on top for the command the mover
+   * runs now (`ticks_ + 1`, the life's clock, as the jump asks it) -- a one-shot neither looped nor a transition, so
+   * `FUN_00552ec0` keeps a stance request waiting under it (D:L418927-418930). The life ends at the clip's end and at the
+   * stick's or the turn's cut (`StillReloadLife.ran`; `FUN_00550ef0` D:L418174-418203), and the request is taken a game
+   * frame after (`stillClipPopAt`, `STANCE_POP_FRAME_COMMANDS`: the gate reads the top before that frame's end test -- inferred from the capture; the field is single, the room's per weapon, research 150 B-18 known edges).
+   * Not under a move (`busy`: the move takes the press, as the jump's `!busy()`). Inside `rerunFrom` (the
+   * review of 0b122c4034, F2): the replayed command's own tick (`rerunSeq`, on the walk's tick numbering, `replayKnock`'s
+   * `+ ticks_ - taps`), as the flinch's slot asks the replayed command (`rerunSlot`) and the room asks `p.ran`.
+   */
+  private stillClipOnTop(): boolean {
+    const tick = this.rerunSeq ? this.rerunSeq() + this.ticks_ - this.taps : this.ticks_ + 1;
+    const popped = this.stillClipPopAt >= 0 && tick > this.stillClipPopAt && tick - this.stillClipPopAt < STANCE_POP_FRAME_COMMANDS;
+    return !this.moves?.busy() && (this.stillClip?.lives(tick) === true || popped);
+  }
+  /**
+   * B-18 (research 150 section 5, "B-18"; the KILL2 capture): the tick the still clip's life ended on in `tap` (its end
+   * or the stick's cut), -1 none: the request still waits for the commands of one game frame from it
+   * (`STANCE_POP_FRAME_COMMANDS`), as the room's `Player.reloadLifePopAt`.
+   */
+  private stillClipPopAt = -1;
 
   /** LATER 512c, LATER 549: the flinch's slot as it stands now, read at command `seq` (`[start, until)`, not under the fall). */
   private slotAt(seq: number): boolean {
@@ -1741,7 +1856,9 @@ export class WalkMode {
   private tap(w: Walker, wish: WalkInput): void {
     this.taps++;
     this.ticks_++;
+    const clipLived = this.stillClip?.lives(this.ticks_) === true;
     this.stillClip?.ran(this.ticks_, w);                       // PARITY-1 D02: the clip's last key or cut, as the room's `watchCut`
+    if (clipLived && this.stillClip?.lives(this.ticks_ + 1) !== true) this.stillClipPopAt = this.ticks_;   // B-18: the life's end
     this.flinchRan(w);                                         // PAR-60: the flinch's stick cut, as the room's `flinchCut`
     this.launcherStickRan(w);                                  // PAR-83: the stick's lower of the launcher, as the room's `launcherStick`
     const landing = w.landing;                                 // PAR-28: a landing's clip pops the stack, as the room's run reads it
@@ -1770,8 +1887,11 @@ export class WalkMode {
     if (actionWaits) this.action();                            // on the next command
   }
 
-  /** The command for the tick just run (MULTIPLAYER: `netTap`), its presses cleared. */
-  private send(w: Walker, wish: WalkInput): void {
+  /**
+   * The command for the tick just run (MULTIPLAYER: `netTap`), its presses cleared. `empty` (LATER 580's review F4, the
+   * round screens' `heldFrame`): no button, held or pressed, no stance, no raise -- the presses still cleared.
+   */
+  private send(w: Walker, wish: WalkInput, empty = false): void {
     if (!this.netTap) return;
     let buttons = this.pressed | this.pressedHold;
     this.pressed = 0;
@@ -1787,12 +1907,13 @@ export class WalkMode {
     if (leanHeld > 0) buttons |= Button.LeanRight;
     if (this.actionCancelled) this.actionCancelled = false;    // XR-06: the command after a cancel holds nothing
     else if ((this.moves as { actionHeldNow?: () => boolean } | null)?.actionHeldNow?.()) buttons |= Button.ActionHeld;
+    if (empty) buttons = 0;                                    // LATER 580's review F4: the held frame's, empty
     const q = quantiseCommand({ seq: 0, forward: wish.forward, right: wish.right, yaw: 0, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 });
     const view = this.viewSource?.();                          // PV-3: read once per command built, as it stands
     const cmd: Omit<Command, 'seq'> = {
       forward: q.forward, right: q.right, yaw: this.tickLook[0], pitch: this.tickLook[1], turn: this.tickLook[2],
-      buttons, stance: this.pressedStance, weapon: this.weapon_, separate: this.stanceMode_ === 'separate',   // SEP-POP: the room's rule
-      ...(this.raiseSource?.() ? { raised: true } : {}),       // ER-2: the owner's raise state (byte +0x7e, D:L161978)
+      buttons, stance: empty ? 0 : this.pressedStance, weapon: this.weapon_, separate: this.stanceMode_ === 'separate',   // SEP-POP: the room's rule
+      ...(!empty && this.raiseSource?.() ? { raised: true } : {}),   // ER-2: the owner's raise state (byte +0x7e, D:L161978)
       ...(view ? { view: view.view, swayX: view.swayX, swayY: view.swayY } : {}),   // PV-3 (WIRE-16): reported, never clamped here
     };
     this.netTap(cmd, [w.state.x, w.state.y, w.state.z], [w.state.yaw, w.state.pitch]);   // protocol 11: the gated facing, reconciled
@@ -1823,17 +1944,28 @@ export class WalkMode {
    * the feet: the floor is picked from the feet + `probeLiftOf('stand')`, the tick's own origin (`Walker.place`; the server's
    * spawn does the same, so the two stand on one floor).
    */
-  respawn(at: readonly [number, number, number], yaw: number, replay: readonly Command[] = []): boolean {
+  respawn(at: readonly [number, number, number], yaw: number, replay: readonly Command[] = [], told?: { seed?: readonly [number, number, number] }): boolean {
     const grid = this.walker?.grid ?? this.gridOfGround();
     if (!grid) return false;
     const w = new Walker(grid);
     w.actionRoots = this.actionRoots;
+    w.bodies = () => this.bodiesSource?.() ?? [];                 // LATER 711: the page's other bodies
     if (this.heldModels) w.heldModels = { ...this.heldModels };   // SEGMENT-BODY part 4 (F1): the kit's models
     // LATER 410 (Fuse's #339): placed before it replaces the standing walker -- a point with no floor (the port's
     // refusal: `place` over the ground grid; the original's spawn rebuild `FUN_00599b60` D:L455604 has no such branch)
     // returns false with the standing walker, its kept state and its moves as they were. Was: swapped first, the new
     // mover left at (0, 0, 0).
-    if (!w.place(at[0], at[1] + probeLiftOf('stand'), at[2])) return false;
+    // L208: a spawn SEEDS the body at the record lifted a unit (`Walker.seed`), no pick at the seed column: the first
+    // frame's walls, move and probe decide its floor, as r0004's (the server's spawn does the same).
+    // L208: a spawn the ROOM seeded is re-run from its seed point (the same still first frame, facing as told, so `at`
+    // again); one it did not seed (an explicit placement, a running body) is adopted at `at`; a page-initiated one (the
+    // Forge walk-at, the dev teleport) seeds at `at` and runs the frame itself.
+    const seedAt = told ? told.seed : at;
+    if (seedAt) {
+      if (!w.seed(seedAt[0], seedAt[1], seedAt[2])) return false;
+      w.state.yaw = wrapYaw(yaw);
+      w.runSeedFrame();
+    } else w.adopt(at[0], at[1], at[2]);                         // the room's unseeded body: nothing to refuse
     this.deathKept = null;                                       // LATER 496 F1: a respawn that holds ends the last death
     this.walker = w;
     this.forgetKept();                                           // PAR-37: a new mover
@@ -1885,7 +2017,7 @@ export class WalkMode {
   resume(at: readonly [number, number, number], yaw: number, posture: Stance, weapon: 0 | 1, held: number | null): boolean {
     if (!STANCES.includes(posture)) return false;
     // The review's F3: a page with no mover yet stands one first (a respawn's), then the room's posture and firearm on it.
-    if (!this.walker && !this.respawn(at, yaw)) return false;
+    if (!this.walker && !this.respawn(at, yaw, [], {})) return false;   // L208 (option (ii) review F5): the room's body, adopted
     const w = this.walker!;
     // `place` takes any clip off the mover -- a swap the page began in the gap among them (the review's F2) -- and the
     // walk's own record of a swap's undoing with it.
@@ -2303,8 +2435,41 @@ export class WalkMode {
   /** Zoomed past third person (`main.ts`: `Zoom.lens()`): the view from the head while on, third person after. */
   setScoped(on: boolean): void {
     if (this.scoped === on) return;
+    // FP-REPITCH (`./headRepitch`; reading, pending review): on the switch, before the view is built, the look is
+    // re-pitched once toward the stored aim point (r0004 CAppCamera::Tick D4:L149867-149895), then held with no look input
+    // (THROW-H15-PC2 leg B). The point is the last pass's, cast along the view being left (`placed`).
+    const repitch = this.repitchOnSwitch(on);
     this.scoped = on;
+    if (repitch !== null) this.camera.setPose({ pitch: repitch });
     if (this.walking && this.walker) this.follow();
+  }
+
+  /**
+   * FP-REPITCH: the stored aim point (the original's body +0x1458: the last pass's cast from the placed eye along the
+   * centre line, CheckDIShoot r0004 FUN_005b0370 through SetAimPointW FUN_005e6cb0) for the ray of the view being left;
+   * set by the page's firearm (`./matchFirearm`), which holds the map's surfaces and the held item's range. Null: no
+   * point, no re-pitch (a test's walk, the forge's) -- the view switches as before.
+   */
+  aimPointAt: ((ray: { eye: Vec3; far: Vec3 }) => Vec3 | null) | null = null;
+
+  /**
+   * FP-REPITCH: the pitch the switch lays, or null. Third -> first: from the head eye (`FUN_0029ae50`, `scopeEye`),
+   * unclamped (`FUN_0029a3f0`); first -> third: from the tether's target (`FUN_0029a950`, `localCamera`), clamped
+   * (`FUN_00299ed0`). The root is the one the head view and the camera stand on (`noteTick`'s). Not on the dead body (its
+   * view is the death camera), off the walk, or with no point.
+   */
+  private repitchOnSwitch(toFirst: boolean): number | null {
+    const w = this.walker;
+    if (!this.walking || !w || this.dead || !this.placed || !this.aimPointAt) return null;
+    const point = this.aimPointAt({ eye: [...this.placed.eye], far: [...this.placed.far] });
+    if (!point) return null;
+    const pitch = this.camera.pose().pitch, yaw = w.state.yaw, peek = this.moves?.peek() ?? 0;
+    const root = this.posedRoot ?? this.moves?.rootY() ?? rootY(w.posture);
+    const feet: Vec3 = [w.state.x, w.state.y, w.state.z];
+    const vertex = toFirst
+      ? toWorld(feet, yaw, scopeEye(aimPostureOf(w), root, peek, proneEyeTerms(w.floorNormal[1], w.state.pitch)))   // as noteTick's head eye
+      : toWorld(feet, yaw, localCamera(root, pitch, peek).target);
+    return repitchToward(vertex, point, yaw, pitch, !toFirst);
   }
 
   /**
@@ -2374,9 +2539,13 @@ export class WalkMode {
    * The reload's hold for the stance and the weapon in hand (`reloadHold`): the crouched and prone ones only. `period`:
    * `reloadHoldPeriod` of the reload's seconds as `Fire` announced them (the record's `ReloadTime` still, on the rifle's
    * and the pistol's families only), the clock the hold and the body's clip share (research 150 F2, review F-A); the
-   * room derives the same.
+   * room derives the same. `family`: the reload's or the after-shot's (`Fire`'s event); none for the families whose
+   * clip the hold is not (`reloadHolds`, B-18). Absent: the item's, held as before.
    */
-  holdReload(period?: number): boolean {
+  holdReload(period?: number, family?: ReloadItem): boolean {
+    // B-18 (research 150 s5): the shotgun reload's, the pump's and `Rifle m203 reload`'s clips hold no mover (`reloadHolds`):
+    // no `NoInterrupt`, so the stick cuts them at once, and the stance waits on their still clip's life (`oneShotOnTop`).
+    if (!reloadHolds(family)) return false;
     const w = this.walker;
     const clip = w ? reloadHold(w.stance, this.weapon_ === 1) : null;
     return clip !== null && this.hold(clip, period);
@@ -2505,11 +2674,11 @@ export class WalkMode {
    * `./matchFirearm`'s `spawnKit` and `takeKit`), the weapon line's length (`Walker.heldModels`; `FUN_0054e8f0`
    * D:L416869-416870): laid on the mover now and on every mover the walk makes after (`respawn`, `stand`).
    */
-  setHeldModels(models: { rifle: string | null; pistol: string | null }): void {
+  setHeldModels(models: { rifle: string | null; pistol: string | null; launcher?: string | null }): void {
     this.heldModels = { ...models };
     if (this.walker) this.walker.heldModels = { ...models };
   }
-  private heldModels: { rifle: string | null; pistol: string | null } | null = null;
+  private heldModels: { rifle: string | null; pistol: string | null; launcher?: string | null } | null = null;
 
   /** The action clips' root keys, by clip name (`./play` hands them over from the pack): `Walker.actionRoots`. */
   setActionRoots(roots: ReadonlyMap<string, Float32Array> | null): void {
@@ -2533,6 +2702,10 @@ export class WalkMode {
   frame(dt: number): void {
     const w = this.walker;
     if (!this.walking || !w) return;
+    // LATER 580: the round screens' hold, a living body's and a corpse's (the review's F1: at r0004 no actor is ticked
+    // under MPExitState, the dead included; the room's `corpse` holds the same, match `room.ts` `roundScreensUp`).
+    if (this.roundHold?.()) { this.heldFrame(w, dt); return; }
+    this.heldTime = 0;
     // DEAD (DEAD_LOOK_READING, research 91 s16): the look is not the body's -- the dead's controller (`FUN_00592560` L451642-451730) takes the respawn press
     // alone; the body keeps the facing it died with and turns at no rate (the server's corpse ticks the same, `room.ts`).
     if (!this.dead) this.look(w);
@@ -2553,19 +2726,28 @@ export class WalkMode {
     w.stanceCut = true;                                        // COMBINED-CUT (OT.R93): the player's stick cuts the stance clips, both modes
     w.stanceSeparate = this.stanceMode_ === 'separate';        // SEP-POP: the button's mode (every push leaves the velocity, H392)
     const wish = this.locked ? { forward: 0, right: 0, boost: false } : this.camera.groundWish();
-    // NET-LOOK round 3 (finding 2): the frame's look spread evenly over the ticks it runs, so a long frame (a hitch, a slow
+    // NET-LOOK round 3 (finding 2): the frame's look spread over the ticks it runs, so a long frame (a hitch, a slow
     // device) lays each tick a tick's share of the turn -- the law's step -- not the whole frame's on its first.
-    const spread = { n: w.ticksFor(dt), k: 0, from: { ...this.lastLook }, to: { yaw: w.state.yaw, pitch: w.state.pitch } };
-    // LATER 338: the frame's ticks, from the time already run since the last tick (the walker's accumulator).
-    const since = w.alpha() * TICK;
+    // R4P-208 fix 2 (`TURN_BAND_TURN_SOURCE_READING`): each tick's look sampled at the tick's own time on the look's line
+    // from the last tick's command (`since` before this frame) to the camera's at the frame's end, so a held stick moves
+    // each tick by the law's tick (`turn_maxrate` x the turn word x TICK) whatever the frames' lengths; the part past the
+    // last tick waits for the next. Was: an even share of the frame's turn a tick, which swung the gate's derived turn.
+    const since = w.alpha() * TICK;                              // LATER 338: the time already run since the last tick
+    // A hitch past `MAX_TICKS` (`Walker.advance` drops the rest; the camera's look held to as much, `WALK_LOOK_MAX_DT`):
+    // the ticks it runs span the look, the last on the camera's, as before.
+    const n = w.ticksFor(dt), span = since + Math.max(0, dt);
+    const spread = { span: span >= (n + 1) * TICK - 1e-9 ? n * TICK : span, k: 0, from: { ...this.lastLook }, to: { yaw: w.state.yaw, pitch: w.state.pitch } };
     this.frameTicks = this.lastTick ? [{ ...this.lastTick, at: -since }] : [];
     let ran = 0;
+    // LATER 1201 (the fresh review's F1): the page's own walker takes the raise from the source its commands carry
+    // (`raiseSource`, `Command.raised`), so its head line is the room's (`MoverSim.prepare` lays the same on the room's).
+    w.raised = this.raiseSource?.() === true;
     w.advance(dt, wish, () => { this.turretHold?.(w); this.tickRef = { yaw: w.state.yaw, pitch: w.state.pitch }; this.gateWeapon = this.weapon_; this.tap(w, wish); this.cameraTick(); this.noteTick(w, ++ran * TICK - since); }, () => {
       // MULTIPLAYER: the look each tick starts from (a move may turn the mover inside a tick; the next starts there).
       w.commandSeq = this.taps + 1;                              // the command this tick will be (LANDING_HIT_DRAW_READING)
       if (!this.netTap) return wish;
       // Networked, the tick runs on the command as the server will read it (`quantiseCommand`), so the two agree.
-      const f = spread.n > 0 ? Math.min(1, ++spread.k / spread.n) : 1;
+      const f = spread.span > 0 ? Math.min(1, (++spread.k * TICK) / spread.span) : 1;
       const lookYaw = wrapYaw(spread.from.yaw + shortTurn(spread.from.yaw, spread.to.yaw) * f);
       const lookPitch = spread.from.pitch + (spread.to.pitch - spread.from.pitch) * f;
       const q = quantiseCommand({ seq: 0, forward: wish.forward, right: wish.right, yaw: lookYaw, pitch: lookPitch, turn: w.turn, buttons: 0, stance: 0, weapon: 0 });
@@ -2589,6 +2771,35 @@ export class WalkMode {
       return { forward: q.forward, right: q.right, boost: wish.boost };
     });
     this.stance_ = w.stance;                                     // TRAVERSAL SEAM: a move or the water may stand the SEAL up
+    this.follow();
+  }
+
+  /**
+   * LATER 580 (`setRoundHold`): a frame under the round screens -- the mover not stepped, not turned, its look and
+   * posture as they stood; each whole tick of real time (at most `MAX_TICKS` a frame, as `Walker.advance`) still
+   * numbers and sends its command, empty -- no stick, no button (held or pressed), no stance -- at the facing the mover
+   * holds, so the room's count runs on and its idle clock reads no input (the review's F4).
+   */
+  private heldFrame(w: Walker, dt: number): void {
+    this.turnRate = 0;
+    w.turn = 0;
+    this.heldTime += Math.max(0, dt);
+    const still = { forward: 0, right: 0, boost: false };
+    for (let n = 0; this.heldTime >= TICK - 1e-9 && n < MAX_TICKS; n++) {
+      this.heldTime -= TICK;
+      this.taps++;
+      this.ticks_++;
+      this.tickPresses = 0;
+      this.peekPressTick = false;
+      this.jumpWaits = false;
+      this.actionWaits = false;
+      w.commandSeq = this.taps;
+      const q = quantiseCommand({ seq: 0, forward: 0, right: 0, yaw: w.state.yaw, pitch: w.state.pitch, turn: 0, buttons: 0, stance: 0, weapon: 0 });
+      this.tickLook = [q.yaw, q.pitch, 0];
+      this.lastLook = { yaw: q.yaw, pitch: q.pitch };
+      this.send(w, still, true);
+    }
+    if (this.heldTime >= TICK) this.heldTime = 0;                // a backlog past MAX_TICKS is dropped, as `Walker.advance`
     this.follow();
   }
 
@@ -2644,6 +2855,20 @@ export class WalkMode {
     return this.walking && this.walker ? this.walker.posture : this.stance_;
   }
 
+  /**
+   * SWAPFIRE-CROUCH: the stance in use (`Walker.stanceInUse`, `FUN_0058a720(body, 1)`): stand while the crouched stop
+   * (action 0x11) plays forward, else the posture. The kit's row and the round's (`./matchFirearm`); the stance when not
+   * walking.
+   */
+  stanceInUse(): Stance {
+    return this.walking && this.walker ? this.walker.stanceInUse : this.stance_;
+  }
+
+  /** AS-34 L78: the walker's carried velocity and running-jump flag (`Walker.carriedAir`) the bloom reads; null in fly mode. */
+  carriedAir(): { x: number; z: number; runningJump: boolean; rise: number } | null {
+    return this.walking && this.walker ? this.walker.carriedAir : null;
+  }
+
   /** The mover's speed over the ground, units a second (0 in fly mode). */
   speed(): number {
     const w = this.walker;
@@ -2672,6 +2897,16 @@ export class WalkMode {
     return [...(this.drawnFar ?? this.placed.far)];
   }
 
+  /**
+   * AIM-AT-REST (the review's F2): whether the drawn camera looks along `aim()` from where the game's camera looks, so
+   * the aim point's place on the frame is its exact centre and needs no projection. The head view always (its drawn eye
+   * and its aim point come from the same `seen` and `ahead`, `follow`); third person while the drawn pair is the pass's
+   * (`CameraView.slid` false -- the airborne lift moves the drawn camera and `drawnFar` alike). False off the walk.
+   */
+  aimCentred(): boolean {
+    return this.walking && this.placed !== null && !this.drawnSlid;
+  }
+
   /** W2.5 (`./fire`): the shot's origin and aim -- the eye as placed (the firepoint's stand-in) and the aim point. */
   fireAim(): { eye: Vec3; far: Vec3 } | null {
     return this.walking && this.placed ? { eye: [...this.placed.eye], far: [...this.placed.far] } : null;
@@ -2698,13 +2933,17 @@ export class WalkMode {
     if (this.view() === 'third') {
       const v = this.player?.view(1);
       if (!v) return;
-      eye = [...v.aim.eye]; far = [...v.far];
+      // TICK-AIM-VIEW-LINE: the aim point on the game's view line, as `follow` lays it (LATER 305, `viewFar`) -- the tick's
+      // round and the reticle are one line where the pass has shifted the eye off the look (a wall beside the camera).
+      eye = [...v.aim.eye]; far = viewFar(v.aim.eye, v.aim.target, v.far);
     } else {
       const yaw = (w.state.yaw * Math.PI) / 180, pitch = (w.state.pitch * Math.PI) / 180;
       const root = this.posedRoot ?? this.moves?.rootY() ?? rootY(w.posture);
       const feet: Vec3 = [w.state.x, w.state.y, w.state.z];
-      eye = headEye(w.grid, feet, toWorld(feet, w.state.yaw, scopeEye(w.posture, root, this.moves?.peek() ?? 0, proneEyeTerms(w.floorNormal[1]))));
+      eye = headEye(w.grid, feet, toWorld(feet, w.state.yaw, scopeEye(aimPostureOf(w), root, this.moves?.peek() ?? 0, proneEyeTerms(w.floorNormal[1], w.state.pitch))));
       far = [eye[0] - Math.sin(yaw) * Math.cos(pitch) * 1000, eye[1] + Math.sin(pitch) * 1000, eye[2] - Math.cos(yaw) * Math.cos(pitch) * 1000];
+      const turn = cameraEffectsTurn();                          // LATER 1251: the head view's sway, as follow()'s
+      if (turn) far = turnLook(eye, far, turn);
     }
     const tick = { seq: this.taps, eye, far };
     this.frameTicks.push({ ...tick, at });
@@ -2715,14 +2954,14 @@ export class WalkMode {
    * LATER 366 (OT.R80): the body the room measures a round's start from (`./net/startLine`, `room.ts` `startBody`): the
    * simulated feet and yaw, the stance, the move's root and peek. The root by the room's rule (`./net/shotCone`
    * `aimRoot`; JUMP-AIM-ROOT, research 80 s7): the move's, else a crouched body's posed root in the jump or above the
-   * crouch root -- here this page's own `Play` animator's (`setPosedRoot`, the camera's root), the room's `HitPoser` there
+   * crouch root, or a prone body's posed root (LATER 661) -- here this page's own `Play` animator's (`setPosedRoot`, the camera's root), the room's `HitPoser` there
    * -- else the stance's. Null off the walk.
    */
   startBody(): StartBody | null {
     const w = this.walker;
     if (!this.walking || !w) return null;
     const moveRoot = aimRoot(this.moves?.rootY() ?? null, { action: w.action?.name ?? null, posture: w.posture }, () => this.posedRoot);
-    return { feet: [w.state.x, w.state.y, w.state.z], yaw: w.state.yaw, posture: w.posture, moveRoot, peek: this.moves?.peek() ?? 0, groundNormalY: w.floorNormal[1] };
+    return { feet: [w.state.x, w.state.y, w.state.z], yaw: w.state.yaw, posture: w.posture, moveRoot, peek: this.moves?.peek() ?? 0, groundNormalY: w.floorNormal[1], aimProne: w.aimProne, pitch: w.state.pitch };   // LATER 597: the room's
   }
 
   /**
@@ -2789,7 +3028,7 @@ export class WalkMode {
 
   private readonly onKey = (e: KeyboardEvent): void => {
     if (!import.meta.env.DEV && !this.kbm) return;             // RB-8 (OT.R114, RB.R4): the camera's opt-in, asked now
-    // Ctrl is C's twin (the owner, 2026-11-16: "make ctrl work to crouch in play mode and test room mode"; a browser
+    // Ctrl is C's twin (the Forge's owner (crispy, OT.R112), 2026-11-16: "make ctrl work to crouch in play mode and test room mode"; a browser
     // adaptation, the PC's crouch key): its own press carries `ctrlKey`, so it is let through the modifier test alone.
     if (STANCE_CTRL_KEYS.has(e.code)) {
       if (e.repeat || e.metaKey || e.altKey || e.shiftKey || !this.walking) return;
@@ -2848,6 +3087,7 @@ export class WalkMode {
     if (!this.walker && this.ground) {
       this.walker = new Walker(this.gridOfGround()!);
       this.walker.actionRoots = this.actionRoots;
+      this.walker.bodies = () => this.bodiesSource?.() ?? [];     // LATER 711: the page's other bodies
       if (this.heldModels) this.walker.heldModels = { ...this.heldModels };   // SEGMENT-BODY part 4 (F1): the kit's models
       this.player = new PlayerCamera(this.walker.grid);
       this.attachMoves(this.walker);                              // TRAVERSAL SEAM
@@ -2857,7 +3097,9 @@ export class WalkMode {
     w.stance = this.stance_;
     const at = this.camera.pose();
     if (w.place(at.x, at.y, at.z)) return true;
-    return this.spawn !== null && w.place(this.spawn[0], this.spawn[1] + probeLiftOf('stand'), this.spawn[2]);   // the spawn's feet: the tick's pick
+    if (this.spawn === null || !w.seed(this.spawn[0], this.spawn[1], this.spawn[2])) return false;   // the spawn's feet: seeded (L208)
+    w.runSeedFrame();
+    return true;
   }
 
   private leave(): void {
@@ -2867,6 +3109,7 @@ export class WalkMode {
     this.drawnEye = null;
     this.drawnTarget = null;
     this.drawnFar = null;
+    this.drawnSlid = false;
     this.frameEye = null;
     this.setViewNear(null);
     this.camera.setWalking(false);
@@ -2893,6 +3136,9 @@ export class WalkMode {
       this.player.peek = this.peekPin ?? this.moves?.peek() ?? 0;
       const aspect = this.camera.aspect?.();
       if (aspect !== undefined && Number.isFinite(aspect) && aspect > 0) this.player.nearAspect = aspect;
+      // JUMP_OVERHEAD_CAMERA_ADAPTATION's gate: in the air, or the jump's / launch's action on the floor.
+      const act = w.action?.name;
+      this.player.jumping = w.airborne || act === 'jump' || act === 'launch';
     }
     this.player?.tick([w.state.x, w.state.y, w.state.z], w.state.yaw, w.state.pitch, posed ?? this.moves?.rootY() ?? rootY(w.posture), undefined, posed !== null);
   }
@@ -2927,11 +3173,13 @@ export class WalkMode {
    */
   private follow(): void {
     const w = this.walker!;
-    const third = this.player?.view(w.alpha());
-    if (!third) return;
     const simFeet = w.tickFeet(), drawn = w.drawnFeet();
     const d: Vec3 = [drawn[0] - simFeet[0], drawn[1] - simFeet[1], drawn[2] - simFeet[2]];   // MISSION R8's height; LATER 96's drawn-only offset
+    // The drawn camera comes lifted by `d` and rechecked there (`PlayerCamera.view`'s `lift`); the aim is the game's, unlifted.
+    const third = this.player?.view(w.alpha(), d);
+    if (!third) return;
     const moved = d[0] !== 0 || d[1] !== 0 || d[2] !== 0;
+    this.drawnSlid = this.view() === 'third' && third.slid === true;
     if (this.view() === 'third') {
       this.setViewNear(null);                                    // OBF-1: third person draws at the map's near plane
       // The game's eye (the pass's) is placed for the shot and the order; the frame is drawn from the drawn camera (#479's review F1).
@@ -2940,8 +3188,8 @@ export class WalkMode {
       const aim = third.aim;
       const far = viewFar(aim.eye, aim.target, third.far);
       this.placed = { eye: aim.eye, target: aim.target, far };
-      this.frameEye = [third.eye[0] + d[0], third.eye[1] + d[1], third.eye[2] + d[2]];
-      this.camera.placeView(this.frameEye, [third.target[0] + d[0], third.target[1] + d[1], third.target[2] + d[2]]);
+      this.frameEye = [third.eye[0], third.eye[1], third.eye[2]];
+      this.camera.placeView(this.frameEye, third.target);
       this.drawnEye = moved ? [aim.eye[0] + d[0], aim.eye[1] + d[1], aim.eye[2] + d[2]] : null;
       this.drawnTarget = moved ? [aim.target[0] + d[0], aim.target[1] + d[1], aim.target[2] + d[2]] : null;   // `gameCamera`'s
       this.drawnFar = moved ? [far[0] + d[0], far[1] + d[1], far[2] + d[2]] : null;
@@ -2953,9 +3201,15 @@ export class WalkMode {
     // else a move's or the stance's -- plus the head's offset, the peek across (TRAVERSAL SEAM), turned by the look.
     const root = this.posedRoot ?? this.moves?.rootY() ?? rootY(w.posture);
     // PRONE-TILT-2 (2): prone, the saved floor normal's y (`+0x1348`, D:L142596), the room's frame's too.
-    const local = scopeEye(w.posture, root, this.moves?.peek() ?? 0, proneEyeTerms(w.floorNormal[1]));
+    // LATER 597: the eye's branch by the posture word as FUN_0029ae50 tests it (D:L142591): through the dive, standing.
+    const local = scopeEye(aimPostureOf(w), root, this.moves?.peek() ?? 0, proneEyeTerms(w.floorNormal[1], look.pitch));   // PRONE_EYE_LOOK
     const headAt = (feet: Vec3): Vec3 => headEye(w.grid, feet, toWorld(feet, look.yaw, local));   // never past a wall
-    const ahead: Vec3 = [-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
+    // LATER 1251: the map's camera sway (`camera_jiggle`'s `camera_effects`, LATER 1246) turns the head's view too --
+    // `FUN_002998f0` multiplies the node into the view after every camera mode (D:L142020-142024); the eye unmoved.
+    const turn = cameraEffectsTurn();
+    const ahead: Vec3 = turn
+      ? turnLook([0, 0, 0], [-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)], turn)
+      : [-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch)];
     const eye = headAt(simFeet);
     const far: Vec3 = [eye[0] + ahead[0] * 1000, eye[1] + ahead[1] * 1000, eye[2] + ahead[2] * 1000];
     this.placed = { eye, target: [eye[0] + ahead[0], eye[1] + ahead[1], eye[2] + ahead[2]], far };
@@ -2963,7 +3217,9 @@ export class WalkMode {
     this.drawnEye = moved ? [...seen] : null;
     this.drawnTarget = moved ? [seen[0] + ahead[0], seen[1] + ahead[1], seen[2] + ahead[2]] : null;
     this.drawnFar = moved ? [seen[0] + ahead[0] * 1000, seen[1] + ahead[1] * 1000, seen[2] + ahead[2] * 1000] : null;
-    this.camera.placeView(seen, null);
+    // LATER 1251 (the review's F1): the drawn head view turns with the aim, as the original's node turns the camera it sets
+    // (`FUN_00315820` after the multiply, D:L142020-142025) -- so the scope's centred cross stays on the round's line.
+    this.camera.placeView(seen, turn ? [seen[0] + ahead[0], seen[1] + ahead[1], seen[2] + ahead[2]] : null);
     // OBF-1 (`HEAD_VIEW_NEAR_ADAPTATION`, OBF.R1): a wall inside the map's near rectangle is not cut away -- the plane is
     // drawn in short of it; the eye above, the shot's and the game's, does not move.
     this.setViewNear(headViewNear(w.grid, seen, ahead, this.camera.aspect?.()));

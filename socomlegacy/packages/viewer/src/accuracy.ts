@@ -21,9 +21,9 @@ import { isCarrier, roundFits, type HeldRound } from './firearms';
  * - **The cone** (`FUN_005bd100`, `FUN_00592260`): the size and the knock become tangents -- `size x 0.707 x
  *   tan(tan(hfov) x 448/640) / 224` -- and a round's direction is `dir + right x (ox + r x s1) + up x (oy + r x s2)`,
  *   `s = u|u|` for `u` uniform in [-1, 1): a square, densest at its centre, its corners on the reticle's circle.
- * - **Scoped** (view state >= 4): no bloom and no knock; the cone is a point, moved by the sway (`SniperDist*`); a
- *   second round of a pull drops the scope back to first person (`FUN_005c5340`; the viewer's too since the owner's
- *   2026-10-01 ruling restored it). The first round kicks the aim pitch
+ * - **Scoped** (view state >= 4): the cone is a point, moved by the sway (`SniperDist*`); a scoped round adds no bloom
+ *   and no knock, but a second round of a pull drops the scope back to first person first (`FUN_005c5340`; the viewer's
+ *   too since the owner's 2026-10-01 ruling restored it) and so takes both (AS-34 L77, `round`). The first round kicks the aim pitch
  *   (`FireRifleKick*`) -- **only scoped**: `FUN_005c5340` calls the kick's start `FUN_005b91c0` only when
  *   `body+0x200 > 4` and the pull's count is under 2, and `FUN_00550ef0` runs its tick `FUN_005b9280` only when
  *   `FUN_005b9990 || FUN_005b90f0` (state >= 4). The kick itself is the WEAPON workstream's `rifleKick.ts`; this file
@@ -108,8 +108,14 @@ export interface AccuracyInput {
   rawStance?: WeaponStanceName;
   /** The body's velocity, units a second (`m_velM`, `+0x2c`): its length is what counts. */
   velocity: Vec3;
-  /** In the air: the carried velocity counts again (`+0x1350`, while `+0x105e` bit 5) [reading: the airborne bit]. */
+  /** In the air (`+0x105e` bit 5) [reading: the airborne bit]: the carried vector counts again (`carried`). */
   airborne: boolean;
+  /**
+   * AS-34 L78: the carried vector, units a second -- r0004 body `+0x1354/+0x1358/+0x135c` (r0001 `+0x1350..+0x1358`), all
+   * three summed by the airborne term (r0004 0x5c9db4-0x5c9e30). Absent (the room's cone, the lens, the turret): the
+   * mover's own pair with the y `CARRIED_FALL_Y_READING` (`movementSize`).
+   */
+  carried?: Vec3;
   /** Turn rate and pitch rate, radians a second (`+0x44..+0x4c` and `+0x60`). */
   yawRate: number;
   pitchRate: number;
@@ -161,6 +167,15 @@ export function enterRaises(before: number, after: number): boolean {
 export const SWAP_KNOCK_READING = 'carried' as const;
 
 /**
+ * AS-34 L77 (reading, pending review; research 84 s8): the camera scale `cam+0x474` a scoped pull's second round is
+ * clamped by. The only stores to `cam+0x474` in r0004 are five camera functions (0x295010, 0x2967f0, 0x296c70, 0x297a80,
+ * 0x29c650), each from the running magnification; the drop 0x5492c0's two camera calls (0x292930, 0x2928e0) write
+ * `+0x480` / `+0x484` only (not chased below its direct callees), so at the round's Recoil the scale is the scope's.
+ * Settled by Q-256 step (3): `cam+0x474` read beside `+0x200` on the first unscoped frame of a scoped burst.
+ */
+export const SCOPED_SECOND_ROUND_CAP_SCALE_READING = 'the running magnification at the round' as const;
+
+/**
  * BLOOM-SWAP (research 321 section 3.4): the item categories (`FUN_003d1e10` -> `FUN_003d1a60`) whose `TargetMin` and
  * `TargetMax` the kit's tick takes as 0 and 0 (`FUN_005c2670` D:L477282-477288: 0x97, 0x79, 0xbe, 0xc9) -- the charges,
  * the hand grenades, the gear, the armour. Any other item ticks at its own stance's range.
@@ -169,6 +184,17 @@ export const ITEM_RETICLE_ZERO_CATEGORIES: readonly number[] = [0x97, 0x79, 0xbe
 
 /** BLOOM-SWAP: a non-firearm item in the selected slot, as the kit's tick reads it -- its id and its `Reticule_Modifiers`. */
 export interface ItemReticle { id: number; stances: Record<WeaponStanceName, WeaponStance> }
+
+/**
+ * ITEM_LAUNCH_BURST_SCALAR_READING (SWAP-FIRE P1; research 321 section 7.8; reading, pending review): the burst's accuracy
+ * scalar the launch's reticle step (r4 0x5ca830, r0001 `FUN_005c3360`) takes for a hand grenade, a charge or a gear item.
+ * The step reads it off the item's record (the slope `FUN_003c62b0` keeps at weapon `+0x278`); no item record of the four
+ * classes on the disc states `AccBurstCnt_Min/Max` or `AccScalar_Min/Max` (`itemReticleTable.devdisc.test.ts`), and the
+ * port's reader takes an absent key as 0 (`weaponRecord`'s `accuracyBurst`); the item class's own default for the slope
+ * was not read. Moot on the disc: every item's `TargetDilateUponFire` 13 already passes its `TargetMax` 6, so any scalar
+ * of -0.53 or more gives the same 6. Settled by reading the slope's default in the item's constructor.
+ */
+export const ITEM_LAUNCH_BURST_SCALAR_READING = 0;
 
 /** BLOOM-SWAP: the item `id`'s reticle off the kit table (`KitTable.itemReticles`), or null (a firearm, or none read). */
 export function itemReticleOf(table: KitTable | null | undefined, id: number | null): ItemReticle | null {
@@ -211,14 +237,104 @@ export function burstScalar(weapon: WeaponRecord, count: number): number {
   return n * slope;
 }
 
-/** The movement size `FUN_005c2670` aims the reticle at, before the stance's clamp. */
-export function movementSize(stance: WeaponStance, input: Pick<AccuracyInput, 'velocity' | 'airborne' | 'yawRate' | 'pitchRate'>): number {
+/**
+ * AS-34 L78 (reading, pending review): the y of the carried vector on a flight that is not a running jump -- a walk-off
+ * fall copies body `+0x3c` into r0004 `+0x1358` (the read's ten `+0x3c` copies; r0001 D:L440681 and D:L466973 among
+ * them), and whether `+0x3c` is non-zero at a fall's start is not settled statically. Taken as 0 (the port's mover keeps
+ * no carried y). Settled by the r0004 trace of `+0x1354..+0x135c` and `+0x105e` each frame through a walk-off fall.
+ */
+export const CARRIED_FALL_Y_READING = 0;
+
+/**
+ * AS-34 L78 (reading, pending review): the body's own velocity `+0x2c..+0x34` (the base term) in the air. Zero after a
+ * running jump's launch (r0004 0x5838a0 zeroes it at 0x583a08-0x583a10; IQ-158 B13-BLOOM-PC2 saw 0 on every airborne
+ * frame). On any other flight the port keeps the mover's own velocity (its fall's y included) -- a departure (the fresh
+ * review's F5): in the fall's blends 8 and 9 the original's is (0, minus the fall speed `+0x1340`, 0) (r0004
+ * 0x552a98-0x552af8; r0001 D:L416500-416513). The fix is queued, not built (research 84 s3 item 3).
+ */
+export const AIR_BODY_VELOCITY_READING = 'zero after a jump launch' as const;
+
+/**
+ * The walker's carried velocity (`Walker.carriedAir`): world x and z, whether the flight is a running jump's, and the
+ * standing jump's root rise (`rise`, units a second; absent or 0 off it).
+ */
+export interface CarriedAir { x: number; z: number; runningJump: boolean; rise?: number }
+
+/**
+ * AS-34 (reading, pending review; the controller's ruling of 2026-11-24): the standing jump's body vertical `+0x30` the
+ * kit's tick squares under `TargetDilateUponMovementMult` -- taken as the `seal_jump` root's y velocity at the action's
+ * phase (`Walker.carriedAir`'s `rise`). ATLAS's bloom double-check (relayed, not re-read here: r0004 D4:L455067-455073 saves
+ * `+0x30` to `+0xf50`, D4:L454198-454206 restores it before the kit's tick) and IQ-158 B13-BLOOM-PC2 (capture-scored: peak
+ * 29.61 u/s, target 13.49, size 5.89 px). Not read: that the original's `+0x30` is the clip root's rate (and not, say, one
+ * frame lagged, research 80 s7). A departure: the restore (r0004 0x54e660-0x54e694) covers every top action whose entry is
+ * not looped, so a one-shot whose root moves vertically reaches the bloom too; the port feeds the standing jump's alone.
+ * On the disc's clip the peak rise 29.616 and target 13.494 match the capture, and the size per game frame from 2.404
+ * through the apex within 0.01 px, its descent half a frame short (`standingJumpBloom.test.ts`). Replaces the standing
+ * jump's placeholder research 84 s11 named. Settled by the T1 trace (`+0x2c..+0x34` each frame through a standing jump).
+ */
+export const STANDING_JUMP_RISE_READING = 'the seal_jump root y velocity at the phase' as const;
+
+/**
+ * AS-34 L78: the velocity and carried vector the kit's tick reads, from the mover's velocity and its carried pair (null
+ * with no walker: the mover's own velocity, no carried vector). A running jump: the body 0 and the carried pair with y 0
+ * (r0004 0x5838a0: 0x583a04 zeroes the y, 0x583a08-0x583a10 the body; the air step 0x552bb8-0x552d5c never writes the
+ * y); any other flight: the mover's velocity (`AIR_BODY_VELOCITY_READING`) and the y `CARRIED_FALL_Y_READING`.
+ */
+export function airBloomFeed(mover: { vx: number; vy: number; vz: number }, carried: CarriedAir | null): Pick<AccuracyInput, 'velocity' | 'carried'> {
+  if (!carried) return { velocity: [mover.vx, mover.vy, mover.vz] };
+  if (carried.runningJump) return { velocity: [0, 0, 0], carried: [carried.x, 0, carried.z] };
+  // The standing jump's rise (STANDING_JUMP_RISE_READING): on the floor the mover's vy is 0, so the y is the root's.
+  return { velocity: [mover.vx, mover.vy + (carried.rise ?? 0), mover.vz], carried: [carried.x, CARRIED_FALL_Y_READING, carried.z] };
+}
+
+/**
+ * The movement size `FUN_005c2670` aims the reticle at, before the stance's clamp. In the air (`+0x105e` bit 5) it adds
+ * |carried|^2 / 65, all three components (AS-34 L78: r0004 0x5c9b40's loads 0x5c9e00/0x5c9e08/0x5c9e10 of body
+ * `+0x1354..+0x135c`; r0001 D:L477334-477337); no `carried` given, the mover's pair and `CARRIED_FALL_Y_READING`.
+ */
+export function movementSize(stance: WeaponStance, input: Pick<AccuracyInput, 'velocity' | 'airborne' | 'yawRate' | 'pitchRate' | 'carried'>): number {
   const [vx, vy, vz] = input.velocity;
   const v2 = vx * vx + vy * vy + vz * vz;
   let size = (v2 / MOVE_DIVISOR) * stance.dilateMoveMult
     + TURN_FACTOR * input.yawRate * input.yawRate + TURN_FACTOR * input.pitchRate * input.pitchRate;
-  if (input.airborne) size += (vx * vx + vz * vz) / MOVE_DIVISOR;
+  if (input.airborne) {
+    const [cx, cy, cz] = input.carried ?? [vx, CARRIED_FALL_Y_READING, vz];
+    size += (cx * cx + cy * cy + cz * cz) / MOVE_DIVISOR;
+  }
   return size;
+}
+
+/**
+ * LATER 1141 (research 441; reading, pending review): the aim-to-firepoint depth ratio f = (d_aim - d_fire) / d_aim that
+ * `FUN_005c3360` (D:L477762-477789) and `FUN_005bd100` (D:L474226-474258) each work out, d(P) = (cam+0x30 - P) . cam+0x20
+ * (`FUN_00290830` D:L136933-136955: the point's depth along the camera's axis; the sign cancels in the ratio). `aim` is P1,
+ * the actor's aim point `+0x1458` (`FUN_005aa6e0` writes it through `FUN_005df4e0`; the port's: the point under the bare
+ * reticle as this round finds it, `DEPTH_RATIO_AIM_POINT_READING`); `fire` is P2, the posed `firepoint` `+0x14b0` through
+ * the matrix `+0x1c` (`FUN_00309240`; the port's: `Play.muzzle`). Null when d_aim - d_fire is exactly 0 -- an emplaced
+ * weapon at `body+0xeb8` sets P1 = P2 (D:L477771-477776, D:L474234-474239) -- where neither function applies f. The case
+ * d_aim <= d_fire (the muzzle past the aim point) takes no care in the code and none here: f <= 0, transcribed.
+ */
+export function depthRatio(eye: Readonly<Vec3>, axis: Readonly<Vec3>, aim: Readonly<Vec3>, fire: Readonly<Vec3>): number | null {
+  const d = (p: Readonly<Vec3>): number => (eye[0] - p[0]) * axis[0] + (eye[1] - p[1]) * axis[1] + (eye[2] - p[2]) * axis[2];
+  const dAim = d(aim), dFire = d(fire);
+  return dAim - dFire !== 0 ? (dAim - dFire) / dAim : null;
+}
+
+/**
+ * LATER 1141: the port takes P1 as the point under the bare reticle found for the round being fired; the original reads
+ * `+0x1458` as `FUN_005aa6e0` last wrote it (the frame's reticle hit, or after a round the round's displaced point,
+ * D:L464204-464261). Which frame's write the clamp and the cone see is not read (research 441, open points).
+ */
+export const DEPTH_RATIO_AIM_POINT_READING = 'the round reticle point' as const;
+
+/**
+ * `FUN_005c3360`'s clamp of the knock's offset, its two branches as written (D:L477779-477789): over `cap`, `cap`; else
+ * under `-cap`, `-cap`. For a positive cap this is min/max; for a negative one (f <= 0) it is what the code does.
+ */
+export function clampKnock(y: number, cap: number): number {
+  if (cap < y) return cap;
+  if (y < -cap) return -cap;
+  return y;
 }
 
 /**
@@ -246,10 +362,32 @@ export function roundsPerPull(mode: number): number {
   return 1;
 }
 
-/** The wait after a round in a mode (`FUN_005c09f0`): `FireWait`, x 0.8 in burst and automatic (1 s in mode 0). */
+/**
+ * SWAP-FIRE: r0004's GetFireDelay (0x5c76f0) scales the record's `FireWait` by 1.2, the word 0x3f99999a
+ * (0x5c7760-0x5c7770), when the slot's mode (`kit+0x6fc` indexed by `kit+0x824`) is 1 (SEMI) or 4 and up (5 and up are
+ * the round modes, `FUN_003d2a60`; 4 is unread). The 1.0 the port had is r0001's `FUN_005c09f0` (D:L476313-476341): a
+ * read of the wrong build under OT.R97. Levels apart (research 84 s6): mode 1 PROVEN by ATLAS's capture
+ * (`origin/agent/spc-atlas` 0d721152d1, `docs/atlas/captures/L5-single-fire-wait-r0001-vs-r0004.md`: M4A1 0.144 s / 5
+ * frames, Mark 23 0.24 s / 8); modes 4 and up a READING (three reads at the bytes, no capture); the turret's x 1.2 a
+ * READING (the mounted gun's kit through the same function, r0001); the M40A1 / M87ELR / turret frame counts PROJECTED.
+ */
+export const FIRE_WAIT_SINGLE_SCALE = 1.2;
+
+/** The burst's and automatic's scale, r0004 0x5c7780-0x5c7790 and 0x5c77a4-0x5c77b4 (r0001 `FUN_005c09f0` D:L476332-476335): 0.8. */
+export const FIRE_WAIT_RUN_SCALE = 0.8;
+
+/**
+ * The wait after a round in a mode (r0004 0x5c76f0, r0001 `FUN_005c09f0`): 1 s in mode 0 (SAFE); `FireWait` x 0.8 in
+ * burst (2) and automatic (3); `FireWait` x 1.2 (`FIRE_WAIT_SINGLE_SCALE`) in single (1) and modes 4 and up.
+ */
 export function fireInterval(fireWait: number, mode: number): number {
   if (mode === 0) return 1;
-  return mode === 2 || mode === 3 ? fireWait * 0.8 : fireWait;
+  return fireWait * fireWaitScale(mode);
+}
+
+/** The scale of `FireWait` in a mode other than 0 (r0004 0x5c7748-0x5c77c4); a negative mode is not a port's mode. */
+function fireWaitScale(mode: number): number {
+  return mode === 2 || mode === 3 ? FIRE_WAIT_RUN_SCALE : FIRE_WAIT_SINGLE_SCALE;
 }
 
 /**
@@ -257,13 +395,19 @@ export function fireInterval(fireWait: number, mode: number): number {
  * set on the kit's timer `kit+0x81c` when the round goes (`FUN_005be9a0` D:L475517, the firearm's branch from D:L475514), the gate refusing while it is above
  * 0 (`FUN_005c0ae0` D:L476446-476448), run down by the frame's dt after the gate and clamped at 0 (`FUN_005c0fd0`
  * D:L476643-476647, the leftover dropped) -- so a round every ceil(wait / GAME_FRAME_DT) frames, run here in single
- * precision as the console's floats are (the record's `FireWait` +0x50, `FUN_005c09f0`'s x 0.8 at D:L476332-476335). The
+ * precision as the console's floats are (the record's `FireWait` +0x50, r0004 0x5c76f0's x 0.8 or x 1.2, `fireInterval`). The
  * page's kit (`./fire` `update`) steps the same timer a game frame at a time (LATER 326); the room's bots count it
  * (`match/src/bots/roles.ts` `BotFirePolicy`).
  */
 export function fireFrames(fireWait: number, mode: number): number {
+  const f = Math.fround;
+  return waitFrames(mode === 0 ? 1 : f(f(fireWait) * f(fireWaitScale(mode))));
+}
+
+/** OBF-19: the game frames a wait of `seconds` already scaled (a turret's interval) holds the kit's timer, run down in float32. */
+export function waitFrames(seconds: number): number {
   const f = Math.fround, dt = f(GAME_FRAME_DT);
-  let wait = mode === 0 ? 1 : mode === 2 || mode === 3 ? f(f(fireWait) * f(0.8)) : f(fireWait);
+  let wait = f(seconds);
   let frames = 0;
   do { wait = f(wait - dt); frames++; } while (wait > 0);
   return frames;
@@ -394,6 +538,29 @@ export function pickupFireMode(weapon: WeaponRecord, rounds: readonly HeldRound[
   return m;
 }
 
+/**
+ * OT.R100 as extended 2026-11-22 (the owner, said in the seat "Weapon pickup and grenade bugs", verbatim: "correct this
+ * as an intentional divergence and qol fix. the idea is that each weapon should select the fastest automatic rate
+ * available to it's options") [adaptation: a browser adaptation on the owner's ruling, no original]: a weapon taken off
+ * the ground comes up on its fastest mode (`fastestFireMode`) -- automatic, else burst, else single -- in the hand or
+ * not. The original's pickup default (`pickupFireMode`, research 323 R323.11) puts a weapon taken into the slot NOT in
+ * the hand on its first mode at the swap: an M16A2 picked up with the pistol out came up on single (a player's report,
+ * Discord, 2026-11-21: "it auto puts it on single shot"). The two weapons it moves off OT.R100's pickup are the M16A2
+ * and the M16A2-M203 (single -> burst). The spawn's default (`defaultFireMode`) already lands on the fastest mode for
+ * every pinned record. The player's L3 switch still overrides.
+ */
+export const PICKUP_FASTEST_FIRE_MODE_ADAPTATION = true;
+
+/**
+ * The weapon's fastest firearm mode (automatic 3, else burst 2, else single 1) where
+ * `PICKUP_FASTEST_FIRE_MODE_ADAPTATION` holds; `mode` for a weapon with no firearm mode (a carrier on a round).
+ */
+export function fastestFireMode(weapon: WeaponRecord, mode: number): number {
+  if (!PICKUP_FASTEST_FIRE_MODE_ADAPTATION) return fullAutoDefault(weapon, mode);
+  const firearm = weapon.fireModes.filter((m) => m >= 1 && m <= 3);
+  return firearm.length > 0 ? Math.max(...firearm) : mode;
+}
+
 export const FIRE_MODE_NAMES: Record<number, string> = { 0: 'SAFE', 1: 'SEMI', 2: 'BURST', 3: 'AUTO' };
 
 // ---- The model ------------------------------------------------------------------------------------------------------
@@ -428,6 +595,9 @@ export interface AccuracySave {
   stance: WeaponStanceName;
   exertion: number;
 }
+
+/** SWAPFIRE-CONE-ORDER: the kit's size and offsets as the frame began (`Accuracy.sampleCone`). */
+interface ConeSample { size: number; offX: number; offY: number; swayX: number; swayY: number }
 
 export class Accuracy {
   private size = 0;
@@ -501,6 +671,7 @@ export class Accuracy {
     this.offX = this.offY = this.swayX = this.swayY = 0;
     this.burst = 0;
     this.exertion = 1;
+    this.sampled = null;
   }
 
   /** The trigger pressed or let go: the pull's round count starts again (`FUN_005c0ae0`: trigger up or rising). */
@@ -565,7 +736,11 @@ export class Accuracy {
     const rate = motionClass(input.velocity) === 3 ? 1 - Math.abs(input.sticks?.forward ?? 0) : decay;
     const step = -rate * dt;
     this.exertion += step * (0 - this.exertion);
-    if (Math.abs(this.exertion) <= (step > 0.005 ? step : 0.005)) this.exertion = 0;
+    // The snap (D:L418381-418386): within the step (or 0.005) of 0, the step a game frame's (`FUN_00550ef0`'s dt). LATER
+    // 1027 (MISSION R8.1, a browser adaptation of the rule's window): judged over one game frame, the window's step at
+    // TICK, not the page's (at the page's step it halved at 60 Hz).
+    const snapStep = -rate * TICK;
+    if (Math.abs(this.exertion) <= (snapStep > 0.005 ? snapStep : 0.005)) this.exertion = 0;
   }
 
   /** A view change (`FUN_005448a0`): the 9x view or a scope entered adds 0.5 to the exertion (`FUN_005b9180`). */
@@ -640,27 +815,64 @@ export class Accuracy {
 
   /**
    * A round leaves (`FUN_005c5340` then `FUN_005c3360`): the pull's count goes up; scoped, the first round kicks
-   * (`kick`, for `rifleKick.ts`) and a later one drops the scope; unscoped, the knock and the bloom. The round itself
+   * (`kick`, for `rifleKick.ts`) and adds nothing, and a later one drops the scope -- and then, in first person, takes
+   * the knock and the bloom (AS-34 L77); unscoped, the knock and the bloom. `magnification`: the camera's scale
+   * `cam+0x474` at the round (`Zoom.magnification()`; `SCOPED_SECOND_ROUND_CAP_SCALE_READING`), x the knock's caps; 1
+   * where the caller has no zoom; the room's `ShotCone` passes the scope's greatest on a scoped command's round
+   * (`ROOM_SCOPED_ROUND_CAP_ADAPTATION`), 1 otherwise. The round itself
    * goes by the cone as it stood before this call (`FUN_005bd100` runs in the frame, before the shot). `weapon`: the
    * record the round left by, when not the one this kit now holds (LATER 178: the room's cone run again from a round's
    * own command, `./net/shotCone` `ShotCone.round`); its row's grow, knock and clamps, the kit's record unchanged.
    */
-  round(zoomState: number, stance: WeaponStanceName, weapon: WeaponRecord = this.weapon): RoundOutcome {
+  round(zoomState: number, stance: WeaponStanceName, weapon: WeaponRecord = this.weapon, depth?: number | null, magnification = 1): RoundOutcome {
     const s = weapon.stances[stance];
     this.burst++;
     this.raise(0.35);                                        // FUN_005c5340 479407: every round
     const kick = kickStarts(zoomState, this.burst);
     const dropZoom = zoomState > 4 && !kick;                 // FUN_005448a0(body, 1)
-    if (zoomState < 5 && zoomState !== 4) {
+    // AS-34 L77: the drop (r0004 0x5cd580-0x5cd5c4) stores the new view in +0x200 at once (0x5492f0; D:L410938-410941)
+    // and Recoil (r0004 0x5ca830) runs after it (0x5cdbc0; D:L479541-479542), so its gate reads the state after the drop.
+    const view = dropZoom ? 1 : zoomState;
+    if (view < 5 && view !== 4) {
       if (this.burst === s.knockCount) this.offY -= s.knock * s.knockEntry;
       else if (s.knockCount < this.burst) this.offY -= s.knock;
-      // The clamps: ReticuleKnockMax x the camera's projection scale (1 unzoomed; the aim-to-muzzle parallax, ~1, is 1).
-      this.offY = Math.min(Math.max(this.offY, -s.knockMax), s.knockMax);
-      this.offX = Math.min(Math.max(this.offX, -s.knockMax), s.knockMax);
+      // The clamps (D:L477762-477789): up ReticuleKnockMax x cam+0x474 x f, sideways ReticuleKnockMax x cam+0x470 (the
+      // projection scales: the magnification, AS-34 L77 -- the drop writes no cam+0x474, so a dropped round's is still
+      // the scope's, SCOPED_SECOND_ROUND_CAP_SCALE_READING). LATER 1141: f the depth ratio (`depthRatio`); null (P1 = P2)
+      // or not given (no depth known to the caller), f is not applied.
+      const f = depth ?? 1;
+      this.offY = clampKnock(this.offY, s.knockMax * magnification * f);
+      this.offX = clampKnock(this.offX, s.knockMax * magnification);
       const grow = s.dilateFire + s.dilateFire * burstScalar(weapon, this.burst);
       this.size = Math.min(Math.max(this.size + grow, s.targetMin), s.targetMax);
     }
     return { dropZoom, kick };
+  }
+
+  /**
+   * SWAP-FIRE P1 (keyjob SWAP-FIRE (i) sections 4.2 and 7 "P1"; research 321 section 7.8; reading, pending review): a hand
+   * grenade's launch -- not a quiet frame. The launch tick counts the pull +1 (r4 0x5c93c8; r0001 D:L477025) and calls the
+   * round function (r4 0x5cc9d0, r0001 `FUN_005c5340`), which adds 0.35 to the exertion (r4 0x5cd5c8-0x5cd5d4; D:L479407)
+   * and ends in the round's reticle step run on the ITEM's record (r4 0x5cdbb4-0x5cdbc4 -> 0x5ca830, r0001 `FUN_005c3360`
+   * D:L477714-477808; D:L479541-479543): `round`'s arithmetic, on `item`'s stance row -- the knock by its `KnockCount`
+   * rule clamped to its `ReticuleKnockMax`, and the size to clamp(size + DilateUponFire x (1 + burst), the record's OWN
+   * `TargetMin`, `TargetMax`) (the getters at r4 0x5ca8e8 / 0x5ca8f4, stored at 0x5caba0 / 0x5cabb4) -- 2 to 6 on the
+   * disc, not the tick's category range 0 to 0 (`ITEM_RETICLE_ZERO_CATEGORIES`), which closes it again at the item's
+   * `TargetConstrict` while it stays up. The burst's scalar: `ITEM_LAUNCH_BURST_SCALAR_READING`. No kick and no scope
+   * drop: nothing is scoped with an item up. `round` itself is unchanged.
+   */
+  launch(zoomState: number, stance: WeaponStanceName, item: ItemReticle): void {
+    const s = item.stances[stance];
+    this.burst++;                                            // r4 0x5c93c8: the pull's count
+    this.raise(0.35);                                        // r4 0x5cd5d4 (FUN_005c5340 479407): every round
+    if (zoomState < 5 && zoomState !== 4) {                  // FUN_005c3360's unscoped branch, as `round`'s
+      if (this.burst === s.knockCount) this.offY -= s.knock * s.knockEntry;
+      else if (s.knockCount < this.burst) this.offY -= s.knock;
+      this.offY = clampKnock(this.offY, s.knockMax);
+      this.offX = clampKnock(this.offX, s.knockMax);
+      const grow = s.dilateFire + s.dilateFire * ITEM_LAUNCH_BURST_SCALAR_READING;
+      this.size = Math.min(Math.max(this.size + grow, s.targetMin), s.targetMax);
+    }
   }
 
   /** Leaving the scope or the binoculars (`FUN_005b9020`): the knock's offset is cleared. */
@@ -674,17 +886,44 @@ export class Accuracy {
    * `FUN_005bd100`: the round's error in tangents. Scoped (state >= 4) the radius is 0 and the offset is the sway's.
    * `magnification` is the zoom on screen (`Zoom.magnification()`): the game divides both offsets -- the knock
    * unscoped, the sway scoped -- by the camera's `+0x474` (`fVar9 = d_aim / (cam+0x474 x (d_aim - d_fire))`, decomp
-   * 474236-474266; `FUN_0029b2f0` sets `+0x474` to the running magnification `DAT_003dc338` x the NTSC 1.0), the
-   * aim-to-muzzle depth ratio taken as 1. The radius is not divided (`+0x5dc` has no `fVar9`). So the SD's 3x scope
+   * 474236-474266; `FUN_0029b2f0` sets `+0x474` to the running magnification `DAT_003dc338` x the NTSC 1.0), and by the
+   * depth ratio f when `depth` gives it (LATER 1141, `depthRatio`; *was:* taken as 1). The radius is not divided (`+0x5dc`
+   * has no `fVar9`). So the SD's 3x scope
    * puts its rounds a third as far off the cross as the same sway would at 1x. Required, not defaulted: a caller that
    * forgets it is the defect this argument fixes (the scope's rounds wandered 3x the game's, owner 2026-09-29).
    */
-  cone(zoomState: number, magnification: number): Cone {
-    const t = tangentPerPixel(this.fov);
-    const k = magnification > 0 ? 1 / magnification : 1;
-    if (zoomState >= 4) return { offsetX: -this.swayX * t.x * k, offsetY: -this.swayY * t.y * k, radius: 0 };
-    return { offsetX: this.offX * t.x * k, offsetY: -this.offY * t.y * k, radius: this.size * t.y * RADIUS_FACTOR };
+  cone(zoomState: number, magnification: number, depth?: number | null): Cone {
+    return this.coneOf(null, zoomState, magnification, depth);
   }
+
+  private coneOf(sample: ConeSample | null, zoomState: number, magnification: number, depth?: number | null): Cone {
+    const t = tangentPerPixel(this.fov);
+    // LATER 1141: fVar9 = d_aim / (cam+0x474 x (d_aim - d_fire)) = 1 / (magnification x f); 1.0 when P1 = P2 (`depth`
+    // null, D:L474240-474243); `depth` not given: f taken as 1 (a caller with no depth: the launcher round's eye ray).
+    const k = depth === null ? 1 : magnification > 0 ? 1 / (magnification * (depth ?? 1)) : 1;
+    const c: ConeSample = sample ?? { size: this.size, offX: this.offX, offY: this.offY, swayX: this.swayX, swayY: this.swayY };
+    if (zoomState >= 4) return { offsetX: -c.swayX * t.x * k, offsetY: -c.swayY * t.y * k, radius: 0 };
+    return { offsetX: c.offX * t.x * k, offsetY: -c.offY * t.y * k, radius: c.size * t.y * RADIUS_FACTOR };
+  }
+
+  /**
+   * SWAPFIRE-CONE-ORDER (research 321; reading, pending review): the shot's cone is sampled BEFORE the frame's reticle
+   * tick. The human controller's update caches the cone from the kit's size and offsets into body+0x5dc (r0001
+   * `FUN_005bd100` from `FUN_00594cf0` D:L453666; r0004 0x5c3cb0 from 0x59a6e0) in the world's pre-tick pass, and the
+   * kit's tick (`FUN_005c2670`, r0004 0x5c9b40) runs later in that frame; the shot reads the cache (`FUN_00592260`
+   * D:L451547-451575). `sampleCone` takes that sample (the page calls it before `update`); `roundCone` is `cone` on it.
+   * A new life or a loaded state drops it (`reset`, `load`): the round then reads the live state.
+   */
+  sampleCone(): void {
+    this.sampled = { size: this.size, offX: this.offX, offY: this.offY, swayX: this.swayX, swayY: this.swayY };
+  }
+
+  /** The round's cone: `cone` on the frame's sample (`sampleCone`), or on the live state when none was taken. */
+  roundCone(zoomState: number, magnification: number, depth?: number | null): Cone {
+    return this.coneOf(this.sampled, zoomState, magnification, depth);
+  }
+
+  private sampled: ConeSample | null = null;
 
   /**
    * The reticle as the HUD draws it (`FUN_00216770`, `FUN_00215250`): its centre moved by the knock, in pixels (y
@@ -723,6 +962,7 @@ export class Accuracy {
     this.swayX = s.swayX; this.swayY = s.swayY;
     this.swayRate = { stand: [...s.swayRate.stand], crouch: [...s.swayRate.crouch], prone: [...s.swayRate.prone] };
     this.burst = s.burst; this.stance = s.stance; this.exertion = s.exertion;
+    this.sampled = null;
   }
 
   private rates(): Record<WeaponStanceName, [number, number]> {

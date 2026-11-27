@@ -387,6 +387,14 @@ export interface SpawnSlot {
   position: [number, number, number];
   /** Whether the y is the ground probe's floor under the cell's centre (W1.4b); false where it is the cell's (or the estimate). */
   onFloor: boolean;
+  /**
+   * L208: the CELL's own height (`aiCellY`, research 179 s9.14), whatever `position`'s y is; null where the file stores no
+   * cell under the record. r0004 seeds a spawn at it + 1 (TeleportTo, FUN_00546cf0 D:L412487-412520; seat-kill's read,
+   * reading, pending review) -- not at the floor `placeSpawnSlots` picks, which on MP8 respawn 0/326 fell back to a
+   * near-vertical face 84.8 over the cell. Absent on a slot not read from AIMAPS (the Forge's authored ones), seeded at
+   * its own y + 1.
+   */
+  cellY?: number | null;
   /** The facing in eighth turns, bits 0-2 of the flags (75 §5.5). */
   step: number;
   /** The same facing as a unit (x, z): step k points along (sin 45k deg, -cos 45k deg) (`facingVector`, 75 §11). */
@@ -420,6 +428,7 @@ export function placeSpawnSlots(ai: AiMaps, measured?: Spawns, ground?: Grid, tw
     return {
       side: slot.side, index: count[slot.side]!++, position: [slot.x, floor ? floor.y : y, slot.z],
       onFloor: floor !== null, step: slot.facing, facing: facingVector(slot.facing), loc: { ...slot.record.loc },
+      cellY: cell >= 0 ? y : null,
     };
   });
 }

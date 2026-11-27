@@ -67,7 +67,7 @@ export function assetsShown(palette: readonly PaletteEntry[], favs: ReadonlySet<
 }
 
 /**
- * The other tabs' starred tiles (the owner, 2026-11-13: "add the favorite button for all the asset types, not just
+ * The other tabs' starred tiles (the Forge's owner (crispy, OT.R112), 2026-11-13: "add the favorite button for all the asset types, not just
  * props"; a browser adaptation): each tile's own id as the asset browser gives it (`door.MP2:bdoor_4`, a sound's
  * `ambient.MP1:=sound:...`, a ladder's prop id), kept apart from the props' so neither list takes the other's.
  */

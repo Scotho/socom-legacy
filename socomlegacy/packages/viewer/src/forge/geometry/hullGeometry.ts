@@ -5,7 +5,7 @@ import { transformVerts } from './ops';
 import { appendOwnedPolys, buildHullMesh, GEOMETRY_OWNER_MODEL, type GeoObject, type WorldGeometry } from './world';
 
 /**
- * Collision editing (the owner, 2026-11-15: "a collision edit toggle in geometry mode ... it should be like I was just
+ * Collision editing (the Forge's owner (crispy, OT.R112), 2026-11-15: "a collision edit toggle in geometry mode ... it should be like I was just
  * editing another geometry"; a browser adaptation, FG.R2, as a level editor's clip brushes and an engine's collision meshes are
  * edited with the same tools as the rest): the hull as editable geometry. Each world node's polygons are one object (a
  * face a polygon, its surface words on it: `Face.surface`), so every tool of Geometry mode -- the selection modes, the
@@ -153,7 +153,7 @@ export function polysOfHullObject(o: GeoObject, fallback: Surface | null): (Omit
  * its faces under an owner of its own. Every other node keeps what Build made from the draws.
  */
 export function applyHullEdits(g: WorldGeometry, c: CollisionMesh, hull: WorldGeometry, fallback: Surface | null): void {
-  // A solid object's own collision goes with it (the owner, 2026-11-17: "if I delete a ladder geometry, it's collision
+  // A solid object's own collision goes with it (the Forge's owner (crispy, OT.R112), 2026-11-17: "if I delete a ladder geometry, it's collision
   // geometry is still there in game, but I don't see it in the collision layer"): a hull object standing for an object
   // no longer drawn as solid (deleted) is no collision -- as the Collision layer already leaves it out (`hullGeometryOf`).
   const solidIds = new Set(g.objects.filter((o) => o.solid).map((o) => o.id));
@@ -232,7 +232,7 @@ export function hullGeometryOf(g: WorldGeometry, was: WorldGeometry | null): Wor
 }
 
 /**
- * The collision types a face can be set to (the owner, 2026-11-15: "set certain faces as walls, passthrough, ladders,
+ * The collision types a face can be set to (the Forge's owner (crispy, OT.R112), 2026-11-15: "set certain faces as walls, passthrough, ladders,
  * etc."; a browser adaptation, its words the disc's own combinations, measured on MP6, MP51 and MP72 2026-11-15): a floor
  * is `ditype` 3 (the ground probe's and the column probe's: stood on, and a wall where steep -- the floors and the
  * stairs' ramps read on the three maps); a wall `ditype` 2 (the column probe's only); a pass-through `ditype` 2 with `m_cameratype` 1 (the
@@ -255,14 +255,14 @@ const APP_LADDER_VALUE = 2;
 export const LADDER_CLIMB_FLAG = APP_LADDER_VALUE;
 
 /**
- * The climb flags the Climbable type sets (the owner, 2026-11-15: "a climbable tab with a dropdown to pick the flag (1 -
+ * The climb flags the Climbable type sets (the Forge's owner (crispy, OT.R112), 2026-11-15: "a climbable tab with a dropdown to pick the flag (1 -
  * 5)"), as the game reads `m_appflags` (`../../climb`, `FUN_005b2620` / `FUN_005b3ce0` / `FUN_00580b70`; the ladder
  * `FUN_0059d9f0`): 1 and 3 climbed by the height; 2 a ladder; 4 the crates', by the height only for 5 < h <= 32 and a
  * step up with no press for 5 < h <= 10; 5 always "Climb over". On MP6, MP51 and MP72 (2026-11-15) 4 is the commonest,
  * 5 on MP6's 8, 2 on MP72's ladder; 1 and 3 on none of the three.
  */
 export const CLIMB_FLAGS = [
-  // 1 and 3 named apart (the owner, 2026-11-15: "they have the same name, fix this"): the climb code reads them alike
+  // 1 and 3 named apart (the Forge's owner (crispy, OT.R112), 2026-11-15: "they have the same name, fix this"): the climb code reads them alike
   // (`../../climb` `climbClass`), so 3's name says so rather than invent a difference.
   { flag: 1, label: '1 · Climb by height', short: '1 Climb' },
   { flag: 2, label: '2 · Ladder', short: '2 Ladder' },
@@ -303,7 +303,7 @@ const REVERB_FLAG = 1 << 4;
 const CAMERA_THROUGH = 2;
 
 /**
- * A collision face's surface properties (the owner, 2026-11-20: the Collision layer's Surface panel, a level editor's
+ * A collision face's surface properties (the Forge's owner (crispy, OT.R112), 2026-11-20: the Collision layer's Surface panel, a level editor's
  * face properties): its material (the table's index, 0 the map's default), whether it is indoors, its reverb zone, whether
  * the camera passes through it, and its region (the mask of zones drawn from it; regionCull's `WorldPoly.region`).
  */
@@ -374,7 +374,7 @@ export function twinIndexOf(hull: WorldGeometry): (o: GeoObject, f: number) => {
 }
 
 /**
- * C1 (the owner, 2026-11-15: "moving a cube after editing its collision leaves its edited collision where it was"): the
+ * C1 (the Forge's owner (crispy, OT.R112), 2026-11-15: "moving a cube after editing its collision leaves its edited collision where it was"): the
  * hull objects edited by hand (`manual`) that stand for drawn object `o` -- its own when it is solid (`hullOf`), its
  * node's when it is a world node moved whole (`hullNode`). One not edited needs no following: Build makes it from the
  * object where it stands.

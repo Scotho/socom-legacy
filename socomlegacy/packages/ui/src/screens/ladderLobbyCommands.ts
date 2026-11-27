@@ -1,4 +1,5 @@
 import { DIALOG_EVENTS } from '../dialog';
+import { ownNameDrawn } from '../text/ownNameDisplay';
 import type { UiCommandHandler, UiCommandHost } from '../uiCommands';
 import type { UiVarManager, UiVarValue } from '../uiVars';
 import { VALVE_TYPE, type ValveStore } from '../valves';
@@ -928,7 +929,11 @@ export class LadderLobbyCommands {
       const state = this.o.roomState?.(r.accountName) ?? null;                       // BRIEFING and any other (D:L191702-191716): FUN_002e3610 D:L191899; the position stays +0x08
       if (state) online = state;
     }
-    this.setText(PLAYER_INFO_NAME_VAR, rec.clanTag === '' ? r.accountName : NAME_WITH_TAG(rec.clanTag, r.accountName));
+    // IQ-183 (a browser adaptation, `../text/ownNameDisplay`): the own account's name drawn by the page's rule, the tag kept;
+    // PLAYER_INFO_CHAT_NAME_VAR below is MESSAGE's whisper recipient (research 266), never drawn, so it keeps the name.
+    const own = this.myName();                                                       // the session's account, else PLAYERNAMEVAR's
+    const shown = own !== null && caseless(own, r.accountName) ? ownNameDrawn(r.accountName) : r.accountName;
+    this.setText(PLAYER_INFO_NAME_VAR, rec.clanTag === '' ? shown : NAME_WITH_TAG(rec.clanTag, shown));
     this.setText(PLAYER_INFO_CHAT_NAME_VAR, r.accountName);
     const lists = playerInfoLists(rec, position, online, this.myTotal, this.myPosition);
     const vars = this.o.uiVars;

@@ -20,6 +20,11 @@ export interface FrameCapGate {
   shouldDraw(nowMs: number): boolean;
   /** A new cap, from the next frame (which draws, the cadence restarted from it). */
   setCap(cap: FrameCap): void;
+  /**
+   * LATER 1321: the next frame draws, whatever the cap, the cadence restarted from it -- asked after a canvas resize,
+   * which clears the canvas, so a frame the cap would skip never presents it empty.
+   */
+  restart(): void;
   cap(): FrameCap;
 }
 
@@ -44,6 +49,7 @@ export function frameCapGate(initial: FrameCap): FrameCapGate {
       cap = next;
       due = null;
     },
+    restart(): void { due = null; },
     cap: () => cap,
   };
 }

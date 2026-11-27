@@ -21,11 +21,11 @@ proven (no trace of the original or of the fixed recomp was replayed).
 | R228.1 | **The five answer as the stub does**, result by result, on PLAT-25's file table; `McNotPortedError` and the "NOT PORTED" line are gone (no caller named them but the replaced test) | `libmc.ts`; `libmcCommands.test.ts` | §1 |
 | R228.2 | **The game reaches one of the five: Format**, through the UI command `FormatMemCard` (`FUN_003a12e0`, D:L295810-295831; the call D:L295821). Unformat, SetFileInfo, GetEntSpace and Rename have no call site in either ELF | the wrappers' call sites | §2 |
 | R228.3 | **Format moves the slot's revision as a save does** (one more on a write; none on a card already empty and formatted; a damaged record's wipe past its legible revision and the clock) and follows the re-read rule | `cardSlots.ts` `format`; research 99 §7.1, §7.4 | §1 |
-| R228.4 | **The options save on a fresh card, as read, is 114 libmc steps** from the card probe to the scratch filler; the harness replays it with no divergence; its only failures are nine NoEntry deletes; it leaves the f0 card's twelve files and GetInfo's free 5,007 | `libmcCommands.test.ts` | §3 |
+| R228.4 | **The options save on a fresh card, as read, is ~~114~~ 115 libmc steps** from the card probe to the scratch filler (r0004's GetDir `PATCHFILE.DAT` after the scratch delete, R4P-249); the harness replays it with no divergence; its only failures are nine NoEntry deletes; it leaves the f0 card's twelve files and GetInfo's free 5,007 | `libmcCommands.test.ts` | §3 |
 | R228.5 | **The pre-fix trace is not the specification**: its five `cmd=13 result=-5` are the recomp's own bug; its op order agrees with the reading where compared | `logs/parity/s8_save_yes.game.log` L1040-1164 (on the host) | §4 |
-| R228.6 | **The page issues the reading** (OPT-01, 2026-10-09): its own rows -- MENU-01a's, OPT-05i's, the persona module as the save's `CardConfigFile` (`connectPersona`) -- dispatched as the reading names them give the 114 steps Sync pair for pair and argument for argument; dispatched in `save_and_leave`'s order after "change an option, RETURN, YES" they give **124 steps, the 114 in order with ten checks before and between them**; the twelve f0 files, free 8000 -> 5,007, only the nine NoEntry deletes FAILED. No page change was needed; the reading's Mkdir argument was corrected to the script's | `packages/viewer/test/optionsSave.test.ts`; `optionsSaveRig.ts` | §3 |
-| R228.7 | **The second save is 39 steps** on the card the first left: the folder found by both `Ensure_MC_Dirs_Fast` and `Ensure_MC_Dirs`, `AskToOverwrite`'s wait (one `IsMemCardInserted` a 0.1 s), then the script's own `SaveConfig`: the scratch and the save file deleted with Succeed, the save file written, the seven dummies and the patch filler found and kept, the scratch made again at 922 KB; no FAILED line, free 5,007 again | `mcReplay.ts` `optionsSaveAndLeaveOnASavedCard` | §3 |
-| R228.8 | **The free figure and the space rule hold on the slot**: after each save `8000 - (1 + each file's KB)` = 5,007; the scratch is `2999 - (2,070 + (13 >> 1) + 1)` KB over the slot's own listing; `IsSpaceForSaveGameFile` asks GetInfo alone at 3001 KB free or more. The save file's `data` holds `CUIVarManager`, `CValveSaveManager`, `CAcctDB` in the f0 save's module order | `optionsSave.test.ts`; `tools/test/optionsSaveDev.test.ts` | §3 |
+| R228.6 | **The page issues the reading** (OPT-01, 2026-10-09): its own rows -- MENU-01a's, OPT-05i's, the persona module as the save's `CardConfigFile` (`connectPersona`) -- dispatched as the reading names them give the ~~114~~ 115 steps Sync pair for pair and argument for argument; dispatched in `save_and_leave`'s order after "change an option, RETURN, YES" they give **~~124~~ 128 steps, the ~~114~~ 115 in order with ~~ten~~ thirteen checks before and between them** (R4P-249: the space test's four); the twelve f0 files, free 8000 -> 5,007, only the nine NoEntry deletes FAILED. No page change was needed; the reading's Mkdir argument was corrected to the script's | `packages/viewer/test/optionsSave.test.ts`; `optionsSaveRig.ts` | §3 |
+| R228.7 | **The second save is ~~39~~ 44 steps** on the card the first left (R4P-249: the space test's four and SaveConfig's two r0004 GetDir): the folder found by both `Ensure_MC_Dirs_Fast` and `Ensure_MC_Dirs`, `AskToOverwrite`'s wait (one `IsMemCardInserted` a 0.1 s), then the script's own `SaveConfig`: the scratch and the save file deleted with Succeed, the save file written, the seven dummies and the patch filler found and kept, the scratch made again at 922 KB; no FAILED line, free 5,007 again | `mcReplay.ts` `optionsSaveAndLeaveOnASavedCard` | §3 |
+| R228.8 | **The free figure and the space rule hold on the slot**: after each save `8000 - (1 + each file's KB)` = 5,007; the scratch is `2999 - (2,070 + (13 >> 1) + 1)` KB over the slot's own listing; `IsSpaceForSaveGameFile` asks GetInfo alone at 3001 KB free or more -- after r0004's three GetDir of `PATCHFILE.DAT` / `APACHE00.ZDB` (R4P-249, research 143 R143.9). The save file's `data` holds `CUIVarManager`, `CValveSaveManager`, `CAcctDB` in the f0 save's module order | `optionsSave.test.ts`; `tools/test/optionsSaveDev.test.ts` | §3 |
 
 ## 1. What each command does (the stub)
 
@@ -78,7 +78,7 @@ is called, then `sync()` is read and compared with `{ MC_CMD[cmd], expect }` -- 
 `[MC] Sync cmd=<n> result=<r>` (:1587). The first difference stops the replay and is reported (its index, the step,
 what Sync answered). That is the proven level's shape: PLAT-36's post-fix trace gives the same pairs in order.
 
-**The sequence fed to it** (`optionsSaveOnAFreshCard`, 114 steps, slot 1 a fresh card), each step citing its line:
+**The sequence fed to it** (`optionsSaveOnAFreshCard`, ~~114~~ 115 steps, slot 1 a fresh card), each step citing its line:
 
 1. The card probe `IsMemcardSaveOK` -> `FUN_003a1cf0`: GetInfo (D:L296146) -> 0.
 2. ~~`Ensure_MC_Dirs_Fast`~~ `Ensure_MC_Dirs`' own head (corrected 2026-10-09, OPT-01, see below; research 139, the
@@ -92,19 +92,20 @@ what Sync answered). That is the proven level's shape: PLAT-36's post-fix trace 
    (D:L295585), Close (D:L295591); `LIST.ICO` Open 0x203 (D:L295605) -> 2, the disc's 50,234 B a KB at a time while the
    read gives a whole KB (D:L295617-295628): 49 Writes of 1,024 and one of 58, Close (D:L295634).
 5. `SaveConfig` `FUN_0027b000` (D:L124762-124786): `FUN_003a1c60` deletes `SCRATCHPAD.DAT` (D:L124772, D:L296116) ->
-   -4; `FUN_003a17e0` -> `CSaveManager::Save` `FUN_0033dff0` opens the save file with mode 0x1a (D:L239225), which
+   -4, then (r0004, `r0004:0x003c2318`) *(R4P-249, 2026-11-24: r0004 -- research 143 R143.9; reading, pending review)* GetDir `PATCHFILE.DAT` for one entry -> 0, so nothing
+   more; `FUN_003a17e0` -> `CSaveManager::Save` `FUN_0033dff0` opens the save file with mode 0x1a (D:L239225), which
    `FUN_003a05a0` turns into Delete (D:L295407) -> -4 and Open `O_WRONLY | O_CREAT` (D:L295395-295404, D:L295412) -> 3,
    then one Write (D:L239236 -> `FUN_003a0160` D:L295243) of 4,784 (the f0 card's size, research 139; the virgin size
    `CONFIG_FILE_PLACEHOLDER` stands for, research 143 §5) and Close (D:L239237 -> `FUN_003a04d0` D:L295361); seven times,
    `SaveGame<i>` GetDir for one entry (D:L124777) -> 0, then `FUN_003a1ea0` (D:L124780, D:L296202) saves the dummy the
    same way: Delete -4, Open -> 4..10, Write 1,952, Close.
-6. `FUN_003a1880` (D:L124784, D:L295995-296026): GetDir `*.zdb` (D:L296008) -> 0, so `FUN_003a1980` makes
+6. `FUN_003a1880` (D:L124784, D:L295995-296026): GetDir ~~`*.zdb`~~ `*.ZDB` (D:L296008; r0004's upper case, `r0004:0x00427ca0`, R4P-249) -> 0, so `FUN_003a1980` makes
    `PATCHFILE.DAT` of 2000 KB (D:L296019): GetDir (D:L296050) -> 0, Open 0x202 (D:L296063) -> 11, Seek to 1999 KB
    (D:L296069), Write 0x400 (D:L296071), Close (D:L296073); `FUN_003a1060` (D:L296021): GetDir `..` for one (D:L295732)
    -> 1, `./*` for 0x14 (D:L295745) -> 13; `2999 - (2,070 + (13 >> 1) + 1)` = 922 KB > 0 (D:L296022-296023; research
    143 R143.5), so `SCRATCHPAD.DAT` the same way, handle 12, Seek to 921 KB.
 
-What the tests hold: the 114 steps replay with **no divergence**; the card holds the twelve files at the f0 card's
+What the tests hold: the ~~114~~ 115 steps replay with **no divergence**; the card holds the twelve files at the f0 card's
 sizes (the save file 4,784, `icon.sys` 964, `LIST.ICO` 50,234, `SaveGame0..6` 1,952, `PATCHFILE.DAT` 2,048,000,
 `SCRATCHPAD.DAT` 944,128); GetInfo answers free 8000 before and `8000 - 2993` = 5,007 after (`mcUsedClusters`,
 :245-288: one cluster for the folder, each file rounded up); the only FAILED lines are the nine NoEntry deletes of files
@@ -131,40 +132,46 @@ row's body as research 138 and 143 read it):
    -> 0: **the condition evaluator runs every operand** -- `FUN_0025e960` runs the operand's command (D:L108389) before
    it applies the pending AND (D:L108404); nothing short-circuits (the runtime's `zanimRuntime.ts` says the same).
 3. `CALL Ensure_MC_Dirs_Fast`: GetDir `..` -> 1, Chdir `..` -> 0, GetDir `BASCUS-97275SOCOMII` -> 0.
-4. `IF IsMemcardSaveOK`: GetInfo -> 0 (step 1 of the 114).
+4. `IF IsMemcardSaveOK`: GetInfo -> 0 (step 1 of the ~~114~~ 115).
 5. `IF IsSpaceForSaveGameFile`: GetInfo -> 0, free 8000: not below 3001, so `FUN_003a1060` is not asked (`FUN_0027b3d0`
-   D:L124930-124944; `FUN_003a1210` D:L295777-295807).
+   D:L124930-124944; `FUN_003a1210` D:L295777-295807). Before it, r0004's two Exists pairs *(R4P-249, 2026-11-24: r0004 -- research 143 R143.9; reading, pending review)*: GetDir
+   `PATCHFILE.DAT` -> 0, GetDir `PATCHFILE.DAT` -> 0, GetDir `APACHE00.ZDB` -> 0 (at the root: neither there; the 1 KB,
+   which at 8000 KB free changes no command). Where the script asks it is r0001's `save_and_leave`
+   (`R0004_SPACE_SCRIPT_READING`, research 143 §4).
 6. `MemcardAlreadyHasData = 0`; `CALL Ensure_MC_Dirs_Fast` again: the three of 3.
-7. The valve still 0: no `AskToOverwrite`; #834; `CALL Ensure_MC_Dirs`: steps 2-114 of the list (its head, Mkdir, ChDir,
+7. The valve still 0: no `AskToOverwrite`; #834; `CALL Ensure_MC_Dirs`: steps 2-~~114~~115 of the list (its head, Mkdir, ChDir,
    the icons, `SaveConfig`). The valve stays 0, so the script's `SaveConfig` after `Ensure_MC_Dirs` does not run.
 
-124 steps (`optionsSaveAndLeaveOnAFreshCard`): the 114 in their order, three checks and the first `Ensure_MC_Dirs_Fast`
+~~124~~ 128 steps (`optionsSaveAndLeaveOnAFreshCard`): the ~~114~~ 115 in their order, three checks and the first `Ensure_MC_Dirs_Fast`
 before the probe, the space check and the second `Ensure_MC_Dirs_Fast` between the probe and `Ensure_MC_Dirs`. Left out:
 the change poll `has_memcard_changed` (stopped at the start, called at the end): its GetInfo is the clock's, and a poll
 in flight is drained by the next method (research 138 R138.5). **The page issues it** -- `optionsSave.test.ts` drives
 the page's own rows (`connectPersona`'s wiring) in that order, the branches on the rows' answers, and reads the Sync
-pairs off libmc's log sink with the trace's lines on: the 124 pairs, the arguments too; the twelve f0 files; free 8000
--> 5,007; the nine NoEntry deletes, nothing else FAILED. The rows the 114 names, dispatched alone (IsMemcardSaveOK, then
-`Ensure_MC_Dirs`), give the 114 exactly. Nothing in the page moved: it already issued the reading's order.
+pairs off libmc's log sink with the trace's lines on: the ~~124~~ 128 pairs, the arguments too; the twelve f0 files; free 8000
+-> 5,007; the nine NoEntry deletes, nothing else FAILED. The rows the ~~114~~ 115 names, dispatched alone (IsMemcardSaveOK, then
+`Ensure_MC_Dirs`), give the ~~114~~ 115 exactly. Nothing in the page moved: it already issued the reading's order.
 
 ### The second save (OPT-01)
 
-The same flow on the card the first save left, in the same session (`optionsSaveAndLeaveOnASavedCard`, 39 steps; libmc's
+The same flow on the card the first save left, in the same session (`optionsSaveAndLeaveOnASavedCard`, ~~39~~ 44 steps; libmc's
 handles count up for the session, research 134 §2: 13 and 14):
 
 1. The three checks' GetInfo -> 0, 0, 0.
 2. `Ensure_MC_Dirs_Fast`: GetDir `..` -> 1 (from the folder, the root's first entry), Chdir `..` -> 0, GetDir
    `BASCUS-97275SOCOMII` -> 1 (found: `MemcardAlreadyHasData` 1), Chdir into it -> 0.
-3. IsMemcardSaveOK GetInfo -> 0; IsSpaceForSaveGameFile GetInfo -> 0 (free 5,007: not below 3001).
+3. IsMemcardSaveOK GetInfo -> 0; IsSpaceForSaveGameFile GetInfo -> 0 (free 5,007: not below 3001), after r0004's
+   GetDir `PATCHFILE.DAT` -> 1, GetDir `APACHE00.ZDB` -> 0, GetDir `PATCHFILE.DAT` -> 1 (in the folder: no delete, no
+   1 KB) *(R4P-249, 2026-11-24: r0004 -- research 143 R143.9; reading, pending review)*.
 4. `Ensure_MC_Dirs_Fast` again: the four of 2.
 5. `AskToOverwrite` (#857, NO first): `WHILE AreYouSure == 0` asks `IsMemCardInserted` (GetInfo -> 0) and waits 0.1 s --
    **once a 0.1 s, as long as the player takes**: one in the list (YES within the first wait); the count is the player's
    time, not the game's.
 6. `Ensure_MC_Dirs`: the four of 2 (the folder found: ChDir, the valve 1; no Mkdir, no icons, no `SaveConfig` inside).
 7. `MemcardAlreadyHasData == 1` -> `SaveConfig(BASCUS-97275SOCOMII)` (`FUN_0027b000`): Delete `SCRATCHPAD.DAT` -> **0**
-   (D:L124772, D:L296116: the file is there now); the save file Delete -> **0**, Open -> 13, Write 4,784, Close
+   (D:L124772, D:L296116: the file is there now); r0004's GetDir `PATCHFILE.DAT` -> 1 and GetDir `APACHE00.ZDB` -> 0
+   (`r0004:0x003c2318`-`0x003c2430`: nothing deleted) *(R4P-249, 2026-11-24: r0004 -- research 143 R143.9; reading, pending review)*; the save file Delete -> **0**, Open -> 13, Write 4,784, Close
    (D:L124773; `FUN_0033dff0`); seven GetDir `SaveGame<i>` -> **1**: found, so not saved (D:L124777-124778); GetDir
-   `*.zdb` -> 0 (D:L296008), so `FUN_003a1980(PATCHFILE.DAT, 2000)`: GetDir -> **1**, found, nothing written
+   ~~`*.zdb`~~ `*.ZDB` -> 0 (D:L296008; `r0004:0x00427ca0`), so `FUN_003a1980(PATCHFILE.DAT, 2000)`: GetDir -> **1**, found, nothing written
    (D:L296050-296060); `FUN_003a1060`: GetDir `..` -> 1, `./*` -> 13 (the scratch deleted: 2,070 KB, 13 entries); 922 KB
    > 0, so `SCRATCHPAD.DAT` made again: GetDir -> 0, Open -> 14, Seek 943,104, Write 0x400, Close.
 
@@ -175,7 +182,8 @@ page issues it (`optionsSave.test.ts`), and the harness replays it on `Libmc` af
 
 In the page's flow, GetInfo's free after each save is `8000 - (1 + each file's KB rounded up)` (`mcUsedClusters`,
 MemoryCard.cpp:245-288) = 5,007; the scratch's 922 KB is `2999 - (KB of the other eleven + (13 >> 1) + 1)` over the
-slot's own listing (research 143 R143.5); after a save `IsSpaceForSaveGameFile` answers true from GetInfo alone. The save
+slot's own listing (research 143 R143.5); after a save `IsSpaceForSaveGameFile` answers true from GetInfo alone (after
+r0004's three GetDir, R4P-249). The save
 file's `data` holds the three modules, in the f0 save's `CSaveModuleList` order (read through `tools/cardFile.ts`, the
 dev-host test): `CUIVarManager` (the UI variables of longevity 3 as typed nodes, never a password-class name,
 `CARD_PASSWORD_UI_VARS_PLACEHOLDER`, W15.R6), `CValveSaveManager` (every PERSIST valve as a 16-bit value; the 65 when the
@@ -225,6 +233,9 @@ filed it; `CSaveManager` opens and closes it within one Save or Load, so between
 always passes and SaveConfig always deletes the scratch (`CardCommands.SaveConfig`'s `isOpen()`). Its refused-issue
 branch (D:L296117-296118, the card error) is `MC_ISSUE_FAILURE_READING`'s (research 138). Research 101 §5 is unchanged
 (the card package is not a round package).
+
+R4P-249 (2026-11-24, r0004's patch-file rule in the lists of §3) adds no row here: its named unknowns are research 143
+§4's rows, beside the code that holds them (`packages/ui/src/screens/cardCommands.ts`).
 
 ## 6. What is left
 

@@ -35,7 +35,7 @@ function world(polys: WorldPoly[]): Grid {
 const GAP = 0.8;
 /** A floor at y 0 to z 0, no floor over z (0, GAP), the floor at y 0 again from z GAP: a floorless strip, nothing over it. */
 const gapWorld = (): Grid => world([
-  quad([-200, 0, -200, 200, 0, -200, 200, 0, 0, -200, 0, 0], 3, 'worldmodel/near'),
+  quad([-200, 0, 0, 200, 0, 0, 200, 0, -200, -200, 0, -200], 3, 'worldmodel/near'),
   quad([-200, 0, GAP, 200, 0, GAP, 200, 0, 200, -200, 0, 200], 3, 'worldmodel/far'),
 ]);
 

@@ -107,7 +107,10 @@ remapping record and the five frames. No golden holds the trace yet.
   - a round with something in the air, and so whether the air is left clear;
   - an offline round (a mission or the replay's `ReplayMission`), where research 95's account may still hold;
   - a Demolition or respawn round;
-  - what bit 0x04 at +6 does to an entry;
+  - which entries carry bit 0x02 at +6 at a round's end -- what bit 0x04 does is read: `FUN_003ccc90`
+    (CZProjectileList::SetAllFlag18, D:L321586-321601) sets it on every entry, and with 0x04 and 0x02 both set
+    `FUN_003c9fb0` (CZProjectile::PostTick, D:L320090-320092) skips the entry's tick and returns completion -- online
+    (`DAT_0045a0c1`) setting +8 to 3 first (D:L320205-320213);
   - an emptying that does not pass through `FUN_003ccbc0`: it empties through `FUN_003cd150` (D:L321542), which has a
     second caller, `FUN_003d0350` (D:L323392-323403), reached from the teardown (D:L50600 -> `FUN_001ea6e0` ->
     D:L151625) and outside it from `FUN_001f1bb0` (D:L53472 -> `FUN_002ac0e0`, D:L151964). `FUN_003cd150` (r0004
@@ -122,8 +125,8 @@ remapping record and the five frames. No golden holds the trace yet.
 - **The timing, recorded, not applied:** the original's calls run as ROUND COMPLETE comes up; the port clears at the
   next round's start, about 8 s later.
 - Research 101's row's "owed" moves on. The trace is no longer owed for the joiner's clock-ended round. What is owed:
-  what bit 0x04 at +6 does (beyond the ledger's read), a trace with a grenade or a charge in the air at a round's end,
-  the host's console, and 0x3ef2f0 armed.
+  which entries carry bit 0x02 at +6 at a round's end (bit 0x04's effect is read, §4), a trace with a grenade or a
+  charge in the air at a round's end, the host's console, and 0x3ef2f0 armed.
 - Sites that still state the contradicted premise, owed with the row: `room.ts` `clearAir`'s doc, `armoryGlue.ts`
   :17-18, `grenade.ts` :1108, and research 95 §8's row.
 - No constant is added or renamed. The placeholder ledger is unchanged.

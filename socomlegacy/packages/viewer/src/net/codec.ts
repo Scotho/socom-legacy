@@ -5,21 +5,24 @@ import { wrapYaw } from '../yaw';
 export { decodeCommandsV10, decodeSnapshotV10, type OwnStateV10, type SnapshotV10 } from './codecV10';
 /** Protocol 11 to 15's, frozen beside the live ones (WIRE-16; `./codecV15`): a protocol 11 to 15 `.s2r`'s, the view's fields 0. */
 export { decodeCommandsV15, decodeSnapshotV15 } from './codecV15';
+/** Protocol 16's snapshot decoder, frozen beside the live one (WM-DATA-17; `./codecV16`): a protocol 16 `.s2r`'s, `hand` 0. */
+export { decodeSnapshotV16 } from './codecV16';
 
 /**
  * The binary frames (web sprint 3, M3): the commands up and the snapshots down, little-endian, quantised where the
  * game's own precision allows (`./protocol` names the steps). The own state stays float32 (what prediction is compared
  * with, to the thousandth); the others' feet are i16 at `FEET_STEP` from the frame's origin (protocol 11).
  *
- * Sizes (protocol 16, WIRE-16, research 402 section 3; protocol 11, NET-WIRE, research 224 before it): a command is 18
- * bytes (15 to protocol 15, then the view's three), a batch of 3 is 60 (51; the frame type its first byte, as before); a
- * snapshot's head is 12 (the frame type, the tick, the sections, the feet's origin), the own state 36 (its facing), a body
- * 55 (52 to protocol 15 -- the feet 6, the flags 4 -- then the view's tail 3) and a door 2, and the environment 8 and 3 an
- * instance off its opening state -- only in a snapshot that names it. A snapshot of 15 bodies and one's own is 875 bytes
- * on a map without doors and 881 on Frostfire (three doors; protocol 11 to 15: 830 and 836; protocol 10: 884 and 890) --
- * 26.4 KB/s at 30 Hz per client, before the WebSocket's framing. A full room (16 seats, EXTRACTION's three hostages):
- * 1040 bytes a player, 1059 a spectator (986 and 1002; protocol 10: 1052 and 1080); 24 seats' bodies: 1480 and 1499
- * (1402 and 1418; 1500 and 1528).
+ * Sizes (protocol 17, WM-DATA-17; protocol 16, WIRE-16, research 402 section 3; protocol 11, NET-WIRE, research 224
+ * before them): a command is 18 bytes (15 to protocol 15, then the view's three; unchanged at 17), a batch of 3 is 60 (51;
+ * the frame type its first byte, as before); a snapshot's head is 12 (the frame type, the tick, the sections, the feet's
+ * origin), the own state 36 (its facing), a body 56 (52 to protocol 15 -- the feet 6, the flags 4 -- then the view's tail
+ * 3 at 16, then the hand 1 at 17) and a door 2, and the environment 8 and 3 an instance off its opening state -- only in a
+ * snapshot that names it. A snapshot of 15 bodies and one's own is 890 bytes on a map without doors and 896 on Frostfire
+ * (three doors; protocol 16: 875 and 881; protocol 11 to 15: 830 and 836; protocol 10: 884 and 890) -- 26.7 KB/s at 30 Hz
+ * per client, before the WebSocket's framing. A full room (16 seats, EXTRACTION's three hostages): 1058 bytes a player,
+ * 1078 a spectator (16: 1040 and 1059; 11 to 15: 986 and 1002; protocol 10: 1052 and 1080); 24 seats' bodies: 1506 and
+ * 1526 (1480 and 1499; 1402 and 1418; 1500 and 1528).
  */
 
 /**
@@ -224,6 +227,8 @@ function writeBody(w: Writer, b: BodyState, o: readonly [number, number, number]
   w.i8(b.peek);
   // Protocol 16 (WIRE-16): the view's tail, as given -- who gets it whole and who zeroed is the room's (PV.R9).
   w.u8(viewState(b.view) | (((b.clock ?? 0) & 15) << 4)); w.i8(qSway(b.swayX ?? 0)); w.i8(qSway(b.swayY ?? 0));
+  // Protocol 17 (WM-DATA-17): the hand byte, as given (HAND_WIRE_ADAPTATION) -- zeroed for the other side by the room.
+  w.u8((b.hand ?? 0) & 0xff);
 }
 
 function readBody(r: Reader, o: readonly [number, number, number]): BodyState {
@@ -242,12 +247,13 @@ function readBody(r: Reader, o: readonly [number, number, number]): BodyState {
   const trav = r.u8(), travFrame = r.f32(), travRootY = r.f32(), travBlend = r.u8(), travBlendWeight = r.u8() / 255;
   const peek = r.i8();
   const viewClock = r.u8(), swayX = dqSway(r.i8()), swayY = dqSway(r.i8());   // protocol 16: a nibble past 12 is no view
+  const hand = r.u8();                                                          // protocol 17: the hand byte
   return {
     id, feet, yaw, pitch, vx, vy, vz, flags,
     stance: packed & 3, landing: (packed >> 2) & 3, ground: (packed >> 4) & 3, weapon, slot: (packed >> 6) & 1, stickSnaps: (packed >> 7) & 1,
     jumps, groundForward, groundRight, groundCls, action, actionSerial, actionT, actionSeconds, overlay, overlayT, overlaySeconds,
     turnRate, trav, travFrame, travRootY, travBlend, travBlendWeight, peek,
-    view: viewState(viewClock & 15), clock: viewClock >> 4, swayX, swayY,
+    view: viewState(viewClock & 15), clock: viewClock >> 4, swayX, swayY, hand,
   };
 }
 
@@ -289,6 +295,7 @@ export function quantiseBody(b: BodyState, out: BodyState): BodyState {
   const viewClock = asU8(viewState(b.view) | (((b.clock ?? 0) & 15) << 4));   // protocol 16: the view's tail
   out.view = viewState(viewClock & 15); out.clock = viewClock >> 4;
   out.swayX = dqSway(asI8(qSway(b.swayX ?? 0))); out.swayY = dqSway(asI8(qSway(b.swayY ?? 0)));
+  out.hand = asU8((b.hand ?? 0) & 0xff);                                        // protocol 17: the hand byte
   return out;
 }
 
@@ -310,9 +317,10 @@ function bodiesOrigin(bodies: readonly BodyState[]): [number, number, number] {
 /**
  * `Frame.Snapshot` (protocol 11, NET-WIRE; research 224): u8 frame type (0), u32 tick, u8 sections (bit 0 the own state,
  * bit 1 the environment, bit 2 Chain Reaction's hooks; any other bit refused), i16 x3 the feet's origin (whole units),
- * then [u32 ack, f32 x y z, f32 vx vy vz, f32 yaw pitch] when the own state is there, u8 count, the bodies (55 bytes
+ * then [u32 ack, f32 x y z, f32 vx vy vz, f32 yaw pitch] when the own state is there, u8 count, the bodies (56 bytes
  * each: u8 id, i16 feet x3 at `FEET_STEP` from the origin, u16 yaw, i16 pitch, i16 speed x3, u32 flags, then protocol
- * 10's tail unchanged, then protocol 16's u8 view|clock<<4, i8 swayX, i8 swayY), u8 door count and two bytes a door (`DoorWire`), then -- when bit 2 is set -- u8 hook count and
+ * 10's tail unchanged, then protocol 16's u8 view|clock<<4, i8 swayX, i8 swayY, then protocol 17's u8 hand), u8 door
+ * count and two bytes a door (`DoorWire`), then -- when bit 2 is set -- u8 hook count and
  * seven bytes a hook (`CraneWire`: u8 valve, u8 leg, u16 milliseconds, u16 swing milliseconds, u8 mesh), then the
  * environment when named (`EnvWire`:
  * u32 revision, u16 round epoch, u16 count, u16 instance id and u8 state an instance). No trailing byte. `origin`: the

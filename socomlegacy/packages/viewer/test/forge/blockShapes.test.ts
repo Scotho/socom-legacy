@@ -63,13 +63,14 @@ describe('block tool shapes', () => {
     expect(blockMakes('block', [0, 0], [3, 3], 2)).toBe(true);
   });
 
-  // Stairs (the owner, 2026-11-17: "a stair geometry in the create dropdown ... a smooth collision box for it").
+  // Stairs (the Forge's owner (crispy, OT.R112), 2026-11-17: "a stair geometry in the create dropdown ... a smooth collision box for it").
   const pointsOf = (m: ReturnType<typeof blockMesh>): Vec3[] => {
     const ps: Vec3[] = [];
     for (let i = 0; i < m.verts.length; i += 3) ps.push([m.verts[i]!, m.verts[i + 1]!, m.verts[i + 2]!]);
     return ps;
   };
-  it('stairs climb the longer side from where the drag began, a step each STAIR_STEP_RISE_ADAPTATION of height', () => {
+  // His own red at 0ed80a521b (the owner, 2026-11-22: "Mark as known failures"): expects a tread 16 high at the far end; finds none (topAt undefined, not iterable).
+  it.fails('stairs climb the longer side from where the drag began, a step each STAIR_STEP_RISE_ADAPTATION of height', () => {
     const m = blockMesh('stairs', FLAT, [0, 0], [10, 40], 4 * STAIR_STEP_RISE_ADAPTATION, OPTS);
     const treads = liveFaces(m).filter((f) => faceNormal(m, f)[1] > 0.99);
     expect(treads.length).toBe(4);

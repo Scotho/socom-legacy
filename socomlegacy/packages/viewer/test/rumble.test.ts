@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { padActuator, padRumbleForm, Rumble, RUMBLE_OUTPUT_ADAPTATION, rumbleOutput, ScopePulse, type RumbleActuator } from '../src/rumble';
+import { padActuator, padsOfferNoActuator, padRumbleForm, Rumble, RUMBLE_OUTPUT_ADAPTATION, rumbleOutput, ScopePulse, type RumbleActuator } from '../src/rumble';
 
 /**
  * CTL-2 (OT.R72; research 302 §10): the two motors as the game keeps them -- `FUN_00592b40` (large), `FUN_00592ba0`
@@ -154,5 +154,18 @@ describe('the pad\'s actuator, either form (RUMBLE_OUTPUT_ADAPTATION)', () => {
     expect(notes[0]).toContain('Firefox on Windows');                   // the common case named (Mozilla bug 680289)
     expect(padActuator({ getGamepads: () => [] }, (m) => notes.push(m))).toBeNull();     // no pad: nothing to say
     expect(notes).toHaveLength(1);
+  });
+});
+
+describe('B-73: padsOfferNoActuator -- a connected pad and none of them has a motor', () => {
+  const act = { playEffect: async () => undefined, reset: async () => undefined };
+  it('true only for a connected pad with neither actuator form', () => {
+    expect(padsOfferNoActuator([{ connected: true }])).toBe(true);
+    expect(padsOfferNoActuator([{ connected: true, hapticActuators: [] }])).toBe(true);
+    expect(padsOfferNoActuator([{ connected: true, vibrationActuator: act }])).toBe(false);
+    expect(padsOfferNoActuator([{ connected: true, hapticActuators: [{ pulse: async () => true }] }])).toBe(false);
+    expect(padsOfferNoActuator([{ connected: true }, { connected: true, vibrationActuator: act }])).toBe(false);
+    expect(padsOfferNoActuator([null, { connected: false }])).toBe(false);
+    expect(padsOfferNoActuator([])).toBe(false);
   });
 });

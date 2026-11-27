@@ -1,14 +1,19 @@
+import { seatKeptForUnload } from './seatKeep';
 import type { PerspectiveCamera } from 'three';
-import { DEFAULT_ARMORY_TYPE, tracerKindFor, tracerRound, UNITS_PER_METRE, type AiMaps, type GameType, type Pick, type Side, type WeaponRecord } from '@s2u/scene';
+import { DEFAULT_ARMORY_TYPE, GameFrameAccumulator, tracerKindFor, tracerRound, UNITS_PER_METRE, type AiMaps, type GameType, type Pick, type Side, type WeaponRecord } from '@s2u/scene';
 import type { LoadoutRequest, PlayerLoadout } from './loadout';
 import type { FireEvent, FireWeapon } from './fire';
+import { FirearmWire } from './net/firearmWire';
+import { ThrowWire } from './net/throwWire';
 import type { EquipmentSlotState } from './equipmentSlots';
+import type { KitExtras, TakenEquipment } from './takeKit';
 import { NetClient, type NetOptions, type NetWalk, type Simulate, type WebSocketLike } from './net/client';
 import {
   GAME_HELLO_WAIT_MS_ADAPTATION, GAME_RETOKEN_REASONS, GAME_RETOKEN_WAIT_MS_ADAPTATION, gameSeatOf, gameSeatOpen, isGameSeat, isRoomSeatOf, isSeatOf, matchSocketUrl,
   ROOM_REPASS_REASONS, roomRefusalLine, socketHost, type GameSeat, type GameSeatProvider, type Reseat, type RoomPass, type RoomSeat, type RoomSeatProvider,
 } from './connectHost';
 import type { DropWire, HostageStateWire, HostageWire, LoadoutRefusal, MatchStats, Rules, ScoreRow, ServerEvent, Team } from './net/protocol';
+import { netEndingOf, setNetEnding, type NetEnding } from './net/netEnding';
 import { RAISED_SINCE_PROTOCOL, SEAT_HOLD_MS_ADAPTATION, SERVER_CLOSING_REFUSAL, SERVER_CLOSING_RETRY_MS } from './net/protocol';
 import { countdownLine, eliminationLines, MAX_ROUNDS } from './net/rules';
 import { deathPose, flinchPose, type RemotePlayers } from './remotePlayers';
@@ -17,25 +22,31 @@ import { flinchCutWindow, reloadInFlinch } from './net/flinchReload';
 import type { NetRefillRule } from './net/netRefill';
 import { RESPAWN_FADE_S, RESPAWN_PROMPT_S } from './net/deaths';
 import { TICK_HZ } from './net/protocol';
+import { pelletsOf } from './firearms';
 import type { PlayClips } from './play';
 import type { ScoreRowInfo } from './scoreboard';
 import { botDisplayName, plainBotText } from './botPresentation';
-import { yourStatsOf, type RoundScreen } from './roundScreens';
+import type { RoundScreen } from './roundScreens';
+import { ENGINE_READ_S, roundScreenAt, roundScreensElapsed } from './roundPresentation';
 import type { WalkMode } from './walk';
 import type { OnlineStatus } from './online';
-import type { CompassMark, HudSpectatorView, RoundInfo } from './hud';
+import { MESSAGE_SCALE, type CompassMark, type HudSpectatorView, type RoundInfo } from './hud';
+import { killFeedLine, killFeedSubject } from './killFeed';
 import { extractionPoints, hostageMarks } from './hostageMarks';
 import type { RoundAudioHost } from './roundAudioHost';
 import type { ObjectiveLine, RoundCues } from './roundCues';
 import type { MatchGate } from './weaponExchange';
 import { keyboardSite } from './keyboardTesting';
+import { roundLineTakes } from './roundLineKeys';
 import type { WorldState } from './worldState';
 import type { Input } from './gamepad';
 import type { VoiceDown } from './net/voiceWire';
 import type { ScenicView } from './mapMeta';
 import { cameraEye, SpectatorView, type SpectatorBody } from './spectatorView';
 import { applyJoinState, type JoinSinks, type ProjectilePhase } from './joinState';
+import { JoinLeaveLines } from './joinLeaveLine';
 import { spectatorVoteLine, teamVoteLine, voteRowsOpen } from './spectatorVote';
+import { SEAT_CLAIM_BUTTONS_ADAPTATION, SEAT_CLAIM_TAKEN_LINE_ADAPTATION, SeatClaimHold, seatClaimHeld, seatClaimLine, seatClaimOffer, seatClaimPulse, type SeatClaimDevice, type SeatClaimOffer } from './seatClaim';
 
 /**
  * The page in a match (web sprint 3, M4-M8): the net client on the walk, the other players drawn (`./remotePlayers`),
@@ -44,7 +55,41 @@ import { spectatorVoteLine, teamVoteLine, voteRowsOpen } from './spectatorVote';
  * death"), "TIME EXPIRED" and the round's clock (section 18), the scoreboard's rows. Behind `?redotcom&mp` (W3.R7).
  */
 
+/**
+ * WM-DATA (`DAMAGE_REPORT_ADAPTATION`, `match/src/room.ts`; a browser adaptation with no original -- the game shows a
+ * player no damage numbers): one line of a damage report the page keeps for a later panel to draw. `id` the room's
+ * (negative: a departed player, kept as it came), `name` the scoreboard's where the page knows it, else null.
+ */
+export interface DamageReportLine {
+  id: number; name: string | null; hits: number; health: number;
+  /**
+   * WM-13 (`./damagePanel`): the page saw this kill -- on a `dealt` line, the page's player killed him (this round, or this
+   * life for a life report); on a `taken` line, he killed the page's player. Absent otherwise (a departed player's id is
+   * the room's negative one and never matches a kill the page saw).
+   */
+  kill?: true;
+}
+/** WM-DATA: a kept damage report -- the round's (`life` false) or, in a respawn room, the life just ended (`life` true). */
+export interface DamageReport { round: number; life: boolean; taken: DamageReportLine[]; dealt: DamageReportLine[] }
+
 export interface NetPageDeps {
+  /**
+   * PRS-888 (`./joinLeaveLine` `JOIN_LEAVE_LINE_ADAPTATION`, a browser adaptation): this browser's Join/leave lines
+   * setting, read at the mount (`./matchMount`, `./main`). Absent or false, the page posts no join and no leave line --
+   * the original posts none.
+   */
+  joinLeaveLines?: boolean;
+  /**
+   * LATER 359a F3 (`RESUME_RETRY_JITTER_MS_ADAPTATION`): a fast retry's random delay, ms, 0 to the bound -- the production
+   * page's `Math.random() * RESUME_RETRY_JITTER_MS_ADAPTATION` (`./matchMount`); absent, none.
+   */
+  retryJitterMs?: () => number;
+  /**
+   * SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game): collect the page's own expectation
+   * of each round it sends (one `RemotePlayers.aimFirst` cast and one `NetClient.notePageShot` entry) -- the `?devmode`
+   * page's only (`main.ts` hands `DEV.tools`, the playtest report's own gate). Absent or false: nothing is cast or kept.
+   */
+  shotLedger?: boolean;
   taunt?(event: Extract<ServerEvent, { type: 'taunt' }>): void;
   communication?(event: Extract<ServerEvent, { type: 'communication' }>): void;
   /**
@@ -54,6 +99,12 @@ export interface NetPageDeps {
    * front end's match hands it to the lobby's `chatLine`; absent (`/testroom`, no lobby), it is dropped.
    */
   gameChat?(event: Extract<ServerEvent, { type: 'chat' }>): void;
+  /**
+   * RC-3 ROUND-CHAT (V21.R15a; a browser adaptation beside OT.R48 -- the original sends no open line in a round, research
+   * 266 §3.1, §3.9): a relayed `chat` that carries `round` (RC.R2), a line the server relayed under the round's rule --
+   * handed here for the HUD's message window (`./matchMessages` `roundChatPost`) and never to `gameChat`; absent, dropped.
+   */
+  roundChat?(event: Extract<ServerEvent, { type: 'chat' }>): void;
   /**
    * SA-43c RESTART-NOTICE, Part 2 (research 345 sections 1-2): the room's `system` event, the server's system message on
    * the game connection, handed on as heard -- the front end routes it as the original's `FUN_0030dce0` does
@@ -93,7 +144,7 @@ export interface NetPageDeps {
    * (the `grenade` event's), whose Detonator alone sets his charges off (2026-10-02). `ageTicks` (LATER 643): the
    * event's `age`, the ticks the copy starts into its flight; passed only when the room told one.
    */
-  remoteGrenade(kind: string, from: [number, number, number], velocity: [number, number, number], owner?: number, pid?: number, phase?: ProjectilePhase, ageTicks?: number): void;
+  remoteGrenade(kind: string, from: [number, number, number], velocity: [number, number, number], owner?: number, pid?: number, phase?: ProjectilePhase & { own?: boolean }, ageTicks?: number): void;
   /**
    * PF-28 (the integration review of sprint 29): whether the page flies projectiles of its own (`GrenadeThrower.ownLive`).
    * A rejoin's join envelope names the seat's own projectiles too (the room re-owns them to the new id before the
@@ -105,14 +156,16 @@ export interface NetPageDeps {
   drops?: { place(d: DropWire, own?: boolean): void; remove(did: number): void; replaceAll(all: readonly DropWire[]): void } | null;
   /** PF-34: the page's own live kit after a pickup (`kit`; `./takeKit`): the loadout, the slot replaced, the rings, the slots filled. */
   kitChanged?(loadout: readonly number[], slot: 0 | 1 | null, rounds: [number[], number[]], filled?: [number[], number[]],
-    /** OT.R59 (RECONNECT-GHOST): a resume's pouch by name and launcher held, as the room holds them (no refill). */
-    resumed?: { pouch: Readonly<Record<string, number>>; equipmentSlots?: readonly EquipmentSlotState[]; held: number | null; weapon?: 0 | 1 },
+    /** OT.R59 (RECONNECT-GHOST): a resume's pouch by name and launcher held, as the room holds them (no refill); LATER 1129: or a take's equipment. */
+    resumed?: KitExtras,
     /** The pour's amounts, slot for slot with `filled` (the `kit` event's `added`). */
     added?: [number[], number[]]): void;
   /** PF-36 (research 235 s4): the room's pid for this page's own throw or charge (`placed`; `GrenadeThrower.tagOwn`). */
   tagOwnProjectile?(kind: string, from: [number, number, number], pid: number): void;
   /** PF-36 (research 235 s4): the resting charge with this pid was damaged in the room and goes off (`detonateRemote`). */
   detonateProjectile?(pid: number): void;
+  /** R4P-224: the room's `chargeGone` -- a placed charge's copy taken away with no blast (`GrenadeCore.removeRemote`). */
+  removeProjectile?(pid: number): void;
   /** Research 386 §3.2 (LATER 63): a scene program's `FIRE_WEAPON` round the room set off at `at`, for its effects and sound. */
   sceneRound?(kind: string, at: [number, number, number]): void;
   /** The spectator's camera: the pose to stand the fly camera at (follow), or null to leave it free. */
@@ -169,6 +222,13 @@ export interface NetPageDeps {
    */
   ownHurt?(): void;
   /**
+   * R4P-253 (the review's F2; a browser adaptation): the page's frame is held (`./ephPause`, PK-3) and `frame` runs no
+   * game frame, so another player's shots are not queued for display but shown on arrival, as a hidden tab's are
+   * (`displayIdle`). Absent: never held. NOT WIRED YET (review 2, finding 2): no page passes it (`./main`'s frame returns
+   * early under PK-3 without telling the page; a filed follow-up), so only the hidden half of `displayIdle` is live.
+   */
+  displayHeld?(): boolean;
+  /**
    * The seat's side, from the room's `welcome` (a player's) and `promoted` (2026-09-30): the page's own body follows it
    * (`./teamBody`), as the others' do (`RemotePlayers.setTeam`).
    */
@@ -212,6 +272,12 @@ export interface NetPageDeps {
    */
   netRefill?(rule: NetRefillRule | null): void;
   /**
+   * SEAT_CLAIM_ADAPTATION (a fresh review's finding, 2026-11-25): the page cannot play a seat -- the map viewer's watcher
+   * (`main.ts`'s page with the play mode off: no trigger, no lanes) -- so it is offered no claim, on its HUD or its
+   * buttons: a claim would seat a body that walks and cannot fire. Absent: a page that plays (the test room's, a game's).
+   */
+  noSeatClaim?: boolean;
+  /**
    * LOW-2: a throw the room refused stale, its item given back (the throwables' part, `./matchNet` `PART_DEPS`). LATER
    * 503: `shot`, a rocket's launch in the launcher's journal (`./rocket` `RocketLauncher.refund`).
    */
@@ -228,6 +294,15 @@ export interface NetPageDeps {
    * screen (`FUN_002a9b30` D:L150617-150670). Absent: none (the `roundStart` clear stays the backstop).
    */
   roundEndEffects?(): void;
+  /**
+   * R4P-234b (`./zoom` ROUND_END_CAMERA_FOV_READING; research 84 §7.3): the page's own view drawn at zoom 1.0, its zoom
+   * state kept and its steps refused till the next set-up -- at the same moment, after `roundEndEffects`: r0004's
+   * mission end writes the camera's field of view at 1.0 (`FUN_0029c7f0(1.0, cam)`, D4:L159788; Q234C/Q234D, forced).
+   * The moment: research 397 §3-§4 traced 0x2ac270 running at an online round's end (proven for a joiner and a
+   * clock-ended classic round: about 3 s after the clock's zero, as ROUND COMPLETE comes up; the host's path, a won
+   * round and the last round not measured). Absent: the view as it was.
+   */
+  roundEndZoom?(): void;
   /**
    * ROOM-HAND (LATER 652; the task-2 review's F1): the item in the hand now, as `handEvent` names it (`./matchThrow`
    * `handItemId`; the throwables' `netDeps`), re-told at a welcome and a resume, where the room's hand starts at null.
@@ -391,8 +466,10 @@ export interface NetPageDeps {
    * HX-4a (research 239 s3; `./hostagePage` `HOSTAGE_YES_AUDIENCE_PLACEHOLDER`): an escortee's cue at its body -- the YES
    * (CHRSND 0x37, `^CO_0343` for mp_fem1-3) OnCommand cases 4 and 5 play (D:L450379, D:L450537), heard by every page
    * when the hostage's unit moves into or out of 17. The sound part's (`PART_DEPS.sound`, the wave-4 batch). Absent: not heard.
+   * R4P-254: `character` is the placed character the room named for it (`HostageWire.character`, `mp_vip1` on MP82), whose
+   * own `CHRSND_YES` group the sound plays; null for a hostage no welcome listed.
    */
-  escorteeVoice?(id: number, cue: 'yes', at: [number, number, number] | null): void;
+  escorteeVoice?(id: number, cue: 'yes', at: [number, number, number] | null, character: string | null): void;
   /**
    * Protocol 10 (MAP-03; research 209 s11): the page's world (`./worldState`, on the walk's hull), which follows the
    * room's through the welcome's and the snapshots' environment (`./net/client` `applySnapshotWorld`, before the
@@ -460,7 +537,14 @@ export const REMOTE_RELOAD_SOUND_READING = 'room event at the take' as const;
  * from, and the page starts that body's clip (`RemotePlayers.reload`, `Play.remoteReload`). A reload under way at a
  * join or a replay seek is not caught up (the event is transient, `replay/fold.ts`); a turret's reload, a reload cut at
  * a worded take and the bolt's or pump's after-shot clip (LATER 810) send no take; a knock does not end the copy's
- * clip (LATER 811).
+ * clip (LATER 811). RELOAD-HITPOSE F1 (ONE-CLOCK; a BROWSER ADAPTATION -- the page's interpolation delay has no original): the event comes
+ * about one interpolation delay before the page draws the body at the take, and the room's poser is judged at the
+ * shooter's drawn tick (`room.ts` `drawnPastOf`), so the clip starts on the DRAWN clock -- the event stamped with the
+ * newest snapshot tick in hand when it came (`NetClient.heardTick`, as `markSpawn`), released once the drawn tick
+ * (`NetClient.shownTick`) passes it and run on by the ticks past it (`RemotePlayers.frame`); a flinch's and a kill's end
+ * of the clip likewise, in order. The residual: the phase within about -1 to +2 ticks of the room's judged pose, a mean
+ * lead of about half a tick (the room's whole-snapshot staircase against this continuous drawn clock); the start and end
+ * edges aligned. Was: started at the event, drawn 4.3-4.9 ticks ahead of the room's judged pose.
  */
 export const REMOTE_RELOAD_MOTION_READING = 'room event at the take' as const;
 
@@ -498,6 +582,34 @@ export function netSettings(
  */
 export const TRACER_REMOTE_COUNT_READING = 'the shots this page saw this round' as const;
 
+/**
+ * REMOTE_SHOT_QUEUE_CAP_READING (R4P-253, research 193 §13; reading, pending review): the most of another player's shots
+ * the page holds back for display. The original carries no shot on the wire, only a fire counter (the SealObject's
+ * `+0x8b`, body `+0x220`): IncrementalUpdateRemoteSeal `FUN_002be150` adds the byte's change to the copy's count
+ * `+0x224` and clamps the sum to 1..10 (D:L162443-162455) -- a saturating clamp: shots past ten in the count are lost,
+ * never shown later. One unit is a PULL, not a ray: `FUN_002bbf10` bumps the byte only on a pull's first pellet (the
+ * kit's `+0x880` 0, D:L479495). The room's one `shot` event per ray is the port's own transport (an adaptation of the
+ * wire, not of behaviour; the controller's ruling, R4P-253): the page groups a pull's rays into one entry (`queueShot`),
+ * so the floor of 1 is never reached (it stands for a byte that wrapped), and a pull arriving while ten wait is dropped
+ * with its rays -- no muzzle, tracer, impact or report. Which ten is the port's: the count has no paths, so the first
+ * ten pulls the room sent are the ones kept. The damage is the room's (`hurt`, `kill`) and is not queued. [reading]
+ */
+export const REMOTE_SHOT_QUEUE_CAP_READING = 10;
+
+/**
+ * REMOTE_SHOT_DRAIN_PER_TICK_READING (R4P-253, research 193 §13; reading, pending review): another player's waiting
+ * shots shown a game frame. CRemoteCtrl::PreTick `FUN_005e6400`, while the count `+0x224` is nonzero, takes one and
+ * fires the copy's kit once (`FUN_005c6510` -> CZKit::Fire `FUN_005c5340`, D:L497481-497495): one a tick. The tick is the
+ * page's game frame (`GAME_FRAME_DT` of `@s2u/scene`, 525/15734 s, run through a `GameFrameAccumulator` on the frame's
+ * `dt` times the replay's scale) -- not the room's 60 Hz `TICK_HZ` and not the page's draw frame. The fire's report is
+ * made inside the kit's fire, so the sound is shown with the shot, as before, at its display: CZKit::Fire calls
+ * `FUN_003d2c50` (the close/medium/far pick by the listener's distance; research 81) only when the round's item differs
+ * from the weapon's (the test at D:L479449, the call D:L479450), and the weapon's own fire is a virtual call of the
+ * same function (D:L479493-479494; its target, which research 81's `FUN_003d2d70` distance pick suggests, not resolved
+ * here). A count unit is a pull (`FUN_002bbf10` on the first pellet, D:L479495), so one report a pull. [reading]
+ */
+export const REMOTE_SHOT_DRAIN_PER_TICK_READING = 1;
+
 export function fireWeaponOf(r: WeaponRecord): FireWeapon {
   const s = r.sounds;
   return { name: r.name, id: r.id, range: r.maximumRange * UNITS_PER_METRE, fireAnim: r.fireAnim ?? null, sounds: s ? { ...s } : { close: null, med: null, far: null, reload: null } };   // #425: the tracer's range
@@ -506,7 +618,8 @@ export function fireWeaponOf(r: WeaponRecord): FireWeapon {
 /**
  * The game's kill line (research 91 section 10), the names already resolved. `orphan` (review 2, m-13): a grenade whose
  * thrower left before its fuse ran out -- the server scores it as no one's and keeps the thrower's name
- * (`killerName`), so the line is the thrower's "fragged", never the victim's suicide.
+ * (`killerName`), so the line is the thrower's "fragged", never the victim's suicide. WM-DATA-FEED: the page posts it in
+ * pieces (`./killFeed` `killFeedLine`, whose text a test holds equal to this one's for every branch).
  */
 export function killLine(how: Extract<ServerEvent, { type: 'kill' }>['how'] | 'orphan', killer: string | null, victim: string, weapon: string | null): string {
   if (how === 'fall') return `${victim} falls to their death`;
@@ -524,17 +637,43 @@ export function queueLine(position: number): string {
 }
 
 /**
- * The wait before the next attempt to join, ms. After a match was reached (PT195-4, LATER 329): at once, then the
- * backoff unchanged -- 2, 4, 8 ... 10 s -- so a blip is not sat out for a second, and a server that stays down is not
- * asked any faster than that curve. To a server never reached, 2, 4, 8 ... 60 s. The at-once attempt is taken once in
- * `QUICK_RECONNECT_WINDOW_MS_ADAPTATION` (`dropRetry`).
+ * The wait before the next attempt to join, ms. After a match was reached (PT195-4, LATER 329): at once, then -- LATER
+ * 359, the owner's design (2026-11-18, relayed by the main controller: the page "retries every 1-2 s for ~25 s") --
+ * `RESUME_FAST_RETRY_MS_ADAPTATION` apart for `RESUME_FAST_RETRIES_ADAPTATION` attempts (24 s), so a short drop resumes
+ * inside the body's 20 s hold (match `room.ts` `RECONNECT_ALIVE_WINDOW_MS_ADAPTATION`); then 10 s apart, as before, to
+ * the seat's hold (`RESUME_GIVE_UP_MS_ADAPTATION`). To a server never reached, 2, 4, 8 ... 60 s. The at-once attempt is
+ * taken once in `QUICK_RECONNECT_WINDOW_MS_ADAPTATION` (`dropRetry`).
  */
 export function retryDelayMs(attempts: number, reached: boolean, local = false): number {
   if (local && !reached) return LOCAL_RETRY_MS;
   if (!reached) return Math.min(60_000, 2000 * 2 ** attempts);
   if (attempts <= 0) return 0;
-  return Math.min(10_000, 1000 * 2 ** attempts);
+  if (attempts <= RESUME_FAST_RETRIES_ADAPTATION) return RESUME_FAST_RETRY_MS_ADAPTATION;
+  return 10_000;
 }
+
+/** LATER 359 (a browser adaptation): the fast retries' spacing after a reached match's drop, ms ("every 1-2 s"). */
+export const RESUME_FAST_RETRY_MS_ADAPTATION = 1500;
+/** LATER 359: how many fast retries, 16 x 1.5 s = 24 s ("for ~25 s"); then the 10 s steps. */
+export const RESUME_FAST_RETRIES_ADAPTATION = 16;
+
+/**
+ * RESUME_ATTEMPT_WAIT_MS_ADAPTATION (LATER 359a, the review's F2, folded on the main controller's word; a browser
+ * adaptation): during the fast retries after a reached match's drop, the longest one attempt waits -- its re-token (the
+ * page-side bound, in place of `GAME_RETOKEN_WAIT_MS_ADAPTATION`'s 10 s) and its socket's welcome (in place of
+ * `GAME_HELLO_WAIT_MS_ADAPTATION`'s 30 s), ms. On a link that drops packets with no close, a request asked during the
+ * outage never answers; at 10 s / 30 s one such attempt could outlast the body's 20 s hold, so a link back at 15-18 s
+ * missed the owner's "back within ~20 s resumes". Past the fast retries the longer waits stand.
+ */
+export const RESUME_ATTEMPT_WAIT_MS_ADAPTATION = 3_000;
+
+/**
+ * RESUME_RETRY_JITTER_MS_ADAPTATION (LATER 359a, the review's F3, the main controller's word; a browser adaptation): the
+ * most a fast retry is put off at random, ms, so a whole room's pages given up by one server stall (the 4 s silence) do
+ * not all ask in the same instant. The production page draws it (`NetPageDeps.retryJitterMs`, `./matchMount`); without
+ * the dep, none (the tests' timings exact).
+ */
+export const RESUME_RETRY_JITTER_MS_ADAPTATION = 500;
 
 /**
  * When the next attempt is due. `0` is the unset sentinel (`reconnect.at`, `retryAt`), so a wait of 0 read at clock 0
@@ -549,17 +688,18 @@ export function retryDueAt(now: number, delayMs: number): number {
  * QUICK_RECONNECT_WINDOW_MS_ADAPTATION (PT195-4, the takeover review's F4; a browser adaptation, no game value -- the
  * game has no reconnect): a reached match's at-once reconnect is taken once in this window, ms. A welcome sets the
  * backoff's count back to 0, so a server that welcomes and then drops would otherwise be rejoined at once each time, a
- * tight loop; inside the window a drop's first wait is the backoff's next step, 2 s (`retryDelayMs(1, true)`).
+ * tight loop; inside the window a drop's first wait is the backoff's next step, 1.5 s (`retryDelayMs(1, true)`; LATER 359).
  */
 export const QUICK_RECONNECT_WINDOW_MS_ADAPTATION = 10_000;
 
 /**
  * LINK_SILENCE_MS_ADAPTATION (NET-RES.R9, OT.R77; a browser adaptation, no game value): a welcomed socket the server
  * has sent nothing on for this long is given up -- closed with no `bye`, so the room holds the seat (NET-RES.R7) -- and
- * the retry taken, ms. The server sends 30 snapshots a second in a round and answers the page's ping each 2 s, so 10 s
- * of nothing is a dead link, which the browser's TCP may otherwise sit on for minutes before it closes the socket.
+ * the retry taken, ms. The server sends 30 snapshots a second in a round and answers the page's ping each 2 s, so 4 s
+ * of nothing (two pings unanswered) is a dead link, which the browser's TCP may otherwise sit on for minutes before it
+ * closes the socket. LATER 359 (the owner's design, 2026-11-18: the page notices the silence "in 3-5 s"): 4 s, was 10 s.
  */
-export const LINK_SILENCE_MS_ADAPTATION = 10_000;
+export const LINK_SILENCE_MS_ADAPTATION = 4_000;
 
 /**
  * RESUME_GIVE_UP_MS_ADAPTATION (NET-RES.R9): how long after a reached match's drop the page goes on retrying, ms -- the
@@ -571,7 +711,7 @@ export const RESUME_GIVE_UP_MS_ADAPTATION = SEAT_HOLD_MS_ADAPTATION + 10_000;
 /**
  * A drop's first wait, ms, and the at-once reconnect's time to keep (`quickAt`, the page's clock; -Infinity before
  * any): `retryDelayMs`, except that the at-once attempt is taken only once in `QUICK_RECONNECT_WINDOW_MS_ADAPTATION`;
- * inside it, the 2 s step.
+ * inside it, the 1.5 s step (LATER 359).
  */
 export function dropRetry(attempts: number, reached: boolean, now: number, quickAt: number, local = false): { delayMs: number; quickAt: number } {
   const delayMs = retryDelayMs(attempts, reached, local);
@@ -677,11 +817,42 @@ export const ABANDON_LINE_READING = 'All players left the game before you were a
  */
 export const GAME_KICKED_DIALOG_READING = 539;
 
-/** LOW-2 (research 223 s6): the page's rounds and throws kept by seq for a `stale` answer: about 2 s of a pull a tick. */
-const STALE_MEMORY = 128;
+/**
+ * LATER 1242 (LATER 896's fresh review, F2): the seat kept for THIS pagehide -- pressed, and not a pagehide into the
+ * back/forward cache (`persisted`: the page may come back, so it goes as any page does, its bye said). Read from the
+ * event, not `seatKeptInThisUnload`: `onPageHideBye` is a capture listener added at the page's start, before
+ * `./seatKeep`'s own (added at the press), so it runs before the unloading latch is set (`onPageHide`, a bubble
+ * listener, runs after it; the event reads the same for both).
+ */
+function keptThisPageHide(e: Event | undefined): boolean {
+  return seatKeptForUnload() && (e as PageTransitionEvent | undefined)?.persisted !== true;
+}
 
-/** The engine reads the round's result this long after the script ends it (`FUN_002a9b30` L150612-150672). */
-const ENGINE_READ_S = 3;
+/** R4P-253: another player's ray, as the room sends it (one `shot` a ray). */
+type RemoteShot = Extract<ServerEvent, { type: 'shot' }>;
+
+/**
+ * R4P-253 (the review's F1): one pull of another player -- the copy's one count unit (`FUN_002bbf10` on its first
+ * pellet, D:L479495) -- and its rays as they arrive: waiting in the queue, shown, or dropped past the clamp.
+ */
+interface ShotPull {
+  weapon: number;
+  from: readonly number[];
+  pellets: number;
+  rays: RemoteShot[];
+  tick: number;
+  state: 'waiting' | 'shown' | 'dropped';
+}
+
+/** R4P-253: two points equal component for component (one command's muzzle, as the room copies the page's `from`). */
+function sameV3(a: readonly number[], b: readonly number[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+/** R4P-253 (F2): the page's document, where there is one (a test without a DOM has none). */
+function shotDocument(): { readonly hidden: Document['hidden']; addEventListener: Document['addEventListener']; removeEventListener: Document['removeEventListener'] } | undefined {   // not `Pick<>`: this file imports the scene's `Pick` type
+  return (globalThis as { document?: Document }).document;
+}
 
 export class NetPage {
   client: NetClient;
@@ -691,6 +862,19 @@ export class NetPage {
   private readonly teams = new Map<number, Team>();
   /** Another player's rounds this round, from 1 (the tracer's count, `tracerRound`; `TRACER_REMOTE_COUNT_READING`). Cleared with the round. */
   private readonly tracerRounds = new Map<number, number>();
+  /**
+   * R4P-253: another player's shots waiting to be shown, by shooter, at most `REMOTE_SHOT_QUEUE_CAP_READING` each (the
+   * copy's count `+0x224`), drained `REMOTE_SHOT_DRAIN_PER_TICK_READING` a game frame by `frame` (`shotTicks`). Display only.
+   */
+  private readonly remoteShots = new Map<number, ShotPull[]>();
+  /** R4P-253 (the review's F1): each shooter's newest pull, which the next ray of the same pull joins (`queueShot`). */
+  private readonly openPulls = new Map<number, ShotPull>();
+  /** R4P-253: the game frames the shot queue has drained (`drainShots`), the age a pull's rays are joined within. */
+  private shotTick = 0;
+  /** R4P-253 (the review's F2): on a hide, the shots still waiting shown at once (`flushShots`). */
+  private readonly onShotVisibility = (): void => { if (this.displayIdle()) this.flushShots(); };
+  /** R4P-253: the game frames the shot queue drains on (`GAME_FRAME_DT`; CRemoteCtrl::PreTick's once a tick). */
+  private readonly shotTicks = new GameFrameAccumulator();
   /** HX-4a: each hostage's last unit told (`welcome.hostages`, `hostageState`), for the YES on a move into or out of 17; forgotten at a round's start. */
   private readonly escorteeUnits = new Map<number, number>();
   /** The round's end, in the page's clock's ms (`now`), or null between rounds. */
@@ -706,6 +890,16 @@ export class NetPage {
   private zonesOf: { ai: AiMaps | null | undefined; points: [number, number, number][] } = { ai: null, points: [] };
   /** HX-5: the message window's post, as the round's audio hands a script line to it (`RoundAudio`'s `post`). */
   private readonly post = (text: string, scale: number): void => { this.deps.hud.postMessage(text, scale); };
+  /** JOIN-LEAVE-LINE (a browser adaptation, `./joinLeaveLine`): a human player's join and leave, a line each on the message window. */
+  private readonly joinLeave = new JoinLeaveLines((text) => { if (this.deps.joinLeaveLines === true) this.deps.hud.postMessage(text); });   // PRS-888: off, none
+  /**
+   * JOIN-LEAVE-LINE: whether the match is on, as the room tells the page -- its first round has started (a welcome's
+   * `phase` past `waiting` and `loading`, or an older room's `startTick`; `roundStart`) and its last has not ended (a
+   * `roundOver` with `matchOver`), nor the room gone back to waiting (`abandoned`; a launch `countdown`, which only a
+   * waiting room sends). Only a join while it is on posts a line. PRS-888: a welcome in `over` (the end screens) is not
+   * on -- it carries no `matchOver`, so a match's end reads as `roundOver`'s does, and the next `roundStart` turns it on.
+   */
+  private matchOn = false;
   /**
    * The owner's launch countdown (`./net/rules` `OWNER_LAUNCH_COUNTDOWN_S`, 2026-10-01): when the first round starts, in
    * the page's clock's ms (`now`), or null when none runs -- the HUD's clock counts it down (`frame`).
@@ -728,32 +922,49 @@ export class NetPage {
   /** The match server's name, the welcome's (`server`; null before one, or from an older server): ARMORY_SERVER_NAME_READING. */
   private server: string | null = null;
   rows: ScoreRow[] = [];
+  /**
+   * WM-DATA (`DAMAGE_REPORT_ADAPTATION`): the latest round report (cleared at the next round's start) and the latest
+   * life report (`life: true`; cleared at the page's own spawn or the next round's start), as they came, beside the
+   * names the scoreboard held at their arrival (`damageReports` resolves those first: an id is reused).
+   */
+  private roundDamage: { ev: Extract<ServerEvent, { type: 'damageReport' }>; names: Map<number, string> } | null = null;
+  private lifeDamage: { ev: Extract<ServerEvent, { type: 'damageReport' }>; names: Map<number, string> } | null = null;
+  /**
+   * WM-DATA-WIN (`DAMAGE_REPORT_AT_WIN_REASONS`, the room's; WM.R24): a round report came before the round's result --
+   * the room's send at a win's decision -- so the damage window is open from it through the hold (`damageWindow`).
+   * Cleared at the next round's start, `abandoned`, a (re)join's welcome and the page's close.
+   */
+  private damageAtWin = false;
+  /**
+   * WM-13 (`./damagePanel`, a browser adaptation): the kills the page saw that involve its player -- this round's and this
+   * life's (since his own spawn) -- for the panel's KILL / KILLED YOU marks. Cleared with the reports.
+   */
+  private damageKills = { round: { mine: new Set<number>(), me: new Set<number>() }, life: { mine: new Set<number>(), me: new Set<number>() } };
   /** The page's own death edge (ms), and whether the current round still owns that death's help. */
   private dead: { at: number; help: boolean; atLoad?: true } | null = null;
   /** j5t3o2iU: the page's own body's health as its last `hurt`, spawn or resume left it (`overall`; 1 whole). */
   private ownHealth = 1;
-  /** PF-18 (research 218 §2.1): the command seq the page's last reload was sent with (`reloadInFlinch`); null before one. */
-  private reloadSeq: number | null = null;
-  /** LOW-2 (research 223 s6): the seqs the page's rounds, reloads and throws went with (their journal ids, the item), for `stale`. */
-  private readonly sentFires = new Map<number, number>();
-  private readonly sentReloads = new Map<number, number>();
-  private readonly sentThrows = new Map<number, { kind: string; slot?: number; shot?: number }>();
-  /**
-   * LATER 347: rounds the kit fired before any command carrying their press went out -- a press's round fired in the pad's
-   * read or an input event, ahead of the walk's commands for its frame -- held until the walk has sent a command after them
-   * (`flushPressRounds`), then named at the first of those, the first to carry the press, with the view clock of their
-   * firing. Was: named `lastSeq()` at once, the previous frame's command, which carries no Trigger: the room's cone
-   * (`./net/shotCone` `tick`) bloomed the round before the press's edge started the pull's count again (`FUN_005c0ae0`), and
-   * ran one round behind the page's count for the whole burst -- bursts of five rounds or more refused 'cone'.
-   */
-  private readonly pressRounds: { client: NetClient; after: number; viewTick: number; shownTick: number | null; e: Extract<FireEvent, { type: 'round' }> }[] = [];
-  /** LATER 347: the Trigger bit the walk's next commands carry (`trigger`). */
-  private triggerBit = false;
-  private static remember<T>(map: Map<number, T>, seq: number, v: T): void {
-    if (map.has(seq)) return;                                   // a pull's rays at one seq: one shell
-    map.set(seq, v);
-    if (map.size > STALE_MEMORY) map.delete(map.keys().next().value!);
-  }
+  /** R4P-248: the own body's health drops that left it alive (`ownHurt`'s), counted from this page's start (`ownHurts`). */
+  private ownHurts_ = 0;
+  /** Shared command ordering and rollback; independent of this page's renderer. */
+  private readonly firearmWire = new FirearmWire({
+    client: () => this.client, sidearmId: () => this.deps.weapons()[1].id,
+    pressWindow: until => this.deps.pressWindow?.(until),
+    staleRound: shot => this.deps.staleRound?.(shot),
+    staleReload: reload => this.deps.staleReload?.(reload),
+    // SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game) -- each round sent, the page's own
+    // expectation from its cast on the drawn bodies (`RemotePlayers.aimFirst`), kept by the client for the playtest report;
+    // a `?devmode` page's only (`shotLedger`): without it nothing is cast or kept.
+    sentRound: (seq, from, dir, reach) => {
+      if (!this.deps.shotLedger) return;
+      const hit = this.deps.remote.aimFirst?.(from, dir, reach) ?? null;
+      this.client?.notePageShot?.({ seq, body: hit?.id ?? null, bone: hit?.bone ?? null, part: hit?.part ?? null, distance: hit?.distance ?? null });
+    },
+  });
+  /** LOW-2 (research 223 s6): shared throw packet and item/slot refund journal. */
+  private readonly throwWire = new ThrowWire({
+    client: () => this.client, staleThrow: (...args) => this.deps.staleThrow?.(...args),
+  });
   /**
    * A late joiner's seat in a classic round in play ("You are a ghost.", research 91 section 12): since when (ms), or
    * null. The ghost is not alive; WEAPON EXCHANGE opens for it as for the dead (§B2), with the ghost's prompt.
@@ -850,13 +1061,38 @@ export class NetPage {
   private readonly onSpectatorKey = (e: KeyboardEvent): void => {
     const target = e.target;
     if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
+    if (e.code === SEAT_CLAIM_BUTTONS_ADAPTATION.key) return;   // SEAT_CLAIM: J is the claim's (`onClaimKey`), never the view's
     this.spectator.key(e, DEAD_CYCLE_WHILE_MENU_READING === 'blocked' && (this.deps.menuOpen?.() ?? false));
   };
+  /**
+   * SEAT_CLAIM_ADAPTATION: J held, not released -- on the window's CAPTURE phase (LATER 1604): a front-end match leaves the
+   * front end's menu keys attached (`./menuInput` `MenuPageInput.attach`, the document's capture phase), which stop every
+   * key's propagation there, so a listener on the window's bubble phase never heard J (record PR941-CAP-PC2).
+   */
+  private readonly onClaimKey = (e: KeyboardEvent): void => {
+    if (e.code !== SEAT_CLAIM_BUTTONS_ADAPTATION.key) return;
+    const target = e.target;
+    if (typeof HTMLElement !== 'undefined' && target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
+    if (e.type === 'keydown' && roundLineTakes(e)) return;   // the round's open text line types the J (`./roundLineKeys`)
+    // Never under a modifier (a fresh review's finding, 2026-11-25): a browser's own chord on the key (the console's
+    // Ctrl+Shift+J / Cmd+Opt+J) sends its keydown here and its keyup to the browser -- the hold would run on unpressed.
+    this.claimKeyDown = e.type === 'keydown' && !(e.ctrlKey || e.metaKey || e.altKey);
+  };
+  /** SEAT_CLAIM_ADAPTATION: the window lost the keys (a blur, another tab) -- J's keyup may never come, so it is let go. */
+  private readonly onClaimKeyBlur = (): void => { this.claimKeyDown = false; };
+  /** SEAT_CLAIM_ADAPTATION (`./seatClaim`): the claim's hold, on the pad's R1 and (a development build's) the J key. */
+  private readonly claimHold = new SeatClaimHold();
+  /** SEAT_CLAIM_ADAPTATION: J held (a development build's keys, OT.R29, as the spectator's own). */
+  private claimKeyDown = false;
+  /** SEAT_CLAIM_ADAPTATION: a seat promoted from watching -- its walk, flown as a spectator's, goes on foot at its spawn. */
+  private walkAtSpawn = false;
+  /** SEAT_CLAIM_ADAPTATION: when the standing offer began (its line's pulse) and which it is. */
+  private claimOffered: { kind: SeatClaimOffer['kind']; since: number } | null = null;
   private unsubscribe: () => void;
   /** LATER 498: off the client's held-spawn signal (`NetClient.onSpawnHeld`). */
   private unsubscribeHeld: () => void = () => undefined;
   /**
-   * M9: a dropped socket (a server restart, the network) is joined again at once, then after 2, 4, 8 ... 10 s; a kick or a refusal
+   * M9: a dropped socket (a server restart, the network) is joined again at once, then 1.5 s apart for 24 s, then 10 s (LATER 359); a kick or a refusal
    * is not. The match gives a rejoiner a new place, as the game's lobby would. `quickAt`: the last at-once reconnect
    * (`dropRetry`, one in `QUICK_RECONNECT_WINDOW_MS_ADAPTATION`).
    */
@@ -902,6 +1138,8 @@ export class NetPage {
   /** NU-4 D1 (research 317 R317.8): the screens the page's drops were swept for, once a result (`sweepDrops`). */
   private dropsSweptFor: object | null = null;
   private readonly joinedAt = performance.now();
+  /** LATER 580: the round screens' hold this page lays on its walk (`WalkMode.setRoundHold`): its `screenUp`. */
+  private readonly roundHold = (): boolean => this.screenUp();
   /** RE-3 (W38.R3): the replay's clock -- the dep, else the client's own (`pageClock`, PT-19's `dtScale` precedent) -- or null, live. */
   private replayClock(): NonNullable<NetPageDeps['replayClock']> | null {
     return this.deps.replayClock ?? (this.client as { pageClock?(): NonNullable<NetPageDeps['replayClock']> }).pageClock?.() ?? null;
@@ -913,15 +1151,21 @@ export class NetPage {
   }
 
   /**
-   * `watch` (the map viewer's Online setting): join as a spectator that never plays -- the walk is not driven, the
-   * camera follows the living players (Space the next, V the free camera) as a queued spectator's does.
+   * `watch` (the map viewer's Online setting): join as a spectator -- the walk is not driven, the camera follows the
+   * living players (Space the next, V the free camera) as a queued spectator's does. SEAT_CLAIM_ADAPTATION: a page that
+   * plays (the test room's `&spectate`) may take a seat from there and then plays (`promoted`); the map viewer's never
+   * does (`NetPageDeps.noSeatClaim`).
    */
-  constructor(private readonly deps: NetPageDeps, private readonly url: string, private readonly map: string, private name: string, private readonly simulate?: Simulate, private readonly watch = false, rules: Rules = 'respawn') {
+  constructor(private readonly deps: NetPageDeps, private readonly url: string, private readonly map: string, private name: string, private readonly simulate?: Simulate, private watch = false, rules: Rules = 'respawn') {
     // HARD-SEAT (the review's (4)): a socket that carries the ticket opens the pinned URL only (research 169 measure 7);
     // SA-6b (GAME_DOOR_ADAPTATION): a placed game's opens its pinned door with its token, never the ticket.
     if (deps.game && !isGameSeat(deps.game)) throw new TypeError('a game socket needs its pinned URL (pinnedMatchSocket) or its pinned door (pinnedGameDoor)');
     // SA-7h S5: a standing room's socket opens only a door `pinnedRoomDoor` made, for the provider's room, with a token.
     if (deps.room && (deps.game || !isRoomSeatOf(deps.room.seat, deps.room.provider?.room))) throw new TypeError('a standing room\'s socket needs its pinned room door (pinnedRoomDoor) and its pass\'s token');
+    // LATER 580 (research 81 §13): the page's own walk held from the first screen frame to the next `roundStart`
+    // (`WalkMode.setRoundHold`; the original ticks MPExitState alone there, `FUN_002ce9e0` D:L171877-171888).
+    deps.walk.setRoundHold?.(this.roundHold);
+    shotDocument()?.addEventListener?.('visibilitychange', this.onShotVisibility);   // R4P-253 (F2): a hide flushes the shot queue
     this.spectator = new SpectatorView({
       bodies: () => this.client.bodies(), spectate: (pose) => this.deps.spectate(pose), views: () => this.deps.scenicViews?.() ?? [],
       follow: deps.spectateFollow ? (body, dt, ease) => this.deps.spectateFollow!(body, dt, ease) : undefined,
@@ -969,6 +1213,10 @@ export class NetPage {
       keyboardSite('s2u-kb-net-page');
       globalThis.addEventListener?.('keydown', this.onKey);
       globalThis.addEventListener?.('keyup', this.onSpectatorKey);
+      globalThis.addEventListener?.('keydown', this.onSpectatorKey);
+      globalThis.addEventListener?.('keydown', this.onClaimKey, true);   // SEAT_CLAIM: J's hold starts on its keydown (capture: LATER 1604)
+      globalThis.addEventListener?.('keyup', this.onClaimKey, true);
+      globalThis.addEventListener?.('blur', this.onClaimKeyBlur);
     }
     if (!deps.solo) globalThis.addEventListener?.('pagehide', this.onPageHide);
     // OT.R59 (RECONNECT-GHOST step 2): `bye` first on a page going away -- a capture listener on the window, which runs
@@ -983,9 +1231,16 @@ export class NetPage {
    * launch countdown could start against a seat already gone (the sprint-5 finding). The offline room has no seat to
    * free. A page the browser keeps in its back-forward cache joins afresh when shown again (`main.ts`, `pageshow`).
    */
-  private readonly onPageHide = (): void => { this.leftPage = true; this.close(); };
-  /** OT.R59: the match socket's `bye`, best effort, the first thing a page going away does (`NetClient.sayBye`). */
-  private readonly onPageHideBye = (): void => { (this.client as { sayBye?(): void }).sayBye?.(); };
+  private readonly onPageHide = (e?: Event): void => {
+    this.leftPage = true;
+    // LATER 896 part 2 (`./seatKeep`, SEAT_KEEP_ON_RELOAD_ADAPTATION): "Reload and rejoin" -- the socket dropped with no
+    // `bye` (as a silent link's), so the room parks the seat for the account's next session; no reconnect from here.
+    if (keptThisPageHide(e)) { this.reconnect.stopped = true; (this.client as { drop?(): void }).drop?.(); return; }
+    this.close();
+  };
+  /** OT.R59: the match socket's `bye`, best effort, the first thing a page going away does (`NetClient.sayBye`) -- unless
+   *  the seat is kept (LATER 896 part 2). */
+  private readonly onPageHideBye = (e?: Event): void => { if (!keptThisPageHide(e)) (this.client as { sayBye?(): void }).sayBye?.(); };
   private leftPage = false;
   /** Whether the page's going closed this connection (`onPageHide`): a page shown again from its cache joins afresh. */
   closedByPage(): boolean { return this.leftPage; }
@@ -1047,7 +1302,12 @@ export class NetPage {
 
   /** HARD-SEAT: a game's seat ended for good: no retry, the session released, `ended` told once with its dialog. */
   private gameEnded = false;
-  private endGame(dialog: number, reason: string): void {
+  /**
+   * LATER 359b, NET-RES-3 (an intended divergence under OT.R77): `ending` names what ended the seat for #365's text
+   * (`./net/netEnding`); the dialog, the errno and the flow are as before, and #528 / #539 / #529 take no line.
+   */
+  private endGame(dialog: number, reason: string, ending: NetEnding | null = null): void {
+    if (!this.gameEnded) setNetEnding(dialog === GAME_SOCKET_CLOSED_DIALOG_READING ? ending : null);
     this.reconnect.stopped = true;
     this.refusal ??= reason;
     this.hold(false);
@@ -1104,7 +1364,7 @@ export class NetPage {
   }
 
   /**
-   * Joins again after a drop, with the backoff: at once, then 2, 4, 8 ... 10 s after a match that was reached (with the HUD's line),
+   * Joins again after a drop, with the backoff: at once, then 1.5 s apart for 24 s, then 10 s (LATER 359) after a match that was reached (with the HUD's line),
    * and 2, 4, 8 ... 60 s, without a word in the HUD, to a server never reached (the shared one before it is up: a
    * browser logs each refused socket itself, so the attempts are kept few). SA-57: "reached" is a welcome, never an open
    * alone; a socket never welcomed past `GAME_HELLO_WAIT_MS_ADAPTATION` is a drop (`helloWait`).
@@ -1126,22 +1386,22 @@ export class NetPage {
       if (this.reached && this.droppedAt === null) this.droppedAt = now;   // NET-RES-2d: the drop's start, for the give-up
       const code = this.client.closeCode;
       if (this.deps.game && code !== null && GAME_FINAL_CLOSES.has(code)) {
-        this.endGame(code === 4007 ? GAME_ENDED_DIALOG_READING : GAME_SOCKET_CLOSED_DIALOG_READING, code === 4007 ? 'game ended' : 'disconnected');
+        this.endGame(code === 4007 ? GAME_ENDED_DIALOG_READING : GAME_SOCKET_CLOSED_DIALOG_READING, code === 4007 ? 'game ended' : 'disconnected', netEndingOf(code));
       }
     }
     // NET-RES-2d (NET-RES.R9): a game seat's retries run through the room's hold and one step more, then the seat ends
-    // (#365 until NET-RES-3 names the case) -- never while the server says it is closing (NET-DRAIN's own bound).
+    // (#365, its text NET-RES-3's 'lost': LATER 359b) -- never while the server says it is closing (NET-DRAIN's own bound).
     if (!this.reconnect.stopped && this.deps.game && !this.closing && this.droppedAt !== null && now - this.droppedAt > RESUME_GIVE_UP_MS_ADAPTATION) {
       console.warn(`match socket: game ${this.deps.game.id} not back within ${RESUME_GIVE_UP_MS_ADAPTATION} ms of its drop: the seat ended`);
       this.refusal ??= 'connection lost';
-      this.endGame(GAME_SOCKET_CLOSED_DIALOG_READING, 'disconnected');
+      this.endGame(GAME_SOCKET_CLOSED_DIALOG_READING, 'disconnected', 'lost');
       return;
     }
     if (this.reconnect.stopped || !this.retriable() || this.asking) return;   // SA-6c: while a re-token is out, the backoff paused
     if (this.reconnect.at === 0) {
       const wait = dropRetry(this.reconnect.attempts, this.reached, now, this.reconnect.quickAt, this.deps.local);
       this.reconnect.quickAt = wait.quickAt;
-      this.reconnect.at = retryDueAt(now, wait.delayMs);
+      this.reconnect.at = retryDueAt(now, wait.delayMs + this.resumeJitter());   // LATER 359a F3: a room's pages spread
       // Replaced by a newer connection of this page (a duplicated tab): its own line was posted, not a lost connection.
       if (this.reached && !this.replaced) this.deps.hud.postMessage('CONNECTION LOST. RECONNECTING. . .');
       this.replaced = false;
@@ -1170,12 +1430,15 @@ export class NetPage {
     if (this.helloSince === null || this.helloLapsed || this.reconnect.stopped) return;
     if (c.state !== 'connecting' && c.state !== 'open') return;
     if (this.helloSince === 'next') { this.helloSince = now; return; }   // the wait from this frame's clock read
-    if (now - this.helloSince < GAME_HELLO_WAIT_MS_ADAPTATION) return;
+    const bound = this.resumeAttempt() ? RESUME_ATTEMPT_WAIT_MS_ADAPTATION : GAME_HELLO_WAIT_MS_ADAPTATION;   // LATER 359a F2
+    if (now - this.helloSince < bound) return;
     const state = c.state;
     const what = this.deps.game ? `game ${this.deps.game.id}` : this.deps.room ? `room ${this.deps.room.provider.room}` : 'the server';
-    console.warn(`match socket: ${what} not welcomed within ${GAME_HELLO_WAIT_MS_ADAPTATION} ms, hung ${state} (${state === 'connecting' ? 'the upgrade never completed' : 'opened, no welcome'}) on ${this.helloHost}, attempt ${this.reconnect.attempts + 1}: dropped, retried after the backoff`);
+    console.warn(`match socket: ${what} not welcomed within ${bound} ms, hung ${state} (${state === 'connecting' ? 'the upgrade never completed' : 'opened, no welcome'}) on ${this.helloHost}, attempt ${this.reconnect.attempts + 1}: dropped, retried after the backoff`);
     this.helloLapsed = true; this.helloSince = null;
-    c.close();
+    // LATER 359a re-review B1: a resume attempt's socket is given up with no `bye` (`NetClient.drop`), as `linkWatch` gives a
+    // silent one up -- its hello may have seated it, and a `bye` reads as a leave that frees the seat; dropped, the room parks it.
+    if (this.reached) c.drop(); else c.close();   // the B1 re-review's F1: any reached match's lapse, not the 3 s one alone
   }
 
   /** NET-RES-2d: when a reached match's socket last dropped (the page's clock), null since its last welcome. */
@@ -1233,6 +1496,18 @@ export class NetPage {
    * now); a refusal ends the seat as `SEAT_FREED_CLOSE` (4008) does (`retry`'s final close: #365); signed out, the retries
    * stop and the session's own close ends the match (`LobbyMatch.stop`); a failure waits the backoff's next step.
    */
+  /** LATER 359a F2: whether the next attempt is one of a reached match's fast retries (`RESUME_ATTEMPT_WAIT_MS_ADAPTATION`). */
+  private resumeAttempt(): boolean {
+    return this.reached && this.reconnect.attempts <= RESUME_FAST_RETRIES_ADAPTATION + 1;   // the re-review's N1: the 17th rides the 16th's 1.5 s step
+  }
+
+  /** LATER 359a F3: a fast retry's random delay, ms (`RESUME_RETRY_JITTER_MS_ADAPTATION`); 0 without the dep or past the fast retries (the first 10 s step's wait, attempt 18's, still takes it: the B1 re-review's F2). */
+  private resumeJitter(): number {
+    const j = this.deps.retryJitterMs;
+    if (!j || !this.resumeAttempt()) return 0;
+    return Math.max(0, Math.min(RESUME_RETRY_JITTER_MS_ADAPTATION, j()));
+  }
+
   private reseat(p: GameSeatProvider): void {
     const n = ++this.reseats;
     this.asking = true;
@@ -1243,14 +1518,14 @@ export class NetPage {
       this.asking = false;
       if (this.reconnect.stopped) return;                  // close()/release()/endGame set it
       if (r.kind === 'open') {
-        if (!this.deps.game || !isSeatOf(r.seat, this.deps.game.id)) { this.endGame(GAME_SOCKET_CLOSED_DIALOG_READING, 'disconnected'); return; }   // a broken or another game's seat: as 4008
+        if (!this.deps.game || !isSeatOf(r.seat, this.deps.game.id)) { this.endGame(GAME_SOCKET_CLOSED_DIALOG_READING, 'disconnected', 'seat-freed'); return; }   // a broken or another game's seat: as 4008
         this.gameSeat = r.seat; this.gameRetoken = false; this.reopen(); return;
       }
-      if (r.kind === 'ended') { this.endGame(r.close === 4007 ? GAME_ENDED_DIALOG_READING : GAME_SOCKET_CLOSED_DIALOG_READING, r.close === 4007 ? 'game ended' : 'disconnected'); return; }
+      if (r.kind === 'ended') { this.endGame(r.close === 4007 ? GAME_ENDED_DIALOG_READING : GAME_SOCKET_CLOSED_DIALOG_READING, r.close === 4007 ? 'game ended' : 'disconnected', r.why ?? netEndingOf(r.close)); return; }
       if (r.kind === 'signed-out') { this.reconnect.stopped = true; this.refusal ??= 'signed out'; return; }
-      this.reconnect.at = retryDueAt(performance.now(), retryDelayMs(this.reconnect.attempts, this.reached, this.deps.local));
+      this.reconnect.at = retryDueAt(performance.now(), retryDelayMs(this.reconnect.attempts, this.reached, this.deps.local) + this.resumeJitter());
     };
-    timer = setTimeout(() => { answered({ kind: 'backoff' }); }, GAME_RETOKEN_WAIT_MS_ADAPTATION);   // the page-side bound
+    timer = setTimeout(() => { answered({ kind: 'backoff' }); }, this.resumeAttempt() ? RESUME_ATTEMPT_WAIT_MS_ADAPTATION : GAME_RETOKEN_WAIT_MS_ADAPTATION);   // the page-side bound (LATER 359a F2: 3 s in the fast retries)
     void p.reseat().then(answered, () => { answered({ kind: 'backoff' }); });
   }
 
@@ -1278,9 +1553,9 @@ export class NetPage {
         this.reconnect.stopped = true; this.roomRepass = false; this.refusal = line; this.deps.hud.postMessage(line);
         return;
       }
-      this.reconnect.at = retryDueAt(performance.now(), retryDelayMs(this.reconnect.attempts, this.reached, this.deps.local));
+      this.reconnect.at = retryDueAt(performance.now(), retryDelayMs(this.reconnect.attempts, this.reached, this.deps.local) + this.resumeJitter());
     };
-    timer = setTimeout(() => { answered({ kind: 'failed' }); }, GAME_RETOKEN_WAIT_MS_ADAPTATION);
+    timer = setTimeout(() => { answered({ kind: 'failed' }); }, this.resumeAttempt() ? RESUME_ATTEMPT_WAIT_MS_ADAPTATION : GAME_RETOKEN_WAIT_MS_ADAPTATION);   // LATER 359a F2
     void p.pass().then(answered, () => { answered({ kind: 'failed' }); });
   }
 
@@ -1308,6 +1583,43 @@ export class NetPage {
     return this.helloLapsed || this.client.state === 'closed' || ((this.closing || this.roomRepass || this.gameRetoken) && this.client.state === 'refused' && this.client.closeCode !== null);
   }
 
+  /**
+   * WM-DATA (`DAMAGE_REPORT_ADAPTATION`; a browser adaptation, it changes nothing the game does): the kept damage
+   * reports, read-only copies, each id resolved to the scoreboard's name where the page knows it (the rows at the report's
+   * arrival first -- the room reuses a departed player's id, `server.ts` `freeId` the lowest free -- else the current
+   * rows, for an id that had no name then), null where it does not -- a negative (departed) id never has one.
+   */
+  damageReports(): { round: DamageReport | null; life: DamageReport | null } {
+    const view = (kept: NetPage['roundDamage'], kills: { mine: Set<number>; me: Set<number> }): DamageReport | null => {
+      if (!kept) return null;
+      const name = (id: number): string | null => id < 0 ? null : kept.names.get(id) ?? this.rows.find((r) => r.id === id)?.name ?? null;
+      const mark = (id: number, by: Set<number>): { kill?: true } => (id >= 0 && by.has(id) ? { kill: true } : {});
+      const { ev } = kept;
+      return {
+        round: ev.round, life: (ev as { life?: true }).life === true,
+        taken: ev.taken.map((t) => ({ id: t.from, name: name(t.from), hits: t.hits, health: t.health, ...mark(t.from, kills.me) })),
+        dealt: ev.dealt.map((d) => ({ id: d.to, name: name(d.to), hits: d.hits, health: d.health, ...mark(d.to, kills.mine) })),
+      };
+    };
+    return { round: view(this.roundDamage, this.damageKills.round), life: view(this.lifeDamage, this.damageKills.life) };
+  }
+
+  /**
+   * WM-13 (the DAMAGE REPORT PANEL, `./damagePanel`; a browser adaptation, it changes nothing the game does): "the window"
+   * the panel may open in, and its report -- the result window (the round's result in, `roundOver`, and no round screen up
+   * yet: the `ENGINE_READ_S` before the first, in every room kind) with the round's report; WM-DATA-WIN (WM.R24): from a
+   * round report that came before the result (the room's at a win's decision, `damageAtWin`) through the hold to that
+   * same end, ROUND COMPLETE; else a respawn room's respawn wait (`respawnReady`, until the page's own spawn ends the
+   * death) with the life's; null otherwise, and for a spectator. The report may be null (not come yet); it is the latest.
+   */
+  damageWindow(): { kind: 'round' | 'life'; report: DamageReport | null } | null {
+    if (this.client.role !== 'player') return null;
+    const elapsed = this.screensElapsed();
+    if ((elapsed !== null && elapsed < 0) || (this.damageAtWin && elapsed === null)) return { kind: 'round', report: this.damageReports().round };
+    if (this.respawnReady()) return { kind: 'life', report: this.damageReports().life };
+    return null;
+  }
+
   /** The connection as the panel's Online line shows it (`./online` `onlineLine`). */
   status(): OnlineStatus {
     const c = this.client;
@@ -1326,13 +1638,19 @@ export class NetPage {
 
   close(): void {
     this.reconnect.stopped = true;
-    this.pressRounds.length = 0;                   // LATER 347: no held round outlives the page
+    this.firearmWire.clearPending();                // LATER 347: no held round outlives the page
     this.clientListeners.clear();                  // AD-12's review F1: no lobby match follows a page that is gone
     this.deps.hud.setRoundScreen(null);
+    this.deps.walk.setRoundHold?.(null, this.roundHold);   // LATER 580: no round hold outlives the page's match
     this.deps.hud.setScoreRows(null, []);
     this.notice(null);                             // OT.R59 (RECONNECT-GHOST (B)): no line outlives the page's match
     globalThis.removeEventListener?.('keydown', this.onKey);
+    shotDocument()?.removeEventListener?.('visibilitychange', this.onShotVisibility);
     globalThis.removeEventListener?.('keyup', this.onSpectatorKey);
+    globalThis.removeEventListener?.('keydown', this.onSpectatorKey);
+    globalThis.removeEventListener?.('keydown', this.onClaimKey, true);
+    globalThis.removeEventListener?.('keyup', this.onClaimKey, true);
+    globalThis.removeEventListener?.('blur', this.onClaimKeyBlur);
     globalThis.removeEventListener?.('pagehide', this.onPageHide);
     globalThis.removeEventListener?.('pagehide', this.onPageHideBye, true);
     this.unsubscribe();
@@ -1345,6 +1663,7 @@ export class NetPage {
     this.hold(false);                              // HARD-SEAT: the page's own close releases the session too
     this.deps.netRefill?.(null);                   // NET-REFILL: no match, offline
     this.deps.spectateMagnify?.(1);                // SPECTATOR-VIEW W6: the view's end, the page's camera back at 1
+    this.damageAtWin = false;                      // WM-DATA-WIN: no damage window outlives the page
   }
 
   /** NET-REFILL (research 312 §5): the room's rules as the page's `Fire`'s network rule (`NetPageDeps.netRefill`). */
@@ -1364,10 +1683,16 @@ export class NetPage {
     this.reconnect.stopped = true;
     this.clientListeners.clear();                  // AD-12's review F1: no lobby match follows a page that is gone
     this.deps.hud.setRoundScreen(null);
+    this.deps.walk.setRoundHold?.(null, this.roundHold);   // LATER 580: no round hold outlives the page's match
     this.deps.hud.setScoreRows(null, []);
     this.notice(null);                             // OT.R59 (RECONNECT-GHOST (B)): no line outlives the page's match
     globalThis.removeEventListener?.('keydown', this.onKey);
+    shotDocument()?.removeEventListener?.('visibilitychange', this.onShotVisibility);
     globalThis.removeEventListener?.('keyup', this.onSpectatorKey);
+    globalThis.removeEventListener?.('keydown', this.onSpectatorKey);
+    globalThis.removeEventListener?.('keydown', this.onClaimKey, true);
+    globalThis.removeEventListener?.('keyup', this.onClaimKey, true);
+    globalThis.removeEventListener?.('blur', this.onClaimKeyBlur);
     globalThis.removeEventListener?.('pagehide', this.onPageHide);
     globalThis.removeEventListener?.('pagehide', this.onPageHideBye, true);
     this.unsubscribe();
@@ -1394,99 +1719,17 @@ export class NetPage {
     if (this.ghostDead) { this.ghostDead = false; this.deps.walk.setDead?.(false); }
   }
 
-  /**
-   * A round to the server, named at command `seq` (the last sent; LATER 347's held round the first after it was held) with
-   * the view clock of its firing (`viewTick`: the room's rewind for the shot; a held round keeps the one it fired at) and,
-   * NCW-17 (an instrument), the displayed tick of its firing (`shownTick`, `NetClient.shownTick`; none before a snapshot)
-   * -- like `viewTick`, read when the round fires (a held press's round: at its press, as `fireEvent` holds it), not at
-   * the frame the player last saw, so its lead bucket reads "at the firing". The two are read at one moment
-   * (`roundTicks`): a browser's clock moves between two reads, and a bracketed `shownTick` read after `viewTick` would
-   * come out a hair above it and be dropped by the room's check (the review's F1).
-   */
-  private sendRound(e: Extract<FireEvent, { type: 'round' }>, viewTick: number, shownTick: number | null, seq = this.client.lastSeq()): void {
-    if (e.shot !== undefined) NetPage.remember(this.sentFires, seq, e.shot);
-    const d = [e.to[0] - e.from[0], e.to[1] - e.from[1], e.to[2] - e.from[2]];
-    const l = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
-    // Protocol 5: the eye's ray the round was aimed down, for the server's cone (a round without it is refused there).
-    const eye = e.eye ?? e.from, aim = e.aim ?? [d[0]! / l, d[1]! / l, d[2]! / l];
-    this.client.send({
-      type: 'fire', seq, from: [...e.from], dir: [d[0]! / l, d[1]! / l, d[2]! / l],
-      weapon: e.weapon.id === this.deps.weapons()[1].id ? 1 : 0, viewTick,
-      eye: [eye[0], eye[1], eye[2]], aim: [aim[0]!, aim[1]!, aim[2]!],
-      ...(shownTick !== null ? { shownTick } : {}),
-    });
-  }
-
-  /**
-   * NCW-17's review F1: a round's view clock and displayed tick (`sendRound`), both at one clock read, so a bracketed
-   * round's `shownTick` is its `viewTick`. The read is `performance.now` itself -- the live client's own default, as the
-   * turret claim's (`./matchActions`) -- never the page's round-timer clock (`now`), which a replay clock would put on
-   * its own milliseconds and so move a round's rewind tick (the re-check's F1).
-   */
-  private roundTicks(): { viewTick: number; shownTick: number | null } {
-    const now = performance.now();
-    return { viewTick: this.client.viewTick(now), shownTick: this.client.shownTick(now) };
-  }
-
-  /** LATER 347: the trigger as the walk's commands carry it -- `./main`'s and `./matchMount`'s frame, before `walk.frame`; `frame` again after. */
+  /** Existing public match interface; shared transport holds the shot timing and journals. */
   trigger(on: boolean): void {
     this.setTrigger(on);
-    this.client.beginFrame?.();                   // NCW-8: a new frame's send order -- each round right after its own command
+    this.client.beginFrame?.(); // NCW-8: each round immediately after its own movement command.
   }
-  /** LATER 347's bit, set: `trigger`'s before the walk, and `frame`'s again after it (which begins no frame: NCW-8). */
   private setTrigger(on: boolean): void {
-    this.triggerBit = on;
+    this.firearmWire.setTrigger(on);
     this.deps.walk.setTrigger(on);
   }
-
-  /**
-   * LATER 347: the held rounds, once the walk has sent a command after them, named at the first of those -- the first to
-   * carry the press -- not the frame's last, which at 20 fps (three commands a frame) would bring the pull's second round
-   * inside the room's gap (`room.ts` `cycle`, LATER 338); another client's, or a closed one's, dropped.
-   */
-  private flushPressRounds(): void {
-    if (this.pressRounds.length === 0) return;
-    if (this.client.state !== 'open') { this.pressRounds.length = 0; return; }
-    const sent = this.client.lastSeq();
-    if (this.pressRounds.some((h) => h.client === this.client && h.after >= sent)) return;   // no command since: a frame past 60 fps
-    // LATER 338: a round with its own game frame's command keeps it, never before the press's first command.
-    for (const h of this.pressRounds.splice(0)) if (h.client === this.client) this.sendRound(h.e, h.viewTick, h.shownTick, Math.max(h.after + 1, h.e.seq ?? 0));
-  }
-
-  /**
-   * LATER 587's second fold (`./fire` `ROOM_GATE_MIRROR_ADAPTATION`, `FireSource.roundSeq`): the command a round the kit
-   * fires now goes out named at, as `fireEvent` and `flushPressRounds` name it -- held (no Trigger on the commands yet, or
-   * a round already held), the first command after the last sent or its own game frame's (`own`) if later; else its own,
-   * or the last sent. Null on a closed socket, or between a resumed welcome and its resume (NCW-8 (b)): nothing is sent.
-   */
-  roundSeq(own?: number): number | null {
-    if (this.client.state !== 'open' || this.client.awaitingResume?.() === true) return null;
-    if (!this.triggerBit || this.pressRounds.length > 0) return Math.max(this.client.lastSeq() + 1, own ?? 0);
-    return own ?? this.client.lastSeq();
-  }
-
-  /** The page's own rounds and reloads, to the server (`Fire.subscribe`). */
-  fireEvent(e: FireEvent): void {
-    // NCW-8 (b): between a resumed welcome and its resume nothing is named at the new client's low count -- a press's
-    // round held here (LATER 347) would leave named there once the resume came; dropped, as a closed socket's.
-    if (this.client.state !== 'open' || this.client.awaitingResume?.() === true) { if (e.type === 'reloadStart') this.reloadSeq = null; return; }
-    if (e.type === 'round') {
-      if (!this.triggerBit || this.pressRounds.length > 0) {                     // LATER 347: before its press's commands
-        this.pressRounds.push({ client: this.client, after: this.client.lastSeq(), ...this.roundTicks(), e });
-        return;
-      }
-      const { viewTick, shownTick } = this.roundTicks();
-      this.sendRound(e, viewTick, shownTick, e.seq ?? this.client.lastSeq());   // LATER 338: its own game frame's command
-    } else if (e.type === 'reloadPress') {
-      // LATER 72 (research 313 s8.3): the press reaches the room, at the command it rode, and the page's window ends where
-      // the room's does -- its `seq` + the delay's commands.
-      const seq = this.client.lastSeq(); this.client.send({ type: 'reloadPress', seq });
-      this.deps.pressWindow?.(seq + Math.round(e.seconds * TICK_HZ));
-    } else if (e.type === 'reloadStart') {
-      const seq = this.client.lastSeq(); this.client.send({ type: 'reload', seq }); this.reloadSeq = seq;
-      if (e.reload !== undefined) NetPage.remember(this.sentReloads, seq, e.reload);   // round 3: each reload by its seq
-    }
-  }
+  roundSeq(own?: number): number | null { return this.firearmWire.roundSeq(own); }
+  fireEvent(e: FireEvent): void { this.firearmWire.fireEvent(e); }
 
   /**
    * Protocol 7: the weapon select's picks, the side's whole list (`./loadout` `PlayerLoadout.confirm`), as the
@@ -1641,32 +1884,24 @@ export class NetPage {
     c4?: { target?: number; surface?: { path: string; point: readonly number[] }; eye?: readonly number[]; slot?: number },
     start?: number, slot?: number, shot?: number,
   ): void {
-    if (this.client.state !== 'open') return;
-    const p = c4?.surface?.point;
-    const at = c4?.slot ?? slot;
-    NetPage.remember(this.sentThrows, this.client.lastSeq(), { kind, ...(at !== undefined ? { slot: at } : {}), ...(shot !== undefined ? { shot } : {}) });
-    this.client.send({
-      type: 'throw', seq: this.client.lastSeq(), kind,
-      from: [from[0]!, from[1]!, from[2]!], velocity: [velocity[0]!, velocity[1]!, velocity[2]!],
-      ...(c4?.target !== undefined ? { target: c4.target } : {}),
-      ...(c4?.surface && p ? { surface: { path: c4.surface.path, point: [p[0]!, p[1]!, p[2]!] as [number, number, number] } } : {}),
-      // LATER 305: the eye C4's aim ray left (the room adds it to its own eyes once it has held it to the camera's locus).
-      ...(c4?.surface && p && c4.eye ? { eye: [c4.eye[0]!, c4.eye[1]!, c4.eye[2]!] as [number, number, number] } : {}),
-      ...(start !== undefined ? { start } : {}),
-      ...(at !== undefined ? { slot: at } : {}),
-    });
+    this.throwWire.throwEvent(kind, from, velocity, c4, start, slot, shot);
   }
 
   /**
    * THROW-INTERRUPT (research 326 §2.4): a hand throwable's release request, on the page's last command; the seq it named,
-   * which the `throw` echoes as `start`, or null when no room is open.
+   * which the `throw` echoes as `start`, or null when no room is open. LATER 1456: stamped with the last `hurt.n` heard.
    */
   throwStartEvent(kind: string, slot?: number): number | null {
-    if (this.client.state !== 'open') return null;
-    const seq = this.client.lastSeq();
-    this.client.send({ type: 'throwStart', seq, kind, ...(slot !== undefined ? { slot } : {}) });
-    return seq;
+    return this.throwWire.throwStartEvent(kind, slot, this.lastHurtN ?? undefined);
   }
+
+  /**
+   * LATER 1456 (research 85 §4.3; a network adaptation): the serial `n` of the last `hurt` this page heard, echoed on its
+   * `throwStart` (`hurt`) so the room refuses a request sent before the page saw the hurt that cancelled it. 0 from its
+   * own `spawn` heard (the room zeroes the serial there); null -- unstamped, kept by the room -- before a first spawn or
+   * `hurt` and from a resume until the next `hurt` (the resume carries no serial: the named gap, research 85 §4.3).
+   */
+  private lastHurtN: number | null = null;
 
   /**
    * ROOM-HAND (LATER 652; ROOM_HAND_TRUST_ADAPTATION, `packages/match/src/room.ts`; reading, pending review): the
@@ -1683,8 +1918,7 @@ export class NetPage {
     if (item === last) return;
     // the review's F2: never before this client's held press rounds (LATER 347, named at `max(after + 1, seq)` by
     // `flushPressRounds`), so the room reads no item at their commands ('fire: hand')
-    let seq = this.client.lastSeq();
-    for (const h of this.pressRounds) if (h.client === this.client) seq = Math.max(seq, h.after + 1, h.e.seq ?? 0);
+    const seq = this.firearmWire.handSeq(this.client, this.client.lastSeq());
     this.client.send({ type: 'hand', seq, item });
     this.handTold = { client: this.client, item };
   }
@@ -1737,7 +1971,8 @@ export class NetPage {
     const was = this.escorteeUnits.get(ev.id);
     this.escorteeUnits.set(ev.id, ev.unit);
     if (was === undefined || was === ev.unit || (was !== 17 && ev.unit !== 17)) return;
-    this.deps.escorteeVoice?.(ev.id, 'yes', this.deps.remote.feet?.(ev.id) ?? null);
+    const h = this.hostageMap.get(ev.id);
+    this.deps.escorteeVoice?.(ev.id, 'yes', this.deps.remote.feet?.(ev.id) ?? null, h && 'character' in h ? h.character : null);
   }
 
   /**
@@ -1823,6 +2058,13 @@ export class NetPage {
     return typeof ev.countdown === 'number' && Number.isFinite(ev.countdown) ? ev.countdown : null;
   }
 
+  /**
+   * R4P-248 (r0004's SetHealth, twin `0x0054c300`, D4:L453015): how many `hurt`s have left the own body alive with less
+   * health -- the drops `ownHurt` is told of -- for the thrower's `GrenadeSource.hurts` (`./matchThrow`), which cancels a
+   * release not yet out on each.
+   */
+  ownHurts(): number { return this.ownHurts_; }
+
   /** Whether one of the game's round screens is up (the page hides its reticle under it). */
   screenUp(): boolean {
     return this.roundScreen() !== null;
@@ -1831,7 +2073,7 @@ export class NetPage {
   /** Seconds since the engine's read ended for the standing result (negative during it), else null: one clock read. */
   private screensElapsed(): number | null {
     const sc = this.screens;
-    return sc ? (this.now() - sc.start) / 1000 - ENGINE_READ_S : null;
+    return sc ? roundScreensElapsed(sc, this.now()) : null;
   }
 
   /**
@@ -1845,31 +2087,10 @@ export class NetPage {
   private roundScreen(elapsed = this.screensElapsed()): RoundScreen | null {
     const sc = this.screens;
     if (!sc || elapsed === null) return null;
-    let t = elapsed;
-    if (t < 0) return null;
-    for (let i = 0; i < sc.list.length; i++) {
-      const item = sc.list[i]!;
-      if (t < item.seconds || i === sc.list.length - 1) {
-        // ROUND COMPLETE's and FINAL ROUND's lists are the round block (`RoundStatLbContents*`, the getter 0x225fe0 =
-        // `+0x58c`; `FUN_00223680` D:L75946-75947), GAME COMPLETE's the match block (`GameSealsTotLbContents` /
-        // `GameTerrsTotLbContents` by `FUN_00225bc0` via `FUN_002241c0` D:L76208-76214, the `+0x544` sum D:L76987;
-        // research 216 §8): the round's three where the room sends them (`ScoreRow.roundKills` ..), else the totals.
-        const roundList = item.screen !== 'gameComplete';
-        const rows: ScoreRowInfo[] = this.rows.map((r) => ({
-          ...r, self: r.id === this.client.id,
-          ...(roundList && r.roundKills !== undefined && r.roundDeaths !== undefined && r.roundScore !== undefined
-            ? { kills: r.roundKills, deaths: r.roundDeaths, score: r.roundScore } : {}),
-        }));
-        const you = this.rows.find((r) => r.id === this.client.id);
-        // PF-26: the MVP is `./roundScreens` `pickMvp`'s; YOUR STATS the row's three and the room's counters.
-        return {
-          kind: item.screen, secondsLeft: Math.max(0, item.seconds - t), elapsed: t, winner: sc.winner, wins: sc.wins, rows,
-          you: you ? yourStatsOf(you, sc.stats?.[this.client.id]) : null, timePlayed: (performance.now() - this.joinedAt) / 1000,
-        };
-      }
-      t -= item.seconds;
-    }
-    return null;
+    // Preserve the old clock-read boundary: no wall-clock read under the engine
+    // delay or an empty list (the replay clock and page clock remain distinct).
+    if (elapsed < 0 || !sc.list.length) return null;
+    return roundScreenAt(sc, elapsed, this.rows, this.client.id, (performance.now() - this.joinedAt) / 1000);
   }
 
   /**
@@ -1889,6 +2110,17 @@ export class NetPage {
     this.dropsSweptFor = sc;
     this.deps.drops?.replaceAll([]);
     this.deps.roundEndEffects?.();                    // ROUND_END_EFFECTS_READING: the effects stop at the same moment
+    this.deps.roundEndZoom?.();                       // ROUND_END_CAMERA_FOV_READING (R4P-234b): the view to zoom 1.0
+  }
+
+  /**
+   * RELOAD-HITPOSE F1 (REMOTE_RELOAD_MOTION_READING): the mark an event on another body is heard under -- the newest
+   * snapshot tick in hand (`NetClient.heardTick`) -- as the one argument to spread, or none before a snapshot (and on a
+   * replay, whose `heardTick` names none): released at once then, as before.
+   */
+  private heardMark(): [] | [number] {
+    const t = this.client.heardTick?.();
+    return typeof t === 'number' ? [t] : [];
   }
 
   /** One frame; `real` the frame's real seconds (PAR-34, `./frameTime`; default `dt`), the bodies' timed fades' (`RemotePlayers.frame`). */
@@ -1897,13 +2129,18 @@ export class NetPage {
     const elapsed = this.screensElapsed();
     this.deps.hud.setRoundScreen(this.roundScreen(elapsed));
     this.sweepDrops(elapsed);
-    this.flushPressRounds();                       // LATER 347: a press's round, once the walk has sent its frame's commands
+    this.firearmWire.flushPressRounds();                       // LATER 347: a press's round, once the walk has sent its frame's commands
     this.setTrigger(trigger);
     const scale = (this.client as { dtScale?(): number }).dtScale?.() ?? 1;   // PT-19 (F2): the replay's speed, both clocks
     // PV-10a (finding 6): the view drawn last frame and switched off since (the pad runs after the frame in both pages'
     // loops): the body let go of the command clock before this read (`./matchNet` `spectatePovIdle`; only ever `false`).
     if (this.povShownLast && !this.spectator.povShown) this.deps.spectatePovIdle?.();
-    this.deps.remote.frame(dt * scale, this.client.bodies(), camera, real * scale);
+    this.deps.remote.setBound?.(this.spectator.boundId());   // LATER 1051: the footfall cap's listener off the own body (FUN_00551ec0 D:L418506-418507)
+    // RELOAD-HITPOSE F1: the drawn tick, which releases the others' events heard under a mark (`RemotePlayers.frame`)
+    this.deps.remote.frame(dt * scale, this.client.bodies(), camera, real * scale, this.client.shownTick?.());
+    // R4P-253: another player's waiting shots, one a game frame each (FUN_005e6400 D:L497481), the bodies posed first.
+    for (let t = this.shotTicks.advance(dt * scale); t > 0; t--) this.drainShots();
+    this.joinLeave.frame(real);                    // JOIN-LEAVE-LINE: a leave's line, once no `joined` of its seat came
     this.deps.roundAudio?.frame();                 // INT.R7: the round's cues that are due
     this.spectator.frame(cameraEye(camera), real); // PF-31: the follow, the scenic view (W6: its look and zoom in real seconds), the watched teammate
     this.povShownLast = this.spectator.povShown;
@@ -1918,10 +2155,47 @@ export class NetPage {
    * walk walks, where no body is followed) -- Cross's running hold is voided before the sample (so a hold reaching its
    * threshold on that very sample switches nothing) and after it (so one begun on it never does): its release is today's.
    */
-  spectatorPad(input: Input): void {
+  spectatorPad(input: Input, r1?: boolean): void {
     if (input.scoreboard) this.spectator.voidHold();
-    this.spectator.pad(input, DEAD_CYCLE_WHILE_MENU_READING === 'blocked' && (this.deps.menuOpen?.() ?? false));
+    const menu = DEAD_CYCLE_WHILE_MENU_READING === 'blocked' && (this.deps.menuOpen?.() ?? false);
+    this.spectator.pad(input, menu);
     if (input.scoreboard) this.spectator.voidHold();
+    // SEAT_CLAIM_ADAPTATION (`./seatClaim`): R1 (or J) held over an offer claims a seat, or leaves the line; never under the
+    // menu or the scoreboard -- a hold they cover is void until the button's release (`SeatClaimHold`: an offer lost).
+    const offer = this.seatClaimOffer();
+    // `r1`: the R1 button held on the pad or the touch layer (the page's held buttons), whatever the layout's lanes
+    const down = seatClaimHeld({ r1, fire: input.fire, key: this.claimKeyDown });
+    const held = offer !== null && offer.kind !== 'coming' && !menu && !input.scoreboard ? offer : null;   // a held seat's line is no control
+    if (this.claimHold.take(down, held !== null, performance.now()) && held) this.claimSeat(held);
+  }
+
+  /** SEAT_CLAIM_ADAPTATION: the claim this page's state offers now (`./seatClaim` `seatClaimOffer`), or null. */
+  private seatClaimOffer(): SeatClaimOffer | null {
+    // a page that cannot play is offered none (`NetPageDeps.noSeatClaim`)
+    const offer = this.deps.noSeatClaim ? null
+      : seatClaimOffer({ seats: this.client.seats, role: this.client.role === 'player' ? 'player' : 'spectator', queue: this.client.queue, coming: this.client.seatComing });
+    const at = performance.now();
+    if (offer === null) this.claimOffered = null;
+    else if (this.claimOffered?.kind !== offer.kind) this.claimOffered = { kind: offer.kind, since: at };
+    return offer;
+  }
+
+  /** SEAT_CLAIM_ADAPTATION: the hold's act -- a claim from watching (free or full), or the queue left. */
+  private claimSeat(offer: SeatClaimOffer): void {
+    this.client.seatClaim(offer.kind !== 'queued');
+  }
+
+  /**
+   * SEAT_CLAIM_ADAPTATION: the offer's line for the HUD (`./hudLayout` `HudSpectatorView.claim`) on `device` -- its words,
+   * its share of the help's alpha (a free seat's breath) and the hold's share done (the ring) -- or null with none.
+   */
+  seatClaimView(device: SeatClaimDevice): { line: string; at: number; share: number; hold?: number } | null {
+    const offer = this.seatClaimOffer();
+    if (offer === null) return null;
+    const now = performance.now();
+    const line = seatClaimLine(offer, device);
+    const hold = line.at >= 0 ? this.claimHold.progress(now) : undefined;   // SEAT_CLAIM_NO_PAD_ADAPTATION: no button, no ring
+    return { ...line, share: seatClaimPulse(offer, (now - (this.claimOffered?.since ?? now)) / 1000), ...(hold !== undefined ? { hold } : {}) };
   }
 
   /**
@@ -1949,7 +2223,8 @@ export class NetPage {
       },
       projectile: (kind, from, velocity, owner, pid, phase) => {
         if (owner === self && ownHeld) return;
-        this.deps.remoteGrenade(kind, from, velocity, owner, pid, phase);
+        // LATER 931: a reloaded page (none of its own held) lays the seat's own as its own (`GrenadeCore.hydrateLive`).
+        this.deps.remoteGrenade(kind, from, velocity, owner, pid, owner === self ? { ...phase, own: true } : phase);
       },
       corpse: (id, clip, ageS) => this.deps.remote.hydrateCorpse(id, clip, ageS),
       ghost: (id) => this.deps.remote.markGhost(id),
@@ -2028,7 +2303,7 @@ export class NetPage {
   private ownSpawn(ev: Extract<ServerEvent, { type: 'spawn' }>): void {
     const hud = this.deps.hud;
     this.heldSpawn = null;
-    this.sentThrows.clear();                      // a stale pre-spawn throw cannot refund the new kit
+    this.throwWire.clearPending();                      // a stale pre-spawn throw cannot refund the new kit
     this.dead = null; this.ghostSince = null; this.unbench(); hud.setHealth(1); this.deps.walk.setDeathPose(null);
     // HOTFIX spin-spectate: the seat's own spawn always stands the walk alive. A ghost welcome replayed after the client's
     // `spawned` already ran (the lobby's events, `adopt.events`: a spawn heard on the lobby's idle walk) left the walk dead
@@ -2038,6 +2313,9 @@ export class NetPage {
     this.ghostDead = false;                                   // NU-11b F1: the client's `spawned` gave the walk back alive
     this.notice(null);                                        // OT.R59 (RECONNECT-GHOST (B)): the reconnect's line goes at its spawn
     this.deps.respawned(ev.kit ?? null, ev.char ?? null);   // the server's kit and type at this spawn (room.ts)
+    // SEAT_CLAIM_ADAPTATION: the first spawn of a seat promoted from watching stands the flown camera on foot (the
+    // spectator's welcome flew it, `spectatorWelcome`); a walk that cannot yet keeps the ask for the next spawn.
+    if (this.walkAtSpawn && (this.deps.walk.mode() === 'walk' || this.deps.walk.setMode('walk'))) this.walkAtSpawn = false;
   }
 
   /** PF-31 / PAR-48: the map's scenic views as the spectator reads them (`NetPageDeps.scenicViews`), for the HUD's title. */
@@ -2048,6 +2326,120 @@ export class NetPage {
   private spectatorWelcome(position: number): void {
     this.deps.walk.setMode('fly');
     if (position > 0) this.deps.hud.postMessage(queueLine(position));   // a watcher is not in the line
+  }
+
+  /**
+   * R4P-253: another player's ray into its queue for display, a PULL a count entry (the review's F1). The copy's count
+   * `+0x224` gains one a pull: `FUN_002bbf10` bumps the fire byte only on a pull's first pellet (the kit's pellet index
+   * `+0x880` 0, D:L479495; `FUN_005be9a0` sets and steps it per pellet, D:L475586, D:L475676). The room's `shot` names
+   * no pull (no tick, seq or pellet index on the wire), so the page groups them: a ray joins its shooter's newest pull
+   * when it names the same item from the same `from` (one command's muzzle), within one game frame of the pull's first
+   * ray, while the pull holds fewer than the record's `NumProjectilesFired` (`pelletsOf`) -- a page-side grouping, the
+   * room unchanged. A new pull is dropped at `REMOTE_SHOT_QUEUE_CAP_READING` waiting (`FUN_002be150`'s clamp,
+   * D:L162443-162455), its later rays with it; while the page shows nothing (`displayIdle`) it is shown at once.
+   */
+  private queueShot(ev: RemoteShot): void {
+    const open = this.openPulls.get(ev.id);
+    if (open && open.weapon === ev.weapon && sameV3(open.from, ev.from) && open.rays.length < open.pellets && this.shotTick - open.tick <= 1) {
+      open.rays.push(ev);
+      if (open.state === 'shown') this.showRound(ev, false);   // the rest of a pull already shown: its impacts at once
+      return;                                                  // waiting: shown with its pull; dropped: dropped with it
+    }
+    const pull: ShotPull = { weapon: ev.weapon, from: ev.from, pellets: pelletsOf(this.shotRecord(ev)), rays: [ev], tick: this.shotTick, state: 'waiting' };
+    this.openPulls.set(ev.id, pull);
+    if (this.displayIdle()) { this.flushShots(); this.showPull(pull); return; }
+    const waiting = this.remoteShots.get(ev.id) ?? [];
+    if (waiting.length < REMOTE_SHOT_QUEUE_CAP_READING) waiting.push(pull);
+    else pull.state = 'dropped';
+    this.remoteShots.set(ev.id, waiting);
+  }
+
+  /** R4P-253: one game frame of CRemoteCtrl::PreTick (`FUN_005e6400` D:L497481): each shooter's next waiting pulls shown. */
+  private drainShots(): void {
+    this.shotTick++;
+    for (const [id, waiting] of this.remoteShots) {
+      for (const pull of waiting.splice(0, REMOTE_SHOT_DRAIN_PER_TICK_READING)) this.showPull(pull);
+      if (waiting.length === 0) this.remoteShots.delete(id);
+    }
+  }
+
+  /** R4P-253 (the review's F2): every waiting pull shown now, in order -- at a hide, or a pull arriving while nothing is drawn. */
+  private flushShots(): void {
+    for (const waiting of this.remoteShots.values()) for (const pull of waiting) this.showPull(pull);
+    this.remoteShots.clear();
+  }
+
+  /**
+   * R4P-253 (the review's F1): a pull shown in one game frame -- its first ray whole (the muzzle, the tracer, the report,
+   * the passing sound and the threat: the copy's one CZKit::Fire `FUN_005c5340` a pull, `FUN_005e6400` D:L497487-497493),
+   * the others their impacts alone (`roundImpact`), so a remote shotgun pull plays one report.
+   */
+  private showPull(pull: ShotPull): void {
+    pull.state = 'shown';
+    pull.rays.forEach((ray, i) => { this.showRound(ray, i === 0); });
+  }
+
+  /**
+   * R4P-253 (the review's F2; a browser adaptation): nothing is drawn -- the tab is hidden (as `./matchFirearm`'s
+   * `pageHidden`, whose effect runs it skips while the reports still play) or the frame held (`displayHeld`, PK-3) -- so
+   * no `frame` drains the queue, and another player's shots are shown on arrival instead.
+   */
+  private displayIdle(): boolean {
+    return shotDocument()?.hidden === true || this.deps.displayHeld?.() === true;
+  }
+
+  /**
+   * The record of a shot's item (protocol 7): its record by id (the kit table's), else the side's slot that holds it.
+   * R4P-253 (review 2, finding 3): `queueShot` takes a pull's pellet count from it. Every page that builds a NetPage --
+   * `./main`'s live, loopback and both replay pages and `./matchMount`'s lobby match -- spreads `./matchNet`
+   * `matchNetDeps`, whose `recordOf` answers any item of the map's arsenal table by id (shotguns included), so the
+   * slot fallback (one pellet: a pull's rays shown one a frame) is reached only before the map's table is loaded or by
+   * a test page without the dep.
+   */
+  private shotRecord(ev: Extract<ServerEvent, { type: 'shot' | 'impact' }>): WeaponRecord {
+    const side = this.deps.weapons(this.sideOf(ev.id) ?? 'seal');
+    return this.deps.recordOf?.(ev.weapon) ?? side.find((r) => r.id === ev.weapon) ?? side[0];
+  }
+
+  /**
+   * A round shown: another player's `shot` at its display (R4P-253), the page's own `impact` on arrival. `whole` false
+   * (R4P-253, the review's F1): a pull's ray after its first -- its impact and through-surfaces alone, no muzzle, tracer
+   * or report, and no step of the tracer count (the kit's `+0x878`, stepped once a CZKit::Fire, D:L479284, D:L479362).
+   */
+  private showRound(ev: Extract<ServerEvent, { type: 'shot' | 'impact' }>, whole = true): void {
+    // INT-NET-2: the page's own round comes back only when a body stopped it (the room's hit, never predicted), as an
+    // `impact`: its impact alone, once a shot (research 91 section 23; OWN_BLOOD_READING). A `shot` of its own id is
+    // never the room's (review finding 1) and plays nothing: the page drew its own round.
+    const own = ev.type === 'impact';
+    if (ev.id === this.client.id ? !own : own) return;
+    const w = this.shotRecord(ev);                 // protocol 7: the item that fired, by id
+    const count = (this.tracerRounds.get(ev.id) ?? 0) + (whole ? 1 : 0);
+    if (whole) this.tracerRounds.set(ev.id, count);
+    const mine = this.localTeam();
+    const theirs = this.sideOf(ev.id) ?? null;
+    const e: Extract<FireEvent, { type: 'round' }> = {
+      type: 'round', weapon: fireWeaponOf(w), from: ev.from, to: ev.to, hit: ev.normal !== null, rounds: 0,
+      normal: ev.normal, material: ev.material,
+      // The page's own round already drew its tracer. Another's uses the same every-fourth rule on the shots
+      // this page has seen (research 89 §4, §19). P12b (match `room.ts` SHOT_EVENT_BODIES_READING): its tracer runs to
+      // the round's end (`end`, when `to` is the first body), as the shooter's own does; the impact stays at `to`.
+      // LATER 644: every round keeps that end, tracer or not -- the passing sound walks the whole path (research 81).
+      ...(ev.type === 'shot' && whole && tracerRound(ev.weapon, count)
+        ? { tracer: true as const, tracerKind: tracerKindFor(ev.weapon, mine !== null && theirs === mine) }
+        : {}),
+      ...(ev.type === 'shot' && ev.end ? { tracerTo: ev.end } : {}),
+    };
+    if (own) this.deps.roundImpact?.(e);
+    else {
+      if (whole) this.deps.roundEffects(e, ev.id);
+      else this.deps.roundImpact?.({ ...e, tracer: undefined, tracerKind: undefined, tracerTo: undefined });   // R4P-253 (F1): a pull's later ray
+      // P12 (SW-3; match `room.ts` SHOT_EVENT_THROUGH_READING): every other world surface the round struck, an impact
+      // each -- no second muzzle, tracer or report (`roundImpact`, the impact alone), as the shooter's page plays its
+      // own through-surfaces (`./matchFirearm`). Never on the page's own `impact`: its own walk drew them.
+      for (const t of ev.type === 'shot' ? ev.through ?? [] : []) {
+        this.deps.roundImpact?.({ ...e, to: t.point, normal: t.normal, material: t.material, hit: true, tracer: undefined, tracerKind: undefined, tracerTo: undefined });
+      }
+    }
   }
 
   private event(ev: ServerEvent): void {
@@ -2065,6 +2457,8 @@ export class NetPage {
         this.voteMenu = false;
         this.teams.clear();
         this.bots.clear();
+        this.joinLeave.clear();                          // JOIN-LEAVE-LINE: the roster is this welcome's
+        this.matchOn = ev.phase !== undefined ? ev.phase !== 'waiting' && ev.phase !== 'loading' && ev.phase !== 'over' : ev.startTick !== undefined;
         this.welcomed = true;
         this.closing = false;                            // NET-DRAIN: rejoined
         this.closingSince = null;
@@ -2095,6 +2489,9 @@ export class NetPage {
         // AD-9's reset is the level's init (FUN_001ec480 D:L50946) and the turnover's; a replay seek's welcome is the
         // fold's carrier (W37.R4), no entry: the watcher's camera is kept (as RE-3 keeps the countdown, PAR-94d the banner).
         if (!this.replayClock()) this.unbench();
+        // R4P-253: the port's own lifecycle, not read from the original (whether the copy's count `+0x224` survives a
+        // round, a respawn or a rejoin is unread): a join's or a replay seek's state shows no shot sent before it.
+        this.remoteShots.clear(); this.openPulls.clear();
         this.dead = null;
         this.ghostSince = null;
         // The ghost's lines are WEAPON EXCHANGE's prompt (S1g, `./weaponSelect` `promptLines`), drawn by the overlay.
@@ -2131,6 +2528,7 @@ export class NetPage {
         // envelope's standing result (`joinSinks.screens`), so a page dropped under ROUND COMPLETE and back after the next
         // round's start holds no stale screens (`screenUp`, which silences the walk). A replay's seek keeps its own.
         if (!this.replayClock()) this.screens = null;
+        this.damageAtWin = false;                       // WM-DATA-WIN: a (re)join's window is its own (`damageWindow`)
         if (ev.join) applyJoinState(ev.join, this.now(), ev.tick, this.joinSinks(ev.id), this.rules);
         // LATER 155: a welcome into a decided hold names what decided it -- the round's audio marked decided by it, silently
         // (`RoundAudio.markDecided`), so a plant or a defuse in the hold takes the hold's own rule. An older room's: unmarked.
@@ -2163,10 +2561,16 @@ export class NetPage {
         }
         this.retellHand();                              // ROOM-HAND (the review's F1): a new seat's hand starts at null
         break;
-      case 'joined': this.seatBot(ev.id, ev.bot); this.names.set(ev.id, ev.name); this.teams.set(ev.id, ev.team); remote.setTeam(ev.id, ev.team); remote.setCharacter?.(ev.id, ev.character ?? null); break;
+      case 'joined':
+        // JOIN-LEAVE-LINE: before the maps below take the seat -- `seated` is what the page held until now.
+        this.joinLeave.joined({ id: ev.id, name: ev.name, bot: ev.bot === true, self: ev.id === this.client.id, seated: this.teams.has(ev.id) && this.names.get(ev.id) === ev.name }, this.matchOn);
+        this.seatBot(ev.id, ev.bot); this.names.set(ev.id, ev.name); this.teams.set(ev.id, ev.team); remote.setTeam(ev.id, ev.team); remote.setCharacter?.(ev.id, ev.character ?? null); break;
       case 'botCharacter': remote.setCharacter?.(ev.id, ev.character); break;
       case 'renamed': this.names.set(ev.id, ev.name); if (ev.id === this.client.id) this.name = ev.name; break;
-      case 'left': remote.forget(ev.id); this.teams.delete(ev.id); this.bots.delete(ev.id); this.myVotes.delete(ev.id); break;
+      case 'left':
+        // JOIN-LEAVE-LINE: before the maps below let the seat go -- the name is kept (a departed thrower's kill line reads it).
+        this.joinLeave.left({ id: ev.id, name: this.names.get(ev.id) ?? '', bot: this.bots.has(ev.id), self: ev.id === this.client.id, seated: this.teams.has(ev.id) });
+        this.remoteShots.delete(ev.id); this.openPulls.delete(ev.id); remote.forget(ev.id); this.teams.delete(ev.id); this.bots.delete(ev.id); this.myVotes.delete(ev.id); break;
       case 'deadAtLoad':
         if (ev.id === this.client.id && this.client.role === 'player' && this.rules === 'respawn') {
           // The load publishes a dead actor with alpha zero, not an ordinary visible death (research 322 §5.3).
@@ -2192,15 +2596,34 @@ export class NetPage {
           // plays its clip. The escortee's death voice (`.FEMALE_DEATH`) is HX-2's; the script's two lines HX-5's.
           const h = this.hostageMap.get(ev.victim);
           this.hostageMap.set(ev.victim, { ...(h ?? { id: ev.victim, ai: 0, leader: null, rescuer: null, opacity: 1, unit: 17 }), alive: false });
-          remote.died(ev.victim, ev.clip);
+          remote.died(ev.victim, ev.clip, ...this.heardMark());   // RELOAD-HITPOSE F1: its reload stop on the drawn clock
           // HX-5 (research 239 s6): the script's SealKillN / HostKillN by the killer's side -- the stream, the line, WAIT 2,
           // the second line (`HOSTAGE_CUES_READING`, `PENALTY_LINE_READING`); none for a world kill (no valve moves).
           const side = ev.killer === null ? undefined : ev.killer === this.client.id ? this.localTeam() : this.sideOf(ev.killer);
           if (side) this.deps.roundAudio?.hostage?.(side === 'seal' ? 'killedBySeals' : 'killedByTerrorists', this.post);
           break;
         }
-        // A kept name is untrusted text (the area (c) re-read's finding 5): its marker bytes never draw a bot's gold initial (BNI.R1).
-        hud.postMessage(killLine(ev.how, ev.killer === null ? plainBotText(keptName(ev) ?? '') || null : this.displayNameOf(ev.killer), this.displayNameOf(ev.victim), ev.weapon));
+        // WM-13 (`damageKills`): the page's player's kills and his killer, for the panel's marks.
+        if (ev.killer !== null && ev.killer !== ev.victim) {
+          const k = this.damageKills;
+          if (ev.killer === this.client.id) { k.round.mine.add(ev.victim); k.life.mine.add(ev.victim); }
+          if (ev.victim === this.client.id) { k.round.me.add(ev.killer); k.life.me.add(ev.killer); }
+        }
+        {
+          // A kept name is untrusted text (the area (c) re-read's finding 5): its marker bytes never draw a bot's gold initial (BNI.R1).
+          const killerName = ev.killer === null ? plainBotText(keptName(ev) ?? '') || null : this.displayNameOf(ev.killer);
+          // WM-DATA-FEED (look 3B2, INTAKE 47; a browser adaptation, `./killFeed`): `killLine`'s text in pieces, each name in
+          // its side's colour (a seat the roster no longer holds, or a kept thrower's, colour 0), and the orange mark when the
+          // line's subject is this seat or the player the view is bound to (`SpectatorView.boundId`, the view's one rule: a
+          // spectator's followed player in follow, or the player's view over him; a benched watcher's teammate) -- decided by
+          // id here, at the post, and kept by the line through an adopted seat's new id or a later spectate switch.
+          const side = (id: number): Team | null => id === this.client.id ? this.localTeam() : this.sideOf(id) ?? null;
+          const bound = this.spectator.boundId();
+          const subject = killFeedSubject(ev.how, ev.killer, ev.victim);
+          const marked = subject !== null && (subject === this.client.id || subject === bound);
+          hud.postMessage([killFeedLine(ev.how, killerName === null ? null : { name: killerName, side: ev.killer === null ? null : side(ev.killer) },
+            { name: this.displayNameOf(ev.victim), side: side(ev.victim) }, ev.weapon, marked, MESSAGE_SCALE)]);
+        }
         // The room's voice gate (`FUN_0053b710`): a death within 3 s of the body's hurt voice comes `voiced: false`.
         // LATER 657: the death voice is the dying console's own -- the actor's +0x58 (`FUN_00547af0` D:L413024) reaches
         // its controller's +0x18, the local SEAL's `FUN_005979a0` (D:L454473-454480) playing 0x3c/0x3d, a remote body's
@@ -2229,7 +2652,7 @@ export class NetPage {
             const b = this.client.bodies().find((x) => x.id === killer);
             return b ? [b.feet[0], b.feet[1], b.feet[2]] : null;
           } : null);
-        } else remote.died(ev.victim, ev.clip);
+        } else remote.died(ev.victim, ev.clip, ...this.heardMark());   // RELOAD-HITPOSE F1: its reload stop on the drawn clock
         break;
       case 'spawn':
         this.seatBot(ev.id, ev.bot);
@@ -2240,6 +2663,11 @@ export class NetPage {
           // j5t3o2iU (the review's F2): the room made the body whole at this spawn, held or not -- the next hit is a drop
           // from full, a held spawn's window too.
           this.ownHealth = 1;
+          this.lifeDamage = null;                         // WM-DATA: the life the report covered is over at his respawn
+          this.damageKills.life = { mine: new Set(), me: new Set() };   // WM-13: and its kills
+          // LATER 1456 (the review's F1): the room zeroed the seat's hurt serial at this spawn, so the page stamps 0 from
+          // hearing it -- here, not at a held spawn's stand, which would overwrite a hurt heard in between.
+          this.lastHurtN = 0;
           if (this.client.spawnPending?.() === true) this.heldSpawn = ev;
           else this.ownSpawn(ev);
         } else {
@@ -2253,12 +2681,14 @@ export class NetPage {
       case 'resume':
         if (ev.id !== this.client.id) break;
         this.heldSpawn = null;                                  // LATER 498's review F3: this seat's resume stands it (another's never)
-        this.sentThrows.clear();                        // the authoritative snapshot supersedes predicted throw counts
+        this.throwWire.clearPending();                        // the authoritative snapshot supersedes predicted throw counts
+        this.lastHurtN = null;                                // LATER 1456: no stamp until the resumed seat's next hurt
         this.dead = null; this.ghostSince = null; this.unbench(); this.deps.walk.setDeathPose(null); this.ghostDead = false;
         hud.setHealth(this.ownHealth = overall({ hp: ev.health, armour: ev.armour }));
         this.deps.kitChanged?.(ev.loadout, null, ev.rounds, undefined, {
           pouch: ev.pouch, held: ev.held, weapon: ev.weapon,
           ...(ev.equipmentSlots !== undefined ? { equipmentSlots: ev.equipmentSlots } : {}),
+          ...(ev.detonator ? { detonator: true as const } : {}),   // LATER 1129: the room's kept Detonator
         });
         this.notice(null);
         this.retellHand();                              // ROOM-HAND (the review's F1): the room cleared the hand; after the kit
@@ -2267,7 +2697,9 @@ export class NetPage {
         // j5t3o2iU: a drop the body lives through rumbles the pad (`FUN_005477a0` -> `FUN_00597b00`), every one: the voice's
         // gate is the room's `hurtVoice`, not this. A lethal one is the death's rumble (`died`), no drop none.
         const health = overall({ hp: ev.health, armour: [] });
-        if (health < this.ownHealth && !isDead({ hp: ev.health, armour: [] })) this.deps.ownHurt?.();
+        if (typeof ev.n === 'number' && Number.isInteger(ev.n) && ev.n >= 0) this.lastHurtN = ev.n;   // LATER 1456: echoed on `throwStart`
+        // R4P-248: the same drop is r0004's non-lethal SetHealth (D4:L453015), read by the thrower (`ownHurts`).
+        if (health < this.ownHealth && !isDead({ hp: ev.health, armour: [] })) { this.ownHurts_++; this.deps.ownHurt?.(); }
         this.ownHealth = health;
         hud.setHealth(health);
         break;
@@ -2283,7 +2715,7 @@ export class NetPage {
         if (ev.id !== this.client.id) remote.victory(ev.id, ev.serial, ev.clip, ev.elapsed);
         break;
       case 'flinch':
-        if (ev.id !== this.client.id) remote.flinch(ev.id, ev.clip);
+        if (ev.id !== this.client.id) remote.flinch(ev.id, ev.clip, ...this.heardMark());   // RELOAD-HITPOSE F1: its reload stop drawn
         else if (!this.dead) {
           let at = performance.now();
           const clip = ev.clip;
@@ -2293,7 +2725,7 @@ export class NetPage {
           });
           // PAR-60: the room's window as the page's own stick cut it (the walk's commands already run; `room.ts` `flinchCut`).
           const cut = this.deps.walk.setFlinchPose(pose, flinchCutWindow(ev, clip, this.deps.clips())) ?? null;
-          if (reloadInFlinch(this.reloadSeq, cut === null ? ev : { from: ev.from, until: cut })) this.deps.undoReload?.();   // PF-18: the room dropped it 'flinch'
+          if (reloadInFlinch(this.firearmWire.reloadSeq, cut === null ? ev : { from: ev.from, until: cut })) this.deps.undoReload?.();   // PF-18: the room dropped it 'flinch'
         }
         break;
       // DOORS (research 92 section 2): a one-shot a map program pushed on a body -- the door's `ai::ANIMATE` `Open door`
@@ -2317,74 +2749,39 @@ export class NetPage {
         if (ev.flash) this.deps.whiteOut?.(ev.flash);                      // P2: the room's level (FLASH_FRIENDLY_FIRE_READING)
         // PF-19 (research 218 §3): the room laid `Prone cover` after command `after` and drops a reload named past it
         // 'proneCover'; the page's, sent before this event arrived, is undone as a flinch's is (PF-18).
-        if (ev.knock?.fall === 'proneCover' && this.reloadSeq !== null && this.reloadSeq > ev.after) this.deps.undoReload?.();
+        if (ev.knock?.fall === 'proneCover' && this.firearmWire.reloadSeq !== null && this.firearmWire.reloadSeq > ev.after) this.deps.undoReload?.();
         break;
       // LOW-2 (research 223 s6): the room refused the page's own reload, round or throw stale. The last reload, named, is
       // put back as the room has it (`staleReload`, however long ago it ended); a round back to its weapon and a throw's
       // item back to the pouch, once a seq (a pull's rays share one).
       case 'stale': {
-        if (ev.request === 'throw') {
-          const use = this.sentThrows.get(ev.seq);
-          if (!use) break;
-          this.sentThrows.delete(ev.seq);
-          if (use.shot !== undefined) this.deps.staleThrow?.(use.kind, use.slot, use.shot);   // LATER 503: a rocket's
-          else if (use.slot === undefined) this.deps.staleThrow?.(use.kind);
-          else this.deps.staleThrow?.(use.kind, use.slot);
-          break;
-        }
-        const sent = ev.request === 'fire' ? this.sentFires : this.sentReloads;
-        const v = sent.get(ev.seq);
-        if (v === undefined) break;
-        sent.delete(ev.seq);
-        if (ev.request === 'fire') this.deps.staleRound?.(v as number);
-        else { if (ev.seq === this.reloadSeq) this.reloadSeq = null; this.deps.staleReload?.(v); }
+        if (ev.request === 'throw') { this.throwWire.stale(ev.seq); break; }
+        this.firearmWire.stale(ev.request, ev.seq);
         break;
       }
+      // LATER 876 (the owner's B2/S6, 2026-11-22; an adaptation): the room refused the page's own round for another reason
+      // (`why`). Nothing given back -- the round stays spent, as the original spends every round it fires (S6) -- and
+      // nothing drawn; the net client counts it for the playtest report (`./net/client` `case 'roundRefused'`).
+      case 'roundRefused': break;
       case 'hurtVoice':
         if (ev.id === this.client.id) this.deps.hurtVoice?.(null, null, this.deps.walk.feet());
         else this.deps.hurtVoice?.(this.sideOf(ev.id) ?? null, remote.playerType(ev.id), remote.feet(ev.id));
         break;
       case 'taunt': this.deps.taunt?.(ev); break;
       case 'communication': this.deps.communication?.(ev); break;
-      case 'chat': this.deps.gameChat?.(ev); break;   // SVC-19: the game session's line, to the game lobby's panel (`FUN_002ba9d0`), never the HUD
+      case 'chat':   // SVC-19: the game session's line, to the game lobby's panel (`FUN_002ba9d0`), never the HUD
+        if (ev.round) this.deps.roundChat?.(ev); else this.deps.gameChat?.(ev);   // RC-3: a round line (RC.R2) to the HUD alone
+        break;
       case 'system': this.deps.systemMessage?.(ev); break;   // SA-43c Part 2: the server's system message, routed by the front end (`FUN_0030dce0`)
       case 'voiceFloor': this.deps.voiceFloor?.(ev); break;
       case 'shot':
       case 'impact': {
-        // INT-NET-2: the page's own round comes back only when a body stopped it (the room's hit, never predicted), as an
-        // `impact`: its impact alone, once a shot (research 91 section 23; OWN_BLOOD_READING). A `shot` of its own id is
-        // never the room's (review finding 1) and plays nothing: the page drew its own round.
-        const own = ev.type === 'impact';
-        if (ev.id === this.client.id ? !own : own) break;
-        // Protocol 7: the item that fired, by id -- its record (the kit table's), else the side's slot that holds it.
-        const side = this.deps.weapons(this.sideOf(ev.id) ?? 'seal');
-        const w = this.deps.recordOf?.(ev.weapon) ?? side.find((r) => r.id === ev.weapon) ?? side[0];
-        const count = (this.tracerRounds.get(ev.id) ?? 0) + 1;
-        this.tracerRounds.set(ev.id, count);
-        const mine = this.localTeam();
-        const theirs = this.sideOf(ev.id) ?? null;
-        const e: Extract<FireEvent, { type: 'round' }> = {
-          type: 'round', weapon: fireWeaponOf(w), from: ev.from, to: ev.to, hit: ev.normal !== null, rounds: 0,
-          normal: ev.normal, material: ev.material,
-          // The page's own round already drew its tracer. Another's uses the same every-fourth rule on the shots
-          // this page has seen (research 89 §4, §19). P12b (match `room.ts` SHOT_EVENT_BODIES_READING): its tracer runs to
-          // the round's end (`end`, when `to` is the first body), as the shooter's own does; the impact stays at `to`.
-          // LATER 644: every round keeps that end, tracer or not -- the passing sound walks the whole path (research 81).
-          ...(ev.type === 'shot' && tracerRound(ev.weapon, count)
-            ? { tracer: true as const, tracerKind: tracerKindFor(ev.weapon, mine !== null && theirs === mine) }
-            : {}),
-          ...(ev.type === 'shot' && ev.end ? { tracerTo: ev.end } : {}),
-        };
-        if (own) this.deps.roundImpact?.(e);
-        else {
-          this.deps.roundEffects(e, ev.id);
-          // P12 (SW-3; match `room.ts` SHOT_EVENT_THROUGH_READING): every other world surface the round struck, an impact
-          // each -- no second muzzle, tracer or report (`roundImpact`, the impact alone), as the shooter's page plays its
-          // own through-surfaces (`./matchFirearm`). Never on the page's own `impact`: its own walk drew them.
-          for (const t of ev.type === 'shot' ? ev.through ?? [] : []) {
-            this.deps.roundImpact?.({ ...e, to: t.point, normal: t.normal, material: t.material, hit: true, tracer: undefined, tracerKind: undefined, tracerTo: undefined });
-          }
-        }
+        // R4P-253 (REMOTE_SHOT_QUEUE_CAP_READING, REMOTE_SHOT_DRAIN_PER_TICK_READING): another player's shot is SHOWN from
+        // the copy's count, as the original replays it (FUN_002be150 D:L162443-162455, FUN_005e6400 D:L497481): held, at
+        // most ten pulls, one pull shown a game frame (`frame`). The room's one event per ray stays -- a transport adaptation,
+        // not one of behaviour. The page's own `impact` (and its own `shot`, which plays nothing) is not queued.
+        if (ev.type === 'shot' && ev.id !== this.client.id) { this.queueShot(ev); break; }
+        this.showRound(ev);
         break;
       }
       case 'reloadSound': {
@@ -2395,8 +2792,8 @@ export class NetPage {
         const w = this.deps.recordOf?.(ev.weapon) ?? side.find((r) => r.id === ev.weapon) ?? null;
         if (w) this.deps.reloadSound?.(w, remote.feet(ev.id) ?? ev.at);
         // REMOTE_RELOAD_MOTION_READING: the room's take starts the body's reload clip; an older room's event carries none
-        // of it, and the copy starts none (the sound alone).
-        remote.reload?.(ev.id, { posture: ev.posture, moving: ev.moving, family: ev.family, seconds: ev.seconds });
+        // of it, and the copy starts none (the sound alone). RELOAD-HITPOSE F1: on the drawn clock, past the tick heard.
+        remote.reload?.(ev.id, { posture: ev.posture, moving: ev.moving, family: ev.family, seconds: ev.seconds }, ...this.heardMark());
         break;
       }
       case 'grenade': {
@@ -2410,26 +2807,38 @@ export class NetPage {
       case 'drop': this.deps.drops?.place(ev, ev.from === this.client.id); break;           // PF-34 (research 234 s6); OBF-15: own
       case 'taken': this.deps.drops?.remove(ev.did); if (ev.kit) remote.setKit(ev.by, ev.kit); break;
       case 'kit':
-        if (ev.added) this.deps.kitChanged?.(ev.loadout, ev.slot ?? null, ev.rounds, ev.filled, undefined, ev.added);
+      {
+        // LATER 1129: a take's equipment and the kept Detonator, with the kit, to the throwables (`TakenEquipment`).
+        const taken: TakenEquipment | undefined = ev.equipment || ev.detonator
+          ? { taken: true, equipment: ev.equipment ?? [], ...(ev.detonator ? { detonator: true as const } : {}) } : undefined;
+        // With no take's equipment the call is the one it was before LATER 1129 (the gate's PF-34 call list).
+        if (ev.added) this.deps.kitChanged?.(ev.loadout, ev.slot ?? null, ev.rounds, ev.filled, taken, ev.added);
+        else if (taken) this.deps.kitChanged?.(ev.loadout, ev.slot ?? null, ev.rounds, ev.filled, taken);
         else this.deps.kitChanged?.(ev.loadout, ev.slot ?? null, ev.rounds, ev.filled);
+      }
         break;
       case 'placed': this.deps.tagOwnProjectile?.(ev.kind, ev.from, ev.pid); break;
       case 'detonate': this.deps.detonateProjectile?.(ev.pid); break;
+      case 'chargeGone': this.deps.removeProjectile?.(ev.pid); break;            // R4P-224: removed, no blast
       case 'sceneRound': this.deps.sceneRound?.(ev.kind, ev.at); break;          // research 386 §3.2: an outhouse's C4
       case 'timeExpired':
         hud.postMessage('TIME EXPIRED', 0.9); this.endsAt = this.now();
         this.deps.roundAudio?.timeExpired();           // `mission_timer2`'s cue: the SEALs' win music, no line (research 124 §5)
         break;
-      case 'countdown': this.countdown(ev.seconds); break;   // the owner's launch countdown (2026-10-01)
+      case 'countdown': this.matchOn = false; this.countdown(ev.seconds); break;   // the owner's launch countdown (2026-10-01)
       case 'roundStart':
         // Protocol 10 (MAP-03): the round's epoch kept and the page's world reset as the level opened (`FUN_002ac0e0`,
         // as the room's `startRound` does) -- in `NetClient.newEpoch`, the one place, which does nothing when a snapshot
         // of this round already crossed the boundary; from now a state of an older round is not applied.
         if (typeof ev.epoch === 'number') this.client.newEpoch(ev.epoch);
         this.deps.newRound?.();                         // the last round's decals go (CMPExitState L76084)
+        this.roundDamage = null; this.lifeDamage = null;   // WM-DATA: the last round's damage reports go with it
+        this.damageAtWin = false;                       // WM-DATA-WIN: and the win's damage window
+        this.damageKills = { round: { mine: new Set(), me: new Set() }, life: { mine: new Set(), me: new Set() } };   // WM-13: their kills
         this.escorteeUnits.clear();                     // HX-4a: the round's reset moves no hostage by an order (no YES)
         this.tracerRounds.clear();
         this.launchAt = null; this.roomWaits = false; this.roundSeconds = ev.seconds; this.roundLength = ev.seconds;
+        this.matchOn = true;                            // JOIN-LEAVE-LINE: a round has started
         this.endsAt = this.now() + ev.seconds * 1000; this.screens = null;
         this.rounds = ev.rounds ?? this.rounds;
         // LATER 85: a seat the start passed by (its console still loading: no body) stays a ghost of the round; the rest
@@ -2501,6 +2910,8 @@ export class NetPage {
         if (this.deps.abandoned) this.deps.abandoned(); else this.deps.newRound?.();
         this.deps.roundAudio?.reset();                  // the level is left: nothing pending, the slot stopped
         this.endsAt = null; this.screens = null; this.launchAt = null; this.roomWaits = true;
+        this.matchOn = false;                           // JOIN-LEAVE-LINE: the room waits again
+        this.damageAtWin = false;                       // WM-DATA-WIN: the win's damage window goes with the level
         this.tracerRounds.clear();
         this.unbench();
         if (this.deps.game) { this.endGame(GAME_ENDED_DIALOG_READING, 'abandoned'); break; }   // the match is over: no waiting line
@@ -2510,8 +2921,19 @@ export class NetPage {
       case 'roundOver':
         this.deps.roundAudio?.roundOver();              // closes the round; `abort` and `success2` play nothing
         this.endsAt = null;
+        if (ev.matchOver) this.matchOn = false;         // JOIN-LEAVE-LINE: the match's last round has ended
         this.screens = { start: this.now(), list: ev.screens, winner: ev.winner, wins: ev.wins, stats: ev.stats };
         break;
+      // WM-DATA (`DAMAGE_REPORT_ADAPTATION`): kept for the panel; `life` is read optionally (the respawn room's report at
+      // the player's death, from agent/wm-data-life -- this base's protocol may not carry the field yet).
+      case 'damageReport': {
+        const kept = { ev, names: new Map(this.rows.map((r) => [r.id, r.name] as const)) };
+        if ((ev as { life?: true }).life === true) this.lifeDamage = kept; else this.roundDamage = kept;
+        // WM-DATA-WIN (WM.R24): a round report before the round's result is the room's at a win's decision
+        // (`DAMAGE_REPORT_AT_WIN_REASONS`, the room's alone): the window opens with it, through the hold.
+        if ((ev as { life?: true }).life !== true && this.screens === null) this.damageAtWin = true;
+        break;
+      }
       case 'score':
         for (const row of ev.rows) this.seatBot(row.id, row.bot);
         this.rows = ev.rows;
@@ -2520,8 +2942,22 @@ export class NetPage {
         if (ev.timeLeft !== null && ev.clockHeld) { this.endsAt = null; hud.setTimer(ev.timeLeft); }
         else if (ev.timeLeft !== null) this.endsAt = this.now() + ev.timeLeft * 1000;
         break;
-      case 'queue': if (ev.position > 0) hud.postMessage(queueLine(ev.position)); break;
+      // SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: a seat held for this page -- its player told first, the switch at `promoted`.
+      case 'seatComing': hud.postMessage(SEAT_CLAIM_TAKEN_LINE_ADAPTATION); break;
+      // SEAT_CLAIM_ADAPTATION: a page that asked from watching (`seats` told) reads its place on the HUD's claim line.
+      case 'queue': if (ev.position > 0 && this.client.seats === null) hud.postMessage(queueLine(ev.position)); break;
       case 'promoted':
+        // SEAT_CLAIM_ADAPTATION: a watcher's walk was never stood (its page flew from the welcome) -- stood now on the floor
+        // under the spectator's camera, else spawn A's (`WalkMode.setMode`'s `stand`), so a ghost's own view (`resumeBody`
+        // below) is there and not at an unplaced walker under the map; a walk that cannot yet stands at its first spawn.
+        // SEAT_CLAIM_ADAPTATION: seated from watching -- the test room's watching hello, or the seat's own claim (a menu
+        // game's watcher, whose page is built without the watch: its watch is the services' join type)
+        const claimed = this.watch || this.client.seatedByClaim;
+        if (claimed && !(this.deps.walk.mode() === 'walk' || this.deps.walk.setMode('walk'))) this.walkAtSpawn = true;
+        if (this.watch) {                               // SEAT_CLAIM_ADAPTATION: a watcher seated plays now, a reconnect's hello too
+          this.watch = false;
+          this.tellRefill();                            // NET-REFILL: and its `Fire` takes the room's rule, told none while it watched
+        }
         this.deps.spectate(null);
         this.deps.teamChanged?.(ev.team);
         this.unbench();
@@ -2533,7 +2969,7 @@ export class NetPage {
           // 8's death camera, `FUN_00297410` D:L140893-140913) -- the walk given back where the walker stands, after
           // `seatGhost` made it dead (the death camera with it). No free camera left to a ghost (`FUN_00295260` D:L139465).
           this.deps.walk.resumeBody?.();
-        } else hud.postMessage('YOU ARE IN: A PLACE IS FREE');
+        } else if (!claimed) hud.postMessage('YOU ARE IN: A PLACE IS FREE');
         if (!ev.ghost && ev.waiting) hud.postMessage(WAITING_LINE_READING);
         {
           // The owner's launch countdown (2026-10-01): a promotion that completes both sides, or into a running one.
@@ -2571,7 +3007,7 @@ export class NetPage {
         if (this.deps.game?.reseat && GAME_RETOKEN_REASONS.has(ev.reason) && !this.gameRetokened) { this.gameRetokened = true; this.gameRetoken = true; break; }
         if (!this.closing) {
           this.reconnect.stopped = true;
-          if (this.deps.game && ev.reason === SERVER_CLOSING_REFUSAL.reason) this.endGame(GAME_SOCKET_CLOSED_DIALOG_READING, 'disconnected');
+          if (this.deps.game && ev.reason === SERVER_CLOSING_REFUSAL.reason) this.endGame(GAME_SOCKET_CLOSED_DIALOG_READING, 'disconnected', 'server-update');
         }
         break;
       }
@@ -2591,9 +3027,9 @@ export class NetPage {
       // with a copy of this tab's session storage): a new token, and the usual rejoin -- as a new joiner.
       case 'kicked':
         // HARD-SEAT: in a game the seat is the account's, and its other tab has it now: the end, not a rejoin (N-1).
-        if (ev.reason === 'replaced' && this.deps.game) { this.endGame(GAME_SOCKET_CLOSED_DIALOG_READING, 'disconnected'); break; }
+        if (ev.reason === 'replaced' && this.deps.game) { this.endGame(GAME_SOCKET_CLOSED_DIALOG_READING, 'disconnected', 'replaced'); break; }
         if (ev.reason === 'replaced') { (this.openSession ?? this.deps.session)?.renew(); this.replaced = true; hud.postMessage(REPLACED_LINE_READING); break; }
-        if (this.deps.game) this.endGame(ev.reason === 'vote' ? GAME_KICKED_DIALOG_READING : GAME_SOCKET_CLOSED_DIALOG_READING, ev.reason === 'vote' ? 'kicked by a vote' : 'kicked for inactivity');
+        if (this.deps.game) this.endGame(ev.reason === 'vote' ? GAME_KICKED_DIALOG_READING : GAME_SOCKET_CLOSED_DIALOG_READING, ev.reason === 'vote' ? 'kicked by a vote' : 'kicked for inactivity', ev.reason === 'vote' ? null : 'idle');
         this.reconnect.stopped = true; this.refusal = ev.reason === 'vote' ? 'kicked by a vote' : 'kicked for inactivity';
         hud.postMessage(ev.reason === 'vote' ? 'YOU HAVE BEEN KICKED FROM THIS GAME' : 'Kicked for inactivity.'); break;
       default: break;

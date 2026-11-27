@@ -65,7 +65,7 @@ export function textureCatalog(lib: NonNullable<ReturnType<typeof textureLibrary
  * A texture's record as read (`@s2u/gs` `TextureRecord`, 36 §5 TEXTURE_PARAMS): its size in texels before any shrink for
  * a picture, its texel bits and whether they index a palette, its alpha (the record's `transparent` and `transp1bit`
  * flags), its bilinear filter and bump-map flags, and its levels (itself and its mips). The asset browser's tooltip
- * shows it (the owner, 2026-11-17: "list the image width/height and any other data that makes sense to show").
+ * shows it (the Forge's owner (crispy, OT.R112), 2026-11-17: "list the image width/height and any other data that makes sense to show").
  */
 export interface TextureInfo { width: number; height: number; bpp: number; palettized: boolean; transparent: boolean; transp1bit: boolean; bilinear: boolean; bumpmap: boolean; levels: number }
 

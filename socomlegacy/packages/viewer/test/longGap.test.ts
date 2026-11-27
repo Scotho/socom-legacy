@@ -61,7 +61,7 @@ const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 1
 function loaded() {
   const floor: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
   };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const slot = (side: 0 | 1, index: number, x: number, z: number): SpawnSlot => ({
@@ -91,8 +91,12 @@ type Arrival = { seq: number; ran: number; synced: boolean; at: 'steady' | 'back
 /** One round as the room receives it: its named command and its claim (the 60 fps pin's "same rounds, ticks and looks"). */
 type Fired = { seq: number; viewTick: number; from: number[]; eye: number[]; aim: number[] };
 
-/** The page and the room, joined: the page's frame as `src/matchMount.ts` orders it, the room behind the loopback socket. */
-async function rig() {
+/**
+ * The page and the room, joined: the page's frame as `src/matchMount.ts` orders it, the room behind the loopback socket.
+ * `hold` false takes the second half's frame hold off (`NetClient.beginFrame` absent, as on a replay's client): the page
+ * before the second half, otherwise the same code -- the comparison the after is judged against.
+ */
+async function rig(hold = true) {
   let now = 1_000_000;
   vi.spyOn(performance, 'now').mockImplementation(() => now);
   const match = new LoopbackMatch(simMapOfLoaded(loaded()), null, { rules: 'respawn', auto: false, respawnRules: true });
@@ -136,6 +140,7 @@ async function rig() {
     },
   };
   const net = new NetPage(deps, 'loopback:', 'MP99', 'Solo', undefined, false, 'respawn');
+  if (!hold) (net.client as { beginFrame?: () => void }).beginFrame = undefined;
   await flush();
   const t0 = now;
   let roomSteps = 0;
@@ -160,6 +165,7 @@ async function rig() {
     gateOpened: false, dryRan: false, shots: 0, shotsSeen: 0, tracerFrames: 0, gun: null, source: { look: () => null },
     kick: { reset: () => undefined }, tracerFrame: () => undefined, shadeLate: () => undefined, clipLate: () => undefined,
     dryFrame: () => undefined,
+    presentationFrame: () => undefined, tracerDrawnInFrame: () => undefined,   // #835: `Fire.update`'s tracer/shade/clip calls, one hook now, and its tracer mark (`fireCore.ts` presentationFrame, tracerDrawnInFrame)
     /** `Fire.pullRound`: the round named at its own step's tick (`tickAim`, `fire.ts:1981`, `:2021`), the wait set (`:2006`). */
     pullRound(at?: number) {
       const own = at !== undefined ? WalkMode.prototype.tickAim.call(view as unknown as WalkMode, at)?.seq : undefined;
@@ -170,7 +176,11 @@ async function rig() {
     },
   };
 
-  /** One page frame `ms` after the last, the trigger `held`; `press`: the pad's read pressed it this frame (`Fire.pull`). */
+  /**
+   * One page frame `ms` after the last, the trigger `held`; `press`: the trigger pressed this frame (`Fire.pull`). LATER
+   * 1147 (research 443): `Fire.pull` fires nothing -- it sets the trigger held, and the round leaves at the kit step whose
+   * pad read sees it held, the second read (`FUN_002c60c0` D:L166671-166686), in `Fire.update`'s step loop below.
+   */
   const frame = async (ms: number, held: boolean, place: 'after' | 'between', press = false): Promise<void> => {
     now += ms;
     const due = dueSteps(), between = place === 'between' && due > 0 ? 1 : 0;
@@ -178,7 +188,7 @@ async function rig() {
     await flush();
     armed = between === 1;                                       // taken before the frame's first round (the socket's tap)
     const dt = Math.min(frameTime.frame(now), FRAME_CLAMP_S);
-    if (press) { kit.held = true; kit.pullRound(); }             // `Fire.pull` in the pad's read: a round with no tick
+    if (press) kit.held = true;                                  // `Fire.pull`: held only, no round (LATER 1147)
     kit.held = held;
     net.trigger(held);                                           // `matchMount.ts:1193`
     // `walk.frame` (`walk.ts:2423-2427`): the frame's ticks from the time already run, each a command sent at once.
@@ -225,6 +235,8 @@ type Row = {
   backRounds: number; behind: number[]; staleOnArrival: number; staleFires: number; staleTold: number;
   /** Per round back: the newest command the room had been sent when the round reached it, less the round's named one. */
   ahead: number[];
+  /** Per round back: the command it names (the comparison's "the same rounds"). */
+  named: number[];
 };
 
 /**
@@ -232,8 +244,8 @@ type Row = {
  * clamp's 0.1 s whatever the gap); `trigger` 'held': held through the gap (a pad's), 'pressed': let go before it and
  * pressed in the first frame back's pad read (`Fire.pull`, LATER 347's held press round).
  */
-async function measure(gap: number, place: Row['place'], trigger: Row['trigger'], fps: number): Promise<Row> {
-  const r = await rig();
+async function measure(gap: number, place: Row['place'], trigger: Row['trigger'], fps: number, hold = true): Promise<Row> {
+  const r = await rig(hold);
   for (let i = 0; i < 30; i++) await r.frame(FRAME_MS, false, place);        // joined and synced, the trigger up
   for (let i = 0; i < 120; i++) await r.frame(FRAME_MS, true, place);        // 2 s of an automatic held
   const held = trigger === 'held';
@@ -259,6 +271,7 @@ async function measure(gap: number, place: Row['place'], trigger: Row['trigger']
     backRounds: back.length,
     behind: back.map((a) => a.ran - a.seq),
     ahead: back.map((a) => a.sent - a.seq),
+    named: back.map((a) => a.seq),
     staleOnArrival: back.filter((a) => a.synced && a.ran - a.seq > FIRE_ARRIVAL_JITTER_TICKS).length,
     staleFires: r.player()!.signals.staleFires - firesBefore,
     staleTold: r.stale.length - steadyTold,
@@ -272,7 +285,15 @@ afterEach(() => { vi.restoreAllMocks(); });
  * the room's step, the trigger): the rounds sent, each round's "behind" as it arrived, the rounds stale on arrival, the
  * room's `staleFires` and the `stale` answers the page heard. The 20 and 30 fps rows are the second half's RED run on the
  * same code (this file's rig, run before the change). Every gap's row was its no-gap control's. Kept for the record and
- * printed beside the after; the assertions are the after's.
+ * printed beside the after; the assertions are the after's, against the same run with the hold taken off (`rig`'s `hold`).
+ *
+ * Since LATER 1147 (research 443) these literal rounds cannot hold, and are no longer asserted: the press is read through
+ * the pad layer once a game frame, so a held chain's first round leaves at the SECOND kit step that reads the trigger down
+ * (`FUN_002c60c0` D:L166671-166686), the kit stepped once a game frame after the controller (`FUN_005506a0` D:L417907),
+ * and the rounds whole game frames apart (the timer run down by the frame's dt and clamped at 0, `FUN_005c0fd0`
+ * D:L476643-476647). Every round of the chain is therefore one game frame (two 60 Hz commands) later than at 68a54d347,
+ * and the window re-phases: at 20 fps held, the first second back (the clamp's 0.1 s and 19 frames of 0.05 s: 1.05 s)
+ * holds 6 rounds where it held 7 -- the seventh falls past its end.
  */
 const BEFORE: Record<string, [number, number[], number, number, number]> = {
   '60 after held': [7, [-1, 0, 0, 0, 0, 0, 0], 0, 0, 0],
@@ -294,26 +315,12 @@ const BEFORE: Record<string, [number, number[], number, number, number]> = {
 };
 
 /**
- * The 60 fps pin, from the second half's RED run on the first half's code (68a54d347): the wire in arrival order (`c<n>`
- * a command frame, `f<n>` a round named at command n) and each round's named command and view clock -- the same with
- * the room stepping after the frame or between its messages. A round named a command behind the newest sent
- * (`c41 f40`) is LATER 338's own tick: the step's time fell before the frame's tick (`WalkMode.tickAim`'s `at < 0`).
+ * The 60 fps record, from the second half's RED run on the first half's code (68a54d347), no longer a literal pin: the
+ * same with the room stepping after the frame or between its messages, the first round `c30 f30`, a round named a command
+ * behind the newest sent (`c41 f40`: LATER 338's own tick, the step's time before the frame's tick, `WalkMode.tickAim`'s
+ * `at < 0`). Since LATER 1147 every held round is two 60 Hz commands later (one game frame: the second read,
+ * `FUN_002c60c0` D:L166671-166686), so the test compares the page with and without the second half's hold instead.
  */
-const WIRE_60 = [
-  'c1 c2 c3 c4 c5 c6 c7 c8 c9 c10 c11 c12 c13 c14 c15 c16 c17 c18 c19 c20 c21 c22 c23 c24 c25 c26 c27',
-  'c28 c29 c30 f30 c31 c32 c33 c34 c35 c36 c37 c38 c39 c40 c41 f40 c42 c43 c44 c45 c46 c47 c48 c49 c50',
-  'c51 f50 c52 c53 c54 c55 c56 c57 c58 c59 c60 c61 f60 c62 c63 c64 c65 c66 c67 c68 c69 c70 c71 f70 c72',
-  'c73 c74 c75 c76 c77 c78 c79 c80 c81 f80 c82 c83 c84 c85 c86 c87 c88 c89 c90 c91 f90 c92 c93 c94 c95',
-  'c96 c97 c98 c99 c100 c101 f100 c102 c103 c104 c105 c106 c107 c108 c109 c110 c111 f110 c112 c113 c114',
-  'c115 c116 c117 c118 c119 c120 c121 f120 c122 c123 c124 c125 c126 c127 c128 c129 c130 c131 f130 c132',
-  'c133 c134 c135 c136 c137 c138 c139 c140 c141 f140 c142 c143 c144 c145 c146 c147 c148 c149 c150 c151',
-  'c152 c153 c154 c155 c156 c157 c158 c159 c160 f160 c161 c162 c163 c164 c165',
-].join(' ');
-const PIN_60: Record<string, { wire: string; fired: string }> = {
-  after: { wire: WIRE_60, fired: '30@24.000 40@35.000 50@45.000 60@55.000 70@65.000 80@75.000 90@85.000 100@95.000 110@105.000 120@115.000 130@125.000 140@135.000 160@154.000' },
-  between: { wire: WIRE_60, fired: '30@24.000 40@35.000 50@45.000 60@55.000 70@65.000 80@75.000 90@85.000 100@95.000 110@105.000 120@115.000 130@125.000 140@135.000 160@154.000' },
-};
-
 describe('NCW-8: the page back from a long gap -- the first half\'s "before", the second half\'s after', () => {
   it('the frame clamp binds before MAX_TICKS: a 70 s frame runs the clamp\'s 6 ticks, not 30 (`mover.ts` MAX_TICKS is never reached through the page)', () => {
     const fresh = walkerStub;
@@ -323,12 +330,15 @@ describe('NCW-8: the page back from a long gap -- the first half\'s "before", th
   });
 
   it('a field-sized gap (70, 120, 180 s; 0 the control), then frames at 10, 20, 30 and 60 fps: no round stale on arrival, the room stepping after the frame or between its messages', async () => {
-    const rows: Row[] = [];
+    const rows: Row[] = [], unheld: Row[] = [];
     const runs: [number, number[]][] = [[60, [0, 70, 120, 180]], [10, [0, 70, 120, 180]], [20, [0, 70]], [30, [0, 70]]];
     for (const [fps, gaps] of runs) {
       for (const gap of gaps) {
         for (const place of ['after', 'between'] as const) {
-          for (const trigger of ['held', 'pressed'] as const) rows.push(await measure(gap, place, trigger, fps));
+          for (const trigger of ['held', 'pressed'] as const) {
+            rows.push(await measure(gap, place, trigger, fps));
+            unheld.push(await measure(gap, place, trigger, fps, false));   // the same, the second half's hold off
+          }
         }
       }
     }
@@ -352,12 +362,14 @@ describe('NCW-8: the page back from a long gap -- the first half\'s "before", th
     // 2 s before it refused nothing; every first frame back sent the clamp's six commands.
     expect(rows.map((r) => [r.gap, r.gapSteps, r.steadyRounds, r.steadyStale, r.firstFrameSent])).toEqual(
       rows.map((r) => [r.gap, ({ 0: 0, 70: 4199, 120: 7200, 180: 10800 } as Record<number, number>)[r.gap], 12, 0, 6]));
-    // The after: the same rounds as before (the naming is LATER 338's and 347's, unchanged), none stale on arrival, none
-    // refused `stale`, none told -- and each round reached the room with at most one command newer than the one it names
-    // sent ahead of it (a round named at the previous frame's last tick, `WalkMode.tickAim`'s `at < 0`), so no placement
-    // of the room's step can leave it more than `FIRE_ARRIVAL_JITTER_TICKS` behind.
-    expect(rows.map((r) => [key(r), r.gap, r.backRounds, r.staleOnArrival, r.staleFires, r.staleTold, Math.max(...r.ahead) <= 1])).toEqual(
-      rows.map((r) => [key(r), r.gap, BEFORE[key(r)]![0], 0, 0, 0, true]));
+    // The after: the same rounds as before -- the same page with the second half's hold off (`rig`'s `hold`), so the two
+    // differ in the frame's send order alone: the same count, each named at the same command (the naming is LATER 338's
+    // and 347's, unchanged) -- none stale on arrival, none refused `stale`, none told; and each round reached the room with
+    // at most one command newer than the one it names sent ahead of it (a round named at the previous frame's last tick,
+    // `WalkMode.tickAim`'s `at < 0`), so no placement of the room's step can leave it more than
+    // `FIRE_ARRIVAL_JITTER_TICKS` behind. (The rounds' count is no longer `BEFORE`'s: its note says why.)
+    expect(rows.map((r) => [key(r), r.gap, r.backRounds, r.named, r.staleOnArrival, r.staleFires, r.staleTold, Math.max(...r.ahead) <= 1])).toEqual(
+      unheld.map((r) => [key(r), r.gap, r.backRounds, r.named, 0, 0, 0, true]));
     expect(rows.every((r) => r.backRounds > 0)).toBe(true);
     // The first half's headline holds after: the gap's length changes nothing -- each gap's first second back is its
     // no-gap control's (a single 0.1 s hitch).
@@ -371,22 +383,33 @@ describe('NCW-8: the page back from a long gap -- the first half\'s "before", th
    * A low-ping, normal-frame-rate game is exactly as before: 60 fps frames of one tick each, the room after the frame or
    * between its messages -- the same wire (every command and round, in the same order) and the same rounds (the named
    * command and the view clock; the stub's claim -- `from`, `eye`, `aim` -- is a constant, so a round's look is its named
-   * tick). Pinned from the first half's code (68a54d347), the second half's RED run.
+   * tick). The before is the same page with the second half's hold off (`rig`'s `hold`; the 68a54d347 record above says
+   * why it is no longer a literal pin). The wire's claim, asserted: every round follows the command one past the one it
+   * names (`c33 f32`: LATER 338's own tick, `WalkMode.tickAim`'s `at < 0`), and the room refuses none `stale`.
    */
   it('60 fps, low ping: the same wire and the same rounds as before the second half', async () => {
     const got: Record<string, { wire: string; fired: string }> = {};
-    for (const place of ['after', 'between'] as const) {
-      const r = await rig();
+    const run = async (hold: boolean, place: 'after' | 'between') => {
+      const r = await rig(hold);
       for (let i = 0; i < 30; i++) await r.frame(FRAME_MS, false, place);
       for (let i = 0; i < 120; i++) await r.frame(FRAME_MS, true, place);
       for (let i = 0; i < 10; i++) await r.frame(FRAME_MS, false, place);
-      for (let i = 0; i < 6; i++) await r.frame(FRAME_MS, i < 3, place, i === 0);   // a press in the pad's read
+      for (let i = 0; i < 6; i++) await r.frame(FRAME_MS, i < 3, place, i === 0);   // a press, held three frames
       r.match.stop();
-      got[place] = { wire: r.wire.join(' '), fired: r.fired.map((f) => `${f.seq}@${f.viewTick.toFixed(3)}`).join(' ') };
       expect(r.player()!.signals.staleFires).toBe(0);
+      return { wire: r.wire.join(' '), fired: r.fired.map((f) => `${f.seq}@${f.viewTick.toFixed(3)}`).join(' ') };
+    };
+    for (const place of ['after', 'between'] as const) {
+      const after = await run(true, place), before = await run(false, place);
+      got[place] = after;
+      expect(after).toEqual(before);                             // no frame changes: the same wire, the same rounds
+      const tokens = after.wire.split(' ');
+      const rounds = tokens.flatMap((t, i) => (t.startsWith('f') ? [[Number(t.slice(1)), tokens[i - 1]] as const] : []));
+      expect(rounds.length).toBeGreaterThan(0);
+      expect(rounds.filter(([n, prev]) => prev !== `c${n + 1}`)).toEqual([]);   // each f right after the command one past its own
     }
-    console.log(`\nNCW-8 60 fps pin:\n${JSON.stringify(got, null, 1)}`);
-    expect(got).toEqual(PIN_60);
+    console.log(`\nNCW-8 60 fps:\n${JSON.stringify(got, null, 1)}`);
+    expect(got.between).toEqual(got.after);                      // the room's step placement changes nothing at 60 fps
   }, 120_000);
 
   /**
@@ -434,7 +457,7 @@ NCW-8 60 fps jitter (${place}): rounds ${after.fired.split(' ').length}; ahead a
 
   /**
    * (d) The reconnect. The loopback's hello carries no account (`LoopbackSocket.deliver` calls `room.hello` with none), so
-   * the room's resume (`Room.resumable`, `RECONNECT_ALIVE_WINDOW_MS_ADAPTATION` 10 s) cannot be staged through it; the
+   * the room's resume (`Room.resumable`, `RECONNECT_ALIVE_WINDOW_MS_ADAPTATION` 20 s since LATER 359) cannot be staged through it; the
    * page is measured against a fake socket and the room's rule computed (`FIRE_ARRIVAL_JITTER_TICKS` against the resumed
    * seat's `sim.seq`, which the room's `resume` carries: `room.ts` `resumeEvent`). A drop of 70-181 s is past the window:
    * the room's hello takes the seat over (`takeOver`, a new `Player`, synced at its first command, `room.ts` `run`), so

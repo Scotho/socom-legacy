@@ -74,8 +74,12 @@ export interface UiText {
 export type UiContent =
   | { kind: 'sprite'; sprite: UiSprite }
   | { kind: 'text'; text: UiText }
-  /** WRAPPEDTEXT: its lines (`wrapLines`), placed and clipped at each draw (`placeWrapped`); `prevRows` is +0x44. */
-  | { kind: 'wrapped'; text: UiText; lines: WrappedLine[]; spec: WrappedSpec; scroll: number; prevRows: number }
+  /**
+   * WRAPPEDTEXT: its lines (`wrapLines`), placed and clipped at each draw (`placeWrapped`); `prevRows` is +0x44.
+   * `brightEnabled`: its draw enables bright text (`#B`) -- bound to the UIVAR `UsagePolicy` (R4P-237, r0004
+   * `FUN_003979e0` 0x397a78-0x397aa8).
+   */
+  | { kind: 'wrapped'; text: UiText; lines: WrappedLine[]; spec: WrappedSpec; scroll: number; prevRows: number; brightEnabled?: true }
   /** TELETYPE: the typed text (`TeletypeState`, ticked by the runtime) and its cursor (`teletypeDraw`). */
   | { kind: 'teletype'; text: UiText; spec: TeletypeSpec; state: TeletypeState }
   | { kind: 'group'; parts: UiContent[] }
@@ -163,6 +167,12 @@ export interface UiScreen {
   movie: MovieLayer | null;
   /** The `MODELS` entries realised (G+0x8ec's list, `FUN_00366730`): the 3D pass between the planes (`./models`). */
   models: UiModelInstance[];
+  /**
+   * LATER 1546: each record's own node, by its widget spec (`buildDialogScreen`), so an item that shares its name with
+   * another is still set up on its own node (`FUN_003792f0` attaches each item's UIVAR as that item is made,
+   * D:L273072-273077); absent on a screen no design built.
+   */
+  nodeOf?: Map<object, UiNode>;
 }
 
 /**

@@ -1,6 +1,6 @@
 import { FORGE_MAP_SCRIPT_PATH, forgeObjectPath } from './forgeObjects';
 import { Matrix4, Vector3 } from 'three';
-import type { CollisionOwner, EffectCondition, EffectOp, EffectProgram, Footprint, WorldPoly } from '@s2u/scene';
+import { movedWalk, type CollisionOwner, type EffectCondition, type EffectOp, type EffectProgram, type Footprint, type WorldPoly } from '@s2u/scene';
 import type { PieceTrigger, ScriptLogic, ScriptStep, ScriptSteps, ScriptTarget } from '@s2u/creator-contracts';
 import type { GateLeverSpec, GateSpec } from '../gates';
 import type { LoadedMap } from '../loadMap';
@@ -211,7 +211,7 @@ export const SCRIPT_BLAST_DAMAGE = 50;
 export const SCRIPT_BLAST_RADIUS = 300;
 
 /**
- * An effect object's script's program flags (the owner, 2026-11-13): it starts with the set (`(flags & 3) === 1`, the
+ * An effect object's script's program flags (the Forge's owner (crispy, OT.R112), 2026-11-13): it starts with the set (`(flags & 3) === 1`, the
  * map's own self-starting programs' -- `../mapMeta` AUTOSTART_INITIAL_READING), so the world runs it from the round's
  * start at its object, as it runs theirs.
  */
@@ -227,7 +227,7 @@ export const scriptFlagValve = (flag: string): string => `forge_flag_${flag}`;
  * references, `FORGE_PATH_REF_ADAPTATION`). An effect at a target is a program of its own rooted there, called (`call`
  * plays a common effect at the calling program's root, COMMON_EFFECT_CALL_READING). A toggle (`second`) tests its own
  * valve (the context's, as the disc's lever programs do): 0 runs `steps` and sets 1, else `second` and sets 0. A step
- * whose object or action is not here is left out. The one script (the owner, 2026-11-13): a switch's, a damage trigger's
+ * whose object or action is not here is left out. The one script (the Forge's owner (crispy, OT.R112), 2026-11-13): a switch's, a damage trigger's
  * and an effect object's alike -- `flags` the program's set flags (an effect object's `FORGE_SCRIPT_SELF_START_FLAGS`:
  * it starts with the set, as the map's own ambient programs do).
  */
@@ -593,15 +593,39 @@ export interface AccessMarker { kind: 'gate' | 'barrier'; source: string; name: 
  * FP-1a (Codex on #745): a gate rides the snapshot's door tail after the doors (`DOOR_GATE_WIRE_SLOTS`, `../net/codec`);
  * a found gate past it is left out whole and counted (`pastBound`), as `./placedDoors` `withPlacedDoors` counts a door;
  * a barrier takes no slot.
+ * FN-8 (ours; the batch review's B-2, a browser adaptation): a gate keeps its disc levers unless a switch naming it is
+ * ACTUALLY placed. Whether one is is known only in the switches' loop, after the gate's levers took their places among
+ * the actions (a switch on a prop is left out there for the whole layout's collision and actions, the levers' own
+ * records among them); so a pass that names a gate whose every switch was left out is run again with that gate kept
+ * (`placedAccessPass`'s `keep`), until none is. A layout with no such gate is the first pass alone, its actions' order
+ * unchanged; a kept gate's levers stand where they stand for a gate no switch names. Each further pass keeps at least one
+ * gate more and never un-keeps one (a kept gate's records only add to the actions a switch on a prop must clear), so the
+ * passes are at most one more than the placed gates.
  */
 export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[] | undefined,
   templateOf: (m: AccessMarker) => AccessTemplate | null, switches: readonly SwitchPlacement[] = [],
   lookOf: (id: SwitchLookId) => SwitchLook | null = () => null,
   pieceOwner: (i: number) => string | null = (i) => `forge/piece_${i}`, triggers: readonly PieceTrigger[] = []): { map: LoadedMap; unplaced: number; pastBound: number } {
+  const keep = new Set<number>();
+  for (;;) {
+    const { lateOut, ...pass } = placedAccessPass(map, placed, templateOf, switches, lookOf, pieceOwner, triggers, keep);
+    if (!lateOut.length) return pass;
+    for (const g of lateOut) keep.add(g);
+  }
+}
+
+/**
+ * One pass of `withPlacedAccess`: the gates whose places in `placedGates` are in `keep` keep their disc levers whatever
+ * names them; `lateOut` the gates this pass gave no lever (a switch named them) that no placed switch took.
+ */
+function placedAccessPass(map: LoadedMap, placed: readonly AccessMarker[] | undefined,
+  templateOf: (m: AccessMarker) => AccessTemplate | null, switches: readonly SwitchPlacement[],
+  lookOf: (id: SwitchLookId) => SwitchLook | null, pieceOwner: (i: number) => string | null,
+  triggers: readonly PieceTrigger[], keep: ReadonlySet<number>): { map: LoadedMap; unplaced: number; pastBound: number; lateOut: number[] } {
   // The effect objects' scripts (`MapMeta.forgeAmbients`, `./forgeObjects` `withForgeObjects`): programs here as well.
   const scriptedAmbients = (map.meta?.forgeAmbients?.some((a) => a.script?.length) ?? false) || !!map.meta?.forgeMapScript?.length;
-  if (!placed?.length && !switches.length && !triggers.length && !scriptedAmbients) return { map, unplaced: 0, pastBound: 0 };
-  if (!map.ground || !map.meta) return { map, unplaced: (placed?.length ?? 0) + switches.length + triggers.length, pastBound: 0 };
+  if (!placed?.length && !switches.length && !triggers.length && !scriptedAmbients) return { map, unplaced: 0, pastBound: 0, lateOut: [] };
+  if (!map.ground || !map.meta) return { map, unplaced: (placed?.length ?? 0) + switches.length + triggers.length, pastBound: 0, lateOut: [] };
   const polys = groundPolygons(map.ground);
   const owners: CollisionOwner[] = map.ground.owners.map((o) => ({ ...o }));
   const props = [...map.props];
@@ -624,6 +648,8 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
   /** Each placed damage trigger in its order: its copy's name and its death action's valve (a script's `run barrier`). */
   const placedBarriers: ({ name: string; valve: string | null } | null)[] = [];
   let unplaced = 0, pastBound = 0;
+  /** FN-8: the gates (their places in `placedGates`) given no lever for a switch naming them, and those a placed switch took. */
+  const namedGates = new Set<number>(), switchedGates = new Set<number>();
   const doors = map.doors?.length ?? 0;
   /** A template's textures, under `<archive>/<name>` for a foreign library's (as the props are drawn). */
   const takeTexturesOf = (lib: LoadedMap, pieces: readonly { prop: LoadedMap['props'][number] }[]): void => {
@@ -695,8 +721,9 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
     // Its collision, after the map's owners: a gate's leaf's owners kept by index for its spec.
     const ownerIndex = new Map<CollisionOwner, number>();
     for (const { owner, polys: own } of t.owners) {
-      const { frame: _f, restFrame: _r, ...rest } = owner as CollisionOwner & { restFrame?: unknown };
-      const copy: CollisionOwner = { ...rest, path: rename(owner.path), first: polys.length, count: own.length };
+      // LATER 1094 (the review of fc0cb0622b, B1): the template's walk is the template's place; the copy's is moved by `m`.
+      const { frame: _f, restFrame: _r, nodes: _n, filed: _fd, filedByCover: _fc, filedWithPolys: _fw, ...rest } = owner as CollisionOwner & { restFrame?: unknown };
+      const copy: CollisionOwner = { ...rest, ...movedWalk(owner, Float32Array.from(m.elements)), path: rename(owner.path), first: polys.length, count: own.length };
       for (const { frame: _pf, ...poly } of own as (WorldPoly & { frame?: unknown })[]) polys.push({ ...poly, path: copy.path, points: movedPoints(m, poly.points) });
       ownerIndex.set(owner, owners.length);
       owners.push(copy);
@@ -740,6 +767,15 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
       const sweep: Footprint = { minX: Math.min(minX, minX + shift.x), maxX: Math.max(maxX, maxX + shift.x), minZ: Math.min(minZ, minZ + shift.z), maxZ: Math.max(maxZ, maxZ + shift.z) };
       for (const i of leafIdx) owners[i]!.sweep = sweep;
       const at: [number, number, number] = [(minX + maxX) / 2, minY + Math.min(FORGE_GATE_LEVER_HEIGHT_ADAPTATION, (maxY - minY) / 2), (minZ + maxZ) / 2];
+      // (FC2.R10 (d): the owner does not remember the word cited below -- "unless it was an agent or something",
+      // 2026-11-14 -- and the rule is now Crispy's to give, OT.R112.) WHY THE LEVER IS KEPT (the owner, 2026-11-14:
+      // "carry on with our ruling"; Crispy agreed the gate keeps its lever, FN.R4): a gate no placed switch opens keeps
+      // its disc lever, so a saved layout's gate still opens. FN-8 (ours; the batch review's B-2, closed): `named` below
+      // counts the switches that pass their lever part and look (`gateSwitchLook`), but a switch on a prop can still be
+      // left out later, in the switches' loop, for the whole layout's collision and actions; a gate named only by such a
+      // switch had no lever and opened only to C4 or an RPG. Now the pass reports it (`lateOut`) and `withPlacedAccess`
+      // runs again with it in `keep`, so its levers stand here, at the gate, as when no switch names it -- and a layout
+      // with no such gate keeps its actions' order. The word cited next is not the owner's (FC2.R10 (d), above):
       // No lever of its own (the owner, 2026-11-08): the disc's gate itself has no prompt -- its levers are panels apart
       // (research 174 s5) -- so a copy opens only by a placed switch (below) and is otherwise C4's or an RPG's.
       // FC2-6 (ours; H424 (b)'s default, HUMAN_TASKS H424, a browser adaptation): where no placed switch names this gate,
@@ -747,7 +783,8 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
       // gate still opens, and an online one can (a layout with switches is refused online; the room's call passes none).
       // The record names the copy's root: the game picks an action by the node under the reticle or a parent of it
       // (`../mapActions` `actionForNode`, `FUN_005aa240`), and every polygon of the copy lies under its root.
-      const named = switches.some((sw) => sw.gate === placedGates.length && gateSwitchLook(sw, t) !== null);
+      const named = !keep.has(placedGates.length) && switches.some((sw) => sw.gate === placedGates.length && gateSwitchLook(sw, t) !== null);
+      if (named) namedGates.add(placedGates.length);
       // A lever whose record the template lacks is left out (before the import it kept an index naming no record).
       const levers = named ? [] : g.levers.flatMap((l, k) => {
         const disc = t.gate!.levers[k];
@@ -807,8 +844,9 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
       if (!instanceByPath.has(path)) instanceByPath.set(path, id);
     }
     for (const { owner, polys: own } of linked ? [] : look.owners) {
-      const { frame: _f, restFrame: _r, ...rest } = owner as CollisionOwner & { restFrame?: unknown };
-      const copy: CollisionOwner = { ...rest, path: renameSw(owner.path), first: polys.length, count: own.length };
+      // LATER 1094 (the review of fc0cb0622b, B1): the template's walk is the template's place; the copy's is moved by `m`.
+      const { frame: _f, restFrame: _r, nodes: _n, filed: _fd, filedByCover: _fc, filedWithPolys: _fw, ...rest } = owner as CollisionOwner & { restFrame?: unknown };
+      const copy: CollisionOwner = { ...rest, ...movedWalk(owner, Float32Array.from(m.elements)), path: renameSw(owner.path), first: polys.length, count: own.length };
       for (const { frame: _pf, ...poly } of own as (WorldPoly & { frame?: unknown })[]) polys.push({ ...poly, path: copy.path, points: movedPoints(m, poly.points) });
       owners.push(copy);
     }
@@ -864,6 +902,7 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
     if (lever.scene) programs.push({ ...lever.scene, program: renamedProgram(lever.scene.program, renames) });
     const spec = gates[g.spec]!;
     gates[g.spec] = { ...spec, levers: [...spec.levers, { action: index, node: sname, path: rootPath, valve, program }] };
+    switchedGates.add(sw.gate!);
   });
   // The layout's props made damage triggers (`PieceTrigger`; FORGE_PIECE_TRIGGER_ADAPTATION): each a destructible on its
   // prop's own collision (`pieceOwner`, the hull's owner and a placed node: `withPieceInstances`), its record's health,
@@ -902,7 +941,7 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
       nodes: main.nodes.map((x) => (x === 'NA' ? null : x)), wreck: `${name}_wreck`,
     });
   });
-  // The effect objects' scripts (the owner, 2026-11-13: one script for all): each a self-starting program at its object
+  // The effect objects' scripts (the Forge's owner (crispy, OT.R112), 2026-11-13: one script for all): each a self-starting program at its object
   // (`FORGE_SCRIPT_SELF_START_FLAGS`), its targets as a trigger's resolve -- run by the world from the round's start.
   (map.meta.forgeAmbients ?? []).forEach((a, n) => {
     if (!a.script?.length) return;
@@ -916,11 +955,11 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
       ...(map.meta.forgeMapSequences ? { sequences: map.meta.forgeMapSequences } : {}) }, triggerResolve, FORGE_SCRIPT_SELF_START_FLAGS);
     for (const p of [main, ...extra]) programs.push({ program: p, search: p.nodes.map(() => 0) });
   }
-  const ground = packGround(map.ground.grid, polys, owners);
+  const ground = packGround(map.ground.grid, polys, owners, map.ground.defaultMaterial);   // FLE-2 (F4)
   const meta = { ...map.meta, actions, instances, instanceByPath, initial, scene: { ...scene, destructibles, programs } };
   return {
     map: { ...map, ground, props, gates, actions, meta, textures, textureFlags, ...(textureMips ? { textureMips } : {}) },
-    unplaced, pastBound,
+    unplaced, pastBound, lateOut: [...namedGates].filter((i) => !switchedGates.has(i)),
   };
 }
 
@@ -929,7 +968,7 @@ export function withPlacedAccess(map: LoadedMap, placed: readonly AccessMarker[]
  * damage trigger's C4 reach ring both taken out; the arguments kept for the callers.
  */
 export function accessGizmo(_t: AccessTemplate, _lever: 'disc' | 'atGate'): GuideShapes {
-  // None for either kind (the owner, 2026-11-13: "just remove the gate gizmo entirely"; "remove the orange circle gizmo
+  // None for either kind (the Forge's owner (crispy, OT.R112), 2026-11-13: "just remove the gate gizmo entirely"; "remove the orange circle gizmo
   // from damage triggers"): a gate or a damage trigger is its billboard (G, X) alone.
   return { segments: [], triangles: [] };
 }

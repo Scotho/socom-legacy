@@ -142,14 +142,39 @@ export const FORGE_BASE_MISSING_WORDS = (map: string): string => `the server doe
  */
 export const FORGE_ARCHIVE_REFUSED_WORDS = (map: string | null): string =>
   `${map ?? 'The layout names an archive that'} is not one of the disc's archives: an online lobby plays the disc's own maps.`;
+/**
+ * FN-1a, fix round 1 (product track; a page's words, an adaptation with no original): a create refused for its layout with
+ * central's own words (`forgeLobbyHttp.ts`'s 400 `{ refused: 'layout', words }`; the words `forgeLobby.ts`
+ * `arsenalNameRefusal`'s, naming the arsenal's valve or item the engine does not know) is said as the server's refusal
+ * with them, so the player reads why. An older central (no body) and words not of `FORGE_LAYOUT_WORDS_MAX_ADAPTATION`'s
+ * shape keep the table's 400 words; an older page reads no `layout` body and says those words too.
+ */
+export const FORGE_LAYOUT_REFUSED_WORDS = (words: string): string => `the server refused the layout: ${words}`;
+/**
+ * FN-1a, fix round 1 (a page policy, an adaptation with no original): the longest server sentence the page shows, in
+ * characters -- the page does not trust the string: 1 to this many printable ASCII characters (`LAYOUT_WORDS`), else none.
+ * Central's own sentences are about a hundred (a valve name is at most 46, an item id three digits); the bound keeps
+ * whatever a server sends from filling the create's status line or carrying a control character into it.
+ */
+export const FORGE_LAYOUT_WORDS_MAX_ADAPTATION = 200;
+/** Printable ASCII, one character or more (the length bound is `FORGE_LAYOUT_WORDS_MAX_ADAPTATION`'s). */
+const LAYOUT_WORDS = /^[\x20-\x7e]+$/;
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 /** An archive stem as the server names one (`MP72`, `M51`): anything else is never shown. */
 const STEM = /^[A-Z0-9_]{1,16}$/i;
-/** The status in words -- a guest's refusal (FG-38) or a base the server lacks by the body's `refused`, else the table's. */
+/**
+ * The status in words -- a guest's refusal (FG-38), a base the server lacks, an archive not the disc's (CMV-0) or a layout
+ * refused in the server's words (FN-1a fix 1) by the body's `refused`, else the table's.
+ */
 const wordsOf = (status: number, body: unknown = null): string => {
   if (status === 400 && isObj(body) && body['refused'] === 'base' && typeof body['map'] === 'string' && STEM.test(body['map'])) return FORGE_BASE_MISSING_WORDS(body['map']);
   if (status === 400 && isObj(body) && body['refused'] === 'archive') {           // CMV-0
     return FORGE_ARCHIVE_REFUSED_WORDS(typeof body['map'] === 'string' && STEM.test(body['map']) ? body['map'].toUpperCase() : null);
+  }
+  if (status === 400 && isObj(body) && body['refused'] === 'layout') {            // FN-1a fix 1: words of the bound's shape only
+    const words = body['words'];
+    if (typeof words === 'string' && words.length <= FORGE_LAYOUT_WORDS_MAX_ADAPTATION && LAYOUT_WORDS.test(words)) return FORGE_LAYOUT_REFUSED_WORDS(words);
+    return WORDS[400]!;
   }
   const guest = isObj(body) && typeof body['refused'] === 'string' ? GUEST_WORDS[body['refused']] : undefined;
   return guest ?? WORDS[status] ?? `the server answered ${status}`;
@@ -657,7 +682,8 @@ export interface ForgeLobbySessionOptions {
  * The lobby's socket, routed (`../gameLobbyHost` `GameSocketHost.event`'s pattern): `welcome`, `gameLobby`, `chat`,
  * `refused` and `roundStart` kept and handed on; `voiceFloor` and the voice frames are the popup's own (`./lobby/lobbyVoice`
  * listens on the client). The launch (`gameLobby.launched`, or a `roundStart`) is told once; `handOff` then gives the
- * client to the match. A close or a refusal ends the session once (`poll`, each frame).
+ * client to the match. H460 fix 2: after a full game `resume` takes it back, and a launch is told again (once each).
+ * A close or a refusal ends the session once (`poll`, each frame).
  */
 export class ForgeLobbySession {
   private welcome: GameLobbyHandOff['welcome'] = null;
@@ -665,6 +691,8 @@ export class ForgeLobbySession {
   private roundStarted: GameLobbyHandOff['roundStart'] = null;
   private refusal: string | null = null;
   private launched = false;
+  /** H460 fix 2: an `abandoned` heard since the launch -- a launch taken back by an abandon stays a launch (its leave). */
+  private abandonedSince = false;
   private after: ServerEvent[] = [];
   private held: NetClient | null;
   private off: (() => void) | null;
@@ -685,9 +713,13 @@ export class ForgeLobbySession {
       case 'welcome': this.welcome = ev; break;
       case 'gameLobby':
         this.view = ev;
+        // H460 fix 2, the slow page: the session still holds the client (no hand-off yet) and the room came back to its
+        // lobby after a full game -- the launch was taken back, so it is none now and the next is told again.
+        if (!ev.launched && this.launched && !this.abandonedSince) this.unlaunch();
         for (const cb of [...this.lobbyCbs]) cb(ev);
         if (ev.launched) this.launch();
         break;
+      case 'abandoned': if (this.launched) this.abandonedSince = true; break;
       case 'chat': for (const cb of [...this.chatCbs]) cb({ from: ev.name, text: ev.text, team: ev.team === true }); break;
       case 'refused': this.refusal = ev.reason; break;
       case 'roundStart':
@@ -701,7 +733,16 @@ export class ForgeLobbySession {
   private launch(): void {
     if (this.launched) return;
     this.launched = true;
+    this.abandonedSince = false;
     for (const cb of [...this.launchCbs]) cb();
+  }
+
+  /** H460 fix 2: no launch now -- nothing of the last one kept (its events, its round start); the welcome stays. */
+  private unlaunch(): void {
+    this.launched = false;
+    this.abandonedSince = false;
+    this.after = [];
+    this.roundStarted = null;
   }
 
   /** The room started the match (told once). */
@@ -741,6 +782,32 @@ export class ForgeLobbySession {
     const seats = this.view?.seats.map((s) => ({ id: s.id, name: s.name, team: s.team })) ?? null;
     const welcome = seatWelcome(this.welcome, client.team, seats);
     return { client, welcome, roundStart: this.roundStarted, events: [...(welcome ? [welcome] : []), ...this.after] };
+  }
+
+  /**
+   * H460 fix round 2 (the main controller, 2026-11-15; a browser adaptation, product track): the client back from the
+   * match after a FULL GAME (`./match` `ForgeMatch.release`), as the briefing room's lobby socket takes its own back
+   * (`../lobbyMatch` `matchOver`, `GameSocketHost.adopt`): held and listened to again, no launch now (`unlaunch`), the
+   * room's returned view set and told to the lobby's listeners. The welcome is KEPT: the next launch's `handOff` builds
+   * its welcome from it (`seatWelcome`), as the briefing room's socket keeps its welcome across a match. A session the page
+   * already ended takes nothing: the client is closed.
+   *
+   * H460 fix round 3 (the fresh review's finding 2): the client rebound to the lobby's idle walk, as `../gameLobbyHost`
+   * `adopt` rebinds its client to its `idleWalk` when it takes it back. That constant is not exported and the file is
+   * read-only here, so the walk is this module's `IDLE_WALK` -- the one this client was opened over (`openLobbySocket`),
+   * the same do-nothing walk. The torn-down match's walk and its net tap are let go (nothing of the match is kept alive
+   * by the client), and a waiting-room `spawn` is held as pending, as before a first match (LATER 498), for the next
+   * match's rebind to stand.
+   */
+  resume(client: NetClient, view: GameLobbyEvent): void {
+    if (this.ended || this.held) { if (client !== this.held) client.close(); return; }
+    client.rebind(IDLE_WALK);
+    this.held = client;
+    this.detach();
+    this.off = client.on((ev) => this.event(ev));
+    this.unlaunch();
+    this.view = view;
+    for (const cb of [...this.lobbyCbs]) cb(view);
   }
 
   /** The page's own close (LEAVE): the socket closed, the listeners let go. */

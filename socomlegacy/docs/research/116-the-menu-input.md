@@ -509,14 +509,26 @@ control), not the menus' repeat.
   buttons are, at their bodies where the popup's draw places them (`SlotPopup.buttonRects`, `Popup.buttonRects`, the
   button's `bodySpan`; a button with no width, or a record with no buttons, has none). A tap on the unfocused button
   takes the popup's own LEFT / RIGHT step (`Popup.step`, `FUN_00370990` D:L268528-268541: the answer, the buttons'
-  states, `SELECTION`), then CROSS for one read; a tap on the focused button is CROSS alone; a tap off both is CROSS
-  alone, the focused answer, as before. So a click answers the button clicked, on the NO-first records (36 of research
+  states, `SELECTION`), then CROSS for one read; a tap on the focused button is CROSS alone; a tap off both is lost
+  since B-21 (below) -- CROSS alone, the focused answer, only on a popup with no button to hit. So a click answers the button clicked, on the NO-first records (36 of research
   118's 58 two-button records) and the YES-first ones alike; the pad's keys and the popup's own logic are unchanged.
+- **A tap off every control is lost** (B-21, the lobby lane, 2026-11-21; a matter of taste on the product track,
+  OT.R53, for the controller to log and the owner to overturn). It was CROSS on the focused control -- the port's own
+  extension of the owner's default 1 -- and the disc's scripts focus SWITCH TEAMS on every arrival in the game lobby
+  (`SetupSessionMaster` P:L7226, `SetupNormalJoiner` P:L7280), so a PC player's first click there, the browser's sound
+  gesture, switched sides (B-21, B-63, B-62, INTAKE I-1), and on OPTIONS a stray click stepped the focused strip (B-22).
+  Two kept cases, so a touch-only player is never stranded: a ring with no focused, enabled control (a "press X"
+  screen: only a screen binding takes CROSS) and a shown popup with no button to hit keep the tap as CROSS alone.
 - **The PC keyboard** is ours (owner default 1, `MENU_KEYS_READING`, §12).
 - **The USB keyboard** (`FUN_002dbd90` D:L180055-180092): the menu pops one key per dispatched frame; HID usage 0x28
   (Enter) or 0x58 (Keypad Enter) raises `USBKBD_ENTER` (§3 step 6). Typing into a field is the soft keyboard's
-  (`DAT_0049ecd0`, `FUN_0038dc00`; PLAT-17, research 119). A physical Enter on the page may raise `USBKBD_ENTER` as
-  the original's USB Enter does; whether it also is CROSS is the key map's choice (§12).
+  (`DAT_0049ecd0`, `FUN_0038dc00`; PLAT-17, research 119). A physical Enter or Numpad Enter on the page, with no
+  soft keyboard up, on a screen with an EVENT binding of `USBKBD_ENTER` (`dlgGameLobby`, `dlgMPBriefingRoom`) and
+  where it is not a live menu key (a release build), raises it as the original's USB Enter does --
+  `ENTER_OPENS_CHAT_ADAPTATION` (`packages/viewer/src/softKeyboardKeys.ts`; a browser adaptation on the owner's
+  word, 2026-11-15, WM-ENTER-CHAT). A menu key wins: in a development build Enter stays the key map's CROSS on those
+  screens too (§12) and never opens the chat; on every other screen it is the key map's (CROSS in a development
+  build, nothing in a release).
 - **The browser gamepad** is a pad: the W3C standard mapping by position (`gamepad.ts` `PAD_BUTTON`) to R116.1's
   slots, and its left stick to §7 with both axes negated (W3C: x right positive, y down positive), after the pad's own
   dead zone, rescale and circle (LATER 350), `MENU_STICK_READING` -- the in-match and the forge's ARMORY dialogs'
@@ -697,8 +709,8 @@ dispatch and counts down by the raw dt (PLAT-10's `MenuShell.tick`). At PLAT-12'
 - **A tap or a click** on the front end's canvas, mapped onto the 640 x 448 frame (`object-fit: contain`), is
   `MenuInput.tap` (`MENU_TOUCH_READING`). The control is found by its body's box from its node's place (XSIZE x YSIZE,
   centred with `HCENTERED`; a list's `IMAGE` size), the focus stepped to it as `ActivateButton` steps it, then CROSS
-  for one read. While the popup shows, a tap on one of its buttons answers that button and a tap off them is CROSS
-  alone (§11, 2026-11-03).
+  for one read. While the popup shows, a tap on one of its buttons answers that button (§11, 2026-11-03). A tap off
+  every control, or off a popup's buttons, is lost (§11, B-21), save where nothing could take it otherwise.
 - **Keeping it from the map viewer** (PLAT-10's review): a key is taken on the document's capture phase. That is after
   the front end's own audio unlock (`GameAudio.unlockOn(doc)`, registered first), and before every target and window
   listener of the viewer (the camera's, the walk's, `ui.ts`'s, `netPage.ts`'s). Esc and the Ctrl / Alt / Meta chords

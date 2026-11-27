@@ -21,13 +21,26 @@ export interface EphFrame {
   /** The action holding the mover (`PlaySnapshot.action`): its name, seconds since it started, played backwards; or null. */
   action: { name: string; t: number; reversed: boolean } | null;
   /**
-   * The simulated feet (`PlaySnapshot.feet`: the mover's `state.x/y/z`, the disc's world units, the coordinates PCSX2's
-   * actor position is read in), each null when the walk is off. Added for the parity matrix (tools/eph/analyze.ts):
-   * the two sides' speeds, stops and climbs are compared on these.
+   * The feet as the walker's last completed tick left them (`Walker.state.x/y/z`: the tick `tick` stamps; the disc's world
+   * units, the coordinates PCSX2's actor position is read in), each null when the walk is off. The parity matrix
+   * (tools/eph/analyze.ts) compares the two sides' speeds, stops and climbs on these. LATER 1165 (c): before it they
+   * were `PlaySnapshot.feet` = `Walker.tickFeet()`, the feet blended between the last two ticks at the read's moment
+   * (now `drawnX/Y/Z`), which read an accelerating body part of a tick short; a build whose walker gives no state still
+   * gives those, said by `feetFrom`.
    */
   x: number | null;
   y: number | null;
   z: number | null;
+  /** LATER 1165 (c): what x/y/z are -- 'tick' (the walker's own state), 'blended' (no state to read), null (walk off). */
+  feetFrom: 'tick' | 'blended' | null;
+  /** LATER 1165 (c): the state the tick before `tick` left (`Walker.prev`), for a tick a frame skipped; null if none. */
+  prevX: number | null;
+  prevY: number | null;
+  prevZ: number | null;
+  /** LATER 1165 (c): the feet blended between the last two ticks at the read's moment (`Walker.tickFeet()`): what was drawn. */
+  drawnX: number | null;
+  drawnY: number | null;
+  drawnZ: number | null;
   /** The mover's yaw (`PlaySnapshot.yaw`, degrees in `Pose.yaw`'s sense: facing (-sin yaw, -cos yaw)), or null. */
   yaw: number | null;
   /**
@@ -66,6 +79,14 @@ export interface EphFrame {
   animClip: string | null;
   animPhase: number | null;
   rootHeight: number | null;
+  /**
+   * R4P-208 fold 3, a test-harness adaptation (product track): the walker's turn, rad/s, left positive (`Walker.turn`;
+   * over `turn_maxrate` the turn word `actor+0x23c` the band squares), and its turn memory (`Walker.turnMemory`,
+   * `actor+0x105e` 0x10 / 0x08: 'none', 'turning' or 'walked'), as its last tick left them. Read only, feature-detected;
+   * null with no walker or a value not of its shape.
+   */
+  turn: number | null;
+  turnMemory: string | null;
 }
 
 /** What the anim read takes (`./play` `Play`: `animStats()` and `rootY()`), both read only. */
@@ -132,6 +153,12 @@ export function tiltOf(walker: object | null): TiltFields {
   };
 }
 
+/** R4P-208 fold 3: the walker's turn and turn memory, feature-detected and read only (`EphFrame.turn` / `turnMemory`). */
+function turnOf(walker: object | null): Pick<EphFrame, 'turn' | 'turnMemory'> {
+  const w = walker as { turn?: unknown; turnMemory?: unknown } | null;
+  return { turn: finite(w?.turn), turnMemory: typeof w?.turnMemory === 'string' ? w.turnMemory : null };
+}
+
 /** What the read takes from the walk (`WalkMode`). */
 export interface EphFrameSource {
   ticks(): number;
@@ -142,21 +169,38 @@ export interface EphFrameSource {
   ephWalker?(): object | null;
 }
 
+/** A `{ x, y, z }` of finite numbers off `v`, or null (the walker's `state` / `prev`, read only). */
+function xyzOf(v: unknown): [number, number, number] | null {
+  if (v === null || typeof v !== 'object') return null;
+  const o = v as { x?: unknown; y?: unknown; z?: unknown };
+  const x = finite(o.x), y = finite(o.y), z = finite(o.z);
+  return x !== null && y !== null && z !== null ? [x, y, z] : null;
+}
+
 export function ephFrameOf(on: boolean, walk: EphFrameSource, anim?: EphAnimSource | null): EphFrame | null {
   if (!on) return null;
   const snap = walk.snapshot();
   const a = snap?.action ?? null;
+  // LATER 1165 (c): the walker's own tick state (`state`, and `prev` the tick before), feature-detected and read only.
+  const walker = walk.ephWalker?.() ?? null;
+  const own = snap ? xyzOf((walker as { state?: unknown } | null)?.state) : null;
+  const prev = own ? xyzOf((walker as { prev?: unknown } | null)?.prev) : null;
+  const feet = own ?? (snap ? [snap.feet[0], snap.feet[1], snap.feet[2]] : null);
   return {
     tick: walk.ticks(),
     stance: walk.stance(),
     posture: walk.posture(),
     walking: snap !== null,
     action: a && { name: a.name, t: a.t, reversed: a.reversed },
-    x: snap ? snap.feet[0] : null,
-    y: snap ? snap.feet[1] : null,
-    z: snap ? snap.feet[2] : null,
+    x: feet ? feet[0] : null,
+    y: feet ? feet[1] : null,
+    z: feet ? feet[2] : null,
     yaw: snap ? snap.yaw : null,
-    ...tiltOf(walk.ephWalker?.() ?? null),
+    ...tiltOf(walker),
     ...animOf(anim),
+    ...turnOf(walker),
+    feetFrom: !snap ? null : own ? 'tick' : 'blended',
+    prevX: prev ? prev[0] : null, prevY: prev ? prev[1] : null, prevZ: prev ? prev[2] : null,
+    drawnX: snap ? snap.feet[0] : null, drawnY: snap ? snap.feet[1] : null, drawnZ: snap ? snap.feet[2] : null,
   };
 }

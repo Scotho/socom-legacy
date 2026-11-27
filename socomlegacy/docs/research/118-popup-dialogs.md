@@ -174,8 +174,14 @@ L2 13; a binding reads byte index + 1, D:L266558): byte +3 RIGHT, +4 LEFT, +7 TR
   (253, 246) -- YES first and the default (`AskToLoadData`, `AreYouSureYouDontWantToFormat`, `save_and_leave`, ...);
   button 1 is the right-hand one in 40 and the left-hand one in 18.
 - **CROSS with no visible button**: 72 records have buttons with button 1's width 0 (e.g. `dlgMenu` `MainMenuOnLoad`'s
-  513/514 over `CannotLoadNoFormat`, `dlgNetAuthenticate`'s 450 over `ConfirmPopup`): CROSS writes 1 and closes -- the
-  game's "press X to continue" without a button drawn.
+  513/514 over `CannotLoadNoFormat`, `dlgNetAuthenticate`'s 450 over `ConfirmPopup`): CROSS writes 1 and, when the
+  record's keep (+65, popup `+0xbe0`) is clear, closes -- the game's "press X to continue" without a button drawn; with
+  keep set the answer is written and the notice stays until the script removes it (D:L268507-268510)
+  *(corrected 2026-11-24, NC-3 r50; was "writes 1 and closes")*. 24 of the 72 carry keep (`UIMemCardAnim.rdr`
+  `do_formatting`; `intro_onstart` in `UIanim.rdr`, `dlgExitState.rdr`, `dlgMultiplayerRound.rdr`,
+  `dlgMultiplayerFinal.rdr`, `dlgMultiplayerFinalReally.rdr`) -- 24 with the 30 button-less ones are the 54 of the
+  table's +65 row; a count over the disc through `popupDisc.test.ts`'s readers by NC3-118's reviewer, not pinned by a
+  test yet.
 - **A popup without buttons** (72 records): no valve, so CROSS answers nothing, but one without keep (42 records) is
   still closed by CROSS; one with keep (30) cannot be closed by the player.
 - **Sounds**: the open plays `.METAL` (D:L126897-126900); a move and an answer play the UI's `SELECTION` sound

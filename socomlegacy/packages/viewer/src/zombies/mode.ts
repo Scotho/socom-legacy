@@ -243,6 +243,7 @@ export function installZombies(deps: ZombieDeps) {
     if (!chosen) return false;
     const w = new Walker(grid);
     w.weaponLineCast = WEAPON_LINE_BOTS_READING === 'cast';   // SEGMENT-BODY (review 2 F3): a bot's body, the AI's +0x2c 0
+    w.idleFrame = false;                                       // IDLE-FRAME's BOT ADAPTATION (LATER 1053): an AI-steered stick, no pad
     if (!w.place(chosen.point[0], chosen.point[1] + 5, chosen.point[2])) return false;
     const kind = zombieKind(wave, waveSpawned);
     const moves = botTraversal(grid, deps.clips());

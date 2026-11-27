@@ -2,7 +2,7 @@ import { aiCellIndex, type AiLoc, type AiMaps } from '@s2u/scene';
 import { AI_SOIL_KINDS, AI_SOIL_NAMES, aiCellSoil, type AiSoilKind } from './aiMapOverlay';
 
 /**
- * A layout's painted AI cells (`Layout.aiSoil`; the owner, 2026-11-16: "a similar workflow to the collision paint but for
+ * A layout's painted AI cells (`Layout.aiSoil`; the Forge's owner (crispy, OT.R112), 2026-11-16: "a similar workflow to the collision paint but for
  * ai navigation tiles"; a browser adaptation, FG.R2): each stored cell of the base's AI grid by its key (`aiCellKey`) to
  * the soil it takes -- bits 0-4 of the cell's first word (research 200 section 2), every other bit the disc's. The disc's
  * grid is never written: `withAiSoil` makes the layout's copy, which the editor's overlay, its routes, Check and Play read.

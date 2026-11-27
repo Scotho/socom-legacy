@@ -1,7 +1,7 @@
 import type { ServerEvent } from './net/protocol';
 
 /**
- * The game's own round valves on the page's world (the owner, 2026-11-13: "add all the in game flags"; a browser
+ * The game's own round valves on the page's world (the Forge's owner (crispy, OT.R112), 2026-11-13: "add all the in game flags"; a browser
  * adaptation, FG.R2): the port runs a round in its room, not through each map's `objectives` script (research 192 s2),
  * so the valves that script tests are not kept by anything -- this keeps them, from the room's events, under the
  * game's own names and numbers, for a Forge map script to test (`@s2u/creator-contracts` `SCRIPT_GAME_VALUES`). Nothing
@@ -9,7 +9,7 @@ import type { ServerEvent } from './net/protocol';
  *
  * The names and their numbers (research 91, 192 s2, 175): teams 0 SEAL, 8 Terrorist, 16 a spectator; `aiteam_00` /
  * `aiteam_08` the living of each side (the elimination's `== 0`); `mp_timer` 1 while the round's clock runs, 0 once at
- * 00:00 (the master zeroes it, research 91 s2 -- "created at 1"); `mp_round_count` the rounds played (the round in play
+ * 00:00 (the master zeroes it, research 91 s18.1 -- "created at 1"); `mp_round_count` the rounds played (the round in play
  * is it + 1), `mp_max_rounds` the match's; `mp_score00` / `mp_score08` each side's round wins; `mp_winner` 0, 8 or 99 (a
  * draw); `mp_game_over` 1 once the match is over; `mp_game_type` the map's type (1 BREACH .. 5 SUPPRESSION, as
  * `mp_game_type` mirrors it, research 192 s1); `mp_allow_respawn` 1 under respawn rules. EXTRACTION's: `rescuecount` /
@@ -19,7 +19,8 @@ import type { ServerEvent } from './net/protocol';
  *
  * GAME_VALVES_FEED_READING: each value is the room's fact under the game's name, not the game's script's own write --
  * when the script would have written it (a frame later, after a WAIT) is not kept; `mp_winner` holds the last decided
- * round's until the next is decided [reading: the game's reset of it at a round's start is not traced].
+ * round's until the next is decided [reading: the game's reset of it at a round's start is not traced]. Listed in
+ * research 452 s3, with the evidence that would settle both.
  */
 export const GAME_VALVES_FEED_READING = 'the room events under the game valve names; their script timing not kept' as const;
 

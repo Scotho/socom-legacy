@@ -22,7 +22,7 @@ const quad = (pts: number[], material: number): WorldPoly => ({
   modelName: 'worldmodel', path: 'worldmodel/q', region: 0, ditype: 3, material, ptcount: 4, cameratype: 0, appflags: 0, points: Float32Array.from(pts),
 });
 const floor = (x0: number, z0: number, x1: number, z1: number, y: number, material = 25): WorldPoly =>
-  quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], material);
+  quad([x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z0], material);
 function world(polys: WorldPoly[]): Grid {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
   const owners: CollisionOwner[] = polys.map((p, i) => ({ modelName: p.modelName, path: `${p.path}${i}`, first: i, count: 1 }));

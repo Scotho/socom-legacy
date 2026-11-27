@@ -100,8 +100,11 @@ describe('the throwables\' records (zweapon.rdr, pinned)', () => {
 });
 
 describe('the throw (FUN_00594cf0, GetThrowAnim, CZKit_TickExplosives)', () => {
-  it('a held digital button\'s power: 0.265 at 0.1 s, 0.537 at 0.25 s, 0.785 at 0.5 s, 0.954 at 1 s, 0.998 at 2 s', () => {
-    expect([0.1, 0.25, 0.5, 1, 2].map((s) => +heldPower(s).toFixed(3))).toEqual([0.265, 0.537, 0.785, 0.954, 0.998]);
+  it('a held digital button\'s power: 0.271 at 0.1 s, 0.546 at 0.25 s, 0.794 at 0.5 s, 0.958 at 1 s, 0.998 at 2 s', () => {
+    // LATER 1027 re-pin: 1 - (1 - 3G)^(t / G) = 1 - exp(-3.16099 t), the original's per-game-frame chase at its exact
+    // per-second law -- 1 - exp(-0.316099) = 0.2710, 1 - exp(-0.790248) = 0.5463, 0.7941, 0.9576, 0.9982. Was the 60 Hz
+    // Euler step's 1 - 0.95^(60 t): [0.265, 0.537, 0.785, 0.954, 0.998].
+    expect([0.1, 0.25, 0.5, 1, 2].map((s) => +heldPower(s).toFixed(3))).toEqual([0.271, 0.546, 0.794, 0.958, 0.998]);
   });
 
   it('ComputeMaxVel: 238.66 u/s from the standing hand (600 units), 167.2 crouched (300)', () => {
@@ -114,20 +117,27 @@ describe('the throw (FUN_00594cf0, GetThrowAnim, CZKit_TickExplosives)', () => {
 
   it('where a standing throw lands, over the ground from the hand: research 85 section 4\'s table, held 0 to 2 s, aimed 0 and 30 degrees', () => {
     const hand = THROW_ANIMS.standThrow.offset;
-    // held s, aim degrees -> launch pitch degrees, speed, where it lands (research 85 §4; the last row its "443").
+    // held s, aim degrees -> launch pitch degrees, speed, where it lands (research 85 §4's method; the last row its "443", 468 since LATER 1027).
+    // LATER 1027 re-pin: the held power is now the original's per-game-frame chase at its exact per-second law (0.2710 at
+    // 0.1 s, 0.5463 at 0.25 s, 0.7941 at 0.5 s, 0.9576 at 1 s, 0.9982 at 2 s), so the rows the power moves are worked
+    // again by hand through ComputeMaxVel (238.66943), the elevation 10 + 2p degrees, lerp(0.05 max, max, p), the range
+    // and the aimed correction, to two places (+/- 0.05): research 85 §4 used the 60 Hz step's powers, its rows were
+    // [0.1, 0, 10.5, 59.0, 43.4], [0.25, 0, 11.1, 127.6, 116.0], [0.5, 0, 11.6, 213.9, 252.2], [1, 0, 11.9, 238.7, 305.3],
+    // [1, 30, 41.9, 238.7, 598.7], [2, 30, 42.0, 238.7, 598.8] and the 30-degree quarter second's 443.
     const table: [number, number, number, number, number][] = [
-      [0, 0, 10.0, 12.0, 7.7], [0.1, 0, 10.5, 59.0, 43.4], [0.25, 0, 11.1, 127.6, 116.0], [0.5, 0, 11.6, 213.9, 252.2],
-      [1, 0, 11.9, 238.7, 305.3], [1, 30, 41.9, 238.7, 598.7], [2, 30, 42.0, 238.7, 598.8],
+      [0, 0, 10.0, 12.0, 7.7], [0.1, 0, 10.5, 60.29, 44.51], [0.25, 0, 11.1, 130.44, 119.63], [0.5, 0, 11.6, 217.40, 258.96],
+      [1, 0, 11.9, 238.67, 305.36], [1, 30, 41.9, 238.67, 598.69], [2, 30, 42.0, 238.67, 598.81],
     ];
     for (const [held, aim, pitch, speed, lands] of table) {
       const l = throwVelocity(heldPower(held), Math.sin((aim * Math.PI) / 180), hand, 600);
       const vh = Math.hypot(l.velocity[0], l.velocity[2]);
       expect(+((l.pitch * 180) / Math.PI).toFixed(1), `${held} s, ${aim} deg`).toBe(pitch);
-      expect(+l.speed.toFixed(1), `${held} s, ${aim} deg`).toBe(speed);
-      expect(+impactRange(vh, l.velocity[1], hand[1]).toFixed(1), `${held} s, ${aim} deg`).toBe(lands);
+      expect(l.speed, `${held} s, ${aim} deg`).toBeCloseTo(speed, 1);
+      expect(impactRange(vh, l.velocity[1], hand[1]), `${held} s, ${aim} deg`).toBeCloseTo(lands, 1);
     }
     const mid = throwVelocity(heldPower(0.25), Math.sin(Math.PI / 6), hand, 600);
-    expect(Math.floor(impactRange(Math.hypot(mid.velocity[0], mid.velocity[2]), mid.velocity[1], hand[1]))).toBe(443);
+    // 41.0925 degrees, 135.792 u/s the power's speed, range 206.442, the corrected speed 210.383, lands 468.63 (was 443).
+    expect(Math.floor(impactRange(Math.hypot(mid.velocity[0], mid.velocity[2]), mid.velocity[1], hand[1]))).toBe(468);
   });
 
   it('the release and the clip\'s length from motion.rdr\'s playback and the clip\'s keys: 0.71 s standing, 1.07 s the toss, 0.73 s crouched; 1.49 s the whole standing clip', () => {

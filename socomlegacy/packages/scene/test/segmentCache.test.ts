@@ -335,4 +335,17 @@ describe('CPS collision step 2: an owner is skipped only when the segment misses
     expect(segmentHits(grid, [10.5, 15, 9], [10.5, -5, 10], () => { asked++; return true; })).toEqual([]);
     expect(asked).toBe(0);
   });
+
+  it('a WARPED polygon: its crossing on the Newell plane through p0, off its points\' box, is still found (drop sweep cause B)', () => {
+    // GRENADE-ONE-SIDED's drop sweep (seat-kill, 2026-11-25): a 20 u quad, its last vertex lifted 0.2 off the first three's
+    // plane (y 0). `crossing` takes the Newell plane through p0, which at (8, 8) lies 0.08 UNDER every vertex: the
+    // per-polygon box reject (SEGMENT-BODY's) took the points' box and dropped the hit the old code finds there.
+    const warped = poly([-10, 0, 10, 10, 0, 10, 10, 0, -10, -10, 0.2, -10], 3);
+    const { grid } = worldOf([[warped]]);
+    for (const [a, b] of [[[8, -0.04, 8], [8, -1, 8]], [[8, -1, 8], [8, -0.04, 8]], [[-8, 1, -8], [-8, 0.04, -8]]] as [V3, V3][]) {
+      const want = referenceHits(grid, a, b);
+      expect(want.map((h) => h.poly), `the oracle crosses it (${a} -> ${b})`).toEqual([warped]);
+      expect(differences(segmentHits(grid, a, b), want), `${a} -> ${b}`).toEqual([]);
+    }
+  });
 });

@@ -117,9 +117,11 @@ export interface MapMeta {
    * every placement of a node such a scroll measures (+7) or a speed-profile stroke moves (`runsProfileStroke`), with
    * its own matrix and its world matrix (row-major, `flattenScene`'s `node.matrix` and `world`) -- where its translation
    * puts it in the world, and how the scroll's axis turns with it (`FUN_00310980`, D:L109635-109641). Absent where no
-   * program has either.
+   * program has either. LATER 951 (research 436): `translated`, every placement of a node a program's
+   * `OBJECT_TRANSLATE_STATE` holds at the camera (+6, its reference +7 `camera`) -- the skies -- framed too; the loader draws its world chunks
+   * apart (`LoadedMesh.movePath`) so `WorldView.moveNode` can carry them.
    */
-  motion?: { scrolled: string[]; frames: Map<string, { own: readonly number[]; world: readonly number[] }> };
+  motion?: { scrolled: string[]; translated?: string[]; frames: Map<string, { own: readonly number[]; world: readonly number[] }> };
 }
 
 /** Whether `path` is `root` or lies under it: a child after `/`, the realised prototype after `=`. The one subtree test. */
@@ -154,9 +156,9 @@ export const NODE_REF_SCOPE_READING = { world: 0, underRoot: 1 } as const;
  * (the animation's instance, else its root reference's node, D:L118170-118179: one per placement of the root here, as
  * `SCENE_INSTANCE_SCOPE_READING` takes them); `caller` (0xfa) beneath the caller's node, which a placement at the map's
  * load has not, so nothing; a parent past the table nothing (`ZANIM_PARENT_OUT_OF_TABLE_PLACEHOLDER`). Parent 0 is
- * unchanged (`NODE_REF_SCOPE_READING`) [reading: the resolver is read, not traced running; how deep the node's
- * find-by-name looks (its argument 1 to the node's +0x24 method, research 319 U6) is not, so "beneath" is the port's
- * whole subtree. On the disc (research 319 §4.2, U3/U4): 22 in-range parents on MP10, MP11 and MP62, 27 on the
+ * unchanged (`NODE_REF_SCOPE_READING`) [reading: the resolver is read, not traced running; the node's find-by-name
+ * looks deep (its argument 1 to the node's +0x24 method; research 319 §4.2 U6: the direct children first, then each
+ * child's subtree); "beneath" is the port's whole subtree, its search order LATER 1532's open lead. On the disc (research 319 §4.2, U3/U4): 22 in-range parents on MP10, MP11 and MP62, 27 on the
  * campaign maps, 636 parents 0xf9 on the four `otc_` character animations of the twelve].
  */
 export const ZANIM_PARENT_SCOPE_READING = { beneathParentOnly: true, rootBeneathRoot: true } as const;
@@ -339,7 +341,7 @@ export function readMapMeta(bytes: Uint8Array, toc: ZdbEntry[], stem: string, mo
   // program's own root for a round at -7, `fireNodeNames`).
   const fired = new Set<string>();
   // LATER 782: the names the shore's motions scroll, and measure or move (`MapMeta.motion`).
-  const scrolledNames = new Set<string>(), framedNames = new Set<string>();
+  const scrolledNames = new Set<string>(), framedNames = new Set<string>(), translatedNames = new Set<string>();
   for (const anim of archive?.sets.flatMap((s) => s.anims) ?? []) {
     let program: EffectProgram;
     try { program = decodeEffectProgram(anim); } catch { continue; }
@@ -356,21 +358,26 @@ export function readMapMeta(bytes: Uint8Array, toc: ZdbEntry[], stem: string, mo
       } else if (op.op === 'fromTo' && runsProfileStroke(op)) {
         const moved = named(op.node);
         if (moved) framedNames.add(moved);
+      } else if (op.op === 'translate' && op.ref > 0 && program.nodes[op.ref]?.toLowerCase() === 'camera') {
+        // LATER 951: `FUN_00263890`'s target (+6), held at the camera (`./worldState` `holdsAtCamera`).
+        const moved = named(op.node);
+        if (moved) { framedNames.add(moved); translatedNames.add(moved); }
       }
     }
   }
   const fireNodes = new Map<string, readonly number[]>();
   for (const f of flat) if (fired.has(f.node.name.toLowerCase()) && !fireNodes.has(f.path)) fireNodes.set(f.path, Array.from(f.world));
-  const scrolled: string[] = [];
+  const scrolled: string[] = [], translated: string[] = [];
   const frames = new Map<string, { own: readonly number[]; world: readonly number[] }>();
   for (const f of flat) {
     const name = f.node.name.toLowerCase();
     if (scrolledNames.has(name) && !scrolled.includes(f.path)) scrolled.push(f.path);
+    if (translatedNames.has(name) && !translated.includes(f.path)) translated.push(f.path);
     if (framedNames.has(name) && !frames.has(f.path)) frames.set(f.path, { own: Array.from(f.node.matrix), world: Array.from(f.world) });
   }
   return {
     stem, actions, instances, instanceByPath, initial, diagnostics, ...(scene ? { scene } : {}), ...(autostart.length ? { autostart } : {}),
-    ...(fireNodes.size ? { fireNodes } : {}), ...(worlds.size ? { worlds } : {}), ...(scrolled.length || frames.size ? { motion: { scrolled, frames } } : {}),
+    ...(fireNodes.size ? { fireNodes } : {}), ...(worlds.size ? { worlds } : {}), ...(scrolled.length || frames.size ? { motion: { scrolled, ...(translated.length ? { translated } : {}), frames } } : {}),
   };
 }
 

@@ -12,7 +12,7 @@ import { Button, STANCE_CODES, type Command } from '../src/net/protocol';
 
 const floor = (y: number): WorldPoly => ({
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0, appflags: 0,
-  points: Float32Array.from([-100, y, -100, 100, y, -100, 100, y, 100, -100, y, 100]),
+  points: Float32Array.from([-100, y, 100, 100, y, 100, 100, y, -100, -100, y, -100]),
 });
 
 function world(polys: WorldPoly[]): Grid {

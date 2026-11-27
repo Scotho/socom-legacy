@@ -128,6 +128,12 @@ Not re-opened, because round 1 did research them: `AIM_WEIGHT_PLACEHOLDER`, `PEE
     - Swap accepted during a stance transition and right after a throw.
   - The room must refuse the same switches (an authoritative swap check), and remote players will see fewer swaps.
 - **Owed:** none for the rule. A one-shot capture would confirm the throw case: swap pressed mid-throw, PINE `actor+0x534`.
+- **B-65, the owner's divergence (2026-11-24; MISSION OT.R151, pending seat-merge).** The air terms above (`+0x105e`
+  bit 5, posture 6, `Jump launch` / `Jump fall`) are the original's rule, overridden by the owner: the port takes a swap
+  pressed in the air, on the page and in the room (`AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION`, research 211 §11). Every other
+  term stands, and a reload in the air is still refused. Extended on 2026-11-25 to the standing jump's `Jump` action (the
+  owner: "add it to the standing jump as well"): `FUN_005b4340`'s code-4 refusal of that action playing is overridden
+  under the same constant, the swap taken as the overlay (research 211 §11).
 
 ## 2. The zoom readings A31-A34 (`zoom.ts:181-193, 364-365`)
 
@@ -856,3 +862,16 @@ Grade STRONG; owed: the PINE climb R2-C2 already lists (expect about 0.45 u/fram
 - **W2-A (NoFire):** `FUN_005a7de0(actor,1,1)`'s window test also gates the swap and the HUD weapon menu.
 - **R2-C2 / port:** remove the local player's head-look forcing and turn lead (dead behind `DAT_0066b3e0`); re-check
   `FUN_00600550`'s other caller 0x56fd70 (the AI tick) for what remotes and AIs do.
+
+## 28. B-26's prone drift: the functions the mover cites (seat-movement, 2026-11-25)
+
+Carried from seat-movement's slope-and-stances read (agent-mail `pilot/movement/b26-slope-stances-atlas.md`); reading,
+pending review. Filed so the citation index finds each address in a note; no constant, no new value.
+
+- `FUN_005bbb00` (r0004; r0001 `FUN_005b56c0`): the stick scale, slope then water. Three callers: stand (D4:L485527),
+  crouch walk (D4:L484825), crouch run (D4:L484835). Prone never calls it.
+- `FUN_00588b00`: ProneControl, which takes the raw axes (D4:L484566), so the prone strafe is not scaled by slope or water.
+- `FUN_0028d5e0` (r0004; r0001 `FUN_0028c250`): the clip root's velocity, read at a key pair by `FUN_00289bb0`
+  (D:L132714-132719; D4:L140476-140480) into `+0x2c` (D4:L479445).
+- `FUN_00324370` (CQuat::Apply; r0001 `FUN_00306fd0`, D:L416515): turns the clip root's velocity `+0x2c` by the body
+  quaternion into `+0x64` (D4:L455110).

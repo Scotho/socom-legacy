@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Mesh, PerspectiveCamera, type Group } from 'three';
+import { Mesh, PerspectiveCamera, type BufferAttribute, type Group } from 'three';
 import type { ParticleSource } from '@s2u/scene';
 import { ParticleSystem } from '../src/particles';
 import { AT_REST, DEFAULT_MODEL, hudLayout, type HudModel, type HudTiming } from '../src/hud';
 import { ParticleSystem as ParticleSystemBase } from './frozen/particlesBase';
 import { hudLayoutBase } from './frozen/hudLayoutBase';
+import { HudFrameStorage } from '../src/hudFrameStorage';
 
 /**
  * PAGE-ALLOC-A (LATER 867 (A); a CPU-side browser adaptation, product track while every output is bit-identical): the
@@ -154,6 +155,98 @@ describe('PAGE-ALLOC-A item 2: the particle draw writes from owned scratch', () 
 
 // ---- hudLayout ---------------------------------------------------------------------------------------------------
 
+/** Only the submitted vertices: unused capacity and buffers from undisplayed frames are not drawn. */
+function visibleParticleDraws(ps: ParticleSystem): unknown[] {
+  return ps.object.children.filter((m): m is Mesh => m instanceof Mesh && m.visible)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((m) => {
+      const g = m.geometry, vertices = g.drawRange.count / 6 * 4, s = g.boundingSphere;
+      return {
+        name: m.name, order: m.renderOrder, range: { ...g.drawRange },
+        attributes: ['position', 'uv', 'color'].map((key) => {
+          const a = g.getAttribute(key);
+          return Array.from(a.array).slice(0, vertices * a.itemSize);
+        }),
+        sphere: s ? [...s.center.toArray(), s.radius] : null,
+      };
+    });
+}
+
+describe('particle storage follows the live particles', () => {
+  it.each(['clear', 'expire', 'textures', 'natural'] as const)('%s releases retired particle references from drawing scratch', (ending) => {
+    const ps = new ParticleSystem(prng(17)), camera = new PerspectiveCamera();
+    camera.updateMatrixWorld();
+    ps.emit(source('burst', 0, [0, 0, 0], { events: 1, perEvent: 8, lifetime: [0.2, 0.2] }), null, {}, 'burst', () => true);
+    const storage = ps as unknown as { particles: unknown[]; entries: { p: unknown }[]; lists: Map<string, unknown[]> };
+    const liveArray = storage.particles;
+    ps.update(1 / 60, camera); ps.update(0.05, camera);
+    expect(ps.count()).toBe(8);
+    expect(storage.entries.length).toBeGreaterThan(0);
+    expect(storage.particles).toBe(liveArray);
+    if (ending === 'clear') ps.clear();
+    else if (ending === 'expire') ps.expire();
+    else if (ending === 'textures') ps.setTextures(new Map());
+    else { ps.update(1, camera, false); ps.update(0, camera); }
+    expect(ps.count()).toBe(0);
+    expect(storage.entries.every(e => e.p === null)).toBe(true);
+    expect([...storage.lists.values()].every(list => list.length === 0)).toBe(true);
+  });
+});
+
+describe('particle drawing follows the frame cap without changing simulation', () => {
+  it.each([false, true])('preserves every displayed buffer with alpha interleaving %s across skipped frames and expiry', (withPass) => {
+    const baselineRandom = vi.fn(prng(0xc3)), cappedRandom = vi.fn(prng(0xc3));
+    const baseline = new ParticleSystem(baselineRandom), capped = new ParticleSystem(cappedRandom);
+    const keys = Float64Array.from([900, 400, 150, 60, 20, 5, 1]);
+    if (withPass) {
+      baseline.setAlphaPass({ keys: () => keys });
+      capped.setAlphaPass({ keys: () => keys });
+    }
+    let live = true, compared = 0;
+    for (const s of SOURCES) {
+      baseline.emit(s, null, {}, 'run', () => live);
+      capped.emit(s, null, {}, 'run', () => live);
+    }
+    for (let f = 0; f < 180; f++) {
+      const camera = eye(f), draw = f % 2 === 0;
+      const dt = f === 80 ? 3 : 1 / 60;
+      if (f === 100) live = false;
+      baseline.update(dt, camera);
+      capped.update(dt, camera, draw);
+      expect(capped.count()).toBe(baseline.count());
+      expect(capped.emitted).toBe(baseline.emitted);
+      expect(capped.activeSources()).toBe(baseline.activeSources());
+      if (draw) { expect(visibleParticleDraws(capped)).toEqual(visibleParticleDraws(baseline)); compared++; }
+    }
+    expect(compared).toBe(90);
+    expect(cappedRandom.mock.calls.length).toBe(baselineRandom.mock.calls.length);
+    expect(cappedRandom()).toBe(baselineRandom());
+    baseline.setTextures(new Map()); capped.setTextures(new Map());
+  });
+
+  it('does no alpha sorting or vertex-buffer writes on an undisplayed frame, then catches up on the next draw', () => {
+    const ps = new ParticleSystem(prng(0xd4)), keys = vi.fn(() => Float64Array.from([100, 10, 1]));
+    ps.setAlphaPass({ keys });
+    for (const s of SOURCES) ps.emit(s, null, {}, 'run', () => true);
+    for (let f = 0; f < 30; f++) ps.update(1 / 60, eye(f));
+    expect(ps.count()).toBeGreaterThan(0);
+    const before = drawn(ps);
+    const versions = () => ps.object.children.filter((m): m is Mesh => m instanceof Mesh)
+      .flatMap((m) => ['position', 'uv', 'color'].map((key) => (m.geometry.getAttribute(key) as BufferAttribute).version));
+    const initialVersions = versions(), emitted = ps.emitted;
+    keys.mockClear();
+    ps.update(1 / 60, eye(31), false);
+    expect(keys).not.toHaveBeenCalled();
+    expect(drawn(ps)).toEqual(before);
+    expect(versions()).toEqual(initialVersions);
+    expect(ps.emitted).toBeGreaterThan(emitted);
+    ps.update(1 / 60, eye(32));
+    expect(keys).toHaveBeenCalledOnce();
+    expect(versions()).not.toEqual(initialVersions);
+    ps.setTextures(new Map());
+  });
+});
+
 const SIZES: Record<string, { width: number; height: number }> = {
   'newweapnbkrnd.tif': { width: 128, height: 64 }, 'm4carbine_icon.tif': { width: 128, height: 32 },
   'firemode.tif': { width: 32, height: 16 }, 'compass_lo.tif': { width: 128, height: 128 },
@@ -194,6 +287,12 @@ const MODELS: HudModel[] = [
 ];
 
 describe('PAGE-ALLOC-A item 5: hudLayout without its per-glyph temporaries', () => {
+  it('owned storage preserves every layout over the same varied 300-frame sequence', () => {
+    const storage = new HudFrameStorage();
+    for (const frame of FRAMES) for (const timing of TIMINGS) for (const model of MODELS) {
+      expect(hudLayout(frame, model, SIZES, timing, storage)).toEqual(hudLayoutBase(frame, model, SIZES, timing));
+    }
+  });
   it('pin: 20 models x 3 timings x 5 frames, the quads and rects identical to the base code (Object.is on every number)', () => {
     const bad: string[] = [];
     let quads = 0;

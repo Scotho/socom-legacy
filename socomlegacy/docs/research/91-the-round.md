@@ -728,6 +728,15 @@ The original is a strict team majority, target included, with no poll and no tim
 
 ## 18. The round's flow and its screens (research 91d, 2026-09-29)
 
+*2026-11-22, L203 (proven; the port changed):* for the RESPAWN round the time-out is now the original MEASURED, not the
+15 + 1 s reading of the scripts' waits below: ATLAS's capture of r0004 (`agent/spc-atlas` f177434599,
+`socomlegacy/docs/atlas/captures/mp5-mp64-runs5-7-r0004.md` run 5, reviewed PASS WITH FINDINGS) shows `mp_timer` clearing at
+the first update with under 1000 ms left (~0.995 s before the deadline, the HUD at 0:00 in that update) and `mp_winner`
+14.963 s after the clear (453 updates; the deadline + ~13.97 s). The port: `packages/match/src/room.ts`
+`RESPAWN_EXPIRY_LEFT_S`, `RESPAWN_WINNER_AFTER_EXPIRY_S`. Caveat (the record's review, F2): the mode logged, not asserted;
+one player at 0-0, so a time-out with both sides scoring was not run. The classic round's time-out is unchanged. Units (the re-review's N3): the expiry is read on the timer's ms word, the hold on the clock word -- the same interval reads 14,982 timer ms, 14.963 clock s; the 19 ms between is one port tick, inside the test's tolerance. Research
+350 and 223 still state the 15 + 1 s figure for this path: a follow-up to re-file them.
+
 
 Read-only research, 2026-09-29. It builds on research 87 (§1 HUD, §8 round start, §12 scoreboard, §14 message window)
 and 91 (§9 round and match) and does not repeat them.
@@ -784,7 +793,7 @@ and 91 (§9 round and match) and does not repeat them.
 | respawn: result | `success2` | 1. `round_count` += 1.<br>2. **IF `seals_team_score` > `terrs_team_score`**: `mp_winner` = 0 and `mp_score00` = 1.<br>3. **ELSEIF <**: `mp_winner` = 8 and `mp_score08` = 1.<br>4. **ELSEIF ==**: `mp_winner` = 0x63 (99, draw).<br>5. Then **`mp_game_over` = 1 unconditionally**, WAIT 1 s, `mission_complete` = 1.<br>*[2026-10-15, sprint 40 AD-0 (the research reconciliation's C01 / C62): was "`mp_score00` += 1" and "`mp_score08` += 1". The two score steps at the sequence's offsets 2840 and 2896 are operation 11 with operand 1, an assignment, where `round_count`'s at 2784 is operation 12, the increment; the operations as `FUN_00353fd0` executes them, D:L252215-252238 (the reconciliation's chunk 01, re-read independently in its chunk 08)]* | seq `success2` (offset 2756) |
 | respawn off: elimination | `start`, after WAIT 5 and WAIT 10: WHILE `mission_complete` == 0 AND `mission_failure` == 0, test `aiteam_08` == 0 (no living Terrorists) or `aiteam_00` == 0 (no living SEALs) | The side that eliminated the other: `mp_score00` or `mp_score08` += 1, `mp_winner` = 0 or 8.<br>Two messages: locale **5103 "ALL TERRORISTS ELIMINATED"** at 0.7 and **5104 "SEALS VICTORIOUS!"** at 0.9; or **5105 "ALL SEALS ELIMINATED"** at 0.7 and **5106 "TERRORISTS WIN!"** at 0.9.<br>Sound `^PH_0014` / `^PH_0002`, WAIT 2, music `MUS_MP_SEAL_WIN_ALB` / `MUS_MP_TERR_WIN_ALB`.<br>CALL `success` or `failure` by the local team: WAIT **20 s**, `round_count` += 1, CALL `game_over`, WAIT 1, `mission_complete` / `mission_failure` = 1 | seq `start` (offset 428), `success` (2664), `failure` (3004) |
 | respawn off: time | `mission_timer`: WAIT 15, WHILE `mp_timer != 0`; then CALL `abort` | `round_count` += 1, `mp_winner` = 99, CALL `game_over`, `mission_timeout` = 1. **A draw: nobody scores.** No message is posted, and there is no hold | seq `mission_timer` (2344), `abort` (2580) |
-| engine side | `mission_complete` / `failure` / `abort` / `timeout` valves (`0x3f18b0` / `0x3f18d0` / `0x3f18e0` / `0x3f18f0`, game `+0x1a4` .. `+0x1b0`) give states 2 / 3 / 4 / 5 | `FUN_002aa490` L151133-151158 (valves bound at L151844-151851). Online master (`FUN_002a9b30` L150612-150672): the state change arms a **3.0 s** timer (`+0xe4` = now + 3); then it copies `mp_score00` / `mp_score08` / `mp_winner` to net `+0x120` / `+0x124` / `+0x128`, increments `mp_round_count` (`+0x11c`), and sets net state `+0x113` = **6 if `mp_game_over`, else 4** | L150612-150672 |
+| engine side | `mission_complete` / `failure` / `abort` / `timeout` valves (`0x3f18b0` / `0x3f18d0` / `0x3f18e0` / `0x3f18f0`, game `+0x1a4` .. `+0x1b0`) give states 2 / 3 / 4 / 5 | `FUN_002aa490` L151133-151158 (valves bound at L151844-151851). Online master (`FUN_002a9b30` L150612-150672): the state change arms a **3.0 s** timer (`+0xe4` = now + 3); then it copies `mp_score00` / `mp_score08` / `mp_winner` to net `+0x120` / `+0x124` / `+0x128`, increments `mp_round_count` (`+0x11c`), and sets net state `+0x113` = **6 if `mp_game_over`, else 4**. The scoreboard's team line prints that copy, not the valves, so a held board keeps the old tally until the copy (research 87 s12; the room's `boardWins`; reading, reviewed 2026-11-21, capture owed) | L150612-150672 |
 
 Team score (`seals_team_score` / `terrs_team_score`) = the sum of that team's players' **round** score `+0x5c8` plus a
 carried term (`FUN_00544d60` L411238-411306; research 91 §8). A player's score is +2 per enemy kill, -2 per suicide or
@@ -979,7 +988,7 @@ judged on the last alive command's frame (NCW-2 B-trade) among them -- takes the
 constant: the window and the slack are section 16's. Held by viewer `test/shotConeVolley.test.ts` (the page's `Accuracy`
 beside `ShotCone`, every corner of every pellet's cone, from rest and mid-burst) and match
 `test/roomShotgunVolleyCone.test.ts` (the page's `Fire` kit through the room's command path; `fireCadence.ts`'s `burst`
-gives each pellet its own draw).
+gives each pellet its own draw). **CORRECTED 2026-11-22 (SWAPFIRE-CONE-ORDER's review F4, `agent-mail/planning/mega-2026-11-21/pilot/kill/keyjob-cone-order-fold.md`; research 321 s3.1; reading, pending review): every pellet of a pull draws from the ONE cone cached as the frame began (body+0x5d4; r0004 0x597a90 / 0x5c3cb0) -- the bloom between pellets writes the kit's size, not the cache, and nothing rewrites the cache within the pull; so "pellet k leaves by the cone pellets 1..k-1 bloomed" above does not hold. The page changed with 387856a919 (and 33e45d0446): every pellet draws from roundCone, the frame's one sample. The room's `bloomed` record is now looser than the page (keep or remove: the controller's call).**
 
 Protocol 6 (grenade harm, 2026-09-29; `PROTOCOL_VERSION` in `packages/viewer/src/net/protocol.ts`): the snapshot's
 action codes gain the blast's four knock clips, `fallForward`, `fallBackwards`, `landBackwards` and `getUpBackwards`
@@ -1075,6 +1084,35 @@ defined by nothing. A protocol-15 page is refused at the hello ("protocol 15, th
 15 room the same way. A `.s2r` of protocol 11 to 15 plays on frozen decoders (viewer `net/codecV15.ts`), the four fields
 0, and the viewer offers no player's view on it (`VIEW_SINCE_PROTOCOL`). This paragraph changes no reading of the
 original: it records the port's version (a product-track record).
+
+Protocol 17 (WM-DATA-17, 2026-11-15; WM.R11, the controller seat redotcom-8f): the player's view also needs the watched
+player's item in the hand when it is neither the firearm nor the launcher (a grenade, a charge, the gear), which a body's
+`weapon` does not name (the kit's item, research 94 §A6, its meaning kept). A body grows 55 -> 56 by `hand`, one u8 after
+the sway bytes (viewer `net/codec.ts`): the item the seat's ROOM-HAND word puts in the hand at its last run command, 0
+while the launcher is up and for a dead body, zeroed for the other side with the view's tail (PV.R9; match `room.ts`
+`recipientBodies`). A browser adaptation with no original (`HAND_WIRE_ADAPTATION`, viewer `net/protocol.ts`
+`BodyState.hand`): the room simulates nothing from it. The command is unchanged. A protocol-16 page is refused at the
+hello ("protocol 16, this server speaks 17"), and a 17 page by a 16 room the same way. A 16 `.s2r` plays on a frozen
+decoder (viewer `net/codecV16.ts`), `hand` 0 (`HAND_SINCE_PROTOCOL`), its commands on the live decoder. This paragraph
+changes no reading of the original: it records the port's version (a product-track record).
+
+Protocol 18 (LATER 1147, 2026-11-17; research 443, the owner's order relayed by the main controller): the page reads
+the fire button as the PS2 reads it -- through the pad layer once a kit step (`FUN_002d9ff0`), the gate answering only
+at state 2 (`FUN_002c60c0`), so a press's first round leaves on the second step that reads it down and is named at that
+step's command (viewer `fire.ts`, `padButton.ts`); the room's gate takes rounds on whole steps (viewer `net/fireGate.ts`).
+No frame changes: a 17 `.s2r` decodes on the live decoders (match `replay/format.ts`). Because the rule changes what a
+page's rounds are, a protocol-17 page is refused at the hello ("protocol 17, this server speaks 18"), and an 18 page by a
+17 room the same way; before any deploy the page and the match server ship together. The readings themselves are
+research 443's; this paragraph records the port's version (a product-track record).
+
+Protocol 19 (LATER 1141, 2026-11-18; research 441, the owner's approval relayed by the main controller): a muzzle round's
+`fire.aim` is the bare look (the eye's ray, no displacement), and the event names `at`, the round's aim point P1 (the
+point under the bare reticle), from which the page and the room work out the depth ratio f that scales the vertical knock
+cap and the cone's offsets (`FUN_005c3360`, `FUN_005bd100`); the room's checks of `at` are a browser adaptation (viewer
+`net/shotCone.ts`, `AT_SLACK_ADAPTATION`, `AT_BODY_REACH_ADAPTATION`). No frame changes: an 18 `.s2r` decodes on the live
+decoders (match `replay/format.ts`). Because the rule changes what a page's rounds are, a protocol-18 page is refused at
+the hello ("protocol 18, this server speaks 19"), and a 19 page by an 18 room the same way; the page and the match server
+ship together. The readings are research 441's; this paragraph records the port's version (a product-track record).
 
 The owner's rulings of 2026-10-01 add, without a new version (both additive): the launch countdown's `countdown` event (`{ seconds }`, null when called off) and the welcome's and promotion's `countdown` (the seconds left); see the table's "launch countdown" row. The same play test found that the room's shape check took a `fire`'s `viewTick` for an integer while the page sends its interpolation clock, a fraction of a tick (`NetClient.viewTick`): every page's round was dropped unread. The check is now a finite number (`room.ts` `text`), which the rewind interpolates (`past`).
 

@@ -48,6 +48,20 @@ export function thermalFitted(loadout: readonly number[]): boolean {
   return loadout.includes(ITEM.THERMAL);
 }
 
+/**
+ * The scope lens's thermal input (R4P-110; research 94 section C7; a reading of r0004, pending review): the gate 0x547e50,
+ * asked by the lens function at 0x1f0e90 with no entity, answers 1 only when the kit holds item 195 (0x5cfe00(kit, 0xc3),
+ * 0x547e70; `thermalFitted`) AND the item at the kit's hand slot is class sniper, 0x65 (0x5cf750, 0x547e80-0x547e90:
+ * the slot index `kit+0x824`, written by the weapon switch 0x5cc314 -- at the switch's write, not the raise's end; the
+ * class through the table 0x3f3cb0, ids 101-120; an empty slot answers 0xfe). 0x5cf750 is r0001's `FUN_005c8040`
+ * (D:L480686-480696), the port's "hand's class": `@s2u/scene` `itemClass` of the hand slot's id, as `./net/netRefill`
+ * `netMagsHidden` asks it. `handItemId`: the item at the hand slot, null with none. r0001's gate `FUN_005433c0`
+ * (D:L410083-410092) is the kit alone. Not the thermal turret's view state 2 (`viewLens`), whose branch is the entity's.
+ */
+export function thermalLensFitted(loadout: readonly number[], handItemId: number | null): boolean {
+  return thermalFitted(loadout) && handItemId !== null && itemClass(handItemId & 0xff) === 'sniper';
+}
+
 /** The node the 552's model carries its suppressor on (0x65f830, `FUN_005c0250` D:L476175). */
 export const SILENCER_NODE = 'silencer';
 
@@ -120,8 +134,14 @@ export type ScopeLens = 'to_thermal_lens_fx' | 'to_starlight_scope_lens_fx' | 't
 
 /**
  * The lens a view state plays (`FUN_001f0750` L53084-53160, states 5-12): `to_thermal_lens_fx` (lens mode 2) when
- * the kit holds the thermal scope (`FUN_005433c0(body, 0)`), else `to_starlight_scope_lens_fx` (mode 4) on a night
- * map, else `to_scope_lens_fx` (mode 5); null below the scope (the 9x view and the goggles have their own).
+ * `thermal`, else `to_starlight_scope_lens_fx` (mode 4) on a night map, else `to_scope_lens_fx` (mode 5); null below
+ * the scope (the 9x view and the goggles have their own).
+ * R4P-110, r0004 first (the specification): `thermal` is `thermalLensFitted` -- the gate 0x547e50 (asked at 0x1f0e90
+ * with no entity) needs 195 in the kit AND a sniper at the kit's hand slot (0x547e70, 0x547e80-0x547e90). r0001
+ * differs: its gate `FUN_005433c0(body, 0)` (D:L410083-410092) is `FUN_005c86f0(kit, 0xc3)` (D:L481153-481170) alone.
+ * "Only with a sniper in hand" is proven on r0004 (Q110-PC2: the M40A1 scoped at 6.0 and 12.0 thermal, the Mark 23 at
+ * the binoculars normal); a picked-up scoped non-sniper beside 195 (IQ-118, queued) is where the two builds split.
+ * `test/thermalSniper.test.ts`.
  */
 export function scopeLens(zoomState: number, thermal: boolean, night: boolean): ScopeLens | null {
   if (zoomState < 5 || zoomState > 12) return null;

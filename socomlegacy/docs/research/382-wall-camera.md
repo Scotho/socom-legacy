@@ -160,3 +160,171 @@ player's aim up into a sharp upward angle). Simulation track; **reading, pending
   hold the lean byte at 2 and `DAT_004161c0` at 0 throughout, so they do not measure it.
 - The player's view (research 402) is a separate adaptation that passes the watched body's pitch and peek to its own
   camera on purpose. This reading is the plain follow's and that view's fallback, and changes nothing there.
+
+## 8. The pass is one-sided on the hull (LATER 1057, issue #812)
+
+2026-11-15. Simulation track; **reading, pending review** (transcribed from the r0001 decompilation, unit- and
+dev-disc-tested against the transcription; no capture). The playtest finding (PT-20261115-4a3a-1, MP72): walking in and
+out of either gray tent, the third-person boom (target at a standing SEAL's y 64.98) crosses the front valance of
+`tent_gray` (tent 1: x 1405.5-1438, y 62.5/63.8-70, z 1550.7-1554.5; material 30, camera-class) from inside. The valance
+is one-sided, facing out, with no inward twin. The port's pass cast both ways, so the boom dropped 26.80 -> 0.75 in
+one tick and a 1.5 s hold was set; on the way out it sat at 3.38 through the hold (not under the hold's floor, 3.3),
+then let out 3 % a game frame (about 4 s).
+
+**The reading** (re-read at the source for this task):
+- `FUN_0029bf70`'s main probe: `FUN_0031e0a0(DAT_0045c380, target, eye, ..)` at D:L143385; `FUN_0031e0a0`
+  (D:L220080-220099) fills the world's query and runs `FUN_002d4780` (D:L220094), which calls `FUN_002d2890` for each
+  collider in the cells it walks (D:L175777, D:L175782, D:L175788).
+- Its four side probes: `FUN_0031de90(DAT_0045c380, &puStack_300, 4)` at D:L143549, the four segments queued just before
+  it (D:L143514-143543); `FUN_0031de90` (D:L219994-219999) runs `FUN_002d3cf0` (D:L219997), which calls `FUN_002d3030`
+  per collider (D:L175698, D:L175703, D:L175710).
+- Both per-collider tests set the start word `DAT_003df270` to 0x30 when the collider's `+0x80` bit 1 is set and to 0x20
+  otherwise: `FUN_002d2890` D:L174831-174837, `FUN_002d3030` D:L175277-175282 (type 2, D:L175246). With 0x20 the hull
+  polygon's VU0 plane test hits only a start in front of the face's normal and an end behind it (research 281 s4.3,
+  micro 288-333).
+- The hull's colliders are made by `FUN_00316e30`, which sets `+0x80` bit 0 and clears bit 1 (D:L215827-215828).
+- **The builders** (2026-11-15; a reading from the decompilation, re-read at the source by LATER 1057's fresh re-review
+  at 80478ffe5d and again for its fold): the level reader's node dispatch `FUN_00311520` builds a type 1 or 5 node with
+  `FUN_00316e30` (D:L212597-212602); a type 2 node through `FUN_00310da0` (D:L212604-212608), which looks its prototype
+  up by name (`FUN_0031fd10`, D:L212344) and instances it with `FUN_00317d90` (D:L212356; the function D:L216393);
+  types 8 and 9 (`FUN_003152d0`, `FUN_00321db0`) call `FUN_00316e30` first (D:L214771, D:L222316); the dispatch's other
+  branch builds with `FUN_00316e30` too (D:L212652). `FUN_00317d90` writes no `+0x80` itself: its copy is
+  `FUN_00316e10` (D:L216411 -> D:L215801), a virtual call through the prototype's vtable `+0xc` whose target the
+  decompilation does not show (research 182 s2.3 names it, for a node, as the clone `FUN_00316820`, D:L215638-215790,
+  which builds a fresh copy with `FUN_00316e30`, D:L215664, and writes no `+0x80` itself, its callees not read for it:
+  supporting, not settling). So an instance's bit rests on its prototype being an `FUN_00316e30` node, on no bit-1
+  setter on that path, and on the capture of MP51's `access1` instance, whose collider read `+0x80` = 0x41 (research 281
+  s4.3, SEGMENT-BODY part 11). The `+0x80` writes that set bit 1 (`& 0xfd | 2`) are exactly three: `FUN_0032ad20`
+  (D:L227610-227611), on a node it names by the string at 0x3f6fe0 (D:L227596; "PARTICLE DI NODE" in the strings
+  file), a particle effect's node only; the SEAL's body (D:L419731); and `FUN_001ff8a0`'s structure (D:L59846), already
+  accounted for by research 281 s4.3. None is a node the level reader builds.
+
+So the original's pass, main and side, counts a hull face only entered from its front. The same path LATER 250 and
+INV-WATER-CROUCH made front-only for the throw's clearance and the overhead rays (research 281 s4.3).
+
+**What changed.** Viewer `cameraRig.ts` `cameraPass` casts every probe through `segmentHits(.., accept, ALL_LAYERS,
+true)` (`frontOnly`). It was the two-sided `segmentHit` for the side probes and the two-sided `segmentHits` for the main
+probe. The main probe's "any hit" (`DAT_00416038`) is the front-only list's, as the original's is the same query's.
+The room's reproduction (`net/shotCone.ts` `reproducedEye`, LATER 305) calls `cameraPass` itself, so the eye that shots,
+orders and perception are judged from follows. Nothing else in `shotCone.ts` casts the pass.
+
+**What did not change.** These stay as they were:
+- the in-at-once pull, the 1.5 s hold (`CAM_HOLD`), the hold's 3.3 floor and the 3 % let-out (`CAM_REGROW`), all the
+  original's by reading;
+- the drawn camera's own casts (section 1: the body-side pull, `HEAD_EYE_WALL_BACK_PLACEHOLDER`; H309's
+  `clearNearRect`). These are adaptations and stay two-sided, so the drawn eye still jumps at the valance. Whether they
+  go front-only is a question for the owner once this lands, not this task.
+
+No constant was added or renamed.
+
+**The tests.**
+- viewer `cameraPassFrontOnly.test.ts` (unit): a one-sided face met from behind moves neither the main probe nor a side
+  probe and sets no hold; met from its front it does (the controls).
+- `shotConeViewLine.test.ts` ("LATER 1057: ...", the room's reproduction): a back wall met from behind pulls neither
+  the page's eye nor the room's.
+- `cameraPassTentDisc.test.ts` (the dev disc, MP72): the investigation's walk in and out under the valance holds the
+  boom at 26.80 and the hold at 0 at every tick.
+- The existing camera tests' synthetic walls were written with their normals away from the target, and a one-sided pass
+  would meet them from behind. They are re-wound to face the side the boom comes from, so those synthetic cases'
+  numbers stand: `playerCamera`, `cameraWallClip`, `cameraThinPost` (the post's faces now face out), `shotConeViewLine`
+  (the back wall), `matchNet`, `povCamera`, match `roomBarriers` (`CAMWALL`).
+  - `cameraWallClip`'s WALL-CAM downward case is the one wall re-wound to face the target. Its look target lies past
+    the wall (H337), and the case asks the drawn guard to protect a game eye left past it.
+- *Corrected 2026-11-15* (*was:* "so the base's numbers stand"): three tests' numbers did not stand, and were re-filed
+  where the original's pass meets a face from behind (5ddc625b1b). `enowapiStandDisc`'s LATER 491 case (MP11 gate 1,
+  pitch -45): the pass meets `g342_1` from behind and no longer holds the eye, so the use ray descends about 43.5
+  degrees where it descended about 83 (LATER 491's addendum; `LEAD_PROBE_START_PLACEHOLDER` unchanged, H337).
+  `cameraThinPost`'s full peek, its target inside the post: the pass now leaves the eye unpulled at its goal, its near
+  rectangle clear of the post (the drawn-eye assertions unchanged). `cameraWallClip`'s stand sweep takes a stand only on
+  a face's front (`frontOnly` on the approach).
+
+**Not settled.**
+- *A two-sided hull owner.* The port takes every polygon of its grid as the hull's. A collider with `+0x80` bit 1 set is
+  two-sided in the original. *Was:* "`FUN_0032ad20`'s (D:L227610-227611) sets it, and what that collider is has not
+  been read." Read since (the builders, above): it is a particle effect's node, and every node the level reader builds
+  is an `FUN_00316e30` node, bit 1 clear. Still not settled: an instance's bit is carried by `FUN_00316e10`'s virtual
+  copy, whose target the decompilation does not show (one instance captured, MP51's `access1`, 0x41); a bit-1 writer
+  not of the `& 0xfd | 2` form is not ruled out. The builder citations do not cover clutter nodes or r0004's nodes:
+  clutter's `+0x80` stays inferred (research 422 s2.5), and r0004's are not traced.
+- *What would settle it* (and move this reading to proven): a trace of the original running, reading `DAT_003de268`
+  (the pass's distance) and `cam+0x4c` (the hold) as a standing SEAL's boom leaves a one-sided camera face from behind.
+  That trace is owed somewhere other than the r0004 gray tent, because r0004's own 0x2d8500 quads there are camera-class
+  and would confound it. The expected result by this reading: the distance stays the goal's and the hold stays 0.
+
+**Owed for the box** (no node run on the authoring host): the targeted files above and the whole viewer, match and
+central suites (the pass feeds the room's view-line rule, LATER 305); the disc-backed camera files (`cameraWallClip`'s
+disc spots and hull sweep, `cameraThinPost`'s arcade, `povPassCorner`, `playersViewWallLeg`, `h337PredictionDisc`,
+central `roomHostageOrderEye`, `turretHold`, `turretPage`), whose disc faces may be met from behind; the corpus
+regeneration (`docs/corpus`).
+
+## 9. The view switch's re-pitch (FP-REPITCH, LATER 1582 / 1583)
+
+*Added 2026-11-25 by seat-shots (FP-REPITCH; the controller's ruling (B)). Reading, pending review; r0004 measured.*
+
+**The original.** On the pass the camera's mode changes, before the view is built, the camera re-pitches the local
+actor's look once (r0001 dispatcher `FUN_002998f0` D:L141981-142008, the last mode at `cam+0x13a`; r0004
+CAppCamera::Tick D4:L149867-149895, ATLAS's throw-aim reading s13.2):
+
+- new 3 (the head) from 2 (third person): `FUN_0029a3f0` (D:L142266-142320; r0004 FUN_0029b980 D4:L150150-150208). The
+  vertex is the head eye `FUN_0029ae50`; the look is the actor's `+0x1070` turning (0, 0, -1); the point is the stored
+  aim point `+0x1458` (D:L142299-142301) taken into the body's space; each angle `FUN_001b38e0(dy, dz)` in the body's
+  y-z plane, both wrapped into [0, 2 pi] with the float 6.2831855; `*(cam+0xc4)+0x130 += a1 - a2`, **unclamped**; then
+  `FUN_005af470` turns the head. With z behind the result is the elevation from the head eye to the point.
+- new 2 from not 2: `FUN_00299ed0` (D:L142129-142198; r0004 FUN_0029b460 D4:L150013-150084): the same about the tether's
+  target `FUN_0029a950` with the look (0, 0, -1000), **clamped to +-1.57 rad** (D:L142185-142194).
+- new 1 from 2: `FUN_0029a180` (D:L142203-142261; its r0004 twin `FUN_0029b710`, as viewer `headRepitch.ts` cites it), unclamped; the port's views never enter mode 1 (LATER 1583).
+
+*Correction to section 7's Q6 note:* it says each of the three helpers stores its angle "clamped to +-1.57". Only
+`FUN_00299ed0` clamps; `FUN_0029a3f0` and `FUN_0029a180` store the sum as it is (D:L142257, D:L142318).
+
+The stored point `+0x1458` is written every camera pass by CheckDIShoot (r0004 FUN_005b0370; r0001 `FUN_005aa6e0`)
+through SetAimPointW (r0004 FUN_005e6cb0, D4:L536093-536101): the eye query's nearest kept hit along the placed eye's
+centre line, whatever item is up; equal to the throw's `+0x1464` except after the muzzle-obstruction branch (keep = 1,
+D4:L505378-505405, a firearm state; LATER 1583). ATLAS s13.4.
+
+**Measured on r0004** (PC 2; MP51 face 1575, heading 298.6, standing, flashbang):
+- C7-OFFCLAMP-PC2: first-person look -5.88 / +1.85 / +4.24 / +7.10 at open / d 30 / 25 / 21 (third person -9.17); the
+  launch the same in both views (third / first 18.08 / 18.03, 21.07 / 21.02, 24.50 / 24.41; open 11.73 both).
+- THROW-H15-PC2 leg B: switched at d 45.32 the pitch goes -9.17 -> -2.06 and HOLDS walked in to d 22.55 (launch 16.08);
+  switched at d 21.32, -9.17 -> +7.10 (launch 24.37).
+- REPITCH-BACK-PC2 (d 25): -9.17 -> +4.28 / +4.25 -> -8.70 on both trials.
+
+**The port** (`../../packages/viewer/src/headRepitch.ts` `repitchToward`, `walk.ts` `setScoped` / `repitchOnSwitch`,
+`matchFirearm.ts` `walk.aimPointAt`): the transcription above. The vertex is `scopeEye` (third -> first) or
+`localCamera(...).target` without its lead probe (first -> third). The point is cast at the switch along the view being
+left (`placed`) by the page's eye query (`fire.eyeStops`) within the held item's reach (`throwAimReach` with an item up,
+else `fire.eyeReach`). Unit-tested against REPITCH-BACK-PC2 (`headRepitch.test.ts`: +4.15..+4.35; back -8.5..-8.9 from
+the port's own `scopeEye` / `localCamera`); the page's switch in a synthetic room (`fpRepitchWalk.test.ts`: +2.01 / +4.50
+/ +7.44 at d 30 / 25 / 21 on the port's eye geometry, held 20 ticks, first person's line through T within 0.3 u).
+
+**What the tests hold, and what they do not** (ATLAS's second read F3; review 1 note 7): `headRepitch.test.ts` holds the
+transcription against r0004's own REPITCH-BACK-PC2 values. `fpRepitchWalk.test.ts` holds the page's behaviour (re-pitched on
+the switch, held, the line through T, the switch back, no hook no change) against the port's own geometry: its +2.01 / +4.50 /
++7.44 are computed from the port's eye, NOT asserted against r0004's +1.85 / +4.24 / +7.10. The capture-level comparison is
+the rendered run below.
+
+**Rendered AFTER** (PC 4, FP-REPITCH-AFTER-PC4, at dbe5844039, MP51 face 1575, flashbang, 10 ticks waited a throw, two
+trials; backend webgpu): the first-person look after the switch -6.12 / +1.87 / +4.50 / +7.31 at open / d 30 / 25 / 21
+(r0004 -5.88 / +1.85 / +4.24 / +7.10); first person launches 0.02 under third at every d (r0004 0.05-0.09 under; 18.22 /
+21.31 / 24.77 against r0004's 18.03 / 21.02 / 24.41), where before (67b7183023) it was 6.50 / 9.60 under and NO RELEASE at
+d 21. Switch back at d 25: +4.42 -> -8.75 after 10 ticks (r0004 -8.70). Walk-in (switched at 45 u, walked to 22.47 u, no
+look): the look held -2.03 -> -2.01, launch 16.24 (r0004 THROW-H15-PC2 16.08; before 11.74). The ~0.3 degree residual is
+the port's eye geometry (`scopeEye`).
+
+**The reticle** (review 1 F1): the switch's re-pitch is no stick turn, so `matchFirearm` `viewLanes` carries `lastLook`
+with it (as `carryScope`) and the page's exertion throttle never sees it. Which rate the original's bloom reads after the
+head write is not read (reading, pending review); PC 4's reticle-size reads on the switch frame hold the page's side.
+
+### 9.1 Readings (named in the code)
+
+- `FP_REPITCH_ROOM_LAG_DEPARTURE_PLACEHOLDER` (viewer `src/headRepitch.ts`; `walk.ts` `setScoped`) = 'the re-pitch reaches
+  the body at the look gate's law': a named DEPARTURE (LATER 1582), not a browser adaptation. The original writes the new
+  pitch into the controller and the head on the switch's pass; the port's body, page and room alike, takes it through the
+  look gate at ~1.87 degrees a tick (a still body's 4 banked ticks on the first), r0004's 7-17 degree re-pitches in ~1-5
+  ticks, and the room's cone reads that ramp as a full-stick pitch turn. Settled by a wire word for the switch (the owner's,
+  v0.4.33).
+
+**Departure, named:** `FP_REPITCH_ROOM_LAG_DEPARTURE_PLACEHOLDER` (9.1, LATER 1582). **Not built:** LATER 1583 (the other
+entries into third person; the stored point's keep = 1, auto-aim and body-hit overrides; mode 1; the item-up branch untested).
+**Reviews:** review 1 (fresh, non-author; pilot/shots/FP-REPITCH-REVIEW.md) and ATLAS's second read of the transcription
+(pilot/shots/FP-REPITCH-2ND-READ.md), both PASS WITH FINDINGS, folded.

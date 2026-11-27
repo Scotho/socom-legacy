@@ -87,10 +87,10 @@ describe('MN-1: the replay refusal\'s sentence names the map', () => {
 describe('MN-1 review F1: the Armory loadout editor names its missions, never by stem', () => {
   // No disc: the release eight (`FIRST_RELEASE_MAPS`, Blizzard, The Ruins, Desert Glory and Fish Hook with them) in number
   // order; the disc's table order (51, 71, 72, 1, 2, 6, 7, 12) is `./loadout/loadoutDisc.test.ts`'s pin.
-  it('missionRowsOf, no disc (the release eight) and with the disc\'s table: named, in the launcher\'s Title case (F5)', () => {
+  it('missionRowsOf, no disc (the release eleven) and with the disc\'s table: named, in the launcher\'s Title case (F5)', () => {
     expect(missionRowsOf(null, null).map((r) => [r.mission, r.name])).toEqual([
-      ['MP1', 'Blizzard'], ['MP2', 'Frostfire'], ['MP6', 'Desert Glory'], ['MP7', 'Night Stalker'], ['MP12', 'The Ruins'],
-      ['MP51', 'Vigilance'], ['MP71', 'Fish Hook'], ['MP72', 'Crossroads'],
+      ['MP1', 'Blizzard'], ['MP2', 'Frostfire'], ['MP5', 'Abandoned'], ['MP6', 'Desert Glory'], ['MP7', 'Night Stalker'],
+      ['MP8', "Rat's Nest"], ['MP12', 'The Ruins'], ['MP51', 'Vigilance'], ['MP64', 'Shadow Falls'], ['MP71', 'Fish Hook'], ['MP72', 'Crossroads'],
     ]);
     expect(missionRowsOf(null, [63, 99]).map((r) => r.name)).toEqual(['After Hours', 'Unknown map']);
   });

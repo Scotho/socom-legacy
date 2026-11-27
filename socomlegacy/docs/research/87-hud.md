@@ -43,7 +43,7 @@ The whole HUD is off while `CHUD+0x1a6f5` bit 0 is clear (`HUD_ON`/`HUD_OFF`). E
 | 1.5 | fire mode | `firemode.tif` (HUDW, 32x16) x 1, 3 or 4 for mode 1, 2, 3 (`FUN_00237b40` L85254) | x = 15 + 36i, the first moved to 10; y 422; its own size | alpha 1 x fade | the weapon's fire mode | drawn, 3 at rest (the console frame's; `setFireMode`) |
 | 1.6 | compass ring | `compass_lo.tif` (HUD2, 128x128) at 0.75 | 96x96 centred on (565, 90) (`DAT_003dc508/50c`; `FUN_00211510` L67950-68287 overrides `CHUD_Init`'s 486-614 x 2-130) | alpha 100 (0.78); **turned** each frame by the player's facing (`FUN_00358730`) | the heading | drawn, turned by the walk's yaw |
 | 1.7 | compass marks | `ret_nav_01..24`, `ret_able`, `ret_bravo`, `ret_objective`, `ret_bomb`, `ret_base`, `ret_hostage`, `ret_friendly`, `ret_extraction`, `ret_triangle`, `hud_talk`, `small_compass` (HUD2, 16x16) | 38 slots; within 200 units at radius distance x 0.005 x 65 and their own size, beyond it pinned at radius 64 at 1.2x with a 0.6x arrow at radius 50; most hidden beyond 900 | each type its own RGB (`FUN_002126f0` L68576); types 1-13 pulse alpha 64-128 at 250/s | objectives, team mates, the bomb, **nav points** | the nav points drawn (§10); the rest need objectives or a team the viewer has not |
-| 1.8 | info box: health bar | untextured, (0, 128, 64) filled, (128, 64, 64) lost, (100, 100, 100) dead; a hit flashes white to green (`CHealthBar` `FUN_00241cc0` L89935) | (488, 396), 134x18 (`FUN_002388a0`) | alpha 80 | the player's health | drawn full |
+| 1.8 | info box: health bar | untextured, (0, 128, 64) filled, (128, 64, 64) lost, (100, 100, 100) dead; a hit lays the lost segment (+0x130) only (`CHealthBar::Update` `FUN_00241cc0`, D:L89965-89966, D:L90009-90027); the white-to-green fill flash is `CHealthBar::Tick` `FUN_00242050`'s state +0x1b0 (D:L90058-90083), which no writer read sets, so no flash is shown for a hit yet (LATER 392) | (488, 396), 134x18 (`FUN_002388a0`) | alpha 80 | the player's health | drawn full |
 | 1.9 | info box: the name on the bar | the player's name, scale 0.9 | centred on the bar, baseline 411 [measured on the Vigilance frames: ink x 535-575, y 402-411] | text colour | the profile | drawn when set (`setPlayerName`); empty by default |
 | 1.10 | info box: timer line's box | `newweapnbkrnd.tif` mirrored [measured: x 488-622, y 418-438, its stripe on the left] | -- | alpha 0.6 | -- | drawn |
 | 1.11 | round timer | `"%02d:%02d"` | pen (500, 433), scale 0.9 | text colour | the round clock | drawn **static** at 06:00 (`setTimer`) |
@@ -190,7 +190,8 @@ The scope's picture (`ret_scope_01/02`, `nvg_*`) is the reticle's (the ACCURACY 
 
 `fonts.rdr`'s `font_text_01`: `textures (font_text_01.tif font_special_01.tif)`, `xspacing 0`, `opacity 0.7`, `scale
 1`, `topy 0`, `boty 15`, `dropshadow { offset (1.5 1.5) color (0 0 0) opacity 0.75 baseline 0 }`, 185 glyphs of 25-row
-cells (the 95 printable ASCII ones are transcribed in `hudFont.ts`, checked against the archive by its test). `CHUD_Init`
+cells (the 166 codes of its first texture are transcribed in `hudFont.ts`, checked against the archive by its test;
+§3.1). `CHUD_Init`
 (`FUN_001fa360` L57227) loads it, falling back to `arialblack` if the bitmap is missing.
 
 The draw (`FUN_003639c0` -> `FUN_003635c0` L261085 -> one sprite a glyph, `FUN_00361bd0` L260233):
@@ -209,6 +210,46 @@ The draw (`FUN_003639c0` -> `FUN_003635c0` L261085 -> one sprite a glyph, `FUN_0
   times S; its alpha is `min(string alpha, 0.75 x 128)` = 80, black.
 - the string's alpha is `min(80, font opacity 0.7 x 128 = 89.6)` = **80**: the console frame's text peaks at 168 over
   the panel's 23, which is 23 + 0.625 x 232.
+
+### 3.1 The whole first texture, the unknown code and the told clan tag (LATER 1030 (c), 2026-11-15)
+
+Reading, pending review. This section owns the HUD font's glyph table because §3 is the note of `hudFont.ts`'s face;
+research 111 is the front end's text engine (`@s2u/ui`), whose R111.6 this section's fallback agrees with.
+
+- **The glyphs.** `font_text_01` holds 185 records (`test-fixtures/RUN/READERC.ZAR` `fonts.rdr`, read with
+  `Zar.parse` / `parseRdr`): 167 on texture 1, 18 on texture 2 (`FONT_SPECIAL_01`). The 167 hold 166 codes: the 95
+  printable ASCII, code 96 a second time (the first record kept, as before) and **71 others**, all now transcribed in
+  `FONT_TEXT_01`: 0xA1, 0xA9, 0xAB, 0xAE, 0xB0, 0xBA, 0xBB, 0xBF, 0xC0-0xCF, 0xD1-0xD6, 0xD8-0xDC, 0xDF, 0xE0-0xEF,
+  0xF1-0xF6, 0xF8-0xFC, 0xFF, 0x152, 0x153, 0x160, 0x161, 0x178, 0x201E, 0x20AC. None is in 0x80-0x9F; seven are
+  above 0xFF; 0xC2 is a glyph (A-circumflex). Every one has one element, `DispPos.y` 0, `HorScale` and `VertScale` 1,
+  baseline 0 and no colour, so the tuple and the layout are unchanged; `DispPos.x` is -1 or 0. No texture-1 code is
+  also a pad glyph's code (texture 2), so a line that asks for pad glyphs loses no letter. `test/hudFont.test.ts`
+  checks completeness and every field against the archive (a fixture test). The earlier "90 accented" counted the 18
+  pad glyphs and code 96's second record.
+- **The unknown code** (`HUD_UNKNOWN_GLYPH_READING`): `FUN_0035a3a0` (D:L255682) returns the map's own glyph; for a
+  code the map lacks, none for 0x0D (D:L255701), the Hangul table when a face has one (D:L255714; none does), else the
+  glyph of `'A' + code % 26` (D:L255755), else the map's first glyph (D:L255757-255770). The pen's step,
+  `FUN_00363c20`, gives 0 for no glyph (D:L261347-261355). The HUD drew a blank the width of a space; it now draws the
+  letter and advances by it, and 0x0D draws and advances nothing. A pad code on a line that does not ask for pad glyphs
+  (0xBE, say) now draws its letter ('I'): in the original the pad glyphs sit in the same map, so such a line would draw
+  the pad glyph -- the port's per-line `special` option is its own, kept as it was.
+- **The told tag.** The room tells a seat's clan tag as a byte string, one character a byte of the stored UTF-8
+  ("«G»" as C2 AB 47 C2 BB). The HUD now decodes it with the engine's decoder, `@s2u/ui` `engineCodes` (`FUN_0039f0c0`
+  / `FUN_0039f160`), before it meets a name (`hudTagText`, also `FONT_TEXT_01.tagText`): at `hud.ts` `taggedName` (the
+  info box, the team tags, the spectator title), the round screens' row tag and MVP line, and the speaker's line
+  (`hudVoice.ts` `speakerText`). The chain that makes this the original's: the HUD's text draw `FUN_003639c0`
+  (D:L261251) -> `FUN_003635c0` (D:L261089) -> `FUN_00362900` (D:L260664) -> `FUN_00362350` (D:L260477), which decodes
+  each character with `FUN_0039f0c0` and looks the code up with `FUN_0035a3a0` (D:L260517-260518); the pen move
+  `FUN_003625e0` decodes the same way (D:L260625-260637). The chain is read (re-read at the task's review); that the
+  tag's own draw sites go through it is INFERRED: the callers of `FUN_003639c0` found draw static text objects, and
+  the round list's route (D:L76326-76336, through `FUN_003333f0` / `FUN_00333610`) is not traced down to
+  `FUN_00362350`. The length tests on a tag (`FUN_00199288`, a strlen) still count bytes. A player's name is
+  code-point text and is not decoded. `test/hudClanTagBytes.test.ts` holds it.
+- **Not established.** Whether the in-round page ever sees a code above 0xFF in a tag (the decoder gives up to 16 bits;
+  a three-byte sequence would reach the euro sign); a capture of a tagged board on the original; the `!` and `.`
+  baseline 1 (not modelled, as before); a line break (0x0A) is the draw's (`FUN_00362350` D:L260497-260505), which the
+  HUD's one-line layout does not model -- it keeps a space's advance for it; the board's own tag site
+  (`scoreboard.ts`) is another head's.
 
 ## 4. What the viewer's walk shows, and what it cannot
 
@@ -444,12 +485,14 @@ L56760 / `FUN_0022be20` L79675, refreshed each second, hidden on release, L79873
   `FUN_0020a470`). Opening hides the HUD and the compass (`FUN_001f71c0`) and puts the player in input mode 4; closing
   restores them through the 1.5 s fade-in (`FUN_001f7030`). No fade of the map itself was found.
 - **Geometry:** `CZLineMap` (`FUN_0020ebd0` L66383) draws the map's `AIMAPS.MPS` (research 75): its polylines (type
-  `word & 0x1f`, the `hud.rdr` `TacMap` type; filled fans on flag bit 0x20, `FUN_0020f5c0` L66770, else lines,
-  `FUN_0020e470` L66172, thick when `Width` > 1.01; alpha opacity x 127), zones of kind 1 or 5 as (200, 0, 200)
-  outlines at alpha 100 (`FUN_0020df70`), named points of kind 5 labelled (`FUN_0020dac0`); a vertex at its cell's centre
-  (`FUN_002102e0` L67204); linked sub-maps at 0.3 alpha. Blizzard (79), Frostfire (253) and Bitter Jungle (56) have
-  polylines; the file's `value` is 0 on 534 of 553 (type 0: white lines at full), 1-3 on 19. The fill flag's source in
-  the file was not found: the viewer draws every polyline as lines.
+  `word & 0x1f`, the `hud.rdr` `TacMap` type; filled fans when the line word's bit 0x2000 is set, `FUN_0020f5c0`
+  L66770, lines when it is clear or the outline bit 0x4000 is set, `FUN_0020e470` L66172 (the test in
+  `CZLineMap::TickLines` `FUN_0020e370`, D:L66158-66164), thick when `Width` > 1.01; alpha opacity x 127), zones of
+  kind 1 or 5 as (200, 0, 200) outlines at alpha 100 (`FUN_0020df70`), named points of kind 5 labelled
+  (`FUN_0020dac0`); a vertex at its cell's centre (`FUN_002102e0` L67204); linked sub-maps at 0.3 alpha. Blizzard
+  (79), Frostfire (253) and Bitter Jungle (56) have polylines; the file's `value` is 0 on 534 of 553 (type 0: white
+  lines at full), 1-3 on 19. The fill flag's source in the file was not found: the viewer draws every polyline as
+  lines.
 - **Layout:** the box 232-628 x 62-365, centre (430, 213.5); the grid 7 horizontal lines 38.125 apart and 9 vertical
   40.85 apart from x 230, `FOV.tif`'s texel at (0.5, 0.94) at alpha 24, each line wiping in over 1 s, 0.1 s apart; the
   north arrow's three strokes round (600, 100) (`FUN_0020be00`) and "N" at (596, 107), scale 1; the player
@@ -501,15 +544,34 @@ action prompts, the reticle and the timer every frame.
 |---|---|---|---|
 | panel | `newweapnbkrnd.tif` nine-sliced (`FUN_0022ae90` L79223): 20-pixel corners, the corner texels 20/173 by 20/74 (`DAT_003e5718` 0.8844, `DAT_003e5720` 0.2703, L327982), the left corners mirrored | x 153..630, y 104..430 (the message window's bottom 91 + its YMargin 8 + 5) | bitmap white, alpha 100 [the colour is never set] |
 | team bars | untextured, under the panel | x 153..630, y y0..y0 + 25; SEALs y0 104, TERRORISTS (104 + 430) / 2 = 267 (`FUN_00229d00` L78846) | SEALs (32, 32, 64), TERRORISTS (64, 32, 32), alpha 80 |
-| team line | locale 60521 "SEALs" / 60522 "TERRORISTS", " :   " (0x3e5788), "%d" (game +0x120 / +0x124, rounds won [inferred]) | pen (171, y0 + 20), scale 1 | alpha 90 |
+| team line | locale 60521 "SEALs" / 60522 "TERRORISTS", " :   " (0x3e5788), "%d" (the net game object's +0x120 / +0x124: the host's copy of the round wins, below; reading, reviewed 2026-11-21) | pen (171, y0 + 20), scale 1 | alpha 90 |
 | columns | locale 60523 "KILLS", "DEATH" (0x3e5790), "SCORE" (0x3e5798), centred (C2DString +0x69) | centres 455, 522, 588 (175 and 175/3 from `DAT_003dc8e8`), baseline y0 + 20, scale 1 | alpha 90 |
 | rows | 8 a team, by score (`FUN_0022de60` L80575: same team, not a spectator, named); the clan tag "[clan]" at x 163 in (128, 64, 32), the name at 223, the three numbers centred on the columns (kills +0x550 + 0x598, deaths +0x556 + 0x59e, score +0x580 + 0x5c8) | baseline y0 + 38 + 16.8 i (SEALs 142 .. 259.6, TERRORISTS 305 .. 422.6), scale 0.8 (`FUN_0022a290` L78951) | (115, 115, 115) alpha 110; the local player's blue 12 (yellow) [inferred: controller vtbl+0x2c]; the dead x 0.6 [inferred: +0xe1 bit 4] |
 | stripes | odd rows 1, 3, 5, 7: `newweapnbkrnd`'s centre texel | x 161..624, baseline - 12 .. + 4 (`DAT_003dc990..9b0`) | alpha 60 |
 | satchel | `hud_satchel.tif` (HUD2; the string 0x3e5880, D:L80001-80003) on the row of the carrier of item 0x9a (`FUN_005c8640`, D:L79026); both teams' blocks drawn alike (`FUN_00229d00` D:L80018-80019), no test of the viewer's team | x 200..216, baseline - 12 .. + 4 (D:L79028-79029: `DAT_003dc960` 200, `DAT_003dc968` 16, `DAT_003dc970` 12 off the ELF) | the sprite's own, (128, 128, 128) alpha 128 (`FUN_00364c50` D:L262041-262047; `SCOREBOARD_SATCHEL_RGBA_READING`) |
-| GAME DETAILS | a (64, 128, 64) `newweapnbkrnd` strip y 104..129 over its body y 129..229; "GAME DETAILS" (0x3e57c0) at (20, 124), scale 1, alpha 90; three lines at x 24, y 145 / 165 / 185, scale 0.8, (115, 115, 115) alpha 110, cut with "-" to 118: online the lobby, the game's name and its type (1 BREACH, 2 DEMOLITION, 3 ESCORT, 4 EXTRACT, 5 SUPPRESSION); LAN "LAN game", the name, the type (`FUN_0022ac30` L79186) | x 10..152 | strip alpha 80 |
-| SPECTATORS | the same strip y 229..254, "SPECTATORS" (0x3e57b0) at (20, 249); up to 8 names at (24, 270 + 16.8 i), scale 0.8 | x 10..152, body to 430 | -- |
+| GAME DETAILS | a (64, 128, 64) `newweapnbkrnd` strip y 104..129 over its body y 129..229; "GAME DETAILS" (0x3e57c0) at (20, 124), scale 1, alpha 90; three lines at x 24, y 145 / 165 / 185, scale 0.8, (115, 115, 115) alpha 110, cut with "-" to 118: online the lobby, the game's name and its type (1 BREACH, 2 DEMOLITION, 3 ESCORT, 4 EXTRACT, 5 SUPPRESSION); LAN "LAN game", the name, the type (the heading `hudTurnOnScorePopup` `FUN_0022cc10`'s, D:L80013; the lines `hudTickScorePopup` `FUN_0022be20`'s; research 94 L898) | x 10..152 | strip alpha 80 |
+| SPECTATORS | the same strip y 229..254, "SPECTATORS" (0x3e57b0) at (20, 249); up to 8 names at (24, 270 + 16.8 i), scale 0.8 (`SetupSpectatorBox` `FUN_0022ac30` L79186) | x 10..152, body to 430 | -- |
 | Modern place (owner ruling 2026-09-29: "try to bump up the location of the scoreboard a bit when in modern mode") | the whole board -- panel, bars, rows, GAME DETAILS, SPECTATORS -- raised by `MODERN_SCOREBOARD_LIFT` 4 in the Modern presentation only (`scoreboard.ts`); the PS2 presentation keeps the game's place | top 100: clear of the message window above (panel to 99, its newest line's glyph cells to ~99.9), the same at every aspect (both centre-anchored, height-scaled) | -- |
 | Modern size (owner ruling 2026-09-29, final: "you can just make it a bit smaller instead of moving the top chat") | the whole board scaled uniformly about its top-centre (320, 100) by `modernScoreboardFit` (`hud.ts`), Modern only: just enough that its bottom (426 at scale 1) and, where it stands beside rather than over, its sides keep `MODERN_SCOREBOARD_MARGIN` 4 from the bottom HUD still up -- PAR-48 (research 282 s1, s5): the info box and the number hide under the board (D:L56811, D:L56826), so the stance word (top 417.0, right-edge-anchored) and the zoom (403.5, left-edge-anchored) alone; until PAR-48 the health bar (396), the name's glyph cells (394.5), the box (418) and the range (416.5) too; floor `MODERN_SCOREBOARD_MIN_SCALE` 0.75; the message window untouched, the PS2 place pinned | scale 16:9 0.9268, 16:10 0.9187, 4:3 0.9187, phone 390x844 0.9187 (the zoom binds), 21:9 1, phone 812x375 0.9602 (the stance word binds); every aspect clears above the floor. Before PAR-48: 16:9 0.8957 (the bar bound), 16:10 and 4:3 0.8911, phone 390x844 0.8911 (the name bound) | -- |
+
+**The team line's number** (KILL-B78, B-78; reading, reviewed 2026-11-21 (second reader); capture owed; the earlier
+"[inferred]" is settled). `FUN_00229d00` (D:L78883-78889) formats one integer after " :   ", got from the net game
+object `DAT_00437ce8` through a pointer-to-member thunk (`FUN_001828a0`) whose member is the routine's seventh argument
+(copied to a local, D:L78874-78876). `FUN_0022cc10` passes the ELF's 0x3dc920 for the SEALs block and 0x3dc930 for the
+TERRORISTS block (D:L80018-80020); those name the two-instruction getters at ELF 0x22d180 and 0x22d170, which return
+the object's word at +0x120 and +0x124. Those words are not the script's valves but a copy of them: on the host, online,
+on every end state but 4 (the `mission_abort` valve's, research 91 s2.1), `FUN_002a9b30` arms a 3.0 s timer
+at the end state and, once it runs out, copies `mp_score00` / `mp_score08` / `mp_winner` to +0x120 / +0x124 / +0x128
+and publishes the state in the same call (D:L150629-150672; research 91 s2.1); `FUN_002a72d0` zeroes them
+(D:L149257-149266). The host packs the two words every online frame (`FUN_002c00f0`, D:L163113-163114) and a client
+writes its own from them (`FUN_002c0850`, D:L163509-163515), so a client's board follows the host's copy, never the
+valves. So a board held through a round's hold shows the old tally until 3.0 s after the end state (23 s after the win
+lines on most maps, so 26 s). Not read: what raises the `mission_abort` valve (end state 4, which skips the copy) in an online match; where `DAT_00437ce8` is assigned (it is taken as the mission's +0x1808 object by
+the fields the two network routines share), whether an untraced write of +0x120 / +0x124 exists, and what is drawn at
+and after the copy's frame. The port: the room keeps the copy (`boardWins`, `packages/match/src/room.ts`), taken
+`ENGINE_READ_S` after `endRound` and sent as the `score` event's `wins`; `roundOver` and `roundStart` keep the live
+count (`packages/match/test/roomBoardWins.test.ts`). The settling capture: a held board's team line read each second
+from the win lines to ROUND COMPLETE, beside the host's word at +0x120 in memory.
 
 The draw order: the team bars, the panel, the details' body and header, "GAME DETAILS", the stripes, the teams'
 strings, the detail lines, the spectators' panels and names, the satchel last.
@@ -613,7 +675,18 @@ its word. "%s : FIRE IN THE HOLE!" (locale 60592) is a team mate's grenade, neve
 posting, the newest 8 lines, a colour per line, a line wider than the window wrapped as §14.1 reads), and posts the
 one death it can cause: a landing of the death class (`FUN_005ac1f0`'s class 3) is "%s falls to their death" with
 the player's name -- the viewer's SEAL then walks on. No pick-ups, deploys, grenade kills or comms exist in the viewer
-yet.
+yet. *(PICKUP-LINE, 2026-11-20: the match page posts a walk-over's item names on the small window -- `small_messages.rdr`,
+`Hud.postSmallMessage`, `SMALL_MESSAGES`, `SMALL_MESSAGE_LAYOUT_READING`; research 234 §7 `PICKUP_TEXT_PLACEHOLDER`.
+Its corrections, 2026-11-22 (reading, pending review): the line is the ammo record's `DisplayName` (`PICKUP_TEXT_READING`,
+`FUN_003cedb0` D:L322655-322659), firearm takes too (`PICKUP_TEXT_FIREARM_READING`); it starts at the window's left,
+x 12, a non-centred window placing a centred-0 line there (`FUN_002b5830` D:L157609-157610; non-centred: the window
+loader sets flag bit 0 only on the key "centered", D:L158216-158219, absent from `small_messages.rdr`); the window hides
+with the HUD -- the START menu, a spectator's and a teammate's view (the hide-all `FUN_001f77c0` hides the main message
+window, D:L56354, and the small one, D:L56355; D:L56356 is object 0x437540, not a message window, and the subtitles
+window 0x436b80 is not in it) and a dead
+player's own body (D:L57113); a take is dropped when it equals the window's newest line ignoring case (D:L473369-473371)
+and the window adds no line for its last post's text again (`FUN_002b6530` D:L157930-157969;
+`SMALL_MESSAGE_REPEAT_RESET_PLACEHOLDER`); the lines' order is `PICKUP_LINE_ENTRY_ORDER_PLACEHOLDER`.)*
 
 ### 14.1 The window's line width: a long line wraps (TAUNT-WRAP, 2026-11-02; reading, pending review)
 
@@ -697,8 +770,12 @@ built"; reading, pending review) adds `SCOREBOARD_SATCHEL_RGBA_READING` (`packag
 HUD-ALIVE (2026-11-09, §1.12; reading: HUD-ALIVE's review PASS WITH FINDINGS, its fold re-reviewed PASS WITH FINDINGS, per the merge cb57fe15c) adds `INFO_CLIENT_COUNT_READING` and
 `INFO_SESSION_MASTER_READING` (`packages/viewer/src/hud.ts`); research 101 §6 lists them too.
 
+LATER 1030 (c) (2026-11-15, §3.1; reading, pending review) adds `HUD_UNKNOWN_GLYPH_READING`
+(`packages/viewer/src/hudFont.ts`); research 101 §6 lists it too.
+
 | name | stands for | value in the code | the evidence that settles it |
 |---|---|---|---|
+| `HUD_UNKNOWN_GLYPH_READING` | the glyph a code the face lacks draws (§3.1): `FUN_0035a3a0`'s choice (D:L255682) -- none for 0x0D (D:L255701), then `'A' + code % 26` (D:L255755); `FUN_00363c20` advances 0 for none (D:L261347-261355); agrees with research 111 R111.6. Reading, pending review | `"'A' + code % 26; nothing for 0x0D"` (`hudFont.ts` `layoutText` / `textWidth`; was: a space's advance, nothing drawn) | a capture of an in-round line holding a code the face lacks (a tag or a chat line), or a draw trace of `FUN_0035a3a0`'s return for one |
 | `INFO_CLIENT_COUNT_READING` | who the info box's number counts (§1.12): the original's valid game clients, the network table's entries of status 1 (`FUN_00623090` D:L532383-532408, `FUN_00615160` D:L523200-523233), every connected console, players and spectators | `'the human seats among the score rows plus the spectators'` (`hud.ts` `validClientCount`; bots are no consoles) | whether a parked or reconnecting seat (OT.R59, NET-RES.R6) and a console mid-join count, traced through `FUN_00615160`'s status writers; or a capture of a 2v2 with a spectator joining (the scope's capture plan, frame 5) |
 | `INFO_SESSION_MASTER_READING` | which console draws the "m" (§1.12): the session master `DAT_0045a0c0` (`FUN_001f7ff0` D:L56607-56611); the match server is the host here (`@s2u/match` `gameLobby.ts`'s header) | `"the seat wearing the game lobby's host star; none in a room without a game lobby"` (`hud.ts`; `NetClient.sessionMaster`) | a capture after a host handover, the new host's frame; the archived frames ("2m" host, "2" client) agree on the plain case |
 | `MAP_ACTION_CAPTION_READING` | LkPaioX5 part 2 (b), §5 "The action list": an allowed map action's caption -- its `actions.rdr` `descriptor`, else `FUN_002b48e0`'s type text (OPEN DOOR / CLOSE DOOR by the valve, FLIP SWITCH, ...), else UNKNOWN (`FUN_002209c0` D:L74567-74582); a `tcm` action's text (D:L74405-74416). Reading, pending review | `'not drawn: ...'` (`hud.ts`): the port reads neither key | the `descriptor` and `tcm` keys read into `mapActions.ts`'s records and the door's valve state at the rebuild; a capture of a door's and a switch's captions Retired 2026-11-12 (G1 of the action-labels review; reading, pending review): replaced by the built DOOR and SWITCH captions (`mapActions.ts` `mapActionCaption`) and `MAP_ACTION_CAPTION_OTHER_TYPES_READING` |

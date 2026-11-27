@@ -716,7 +716,7 @@ describe('the bomb carried on the own body (PB-1; issue #84)', () => {
     expect(own(log)).toEqual(['own Satchel true', 'own Satchel false']);
   });
 
-  it("the plant's start plays Place claymore on the planter's own body (FUN_005be9a0's MPBOMB branch, D:L475480-475481: DAT_003deb48, 'Place claymore' at D:L495216), the pistol's pair with the sidearm in the hand; once, on the room's placement for this page's id, never for another's nor at a welcome", () => {
+  it("the plant's start plays Place claymore on the planter's own body (FUN_005be9a0's MPBOMB branch, D:L475480-475481: DAT_003deb48, 'Place claymore' at D:L495216), the rifle's clip with the sidearm in the hand too (LATER 1442); once, on the room's placement for this page's id, never for another's nor at a welcome", () => {
     for (const pistol of [false, true]) {
       const log: string[] = [];
       const { emit, ground } = harness(ownView(log, pistol), { 4: 'seal' });
@@ -727,7 +727,7 @@ describe('the bomb carried on the own body (PB-1; issue #84)', () => {
       emit({ type: 'bomb', ...carried, hold: { by: 2, kind: 'plant', sinceTick: 1000 } });   // the 5 s hold: no clip yet
       expect(clips()).toEqual([]);
       emit({ type: 'bomb', ...carried, hold: { by: 2, kind: 'place', sinceTick: 1300 } });   // the commit: the placement
-      const want = pistol ? 'clip seal_p_place_claymore seal_place_claymore' : 'clip seal_place_claymore seal_place_claymore';
+      const want = 'clip seal_place_claymore seal_place_claymore';     // LATER 1442: the sidearm keeps the rifle's clip
       expect(clips(), `pistol ${pistol}`).toEqual([want]);
       emit({ type: 'bomb', ...carried, hold: { by: 2, kind: 'place', sinceTick: 1300 } });   // the same placement again: once
       emit({ type: 'bomb', ...ground, state: 3, pos: [305, 0, 300], planter: 2, plantingTeam: 'seal', detonateTick: 9000 });
@@ -755,7 +755,7 @@ describe('the bomb carried on the own body (PB-1; issue #84)', () => {
   const dropEvent = (over: Partial<BombWire>, dropWhy?: string): ServerEvent =>
     ({ type: 'bomb', state: 1, pos: [60, 0, 60], carrier: null, planter: null, plantingTeam: null, defuser: null, detonateTick: null, pickupAfterTick: 1240, ...over, ...(dropWhy ? { dropWhy } : {}) }) as ServerEvent;
 
-  it("the manual drop the room names (dropWhy 'manual') plays Place claymore on the dropper's own body (FUN_0059ddb0 D:L457606-457612: pushed when the actor is not remote, CRemoteCtrl IsRemote at +0x34), the pistol's pair with the sidearm in the hand; a drop for a death, a leave or a lost seat, a reset and another's drop play none", () => {
+  it("the manual drop the room names (dropWhy 'manual') plays Place claymore on the dropper's own body (FUN_0059ddb0 D:L457606-457612: pushed when the actor is not remote, CRemoteCtrl IsRemote at +0x34), the rifle's clip with the sidearm in the hand too (LATER 1442); a drop for a death, a leave or a lost seat, a reset and another's drop play none", () => {
     for (const pistol of [false, true]) {
       const log: string[] = [];
       const { emit, ground } = harness(ownView(log, pistol), { 4: 'seal' });
@@ -763,7 +763,7 @@ describe('the bomb carried on the own body (PB-1; issue #84)', () => {
       const carried: BombWire = { ...ground, state: 2, carrier: 2 };
       emit(welcome({ objective: carried }));
       emit(dropEvent({}, 'manual'));                                            // the room took this page's drop
-      const want = pistol ? 'clip seal_p_place_claymore seal_place_claymore' : 'clip seal_place_claymore seal_place_claymore';
+      const want = 'clip seal_place_claymore seal_place_claymore';     // LATER 1442: the sidearm keeps the rifle's clip
       expect(clips(), `pistol ${pistol}`).toEqual([want]);
       for (const why of ['death', 'leave', 'gone', undefined]) {                // the others' reasons, and none (a reset)
         emit({ type: 'bomb', ...carried });

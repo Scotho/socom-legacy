@@ -31,6 +31,8 @@ export const BEACON_MAX_PER_LOAD_ADAPTATION = 20;
 /** XBOX-DIAG review F1: the diagnostics' own budget a load (`reportDiag`), apart from the errors' twenty and their gap. */
 export const BEACON_DIAGS_PER_LOAD_ADAPTATION = 20;
 export const BEACON_BYTES_CAP_ADAPTATION = 16_384;
+/** LATER 859 (`./threeConsole`): three's error-level console messages sent a load, on their own budget; the rest counted. */
+export const THREE_ERRORS_PER_LOAD_ADAPTATION = 5;
 /** Part B refuses a count above this (400): the page clamps (#685's review P3-6). */
 export const BEACON_COUNT_MAX_ADAPTATION = 1_000_000;
 /** The v1 caps, part B's (central truncates to them; the page keeps under them). */
@@ -38,7 +40,7 @@ export const BEACON_CAPS_ADAPTATION = { release: 64, backend: 32, adapter: 128, 
 
 /** `gpudemoted` (WG-7, W5): Automatic set to WebGL2 after a WebGPU error; central keeps a later kind as a free string. */
 export type BeaconKind = 'error' | 'unhandledrejection' | 'webglcontextlost' | 'gpudevicelost' | 'gpuuncapturederror' | 'chunkload' | 'gpudemoted'
-  | 'contextdiag' | 'inputdiag' | 'uigpufallback';
+  | 'contextdiag' | 'inputdiag' | 'uigpufallback' | 'netend' | 'threeerror' | 'loaddiag' | 'settingdiag' | 'voicediag';
 export type BeaconBackend = 'webgl2' | 'webgpu' | 'canvas2d' | 'unknown';
 
 export interface BeaconReport {
@@ -66,10 +68,12 @@ export interface BeaconContext {
   matchElapsedMs: number | null;
 }
 
-const KINDS: readonly BeaconKind[] = ['error', 'unhandledrejection', 'webglcontextlost', 'gpudevicelost', 'gpuuncapturederror', 'chunkload', 'gpudemoted', 'contextdiag', 'inputdiag', 'uigpufallback'];
+const KINDS: readonly BeaconKind[] = ['error', 'unhandledrejection', 'webglcontextlost', 'gpudevicelost', 'gpuuncapturederror', 'chunkload', 'gpudemoted', 'contextdiag', 'inputdiag', 'uigpufallback', 'netend', 'threeerror', 'loaddiag', 'settingdiag', 'voicediag'];
 /** XBOX-DIAG (`./matchDiag`): the diagnostic kinds -- not errors: never in the record, sent past the gap within the load's limit. */
 // UIGPU-FALLBACK-ROWS (v0.4.20): `uigpufallback`, a GPU menu surface's fallback to the software (`./uiGpuPresenter`).
-export const DIAG_KINDS: readonly BeaconKind[] = ['contextdiag', 'inputdiag', 'uigpufallback'];
+// LATER 62 (`./net/netEndDiag`): `netend`, a match's network-ended return.
+// E15 (`./voice/voiceDiag`): `voicediag`, a voice session's talk at its end.
+export const DIAG_KINDS: readonly BeaconKind[] = ['contextdiag', 'inputdiag', 'uigpufallback', 'netend', 'loaddiag', 'settingdiag', 'voicediag'];
 
 const cut = (s: string | null | undefined, cap: number): string | null => (typeof s === 'string' ? (s.length > cap ? s.slice(0, cap) : s) : null);
 
@@ -258,6 +262,9 @@ export class ClientErrorBeacon {
   /** VS-8 review F1: the perf reports' own count and gap. */
   private perfSent = 0;
   private perfLastAt: number | null = null;
+  /** LATER 859: three's console errors this load, and how many of them were sent. */
+  private threeSeen = 0;
+  private threeSent = 0;
 
   constructor(private readonly o: BeaconOptions) { this.pageId = o.pageId ?? randomPageId(); }
 
@@ -297,17 +304,39 @@ export class ClientErrorBeacon {
    * it describes at the same instant, or comes once a match) on its own budget, `BEACON_DIAGS_PER_LOAD_ADAPTATION`; not an
    * error, so never in the record or the page's report block. True when it was sent.
    */
-  reportDiag(kind: 'contextdiag' | 'inputdiag' | 'uigpufallback', message: string): boolean {
+  reportDiag(kind: 'contextdiag' | 'inputdiag' | 'uigpufallback' | 'netend' | 'loaddiag' | 'settingdiag' | 'voicediag', message: string): boolean {
     if (!(this.o.enabled?.() ?? true)) return false;
     // Review F1: on its own budget, as the perf report -- never the errors' gap or their twenty, so a diagnostic never
     // holds a real error back.
-    if (this.diagSent >= BEACON_DIAGS_PER_LOAD_ADAPTATION) return false;
+    // B-22 S2 (the batch review's F2): `settingdiag` keeps its own cap (`./settingsDiag`), outside the shared twenty.
+    const shared = kind !== 'settingdiag';
+    if (shared && this.diagSent >= BEACON_DIAGS_PER_LOAD_ADAPTATION) return false;
     let ctx: BeaconContext;
     try { ctx = this.o.context(); } catch { ctx = { release: null, builtAt: null, backend: null, adapter: null, map: null, matchElapsedMs: null }; }
-    this.diagSent++;
+    if (shared) this.diagSent++;
     this.send(encodeReport(buildReport(kind, message, null, ctx, this.pageId, 1)));
     return true;
   }
+
+  /**
+   * LATER 859 (`./threeConsole`): one of three's error-level console messages, already scrubbed, as `threeerror`, sent at
+   * once on its own budget (`THREE_ERRORS_PER_LOAD_ADAPTATION`) with a count of 1 -- central sums `count` into `/metrics`'
+   * errors, so a running count would overstate them; the ones past the budget are counted here (`threeErrorsSeen`), not
+   * sent. Never the errors' gap or twenty, never in the record or the page's report block, so it changes nothing the page
+   * shows or demotes on. True when it was sent.
+   */
+  reportThree(message: string): boolean {
+    this.threeSeen++;
+    if (!(this.o.enabled?.() ?? true) || this.threeSent >= THREE_ERRORS_PER_LOAD_ADAPTATION) return false;
+    let ctx: BeaconContext;
+    try { ctx = this.o.context(); } catch { ctx = { release: null, builtAt: null, backend: null, adapter: null, map: null, matchElapsedMs: null }; }
+    this.threeSent++;
+    this.send(encodeReport(buildReport('threeerror', message, null, ctx, this.pageId, 1)));
+    return true;
+  }
+
+  /** LATER 859: three's console errors seen this load (sent or not). */
+  threeErrorsSeen(): number { return this.threeSeen; }
 
   private trySend(r: BeaconReport, pastGap = false): void {
     if (!(this.o.enabled?.() ?? true)) return;

@@ -276,7 +276,7 @@ export function zoomScale(magnification: number, mode4 = false): number {
 /**
  * `raw`: a mouse count is an angle, `sensitivity` x `MOUSE_RADIANS_PER_COUNT` -- no curve, no cap, no ramp; the default.
  * `stick`: the mouse is the game's right stick -- its speed over the last few frames is a push (full push at
- * `MOUSE_FULL_PUSH` counts a second x `sensitivity`), through the circle, the curve, the ramp and the 128 deg/s cap.
+ * `MOUSE_FULL_PUSH` counts a second x `sensitivity`), through the circle, the player's stick curve, the ramp and the stick's own full-push cap (128 deg/s at RECRUIT).
  */
 export type MouseLaw = 'raw' | 'stick';
 
@@ -400,7 +400,9 @@ export class LookLaw {
       this.counts = [0, 0];
       const full = MOUSE_FULL_PUSH / this.opts.sensitivity;
       const ratio = this.opts.pitchRatio === 'game' ? 1 : 1 / PITCH_PER_YAW;
-      const [mx, my] = pushCurve(this.speed[0] / full, (-this.speed[1] * ratio * (this.opts.invertPitch ? -1 : 1)) / full);
+      // A browser adaptation: the mouse's push takes the player's stick curve (the preset's or LOOK SPEED's gain and its
+      // power), as the pad's does; its ramp follows the stick already. No dead zone: a mouse has no rest drift.
+      const [mx, my] = pushCurve(this.speed[0] / full, (-this.speed[1] * ratio * (this.opts.invertPitch ? -1 : 1)) / full, this.opts.stick);
       if (Math.abs(mx) > Math.abs(x)) x = mx;
       if (Math.abs(my) > Math.abs(y)) y = my;
     }
@@ -440,7 +442,10 @@ export const EXPLOSION_SHAKES: readonly Shake[] = [
   { x: { base: 60, rand: 30, decr: 4, dps: 1000 }, y: { base: 55, rand: 15, decr: 4, dps: 1150 } },
 ];
 
-/** `zweapon.rdr`'s `ScreenShake` on the M60E3, the M63A and the two turrets (every stance): one per round. */
+/**
+ * `zweapon.rdr`'s `ScreenShake` on the M60E3, the M63A and the two turrets (every stance). Started per own round only for the M60E3
+ * and the M63A (BUG-L250): the turrets' ids are class 0xcd, which `FUN_005c5340`'s gate refuses (D:L324331-324352, 479252-479253).
+ */
 export const MACHINE_GUN_SHAKE: Shake = {
   x: { base: 1, rand: 1, decr: 1, dps: 1600 }, y: { base: 1, rand: 1, decr: 1, dps: 2400 },
 };

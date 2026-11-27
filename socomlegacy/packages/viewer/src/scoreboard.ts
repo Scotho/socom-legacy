@@ -1,4 +1,5 @@
 import { FONT_TEXT_01, layoutText, textWidth } from './hudFont';
+import { detailsHidden, mask, ownNameShown } from './streamerMode';
 import type { HudQuad, HudTri } from './hud';
 import { ARMORY_SERVER_NAME_READING } from './net/protocol';
 import { plainBotText, botDisplayName } from './botPresentation';
@@ -45,16 +46,6 @@ export const SCORE_LAYOUT = {
   title: { x: 171, dy: 20, scale: 1, alpha: 90 / 128 },
   /** "KILLS" (locale 60523), "DEATH", "SCORE" centred on 455, 522, 588 (175 and 175/3 from `DAT_003dc8e8`). */
   columns: [{ text: 'KILLS', x: 455 }, { text: 'DEATH', x: 522 }, { text: 'SCORE', x: 588 }],
-  /**
-   * A browser adaptation (NCW-7, the owner's word 2026-11-05 "build the scoreboard ping yeah"; plan
-   * `2026-11-05-netcode-wave.md`, its NCW-7 row): the original's board has no ping. A fourth column "PING", one column
-   * pitch (66.5, KILLS to DEATH to SCORE) left of KILLS, centred on 388.5, its header in the three's font, scale, colour
-   * and alpha, its values the rows' whole milliseconds (`ScoreRowInfo.ping`) in the rows' colours, dimmed with them;
-   * "--" (`PING_NONE`) for a bot or a seat with no reading yet. Drawn only on a board with the room's rows (`info.rows`):
-   * the single-SEAL board of a round with no room is the original's, untouched. The names are cut (`cutLine`) to end
-   * `gap` before the column's left edge, the wider of the header and "999" at their scales.
-   */
-  ping: { text: 'PING', x: 388.5, gap: 4 },
   /** Rows: baseline y + 38 + 16.8 i, 8 a team, scale 0.8; the clan tag at 163, the name at 223 (`FUN_0022a290`). */
   rows: { dy: 38, pitch: 16.8, max: 8, scale: 0.8, clanX: 163, nameX: 223 },
   /** Row colours: (115, 115, 115) alpha 110; the local player's blue 12; the clan tag (128, 64, 32). */
@@ -104,6 +95,17 @@ export function gameDetailLines(d: GameDetails, type: string): [string, string, 
 }
 
 /**
+ * STREAMER-P1 (OT.R152; product track, **a browser adaptation**, `./streamerMode`): GAME DETAILS as drawn. While Streamer
+ * mode's Room and account details are Hidden, the lobby (or server) line and the game's name read
+ * `HIDDEN_DETAIL_WORDS` -- what a viewer could use to find the game; "LAN game" and the type word are kept. Otherwise the
+ * lines as `gameDetailLines` gives them. The original draws them always; this only hides them on this player's screen.
+ */
+export function shownDetailLines(lines: readonly [string, string, string]): [string, string, string] {
+  const [where, game, type] = lines;
+  return [where === LAN_GAME_LINE ? where : mask(where), mask(game), type];
+}
+
+/**
  * The front end's match (research 269 §5): the session's `ComeFromLan` valve (absent reads 0, `FUN_003045b0`) and its
  * two UI variables' strings, as the game lobby's ARMORY reads them (`./lobbyArmory`).
  */
@@ -115,9 +117,16 @@ export function sessionGameDetails(s: { uiVar(name: string): string | null; valv
  * `/testroom`'s served round (research 269 §5): it has no Medius lobby and no created game, so the two variables take
  * the ARMORY title bar's stand-ins for the same two (`./armory`'s `armoryNames`): the match server's name, else
  * `ARMORY_SERVER_NAME_READING`; the room's map (ARMORY_GAME_NAME_READING). Online: the round is served.
+ *
+ * E17 (B-83; a browser adaptation, the replay viewer has no original): a replay's world hands `named`, the match central's
+ * public replay entry names (`./modern/replays/worldHost` `details`) -- its region over the server's name, its lobby name
+ * over the map, each stand-in kept where it carries none (a local replay, an older central, a password game's name).
+ * Handed from the viewer's realm: anything not a non-empty string is none.
  */
-export function servedRoomDetails(server: string | null, room: string): GameDetails {
-  return { comeFromLan: false, lobby: server ?? ARMORY_SERVER_NAME_READING, game: room };
+export function servedRoomDetails(server: string | null, room: string,
+  named?: { region: string | null; lobbyName: string | null } | null): GameDetails {
+  const text = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
+  return { comeFromLan: false, lobby: text(named?.region) ?? server ?? ARMORY_SERVER_NAME_READING, game: text(named?.lobbyName) ?? room };
 }
 
 /** What the scoreboard shows. */
@@ -134,7 +143,7 @@ export interface ScoreboardInfo {
   rows?: ScoreRowInfo[];
   /** The spectators' names, the SPECTATORS panel's lines (87 §12: up to 8). */
   spectators?: string[];
-  /** Rounds won, the team lines' number (87 §12 [inferred], 91 §18); with `rows` only, default 0. */
+  /** Rounds won, the team lines' number: the host's copy taken 3.0 s after the end state (87 §12, reading; 91 §18); with `rows` only, default 0. */
   wins?: { seal: number; terrorist: number };
   /** ONL-19: the details' source (`gameDetailLines`; line 3 is `type`); absent, the LAN fill: "LAN game", `game`, `type`. */
   details?: GameDetails;
@@ -144,6 +153,62 @@ export interface ScoreboardInfo {
    * `Hud.setBombCarrier`.
    */
   bombCarrier?: number | null;
+  /**
+   * WM-DATA (a BROWSER ADAPTATION, `PING_BARS_ADAPTATION`): the id of the row under the mouse (`scoreboardRowAt`), or
+   * null / absent: that row's ping is drawn as its number beside its bars while hovered. A pad has no hover.
+   */
+  hoverRow?: number | null;
+  /**
+   * WM-13 (a BROWSER ADAPTATION, the DAMAGE REPORT PANEL; `./damagePanel` `damagePanelRows`, look 2F): the report laid into
+   * the board's rows -- the team lines, the column headers and the rows replaced, the frame (the header bars, the
+   * nine-slice, the stripes, the left column) drawn as ever. Absent: the board.
+   */
+  damage?: DamageBoardReport;
+  /**
+   * WM-13: the damage panel's hint (`./damagePanel` `damageHintText`), drawn above the panel's right end
+   * (`DAMAGE_HINT_ADAPTATION`) in the board's place and scale. Absent: none.
+   */
+  damageHint?: string;
+}
+
+/**
+ * DAMAGE_HINT_ADAPTATION (WM-13, a browser adaptation; the owner: "the hint can be just above in the most visually
+ * satisfying spot"; placement B, approved by the controller 2026-11-15 with the words "<SELECT> + <R2>  DMG"): the
+ * hint's baseline 6 above the panel's top (104), so its tallest cell, the SELECT pad glyph's (to the baseline + 4.93 at 0.8), ends 1.07 above the panel;
+ * right-aligned to the original panel's right edge (630, `SCORE_LAYOUT.panel.x1`) -- on a board with rows (OPS-S1, panel
+ * 144..639) that is 9 inside the panel's right edge, not flush; the hint is not moved there; the board's rows' scale 0.8; the HUD's help
+ * lines' colour and alpha (`./hud` `SPECTATOR_HELP`: (100, 100, 20), alpha 100 -- repeated here, the board imports no HUD
+ * value; the test pins them equal), the letters with their drop shadow, the pad glyphs in their own grey with none.
+ */
+export const DAMAGE_HINT_ADAPTATION = {
+  baseline: SCORE_TOP - 6, right: SCORE_LAYOUT.panel.x1, scale: 0.8, rgb: [100, 100, 20] as const, alpha: 100,
+} as const;
+
+/** WM-13: the hint's pen and its glyph cells' box on the PS2 frame (unlifted, unscaled). */
+export function damageHintBox(text: string): { pen: number; baseline: number; x0: number; x1: number; y0: number; y1: number } {
+  const H = DAMAGE_HINT_ADAPTATION;
+  const w = textWidth(text, H.scale, { special: true }), pen = H.right - w;
+  const { glyphs } = layoutText(text, pen, H.baseline, H.scale, { special: true });
+  return {
+    pen, baseline: H.baseline, x0: pen, x1: pen + w,
+    y0: Math.min(...glyphs.map((g) => g.y)), y1: Math.max(...glyphs.map((g) => g.y + g.h)),
+  };
+}
+
+/** WM-13: one string of a panel row, at its x, aligned, in its colour (0..1). */
+export interface DamageBoardCell { text: string; x: number; align: 'left' | 'centre' | 'right'; rgba: readonly [number, number, number, number] }
+/** WM-13: a panel row's thin bar -- its track, then its fill to `share` -- `up` above the baseline, `h` high. */
+export interface DamageBoardMeter {
+  x0: number; x1: number; up: number; h: number; share: number;
+  rgba: readonly [number, number, number, number]; track: readonly [number, number, number, number];
+}
+/** WM-13: one panel row. */
+export interface DamageBoardRow { cells: DamageBoardCell[]; meters: DamageBoardMeter[] }
+/** WM-13: the panel as the board draws it -- the two team lines' words, the headers, each block's rows. */
+export interface DamageBoardReport {
+  titles: readonly [string, string];
+  headers: readonly { text: string; x: number }[];
+  rows: readonly [readonly DamageBoardRow[], readonly DamageBoardRow[]];
 }
 
 /** One player's scoreboard row; KILLS / DEATH / SCORE are the match totals (91 §18). */
@@ -154,11 +219,19 @@ export interface ScoreRowInfo {
   /** Authored extension: trusted CPU identity is separate from the name and clan tag. */
   bot?: true;
   /**
-   * NCW-7 (a browser adaptation, `SCORE_LAYOUT.ping`): the seat's ping, whole ms -- the room's score row's `ping`
-   * (`ScoreRow.ping`, the heartbeat's smoothed round trip), handed here whole by the page (`NetPage`'s `score`). 0 or
-   * absent (no reading yet, an older room) draws `PING_NONE`, as a bot's row does.
+   * NCW-7 (a browser adaptation): the seat's ping, whole ms -- the room's score row's `ping` (`ScoreRow.ping`, the
+   * heartbeat's smoothed round trip), handed here whole by the page (`NetPage`'s `score`). WM-DATA draws it as the row's
+   * signal bars (`pingBars`) and its number on hover; 0 or absent (no reading yet, an older room) lights no bar, as a
+   * bot's row does.
    */
   ping?: number;
+  /**
+   * WM-DATA (protocol 17; a PRODUCT ADAPTATION, the original keeps no assists, research 155 §3): the seat's assists this
+   * match (`ScoreRow.assists`) -- the board's ASSISTS column (`SCORE_COLUMNS_ADAPTATION`) and GAME COMPLETE's -- and this
+   * round (`ScoreRow.roundAssists`, ROUND COMPLETE's and FINAL ROUND's), handed whole by the page. Absent (a room with no
+   * live match record: the Forge, the loopback test room) draws `ASSISTS_NONE`, never 0.
+   */
+  assists?: number; roundAssists?: number;
   /**
    * ONL-19: the player's clan tag (the record's +0x2e, `FUN_002c3ac0` D:L79042; research 91 §13), drawn "[tag]" at
    * `clanX`; absent or empty, nothing (`NO_CLAN`). CLAN-TAG-ROUND (research 275): the room's score rows carry it
@@ -167,6 +240,9 @@ export interface ScoreRowInfo {
    */
   clan?: string;
 }
+
+/** WM-DATA: the bars' bitmap -- the HUD's plain white texel (`./hud` `WHITE`, named here to keep `./hud` a type import). */
+const PING_BAR_TEXTURE = 'white';
 
 /** The dead rows' colour factor (`0x3f19999a`, `FUN_0022a290` L79022-79024, research 91 §11). */
 export const DEAD_DIM = 0.6;
@@ -201,7 +277,9 @@ export const CLAN_TAG_OVERRUN_READING = 'the whole tag, uncut';
  * the rest of the board (`FUN_00364a30(0x40dbf0)` D:L79156, last in `FUN_0022a8b0`). Shown to every viewer, both teams
  * and a spectator alike, as the original: `FUN_00229d00` draws both teams' blocks (D:L80018-80019), `FUN_0022a290` tests
  * nothing of the viewer (D:L79026), and the board opens for any seat (`FUN_0022be20`, SELECT; research 87 s12). OT.R109
- * as amended 2026-11-06 (the owner: both teams).
+ * as amended 2026-11-06 (the owner: both teams). The single-SEAL board draws it here; a board with the room's rows draws
+ * it in its own slot instead (`SCOREBOARD_SATCHEL_SLOT_ADAPTATION`, `pingBarsPlace().satchelX0`), the same height and
+ * bitmap, still last.
  */
 export const SCOREBOARD_SATCHEL_RECT = { x0: 200, x1: 216, up: 12, down: 4 } as const;
 /**
@@ -213,21 +291,192 @@ export const SCOREBOARD_SATCHEL_RECT = { x0: 200, x1: 216, up: 12, down: 4 } as 
  */
 export const SCOREBOARD_SATCHEL_RGBA_READING = [1, 1, 1, 1] as const;
 
-/** NCW-7 (a browser adaptation, `SCORE_LAYOUT.ping`): the PING cell of a bot, or of a seat with no reading yet. */
+/** NCW-7 (a browser adaptation): a bot's ping, or a seat's with no reading yet -- WM-DATA draws no number for it on hover. */
 export const PING_NONE = '--';
-/** NCW-7: the PING cell's text -- whole ms, or `PING_NONE` for a bot or a ping of 0 / absent. */
+/** NCW-7: a row's ping as text -- whole ms, or `PING_NONE` for a bot or a ping of 0 / absent (WM-DATA's hovered number). */
 export function pingCell(r: Pick<ScoreRowInfo, 'ping' | 'bot'>): string {
   return r.bot === true || !r.ping || r.ping <= 0 ? PING_NONE : String(Math.round(r.ping));
 }
-/**
- * NCW-7: the widest a row's name may be on a board with the PING column -- from the name's pen (`rows.nameX`, 223) to
- * the column's left edge (the wider of its header at the title scale and "999" at the row scale, about 388.5) less
- * `ping.gap`.
+
+/*
+ * WM-DATA, the SCOREBOARD's look (lane MATCH-DATA; product track, a BROWSER ADAPTATION with no original -- the original's
+ * board has no ping and no assists, research 155 §3). The owner's call 1, decided 2026-11-15 (his words through the main
+ * controller 8f: "1. A / 2. yeah the squeeze is acceptable ... / 3. hovered ping number overlapping the tag is okay as
+ * long as its temporary / 4. can the bars just be aligned all the way left?", then on 1E: "give enough left padding such
+ * that bars start at the same visual area as seals/terorsit text"). Drawn only on a board with the room's rows
+ * (`info.rows`): the single-SEAL board of a round with no room stays the original's three columns, untouched.
  */
-export function pingNameWidth(): number {
-  const L = SCORE_LAYOUT;
-  const half = Math.max(textWidth(L.ping.text, L.title.scale), textWidth('999', L.rows.scale)) / 2;
-  return L.ping.x - half - L.ping.gap - L.rows.nameX;
+
+/**
+ * SCORE_COLUMNS_ADAPTATION (WM-DATA, order A): the four number columns on a board with rows -- KILLS, DEATHS, ASSISTS,
+ * SCORE (K / D / A: the contributor's PR #940, ruled by the owner on 2026-11-25, MISSION OT.R161; was KILLS, ASSISTS,
+ * DEATH -- DEATHS as the round screens spell it, where the original's board has "DEATH": a labelled divergence from the
+ * original's DEATH, the owner's ruling, MISSION OT.R161) -- in the board's four slots one pitch (66.5) apart: the slot NCW-7's PING
+ * column held (388.5) and the original's three (455, 522, 588; `SCORE_LAYOUT.columns`). The headers in the original three's font, scale, colour and alpha;
+ * "ASSISTS" (no string of the game's) 59 wide at scale 1, clear of its neighbours. The ping leaves its column for the
+ * row's bars (`PING_BARS_ADAPTATION`).
+ */
+export const SCORE_COLUMNS_ADAPTATION = [
+  // DEATHS: a labelled divergence from the original's DEATH (SCORE_LAYOUT.columns): the owner's ruling, MISSION OT.R161.
+  { key: 'kills', text: 'KILLS', x: 388.5 }, { key: 'deaths', text: 'DEATHS', x: 455 },
+  { key: 'assists', text: 'ASSISTS', x: 522 }, { key: 'score', text: 'SCORE', x: 588 },
+] as const;
+/** WM-DATA: a row's figure by column. */
+export type ScoreColumnKey = (typeof SCORE_COLUMNS_ADAPTATION)[number]['key'];
+/** WM-DATA: the ASSISTS cell of a row with no `assists` (a room with no live match record) -- a dash, never 0. */
+export const ASSISTS_NONE = '-';
+/** WM-DATA: a row's cell under a column -- the number, or `ASSISTS_NONE` for assists not carried. */
+export function scoreCell(r: Pick<ScoreRowInfo, ScoreColumnKey>, key: ScoreColumnKey): string {
+  const n = r[key];
+  return n === undefined ? ASSISTS_NONE : String(n);
+}
+/**
+ * WM-DATA: the widest a row's name may be -- from its pen (`pingBarsPlace().nameX`, 241.4 on the widened board) to 4
+ * before the KILLS column's widest figure ("999" at the row scale, centred on 388.5 + `grow` = 397.5), as NCW-7's PING
+ * column cut it: 141.6, as before OPS-S1 widened the board. A 14-letter W name is whole.
+ */
+export function rowNameWidth(): number {
+  const L = SCORE_LAYOUT, P = pingBarsPlace();
+  return SCORE_COLUMNS_ADAPTATION[0].x + P.grow - textWidth('999', L.rows.scale) / 2 - 4 - P.nameX;
+}
+
+/**
+ * PING_BAR_THRESHOLDS_ADAPTATION (WM-DATA; the owner's "three signal bars"): whole ms -- at most `green` lights three bars
+ * green, at most `yellow` two yellow, above that one red; a bot or a seat with no reading lights none. The same two the
+ * look's mock (MEGA-MOCK call 1) drew.
+ */
+export const PING_BAR_THRESHOLDS_ADAPTATION = { green: 80, yellow: 150 } as const;
+/**
+ * PING_BARS_ADAPTATION (WM-DATA): the three bars -- each `w` wide, `gap` apart, `heights` tall up from the row's baseline,
+ * an untextured quad (the HUD's white texel, `./hud` `WHITE`); lit in the message window's green, yellow and red
+ * (`./matchMessages` `MESSAGE_COLOURS` 3, 1 and 5, 0..128), the unlit ones in the row's grey at `dim` of its alpha; the
+ * whole set dimmed with a dead row (`DEAD_DIM`).
+ */
+export const PING_BARS_ADAPTATION = {
+  w: 3, gap: 1, heights: [4, 7, 10], dim: 0.35,
+  rgb: { green: [64, 128, 64], yellow: [128, 128, 64], red: [128, 64, 64] },
+} as const;
+/**
+ * The longest clan tag a player can type: the CLAN TAG keyboard's cap, 3 characters -- the disc's `dlgManageRosterLeader`
+ * `clan_tag` GetTextInput, `MaxChars` 3 / `MaxBytes` 15 (research 272 s6, 272-clan-roster.md:107-111;
+ * `tools/test/manageRosterDisc.test.ts`). The seat's field is the record's 15 (`CLAN_TAG_OVERRUN_READING`), wider than any
+ * tag the keyboard sets.
+ */
+export const CLAN_TAG_TYPEABLE_CHARS = 3;
+/** WM-DATA: the widest tag a player can type -- three "&", the font's widest printable glyph (14 at scale 1; "[&&&]" 45 at 0.8). */
+export const CLAN_TAG_WIDEST = '&'.repeat(CLAN_TAG_TYPEABLE_CHARS);
+/**
+ * PING_TAG_GAP_ADAPTATION (WM-DATA, capture 1F; the controller's ruling 2026-11-15, building to 1F as the default until the
+ * owner confirms): the clan tag's pen this far after the bars' right edge. The bars' left edge is the team heading's first
+ * glyph, computed at draw time (`pingBarsPlace`; 161.4 for "SEALs" and "TERRORISTS" alike on the board OPS-S1 widened,
+ * 170.4 before) -- the owner's "bars start at the same visual area as seals/terorsit text".
+ */
+export const PING_TAG_GAP_ADAPTATION = 4;
+/**
+ * PING_NAME_GAP_ADAPTATION (WM-DATA, capture 1F): the name's pen this far after the widest typeable tag (`CLAN_TAG_WIDEST`)
+ * drawn at the tag's pen, so every row's name starts at one x and no tag a player can have reaches it. Since OPS-S1 the
+ * satchel's slot stands between them (`SCOREBOARD_SATCHEL_SLOT_ADAPTATION`, its own gap each side); this gap is what the
+ * slot replaces, so the board grows by the slot less it.
+ */
+export const PING_NAME_GAP_ADAPTATION = 2;
+/**
+ * SCOREBOARD_SATCHEL_SLOT_ADAPTATION (OPS-S1, a BROWSER ADAPTATION of the board with the room's rows; product track).
+ * The original draws the bomb carrier's satchel at x 200..216 (`SCOREBOARD_SATCHEL_RECT`, `FUN_0022a290` D:L79028-79029),
+ * between its clan tag's pen (163) and its name's (223). WM-DATA's ping bars moved the tag's pen to 185.4 and the name's to
+ * 232.4, so 200..216 lay inside the tag's lane, over any tag wider than 14.6 ("[rK]" is 25 wide) -- seen by the owner on the
+ * live board (v0.4.23). The owner's ruling, 2026-11-15 (typed in the OPS seat): "lets just go back to the same design and
+ * increase the width of the scoreboard a bit i think giving the space to the area that needs it and keeping the rest of
+ * the design". So the original's order is kept -- tag, satchel, name: the satchel in its own `w`-wide slot after the widest
+ * tag a player can type (`CLAN_TAG_WIDEST`), `gap` clear each side, at the original's height and bitmap; and the room it
+ * needs is ADDED to the board, half to each side (`pingBarsPlace().grow`, (16 + 2 * 2 - 2) / 2 = 9: the slot and its gaps
+ * less the tag-to-name gap it replaces, `PING_NAME_GAP_ADAPTATION`), the board staying centred on x 320 inside the 640
+ * frame. Everything left of the slot (the left column, the panel's left edge, the stripes', the team titles, the bars, the
+ * hovered number, the tag) moves `grow` left; everything right of it (the name, the four columns, the stripes' and the
+ * panel's right edges) `grow` right. Nothing shrinks: the name's lane stays 141.6, the columns keep their pitch. Given up:
+ * the board with rows is 18 wider than the original's (1..639 against 10..630) and its left column sits 9 further left.
+ * The 9 / 9 split is the OPS seat's reading, shown to the owner as a sample -- his to change here. The single-SEAL board of
+ * a round with no room stays the original's, untouched (`SCORE_LAYOUT`).
+ */
+export const SCOREBOARD_SATCHEL_SLOT_ADAPTATION = { w: 16, gap: 2 } as const;
+/**
+ * PING_HOVER_GAP_ADAPTATION (WM-DATA; the controller's ruling on the owner's "make the tooltip show left"): the hovered
+ * number is right-aligned to end this far LEFT of the bars' left edge (159.4 for bars at 161.4). It may run past the
+ * row's left edge, over the panel's border, while the pointer rests there; it never moves the bars, the tag or the name.
+ */
+export const PING_HOVER_GAP_ADAPTATION = 2;
+/**
+ * PING_HOVER_BACKING_ADAPTATION (WM-DATA, the same ruling): the hovered number's backing -- a small dark tag in the
+ * panel's own style: the panel's bitmap `newweapnbkrnd.tif`, its centre texel (as the odd rows' stripes take it), at the
+ * panel's alpha (100 / 128, `SCORE_LAYOUT.panel.alpha`), stacked over the panel and so darker than it; `pad` either side
+ * of the number (its right edge meets the bars' left edge), from the baseline - `up` to + `down` -- the row stripe's
+ * band, so it never reaches another row's bars. Drawn under the number.
+ */
+export const PING_HOVER_BACKING_ADAPTATION = { pad: 2, up: 12, down: 4, alpha: SCORE_LAYOUT.panel.alpha } as const;
+/**
+ * PING_OWN_ROW_ALWAYS_ADAPTATION (WM-DATA): whether the player's own row shows its number without a hover. The look's
+ * first pick (1C) drew it on the own row only; the owner's later words replace it ("ping as three singnal bars (hover over
+ * to see)"), so every row, the own included, shows its number on hover alone. The alternative is this one constant away.
+ */
+export const PING_OWN_ROW_ALWAYS_ADAPTATION: boolean = false;
+
+/** WM-DATA: how many of the three bars a row lights, and their colour (0..128); none for a bot or no reading. */
+export function pingBars(r: Pick<ScoreRowInfo, 'ping' | 'bot'>): { lit: 0 | 1 | 2 | 3; rgb: readonly [number, number, number] } {
+  const T = PING_BAR_THRESHOLDS_ADAPTATION, B = PING_BARS_ADAPTATION;
+  if (r.bot === true || !r.ping || r.ping <= 0) return { lit: 0, rgb: SCORE_LAYOUT.rowRgb };
+  if (r.ping <= T.green) return { lit: 3, rgb: B.rgb.green };
+  if (r.ping <= T.yellow) return { lit: 2, rgb: B.rgb.yellow };
+  return { lit: 1, rgb: B.rgb.red };
+}
+/**
+ * WM-DATA (capture 1F) and OPS-S1: the row's x places on the 640-wide board with the room's rows -- the one place they are
+ * computed. `grow`: how far everything left of the satchel's slot moves left and everything right of it moves right
+ * (`SCOREBOARD_SATCHEL_SLOT_ADAPTATION`; 9). The bars' span from the team heading's first glyph (`SCORE_LAYOUT.title`'s pen
+ * moved `grow` left, the SEALs heading; the TERRORISTS one starts at the same x), the clan tag's pen, the satchel's slot
+ * after the widest typeable tag, the name's pen after the slot, where the hovered number ends (right-aligned, left of the
+ * bars). At 640x448: bars 161.4..172.4, tag 176.4, satchel 223.4..239.4, name 241.4, hover end 159.4.
+ */
+export function pingBarsPlace(): {
+  x0: number; x1: number; tagX: number; nameX: number; hoverEnd: number; satchelX0: number; satchelX1: number; grow: number;
+} {
+  const B = PING_BARS_ADAPTATION, L = SCORE_LAYOUT, S = SCOREBOARD_SATCHEL_SLOT_ADAPTATION;
+  const grow = (S.w + 2 * S.gap - PING_NAME_GAP_ADAPTATION) / 2;
+  const x0 = layoutText(L.teams[0].name, L.title.x - grow, 0, L.title.scale).glyphs[0]!.x;
+  const x1 = x0 + B.heights.length * (B.w + B.gap) - B.gap;
+  const tagX = x1 + PING_TAG_GAP_ADAPTATION;
+  const satchelX0 = tagX + textWidth(`[${CLAN_TAG_WIDEST}]`, L.rows.scale) + S.gap, satchelX1 = satchelX0 + S.w;
+  const nameX = satchelX1 + S.gap;
+  return { x0, x1, tagX, nameX, hoverEnd: x0 - PING_HOVER_GAP_ADAPTATION, satchelX0, satchelX1, grow };
+}
+
+/** A team's rows as the board lists them: sorted by score descending, ties in the given (join) order, cut to 8. */
+function teamRows(rows: readonly ScoreRowInfo[], team: 'seal' | 'terrorist'): ScoreRowInfo[] {
+  // Array.prototype.sort is stable: equal scores keep the given (join) order.
+  return rows.filter((r) => r.team === team).sort((a, b) => b.score - a.score).slice(0, SCORE_LAYOUT.rows.max);
+}
+
+/**
+ * WM-DATA (a BROWSER ADAPTATION, the hover of `PING_BARS_ADAPTATION`): the id of the row under the frame's pixel (x, y),
+ * or null -- a row is its stripe's band (x 161..624 widened by `pingBarsPlace().grow` each side, 152..633 -- OPS-S1;
+ * baseline - 12 .. + 4), placed as `scoreboardLayout` places it with the same `lift` and `scale`. Null on a board without
+ * the room's rows.
+ */
+export function scoreboardRowAt(
+  frame: { width: number; height: number }, info: Pick<ScoreboardInfo, 'rows'>, x: number, y: number, lift = 0, scale = 1,
+): number | null {
+  if (!info.rows) return null;
+  const s = frame.height / 448, L = SCORE_LAYOUT;
+  const bx = 320 + (x - frame.width / 2) / (scale * s);
+  const by = SCORE_TOP + (y / s - (SCORE_TOP - lift)) / scale;
+  const grow = pingBarsPlace().grow;
+  if (bx < L.stripe.x0 - grow || bx > L.stripe.x1 + grow) return null;
+  for (const [i, t] of L.teams.entries()) {
+    const hit = teamRows(info.rows, i === 0 ? 'seal' : 'terrorist').find((_, k) => {
+      const base = t.y + L.rows.dy + L.rows.pitch * k;
+      return by >= base - L.stripe.up && by <= base + L.stripe.down;
+    });
+    if (hit) return hit.id;
+  }
+  return null;
 }
 
 /** A detail line cut to `width` at `scale` with a trailing "-", as `FUN_0022ac30` does. */
@@ -260,6 +509,10 @@ export function scoreboardLayout(
   const Y = scale === 1 ? (y: number): number => (y - lift) * s : (y: number): number => (top + (y - SCORE_TOP) * scale) * s;
   const quads: HudQuad[] = [];
   const L = SCORE_LAYOUT;
+  // OPS-S1 (SCOREBOARD_SATCHEL_SLOT_ADAPTATION): a board with the room's rows is `grow` wider each side -- what is left of
+  // the satchel's slot moves `dl`, what is right of it `dr`; the single-SEAL board keeps the original's places (0, 0).
+  const place = pingBarsPlace();
+  const dl = info.rows ? -place.grow : 0, dr = info.rows ? place.grow : 0;
   const panel = sizes['newweapnbkrnd.tif'];
   const rect = (texture: string, x0: number, y0: number, x1: number, y1: number, rgba: Rgba4,
     uv?: [number, number, number, number], element: HudQuad['element'] = 'scoreboard'): void => {
@@ -269,9 +522,9 @@ export function scoreboardLayout(
     quads.push({ element, texture, x: (X(x0) + X(x1)) / 2, y: (Y(y0) + Y(y1)) / 2, w: X(x1) - X(x0), h: Y(y1) - Y(y0),
       turn: 0, u0, v0, u1, v1, rgba, layer: 1 });
   };
-  const text = (line: string, x: number, y: number, scale: number, rgba: Rgba4, align: 'left' | 'centre' = 'left'): void => {
+  const text = (line: string, x: number, y: number, scale: number, rgba: Rgba4, align: 'left' | 'centre' | 'right' = 'left'): void => {
     if (!sizes[FONT_TEXT_01.texture] || !line.trim()) return;
-    const pen = align === 'centre' ? x - textWidth(line, scale) / 2 : x;
+    const pen = align === 'centre' ? x - textWidth(line, scale) / 2 : align === 'right' ? x - textWidth(line, scale) : x;
     const { glyphs } = layoutText(line, pen, y, scale);
     const [dx, dy] = FONT_TEXT_01.dropShadow.pixels;
     for (const pass of ['shadow', 'text'] as const) {
@@ -289,17 +542,17 @@ export function scoreboardLayout(
 
   // The team headers' bars: untextured, under the nine-slice (the draw order's first) -- the layer's shapes.
   for (const t of L.teams) {
-    const [x0, y0, x1, y1] = [X(L.panel.x0), Y(t.y), X(L.panel.x1), Y(t.y + L.header.h)];
+    const [x0, y0, x1, y1] = [X(L.panel.x0 + dl), Y(t.y), X(L.panel.x1 + dr), Y(t.y + L.header.h)];
     const rgba = c255(t.header, L.header.alpha);
     tris.push({ layer: 1, p: [x0, y0, x1, y0, x1, y1], rgba }, { layer: 1, p: [x0, y0, x1, y1, x0, y1], rgba });
   }
 
   // The nine-slice: 20-pixel corners, the left column mirrored (its stripe on both sides).
   if (panel) {
-    const P = L.panel, c = P.corner, W = panel.width, H = panel.height;
+    const P = L.panel, c = P.corner, W = panel.width, H = panel.height, px0 = P.x0 + dl, px1 = P.x1 + dr;
     const fu = L.cornerUv.u * W, fv = L.cornerUv.v * H;
     const xs: [number, number, number, number][] = [
-      [P.x0, P.x0 + c, W, W - fu], [P.x0 + c, P.x1 - c, fu, W - fu], [P.x1 - c, P.x1, W - fu, W],
+      [px0, px0 + c, W, W - fu], [px0 + c, px1 - c, fu, W - fu], [px1 - c, px1, W - fu, W],
     ];
     const ys: [number, number, number, number][] = [
       [P.y0, P.y0 + c, 0, fv], [P.y0 + c, P.y1 - c, fv, H - fv], [P.y1 - c, P.y1, H - fv, H],
@@ -310,10 +563,10 @@ export function scoreboardLayout(
   // The left column: GAME DETAILS and SPECTATORS, each a green header strip over its body.
   const C = L.left, white: Rgba4 = [1, 1, 1, L.panel.alpha];
   for (const part of [C.details, C.spectators]) {
-    rect('newweapnbkrnd.tif', C.x0, part.y0 + 25, C.x1, part.y1, white);
-    rect('newweapnbkrnd.tif', C.x0, part.y0, C.x1, part.y0 + 25, c128(C.headerRgb, C.headerAlpha));
+    rect('newweapnbkrnd.tif', C.x0 + dl, part.y0 + 25, C.x1 + dl, part.y1, white);
+    rect('newweapnbkrnd.tif', C.x0 + dl, part.y0, C.x1 + dl, part.y0 + 25, c128(C.headerRgb, C.headerAlpha));
   }
-  text(C.details.title, C.details.titleAt[0], C.details.titleAt[1], 1, [1, 1, 1, L.title.alpha]);
+  text(C.details.title, C.details.titleAt[0] + dl, C.details.titleAt[1], 1, [1, 1, 1, L.title.alpha]);
 
   // The odd rows' stripes.
   if (panel) {
@@ -321,7 +574,7 @@ export function scoreboardLayout(
     for (const t of L.teams) {
       for (let i = 1; i < L.rows.max; i += 2) {
         const base = t.y + L.rows.dy + L.rows.pitch * i;
-        rect('newweapnbkrnd.tif', L.stripe.x0, base - L.stripe.up, L.stripe.x1, base + L.stripe.down, [1, 1, 1, L.stripe.alpha], mid);
+        rect('newweapnbkrnd.tif', L.stripe.x0 + dl, base - L.stripe.up, L.stripe.x1 + dr, base + L.stripe.down, [1, 1, 1, L.stripe.alpha], mid);
       }
     }
   }
@@ -331,52 +584,108 @@ export function scoreboardLayout(
   const wins = info.rows ? [info.wins?.seal ?? 0, info.wins?.terrorist ?? 0] : [0, 0];
   // BOMB-MARKS: the carrier's row's baseline, if his row is drawn, for the satchel drawn last (every viewer: OT.R109 amended).
   let satchelBase: number | null = null;
-  const nameWidth = pingNameWidth();
+  const nameWidth = rowNameWidth();
+  const damage = info.damage;
   L.teams.forEach((t, i) => {
-    text(`${t.name} :   ${wins[i]}`, L.title.x, t.y + L.title.dy, L.title.scale, [1, 1, 1, L.title.alpha]);
-    for (const col of L.columns) text(col.text, col.x, t.y + L.title.dy, L.title.scale, [1, 1, 1, L.title.alpha], 'centre');
+    // WM-13 (a browser adaptation, `./damagePanel`; look 2F): the panel's titles, headers and rows in the board's place --
+    // the title with the board's (OPS-S1: `dl` on a board with rows), the panel's own cells at their own x, unmoved.
+    if (damage) {
+      text(damage.titles[i]!, L.title.x + dl, t.y + L.title.dy, L.title.scale, [1, 1, 1, L.title.alpha]);
+      for (const col of damage.headers) text(col.text, col.x, t.y + L.title.dy, L.title.scale, [1, 1, 1, L.title.alpha], 'centre');
+      damage.rows[i]!.slice(0, L.rows.max).forEach((row, k) => {
+        const base = t.y + L.rows.dy + L.rows.pitch * k;
+        for (const m of row.meters) {
+          const y0 = base - m.up, y1 = y0 + m.h;
+          rect(PING_BAR_TEXTURE, m.x0, y0, m.x1, y1, [...m.track], [0, 0, 1, 1]);
+          rect(PING_BAR_TEXTURE, m.x0, y0, m.x0 + (m.x1 - m.x0) * Math.max(0, Math.min(1, m.share)), y1, [...m.rgba], [0, 0, 1, 1]);
+        }
+        for (const c of row.cells) text(c.text, c.x, base, L.rows.scale, [...c.rgba], c.align);
+      });
+      return;
+    }
+    text(`${t.name} :   ${wins[i]}`, L.title.x + dl, t.y + L.title.dy, L.title.scale, [1, 1, 1, L.title.alpha]);
+    // WM-DATA (a browser adaptation, `SCORE_COLUMNS_ADAPTATION`): a board with the room's rows takes order A's four
+    // headers (OPS-S1: `dr` right of their slots); the single-SEAL board keeps the original's three.
+    const heads = info.rows ? SCORE_COLUMNS_ADAPTATION : L.columns;
+    for (const col of heads) text(col.text, col.x + dr, t.y + L.title.dy, L.title.scale, [1, 1, 1, L.title.alpha], 'centre');
     if (info.rows) {
-      // NCW-7 (a browser adaptation, `SCORE_LAYOUT.ping`): the PING header beside the three.
-      text(L.ping.text, L.ping.x, t.y + L.title.dy, L.title.scale, [1, 1, 1, L.title.alpha], 'centre');
-      const team = i === 0 ? 'seal' : 'terrorist';
-      // Array.prototype.sort is stable: equal scores keep the given (join) order.
-      const mine = info.rows.filter((r) => r.team === team).sort((a, b) => b.score - a.score).slice(0, L.rows.max);
+      const mine = teamRows(info.rows, i === 0 ? 'seal' : 'terrorist');
       mine.forEach((r, k) => {
         const base = t.y + L.rows.dy + L.rows.pitch * k;
         const f = r.alive ? 1 : DEAD_DIM;
         const [cr, cg, cb, ca] = r.self ? c128(L.localRgb, L.rowAlpha) : rowRgba;
         const rgba: Rgba4 = [cr * f, cg * f, cb * f, ca * f];
-        // NCW-7: the name cut to end before the PING column (`pingNameWidth`), with the board's own `cutLine`.
-        text(botDisplayName(cutLine(plainBotText(r.name), L.rows.scale, nameWidth), r.bot === true), L.rows.nameX, base, L.rows.scale, rgba);
+        // WM-DATA (capture 1F): the name at its pen after the widest tag, cut before the KILLS column (`rowNameWidth`).
+        // STREAMER-P1 (a browser adaptation): the own row reads YOU while details are Hidden (`ownNameShown`), its tag dropped.
+        const bare = r.self && detailsHidden();
+        text(bare ? ownNameShown(r.name) : botDisplayName(cutLine(plainBotText(r.name), L.rows.scale, nameWidth), r.bot === true), place.nameX, base, L.rows.scale, rgba);
         // The clan: "[" tag "]" (S:0x3e57a0, S:0x3e57a8) over the seed's space, uncut (CLAN_TAG_OVERRUN_READING past 13
         // characters), in (128, 64, 32) for every row --
         // the local player's blue is the name's alone (D:L79020) -- and dimmed with it (D:L79024; D:L79042-79058).
+        // WM-DATA (PING_TAG_GAP_ADAPTATION): its pen after the bars, not the original's 163. LATER 1030 (c): the tag is the
+        // room's byte string, decoded once by the engine's decoder (`FONT_TEXT_01.tagText`) as every HUD site's; the name not.
         const [kr, kg, kb, ka] = c128(L.clanRgb, L.rowAlpha);
-        text(r.clan ? `[${plainBotText(r.clan)}]` : NO_CLAN, L.rows.clanX, base, L.rows.scale, [kr * f, kg * f, kb * f, ka * f]);
-        [r.kills, r.deaths, r.score].forEach((n, c) => text(String(n), L.columns[c]!.x, base, L.rows.scale, rgba, 'centre'));
-        text(pingCell(r), L.ping.x, base, L.rows.scale, rgba, 'centre');   // NCW-7: the row's colour, dimmed with it
+        text(r.clan && !bare ? `[${plainBotText(FONT_TEXT_01.tagText(r.clan))}]` : NO_CLAN, place.tagX, base, L.rows.scale, [kr * f, kg * f, kb * f, ka * f]);
+        // WM-DATA: order A's four figures in the row's colour; assists not carried draw `ASSISTS_NONE`.
+        for (const col of SCORE_COLUMNS_ADAPTATION) text(scoreCell(r, col.key), col.x + dr, base, L.rows.scale, rgba, 'centre');
+        // WM-DATA (PING_BARS_ADAPTATION): the three bars at the row's far left, lit by its ping, dimmed with a dead row.
+        const B = PING_BARS_ADAPTATION, bars = pingBars(r);
+        const [lr, lg, lb] = c128(bars.rgb, 1), [ur, ug, ub] = c128(L.rowRgb, 1);
+        B.heights.forEach((h, b) => {
+          const x0 = place.x0 + b * (B.w + B.gap);
+          const ink: Rgba4 = b < bars.lit ? [lr * f, lg * f, lb * f, L.rowAlpha * f] : [ur * f, ug * f, ub * f, L.rowAlpha * B.dim * f];
+          rect(PING_BAR_TEXTURE, x0, base - h, x0 + B.w, base, ink, [0, 0, 1, 1]);
+        });
+        // WM-DATA: the number while the row is hovered (or the own row, PING_OWN_ROW_ALWAYS_ADAPTATION), after the bars and
+        // over the tag; none for a bot or a seat with no reading.
+        const shown = info.hoverRow === r.id || (PING_OWN_ROW_ALWAYS_ADAPTATION && r.self);
+        if (shown && pingCell(r) !== PING_NONE) {
+          // PING_HOVER_GAP_ADAPTATION / PING_HOVER_BACKING_ADAPTATION: right-aligned to end left of the bars, on its backing.
+          const n = pingCell(r), H = PING_HOVER_BACKING_ADAPTATION, pen = place.hoverEnd - textWidth(n, L.rows.scale);
+          if (panel) {
+            const cu = panel.width / 2, cv = panel.height / 2;
+            rect('newweapnbkrnd.tif', pen - H.pad, base - H.up, place.hoverEnd + H.pad, base + H.down, [1, 1, 1, H.alpha], [cu, cv, cu + 0.01, cv + 0.01]);
+          }
+          text(n, pen, base, L.rows.scale, rgba);
+        }
         if (info.bombCarrier != null && r.id === info.bombCarrier) satchelBase = base;
       });
       return;
     }
     if (i !== 0) return;
     const base = t.y + L.rows.dy;
-    text(info.player, L.rows.nameX, base, L.rows.scale, c128(L.localRgb, L.rowAlpha));
+    text(ownNameShown(info.player), L.rows.nameX, base, L.rows.scale, c128(L.localRgb, L.rowAlpha));   // STREAMER-P1: YOU while Hidden
     for (const col of L.columns) text('0', col.x, base, L.rows.scale, c128(L.localRgb, L.rowAlpha), 'centre');
   });
 
   // The detail lines, then the spectators' header.
-  const details = info.details ? gameDetailLines(info.details, info.type) : [LAN_GAME_LINE, info.game, info.type];
-  details.forEach((d, i) => text(cutLine(d, C.lines.scale, C.lines.width), C.lines.x, C.lines.ys[i]!, C.lines.scale, rowRgba));
-  text(C.spectators.title, C.spectators.titleAt[0], C.spectators.titleAt[1], 1, [1, 1, 1, L.title.alpha]);
+  const details = shownDetailLines(info.details ? gameDetailLines(info.details, info.type) : [LAN_GAME_LINE, info.game, info.type]);   // STREAMER-P1
+  details.forEach((d, i) => text(cutLine(d, C.lines.scale, C.lines.width), C.lines.x + dl, C.lines.ys[i]!, C.lines.scale, rowRgba));
+  text(C.spectators.title, C.spectators.titleAt[0] + dl, C.spectators.titleAt[1], 1, [1, 1, 1, L.title.alpha]);
   // In the order given (SPECTATOR_ORDER_READING), in SPECTATOR_RGB_READING at the details' alpha 110.
   const spectatorRgba = c128(SPECTATOR_RGB_READING, L.rowAlpha);
   (info.spectators ?? []).slice(0, SPECTATOR_LINES.max).forEach((n, i) =>
-    text(cutLine(n, C.lines.scale, C.lines.width), SPECTATOR_LINES.x, SPECTATOR_LINES.y0 + SPECTATOR_LINES.pitch * i, C.lines.scale, spectatorRgba));
-  // BOMB-MARKS: the satchel on the carrier's row, last (D:L79156), the whole bitmap at its own colour.
+    text(cutLine(n, C.lines.scale, C.lines.width), SPECTATOR_LINES.x + dl, SPECTATOR_LINES.y0 + SPECTATOR_LINES.pitch * i, C.lines.scale, spectatorRgba));
+  // WM-13 (DAMAGE_HINT_ADAPTATION): the hint above the panel, in the board's place and scale (the Modern lift and fit with it).
+  if (info.damageHint && info.damageHint.trim() && sizes[FONT_TEXT_01.texture]) {
+    const H = DAMAGE_HINT_ADAPTATION, box = damageHintBox(info.damageHint);
+    const { glyphs } = layoutText(info.damageHint, box.pen, box.baseline, H.scale, { special: true });
+    const [dx, dy] = FONT_TEXT_01.dropShadow.pixels, a = H.alpha / 128;
+    for (const pass of ['shadow', 'text'] as const) {
+      for (const g of glyphs) {
+        if (pass === 'shadow' && g.texture) continue;
+        const [ox, oy] = pass === 'shadow' ? [dx * H.scale, dy * H.scale] : [0, 0];
+        const ink: Rgba4 = pass === 'shadow' ? [0, 0, 0, a] : g.rgb ? [g.rgb[0] / 128, g.rgb[1] / 128, g.rgb[2] / 128, a] : [H.rgb[0] / 128, H.rgb[1] / 128, H.rgb[2] / 128, a];
+        rect(g.texture ?? FONT_TEXT_01.texture, g.x + ox, g.y + oy, g.x + ox + g.w, g.y + oy + g.h, ink, [g.u0, g.v0, g.u1, g.v1]);
+      }
+    }
+  }
+  // BOMB-MARKS: the satchel on the carrier's row, last (D:L79156), the whole bitmap at its own colour. A carrier's row is
+  // drawn only on a board with the room's rows, so its x is the slot's (OPS-S1, `SCOREBOARD_SATCHEL_SLOT_ADAPTATION`),
+  // not the original's 200..216 the bars' tag lane now covers; the height is the original's.
   if (satchelBase !== null) {
     const S = SCOREBOARD_SATCHEL_RECT;
-    rect('hud_satchel.tif', S.x0, satchelBase - S.up, S.x1, satchelBase + S.down, [...SCOREBOARD_SATCHEL_RGBA_READING]);
+    rect('hud_satchel.tif', place.satchelX0, satchelBase - S.up, place.satchelX1, satchelBase + S.down, [...SCOREBOARD_SATCHEL_RGBA_READING]);
   }
   return { quads, tris };
 }

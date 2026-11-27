@@ -36,6 +36,8 @@ export interface BuiltDialog {
   screen: UiScreen;
   scripts: ScreenScripts | null;
   valves: ValveStore;
+  /** The dialog's name as the machine opened it (`dlgCreateClan.rdr`); absent where a builder names none. */
+  name?: string | null;
 }
 
 export interface DialogPartsOptions {
@@ -46,6 +48,8 @@ export interface DialogPartsOptions {
   captions?: CaptionSource | null;
   /** A UIMnLOC string by id (a record's text id, a label's); absent, through `captions.command` (`locTextOf`); none known: null. */
   locText?: (id: number) => string | null;
+  /** LATER 359b, NET-RES-3 (an intended divergence under OT.R77): a text-id-0 popup's text by its name (`PopupContext.nameText`). */
+  nameText?: (name: string) => string | null;
   /** Whether a bitmap is found in the dialog's libraries (`FUN_0036a230`); all are, unless this says otherwise. */
   hasTexture?: (name: string) => boolean;
   /**
@@ -89,6 +93,7 @@ export class DialogParts {
       screenEvent: (code) => { scripts?.event(code); },
     };
     this.widgets = WidgetSet.build(dialog.design, dialog.screen, {
+      dialog: dialog.name ?? null,   // STREAMER-P1: told to the page's display rule
       face: o.face, captions: o.captions, valves: dialog.valves, locText: o.locText ?? locTextOf(o.captions), name: (cmd, i) => this.name(cmd, i),
       hasTexture: o.hasTexture, uiVars: o.uiVars,
       animation: (name, argument) => scripts !== null && scripts.startBinding(name, argument),
@@ -149,6 +154,7 @@ export class DialogParts {
       face: o.face ?? (() => null), font: d.design.font, captions: o.captions ?? null, uiVars: o.uiVars ?? null, valves: d.valves,
       locText: o.locText ?? locTextOf(o.captions), name: this.name, hasTexture: o.hasTexture ?? (() => true),
       inputString: () => (slot?.current && d.scripts ? d.scripts.inputString(slot.current.anim) : null),
+      ...(o.nameText ? { nameText: o.nameText } : {}),   // LATER 359b, NET-RES-3
     };
     slot = new SlotPopup(new Popup(ctx));
     return slot;

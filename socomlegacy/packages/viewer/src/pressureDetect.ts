@@ -80,3 +80,20 @@ export function pressureConnectOffered(pads: readonly PadLike[], nav: unknown = 
   if (!(nav as { hid?: unknown } | undefined)?.hid) return false;
   return pads.some((p) => p.id !== PRESSURE_PAD_ID && /054c/i.test(p.id) && /0268/.test(p.id));
 }
+
+/**
+ * DS3-PRESSURE (c) (product track; a browser adaptation, OT.R28 -- nothing of the game): why the Connect row is absent
+ * while a pad is present, or null. 'no-webhid': no `navigator.hid` (Firefox, Safari). 'wrapped': WebHID is there but no
+ * pad names 054c:0268, and one reads as an XInput / Xbox 360 pad (045e:028e, or "XInput" in its id) or a DualShock 4
+ * (054c:05c4 or 09cc) -- what DsHidMini's XInput and DS4Windows modes, ScpToolkit and Steam Input show a DS3 as. Kept
+ * conservative: a DualSense or any other pad says nothing (a real XInput or DS4 pad gets a line that begins "If this is a
+ * DualShock 3", `PRESSURE_ABSENT_WRAPPED`).
+ */
+export function pressureConnectAbsent(pads: readonly PadLike[], nav: unknown = globalThis.navigator): 'no-webhid' | 'wrapped' | null {
+  const real = pads.filter((p) => p.id !== PRESSURE_PAD_ID);
+  if (real.length === 0) return null;
+  if (!(nav as { hid?: unknown } | undefined)?.hid) return 'no-webhid';
+  if (pressureConnectOffered(real, nav)) return null;
+  const wrapped = (id: string): boolean => /xinput/i.test(id) || (/045e/i.test(id) && /028e/i.test(id)) || (/054c/i.test(id) && /05c4|09cc/i.test(id));
+  return real.some((p) => wrapped(p.id)) ? 'wrapped' : null;
+}

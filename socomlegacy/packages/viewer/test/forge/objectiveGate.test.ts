@@ -70,14 +70,21 @@ describe('FG-51: the page reads the room\'s rule, keeps the author\'s type, and 
     expect(load).toMatch(/markersOfBomb\(/);
     expect(load).toMatch(/bombRest = bombRestOf\(/);
     expect(load).toMatch(/if \(m\.locked\) r\.userData\['forgeLock'\] = true;/);
-    const act = body('act');
-    const refuse = act.indexOf("if (prevs.some(lockedOf)) { notifier.refused(`the locked ${kind === 'start' ? 'start' : 'site'} stays: unlock it first`); return; }");
-    const removal = act.indexOf('for (const p of prevs) removeRoot(p);');
+    // PR #5 (OT.R112, place mode removed): the placing click's `act` is the Select tool's alone; a bomb marker is made by
+    // `makeSpawn` (the lock refused before anything is made, the earlier markers removed in its `commit`) and kept by
+    // `dropEnd` (`spawnAtCentre`), the commit inside the one person's edit.
+    const make = body('makeSpawn');
+    // The condition with its message (PR #5's review: the message alone let the lock's test weaken unseen): a marker of
+    // the same bomb kind that is locked refuses, before anything is made.
+    const refuse = make.indexOf("if (roots.some((x) => bombKindOf(x) === bk && lockedOf(x))) { notifier.refused(`the locked ${bk === 'start' ? 'start' : 'site'} stays: unlock it first`); return null; }");
+    const removal = make.indexOf('for (const x of prevs) removeRoot(x);');
     expect(refuse).toBeGreaterThan(-1);
     expect(removal).toBeGreaterThan(refuse);
     // One edit, so one undo step, for the whole replacement (the forge seat's word; bombUndo.test.ts holds the step).
-    const branch = act.slice(act.lastIndexOf('const before = selectionIds();', removal), act.indexOf('return;', removal));
+    const end = body('dropEnd');
+    const branch = end.slice(end.indexOf('personEdit(s.record'), end.indexOf('}, true);'));
+    expect(branch).toMatch(/s\.commit\?\.\(\);/);
     expect(branch.match(/\bedit\(/g)).toEqual(['edit(']);
-    expect(branch).toMatch(/edit\(before\);/);
+    expect(branch).toMatch(/edit\(d\.before, step\);/);
   });
 });

@@ -158,7 +158,33 @@ export interface LobbyArmoryPorts {
    * steps that reach its kit): the game socket's `loadout` request. Absent, the choice stays on the page.
    */
   loadout?(side: Side, choice: { char: number; picks: readonly { slot: number; id: number }[] }): void;
+  /** WM.R25: the screen stays live under popup 47 (`ARMORY_PULLOUT_LIVE_OWNER`, the default); false is the original's modal popup. */
+  pulloutLive?: boolean;
 }
+
+/**
+ * ARMORY_PULLOUT_LIVE_OWNER (WM.R25, a departure from the original on the owner's word, INTAKE 98, 2026-11-16: "the 5 sec
+ * countdown should let you finish picking your weapon not freeze you"; product track: input under a notice, not the room,
+ * the bridge or the count). The original's pull-out is the disc's `dlg_equipment_mp.rdr` `UiBackToLobby`: on the launch
+ * count's first tick popup 47 ("taken back to the game lobby in 5 seconds"), WAIT 5, `SWITCHMENU` to the lobby (research
+ * 95 R95.7, 167 R167.3), and a shown popup takes every press (`FUN_00368650`, research 182 §2.4) -- so for those 5 s the
+ * ARMORY did not move (a reading of the disc's script; no capture). With this on, the script's timing and its popup stand
+ * but the popup is a notice over a screen that still takes the pad and the taps: every change goes on to the room as before
+ * (`loadout`, flushed when the SWITCHMENU closes the screen), and DONE (or Triangle on character select; on a weapon row
+ * Triangle opens its confirm as ever) returns to the lobby at once -- but in the wait's last `PULLOUT_BACK_CUTOFF_S`, where
+ * the page's own switch would race the script's (the old dialog's scripts tick on under the fader, `menuShell.ts` A3/A4,
+ * and the script's SWITCHMENU would then push a second lobby onto the history), the screen closes and the script's
+ * SWITCHMENU, at most half a second away, takes the player back. Off (a port's `pulloutLive: false`): the original's modal
+ * popup.
+ */
+export const ARMORY_PULLOUT_LIVE_OWNER = true;
+
+/**
+ * WM.R25's last window, s: the script's WAIT 5 (`UiBackToLobby`, research 95 §4.1) less the fader's longest close -- its
+ * opacity climbs 2 a second from 0 to full (`menuShell.ts` A4, D:L262277-262286), 0.5 s. A DONE or Triangle at or past it
+ * leaves the switch to the script.
+ */
+export const PULLOUT_BACK_CUTOFF_S = 4.5;
 
 type Phase = 'idle' | 'open' | 'left' | 'yielded';
 
@@ -177,6 +203,8 @@ export class LobbyArmory {
   /** The type and kit chosen in this session, by `MISSION:side` (what `Armory.open` takes as the page's). */
   private readonly held = new Map<string, { type: number; kit: Loadout }>();
   private pulled = false;
+  /** When popup 47 was seen (the screen's clock), for `PULLOUT_BACK_CUTOFF_S`. */
+  private pulledTime = 0;
   private opening = false;
   private leaving = false;
   /** The screen's last frame, kept up after DONE or Triangle until the dialog is left (`left`). */
@@ -275,7 +303,7 @@ export class LobbyArmory {
     if (popupShown && !this.pulled) {
       // `UiBackToLobby` shows popup 47 once the clock it copied into ArmoryClock has ticked; any other popup is an error's.
       const clock = this.valve('ArmoryClock');
-      if (clock !== null && clock !== this.valve('mp_x_sec_clock')) { this.pulled = true; this.armory.pullOut(); this.send.flush(); }
+      if (clock !== null && clock !== this.valve('mp_x_sec_clock')) { this.pulled = true; this.pulledTime = this.time; this.armory.pullOut(); this.send.flush(); }
       else { this.leaving = true; this.armory.close(); this.leaving = false; this.phase = 'yielded'; return; }
     }
     this.armory.frame(dt);
@@ -322,17 +350,22 @@ export class LobbyArmory {
     this.o.profile.mode(3);
   }
 
+  /** Popup 47 takes the input: the pull-out shown and WM.R25 off (the original's modal popup). */
+  private frozen(): boolean { return this.pulled && !(this.o.pulloutLive ?? ARMORY_PULLOUT_LIVE_OWNER); }
+
   private closed(): void {
     this.send.flush();                                                       // ARMORY-SAVE: the screen left: the last change now
     if (this.phase !== 'open') return;
     this.phase = 'left';
-    if (!this.leaving) this.o.back();
+    // WM.R25: in the pull-out's last window the script's own SWITCHMENU takes the player back (PULLOUT_BACK_CUTOFF_S).
+    const late = this.pulled && this.time - this.pulledTime >= PULLOUT_BACK_CUTOFF_S - 1e-9;
+    if (!this.leaving && !late) this.o.back();
   }
 
   /**
    * The pad read for this frame, every frame (the session hands it each read, so a button held into the screen from
    * the lobby -- the CROSS that chose the ARMORY -- is no press): a slot down now and not at the read before is one step,
-   * while the screen is up; none while popup 47 shows. The left stick's flick is the d-pad press it stands for
+   * while the screen is up; while popup 47 shows, only under WM.R25 (`ARMORY_PULLOUT_LIVE_OWNER`). The left stick's flick is the d-pad press it stands for
    * (`ArmoryStick`): armed at every read but a suspended one of the open screen (`ARMORY_STICK_ARMING_READING`), handed
    * on in a frame with no press (`ARMORY_STICK_SAME_FRAME_READING`).
    */
@@ -340,7 +373,7 @@ export class LobbyArmory {
     const was = this.prev;
     this.prev = new Set(snap.down);
     const flick = this.stick.read(snap.stickX, snap.stickY, this.phase !== 'open' || this.armory.taking());
-    if (this.phase !== 'open' || was === null || this.pulled) return;
+    if (this.phase !== 'open' || was === null || this.frozen()) return;
     let pressed = false;
     for (const b of snap.down) {
       const input = PAD_INPUT[b];
@@ -349,9 +382,9 @@ export class LobbyArmory {
     if (flick && !pressed) this.armory.input(flick);
   }
 
-  /** A tap at a frame point (640 x 448): the presses under it (`armoryTap`); none while popup 47 shows. */
+  /** A tap at a frame point (640 x 448): the presses under it (`armoryTap`); while popup 47 shows, only under WM.R25. */
   tap(x: number, y: number): boolean {
-    if (this.phase !== 'open' || this.pulled) return false;
+    if (this.phase !== 'open' || this.frozen()) return false;
     return this.armory.tap(x, y);
   }
 

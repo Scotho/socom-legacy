@@ -95,8 +95,9 @@ describe('FLASH-GLOW-BODIES, the cause: one node build and one WebGL2 program pe
     const va = sa.vertex, vb = sb.vertex;
     expect(sa.fragment).toBe(sb.fragment);         // the fragment stage is shared: the per-body text is the vertex's alone
     expect(va).toMatch(/\bNodeBuffer_\d+\b/);
-    expect(va).not.toBe(vb);                       // two programs linked, as the T4 counted
-    expect(renamed(va)).toBe(renamed(vb));         // the same program but for the id-named buffer
+    expect(va).not.toBe(vb);                       // two programs linked, as the T4 counted -- on three alone: LATER 1168's
+    expect(renamed(va)).toBe(renamed(vb));         // override (`./stableSkinPrograms`, installed by `./renderer`) names the
+                                                   // buffer by what it is: one text, one program (its own test)
     a.dispose(); b.dispose();
   });
 });

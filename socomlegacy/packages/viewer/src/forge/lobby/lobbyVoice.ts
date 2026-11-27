@@ -7,6 +7,7 @@ import type { ServerEvent } from '../../net/protocol';
 import { mountHeadset, type Headset } from '../../voice/headset';
 import { TalkInput } from '../../voice/talkInput';
 import { mountVoice, type MatchVoice, type MatchVoiceDeps, type VoiceState } from '../../voice/voiceClient';
+import { friendOrClanBySeat, streamerAllows, voiceFromOthers } from '../../streamerMode';
 
 /**
  * FORGE (FG-27; FG.R22): the lobby popup's voice -- a browser adaptation with no original of its own: the room's lobby
@@ -53,6 +54,8 @@ export interface ForgeLobbyVoiceOptions {
   typing(): boolean;
   /** Whether the ARMORY is up in the window. */
   inArmory(): boolean;
+  /** STREAMER-P1: a seat's name by its room id (the lobby's seats), for Voice from others' friends & clan; absent, none. */
+  seatName?(id: number): string | null;
   deps?: ForgeLobbyVoiceDeps;
 }
 
@@ -79,6 +82,8 @@ export class ForgeLobbyVoice {
   private wasArmory = false;
 
   constructor(private readonly o: ForgeLobbyVoiceOptions) {}
+  /** STREAMER-P1: whether a speaker (a room member id) is a friend or clan mate, by the lobby's seat names. */
+  private readonly friendOrClan = friendOrClanBySeat((id) => this.o.seatName?.(id) ?? null);
 
   private deps(): ForgeLobbyVoiceDeps { return this.o.deps ?? {}; }
   private seconds(): number { return this.deps().seconds?.() ?? performance.now() / 1000; }
@@ -94,7 +99,10 @@ export class ForgeLobbyVoice {
 
   /** The bar's talker: the speaker the client plays now, else the floor's holder (`GameLobbyVoice.holder`). */
   holder(): number | null {
-    const entry = this.entry(), playing = this.voice?.state().playing ?? null;
+    // STREAMER-P1 (the IQ-229 review's (i), display only): a speaker Streamer mode refuses in the lobby names no talker.
+    const raw = this.entry(), self = this.o.link()?.id ?? null;
+    const entry = raw !== null && raw !== self && !streamerAllows(voiceFromOthers(), 'lobby', this.friendOrClan(raw)) ? null : raw;
+    const playing = this.voice?.state().playing ?? null;
     if (playing === null) return entry;
     return heardTalker(entry, playing, this.o.link()?.id ?? null) ?? entry;
   }
@@ -138,6 +146,8 @@ export class ForgeLobbyVoice {
     const headset = this.headset ??= (makeHeadset ?? ((line: (text: string) => void) => mountHeadset({ line })))((text) => { this.o.line(text); });
     this.voice ??= (mount ?? mountVoice)({
       ...d, net: () => { const l = this.o.link(); return l ? { client: l } : null; }, tuners: d.tuners ?? (() => tunersOfVars(null)), headset,
+      place: 'lobby',                                                 // STREAMER-P1 (a browser adaptation): a lobby for Streamer mode's voice rows
+      friendOrClan: this.friendOrClan,                                // STREAMER-P1 (IQ-229 review (i)): by the lobby's seat names
     });
     const inArmory = this.o.inArmory();
     // The ARMORY's entry clears the talk (D:L126098): a source held into it is let go.

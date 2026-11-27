@@ -18,6 +18,9 @@ import type {BotClimbLink} from './climbDrive';
 import { navigationShape, type NavigationData, type Point } from './navigationShape';
 import { routeCrossesDoor } from './navScheduler';
 
+/** IDLE-FRAME's BOT ADAPTATION (`Walker.idleFrame`; LATER 1053): a probe's stick is the planner's, no pad behind it. */
+function syntheticStick(w: Walker): Walker { w.idleFrame = false; return w; }
+
 export type { NavigationData, Point } from './navigationShape';
 /**
  * BOP-S: a navigation query as resumable steps -- each `yield` follows a walk test or an A* expansion, or comes just
@@ -103,6 +106,9 @@ export class WalkingNavigation {
   revision = 0;
   /** BOP-S's work unit, counted, never a clock: a glide's samples (`glideSamples`), one per 16 A* expansions. */
   work = 0;
+  /** WM-28 task 4: `directedReach`'s strongly connected labels and its reach sets by label (built on first use). */
+  private strongLabels?: Int32Array;
+  private readonly reachByLabel = new Map<number, Uint8Array>();
   /**
    * BOP-S (OT.R81, a pure speed-up): `nearest`'s answers by the exact coordinates asked, a failure (`null`) too. An
    * answer reads only the hull, so it is forgotten whenever the hull may have moved: at a door change, when the world
@@ -204,7 +210,7 @@ export class WalkingNavigation {
    * graph, its held edges shared as main shares them, its components as held. The graph file is never touched either way.
    */
   constructor(readonly map: SimMap, prepared?: NavigationData, generate = false, options: { ladders?: boolean } = {}) {
-    this.probe = new Walker(map.grid);
+    this.probe = syntheticStick(new Walker(map.grid));
     if (prepared) {
       const data = prepared.nodes;
       if (data.length && data.every((n) => n.at.length === 3 && n.at.every(Number.isFinite)
@@ -298,6 +304,7 @@ export class WalkingNavigation {
   private connectLadders(): void {
     const polys = this.map.grid.objects.flatMap(o => o.kind === 'collision' ? [...o.polys] : []);
     const walker = new Walker(this.map.grid), moves = new Traversal(this.map.grid, polys), sim = new MoverSim(walker, moves);
+    sim.ai = true;                                                // IDLE-FRAME's BOT ADAPTATION: the planner's own stick, no pad (`Walker.idleFrame`)
     walker.weaponLineCast = WEAPON_LINE_BOTS_READING === 'cast';   // SEGMENT-BODY part 4: a bot's body casts no weapon line
     const parents = new Map<number, number>();
     const root = (c: number): number => { let next: number | undefined; while ((next = parents.get(c)) !== undefined) c = next; return c; };
@@ -430,7 +437,7 @@ export class WalkingNavigation {
       a.object.kind === 'collision' && !!a.object.owner.sweep && sweeps.has(a.object.owner.sweep);
     const cells = world.cells.map((c) => (c.atoms.some(leaf) ? { ...c, atoms: c.atoms.filter((a) => !leaf(a)) } : c));
     const grid = Object.create(world, { cells: { value: cells } }) as SimMap['grid'];
-    return this.doorless = { grid, probe: new Walker(grid) };
+    return this.doorless = { grid, probe: syntheticStick(new Walker(grid)) };
   }
 
   /**
@@ -446,7 +453,7 @@ export class WalkingNavigation {
       !!sweep && a.object.kind === 'collision' && a.object.owner.sweep === sweep;
     const cells = world.cells.map((c) => (c.atoms.some(leaf) ? { ...c, atoms: c.atoms.filter((a) => !leaf(a)) } : c));
     const grid = Object.create(world, { cells: { value: cells } }) as SimMap['grid'];
-    const view = { grid, probe: new Walker(grid) };
+    const view = { grid, probe: syntheticStick(new Walker(grid)) };
     this.leafViews.set(door, view);
     return view;
   }
@@ -745,10 +752,63 @@ export class WalkingNavigation {
   mayReach(start: number, goal: number): boolean {
     const component = this.nodes[start]!.component;
     if (component !== undefined && component !== this.nodes[goal]!.component && !this.climbDiscovery?.enabled) return false;
+    // WM-28 task 4 (OT.R81; LATER 1069): while the components stand, the DIRECTED reach too -- the graph's edges are
+    // one-way where a body may leave a wall's stand-off but not walk into it, so a weak component is no proof of a route.
+    if (component !== undefined && !this.climbDiscovery?.enabled && !this.directedReach(start)[goal]) return false;
     // P537-L3 ladders, climbs: the door-safe labels know the walking edges only -- they prove nothing across a ladder or
     // climb link, nor before a climb is found.
     if (this.doorNodes && !this.ladderLinks.length && !this.climbLinks.length && !this.climbDiscovery?.enabled) { const labels = this.doorSafeLabels(); if (labels[start] !== labels[goal]) return false; }
     return true;
+  }
+
+  /**
+   * WM-28 task 4 (OT.R81, the bots' planning only; LATER 1069): the nodes the A* of `routeSteps` can reach from `start`
+   * over the walking edges and the ladder overlay's links, while the components stand (no door change has erased
+   * them; climb discovery off -- `mayReach` asks neither then). Strongly connected labels are built once (an iterative
+   * Tarjan), and a reach set per label is kept the first time a start in it is asked: on MP2's 0e3de995 graph one label
+   * holds 6048 of 10059 nodes, so the bots' starts share one set.
+   */
+  private directedReach(start: number): Uint8Array {
+    const next = (id: number): number[] => {
+      const walking = this.nodes[id]!.edges ?? [], ladders = this.ladderEdges.get(id);
+      return ladders ? [...walking, ...ladders.keys()] : walking;
+    };
+    if (!this.strongLabels) {
+      const n = this.nodes.length, index = new Int32Array(n).fill(-1), low = new Int32Array(n), label = new Int32Array(n).fill(-1);
+      const onStack = new Uint8Array(n), stack: number[] = [];
+      let counter = 0, labels = 0;
+      for (let root = 0; root < n; root++) {
+        if (index[root] !== -1) continue;
+        const work: { id: number; edges: number[]; at: number }[] = [{ id: root, edges: next(root), at: 0 }];
+        index[root] = low[root] = counter++; stack.push(root); onStack[root] = 1;
+        while (work.length) {
+          const top = work[work.length - 1]!;
+          if (top.at < top.edges.length) {
+            const to = top.edges[top.at++]!;
+            if (index[to] === -1) {
+              index[to] = low[to] = counter++; stack.push(to); onStack[to] = 1;
+              work.push({ id: to, edges: next(to), at: 0 });
+            } else if (onStack[to]) low[top.id] = Math.min(low[top.id]!, index[to]!);
+            continue;
+          }
+          work.pop();
+          if (work.length) { const parent = work[work.length - 1]!.id; low[parent] = Math.min(low[parent]!, low[top.id]!); }
+          if (low[top.id] === index[top.id]) {
+            let member: number;
+            do { member = stack.pop()!; onStack[member] = 0; label[member] = labels; } while (member !== top.id);
+            labels++;
+          }
+        }
+      }
+      this.strongLabels = label;
+    }
+    const own = this.strongLabels[start]!, known = this.reachByLabel.get(own);
+    if (known) return known;
+    const seen = new Uint8Array(this.nodes.length), open = [start];
+    seen[start] = 1;
+    while (open.length) for (const to of next(open.pop()!)) if (!seen[to]) { seen[to] = 1; open.push(to); }
+    this.reachByLabel.set(own, seen);
+    return seen;
   }
 
   patrol(from: Point, random: () => number): Point[] { return drain(this.patrolSteps(from, random)); }
@@ -801,6 +861,22 @@ export class WalkingNavigation {
       this.neighbours(id);
       if (id % 1000 === 0) progress?.(id, this.nodes.length);
     }
+    // WM-28 task 4 (OT.R81, the bots' graph only; LATER 1069): keep a node only where a body stands (its zero-length walk
+    // test) and some kept node walks INTO it -- a start or respawn slot's own node excepted. The walker keeps a body its
+    // stand-off from a wall it walks toward (`WALL_PROBE_READING`), so an AI cell centre inside that stand-off could be
+    // left but never entered: 491 such nodes in MP2's largest weak component on 0e3de995. Deterministic: see
+    // `pruneUnenterable`. The node order and every kept edge's order are the build's own.
+    const exempt = new Set<number>();
+    for (const s of [...this.map.slots, ...this.map.respawns]) {
+      const id = s.onFloor ? this.nearest([...s.position]) : null;
+      if (id !== null) exempt.add(id);
+    }
+    const { data } = pruneUnenterable(this.nodes.map((n) => ({ at: n.at, edges: n.edges! })), exempt,
+      // BOT-DOOR's doorway nodes stand on the hull without the leaves (`addDoorways`): a node in a door's swing is stood
+      // there too, as a door edge's walk test is (the task's review, finding 1).
+      (i) => { const at = this.nodes[i]!.at; return this.canWalk(at, at) || (this.inDoorSweep(at) && drain(this.canWalkSteps(at, at, true))); });
+    this.nodes.length = 0; this.buckets.clear(); this.unique.clear(); this.edgeTests.clear(); this.doorEdgeTests.clear(); this.clearAttached();
+    for (const n of data) { this.add(n.at); this.nodes[this.nodes.length - 1]!.edges = n.edges; }
     // Weak components reject impossible searches immediately; directed edges still decide any actual route.
     const parent = Int32Array.from(this.nodes.map((_, i) => i));
     const find = (i: number): number => { while (parent[i] !== i) { parent[i] = parent[parent[i]!]!; i = parent[i]!; } return i; };
@@ -817,6 +893,25 @@ export class WalkingNavigation {
     return { version: 2, map: this.map.stem, nodes: this.nodes.map((n) => ({ at: [...n.at], edges: n.edges!, component: n.component })),
       spawnable: { start: spawnable(this.map.slots), respawn: spawnable(this.map.respawns) } };
   }
+}
+
+/**
+ * WM-28 task 4 (OT.R81; LATER 1069): `prepare`'s prune. Removes, to a fixpoint, every node not in `exempt` that fails
+ * `stands` or has no incoming edge from a node still kept, and re-indexes the kept nodes' edges (their order kept).
+ * DETERMINISTIC whatever order the fixpoint visits: a removal only lowers other nodes' in-degree, never raises it, so a
+ * node removable at one moment stays removable; the result is the greatest set in which every node is exempt, or stands
+ * and is entered from inside the set -- unique, since the union of two such sets is one.
+ */
+export function pruneUnenterable(nodes: readonly { at: Point; edges: readonly number[] }[], exempt: ReadonlySet<number>,
+  stands: (id: number) => boolean): { kept: number[]; data: { at: Point; edges: number[] }[] } {
+  const n = nodes.length, alive = new Uint8Array(n).fill(1), entering = new Int32Array(n), queue: number[] = [];
+  for (const node of nodes) for (const to of node.edges) entering[to] = entering[to]! + 1;
+  const remove = (id: number): void => { if (alive[id] && !exempt.has(id)) { alive[id] = 0; queue.push(id); } };
+  for (let id = 0; id < n; id++) if (!exempt.has(id) && (entering[id] === 0 || !stands(id))) remove(id);
+  while (queue.length) for (const to of nodes[queue.pop()!]!.edges) if (alive[to]) { entering[to] = entering[to]! - 1; if (entering[to] === 0) remove(to); }
+  const kept: number[] = [], index = new Int32Array(n).fill(-1);
+  for (let id = 0; id < n; id++) if (alive[id]) { index[id] = kept.length; kept.push(id); }
+  return { kept, data: kept.map((id) => ({ at: nodes[id]!.at, edges: nodes[id]!.edges.filter((to) => alive[to]).map((to) => index[to]!) })) };
 }
 
 /** Explicit local map preparation; never called by a match tick or MatchBots constructor. */

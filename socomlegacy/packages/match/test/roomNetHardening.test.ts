@@ -20,7 +20,7 @@ function flatMap(): SimMap {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const floor: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
   };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const ground = packGround(params, [floor], owners);
@@ -470,6 +470,107 @@ describe('LOW-2 (research 223 s6): a fire, reload or throw refused stale is told
     const a = s.join(1);
     for (let t = 0; t < 240; t++) { s.send(1, [s.cmd(1)]); s.tick(); }
     s.room.text(1, { type: 'reload', seq: s.room.player(1)!.sim.seq - 1 });
+    expect(a.of('stale')).toEqual([]);
+  });
+});
+
+/**
+ * LATER 1407 (the controller's rulings 1-2, 2026-11-24; no wire change): a released hand throw the room refuses is told to
+ * its thrower alone by the EXISTING `stale { request: 'throw', seq }` -- every refusal an honest page can reach, as
+ * `placeCharge`'s are (LATER 929) -- so the page takes back the copy it launched. The original never refuses a launched
+ * grenade (its console decides alone: `FUN_002c17b0` D:L163740-163770 has no refusal); the room's refusals are the port's.
+ * A forged or old page's refusals (`unknown kind`, `slot`) stay untold.
+ */
+describe('LATER 1407: a hand throw the room refuses is told to its thrower alone (stale, request throw, its seq)', () => {
+  type Inner = Record<string, unknown>;
+  /** Two seated, 240 commands each; `poke` bends player 1's seat or the room before the throw. */
+  function refused(poke: (s: ReturnType<typeof setup>, p: Inner, room: Inner) => void, kind = 'M67', extra: Record<string, unknown> = {}) {
+    const s = setup();
+    const a = s.join(1), b = s.join(2);
+    for (let t = 0; t < 240; t++) { s.send(1, [s.cmd(1)]); s.send(2, [s.cmd(2)]); s.tick(); }
+    const p = s.room.player(1)! as unknown as Inner;
+    poke(s, p, s.room as unknown as Inner);
+    s.room.takeDrops();
+    a.events.length = 0; b.events.length = 0;
+    const st = (p.sim as { walker: { state: { x: number; y: number; z: number } } }).walker.state;
+    const seq = (p.sim as { seq: number }).seq;
+    s.room.text(1, { type: 'throw', kind, seq, from: [st.x, st.y + 15.4, st.z], velocity: [0, 0, 0], ...extra } as never);
+    return { s, a, b, seq, drops: Object.keys(s.room.takeDrops() ?? {}) };
+  }
+  const told = (r: ReturnType<typeof refused>, why: string): void => {
+    expect(r.drops).toEqual([`throw: ${why}`]);
+    expect(r.a.of('stale')).toEqual([{ type: 'stale', request: 'throw', seq: r.seq }]);   // today: not told
+    expect(r.b.of('stale')).toEqual([]);
+    expect(r.a.of('placed')).toEqual([]);
+  };
+
+  it('a throw taken is not told stale (the baseline: its `placed`)', () => {
+    const r = refused(() => {});
+    expect(r.drops).toEqual([]);
+    expect(r.a.of('stale')).toEqual([]);
+    expect(r.a.of('placed')).toHaveLength(1);
+  });
+  it("'not alive': told (no refund on the page, the original's console spends it either way)", () => told(refused((_s, p) => { p.alive = false; }), 'not alive'));
+  it("'none left': told", () => told(refused((_s, p) => { (p.equipmentSlots as Inner).eligible = () => null; }), 'none left'));
+  it("'no frame': told", () => told(refused((_s, p) => { (p.cone as Inner).frame = () => null; }), 'no frame'));
+  it("'rate': told", () => told(refused((_s, p) => { p.lastThrow = 1e9; }), 'rate'));
+  it("'net cap': told", () => told(refused((_s, _p, room) => { room.netCapRefused = () => true; }), 'net cap'));
+  it("'hand far': told", () => told(refused((_s, _p, room) => { room.startRefused = () => 'far'; }), 'hand far'));
+  it("'hand walled': told", () => told(refused((_s, _p, room) => { room.throwRelease = () => 'walled'; }), 'hand walled'));
+  it("'launch': told", () => {
+    const r = refused(() => {}, 'M67', { velocity: [0, 5000, 0] });
+    told(r, 'launch');
+  });
+  it("'unclear': told", () => told(refused((_s, _p, room) => { room.throwRelease = () => 'unclear'; }), 'unclear'));
+  it("'unknown kind' and 'slot' (a forged or old page's) stay untold", () => {
+    // A name no record has is no throwable on the wire (`kindOf` 'none': the launcher's lower), so 'unknown kind' is
+    // reached with the room's record missing alone: held here by taking the record away.
+    const k = refused((_s, _p, room) => { room.throwable = () => null; });
+    expect(k.drops).toEqual(['throw: unknown kind']);
+    expect(k.a.of('stale')).toEqual([]);
+    const sl = refused((_s, p) => { p.throwStart = { seq: 7, kind: 'HE', count: 0 }; }, 'M67', { start: 7 });
+    expect(sl.drops).toEqual(['throw: slot']);
+    expect(sl.a.of('stale')).toEqual([]);
+  });
+
+  it("'too many waiting' and 'its command never ran' (timed, settle): each refused throw told with its seq, the others nothing", () => {
+    const s = setup();
+    const a = s.join(1), b = s.join(2);
+    for (let t = 0; t < 240; t++) { s.send(1, [s.cmd(1)]); s.send(2, [s.cmd(2)]); s.tick(); }
+    const p = s.room.player(1)!;
+    s.room.takeDrops();
+    a.events.length = 0; b.events.length = 0;
+    const v: [number, number, number] = [0, 0, 0];
+    const base = p.sim.seq + 10;                                 // commands not run yet: the throws wait (`timed`)
+    for (let k = 0; k <= 32; k++) s.room.text(1, { type: 'throw', kind: 'M67', seq: base + k, from: v, velocity: v } as never);
+    expect(s.room.takeDrops()).toEqual({ 'throw: too many waiting': 1 });
+    expect(a.of('stale')).toEqual([{ type: 'stale', request: 'throw', seq: base + 32 }]);   // today: not told
+    a.events.length = 0;
+    for (let t = 0; t < 700; t++) { s.send(2, [s.cmd(2)]); s.tick(); }   // player 1 runs none of them
+    s.send(1, [s.cmd(1)]); s.tick();                             // its next command, short of theirs: `settle` drops them
+    expect(s.room.takeDrops()).toMatchObject({ 'throw: its command never ran': 32 });
+    expect(a.of('stale')).toEqual(Array.from({ length: 32 }, (_, k) => ({ type: 'stale', request: 'throw', seq: base + k })));
+    expect(b.of('stale')).toEqual([]);
+  });
+
+  it("the review's F2: C4's `throw` refused 'too many waiting' or 'its command never ran' is not told (LATER 929 keeps C4's untold)", () => {
+    const s = setup();
+    const a = s.join(1);
+    for (let t = 0; t < 240; t++) { s.send(1, [s.cmd(1)]); s.tick(); }
+    const p = s.room.player(1)!;
+    // This flat room has no kit table: C4 is routed as the kit's would route it (`kindOf` 'c4' -> `timed`).
+    const room = s.room as unknown as { kindOf(n: string): string };
+    const kindOf = room.kindOf.bind(room);
+    room.kindOf = (n: string) => (n === 'C4' ? 'c4' : kindOf(n));
+    s.room.takeDrops();
+    a.events.length = 0;
+    const v: [number, number, number] = [0, 0, 0];
+    const base = p.sim.seq + 10;
+    for (let k = 0; k <= 32; k++) s.room.text(1, { type: 'throw', kind: 'C4', seq: base + k, from: v, velocity: [0, 0, 1] } as never);
+    expect(s.room.takeDrops()).toEqual({ 'throw: too many waiting': 1 });
+    for (let t = 0; t < 700; t++) s.tick();
+    s.send(1, [s.cmd(1)]); s.tick();
+    expect(s.room.takeDrops()).toMatchObject({ 'throw: its command never ran': 32 });
     expect(a.of('stale')).toEqual([]);
   });
 });

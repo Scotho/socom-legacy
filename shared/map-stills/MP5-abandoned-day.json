@@ -1,0 +1,21 @@
+{
+  "mapId": "MP5",
+  "mapName": "Abandoned",
+  "variant": "day",
+  "build": "6c9c5616d2",
+  "camera": {
+    "x": 996.86,
+    "y": 171.51,
+    "z": 777,
+    "yaw": 194.9,
+    "pitch": -5.6
+  },
+  "image": "MP5-abandoned-day.png",
+  "adaptation": "a browser adaptation (the original has no Day maps): our own port rendered in the test room, approved by the owner 2026-11-25",
+  "source": "abandoned-day-2048x1024.png (sha256 82a9fbb25dda4e68871d6ecc492d576ed20255f96614757069c4b82e9f7b20db), ffmpeg scale=-2:558:flags=lanczos,crop=640:558",
+  "record": "DAY-CG-PICS-PC4 (RESULT-PC4.md, RESULT-abandoned-PC4.md): Shadow PC 4, testroom?map=MP5&renderer=webgl2&devmode&variant=day",
+  "savedAt": "2026-11-25",
+  "width": 640,
+  "height": 558,
+  "sha256": "2e6c8f1ac669d09b1b47126b15fb77df15ad798bef2ef48fd1fe58a488b5eb98"
+}

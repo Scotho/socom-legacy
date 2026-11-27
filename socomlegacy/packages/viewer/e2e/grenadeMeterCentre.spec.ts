@@ -38,6 +38,8 @@ const SPAWN_A: [number, number, number] = [796, 100, 614];
 const KIT = '101,15,121,126,255';
 /** The player's two gaps between the shot and the grenade, seconds (his clip, seat 8a's frame track). */
 const GAPS = [0.35, 0.97] as const;
+/** LATER 1257's ruling (c): the row leg 2's skipped "knock up at the swap" check cites (the knock against the player's clip). */
+const KNOCK_CLIP_ROW = 'LATER 1266';
 
 test.use({ viewport: { width: 1280, height: 720 }, video: { mode: 'on', size: { width: 1280, height: 720 } } });
 
@@ -47,6 +49,12 @@ interface Row {
   aimY: number; offY: number;
   /** The rounds fired so far (`fire().shots`) and the magazine's rounds: each leg proves its shot left. */
   shots: number; rounds: number;
+  /**
+   * LATER 1257: the walk's 60 Hz ticks since the shot (`ephFrame().tick`, the GAME clock the knock runs on; 0 before
+   * it). The swap and the rifle's return are timed on it, not on the wall clock: a loaded box runs fewer game ticks per
+   * wall second, so a wall-clock swap landed late in game time and found the knock already down (1.37-1.40 < 2).
+   */
+  gt: number;
 }
 
 const settle = (page: Page, frames = 2): Promise<void> => page.evaluate((n) => new Promise<void>((done) => {
@@ -58,9 +66,11 @@ const settle = (page: Page, frames = 2): Promise<void> => page.evaluate((n) => n
 /**
  * One leg in the page, timed there: the trigger held until a round leaves (the rifle may be raising first: from lowered,
  * `fire.ts` refuses a round until the raise is done, `RAISE_REFUSAL_FRAMES` -- the first runs' 50 ms tap let go before it
- * and leg 1 never fired), or 1.5 s at most; then the grenade taken `gap` seconds after THE SHOT, held `hold` seconds, the
- * rifle back, `tail` seconds more. Every animation frame's reticle logged once, `ms` from the shot (0 before it: the
- * `shots` column tells the rest and the raise's frames from the shot's).
+ * and leg 1 never fired), or 1.5 s at most; then the grenade taken `gap` seconds of GAME time after THE SHOT, held `hold`
+ * seconds, the rifle back, `tail` seconds more -- each counted in the walk's 60 Hz ticks (`ephFrame().tick`; LATER 1257:
+ * was `setTimeout`, wall time, and a loaded box took the grenade late in game time). Every animation frame's reticle
+ * logged once, `ms` from the shot (0 before it: the `shots` column tells the rest and the raise's frames from the shot's),
+ * `gt` the game ticks from it.
  */
 const leg = (page: Page, n: number, gap: number, hold = 2.6, tail = 1.5): Promise<Row[]> => page.evaluate(
   ([n, gap, hold, tail]) => new Promise<Row[]>((done) => {
@@ -69,25 +79,36 @@ const leg = (page: Page, n: number, gap: number, hold = 2.6, tail = 1.5): Promis
     const pressed = performance.now();
     let t0: number | null = null;                              // the shot: the first frame its round is counted
     const before = v.fire().shots;
-    const end = (gap + hold + tail) * 1000;
+    // LATER 1257: the game's clock, the walk's fixed 60 Hz ticks (`ephFrame()`, on with ?devmode as this spec opens)
+    // the review's finding 2: a page with no frame read (no ?devmode, a production preview) ends the leg at once, said in
+    // `took`, rather than throwing in a frame callback and hanging to the test's timeout
+    const tick = (): number => v.ephFrame()?.tick ?? Number.NaN;
+    const TICKS = 60;
+    const swapAt = Math.round(gap * TICKS), backAt = Math.round((gap + hold) * TICKS), end = Math.round((gap + hold + tail) * TICKS);
+    let tick0: number | null = null;                           // the shot's tick
+    let swapped = false, back = false;
     let took = '';                                             // each take's answer, logged (a refused swap says so)
     const log = (): void => {
       const now = performance.now();
-      const r = v.reticle();
-      const centreY = r.rect ? r.rect.y + r.rect.height / 2 : null;
       const shots = v.fire().shots;
       if (t0 === null && shots > before) {
         t0 = now;
+        tick0 = tick();
         v.trigger(false);
-        setTimeout(() => { took = `M67:${v.selectItem('M67')}`; }, gap * 1000);
-        setTimeout(() => { took = `rifle:${v.selectItem('rifle')}`; }, (gap + hold) * 1000);
       }
+      const gt = tick0 === null ? 0 : tick() - tick0;
+      // the swap and the return at fixed GAME times after the shot, before this frame's row is read
+      if (tick0 !== null && !swapped && gt >= swapAt) { swapped = true; took = `M67:${v.selectItem('M67')}`; }
+      if (tick0 !== null && !back && gt >= backAt) { back = true; took = `rifle:${v.selectItem('rifle')}`; }
+      const r = v.reticle();
+      const centreY = r.rect ? r.rect.y + r.rect.height / 2 : null;
       rows.push({
         leg: n, ms: now - (t0 ?? now), set: r.type, centreY, height: r.frame.height, knockY: v.accuracy().offset[1], phase: v.grenade().phase, took,
-        aimY: (r.aim?.[1] ?? Number.NaN) * r.frame.height, offY: r.offset[1], shots, rounds: v.fire().magazine.rounds,
+        aimY: (r.aim?.[1] ?? Number.NaN) * r.frame.height, offY: r.offset[1], shots, rounds: v.fire().magazine.rounds, gt,
       });
       if (t0 === null && now - pressed > 1500) { v.trigger(false); done(rows); return; }   // no round: the leg is VOID
-      if (t0 !== null && now - t0 >= end) { done(rows); return; }
+      if (tick0 !== null && gt >= end) { done(rows); return; }
+      if (tick0 !== null && (Number.isNaN(gt) || now - t0! > 20_000)) { took = `${took} NO-GAME-CLOCK`; done(rows); return; }   // no ticks, or a stall
       requestAnimationFrame(log);
     };
     log();                                                     // the leg's rest: the reticle before the press (it starts the frame loop)
@@ -131,9 +152,9 @@ test('V21.R16: the player\'s sequence -- the meter by the owner\'s rule after a 
   }
   /** A row's 448-frame pixels per buffer pixel: its own height, the buffer's size that frame. */
   const px = (r: Row): number => 448 / r.height;
-  const csv = ['leg,ms,set,height,centre_y_px,centre_off_mid_448,aim_off_mid_448,above_aim_448,offset_y_448,knock_y_448,shots,rounds,phase,took',
+  const csv = ['leg,ms,gt,set,height,centre_y_px,centre_off_mid_448,aim_off_mid_448,above_aim_448,offset_y_448,knock_y_448,shots,rounds,phase,took',
     ...rows.map((r) => [
-      r.leg, r.ms.toFixed(1), r.set, r.height, r.centreY?.toFixed(2) ?? '',
+      r.leg, r.ms.toFixed(1), r.gt, r.set, r.height, r.centreY?.toFixed(2) ?? '',
       r.centreY === null ? '' : ((r.height / 2 - r.centreY) * px(r)).toFixed(2),
       ((r.height / 2 - r.aimY) * px(r)).toFixed(2),
       r.centreY === null ? '' : ((r.aimY - r.centreY) * px(r)).toFixed(2),
@@ -155,16 +176,27 @@ test('V21.R16: the player\'s sequence -- the meter by the owner\'s rule after a 
   for (const n of [1, 2]) {
     const legRows = rows.filter((r) => r.leg === n && r.centreY !== null);
     // The leg proves its shot: a round left between the row before the trigger and the swap, with its knock -- or VOID.
-    const swapAt = GAPS[n - 1]! * 1000;
+    const swapAt = Math.round(GAPS[n - 1]! * 60);                // LATER 1257: game ticks after the shot, as leg() swaps
     const fired = legRows.some((r) => r.shots > legRows[0]!.shots);
     expect(fired, `leg ${n} VOID: its shot did not register (shots ${legRows[0]!.shots} before the trigger)`).toBe(true);
     const meter = legRows.filter((r) => r.set === 4);
     expect(meter.length, `leg ${n}: the meter was drawn`).toBeGreaterThan(30);
     const first = meter[0]!, last = meter[meter.length - 1]!;
     const before = legRows[legRows.indexOf(first) - 1]!, after = legRows[legRows.indexOf(last) + 1];
-    // the player's sequence reproduced: the knock still up when the grenade is taken (his clip: 35.8 and 12.1)
-    expect(-first.offY, `leg ${n}: the knock up at the swap`).toBeGreaterThan(2);
-    const climbed = legRows.filter((r) => r.set !== 4 && r.ms >= 0 && r.ms < swapAt && (r.aimY - r.centreY!) * px(r) > 5);
+    // the player's sequence reproduced: the knock still up when the grenade is taken (his clip: the meter 34.8 and 11.2 px
+    // above its rest at the two switches -- on the original, which held the knock, the knock there).
+    // LATER 1257 (the main controller's ruling (c), 2026-11-20, for the owner's log): leg 2's "> 2" is a NAMED SKIP, never a
+    // pass. On the port the knock at 0.97 s is on its last frame or two (41.73 px at the shot, linear to 0 at ~1.0 s:
+    // the runner's x5, box/later1257-r2-c4f2d271f/, 0.96-2.09 px), where the clip shows ~11 px: a parity lead, the
+    // knock's size or return against the clip, filed as KNOCK_CLIP_ROW and settled by a PCSX2 capture of this sequence.
+    // Leg 1 (0.35 s, 19-27 px) keeps the check; every other check of leg 2 (the meter inherits the knock) still runs.
+    if (n === 1) expect(-first.offY, `leg ${n}: the knock up at the swap`).toBeGreaterThan(2);
+    else {
+      const note = `SKIPPED (named, ${KNOCK_CLIP_ROW}): leg ${n}'s "knock up at the swap > 2" -- read ${(-first.offY).toFixed(2)} px at the swap`;
+      console.log(note);
+      test.info().annotations.push({ type: 'skipped-assertion', description: note });
+    }
+    const climbed = legRows.filter((r) => r.set !== 4 && r.ms >= 0 && r.gt < swapAt && (r.aimY - r.centreY!) * px(r) > 5);
     expect(climbed.length, `leg ${n}: the rifle's reticle climbed above its aim point after the shot`).toBeGreaterThan(0);
     for (const r of meter) {
       const want = GRENADE_METER_CENTRE_OWNER === 'the live centre' ? r.aimY + r.offY * r.height / 448

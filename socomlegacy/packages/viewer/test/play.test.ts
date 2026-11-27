@@ -38,7 +38,7 @@ const GROUND: GroundData = packGround(
   { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 },
   [{
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]),
+    points: Float32Array.from([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]),
   }],
   [{ modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1 }],
 );
@@ -732,11 +732,12 @@ describe('NU-12 B1: the own body starts its new life on seal_stand, no blend fro
 
   /** A page's play over the synthetic body, and a stand-in walk whose spawns the test counts. */
   const rig = () => {
-    const view = { group: new Group(), setVisible(on: boolean) { this.group.visible = on; }, place: () => undefined, setPose: () => undefined, setGearVisible: () => false, addProp: () => new Group() };
+    let poseCalls = 0;
+    const view = { group: new Group(), setVisible(on: boolean) { this.group.visible = on; }, place: () => undefined, setPose: () => { poseCalls++; }, setGearVisible: () => false, addProp: () => new Group() };
     const play = new Play();
     play.setBody(view as unknown as BodyView, BODY);
     play.setClips(CLIPS);
-    const life = { snap: STAND, spawns: 0, dead: false, posed: [] as (number | null)[] };
+    const life: { snap: PlaySnapshot | null; spawns: number; dead: boolean; posed: (number | null)[] } = { snap: STAND, spawns: 0, dead: false, posed: [] };
     const walk = {
       snapshot: () => life.snap, view: () => 'third' as const, isDead: () => life.dead, spawns: () => life.spawns,
       setPosedRoot: (y: number | null) => { life.posed.push(y); },
@@ -744,7 +745,7 @@ describe('NU-12 B1: the own body starts its new life on seal_stand, no blend fro
     const camera = new PerspectiveCamera();
     const run = (seconds: number): void => { for (let t = 0; t < seconds - 1e-9; t += DT) play.frame(DT, walk, camera); };
     const frame = (): void => play.frame(DT, walk, camera);
-    return { play, life, run, frame };
+    return { play, life, run, frame, poseCalls: () => poseCalls };
   };
   /** The root a fresh mount's play draws on its first frame (T1's pin: no `from`). */
   const freshRoot = (): number => {
@@ -753,6 +754,52 @@ describe('NU-12 B1: the own body starts its new life on seal_stand, no blend fro
     expect(play.animStats()).toMatchObject({ clip: 'seal_stand', from: null, blend: 1 });
     return play.rootY()!;
   };
+
+  it('uses one owned snapshot for body animation, keeps overrides and copies feet, and reuses it when the walk has no snapshot', () => {
+    const { play, life, frame, poseCalls } = rig();
+    const stable = { ...STAND, aimWeight: 0.2, feet: [1, 2, 3] as [number, number, number], drawnFeet: [4, 5, 6] as [number, number, number],
+      traversal: { clip: 'ladder', frame: 2, loop: false, rootY: null } } as PlaySnapshot & { aimWeight: number; feet: [number, number, number]; drawnFeet: [number, number, number] };
+    life.snap = stable;
+    const internals = play as unknown as { aimWeight: number; last: { feet: [number, number, number]; drawnFeet?: [number, number, number]; aimWeight?: number; traversal?: { clip: string } } | null; bodyFrame: (...args: unknown[]) => void };
+    internals.aimWeight = 0.75;
+    let forwarded: unknown;
+    const original = internals.bodyFrame;
+    internals.bodyFrame = (...args) => { forwarded = args[1]; internals.aimWeight = 0.75; return Reflect.apply(original, play, args); };
+
+    frame();
+
+    expect(forwarded).toBe(stable);
+    expect(internals.last).toMatchObject({ aimWeight: 0.75, feet: [1, 2, 3], drawnFeet: [4, 5, 6], traversal: { clip: 'ladder' } });
+    expect(internals.last!.feet).not.toBe(stable.feet);
+    expect(internals.last!.drawnFeet).not.toBe(stable.drawnFeet);
+    expect(stable.aimWeight).toBe(0.2);
+    expect(stable.traversal?.clip).toBe('ladder');
+
+    const ownedFeet = internals.last!.feet, ownedDrawnFeet = internals.last!.drawnFeet;
+    const next = { ...stable, feet: [7, 8, 9] as [number, number, number], drawnFeet: [10, 11, 12] as [number, number, number] };
+    life.snap = next;
+    frame();
+    expect(internals.last!.feet).toBe(ownedFeet);
+    expect(internals.last!.drawnFeet).toBe(ownedDrawnFeet);
+    expect(internals.last).toMatchObject({ feet: [7, 8, 9], drawnFeet: [10, 11, 12] });
+    expect(next.feet).toEqual([7, 8, 9]);
+
+    const dance = posed('victory_funky', 10, 18);
+    play.setClips({ clips: [...CLIPS.clips, dance], table: [...CLIPS.table, ['victory_funky', row(false, 0.5)]] });
+    expect(play.startVictory(99, 'victory_funky')).toBe(true);
+    frame();
+    expect(internals.last).toMatchObject({ aimWeight: 0, traversal: { clip: 'victory_funky' } });
+    expect(stable.traversal?.clip).toBe('ladder');
+
+    const savedLast = internals.last;
+    play.setFlyToggle(true);
+    life.snap = null;
+    const posesBeforeNullSnapshot = poseCalls();
+    frame();
+    expect(internals.last).toBe(savedLast);
+    expect(internals.last).toMatchObject({ feet: [7, 8, 9], drawnFeet: [10, 11, 12] });
+    expect(poseCalls()).toBe(posesBeforeNullSnapshot + 1);
+  });
 
   it('T1 pin: a fresh mount draws seal_stand on its first frame with no from, at weight 1', () => {
     expect(freshRoot()).toBeCloseTo(11, 6);

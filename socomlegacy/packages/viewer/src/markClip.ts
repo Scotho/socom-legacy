@@ -47,16 +47,7 @@ export const MARK_CLIP_MAX_TRIANGLES_READING = 32;
  * permanent pool (`0x4b5050`).
  */
 export const TEMP_DECAL_TRIANGLES = 150;
-/**
- * `decals.rdr`'s `PERM_DECAL_POOL` `BASE 30, OVERFLOW 0` (read into `0x4b5050`, decomp 324141-324148): the permanent
- * pool the grenade's blast set goes to (`FUN_003b3800` 306401-306402, a negative size), one entry per kept world
- * triangle. `FUN_003bf1a0` (313254-313262) refuses once `count >= base + overflow`; nothing trims it (`FUN_003bf110`
- * runs on `0x4b5030` only: 218207, 219048, 236776) until `FUN_003bf050` empties it: at the level's teardown
- * (`FUN_0031af70`, 218218-218219) and at every MP round's end (CMPExitState `FUN_00223970` L76084 -> `FUN_0031c880`,
- * 219059-219060, which empties the temporary pool too). So a round keeps its first 30 scorch triangles and refuses the
- * rest (`GrenadeThrower.clearScorches`, `Fire.clearMarks`, `Effects.clearFootprints` at each round's start).
- */
-export const PERM_DECAL_TRIANGLES = 30;
+export { PERM_DECAL_TRIANGLES } from './markLimits';
 
 /** A convex polygon clipped from a triangle by four half-planes has at most seven corners. */
 const POLY_MAX = 7;
@@ -228,6 +219,15 @@ export class MarkClipper {
    * (research 92 §6: a door's leaf).
    */
   lastNodePath: string | null = null;
+  /**
+   * WM-20 (research 431): whether the drawn world under `root` is whole. A mark whose clip keeps no triangle draws
+   * nothing and takes no pool room once it is (`FUN_003b3ab0` files a triangle only in its kept branch, D:L306632-306662;
+   * `FUN_003b8680` only `if (iVar11 != 0)`, D:L309591-309593). MARK_LATE_REVEAL_ADAPTATION: the dev viewer reveals its
+   * world over frames (`main.ts` `show`) and sets this false until the props' reveal is done; meanwhile such a mark's
+   * frame is held, with no slot of the ring, and clipped again (`Fire.clipLate`). The original loads the level whole before play: no counterpart.
+   * A match reveals its world at once (`matchMount.ts`), so it keeps the default.
+   */
+  worldWhole = true;
 
   private readonly geometries = new WeakMap<BufferGeometry, GeometryIndex>();
   private readonly meshes = new WeakMap<Mesh, MeshEntry>();

@@ -27,8 +27,11 @@ describe('the restated viewer keys', () => {
     expect(padProfileKey({ id: 'P', mapping: 'standard', buttons: 17, axes: 4 })).toBe('s2u.startup.v1.pad.["P","standard",17,4]');
   });
 
-  it('restate defaultController', () => {
-    expect(startup).toContain("export const defaultController = (): ControllerConfig => ({ version: 1, bindings: Array.from({ length: 16 }, (_, i) => i), deadZone: 0.15, crouch: -1, prone: -1 });");
+  it('restate defaultController, but for the dead zone: the harness keeps its saved 0.15 (WM-PAD-DEADZONE)', () => {
+    // The page's default dead zone went to 0.05 (WM-PAD-DEADZONE, OT.R133); the harness seeds a SAVED profile, which
+    // keeps its own value (WM.R20), and stays at the 0.15 every run so far was recorded with.
+    expect(startup).toContain("export const defaultController = (): ControllerConfig => ({ version: 1, bindings: Array.from({ length: 16 }, (_, i) => i), deadZone: PAD_DEAD_ZONE_DEFAULT_ADAPTATION, crouch: -1, prone: -1 });");
+    expect(startup).toContain('export const PAD_DEAD_ZONE_DEFAULT_ADAPTATION = 0.05;');
     expect(defaultPadProfile()).toEqual({ version: 1, bindings: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], deadZone: 0.15, crouch: -1, prone: -1 });
   });
 });

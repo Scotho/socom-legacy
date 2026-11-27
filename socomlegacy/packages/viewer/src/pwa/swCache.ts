@@ -49,8 +49,34 @@ export async function pruneCaches(storage: CacheStorageLike, current: string, re
 }
 
 /**
+ * LATER 1048 (a browser adaptation): the activating worker prunes (`pruneCaches`), then claims the open pages -- the claim
+ * whatever the prune did. Any step of the prune can reject on a full or evicted origin (the record book's open, an old
+ * cache's delete, the record's put); chained as `prune.then(claim)` that stopped the claim and left the open pages
+ * uncontrolled until their next load. A failed prune keeps more caches than it should (never fewer), and its record book
+ * is dropped (its review's 1): an older record left standing -- this release's put refused -- would name the release
+ * before this one as the last active, and the next activation would delete THIS release's cache under a tab it claimed
+ * (P3, LATER 186). With no record the next activation keeps the newest other (`staleCaches`): this one, unless a release
+ * installed after it and was replaced unactivated (the fallback before LATER 186) -- still never worse than the stale
+ * record. The drop is itself best-effort. The claim's own rejection is the browser's and passes to the activate event.
+ */
+export async function activateFrom(storage: CacheStorageLike, current: string, record: string | undefined, claim: () => Promise<void>): Promise<void> {
+  await pruneCaches(storage, current, record).catch(async () => {
+    if (record) await storage.delete(ACTIVE_RECORD).catch(() => undefined);
+  });
+  await claim();
+}
+
+/**
  * A hashed asset: any kept cache -- this release's or the one before, whose page this worker may now serve (P3) -- else
  * the network, kept in this release's cache on a hit.
+ *
+ * SW-ASSET-FETCH (a browser adaptation): the cache is the worker's convenience, never the page's failure. A cache that
+ * cannot be read (a full or evicted origin) is a miss; the copy is stored after the answer, its failure swallowed and
+ * its promise handed to `keep` (the fetch event's `waitUntil`, so the worker lives until it settles). Before this, the
+ * store was awaited before the answer, and a store that rejected turned the server's 200 into a network error -- seen
+ * 2026-11-14 in a test browser (net::ERR_FAILED on the build's chunks, the page's launcher not drawn in that profile), the
+ * store refused because the test profile's cache files passed Windows' 260-character path limit (a profile under a deep
+ * folder; read in a local build's run). No player was observed failing; this makes any refused store harmless.
  */
 export async function cacheFirstFrom(
   storage: CacheStorageLike,
@@ -59,11 +85,37 @@ export async function cacheFirstFrom(
   fetchFn: (req: Request) => Promise<Response>,
   /** False once this build is stale (PT195-5): a miss is answered here and never requested. */
   allowNetwork: () => boolean | Promise<boolean> = () => true,
+  /** The store's promise, never rejecting: the worker passes its fetch event's `waitUntil`. */
+  keep: (stored: Promise<void>) => void = () => undefined,
 ): Promise<Response> {
-  const hit = await storage.match(req);
+  const hit = await storage.match(req).catch(() => undefined);
   if (hit) return hit;
   if (!(await allowNetwork())) return new Response('', { status: 404 });
   const res = await fetchFn(req);
-  if (res.ok) await (await storage.open(current)).put(req, res.clone());
+  if (res.ok) {
+    const copy = res.clone();
+    const stored = storage.open(current).then((cache) => cache.put(req, copy)).catch(() => undefined);
+    // its review (1): a worker that cannot be kept alive (`waitUntil` throwing InvalidStateError) loses the copy, not the answer
+    try { keep(stored); } catch { /* the copy may be cut short; the answer stands */ }
+  }
   return res;
+}
+
+/**
+ * A navigation (SW-ASSET-FETCH's review, 3; a browser adaptation): the network first; refused, the offline page kept in
+ * this release's cache, else a plain 503 -- a cache that cannot be opened or read is no offline page, never no response.
+ */
+export async function networkFirstFrom(
+  storage: CacheStorageLike,
+  current: string,
+  offline: string,
+  req: Request,
+  fetchFn: (req: Request) => Promise<Response>,
+): Promise<Response> {
+  try {
+    return await fetchFn(req);
+  } catch {
+    const cached = await storage.open(current).then((cache) => cache.match(new Request(offline))).catch(() => undefined);
+    return cached ?? new Response('SOCOM II Legacy is offline.', { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  }
 }

@@ -76,20 +76,27 @@ export interface HudStateLike {
  */
 export const HUD_FRAME_HEIGHT = 448;
 /**
- * PV-9 item 4: the y, in HUD units, between the player's view's line (`POV_HELP_PLACE_ADAPTATION`, baseline 326: its
- * glyphs end at 331.4, that constant's own note in `../src/hud`) and the help block's first line (`SPECTATOR_HELP.y0`,
- * baseline 380: its glyphs start at 363.5) -- their baselines' midpoint, 353. Restated, and held against the HUD's own
- * by the unit test.
+ * PV-9 item 4, WM-PV-HINT (the owner's ruling of 2026-11-15): the player's view's line is the help block's bottom line
+ * (`POV_HELP_PLACE_ADAPTATION`, baseline 434, that constant's own note in `../src/hud`) and the help lines sit above it
+ * (the slot above, baseline 416: the spectator's and the ghost's line 4 moved up, the dead watcher's line 3). A 0.9 glyph
+ * cell spans baseline - 16.5 to baseline + 4.5, and the two cells share 3 px, so the band is split twice. This one, in
+ * HUD units, between the two slots' glyph tops (399.5 and 417.5; the ring's top, while Cross is held, 415.4): the lines
+ * are drawn while the band reaches above it. Restated, and held against the HUD's own by the unit test.
  */
-export const POV_LINE_SPLIT_Y = 353;
+export const HELP_LINES_SPLIT_Y = 408.5;
+/**
+ * PV-9 item 4, WM-PV-HINT: the other split, between the two slots' glyph bottoms (420.5 and 438.5, + 0.9 the shadow): the
+ * view's line is drawn while the band reaches below it. (Was: 354.5 under 4D, 353 before, the line above the block.)
+ */
+export const POV_LINE_SPLIT_Y = 429.5;
 
 /**
  * PV-9 item 4: whether the HUD draws the player's view's line at a help clock of `clock` -- `../src/hud` `povHelpAlpha`
- * above 0: 'offered' rides the clock with the lines, 'shown' at the lines' full alpha and 'waiting' at half of it whatever
- * the clock (PV-6h). Restated, and held against `povHelpAlpha` by the unit test.
+ * above 0: WM-PV-HINT, in every state whatever the clock (the hint stays up; half for a second after a swap). (Was:
+ * 'offered' on the clock, 'shown' and 'waiting' whatever it; 4D: every state on it.) Held by the unit test.
  */
-export function povLineLit(pov: 'offered' | 'shown' | 'waiting', clock: number): boolean {
-  return pov === 'offered' ? clock > 0 : true;
+export function povLineLit(_pov: 'offered' | 'shown' | 'waiting', _clock: number): boolean {
+  return true;
 }
 
 /** PV-9 item 4: the help element's band in HUD units, from its rect on a frame of `height`; null with none. */
@@ -141,8 +148,14 @@ export const COMPASS: readonly HudElement[] = ['compass', 'marks'];
 export const PROMPTS: readonly HudElement[] = ['action', 'actionSides', 'actionCaption', 'holdBar', 'c4FuseBar'];
 /** The stance word `+0x11ca0` (D:L56328), the ZOOM line `+0x744` (D:L56338) and the scope's range `+0x165a0` (D:L56326). */
 export const VIEW_LINES: readonly HudElement[] = ['stance', 'zoom', 'scopeRange'];
+/**
+ * PICKUP-LINE correction 3: the small message window `0x437060` -- the hide-all hides it beside the main message
+ * window (D:L56354-56355; D:L56356 is object `0x437540`, not a message window, and the subtitles window `0x436b80` is
+ * not in the hide-all), and a dead body of his own hides it too (`FUN_001f97b0` D:L57113).
+ */
+export const SMALL_WINDOW: readonly HudElement[] = ['smallMessage'];
 /** What the hide-all `FUN_001f77c0` (D:L56312-56361) takes from a seat viewing another: research 282 §1 (`SPECTATOR_HIDES`). */
-export const SPECTATOR_HIDDEN: readonly HudElement[] = [...WEAPON_BOX, ...COMPASS, ...PROMPTS, ...VIEW_LINES];
+export const SPECTATOR_HIDDEN: readonly HudElement[] = [...WEAPON_BOX, ...COMPASS, ...PROMPTS, ...VIEW_LINES, ...SMALL_WINDOW];
 /**
  * What SELECT held takes away (D:L56808-56827, research 282 §1: the weapon box, the info box D:L56811, the compass, the
  * panel D:L56813, the prompts, the help lines D:L56817-56823, the timer, the number D:L56826; the voice element with the
@@ -165,6 +178,7 @@ const WHY: Partial<Record<string, string>> = {
   scoreboard: 'the scoreboard, SELECT held (`FUN_0022be20`; research 282 §5)',
   compass: 'the compass ring (`FUN_00212260` D:L56359; a dead body of his own, D:L57115)',
   marks: "the compass's marks (`FUN_00212260` D:L56359; D:L68360-68369)",
+  smallMessage: 'the small message window (the hide-all D:L56355; a dead body of his own, D:L57113; research 282 §1)',
   action: 'the prompts (D:L56325)',
   actionSides: "the prompt's side words, its children, hidden with it (D:L56325)",
   actionCaption: "the prompt's caption, its child, hidden with it (D:L56325)",
@@ -212,7 +226,7 @@ function expectation(step: SpectatorHudStep): { path: 'spectator' | 'teammate' |
       // The walker's HUD (`FUN_001f7a90` D:L57112) less the compass (D:L57115) and the panel (a player, D:L57116-57118).
       // The weapon box is the walker's, on its own fade: not asked here.
       // LATER 118: the dead's own lines (D:L56996-57107).
-      return { path: 'own', shown: ['timer', 'box'], hidden: [...COMPASS, 'spectatorInfo', 'scoreboard'], help: true, followed: null };
+      return { path: 'own', shown: ['timer', 'box'], hidden: [...COMPASS, ...SMALL_WINDOW, 'spectatorInfo', 'scoreboard'], help: true, followed: null };
   }
 }
 
@@ -253,19 +267,19 @@ export function spectatorHudFindings(
     const lit = (read.help ?? 1) > 0;
     // PV-9 item 4 (PV-6h's review, finding 2): the player's view's line, drawn in the 'help' element at its own place and
     // alpha (never on 'own'), is judged by itself; with no state in the read (the earlier specs, a view never chosen) the
-    // judgement is the one before it, and 'offered' rides the same clock as the lines, so it changes nothing there either.
+    // judgement is the one before it. WM-PV-HINT: the line is up in every state whatever the clock.
     const pov = want.path !== 'own' ? read.pov ?? null : null;
     const povLit = pov !== null && povLineLit(pov, read.help ?? 1);
     const band = pov !== null ? read.helpBand ?? null : null;
     const line = `the player's view's line ('${pov}')`;
-    const povWhy = "POV_HELP_*_ADAPTATION (PV-6h, a browser adaptation: on the clock while offered, drawn whatever the clock while shown, at half its alpha while waiting)";
+    const povWhy = "POV_HELP_*_ADAPTATION (PV-6h, WM-PV-HINT, a browser adaptation: the block's bottom line, up in every state whatever the clock)";
     if ((opts.help ?? 'clock') === 'shown') {
       if (!lit) out.push(`${step}: 'help' faded (timing.help ${read.help}) where the step asks it lit -- ${why('help')}`);
       if (!has.has('help')) out.push(`${step}: 'help' not drawn -- ${why('help')}`);
-      else if (band && povLit && !(band.top < POV_LINE_SPLIT_Y)) out.push(`${step}: ${line} not drawn -- ${povWhy}`);
+      else if (band && povLit && !(band.bottom > POV_LINE_SPLIT_Y)) out.push(`${step}: ${line} not drawn -- ${povWhy}`);
     } else if (band) {
-      // The band read: the original lines below the split on their clock, the view's line above it by its own rule.
-      const linesDrawn = band.bottom > POV_LINE_SPLIT_Y, lineDrawn = band.top < POV_LINE_SPLIT_Y;
+      // The band read: the lines above `HELP_LINES_SPLIT_Y` on their clock, the view's line below `POV_LINE_SPLIT_Y` by its own.
+      const linesDrawn = band.top < HELP_LINES_SPLIT_Y, lineDrawn = band.bottom > POV_LINE_SPLIT_Y;
       if (linesDrawn !== lit) {
         out.push(linesDrawn
           ? `${step}: 'help' drawn past its clock (timing.help ${read.help}) -- ${why('help')}`

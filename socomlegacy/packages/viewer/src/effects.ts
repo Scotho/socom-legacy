@@ -9,7 +9,7 @@ import {
 import type { Rgba } from '@s2u/gs';
 import { EffectRun, indoorsOperand, type EffectHost, type OpTick } from './effectRunner';
 import { buildEffectModel, effectBrighten, markMaterial } from './effectMaterials';
-import { ParticleSystem } from './particles';
+import { ParticleSystem, seededRandom } from './particles';
 import type { AlphaPassSource } from './alphaInterleave';
 import { EffectLights } from './effectLights';
 import type { EffectData, EffectTexture } from './effectData';
@@ -19,6 +19,9 @@ import { markClipGeometry, squareInto, type MarkClipper, type MarkFrame } from '
 import { fixSoundName } from '@s2u/sound';
 import { cameraFloor } from './floorPick';
 import { worldColumn } from './net/placing';
+import { impactAnimation, muzzleAnimation, rangeTestHolds, valveApply, valveTest, ZANIM_GRAVITY, MAX_EFFECT_RUNS_ADAPTATION, TRACER_OBJECT_SCALE, CAMERA_BLAST_EXEMPT_ITEMS } from './effectRules';
+
+export { impactAnimation, muzzleAnimation, rangeTestHolds, valveApply, valveTest, ZANIM_GRAVITY, MAX_EFFECT_RUNS_ADAPTATION, TRACER_OBJECT_SCALE, CAMERA_BLAST_EXEMPT_ITEMS } from './effectRules';
 
 /**
  * Full PreTick -> PostTick on the first visual round frame [placeholder: the initial scheduling is not yet read]: reuse
@@ -27,15 +30,6 @@ import { worldColumn } from './net/placing';
  */
 const SCRIPT_ROUND_INITIAL_PHASE_READING = stepGrenade;
 
-/**
- * The items whose explosion sets no camera blast point: `HandleDetonateExplosion` `FUN_003c8330` D:L319186-319191 tests
- * the round's record's `+0x7c` -- its item id (the weapon list `0x4b5210` is searched by id at `+0x7c`: `FUN_003c4b40`
- * D:L316433-316449; research 181) -- against these twelve, in its order, and sets the pending point
- * (D:L319192-319195) for every other. MPBOMB (154, 0x9a) is not here.
- */
-export const CAMERA_BLAST_EXEMPT_ITEMS: readonly number[] = [
-  0xb6, 0xb2, 0xb1, 0xae, 0xad, 0xac, 0x9f, 0x80, 0x7f, 0x7b, 0x7d, 0x7a,
-];
 
 /**
  * The gunplay's effects (socomlegacy/docs/research/89), drawn in walk mode: the game's own zAnim effect animations out of the
@@ -89,16 +83,7 @@ export interface EffectPlace extends EffectContext {
 /** A caller's node (the engine's type-3 parameter): the `Object3D` itself, or a `Matrix4` its owner moves in place. */
 export type CallerNode = Object3D | Matrix4;
 
-/** The effect animation a weapon's round plays: `FireAnimName`, or its `_zoom` variant in the aim view (89 §4). */
-export function muzzleAnimation(fireAnim: string | null, zoomed: boolean): string | null {
-  if (!fireAnim) return null;
-  return zoomed ? `${fireAnim}_zoom` : fireAnim;
-}
 
-/** A round's impact animation (`FUN_003c4700`: `"%s_%s"` of the weapon's `HitAnimName` and the material's name). */
-export function impactAnimation(hitAnim: string, material: string | undefined): string | null {
-  return material ? `${hitAnim}_${material}`.toLowerCase() : null;
-}
 
 /**
  * The mark table the hit polygon's material resolves through (research 89 §5): the SOILS name, then the set's row --
@@ -116,23 +101,6 @@ export function markTable(
   };
 }
 
-/**
- * `RANGE_TEST`'s comparison (`FUN_0025de90` D:L107912-107942): the squared distance between its two points against the
- * range at +0x24, by the first of the flag bits set -- 0x40 nearer than, 0x80 nearer or as near, 0x100 farther than,
- * 0x200 as far or farther, 0x400 exactly as far, 0x800 not as far; with none set it never holds. On the disc 0x40 is
- * `bullet_hit_person`'s (0x61: its close blood within 130 of the camera) and `raindrops01`'s (0x49, MP52), 0x100
- * `shell_eject`'s and the smokes' (0x109) and `camera_shake`'s (0x121) -- every RANGE_TEST of every MP map's
- * `CZANIM.ZAR` and `MZANIM.ZAR` (research 238 §8).
- */
-export function rangeTestHolds(flags: number, distanceSquared: number, rangeSquared: number): boolean {
-  if (flags & 0x40) return distanceSquared < rangeSquared;
-  if (flags & 0x80) return distanceSquared <= rangeSquared;
-  if (flags & 0x100) return distanceSquared > rangeSquared;
-  if (flags & 0x200) return distanceSquared >= rangeSquared;
-  if (flags & 0x400) return distanceSquared === rangeSquared;
-  if (flags & 0x800) return distanceSquared !== rangeSquared;
-  return false;
-}
 
 /** A running animation the caller keeps (the ripples' endless loops): its place can move, and it can be stopped. */
 export interface EffectHandle {
@@ -166,17 +134,6 @@ const FALL_IN_WATER_ANIM = 'seal_fall_in_water';
 export const FOOTPRINT_SIZE = 3.5;
 export const MAX_FOOTPRINTS = 150;
 
-/**
- * MAX_EFFECT_RUNS_ADAPTATION -- a browser adaptation with no original counterpart (the game's zAnim list is its own
- * pools'; nothing here reads it): the most effect runs the page holds, the rounds' oldest retired first, silently (`makeRoom`).
- * A hidden tab runs no animation frame, so the runs another player's rounds start off the socket were never stepped or
- * retired, and the return stepped -- and sounded -- every one at once (the owner's report, 2026-11-06: an audio fault
- * that "starts while the browser is tabbed off and never recovers"). Measured, not read: 16 shooters, each firing a
- * round that hits every game frame (`GAME_FRAME_DT`, faster than any firearm), stepped at 60 Hz on Frostfire's data,
- * peak at 983 runs (2026-11-06); the cap is over twice that bound, so no visible match meets it, and a stalled frame
- * loop's backlog stops at it (`effects.test.ts`, "a hidden tab's round backlog", which holds the 2x margin).
- */
-export const MAX_EFFECT_RUNS_ADAPTATION = 2048;
 
 /**
  * PLAYER_INDOORS_FEET_READING (INV-RAIN F3; research 89 §21, research 81 §10): `PLAYER_INDOORS` (set 0 command 72)'s
@@ -207,6 +164,31 @@ export { CAMERA_FLOOR_ABOVE, cameraFloor } from './floorPick';
  */
 export const EFFECT_INSTANCE_POOL_ADAPTATION = 64;
 
+/**
+ * R4P-255 EFFECT-CAP (reading, pending review): how many instances of an animation may run at once, from its
+ * `Anim_Params` flags -- `CZAnim::GetAvailable` (r0001 `FUN_00270ef0` D:L119142-119214; r0004's twin 0x00271e00 the
+ * same, its calls mapped). With every instance busy it copies one only when the copy bit 0x80 is set and the chain is
+ * under the head's limit `(flags & 0x7ffff) >> 13`, 0 for none. So: null (no limit) with the copy bit and a 0 limit;
+ * the limit with the copy bit; 1 (the head alone) without it. On the disc `bullet_hit_person` 0xa0a2 gives 5, `c4`
+ * 0x20a2 gives 1, the muzzle flashes' 0xa2 none.
+ */
+export const effectInstanceLimit = (flags: number): number | null => {
+  if ((flags & 0x80) === 0) return 1;
+  const limit = (flags & 0x7ffff) >> 13;
+  return limit === 0 ? null : limit;
+};
+
+/**
+ * R4P-255 EFFECT-CAP: when a drained instance is free again. The original's finished instance hands its particle
+ * sources (`PARTICLE_SOURCE`'s slots, +0x38 count / +0x4c array) to `FUN_00329ab0` to drain (D:L118555-118567) and is
+ * busy while any of them points at a live source. Only a source active at the end is drained (D:L118559-118566); a
+ * drained source emits nothing and resets once its live count +0x130 reaches 0 (D:L226850-226862, 227390, 225624,
+ * 227145; read by the fresh review). The port holds the instance until the last particle such a source emitted has
+ * died (`ParticleGeometry.holds`), the lifetimes the disc's: a reading until capture Q-255 (the instance's state +3
+ * and its slot count +0x38 per frame under sustained fire into one body) measures it.
+ */
+export const EFFECT_PARTICLE_DRAIN_READING = 'lastParticle' as const;
+
 /** One live instance of an effect model (a casing, a flash), made for a run and pooled after it (`release`). */
 interface Instance { object: Object3D; model: string; rest?: NodeRest[] }
 
@@ -222,11 +204,6 @@ const restOf = (root: Object3D): NodeRest[] => {
   return out;
 };
 
-/**
- * The tracer object's scale: the round builds its matrix as an identity scaled by 7.5 (`0x40f00000`, `FUN_003cabe0`
- * D:L320498-320502) and the launch sets it on the object (`FUN_00315820`, `FUN_003d5030` D:L327256-327257).
- */
-export const TRACER_OBJECT_SCALE = 7.5;
 
 /**
  * TRACER_ORIENTATION_READING: the object's rotation takes its +x to the shot's direction (`FUN_00306d40` from (1, 0, 0)
@@ -282,6 +259,8 @@ export interface EffectStats {
   missing: string[];
   runs: number;
   played: Record<string, number>;
+  /** R4P-255: the starts `GetAvailable` refused (every instance busy, no copy allowed), by animation. */
+  refused: Record<string, number>;
   shells: number;
   particles: number;
   sources: number;
@@ -306,8 +285,6 @@ export interface EffectStats {
   sounds: string[];
 }
 
-/** The zAnim main gravity (`Anim_Main_Params`, -98 on every archive: 77 §9). */
-export const ZANIM_GRAVITY = -98;
 
 const unit = (v: Vec3): Vec3 => { const l = Math.hypot(v[0], v[1], v[2]); return l > 0 ? [v[0] / l, v[1] / l, v[2] / l] : [0, 0, 0]; };
 
@@ -315,11 +292,25 @@ export class Effects {
   readonly object = new Group();
   private programs = new Map<string, EffectProgram>();
   private readonly models = new Map<string, Group>();
+  /** Clones share immutable model geometry; motion needs its untransformed height, once per data load. */
+  private readonly modelHeights = new Map<string, number>();
   /** EFFECT_INSTANCE_POOL_ADAPTATION: the finished runs' copies by model, for the next run (`instanceOf`, `release`). */
   private readonly spare = new Map<string, Instance[]>();
   private textures = new Map<string, EffectTexture>();
   private readonly materials = new Map<string, MeshBasicNodeMaterial | LineBasicNodeMaterial>();
   private runs: EffectRun[] = [];
+  /**
+   * R4P-255: each capped animation's instances (`effectInstanceLimit` not null), by its lower-case name -- the run
+   * that last held each, busy while it runs or its particles drain (`busy`). Not a map's ambient runs.
+   */
+  private instances = new Map<string, EffectRun[]>();
+  /**
+   * R4P-255 (the review's F1): the runs started since the last `update` -- busy whatever their state, as the original's
+   * Activate sets state 2 (D:L120741) and only queues the update (D:L120754; `FUN_0034e6b0` D:L248823-248846) that
+   * starts its sequences (D:L118636-118637). A run stopped meanwhile leaves it (`stopCalled`, `makeRoom`).
+   */
+  private readonly fresh = new Set<EffectRun>();
+  private refused: Record<string, number> = {};
   private readonly particles: ParticleSystem;
   /** The map's scene nodes the ambient effects sit at (`EffectData.sceneNodes`). */
   private sceneNodes = new Map<string, Matrix4>();
@@ -355,7 +346,7 @@ export class Effects {
   private hush = 0;
 
   constructor(
-    private readonly random: () => number = Math.random,
+    private random: () => number = Math.random,
     private readonly sound: (name: string, at: Vec3, volume: number) => void = () => {},
   ) {
     this.object.name = 'effects';
@@ -448,6 +439,24 @@ export class Effects {
     this.particles.setAlphaPass(source);
   }
 
+  /**
+   * LATER 1198 (a browser adaptation: a devmode instrument, reached only through `__viewer.reseedEffects`): the runner's
+   * random and its particles' seeded from `seed` (the particles from a derived seed), the live particles dropped and the
+   * sources' part-intervals and event counts reset (`ParticleSystem.reseed`) -- a stepped harness then renders the same
+   * drops each run. NOT reset: the runs' own state (a run's place in its program, a wait's time left), so a program
+   * whose waits draw a random range keeps its phase from before; the looped sky programs (rain, snow) re-command their
+   * sources every tick and are unaffected (review F2).
+   */
+  reseed(seed: number): void {
+    this.random = seededRandom(seed);
+    this.particles.reseed((seed ^ 0x9e3779b9) | 0);
+  }
+
+  /** LATER 1190 (a browser adaptation): the map's projection aspect, tan(hfov) / tan(vfov); null, the default. */
+  setProjectionAspect(aspect: number | null): void {
+    this.particles.setProjectionAspect(aspect);
+  }
+
   /** The frame's brighten, `1 + FIX/128` (`./lighting`'s `brightenOf`). */
   setBrighten(value: number): void {
     effectBrighten.value = value;
@@ -459,6 +468,7 @@ export class Effects {
     // The models' packet geometries are the map's own (`buildEffectModel`: one per packet); the runs' clones share them.
     for (const model of this.models.values()) model.traverse((o) => { if (o instanceof Mesh || o instanceof LineSegments) o.geometry.dispose(); });
     this.models.clear();
+    this.modelHeights.clear();
     // The pooled copies share those geometries and the materials below: the materials' disposes free the copies' render
     // objects (a geometry's only drops its attributes).
     this.spare.clear();
@@ -471,7 +481,11 @@ export class Effects {
     this.particles.setTextures(this.textures);
     this.sceneNodes = new Map((data?.sceneNodes ?? []).map(([n, m]) => [n, new Matrix4().fromArray(m)]));
     this.lights.setTexture(this.textures.get('light_map.tif') ?? null);
-    for (const model of data?.models ?? []) this.models.set(model.name, buildEffectModel(model, this.textures, this.materials));
+    for (const model of data?.models ?? []) {
+      const built = buildEffectModel(model, this.textures, this.materials);
+      this.models.set(model.name, built);
+      this.modelHeights.set(model.name, heightOf(built));
+    }
     // The mission's ambient effects start with the map, as the game starts its activation-1 animations.
     for (const name of data?.ambient ?? []) {
       const program = this.programs.get(name.toLowerCase());
@@ -575,8 +589,9 @@ export class Effects {
     const place: EffectPlace = { node: matrix, position: [matrix.elements[12]!, matrix.elements[13]!, matrix.elements[14]!] };
     // An ambient effect's run, as the map's own (`ambient`): its looping (`~`) sounds are the audio's emitters
     // (`./forge/forgeObjects` `forgeAmbientEmitters`), never a one-off play here; its other sounds play as they come.
-    const r = this.start({ ...program, nodes }, place, true);
-    if (opts.silent) (r.context as RunContext).silent = true;
+    // FC2/FN-6 (ours; LATER 1041): `silent` goes into the run's context before its first update -- `start` runs every
+    // command up to the first WAIT at once, and the runs it CALLs then read it up their `parent` chain (the sound gate).
+    const r = this.start({ ...program, nodes }, place, true, null, opts.silent === true);
     return { name: program.name, place, alive: () => !r.finished, get finished() { return r.finished; }, stop: () => this.stopCalled(r) };
   }
 
@@ -595,9 +610,10 @@ export class Effects {
   /** `root` stopped, and every run it called, or a run it called called, still in the list (PAR-45). */
   private stopCalled(root: EffectRun): void {
     root.stop();
+    this.fresh.delete(root);
     for (const run of this.runs) {
       for (let up = (run.context as RunContext).parent; up; up = (up.context as RunContext).parent) {
-        if (up === root) { run.stop(); break; }
+        if (up === root) { run.stop(); this.fresh.delete(run); break; }
       }
     }
   }
@@ -701,11 +717,30 @@ export class Effects {
     return this.run(name, place);
   }
 
-  private start(program: EffectProgram, place: EffectPlace, ambient = false, parent: EffectRun | null = null): EffectRun {
+  /** `silent` (FC2/FN-6, ours; LATER 1041): in the run's context before its first update, so that update plays no sound. */
+  private start(program: EffectProgram, place: EffectPlace, ambient = false, parent: EffectRun | null = null, silent = false): EffectRun {
+    const round = this.inRound > 0 || (parent ? (parent.context as RunContext).round === true : false);
+    const run = new EffectRun(program, this.host, { place, instance: null, ambient, ...(parent ? { parent } : {}), ...(round ? { round } : {}), ...(silent ? { silent } : {}) } satisfies RunContext);
+    // R4P-255: `GetAvailable` -- a free instance of the animation, else a copy where its flags allow one, else nothing:
+    // the refused start's run is handed back ended, never stepped (no command of it runs, nothing draws or sounds).
+    // A map's ambient runs are its animations' own heads, started once with the map (Activate, D:L119328-119330): not
+    // refused, but entered, so a later start finds the head busy while it runs (the review's F3).
+    const limit = effectInstanceLimit(program.flags);
+    if (limit !== null) {
+      const key = program.name.toLowerCase();
+      const chain = this.instances.get(key) ?? [];
+      const free = chain.findIndex((r) => !this.busy(r));
+      if (!ambient && free < 0 && chain.length >= limit) {
+        this.refused[program.name] = (this.refused[program.name] ?? 0) + 1;
+        run.stop();
+        return run;
+      }
+      if (free < 0) chain.push(run); else chain[free] = run;
+      this.instances.set(key, chain);
+      this.fresh.add(run);
+    }
     this.played[program.name] = (this.played[program.name] ?? 0) + 1;
     if (program.name.toLowerCase() === FALL_IN_WATER_ANIM) this.water.splashes++;
-    const round = this.inRound > 0 || (parent ? (parent.context as RunContext).round === true : false);
-    const run = new EffectRun(program, this.host, { place, instance: null, ambient, ...(parent ? { parent } : {}), ...(round ? { round } : {}) } satisfies RunContext);
     if (this.runs.length >= MAX_EFFECT_RUNS_ADAPTATION) this.makeRoom();
     this.runs.push(run);
     run.update(0);
@@ -891,8 +926,8 @@ export class Effects {
   /** Holds every effect where it is (the hook's, for a picture of a flash that lives three frames). */
   paused = false;
 
-  /** One frame: every run's tick, the particles, and the runs that ended. */
-  update(dt: number, camera: Camera | null): void {
+  /** Every run and particle still ticks; only particle drawing preparation may wait for the next displayed frame. */
+  update(dt: number, camera: Camera | null, drawFrame = true): void {
     this.camera = camera;
     if (this.paused) dt = 0;
     this.stepScriptRounds(dt);
@@ -903,8 +938,14 @@ export class Effects {
     } finally { this.stepping = false; }
     this.poseTracers();
     this.sweepRuns();
-    this.particles.update(dt, camera);
+    this.fresh.clear();                                                     // R4P-255: the frame's update has run
+    this.particles.update(dt, camera, drawFrame);
     this.lights.update(dt);
+  }
+
+  /** R4P-255: an instance is busy while its run runs, or while its particle sources drain (`EFFECT_PARTICLE_DRAIN_READING`). */
+  private busy(run: EffectRun): boolean {
+    return this.fresh.has(run) || !run.finished || this.particles.holds(run);
   }
 
   /** The runs that ended leave the list, and their objects the scene. */
@@ -946,6 +987,7 @@ export class Effects {
           if (run.finished || ((run.context as RunContext).round === true) !== rounds) continue;
           if (this.ambientRooted(run) || this.tracerHolds(run)) continue;
           run.stop();
+          this.fresh.delete(run);
           left--;
         }
       }
@@ -1005,6 +1047,9 @@ export class Effects {
     }
     this.runs = [];
     this.ambientRuns = [];
+    this.instances.clear();
+    this.fresh.clear();
+    this.refused = {};
     this.valves.clear();
     this.particles.clear();
     this.lights.clear();
@@ -1028,7 +1073,7 @@ export class Effects {
     return {
       loaded: this.data !== null, programs: this.programs.size, models: [...this.models.keys()], textures: this.textures.size,
       missing: this.data?.missing.slice(0, 16) ?? [],
-      runs: this.runs.length, played: { ...this.played }, shells: this.shellsLive(), particles: this.particles.count(),
+      runs: this.runs.length, played: { ...this.played }, refused: { ...this.refused }, shells: this.shellsLive(), particles: this.particles.count(),
       sources: this.particles.activeSources(), emitted: this.particles.emitted,
       lastShell: this.lastShell, bounces: this.bounces, sounds: this.sounds.slice(-16), lights: this.lights.stats(),
       ambient: this.ambientRuns.filter((r) => !r.finished).map((r) => r.program.name),
@@ -1311,7 +1356,12 @@ export class Effects {
         const node = this.nodeMatrix(run, op.source.node);
         // Flag A 0x10: the source follows its node while it lives (`FUN_00329b40` reads the node's matrix each tick).
         const follow = op.source.follow ? () => this.nodeMatrix(run, op.source.node) : null;
-        this.particles.emit(op.source, node, ctx.place, run.program.name, () => !run.finished, run, follow);
+        // LATER 1190 (a browser adaptation): a source held about the camera (the rain, the snow) is widened for a wide view.
+        const n = op.source.node, name = n === NODE_ROOT ? run.program.nodes[run.program.root] : run.program.nodes[n];
+        // The name alone: the ambient runs start in `setData`, before a frame hands the effects a camera (review F1); the
+        // follow closure finds the camera each tick.
+        const aboutCamera = !!follow && name === 'camera';
+        this.particles.emit(op.source, node, ctx.place, run.program.name, () => !run.finished, run, follow, aboutCamera);
         return;
       }
       case 'light': {
@@ -1374,7 +1424,7 @@ export class Effects {
     if (!node) return;
     const frame = m.frame === 0 ? null : this.nodeMatrix(run, m.frame);
     const inst = (run.context as RunContext).instance;
-    const height = inst ? heightOf(inst.object) : 0.14;
+    const height = inst ? this.modelHeights.get(inst.model) ?? heightOf(inst.object) : 0.14;
     const place = (run.context as RunContext).place;
     const state: MotionState = launchMotion(m, node.position.toArray() as Vec3, frame ? rowsOf(frame) : null, this.random, ZANIM_GRAVITY, height, place.velocity ?? [0, 0, 0]);
     const isShell = inst?.model.startsWith('bullet_shell') ?? false;
@@ -1417,27 +1467,4 @@ function heightOf(object: Object3D): number {
   return Number.isFinite(max - min) ? max - min : 0;
 }
 
-/** `FUN_00353fd0`'s tests: 0 true, 1 !=, 2 ==, 3 >, 4 <, 5 >=, 6 <= (the valve against the operand). */
-export function valveTest(value: number, operation: number, operand: number): boolean {
-  switch (operation) {
-    case 0: return true;
-    case 1: return value !== operand;
-    case 2: return value === operand;
-    case 3: return value > operand;
-    case 4: return value < operand;
-    case 5: return value >= operand;
-    case 6: return value <= operand;
-    default: return false;
-  }
-}
 
-/** `FUN_00353fd0`'s operations: 0x0b set, 0x0c add, 0x0d subtract (not below 0), 0x0e multiply; the tests leave it. */
-export function valveApply(value: number, operation: number, operand: number): number {
-  switch (operation) {
-    case 0x0b: return operand;
-    case 0x0c: return value + operand;
-    case 0x0d: return Math.max(0, value - operand);
-    case 0x0e: return value * operand;
-    default: return value;
-  }
-}

@@ -32,7 +32,7 @@ test.setTimeout(10 * 60_000);
 const ROOT = '/';
 const VIEWPORTS: readonly (readonly [number, number])[] = [[1280, 720], [1366, 768], [412, 915]];
 
-declare global { interface Window { __cxClicks?: string[] } }
+declare global { interface Window { __cxClicks?: string[]; __cxOpened?: [string, string, string][] } }
 
 /** The page up and drawn, at `w` x `h`, every click's target row recorded (capture phase, before the page's own). */
 async function open(page: Page, w: number, h: number): Promise<void> {
@@ -85,8 +85,11 @@ async function settled(page: Page, after: string): Promise<void> {
   try {
     await expect(toast).toHaveCount(0, { timeout: 10_000 });
   } catch (e) {
+    // LATER 1157: read at once -- a toast that left between the wait's end and this read has no words to give (zero
+    // elements), which the message used to print as "" (a toast held up ~10 s by a late timer, not an empty one).
     const words = (await toast.allTextContents()).join(' | ');
-    throw new Error(`the toast "${words}" still up 10 s after ${after}`, { cause: e });
+    const said = words === '' && (await toast.count()) === 0 ? 'a toast (gone just after the wait, its words unread)' : `the toast "${words}"`;
+    throw new Error(`${said} still up 10 s after ${after}`, { cause: e });
   }
   await expect(page.locator('#legend .cx-legend__error'), `the legend's warn line after ${after}`).toHaveText('', { timeout: 10_000 });
 }
@@ -122,6 +125,18 @@ for (const [w, h] of VIEWPORTS) {
   test(`at ${w}x${h} every Home category's every row is the pointer's: in view by the wheel, hit at its centre, clicked open`, async ({ page }) => {
     await page.addInitScript(() => {
       window.__cxClicks = [];
+      // LATER 1157: a row's new tab (Experiments' Forge and Test room, `window.open(url, '_blank', 'noopener')`) is
+      // recorded, never made. Made, even answered with an empty page (RC1-CONSOLE-POPUP, below: was), a same-site tab's
+      // page start and teardown share the launcher's renderer in a headless SwiftShader run and stalled its main thread
+      // for seconds (RC2's pw:api log at e21ad65f6: 3-8 s): the Forge row's own toast, cleared by a 2.6 s timer
+      // (`TOAST_MS`), was still up 10 s on when the timer fired that late -- `settled`'s flake at 1280x720 Experiments
+      // row 0, about one run in two (LATER 1157's runs). The spec tests the launcher's rows; what each asks to open is
+      // asserted below, exactly.
+      window.__cxOpened = [];
+      window.open = ((url?: string | URL, target?: string, features?: string) => {
+        window.__cxOpened!.push([String(url ?? ''), String(target ?? ''), String(features ?? '')]);
+        return null;                                                    // as `noopener` answers: the grammar reads nothing
+      }) as typeof window.open;
       document.addEventListener('click', (e) => {
         const row = (e.target as Element | null)?.closest?.('.cx-item');
         window.__cxClicks!.push(row?.getAttribute('data-fk') ?? `(${(e.target as Element | null)?.tagName ?? 'none'})`);
@@ -129,17 +144,11 @@ for (const [w, h] of VIEWPORTS) {
     });
     await page.context().route('https://discord.gg/**', (r) => r.fulfill({ status: 204, body: '' }));   // LATER 291: never Discord
     await page.context().route('https://github.com/**', (r) => r.fulfill({ status: 204, body: '' }));   // nor GitHub (2026-11-12)
-    // RC1-CONSOLE-POPUP (a spec correction): Experiments' Forge and Test room rows open `/forge` and `/testroom` in a new
-    // tab, which this spec closes within about 10 ms. Served, those pages cost the launcher: RC2's pw:api log at
-    // e21ad65f6 has the launcher's next call stall 3-8 s after each Forge tab (0.7 s after Test room's), mostly after the
-    // tab was closed; the cause is presumed to be the page's start or teardown sharing the launcher's renderer, not
-    // settled. RC1 (088766214, AWS SwiftShader) failed `settled` at 1280x720 and 1366x768 when the stall outlasted the
-    // toast's 10 s (its words already gone when read). This spec tests the launcher's rows, not those pages: their tabs
-    // are answered with an empty page, so the click still opens one (the `popup` above) and nothing is left to cost.
-    // Was: the real pages served, booting beside the launcher.
-    await page.context().route((url) => ['/forge', '/testroom'].includes(url.pathname.replace(/\/$/, '')),
-      (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>stub</title>' }));
-    page.on('popup', (p) => { void p.close(); });                          // a page row's new tab
+    // RC1-CONSOLE-POPUP, then LATER 1157: Experiments' Forge and Test room rows ask `window.open` for `/forge` and
+    // `/testroom`, which the init script above records without making a tab (was: the tab made and answered with an empty
+    // page, still a page's start and teardown beside the launcher -- the stall RC2 measured, and the flake). A link row's
+    // tab (the phone's Discord and GitHub rows: a followed `href`) is still a popup, closed here.
+    page.on('popup', (p) => { void p.close(); });                          // a link row's new tab
     page.on('filechooser', () => { /* the disc's chooser: intercepted, left unanswered */ });
     await open(page, w, h);
     const cats = await page.locator('#stage .cx-cat .cx-cat__label').allTextContents();
@@ -204,6 +213,18 @@ for (const [w, h] of VIEWPORTS) {
         } else if (label === 'Settings') await expect(page.locator('#stage h1.cx-title'), `${where}: its Settings screen`).toHaveText(title === 'Game' ? 'Display' : title === 'Launcher' ? 'Controller' : title);
         // The LR-36 fold (LR.R30): the page has no disc here, so Play's click opens the launch check on its disc row (was: the
         // disc's chooser, intercepted above and unseen).
+        else if (label === 'Experiments' && /^(Forge|Test room)$/.test(title)) {
+          // LATER 1157: a page row's click asks for its page in a new tab, `noopener` (the grammar's `openPage`), once.
+          const opened = await page.evaluate(() => window.__cxOpened!.splice(0));
+          expect(opened, `${where} (${title}): one new tab asked for`).toHaveLength(1);
+          // The grammar's URL is the site's base and the page's name (`adapters/server.ts` `openPage`): relative (`/forge`
+          // under the e2e server's base `/`), so it is read against the launcher's own address; the name ends the path.
+          const [url, target, features] = opened[0]!;
+          const path = new URL(url, page.url()).pathname.replace(/\/$/, '');
+          const name = title.toLowerCase().replace(/\s+/g, '');
+          expect([path.endsWith(`/${name}`), target, features], `${where} (${title}): ${url} -- its page, a new tab, noopener`)
+            .toEqual([true, '_blank', 'noopener']);
+        }
         else if (label === 'Home' && title === 'Play SOCOM II') await expect(page.locator('#stage [data-panel="launch"] .cx-r.is-focused[data-id="disc"]'), `${where}: the launch check`).toBeVisible();
         rows++;
       }

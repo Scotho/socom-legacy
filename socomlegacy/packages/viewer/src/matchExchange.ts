@@ -1,4 +1,4 @@
-import type { Loadout, Side } from '@s2u/scene';
+import { replayPicks, type Loadout, type Side } from '@s2u/scene';
 import { ExchangeInput } from './exchangeInput';
 import type { GamepadLike, PadButton } from './gamepad';
 import type { HudQuad, HudTri } from './hud';
@@ -97,7 +97,7 @@ export interface MatchExchange {
   overlay(frame: { width: number; height: number }, sizes: Record<string, { width: number; height: number }>): { quads: HudQuad[]; tris: HudTri[] };
   /** A kit shown on the menu's rows: the room's answer, `/testroom`'s ARMORY's (`main.ts:406`). */
   answer(kit: Loadout): void;
-  /** The round's reset (S8): the menu closed over the kit the spawn took (`main.ts:1726`, `1779`, `1794`). */
+  /** The round's reset (S8; LATER 1542: never a spawn): closed over the body's kit (its fade draws it); opens re-seat from `opensOn`. */
   reset(): void;
   /** The part's own addition to `./matchNet`'s shared hooks: the room's answer shown (`main.ts:1723`). */
   netHooks(): Required<Pick<MatchNetHooks, 'answered'>>;
@@ -121,6 +121,13 @@ export function mountExchange(d: MatchExchangeDeps): MatchExchange {
   const menu: WeaponExchange = new WeaponExchange({
     clock,
     opensOn: () => d.loadouts.pending(d.side()) ?? d.loadouts.base(d.side()),
+    // R4P-221: the pair the side's list leaves, replayed from the type's kit as the room replays it.
+    remembered: () => {
+      const ctx = menu.context(), side = d.side();
+      if (!ctx) return undefined;
+      const r = replayPicks(ctx.arsenal, ctx.valves, ctx.side, d.loadouts.base(side), d.loadouts.picks(side));
+      return 'refused' in r ? undefined : r.remembered;
+    },
     confirm: (pick) => {
       const side = d.side(), ctx = menu.context();
       const list = d.loadouts.confirm(side, pick, (l) => (ctx ? compactPicks(ctx, d.loadouts.base(side), l) : [...l]));

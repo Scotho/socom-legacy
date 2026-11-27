@@ -5,8 +5,9 @@ import type { RdrNode } from '@s2u/archive';
 import {
   EMPTY_ITEM, FULL_SLOT, ITEM, VALVE_OF_ITEM, applyPicks, arsenalOf, autoFill, characterWeapons, itemClass, kitTableOf, mapArsenal,
   menuValves, missionValves, pick, readArsenal, readKitTable, readMapArsenal, selectable, slotKindOf, slotLocked, valveAllows,
-  type Arsenal, type Loadout,
+  ammoDisplayNameOf, countsHit, HIT_STAT_CLASSES_READING, type Arsenal, type Loadout,
 } from '../src/arsenal';
+import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { DEFAULT_RIFLE, HELD_RIFLE, HELD_SIDEARM } from '../src/weapons';
 import { launchReportItem } from '../src/arsenal';
 
@@ -49,6 +50,18 @@ describe('the arsenal over a hand-built zweapon.rdr', () => {
       'explosive', 'launcherRound', 'rocketRound', 'gear', 'armour', 'turret', 'turret', 'turret2', 'turret2', 'internal', 'internal',
     ]);
     expect([54, 143, 15, 146, 145, 121, 195].map(slotKindOf)).toEqual(['primary', 'primary', 'secondary', 'equipment', 'equipment', 'equipment', 'equipment']);
+  });
+
+  it('R4P-105: a projectile counts a hit unless its own record is a thrown item (121-140) or a launched round (171-184) (r0004 0x3f2670; HIT_STAT_CLASSES_READING)', () => {
+    expect([...HIT_STAT_CLASSES_READING]).toEqual(['grenade', 'launcherRound']);
+    // The rifle (M4A1 61), the shotgun (870 84), the pistol (15): counted. M67 121, the thrown range's last 140, M203 HE
+    // 171, M203 FRAG 175, the rounds' last 184: never. The rockets (LAW HEAT 185, RPG 186, 189): still counted at r0004.
+    expect([61, 84, 15, 121, 140, 171, 175, 184, 185, 186, 189].map(countsHit)).toEqual([
+      true, true, true, false, false, false, false, false, true, true, true,
+    ]);
+    // R4P-105 review F1: the ranges' outer neighbours (120, 141, 170) count, and so does the MGL FRAG TURRET's round (230,
+    // class 0xe6): r0004 0x3f2670 filters 0x79 and 0xab only -- 0xe6 is on the SHOT filter 0x3f4070, not the hit filter.
+    expect([120, 141, 170, 230].map(countsHit)).toEqual([true, true, true, true]);
   });
 
   it('reads the rare keys with the parser\'s defaults: the bolt, the misspelt pump, pellets, arming, backblast, cost', () => {
@@ -124,6 +137,19 @@ describe('the arsenal over a hand-built zweapon.rdr', () => {
   it('a cost-2 pick fills the next equipment slot with its round, 4 wrapping to 2', () => {
     expect(pick(arsenal, valves, 'terrorist', kit(58, 5, 121, 126, 194), 3, ITEM.RPG7).loadout).toEqual([58, 5, 121, ITEM.RPG7, ITEM.RPG_ROUND]);
     expect(pick(arsenal, valves, 'terrorist', kit(58, 5, 121, 126, 158), 4, ITEM.RPG7).loadout).toEqual([58, 5, ITEM.RPG_ROUND, 126, ITEM.RPG7]);
+  });
+
+  it('ARSENAL-PARTNER: a cost-2 pick\'s partner is the LAST empty equipment slot but its own, else the next (FUN_0023fef0)', () => {
+    // r0001 D:L89167-89184: the next slot (4 wrapping to 2) is only the default; the walk over slots 2..4 then takes
+    // each slot reading 0xff other than the pick's, so the last such one wins.
+    expect(pick(arsenal, valves, 'terrorist', kit(58, 5, EMPTY_ITEM, 126, 194), 3, ITEM.RPG7).loadout)
+      .toEqual([58, 5, ITEM.RPG_ROUND, ITEM.RPG7, 194]);                     // the empty slot 2, not the next (4)
+    expect(pick(arsenal, valves, 'terrorist', kit(58, 5, EMPTY_ITEM, EMPTY_ITEM, 158), 4, ITEM.RPG7).loadout)
+      .toEqual([58, 5, EMPTY_ITEM, ITEM.RPG_ROUND, ITEM.RPG7]);              // 2 and 3 empty: the last, 3, not the wrap (2)
+    expect(pick(arsenal, valves, 'terrorist', kit(58, 5, EMPTY_ITEM, 126, EMPTY_ITEM), 2, ITEM.RPG7).loadout)
+      .toEqual([58, 5, ITEM.RPG7, 126, ITEM.RPG_ROUND]);                     // 4, not the next (3) (the own-slot skip has no visible effect: the pick's slot is never empty at the walk)
+    expect(pick(arsenal, valves, 'terrorist', kit(58, 5, 121, EMPTY_ITEM, 194), 2, ITEM.RPG7).loadout)
+      .toEqual([58, 5, ITEM.RPG7, ITEM.RPG_ROUND, 194]);                     // the next is also the only empty one: unchanged
   });
 
   it('refills from the player\'s own side (INGAME_AUTOFILL_SIDE_READING), never the id just removed', () => {
@@ -330,5 +356,52 @@ describe('M203-FIRE-SOUND: the launch report\'s record (research 94 §C4.5)', ()
     expect(launchReportItem(185, null)).toBeNull();
     expect(launchReportItem(121, [54, 5, 121, 255, 255])).toBeNull();      // a hand grenade: its release is its own
     expect(launchReportItem(54, [54, 5, 121, 255, 255])).toBeNull();
+  });
+});
+
+/**
+ * PICKUP-LINE (viewer `src/pickupLine.ts` `PICKUP_TEXT_READING`): a take posts the ammo record's `+4`, which the ammo
+ * loader `FUN_003cedb0` fills from the record's `DisplayName` (D:L322655-322659, key 0x3fc648; the setter
+ * `FUN_003d4650` D:L326753-326765) and the post reads back through `FUN_003d4550` (D:L326665-326669). The arsenal keeps
+ * each `ZAMMO` record's `DisplayName` by its `InternalName`, the disc's bytes as they stand (two carry spaces).
+ */
+describe('ammoDisplayNames: each ZAMMO record\'s DisplayName by its InternalName', () => {
+  it('holds the DisplayName exactly, "NOT FOUND" for a record without one; the lookup\'s own fallback is the InternalName', () => {
+    const script: RdrNode = ['ZAMMO', [
+      rec(['InternalName', 'RED SMOKE Ammo'], ['DisplayName', 'M18 RED SMOKE'], ['ID', '1']),
+      rec(['InternalName', 'BLUE CHEM LIGHT Ammo'], ['DisplayName', ' CHEM LIGHT '], ['ID', '2']),
+      rec(['InternalName', 'NO NAME Ammo'], ['ID', '3']),
+    ], 'ZWEAPON', [weapon('M4A1', 54)]];
+    const a = arsenalOf(script);
+    expect(a.ammoDisplayNames?.get('RED SMOKE Ammo')).toBe('M18 RED SMOKE');
+    expect(a.ammoDisplayNames?.get('BLUE CHEM LIGHT Ammo')).toBe(' CHEM LIGHT ');
+    // A record with no `DisplayName` gets the loader's own default "NOT FOUND" (FUN_003cedb0: the default
+    // D:L322642-322643, the key's fallback to it D:L322655-322658), not its InternalName.
+    expect(a.ammoDisplayNames?.get('NO NAME Ammo')).toBe('NOT FOUND');
+    expect(ammoDisplayNameOf(a, 'NO NAME Ammo')).toBe('NOT FOUND');
+    expect(ammoDisplayNameOf(a, 'RED SMOKE Ammo')).toBe('M18 RED SMOKE');
+    expect(ammoDisplayNameOf(a, 'unknown')).toBe('unknown');
+    expect(ammoDisplayNameOf({ items: new Map(), byName: new Map(), order: [] }, 'RED SMOKE Ammo')).toBe('RED SMOKE Ammo');
+    expect(ammoDisplayNameOf(null, 'RED SMOKE Ammo')).toBe('RED SMOKE Ammo');
+  });
+});
+
+const ZWEAPON_FIXTURE = fixture('RUN/ZWEAPON.ZAR');
+describe.skipIf(ZWEAPON_FIXTURE === null)(`ammoDisplayNames off the disc's zweapon.rdr${ZWEAPON_FIXTURE === null ? ` (${FIXTURES_ABSENT})` : ''}`, () => {
+  it('reads all 39 ZAMMO records; exactly 7 have a DisplayName other than their InternalName, spaces kept', () => {
+    const names = readArsenal(ZWEAPON_FIXTURE!).ammoDisplayNames!;
+    expect(names.size).toBe(39);
+    const differ = [...names].filter(([k, v]) => k !== v);
+    expect(differ).toEqual([
+      ['7.62 x 54 R', '7.62 x 54 R '],
+      ['RED SMOKE Ammo', 'M18 RED SMOKE'],
+      ['BLUE CHEM LIGHT Ammo', ' CHEM LIGHT '],
+      ['GL HE Ammo', 'M79 HE Ammo'],
+      ['GL Frag Ammo', 'M79 Frag Ammo'],
+      ['GL Smoke Ammo', 'M79 Smoke Ammo'],
+      ['LAW HEAT Ammo', 'AT-4 HEAT Ammo'],
+    ]);
+    expect(names.get('M67 Ammo')).toBe('M67 Ammo');                 // the rig's two lines: the same in both
+    expect(names.get('HE Grenade Ammo')).toBe('HE Grenade Ammo');
   });
 });

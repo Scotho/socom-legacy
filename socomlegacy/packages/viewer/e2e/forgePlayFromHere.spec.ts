@@ -30,14 +30,22 @@ test('Play from here on a blank floor stands under the camera and returns to the
   const asset = page.locator('.fx-assets .fx-asset-name').first();
   await expect(asset).toBeVisible({ timeout: 120_000 });
   await asset.click();
-  await expect(page.locator('.fx-status .fx-cell').first()).toHaveText('PLACE');
+  // PR #5 (OT.R112): no Place tool -- a tile's click spawns its prop at the view's centre; the mode cell reads SELECT
+  // (`../src/forge/page.ts` `refreshHint`: SELECT or PLAY only).
+  await expect(page.locator('.fx-status .fx-cell').first()).toHaveText('SELECT');
   const input = page.locator('.fx-input');
   const box = await input.boundingBox();
   if (!box) throw new Error('the viewport has no box');
   await input.click({ position: { x: box.width / 2, y: box.height / 2 } });
   const selected = page.locator('.fx-outliner li.is-on');
   await expect(selected).toHaveCount(1, { timeout: 30_000 });
-  const selectedText = (await selected.innerText()).replace(/\s+/g, ' ').trim();
+  // LATER 1100: the row's NAME, by its text content -- not the row's `innerText`. The row is two sibling spans with no
+  // text between them (the badge, then `.fx-row-label`: `../src/forge/page.ts` `userRow`), and `innerText` puts a line
+  // break between them only while the row is rendered; after Back the dock is drawn again a frame later
+  // (`../src/forge/shell/dockShell.ts` `frame`), so an unpolled read in that gap gave the unrendered form.
+  const selectedName = selected.locator('.fx-row-label');
+  const selectedText = ((await selectedName.textContent()) ?? '').trim();
+  expect(selectedText).not.toBe('');
 
   // Strafe, then wait out the status line (it rewrites every 500 ms) until the camera has stopped. Two reads
   // inside one rewrite can agree while the glide is still running.
@@ -106,7 +114,7 @@ test('Play from here on a blank floor stands under the camera and returns to the
   await expect(page.locator('.fx-match')).toBeHidden();
   await expect.poll(async () => camOf(page)).toBe(before);
   await expect(selected).toHaveCount(1);
-  expect((await selected.innerText()).replace(/\s+/g, ' ').trim()).toBe(selectedText);
-  await expect(page.locator('.fx-status .fx-cell').first()).toHaveText('PLACE');
+  await expect(selectedName).toHaveText(selectedText);     // LATER 1100: polled, text content (see the read before Play)
+  await expect(page.locator('.fx-status .fx-cell').first()).toHaveText('SELECT');   // PR #5: no Place tool to return to
   expect(errors).toEqual([]);
 });

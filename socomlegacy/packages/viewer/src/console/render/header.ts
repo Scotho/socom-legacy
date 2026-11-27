@@ -1,8 +1,10 @@
 import { pageVersion } from '../pageVersion';
+import { donationsHeaderHtml } from '../donations';
 import { DISCORD_INVITE, DISCORD_LABEL, discordMark, GITHUB_LABEL, GITHUB_REPO, githubMark } from '../discord';
 import { esc, ico, shoulder } from '../icons';
 import { CATS, homeItems, SAMPLE_DATA, type Adapters, type ConsoleState } from '../state';
 import { clock24 } from './theme';
+import { ownNameShown, streamerModeOn, STREAMER_TAG_WORDS } from '../../streamerMode';
 
 /**
  * LR-1 (LR.R8): the brand header's clock, the artifact's (`S2-Launcher-v2.dc.html`: the date at 14px and 60%, the time at
@@ -106,19 +108,30 @@ export type ServerMark = 'online' | 'checking' | 'unreachable';
 export const serverMark = (st: ReturnType<Adapters['server']['status']>): ServerMark => (st.ready ? 'online' : st.alert === false ? 'checking' : 'unreachable');
 const SERVER_MARK_WORDS: Readonly<Record<ServerMark, string>> = { online: 'Online', checking: 'Checking', unreachable: 'Unreachable' };
 
-/** LR-37 (5): the brand row's small mark after the version badge -- on Home only (LR-39: the overlay's too); its words its label. */
-function serverMarkHtml(s: ConsoleState, a: Adapters): string {
-  // LR-40 (8; the controller's decision 4b, LR.R31 (a)): the Home category only -- not Profile, Settings, Online or
-  // Experiments on the crossbar (the close run's F12); LR-39 (LR.R32): the overlay's Home is the page's, its mark too.
-  if (s.screen !== 'home' || CATS[s.cat]?.id !== 'home') return '';
+/**
+ * LR-37 (5): the brand row's small mark after the version badge, its words its label. On every tab and screen, page and
+ * overlay (the owner, 2026-11-18: "please make this visible on all tabs so the donate button doesnt fly around paging
+ * between them"): the brand row keeps one width, so the header's donation box does not move. Was the Home category only
+ * (LR-40 (8), the controller's decision 4b, LR.R31 (a)).
+ */
+function serverMarkHtml(a: Adapters): string {
   const st = a.server.status();
   const k = serverMark(st);
   return `<span class="cx-srvmark is-${k}" role="img" aria-label="Server status: ${SERVER_MARK_WORDS[k]}" title="${esc(`Server: ${st.line}`)}">${ico('server')}<i class="cx-srvmark__dot" aria-hidden="true"></i></span>`;
 }
 
+/**
+ * STREAMER-P1 (OT.R152; a browser adaptation): the indicator while Streamer mode is On -- a small tag in the header's
+ * status row, on every tab and in the overlay over a game (its pause and options); never on the in-round HUD.
+ */
+function streamerTagHtml(): string {
+  return streamerModeOn() ? `<span class="cx-streamer-tag" data-streamer-tag role="status" title="Streamer mode is on (Ctrl+Shift+S)">${STREAMER_TAG_WORDS}</span>` : '';
+}
+
 export function headerHtml(s: ConsoleState, a: Adapters, narrow = false, now: Date = new Date(), githubRow = narrow): string {
   const signedIn = a.session.signedIn();
-  const persona = a.session.persona();
+  // STREAMER-P1 (OT.R152, a browser adaptation): the own account name reads YOU while details are Hidden (`ownNameShown`).
+  const persona = ownNameShown(a.session.persona());
   const proto = a.data === SAMPLE_DATA && a.states
     ? '<button class="cx-proto" type="button" data-act="states" title="Prototype only: switch disc, sign-in and controller states (P)">Prototype states</button>'
     : '';
@@ -146,9 +159,11 @@ export function headerHtml(s: ConsoleState, a: Adapters, narrow = false, now: Da
     : central.kind === 'release' ? `Release ${central.version}`
       : ver.text.startsWith('central') ? `Version: central ${bare(central.version)}, page ${version}` : `Version ${bare(central.version)}`;
   return `
-    <div class="cx-header__identity"><div class="cx-brand"><img class="cx-brand__logo" src="${esc(BRAND_LOGO_URL)}" alt="${BRAND_LOGO_ALT}" width="480" height="174" decoding="async" draggable="false"><span class="cx-version${ver.reached ? '' : ' is-unreached'}" aria-label="${esc(versionAria)}">${esc(ver.text)}</span>${serverMarkHtml(s, a)}</div></div>
+    <div class="cx-header__identity"><div class="cx-brand"><img class="cx-brand__logo" src="${esc(BRAND_LOGO_URL)}" alt="${BRAND_LOGO_ALT}" width="480" height="174" decoding="async" draggable="false"><span class="cx-version${ver.reached ? '' : ' is-unreached'}" aria-label="${esc(versionAria)}">${esc(ver.text)}</span>${serverMarkHtml(a)}</div></div>
+    ${s.mode === 'overlay' ? '' : donationsHeaderHtml()}
     <div class="cx-status">
       ${over}
+      ${streamerTagHtml()}
       ${proto}
       ${s.mode === 'overlay' ? '' : clockHtml(now, clock24(a))}
       <a class="cx-discord${discordPad(s, a, narrow) ? ' is-focused' : ''}" href="${DISCORD_INVITE}" target="_blank" rel="noopener noreferrer" aria-label="${esc(DISCORD_LABEL)}">${discordMark()}</a>

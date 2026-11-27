@@ -2,7 +2,7 @@
 title: "Testing a pack locally"
 description: "Where you load a pack today: Home > Experiments > Mods for every earlier-format pack, the test room for mods and model packs, the Forge's Play for rules, and what a v2 import does."
 status: "Works"
-source: ["socomlegacy/packages/viewer/src/console/adapters/mods.ts", "socomlegacy/packages/viewer/src/console/render/mods.ts", "socomlegacy/packages/viewer/src/packs/classify.ts", "socomlegacy/packages/viewer/src/packs/pagePacks.ts", "socomlegacy/packages/viewer/src/packApplyOverlay.ts", "socomlegacy/packages/viewer/src/hdTexturePack.ts", "socomlegacy/packages/viewer/src/hdTexturePackStore.ts", "socomlegacy/packages/viewer/src/mods/panel.ts", "socomlegacy/packages/viewer/src/modelPack.ts", "socomlegacy/packages/ui/src/screens/videoPicture.ts", "socomlegacy/docs/specs/2026-10-18-test-room-mod-loader.md", "socomlegacy/docs/specs/2026-10-20-test-room-model-pack.md", "socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/creator-contracts/examples/zombie-waves/README.md", "socomlegacy/packages/viewer/src/forge/npcs.ts", "socomlegacy/packages/viewer/src/packs/registry.ts", "socomlegacy/packages/viewer/src/agent/testroomInstall.ts:29", "socomlegacy/packages/viewer/src/agent/testroomTarget.ts:23", "socomlegacy/packages/viewer/src/agent/forgePacks.ts:17"]
+source: ["socomlegacy/packages/viewer/src/console/adapters/mods.ts", "socomlegacy/packages/viewer/src/console/render/mods.ts", "socomlegacy/packages/viewer/src/packs/classify.ts", "socomlegacy/packages/viewer/src/packs/pagePacks.ts", "socomlegacy/packages/viewer/src/packApplyChip.ts", "socomlegacy/packages/viewer/src/packApplyOverlay.ts", "socomlegacy/packages/viewer/src/hdTexturePack.ts", "socomlegacy/packages/viewer/src/hdTexturePackStore.ts", "socomlegacy/packages/viewer/src/mods/panel.ts", "socomlegacy/packages/viewer/src/modelPack.ts", "socomlegacy/packages/ui/src/screens/videoPicture.ts", "socomlegacy/docs/specs/2026-10-18-test-room-mod-loader.md", "socomlegacy/docs/specs/2026-10-20-test-room-model-pack.md", "socomlegacy/docs/specs/2026-10-27-creator-rules-contract.md", "socomlegacy/packages/creator-contracts/examples/zombie-waves/README.md", "socomlegacy/packages/viewer/src/forge/npcs.ts", "socomlegacy/packages/viewer/src/packs/registry.ts", "socomlegacy/packages/viewer/src/agent/testroomInstall.ts:29", "socomlegacy/packages/viewer/src/agent/testroomTarget.ts:23", "socomlegacy/packages/viewer/src/agent/forgePacks.ts:17"]
 ---
 
 **Status: Works.** Every earlier-format pack is loaded in one place, **Home > Experiments > Mods**, kept in your
@@ -117,22 +117,30 @@ There is no HD picture any more: VIDEO MODE offers two pictures, MODERN and PS2 
 `screens/videoPicture.ts`), and the test room has no HD switch and no texture-pack import of its own. Choosing the HD
 pack in Mods is how HD is turned on.
 
-## Applying a pack: the overlay
+## Applying a pack: the loading chip
 
-Status: **Works** (the viewer's `packApplyOverlay.ts`, `PACK_APPLY_OVERLAY_ADAPTATION`).
+Status: **Works** (the viewer's `packApplyChip.ts`, `PACK_APPLY_CHIP_ADAPTATION`, and `packApplyOverlay.ts`,
+`PACK_APPLY_OVERLAY_ADAPTATION`).
 
-A texture pack chosen while a page is open applies at once, not at the next map. While it applies, the page shows the
-pack's name, "Applying pack... *n*/*N*" (the textures replaced of the textures the pack replaces on this map) and a
-bar; it goes at *N*/*N*. A pack that cannot be applied shows "*name*: not applied -- *why*" for a few seconds.
+A texture pack chosen while a page is open applies at once, not at the next map. While it applies, a small chip in the
+top right corner says "LOADING HD TEXTURES" for the HD pack, or "LOADING TEXTURES" for a map's texture pack, over a
+count, "*n* of *N*" (the textures replaced of the textures the pack replaces on this map, with thousands separators:
+"1,326 of 3,900"), and a thin bar that fills as it goes; the chip goes at *N* of *N*. A pack that cannot be applied
+keeps the title and shows "*name*: not applied -- *why*" in place of the count, with an empty bar, for a few seconds.
 
-- **Outside play** -- the Forge's editor, the test room's Explore, a match while you are dead or spectating -- it is a
-  panel over the whole screen.
-- **In live play** -- alive in a running match, or walking in the test room's Play -- it is a small strip in the top
-  right corner, so it never hides the play.
-- **At a map's load** it is the corner strip, drawn over the loading screen with the loading art still visible. The
-  apply starts with the map and never makes the load wait.
+- **The same corner chip everywhere.** It is never a panel over the screen and never in the pointer's way, so the menu,
+  the Forge's editor or the map behind it stays usable while the pack applies.
+- **Drawn by the HUD in play.** In a match while its HUD is up -- alive, dead and watching, or spectating -- and in the
+  test room's Play while you walk, the game's HUD draws the chip, in the HUD's own colours and font, above the compass
+  ring. Everywhere else the page draws it, in the same colours.
+- **At a map's load** it is drawn over the loading screen's corner, with the loading art still visible. The apply
+  starts with the map and never makes the load wait.
 
-The overlay never pauses the game: the match keeps running and your seat keeps sending.
+One gap is known: on the Forge's page an HD pack's chip says "LOADING TEXTURES", without "HD". A match played from the
+Forge says it in full while it loads; a pack chosen while that match runs may also show the editor's shorter chip in
+the same corner.
+
+The chip never pauses the game: the match keeps running and your seat keeps sending.
 
 ### How smooth an apply is
 
@@ -144,7 +152,7 @@ Measured, with the all-maps HD pack (3,421 images) chosen from a second tab whil
 machine -- an NVIDIA GeForce RTX 4070 SUPER under headless Chromium (WebGL2 through ANGLE Direct3D 11): the
 worst frame of the apply was 57 ms in one run and 48 ms in another, with one frame and no frame over 50 ms; before the
 spreading it was 535 ms and 363 ms. So the target is met in one of two runs, not yet in every one. Not fixed: a
-single stall of about a third of a second at the moment the pack is chosen, before the overlay appears; its cause is
+single stall of about a third of a second at the moment the pack is chosen, before the chip appears; its cause is
 not known yet. WebGPU was not measured. (The MODS loader plan's Log, task ML-9, 2026-11-07.)
 
 ### Memory

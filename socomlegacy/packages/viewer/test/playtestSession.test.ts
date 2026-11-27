@@ -405,7 +405,7 @@ const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 1
 function flatMap() {
   const floor: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
   };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const slot = (side: 0 | 1, x: number): SpawnSlot => ({ side, index: 0, position: [x, 0, 0], onFloor: true, step: 2, facing: [1, 0], loc: { map: 0, x: 0, z: 0 } });
@@ -720,6 +720,17 @@ describe('the focused retest on the page (PT-22)', () => {
     const bundle = await m.mark('button');
     expect(bundle.telemetry['kit']).toBeNull();
     expect(bundle.telemetry['feet']).toBeNull();
+    m.dispose();
+  });
+  // R4P-103 fresh review F4 (product track, an instrument): after a launcher claim the body's kit holds six records (the
+  // round appended); the mark carries it whole (`wireKit`, 5-30), never null; past 30 records, null.
+  it('R4P-103 F4: a mark after a launcher pickup carries the six-record kit; past 30 records, null', async () => {
+    const f = fakeHost(); let kit: number[] = [54, 15, 121, 145, 255, 185];
+    Object.assign(f.hook as object, { loadout: () => ({ loadout: kit }) });
+    const m = mountPlaytestSession(f.host); f.open();
+    expect((await m.mark('button')).telemetry['kit']).toEqual([54, 15, 121, 145, 255, 185]);
+    kit = new Array(31).fill(255);
+    expect((await m.mark('button')).telemetry['kit']).toBeNull();
     m.dispose();
   });
   it('F1: not between the join and the first round (the solo room never waits); once the room starts it, placed and held', async () => {

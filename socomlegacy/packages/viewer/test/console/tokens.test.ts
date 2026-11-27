@@ -24,7 +24,7 @@ function files(dir: string, ext: RegExp): string[] {
   });
 }
 
-const sheets = [...files(DS, /\.css$/), join(ROOT, 'console.css')];
+const sheets = [...files(DS, /\.css$/), ...files(ROOT, /\.css$/)];   // the page's own sheets: console.css and every src/console/**/*.css (WM-37's deployPanel.css)
 const declared = new Set(sheets.flatMap((f) => [...bare(readFileSync(f, 'utf-8')).matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]!)));
 
 /** Each use, `file:line name`. */

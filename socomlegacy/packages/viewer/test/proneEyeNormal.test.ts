@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildGrid, type WorldPoly } from '@s2u/scene';
-import { PRONE_EYE_LOOK_PLACEHOLDER, proneEyeTerms, scopeEye, toWorld } from '../src/cameraRig';
+import { PRONE_EYE_LOOK_READING, proneEyeTerms, scopeEye, toWorld } from '../src/cameraRig';
 import { rootY, Walker } from '../src/mover';
 import { headPoint } from '../src/net/shotCone';
 
@@ -8,7 +8,7 @@ import { headPoint } from '../src/net/shotCone';
  * PRONE-TILT-2 (2) (research 217 s7.7; reading, pending review): `FUN_0029ae50`'s prone eye (D:L142591-142602) reads the
  * floor normal's y at the body's `+0x1348` (D:L142596) -- the saved normal `actor+0x1344..+0x134c` the aim limits lean by
  * (`Walker.floorNormal`), not the tilt's `+0x410`. Its lift over the root is `(max(6q, 0) + 1.8) x 2 / max(n_y, 0.5)` and
- * its reach ahead `max(n_y, 0.5) x 0.7 x -7`; the look term q stays the placeholder.
+ * its reach ahead `max(n_y, 0.5) x 0.7 x -7`; the look term q is 0 here (no pitch given: level; `PRONE_EYE_LOOK_READING`).
  */
 
 const rad = (d: number): number => (d * Math.PI) / 180;
@@ -27,7 +27,7 @@ function plane(n: readonly number[]): { grid: ReturnType<typeof buildGrid>; y: (
 
 describe('the prone eye takes the saved floor normal\'s y (FUN_0029ae50 D:L142591-142602)', () => {
   it('on a 20-degree slope the eye rises by 2 / cos 20 of its 1.8 and reaches cos 20 of its 4.9; flat ground as before', () => {
-    expect(PRONE_EYE_LOOK_PLACEHOLDER).toBe(0);
+    expect(PRONE_EYE_LOOK_READING).toBe('same-command');   // PRONE_EYE_LOOK: no pitch given, a level look's 0
     expect(proneEyeTerms()).toEqual({ look: 0, groundNormalY: 1 });
     const n = Math.cos(rad(20));
     const eye = scopeEye('prone', 2.168, 0, proneEyeTerms(n));

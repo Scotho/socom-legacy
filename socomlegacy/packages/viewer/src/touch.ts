@@ -396,11 +396,13 @@ export function attachTouchControls(
  * off a button the browser would not capture, `cancel` for `pointercancel` and `lostpointercapture` (the system took the
  * finger), as the stance button reports its own. Either lets the button go; the page's action lifecycle fires nothing on a
  * cancel (`./actionContext`). The first lift wins: the `lostpointercapture` a browser sends after a `pointerup` is nothing.
+ * LATER 1059 (`STANCE_TOUCH_EVENT_TIME_ADAPTATION`): each press and lift hands on its event's own time (`Event.timeStamp`,
+ * ms on the page clock), so the stance button's tap and hold can be judged by the events rather than the frames.
  * The layout is found under `scope.root` (PAR-5: the page's body by default), its listeners taken off by `scope.signal`;
  * while `scope.blocked` says so (FI.R4: the layer hidden for a pad) a press reaches no button.
  */
 export function attachWalkTouch(
-  press: (button: number, down: boolean, how?: 'up' | 'cancel') => void, scope: TouchScope = {},
+  press: (button: number, down: boolean, how?: 'up' | 'cancel', at?: number) => void, scope: TouchScope = {},
 ): number {
   const root = under(scope.root ?? document.body, 'touch-walk');
   if (!root) return 0;
@@ -422,14 +424,14 @@ export function attachWalkTouch(
       held = capturePointer(button, e.pointerId);
       button.classList.add('is-down');
       try { globalThis.navigator?.vibrate?.(8); } catch { /* not offered */ }
-      press(index, true);
+      press(index, true, undefined, e.timeStamp);
     };
     const lift = (how: 'up' | 'cancel') => (e: PointerEvent): void => {
       if (down === null || (e.pointerId !== undefined && e.pointerId !== down)) return;
       down = null;
       releasePointer(button, e.pointerId);
       button.classList.remove('is-down');
-      press(index, false, how);
+      press(index, false, how, e.timeStamp);
     };
     button.addEventListener('pointerdown', pressed, on);
     button.addEventListener('pointerup', lift('up'), on);

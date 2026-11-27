@@ -519,3 +519,17 @@ match in the port is a room's -- the online rooms and `/testroom`'s solo play to
 the pull acts in none of them, and CTL-3 has nothing to transcribe for the port's matches. The row is built store-only (the
 merge controller's call): the strip moves the card's `AutoAim` (a persistent valve, f0 value 1), nothing reads it.
 The campaign, if it is ever ported, owes the pull (its body, `+0x5d4` / `+0x5d8` / `+0x5dc` and the two random draws).
+
+**The look stick measured (LATER 315, 2026-11-25; captures of the original, r0004, PC 2; unscored by a harness, compared
+by hand against the port by seat-move2).** IQ-233 (RECRUIT), IQ-237 (SAILOR, SEAL, CUSTOM), IQ-237B (each slider swept a tick at a
+time in CONTROLLER OPTIONS, the pad record read live) and IQ-237C (the DEAD ZONE knob at its true end): one law predicts
+every plateau, ramp step and dead-zone edge to 5 decimals from the settled words -- the port's law
+(`packages/viewer/src/look.ts` `lookStickOf`, `LookLaw`) and `packages/ui/src/stickTuners.ts` term for term. The look block sits at the port's offsets (+0x2b0 dead zone, +0x2b8 gain, +0x2bc
+power, +0x2cc ramp); LOOK SPEED is the piecewise setter (`stickGainOfSensitivity`), ACCELERATION 1 - v, DEAD ZONE
+min(v + 0.02, 1) / 2 (0.01 at the true left end, 0.5 from tick 50 of 50). So the presets and the sliders' laws are
+**measured by capture; proven once a spec holds it** (the records on PC 2's bench, IQ-233 / IQ-237 / IQ-237B /
+IQ-237C; the capture-scored spec pinning the plateaus, ramp steps and edges is LATER 1572; until then a reading, as
+STATUS.md's OPT-13 row says). Two notes: IQ-237's "CUSTOM at 0" dead zone 0.02 was a set-up artefact (its knob one press above the end;
+IQ-237C), not a finding; and SAILOR's dead zone and gain and SEAL's dead zone settle 1 ULP under the table's words
+(0x3e23d709 / 0x3f51eb84 against 0x3e23d70a / 0x3f51eb85), the same tick's word depending on the path to it (a float
+stepped by repeated adds, inferred, not located) -- named, no byte edge moves, not built.

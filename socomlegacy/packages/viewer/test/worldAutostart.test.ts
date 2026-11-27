@@ -21,7 +21,7 @@ const mp6 = fixture('RUN/MP6.ZDB');
 const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
 const poly = (path: string): WorldPoly => ({
   modelName: 'worldmodel', path, region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-10, 0, -10, 10, 0, -10, 10, 0, 10, -10, 0, 10]),
+  points: Float32Array.from([-10, 0, 10, 10, 0, 10, 10, 0, -10, -10, 0, -10]),
 });
 
 function hull(): GroundData {
@@ -69,16 +69,27 @@ describe.skipIf(mp6 === null)(`AS-1: the page runs the autostart programs${mp6 =
     const flash = pathOf(meta, 'flsh1a1');
     expect(world.isActive(jet)).toBe(false);                         // the wire stays the opening fold
     expect(world.isActive(flash)).toBe(false);
-    const jetOn = seen.filter((e) => e.path === jet).map((e) => e.on);
-    expect(jetOn).toContain(true);
+    // LATER 1426: mp6_parent's `WAIT 0 + RANDOM 1` (0 s at this draw) HOLDS at the opening fold's dt 0 -- the WAIT is begun
+    // and ticked in one call and holds while dt + elapsed <= seconds, equality holding (r0004 0x25f810-0x25f864) -- so
+    // the flyover (and f18_1's turn) is called at the first tick with time, not in the fold. The fold's `update(0)` is
+    // the port's own call (kill/keyjob-later1426-wait-read.md, "Where the port reaches dt = 0", (a); the original's
+    // first-step dt unread): f18_1 is off in the fold either way, and on only within one tick, as before.
+    expect(seen.filter((e) => e.path === jet).map((e) => e.on)).not.toContain(true);
     expect(SI_SCRIPT_MOTION_PLACEHOLDER).toBe('returns at once');
-    expect(jetOn.at(-1)).toBe(false);                                // command 26 returned at once: off in the same tick
 
     world.step(0.02);                                                 // flash1a's WAIT 0.001, then OBJECT_ACTIVE_STATE on
+    const jetOn = seen.filter((e) => e.path === jet).map((e) => e.on);
+    expect(jetOn).toContain(true);                                   // the parent's WAIT 0 passed: mp6_f18s_a's f181
+    expect(jetOn.at(-1)).toBe(false);                                // command 26 returned at once: off in the same tick
+    expect(world.isActive(jet)).toBe(false);
     expect(seen.filter((e) => e.path === flash).at(-1)?.on).toBe(true);
     expect(world.isActive(flash)).toBe(false);
 
-    world.step(3);                                                    // mp6_f18s_a's WAIT 3, then .JET_FLYBY
+    // mp6_f18s_a, called in the 0.02 s tick above (LATER 1426), begins its WAIT 3 with no time of its own: at 3.0 s
+    // elapsed it still holds (equality holds, r0004 0x25f810-0x25f864), and the next tick ends it, then .JET_FLYBY.
+    world.step(3);
+    expect(sounds).not.toContain('.JET_FLYBY');
+    world.step(0.02);
     expect(sounds).toContain('.JET_FLYBY');
 
     world.reset();                                                    // FUN_0026c600 again

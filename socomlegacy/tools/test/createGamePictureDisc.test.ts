@@ -30,7 +30,8 @@ const HAVE_DISC = DISC !== '' && ['RUN/UI/READERC.ZAR', 'RUN/UI/UICG_TXR.ZED', '
 const PICTURE = [25, 245, 283, 375] as const;
 /**
  * The default maps (OT.R16's three, OT.R45's Night Stalker the fourth, OT.R58 as amended by #723: The Ruins the fifth,
- * V13-2, and Blizzard the sixth, V13-3; Fish Hook and Desert Glory the seventh and eighth, DF-14) by their AVAILABLE_MISSIONS row: the list holds only them, in `missionlist.rdr`'s order (research 164 R164.3)
+ * V13-2, and Blizzard the sixth, V13-3; Fish Hook and Desert Glory the seventh and eighth, DF-14; Shadow Falls and Abandoned the
+ * ninth and tenth, the owner's B5; Rat's Nest the eleventh, RN-1) by their AVAILABLE_MISSIONS row: the list holds only them, in `missionlist.rdr`'s order (research 164 R164.3)
  * -- derived from `@s2u/ui` `FIRST_RELEASE_MAPS` (`packages/viewer/e2e/createGameRows.ts`), so it cannot drift.
  */
 const MAPS = CREATE_GAME_ROWS.map((m) => [m.row, m.number, m.slug] as const);
@@ -44,16 +45,17 @@ function boxDiff(a: Rgb, b: Rgb): number {
 }
 
 describe('CREATE GAME\'s PLAY LIST rows, as the picture checks walk them (no disc: the one list and map-archives.json)', () => {
-  it('eight rows in missionlist.rdr\'s order (research 192 G16): VIGILANCE, FISH HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, DESERT GLORY, NIGHT STALKER, THE RUINS (OT.R58 as amended by #723 and DF-14)', () => {
+  it("thirteen rows in missionlist.rdr's order (research 192 G16): VIGILANCE, SHADOW FALLS, FISH HOOK, CROSSROADS, BLIZZARD, FROSTFIRE, ABANDONED, ABANDONED (DAY), DESERT GLORY, NIGHT STALKER, RAT'S NEST, RAT'S NEST (DAY), THE RUINS (OT.R58 as amended by #723 and DF-14; B5; DAY-4: the accepted variants after their maps; RN-1; OT.R158)", () => {
     expect(CREATE_GAME_ROWS.map((m) => [m.row, m.number, m.name])).toEqual([
-      [0, 51, 'VIGILANCE'], [1, 71, 'FISH HOOK'], [2, 72, 'CROSSROADS'], [3, 1, 'BLIZZARD'], [4, 2, 'FROSTFIRE'], [5, 6, 'DESERT GLORY'],
-      [6, 7, 'NIGHT STALKER'], [7, 12, 'THE RUINS'],
+      [0, 51, 'VIGILANCE'], [1, 64, 'SHADOW FALLS'], [2, 71, 'FISH HOOK'], [3, 72, 'CROSSROADS'], [4, 1, 'BLIZZARD'], [5, 2, 'FROSTFIRE'],
+      [6, 5, 'ABANDONED'], [7, 5, 'ABANDONED (DAY)'], [8, 6, 'DESERT GLORY'], [9, 7, 'NIGHT STALKER'], [10, 8, "RAT'S NEST"], [11, 8, "RAT'S NEST (DAY)"],
+      [12, 12, 'THE RUINS'],
     ]);
   });
 });
 
 describe.skipIf(!HAVE_DISC)(`CREATE GAME's map picture drawn with the page's banks${HAVE_DISC ? '' : ' (no SOCOM_DISC / SOCOM_PC_ROOT)'}`, () => {
-  it('each offered map (CREATE_GAME_ROWS, the eight; CGPic6 and CGPic71 with DF-14) focused in the PLAY LIST draws its mp<n>MissPic.tif in the picture box; nothing undrawn', async () => {
+  it("each offered map (CREATE_GAME_ROWS, the twelve rows; CGPic6 and CGPic71 with DF-14, CGPic5 and CGPic64 with B5; CGPic5 again for DAY-4's ABANDONED (DAY), as its map's row; CGPic8 with RN-1) focused in the PLAY LIST draws its mp<n>MissPic.tif in the picture box; nothing undrawn", async () => {
     const src = new FsAssetSource(DISC);
     const fz = Zar.parse(new Uint8Array(readFileSync(resolve(DISC, FONTS_RDR.archive))));
     const faces = readTextFaces(parseRdr(fz.data(fz.find(FONTS_RDR.member)!)));
@@ -125,13 +127,25 @@ describe.skipIf(!HAVE_DISC)(`CREATE GAME's map picture drawn with the page's ban
     };
     expect(r.list('AVAILABLE_MISSIONS').items.map((it) => `${it.captions[1]} ${it.selectable}`)).toEqual(CREATE_GAME_ROWS.map((m) => `${m.name} true`));
     const seen = unfocused();
-    // DF-14: eight rows outrun the window at the opening, so the list is walked to its last row and back one -- the window
-    // scrolled to hold it, unfocused -- and those rows read too. Every offered row but row 0 is read unfocused at least once.
+    // DF-14: the rows outrun the window at the opening, so the list is walked to its last row -- the window scrolled to
+    // hold it -- and read there (every row in the window but the last unfocused), then back one and read again (the last
+    // row unfocused). DAY-4's variant row, RN-1's RAT'S NEST and OT.R158's RAT'S NEST (DAY): thirteen rows; back one is row 11 (RAT'S NEST (DAY)) focused, which the opening window does not hold,
+    // so the read at the last row is the one that sees it. Every offered row but row 0 is read unfocused at least once.
     const last = CREATE_GAME_ROWS.length - 1;
-    for (let k = 0; k < last + 2 && r.list('AVAILABLE_MISSIONS').focus < last; k++) r.press('DOWN', 3);
+    // Read at EVERY step of the walk, not only at the two ends: with thirteen rows (OT.R158's RAT'S NEST (DAY)) a middle
+    // row (ABANDONED (DAY)) sits in neither the opening window nor the last one, so a two-end read never saw it.
+    // Each row keeps its BRIGHTEST unfocused read: a read taken mid-scroll can catch a row still fading in (DESERT GLORY
+    // 49 at one step); a row truly drawn in a disabled grey is grey at every read, so the brightest still fails.
+    for (let k = 0; k < last + 2 && r.list('AVAILABLE_MISSIONS').focus < last; k++) {
+      r.press('DOWN', 3);
+      r.run(30);
+      for (const [row, b] of unfocused()) seen.set(row, Math.max(seen.get(row) ?? -1, b));
+    }
+    expect(r.list('AVAILABLE_MISSIONS').focus).toBe(last);
+    for (const [row, b] of unfocused()) seen.set(row, Math.max(seen.get(row) ?? -1, b));
     r.press('UP', 3);
     r.run(30);
-    for (const [row, b] of unfocused()) if (!seen.has(row)) seen.set(row, b);
+    for (const [row, b] of unfocused()) seen.set(row, Math.max(seen.get(row) ?? -1, b));
     for (const m of CREATE_GAME_ROWS.slice(1)) {
       const b = seen.get(m.row) ?? -1;
       expect(b, `${m.name} ${b}`).toBeGreaterThan(120);                                 // no row in a disabled grey (until 2026-10-07 the rows not offered were)

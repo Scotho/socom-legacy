@@ -21,8 +21,10 @@ const byte = (name: string): number => SOILS.findIndex((m) => m.name === name) +
 function quad(points: number[], material: number, cameratype = 0): WorldPoly {
   return { modelName: 'worldmodel', path: 'worldmodel/q', region: 0, ditype: 3, material, ptcount: 4, cameratype, points: Float32Array.from(points) };
 }
+/** A level floor at `y`, its FRONT facing UP (the winding's normal (P2 - P1) x (P0 - P1) has n_y > 0), as every map floor on
+ * the disc faces (VIGI-THROW: 0 of 4,591 floor points face away; the grenade query meets a face from its front only). */
 const floorAt = (y: number, material = byte('STONE'), half = 2000): WorldPoly =>
-  quad([-half, y, -half, half, y, -half, half, y, half, -half, y, half], material);
+  quad([-half, y, half, half, y, half, half, y, -half, -half, y, -half], material);
 /** A vertical wall across x at `z`. */
 const wallZ = (z: number, material = byte('STONE')): WorldPoly => quad([-2000, -50, z, 2000, -50, z, 2000, 300, z, -2000, 300, z], material);
 
@@ -42,20 +44,29 @@ function fly(g: Grenade, cast: HullCast, seconds = 4, dt = GAME_FRAME_DT): { t: 
 }
 
 describe('the throw\'s power (FUN_00594cf0)', () => {
+  // LATER 1027 re-pin: the chase's step is the original's per-game-frame step (D:L453514) at its exact per-second law,
+  // the share closed in dt being 1 - (1 - rate x G)^(dt / G), G = GAME_FRAME_DT; it was the Euler step at the page's dt
+  // (0.05 at 1/60; 0.5 + 0.5 x 0.3 and 0.8 - 0.3 x 0.15 over 0.1 s).
+  const share = (rate: number, dt: number): number => 1 - (1 - rate * GAME_FRAME_DT) ** (dt / GAME_FRAME_DT);
   it('chases the pressure at 3/s up and 1.5/s down, and releases when the pressure falls under 0.15 of it', () => {
-    expect(stepThrowPower(0, 1, 1 / 60)).toEqual({ power: 0.05, release: false });
+    expect(stepThrowPower(0, 1, GAME_FRAME_DT)).toEqual({ power: 3 * GAME_FRAME_DT, release: false });   // one game frame: 3G
     const up = stepThrowPower(0.5, 1, 0.1);
-    expect(up.power).toBeCloseTo(0.5 + 0.5 * 0.3, 12);
+    expect(up.power).toBeCloseTo(0.5 + 0.5 * share(3, 0.1), 12);          // share 1 - 0.8999^2.99695 = 0.2710; 0.6355
+    expect(up.power).toBeCloseTo(0.6355, 4);
     const down = stepThrowPower(0.8, 0.5, 0.1);
-    expect(down.power).toBeCloseTo(0.8 - 0.3 * 0.15, 12);
+    expect(down.power).toBeCloseTo(0.8 - 0.3 * share(1.5, 0.1), 12);       // share 1 - 0.94995^2.99695 = 0.1426; 0.7572
+    expect(down.power).toBeCloseTo(0.7572, 4);
     expect(stepThrowPower(0.8, 0.12, 1 / 60)).toEqual({ power: 0.8, release: true });
     expect(stepThrowPower(0.8, 0.13, 1 / 60).release).toBe(false);
   });
 
-  it('a digital button held: 1 - 0.95^n at 60 Hz -- how long it was held is how hard it goes', () => {
+  it('a digital button held: 1 - (1 - 3G)^(t / G) at any step -- how long it was held is how hard it goes', () => {
+    const K = 1 - 3 * GAME_FRAME_DT;                                       // 0.89989831
     expect(heldPower(0)).toBe(0);
-    expect(heldPower(1)).toBeCloseTo(1 - 0.95 ** 60, 9);
-    expect(heldPower(0.25)).toBeCloseTo(1 - 0.95 ** 15, 9);
+    expect(heldPower(1)).toBeCloseTo(1 - K ** (1 / GAME_FRAME_DT), 9);      // 0.9576 (was 1 - 0.95^60 = 0.9539)
+    expect(heldPower(0.25)).toBeCloseTo(1 - K ** (0.25 / GAME_FRAME_DT), 9);   // 0.5463 (was 1 - 0.95^15 = 0.5367)
+    expect(heldPower(1, 1 / 60)).toBeCloseTo(heldPower(1), 12);
+    expect(heldPower(1, 1 / 144)).toBeCloseTo(heldPower(1), 12);
     expect(heldPower(3)).toBeGreaterThan(0.999);
   });
 });
@@ -368,6 +379,129 @@ describe('the bounce\'s sound gate (HandleBounce 0x3c8f50, FUN_003c8f50 D:L31953
   });
 });
 
+describe('B-46 (a): the first bounce against IQ-160 3B (an unscored capture of the original; HandleBounce 0x3c8f50)', () => {
+  /**
+   * PIN (the controller's B-46 ruling (a): parity). IQ-160 3B -- an UNSCORED capture of the original (r0004, Shadow PC 4,
+   * record IQ160-ORIG-PC4; seat-kill's `agent-mail/planning/mega-2026-11-21/pilot/kill/iq160-3a-power-ramp.md`, 3B): M67
+   * full throws (power 0.988-0.990, about 161 u/s) on MP6, three trials a wall, the first bounce's speed ratio measured
+   * at square incidence and at 45 degrees -- STONE (g383 p1600) 0.3749 / 0.3753 / 0.3749 square, 0.3756 / 0.3755 /
+   * 0.3756 at 45; WOOD (the garage's inside wall) 0.2250 x3 both; ASPHALT (wc1di2) 0.3375 x3 at 45 (no square trial);
+   * the reflection within 0.48-1.11 degrees of the mirror, the tangential part keeping the same ratio (the whole vector
+   * scaled). The port's real bounce (`stepGrenade` -> `bounce`) on the port's own SOILS records (`materials.rdr`'s
+   * ELASTICITY_COEFF) and FIRST_BOUNCE_DAMPING is held to each measured trial within 0.005 (the evidence's agreement bound; the capture's own spread is ~0.0007) and to
+   * the mirror within 1 degree. A synthetic plane hull with no gravity: the velocity met is the velocity thrown.
+   * Two stand-ins, said: the garage wall's material is WOOD in the capture, and the port's table has WOOD_THICK and
+   * WOOD_THIN (both 0.3), so both are held; ASPHALT's wall normal is not in the capture, so a level floor stands for it.
+   */
+  const unit = (v: V3): V3 => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0] / l, v[1] / l, v[2] / l]; };
+  const dot3 = (a: V3, b: V3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const len3 = (a: V3): number => Math.hypot(a[0], a[1], a[2]);
+  const along = (v: V3, n: V3): V3 => { const k = dot3(v, n); return [v[0] - n[0] * k, v[1] - n[1] * k, v[2] - n[2] * k]; };
+  const soil = (name: string): SurfaceMaterial => SOILS.find((m) => m.name === name)!;
+  /** A plane through the origin with unit normal `n`, of `material`: hit by a segment that crosses it from n's side. */
+  const planeHull = (n: V3, material: SurfaceMaterial): HullCast => (a, b) => {
+    const da = dot3(a, n), db = dot3(b, n);
+    if (!(da > 0 && db <= 0)) return [];
+    const t = da / (da - db);
+    return [{ point: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t], normal: n, material, t }];
+  };
+  /** The velocity meeting the plane at `deg` from square, `speed` u/s. */
+  const incoming = (n: V3, deg: number, speed: number): V3 => {
+    const tan = unit(Math.abs(n[1]) > 0.9 ? [1, 0, 0] : [n[2], 0, -n[0]]);   // a unit tangent of the plane
+    const c = Math.cos((deg * Math.PI) / 180), s = Math.sin((deg * Math.PI) / 180);
+    return [(-n[0] * c + tan[0] * s) * speed, (-n[1] * c + tan[1] * s) * speed, (-n[2] * c + tan[2] * s) * speed];
+  };
+  const record = { ...M67, gravity: 0 };
+  /** One game frame into the plane from 0.05 u off it: the velocity after the port's bounce. */
+  const hit = (g: Grenade, n: V3, vin: V3, material: SurfaceMaterial): V3 => {
+    g.pos = [n[0] * 0.05, n[1] * 0.05, n[2] * 0.05];
+    g.vel = [...vin];
+    const ev = stepGrenade(g, GAME_FRAME_DT, planeHull(n, material), record);
+    expect(ev.some((e) => e.kind === 'bounce')).toBe(true);
+    return [...g.vel];
+  };
+  const angleDeg = (a: V3, b: V3): number => (Math.acos(Math.min(1, dot3(a, b) / (len3(a) * len3(b)))) * 180) / Math.PI;
+  const SPEED = 161;   // a full throw's speed (two WOOD trials launched at ~161 u/s); inert: the bounce is linear in speed
+
+  const trials: { material: string; normal: V3; deg: number; measured: number[] }[] = [
+    { material: 'STONE', normal: unit([0.53, 0.14, -0.83]), deg: 0, measured: [0.3749, 0.3753, 0.3749] },
+    { material: 'STONE', normal: unit([0.53, 0.14, -0.83]), deg: 45, measured: [0.3756, 0.3755, 0.3756] },
+    { material: 'WOOD_THICK', normal: [-1, 0, 0], deg: 0, measured: [0.2250, 0.2250, 0.2250] },
+    { material: 'WOOD_THICK', normal: [-1, 0, 0], deg: 45, measured: [0.2250, 0.2250, 0.2250] },
+    { material: 'WOOD_THIN', normal: [-1, 0, 0], deg: 0, measured: [0.2250, 0.2250, 0.2250] },
+    { material: 'WOOD_THIN', normal: [-1, 0, 0], deg: 45, measured: [0.2250, 0.2250, 0.2250] },
+    { material: 'ASPHALT', normal: [0, 1, 0], deg: 45, measured: [0.3375, 0.3375, 0.3375] },
+  ];
+
+  it('the port\'s records: STONE 0.5, WOOD_THICK / WOOD_THIN 0.3, ASPHALT 0.45, the first bounce x 0.75', () => {
+    expect(FIRST_BOUNCE_DAMPING).toBe(0.75);
+    expect(soil('STONE').elasticity).toBe(0.5);
+    expect(soil('WOOD_THICK').elasticity).toBe(0.3);
+    expect(soil('WOOD_THIN').elasticity).toBe(0.3);
+    expect(soil('ASPHALT').elasticity).toBe(0.45);
+  });
+
+  for (const { material, normal, deg, measured } of trials) {
+    it(`${material} at ${deg} deg: the first bounce keeps ${measured.join(' / ')} of the speed (within 0.005), mirrored within 1 deg`, () => {
+      const m = soil(material);
+      const vin = incoming(normal, deg, SPEED);
+      const g = launchGrenade([0, 0, 0], [0, 0, 0], record);
+      expect(g.firstBounce).toBe(true);
+      const vout = hit(g, normal, vin, m);
+      const ratio = len3(vout) / len3(vin);
+      for (const x of measured) expect(Math.abs(ratio - x)).toBeLessThanOrEqual(0.005);
+      // The outgoing direction is the mirror of the incoming about the normal (FUN_00308ef0), within 1 degree.
+      const k = -2 * dot3(vin, normal);
+      const mirror: V3 = [vin[0] + normal[0] * k, vin[1] + normal[1] * k, vin[2] + normal[2] * k];
+      expect(angleDeg(vout, mirror)).toBeLessThan(1);
+      // The whole vector is scaled: the part along the face keeps the same ratio as the speed.
+      if (deg > 0) expect(Math.abs(len3(along(vout, normal)) / len3(along(vin, normal)) - ratio)).toBeLessThanOrEqual(0.005);
+      // The second bounce does not take the extra 0.75: its ratio is the material's ELASTICITY_COEFF alone.
+      expect(g.firstBounce).toBe(false);
+      const v2 = hit(g, normal, vin, m);
+      expect(len3(v2) / len3(vin)).toBeCloseTo(m.elasticity, 9);
+      expect(Math.abs(len3(v2) / len3(vin) - ratio)).toBeGreaterThan(0.05);
+    });
+  }
+});
+
+describe('B-46 (b): the throw\'s power ramp against IQ-160 3A (an unscored capture of the original; LATER 1302)', () => {
+  /**
+   * RED, held as it.fails until LATER 1302's fix (v0.4.33; the controller's B-46 ruling (b)). IQ-160 3A -- an UNSCORED
+   * capture of the original (r0004, Shadow PC 4, record IQ160-ORIG-PC4; seat-kill's
+   * `agent-mail/planning/mega-2026-11-21/pilot/kill/iq160-3a-power-ramp.md`): R1 held N game frames (frame-locked, one
+   * game frame = 2 vsyncs), the power at release (ctrl+0x11c) is 1 - 0.9^(N - 2): the first two held frames add nothing
+   * (Add 1: +0x11c reads 0 on held polls 1 and 2), then the chase's steps -- N 4: 0.1902, 5: 0.2712, 6: 0.3442,
+   * 8: 0.4689, 12: 0.6517 (formula 0.1900, 0.2710, 0.3439, 0.4686, 0.6513). The port's chase (`stepThrowPower`,
+   * FUN_00594cf0 D:L453508-453516) steps from the first held frame, 1 - 0.9^N: two steps high. Where the two-frame delay
+   * lives in the code (+0x170 bit 0x40, a press edge, the poll order) is not read yet (LATER 1302).
+   * REVIEW F1: `held` drives the single step `stepThrowPower`, not the page's hold (`GrenadeCore.update`, `heldPower`);
+   * the fix will likely land in caller state (Add 1: +0x170 bit 0x40), so LATER 1302's fix MUST re-point `held` at
+   * wherever the delay lands, or these it.fails stay red with the bug gone. Review F2: 'throws nothing' is asserted by
+   * proxy (the power under abort_threshold); the fix adds a viewer test that a release at N = 3 throws nothing
+   * (`throwCommit.ts` releasePowerClears).
+   */
+  const held = (n: number): number => {
+    let power = 0;
+    for (let i = 0; i < n; i++) power = stepThrowPower(power, 1, GAME_FRAME_DT).power;
+    return power;
+  };
+
+  it.fails('LATER 1302: N held game frames give the original\'s 1 - 0.9^(N-2) at release (IQ-160 3A, unscored capture)', () => {
+    for (const [n, original] of [[4, 0.1900], [5, 0.2710], [6, 0.3439], [8, 0.4686], [12, 0.6513]] as const) {
+      expect(Math.abs(held(n) - original), `N = ${n}`).toBeLessThanOrEqual(0.001);
+    }
+  });
+
+  it.fails('LATER 1302: a release at the third held frame throws nothing -- the power under abort_threshold (IQ-160 3A, unscored capture)', () => {
+    // The original at N = 3: power 0.1001, 3/3 trials, nothing thrown (the clearance ran, no hand-open); a tap under
+    // `abort_threshold` throws nothing (FUN_005be9a0 D:L475497-475498; THROW_PARAMS.abortThreshold, the page's
+    // THROW_ABORT_POWER). The port's three steps give 0.271, over it: thrown.
+    expect(Math.abs(held(3) - 0.1)).toBeLessThanOrEqual(0.001);
+    expect(held(3)).toBeLessThan(THROW_PARAMS.abortThreshold);
+  });
+});
+
 describe('the transcribed tables against the game\'s files', () => {
   const script = (bytes: Uint8Array, name: string): RdrNode => {
     const zar = Zar.parse(bytes);
@@ -496,5 +630,36 @@ describe("PAR-96 B1: the claymore's limit counts claymores only (FUN_003cc1f0 D:
 
   it('the limit stays four (FUN_005be9a0 D:L475308, D:L475340: `< 4`)', () => {
     expect(CLAYMORE_RULES.maxPlaced).toBe(4);
+  });
+});
+
+describe('R4P-218: r0004 bounces the F2000 smoke round (0xb6) (HandleIntersections r4 0x3ebd00 D4:L345838-345844; PostTick r4 0x3ec150 D4:L345949-345955)', () => {
+  it('over every id 0..255 the bounce list is the categories 0x79 and 0x97 and the ids 172, 173, 178 and 182', () => {
+    const raw = new Set([0xac, 0xad, 0xb2, 0xb6]);
+    const wrong: number[] = [];
+    for (let id = 0; id <= 255; id++) {
+      const expected = weaponCategory(id) === 0x79 || weaponCategory(id) === 0x97 || raw.has(id);
+      if (bouncesByType(id) !== expected) wrong.push(id);
+    }
+    expect(wrong).toEqual([]);
+    expect(bouncesByType(0xb6), 'F2000 SMOKE (182)').toBe(true);
+    expect(bouncesByType(0xb5), 'F2000 HE (181) still impacts').toBe(false);
+    expect(bouncesByType(0xb7), 'F2000 FRAG (183) still impacts').toBe(false);
+  });
+
+  it('an F2000 smoke round fired at a wall from beyond its arming distance bounces off it and goes off only on its fuse', () => {
+    // A 100 u arming distance is the 40 mm HE and FRAG rounds'; the disc's 182 has none. A bouncing type takes no arming
+    // test either way: this is red at the base, where 182 was an impact round past the arming distance.
+    const round = { ...M67, name: 'F2000 SMOKE', id: 0xb6, impact: !bouncesByType(0xb6), armingDistance: 100 };
+    expect(round.impact).toBe(false);
+    const g = launchGrenade([0, 20, 200], [0, 0, -300], round);           // 250 u to the wall: past the 100 u arming
+    const events = fly(g, hull([floorAt(-100), wallZ(-50)]), 4);
+    const hit = events.find((x) => x.e.kind === 'bounce');
+    expect(hit, 'it bounced').toBeDefined();
+    expect((hit!.e as { point: V3 }).point[2]).toBeCloseTo(-50, 6);
+    const boom = events.find((x) => x.e.kind === 'explode');
+    expect(boom, 'it goes off').toBeDefined();
+    expect(boom!.t, 'on its fuse, not at the wall').toBeCloseTo(round.fuse, 1);
+    expect(events.some((x) => x.e.kind === 'dud'), 'no dud: a bouncing type takes no arming test').toBe(false);
   });
 });

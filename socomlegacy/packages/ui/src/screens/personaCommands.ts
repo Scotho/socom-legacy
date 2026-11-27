@@ -4,6 +4,7 @@ import { uiCommandFold } from '../uiCommands';
 import type { UiVarManager, UiVariable, UiVarValue } from '../uiVars';
 import { VALVE_TYPE, type ValveStore, type ValveType } from '../valves';
 import type { ZAnimUiCommand } from '../zanimRuntime';
+import { censorHashC } from './briefingRoomChat';
 import type { DnasEntryCommand } from './dnasCommands';
 import { PLAYER_PASSWORD_VAR, SECURE_PASSWORD_VALVE } from './netLoginCommands';
 import { INPUT_STRING } from './screenCommands';
@@ -114,6 +115,14 @@ export const PLAYER_HOMETOWN_VAR = 'PLAYERHOMETOWN';
 export const PLAYER_PERSONA_LIST_VAR = 'PLAYERPERSONALIST';
 export const PATCH_SERVER_URL_VAR = 'PatchServerURL';
 export const LAN_PLAYER_NAME_VAR = 'LANPLAYERNAMEVAR';
+
+/**
+ * CENSOR_WRITE_AT_ONCE_ADAPTATION (R4P-324; web research 263 §3a; the review's finding 2): r0004's `UINetCensorText`
+ * (0x00278660) writes the filtered text back into its variable from the filter's reply callback 0x00278740 (0x278754);
+ * the page has no filter reply (`CHAT_FILTER_PLACEHOLDER`), so `NetCensorText` writes `censorHashC`'s rewrite back at
+ * once. A browser adaptation of the timing, no unknown of the original's: what is written is the original's.
+ */
+export const CENSOR_WRITE_AT_ONCE_ADAPTATION = 'NetCensorText writes the #C rewrite back at once, the page having no filter reply' as const;
 export const PLAYER_GENDER_VALVE = 'PLAYERGENDER';
 
 /** The row the list pads with (`FUN_00276af0` D:L122572-122577): the caption at 0x3eeb08 and the index -1. */
@@ -171,10 +180,12 @@ export const IS_NETWORK_ON_PATH_READING = true;
 
 /**
  * NET_CENSOR_TEXT_PLACEHOLDER: `NetCensorText` hands the variable's text to the lobby's text filter
- * (`FUN_002f4df0(0x44f370, text, 0x2777c0, var)`, D:L122975), whose reply's callback 0x2777c0 was not read. The filter
- * is SVC-23's; with no `lobby.censor` nothing is asked and the variable stays as typed. [placeholder]
+ * (`FUN_002f4df0(0x44f370, text, 0x2777c0, var)`, D:L122975), whose reply's text the callback writes into the variable
+ * (research 183 §6). R4P-324: r0004's `Censor` (0x00311fc0) first rewrites every `#C` of its copy to `#` and 0xb2 --
+ * that part is `CENSOR_HASH_C_READING`, written back at once (`NetCensorText`). What stays unread is Sony's server
+ * filter on the reply (SVC-23's): with no `lobby.censor` nothing is asked, and no word is replaced. [placeholder]
  */
-export const NET_CENSOR_TEXT_PLACEHOLDER = 'no text filter: the variable stays as typed' as const;
+export const NET_CENSOR_TEXT_PLACEHOLDER = 'no word filter beyond the #C rewrite: Sony\'s server filter unread' as const;
 
 /**
  * LOBBY_CONNECT_PLACEHOLDER: `LobbyConnect`'s last call is the connection to the universe's lobby
@@ -355,7 +366,10 @@ export interface PersonaLobby {
   state?(): number;
   /** `FUN_002fa560(0x44f370)`: the logout asked. */
   logout?(): void;
-  /** `FUN_002f4df0(0x44f370, text, 0x2777c0, var)`: the text filter asked about a variable's text. Absent: `NET_CENSOR_TEXT_PLACEHOLDER`. */
+  /**
+   * `FUN_002f4df0(0x44f370, text, 0x2777c0, var)`: Sony's text filter asked about a variable's text, already `#C`-rewritten
+   * (`CENSOR_HASH_C_READING`); its reply written into the variable. Absent: `NET_CENSOR_TEXT_PLACEHOLDER`.
+   */
   censor?(text: string, v: UiVariable): void;
 }
 
@@ -568,14 +582,22 @@ export class PersonaCommands {
   /**
    * `FUN_002776e0` (D:L122958-122979): on the network (`DAT_0045a0c1`) with the LAN lobby down, the variable the
    * argument names (`$1` replaced by the animation's input), when it holds a string, is handed to the lobby's text
-   * filter (`NET_CENSOR_TEXT_PLACEHOLDER`). Answer 1.
+   * filter (`NET_CENSOR_TEXT_PLACEHOLDER`). Answer 1. R4P-324: r0004's `UINetCensorText` (0x00278660; the same gate,
+   * 0x278674 and 0x278684) calls `Censor` (0x00311fc0, at 0x27871c), whose copy takes `#` and 0xb2 for every `#C`, and
+   * its callback 0x00278740 writes the reply's text back into the same variable (0x278754). The page writes the rewrite
+   * back at once (`CENSOR_HASH_C_READING`; the original writes on the reply, which the page lacks:
+   * `CENSOR_WRITE_AT_ONCE_ADAPTATION`), then asks Sony's filter through `lobby.censor` when one is supplied.
    */
   NetCensorText: UiCommandHandler = (cmd) => {
     const lobby = this.o.lobby;
     if ((this.o.network?.() ?? IS_NETWORK_ON_PATH_READING) && !(lobby?.lanUp?.() ?? false)) {
       const name = cmd.arg !== '' && sameFolded(cmd.arg, CENSOR_INPUT_ARGUMENT) ? this.o.inputString(cmd) : cmd.arg === '' ? null : cmd.arg;
       const v = name === null ? undefined : this.o.uiVars.find(name);
-      if (v && v.value.type === 'string') lobby?.censor?.(v.value.value, v);
+      if (v && v.value.type === 'string') {
+        const filtered = censorHashC(v.value.value);                                // CENSOR_HASH_C_READING (0x278754)
+        this.o.uiVars.set(v, { type: 'string', value: filtered });                 // CENSOR_WRITE_AT_ONCE_ADAPTATION
+        lobby?.censor?.(filtered, v);
+      }
     }
     return this.answer('NetCensorText', cmd, true);
   };

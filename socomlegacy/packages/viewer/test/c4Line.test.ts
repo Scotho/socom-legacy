@@ -24,7 +24,7 @@ const NEAR = 100, FAR = 110;                                         // a barrie
 
 /** The floor and one node, the barrier, with its two faces. */
 function grid() {
-  const polys: WorldPoly[] = [{ ...across('worldmodel/floor', 0), ditype: 3, points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) }];
+  const polys: WorldPoly[] = [{ ...across('worldmodel/floor', 0), ditype: 3, points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) }];
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1, flags: FLAGS }];
   owners.push({ modelName: 'worldmodel', path: BARRIER, first: polys.length, count: 2, flags: FLAGS });
   polys.push(across(BARRIER, NEAR), across(BARRIER, FAR));
@@ -41,8 +41,8 @@ const HEAD: V3 = [50, 12, 0];
 const TOPPED = 'worldmodel/access2=access2/good_parts/di_good';
 function grid2() {
   const wall = (x: number): WorldPoly => ({ ...across(TOPPED, x), points: Float32Array.from([x, 0, -20, x, 0, 20, x, 18, 20, x, 18, -20]) });
-  const top: WorldPoly = { ...across(TOPPED, 30), points: Float32Array.from([30, 18, -20, 36, 18, -20, 36, 18, 20, 30, 18, 20]) };
-  const polys: WorldPoly[] = [{ ...across('worldmodel/floor', 0), ditype: 3, points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) }, wall(30), top, wall(36)];
+  const top: WorldPoly = { ...across(TOPPED, 30), points: Float32Array.from([30, 18, 20, 36, 18, 20, 36, 18, -20, 30, 18, -20]) };
+  const polys: WorldPoly[] = [{ ...across('worldmodel/floor', 0), ditype: 3, points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) }, wall(30), top, wall(36)];
   const owners: CollisionOwner[] = [
     { modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1, flags: FLAGS },
     { modelName: 'worldmodel', path: TOPPED, first: 1, count: 3, flags: FLAGS },
@@ -98,7 +98,7 @@ describe('LATER 121, the review\'s F1: the camera\'s eye is an aim eye too (the 
 
   it('the camera\'s line never excuses a wall: walled stays the head\'s (another node, a kerb, between the head and the point)', () => {
     const kerb = 'worldmodel/kerb';
-    const polys: WorldPoly[] = [{ ...across('worldmodel/floor', 0), ditype: 3, points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) },
+    const polys: WorldPoly[] = [{ ...across('worldmodel/floor', 0), ditype: 3, points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) },
       { ...across(kerb, 20), points: Float32Array.from([20, 0, -20, 20, 0, 20, 20, 14, 20, 20, 14, -20]) }, across(TOPPED, 30)];
     const owners: CollisionOwner[] = [
       { modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1, flags: FLAGS },

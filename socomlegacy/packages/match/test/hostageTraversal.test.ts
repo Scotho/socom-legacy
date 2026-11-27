@@ -27,6 +27,10 @@ const weapons = fixture('RUN/ZWEAPON.ZAR');
 const motion = fixture('RUN/MOTION_P.ZAR'), reader = fixture('RUN/READERC.ZAR');
 const clips = motion && reader ? simClipsFromBytes(motion, reader) : null;
 const DT = 1 / 30, LEADER_SPEED = 45, MAX_LEAD = 100, STALL_TICKS = 300, MAX_TICKS = 18000;
+// LATER 1232 (coreB's rule, folded here): ticks without progress before a detour waypoint the scripted leader is pressed
+// against counts as reached. A test budget, well inside the 300-tick STALL_TICKS throw (no fresh detour is planned while a
+// detour waypoint is pending: the detour trigger needs an empty bypass).
+const PRESSED_TICKS = 30;
 const gap = (a: readonly number[], b: readonly number[]) => Math.hypot(a[0]! - b[0]!, a[2]! - b[2]!);
 // Test-only route planning: sample real Walker moves around an AI waypoint that a player cannot
 // occupy. Probe walkers are disposable; the actual leader replays every returned segment through
@@ -75,6 +79,8 @@ function detour(map: ReturnType<typeof simMapFromBytes>, planner: HostagePathPla
 // The promotion/countdown itself remains separate coverage in central/test/escort.test.ts.
 // VIP physical routes are an opt-in diagnostic expansion while Guidance terrain remains unresolved
 // (LATER590). Keep every row registered so normal runs report skips, never all-map acceptance.
+// The committed fixtures hold RUN/MP6.ZDB, RUN/MP11.ZDB (LATER 1230: MP11's three routes on every box) and RUN/MP71.ZDB; the
+// others run with the disc as the fixture root (S2U_TEST_FIXTURES).
 for (const stem of ['MP6', 'MP10', 'MP11', 'MP71', 'MP52', 'MP53', 'MP82']) {
   const bytes = fixture(`RUN/${stem}.ZDB`);
   const ai = bytes ? parseAiMaps(zdbMember(bytes, parseZdb(bytes), 'AIMAPS.MPS')) : null;
@@ -163,7 +169,7 @@ for (const stem of ['MP6', 'MP10', 'MP11', 'MP71', 'MP52', 'MP53', 'MP82']) {
         leaderWalker.driver = leaderMoves;
         const leader: FollowLeader = { id: 1, feet: [...start.at], yaw: 0, velocity: [0, 0, 0], topSpeed: 65, stance: 0 };
         let segment = 1, stalled = 0, anchor = follower.feet, reached = false;
-        let leaderStalled = 0, leaderAnchor = [...start.at];
+        let leaderStalled = 0, leaderAimKey = '', leaderBest = Infinity;
         let bypass: number[][] = [], bypassResume = 0, detours = 0, bypassGoal: readonly number[] = [], bypassGoalMap = -1;
         for (let tick = 0; tick < MAX_TICKS; tick++) {
           const moving = segment < points.length && gap(leader.feet, follower.feet) < MAX_LEAD;
@@ -182,14 +188,29 @@ for (const stem of ['MP6', 'MP10', 'MP11', 'MP71', 'MP52', 'MP53', 'MP82']) {
           // Five-unit test waypoint tolerance: a physical capsule need not occupy an exact
           // cell centre beside a jamb. This only advances the aim; it never bypasses collision.
           if (bypass.length) {
-            if (gap(leader.feet, bypass[0]!) < 1) bypass.shift();
+            // LATER 1232 (coreB's rule): a detour waypoint the body is pressed against counts as reached -- within the
+            // detour's five units and on its storey (DF-3's rule for the detour's goal), touching any wall this tick, and
+            // without progress toward it for PRESSED_TICKS. Detour points only; route points advance at 5 u already. On MP11
+            // spawn 2 detour 2's waypoint (1350.3, 548.8) lies where the body, held off worldmodel/g392_1, never comes within 1 u.
+            const b = bypass[0]!, d = gap(leader.feet, b);
+            const sameStorey = planner.locate(leader.feet as [number, number, number])?.map === planner.locate(b as [number, number, number])?.map;
+            const pressed = d < 5 && sameStorey && leaderWalker.wallHits().length > 0 && leaderStalled >= PRESSED_TICKS;
+            if (d < 1 || pressed) bypass.shift();
             // The detour's own waypoint within the same five units, on its storey, ends the detour as the plain advance
             // would: a probe's last step can sit against a jamb the scripted body stands off (MP11's g339_1, DF-3).
             if (bypass.length && gap(leader.feet, bypassGoal) < 5 && planner.locate(leader.feet)?.map === bypassGoalMap) bypass = [];
             if (!bypass.length) segment = bypassResume;
           } else if (segment < points.length && gap(leader.feet, points[segment]!) < 5) segment++;
-          if (!moving || gap(leaderAnchor, leader.feet) >= 1) { leaderAnchor = [...leader.feet]; leaderStalled = 0; }
-          else leaderStalled++;
+          // LATER 1231: the leader has stalled while it makes no PROGRESS toward its aim (the next detour waypoint, else the
+          // next route point): sliding back and forth along a wall is no progress. "Moved 1 u from the anchor" reset on every
+          // slide, so on MP11 at (1077, 602), against worldmodel/fence and land_20, the detour never fired and the follower
+          // idled beside a leader that did not move on (spawns 1 and 3).
+          {
+            const aim = bypass[0] ?? points[segment], aimKey = aim ? aim.join(',') : '', toAim = aim ? gap(leader.feet, aim) : 0;
+            if (!moving || aimKey !== leaderAimKey || toAim <= leaderBest - 1) {
+              leaderAimKey = aimKey; leaderBest = toAim; leaderStalled = 0;
+            } else leaderStalled++;
+          }
           if (leaderStalled === 60 && !bypass.length && detours < 8) {
             // Besides the next eight waypoints, authored cells along the current leg every 20 units inside the search's
             // reach: a leg longer than the reach (MP11's 230-unit climb at (1280,79,1462)) otherwise offers no target.
@@ -205,7 +226,7 @@ for (const stem of ['MP6', 'MP10', 'MP11', 'MP71', 'MP52', 'MP53', 'MP82']) {
               bypass = alternate.path; detours++;
               bypassResume = alternate.reached < along.length ? segment : segment + alternate.reached - along.length + 1;
               bypassGoal = goals[alternate.reached]!; bypassGoalMap = goalCells[alternate.reached]!.map;
-              leaderStalled = 0; leaderAnchor = [...leader.feet];
+              leaderStalled = 0; leaderBest = Infinity;
             }
           }
           if (leaderStalled >= STALL_TICKS) throw new Error(`fixture leader cannot traverse authored route: ${JSON.stringify({

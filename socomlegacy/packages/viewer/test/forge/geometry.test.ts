@@ -126,7 +126,7 @@ describe('tools', () => {
   });
 
   it("an extrude's walls and a cut's half are in the face's own object (its node's group): selectable, and in its hull", () => {
-    // A map's world is one mesh, its objects its faces' groups: a face with none is in no object (the owner, 2026-11-17:
+    // A map's world is one mesh, its objects its faces' groups: a face with none is in no object (the Forge's owner (crispy, OT.R112), 2026-11-17:
     // "the side walls don't have any geometry I can select and they don't have any collision").
     const m = box([0, 0, 0], [2, 2, 2], OPTS);
     for (const f of liveFaces(m)) { m.faces[f]!.group = 7; m.faces[f]!.surface = [3, 1, 0, 0, 0]; }
@@ -141,7 +141,8 @@ describe('tools', () => {
     expect(m.faces[cut[1]]!.surface).toEqual([3, 1, 0, 0, 0]);
   });
 
-  it('split an edge, cut a face, merge it back', () => {
+  // His own red at 0ed80a521b (the owner, 2026-11-22: "Mark as known failures"): expects cutFace to cut the split face; gets null.
+  it.fails('split an edge, cut a face, merge it back', () => {
     const m = plane([0, 0, 0], 2, 2, 1, OPTS);
     const [a, b] = [m.cVert[m.faces[0]!.corners[0]!]!, m.cVert[m.faces[0]!.corners[1]!]!];
     splitEdge(m, a, b);
@@ -206,7 +207,7 @@ describe('texturing (as a level editor does it)', () => {
     expect(Math.abs(m.faces[0]!.mapping!.u[2])).toBeCloseTo(1);
   });
 
-  // A level editor 2's Texture State and Modify Texture (the owner, 2026-11-17: "Align, Scale, Shift, Rotate, Fit, Justify").
+  // A level editor 2's Texture State and Modify Texture (the Forge's owner (crispy, OT.R112), 2026-11-17: "Align, Scale, Shift, Rotate, Fit, Justify").
   it('Texture State: rotation read off the axes, set absolutely; shared values, null where faces differ', () => {
     expect(mappingRotation(worldAligned([0, 1, 0], 1))).toBeCloseTo(0);
     const m = plane([0, 0, 0], 10, 10, 2, OPTS);

@@ -92,6 +92,12 @@ export interface ReplayWorldHost {
    * built (`./worldSteer` `readReplaySteer`, `../../main.ts`'s replay world only). Absent: the frame reads nothing.
    */
   steer?: ReplaySteerLane;
+  /**
+   * E17 (B-83; optional, additive; a browser adaptation): the replay's named match as central's public entry names it --
+   * its region and lobby name, each null where the entry carries none -- for the test room's GAME DETAILS
+   * (`../../scoreboard` `servedRoomDetails`). Absent: the room's stand-ins, as before.
+   */
+  details?(): { region: string | null; lobbyName: string | null };
 }
 
 /**
@@ -169,6 +175,7 @@ export function replayWorldHost(win: { frameElement: Element | null } | undefine
     const host = (frame as unknown as Record<symbol, unknown>)[REPLAY_WORLD_KEY] as Partial<ReplayWorldHost> | undefined;
     if (!host || typeof host.disc !== 'function' || typeof host.client !== 'function' || typeof host.attached !== 'function' || typeof host.failed !== 'function') return null;
     if (host.ready !== undefined && typeof host.ready !== 'function') return null;     // RV2-03: optional, but a function when there
+    if (host.details !== undefined && typeof host.details !== 'function') return null; // E17: the same
     return host as ReplayWorldHost;
   } catch {
     return null;
@@ -185,10 +192,10 @@ export function replayWorldDeps(host: ReplayWorldHost, page?: ReplayPageHooks): 
 
 /**
  * The test room entered as the world, once at its start: its own chrome away (the backtick's `chrome-hidden` state, and
- * the site bar), and the handed disc (an image or, DA-4, a folder) opened by its own `openDisc` (a folder checked first,
- * DA.R8) when nothing is served -- as an image dropped
- * while the page came up is (`main.ts` `bootSource`'s pending disc). The kept copy (LATER 322) is asked as an image is
- * (`../../discSource` `discOpener`). No disc handed: the test room's own disc page asks.
+ * the site bar), and the handed disc (an image or, DA-4, a folder) opened by its own `openDisc` (an image or a folder
+ * checked first, DA.R8, LATER 954) when nothing is served -- as an image dropped
+ * while the page came up is (`main.ts` `bootSource`'s pending disc). The kept copy (LATER 322) is asked of the worker at
+ * once, checked at its extraction (`../../discSource` `discOpener`). No disc handed: the test room's own disc page asks.
  */
 export function enterReplayWorld(doc: Document, host: ReplayWorldHost, openDisc: (disc: HandedDiscRequest) => void, served: boolean): void {
   doc.body.classList.add('chrome-hidden');

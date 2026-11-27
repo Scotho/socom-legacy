@@ -254,13 +254,162 @@ in `play.ts` (`movingForReload`), as the room's is (`weapon.test.ts` holds it). 
   game's hold is the family's own clip, which has no `NoInterrupt` on the disc (`motion.rdr`: `seal_crouch_pump_shotgun`
   0.9, `seal_crouch_reload_shotgun` 1.6, `seal_reload_m203` 1.3, none set) and so gives way to the first push past 0.1;
   making the hold the family's clip is a wire change (`HOLD_CODES`) and the room's to know the after-shot and the round
-  mode. (2) The room's family has no after-shot and no round mode (a `reload` event carries neither): the two sides
+  mode. *Retired by B-18 below, with no wire change:* the page lays no hold for those families at all, and the stance
+  waits on the family clip's own life instead. (2) The room's family has no after-shot and no round mode (a `reload` event carries neither): the two sides
   agree only because no after-shot record and no carrier has a `ReloadTime` on the disc (the sweep pins it). (3) The
   respawn replay (`walk.ts` `respawn`) runs the server's unapplied commands through a `MoverSim` without `holdPeriod`,
   while the room applied its own: a still reload with a `ReloadTime` (Spas 12, JACKHAMMER, M60E3, M63A) crouched or prone
   straddling a respawn replays on the clip's `playback`. Not small: the replay runs (`client.ts` `spawned`) before the
   page learns the new kit (`netPage.ts`'s `respawned` -> `spawnKit`).
 - **Owed:** the lock (above); the owner's eye on the fix in his own run is the acceptance (HUMAN_TASKS H77); a capture of the original's running reload for the proven level (none exists).
+
+- **B-18, "sniper shot locks you prone" (2026-11-21; the cases the KILL2 capture below measured, each filed proven or reading by the three-part test of the capture's own item; the M203's
+  after-shot and the refused states stay reading, reviewed 2026-11-21 (second reader)).** The
+  read owed by (1) above, for the bolt rifles' after-shot, and the fix built on it. Evidence kinds apart: decompilation
+  read and one ELF instruction read (the finding and its fresh review), committed goldens of the repository's readers,
+  port source inspection, unit tests (`viewer/test/boltStance.test.ts`, `match/test/roomStillClipStance.test.ts`,
+  `viewer/test/boltAfterShotPick.test.ts`), and a capture of the original running (*the capture*, below).
+  - *The capture (KILL2, 2026-11-21).* A memory trace of the original, r0004 ("SOCOM 2 r0004 10:14:38 Nov 3
+    2004"), PCSX2 on the hub's PC 3, one row per game frame keyed on the frame counter, the M87ELR (103) on DESERT GLORY,
+    scoped and unscoped: the record `D:/s2u-records/KILL2-PC3/KILL2-PC3.zip`, sha256
+    `750abc0e73a88c5045deb8f63d58799be7c1ce798576ddd68fa54afef7ff52a2`, its summary `KILL2-summary.md` beside it (the
+    hub's `agent-mail` evidence, `weekend-mega-2026-11-14/rig/KILL2-PC3/`). Not in git. Measured there, each a case of
+    this entry; the level of each is named in its line (a case is **proven** only when this note states the tolerance, compares the
+    trace value for value, and a test asserts the captured value citing the record's sha256 and summary path; otherwise **reading**,
+    with what would make it proven):
+    - *the pick at the timer's end*: the kit timer `actor+0xe00` set to 0.5000 on the shot and the still clip pushed when
+      it runs out (14-17 f after the shot), for the stance at that moment -- prone `seal_prone_reload_shotgun` 41-44 f,
+      standing `seal_reload_shotgun` 43-45 f, `seal_crouch_reload_shotgun` seen once; a stand inside the 0.5 s gets the
+      standing clip (cases 1-5) -- **reading**: no test asserts the kit-set-to-push 14-17 f or the clip's 41-44 / 43-45 f (the kit timer runs short, LATER 1298); proven once a test asserts the captured 14-17 f pick and the clip lengths (KILL2), tolerance +-1 f;
+    - *the tolerance and the holding*: +-1 game frame, on the capture's clock column; a memory trace of the original
+      compared value for value, not harness-scored. The record (`D:/s2u-records/KILL2-PC3/KILL2-PC3.zip`, sha256
+      `750abc0e...52a2`) is held on the hub outside git, its summary at
+      `agent-mail/evidence/weekend-mega-2026-11-14/rig/KILL2-PC3/KILL2-summary.md`; a proven case below names its holding test, which cites the
+      record's sha256 and summary path in its header (`boltStance.test.ts`, `roomStillClipStance.test.ts`); no capture-scored spec.
+    - *the gate*: a stance press after the timer waits while the clip is on top (cases 2 and 4, 11 hands-off trials) -- **proven**, captured value: the press waits while the clip is on top, taken on its own row with none; held by `boltStance.test.ts` T2 (`t2PendingLate`), T4 and `roomStillClipStance.test.ts`' control;
+      with no clip a press is taken on its own row (case 6, the control; cases 1 and 3, inside the timer);
+    - *the stance gate's extra frame*: over the 11 hands-off trials the clip is on top 41-44 rows, then, as the MODE, ONE row
+      with the looped prone on top and the request (`actor+0x374`) still pending (8 of the 11 trials show one row, two
+      show two, one shows none, measured on the capture's game-CLOCK column; its rows carry +-1 frame and about 9% of
+      them repeat or double-step), and the posture (`actor+0x174`) changes on the next row; with the stick (case (c))
+      the change is 1 f after the cut row. So `FUN_00552ec0` reads the top before the driver's end test or cut of the
+      same frame (`FUN_00550ef0` D:L418174-418203) -- **INFERRED from the capture, not read in the decompilation**
+      (`FUN_00552d60` is called from `FUN_00551ec0` at D:L418609; no direct call orders it against `FUN_00550ef0`) -- and the request is taken a game
+      frame after the frame the clip comes off: the shot to the change 1.916-1.983 s over those 11 trials by their frame
+      analysis (the summary's own count for cases 2 and 4: 58-60 f, 1.93-2.00 s), not the ~1.90 s this entry read. **Built** on both sides, through
+      `STANCE_POP_FRAME_COMMANDS` (`reloadClip.ts`: one game frame on the 60 Hz commands, `GAME_FRAME_DT * TICK_HZ` =
+      2.002 (525/15734 x 60), so 2. **Proven** for the one-frame pop (captured value: one game frame after the clip comes off; tolerance +-1 game frame; held by `boltStance.test.ts` T1-T3 and `roomStillClipStance.test.ts`, which cite the record). The shot-to-change total (1.916-1.983 s, the push-to-change floor) is **reading**: T2's bracket [1.900, 2.033] s is wider than +-1 f of the capture and the short kit timer moves it; proven once a test asserts the captured bracket (KILL2). What the capture proves is ONE GAME FRAME; the number 2 is that arithmetic, and 1 or 3
+      commands also fall inside the capture's resolution, so 2 itself is not proven. Not `HANDED_BACK_CUT_COMMANDS`, whose ceiling is 3): the page's `walk.ts` `stillClipPopAt` (set in
+      `tap` beside the life's `ran`, read in `stillClipOnTop`) and the room's `Player.reloadLifePopAt` per weapon (set in
+      `run` beside `watchCut`, read in `watchMoves`' `stillClip`, cleared at spawn). The request is taken 2 commands past
+      the command the life ends on (its end or its cut), was 1 (the port's probe: the life ended on command 212, taken on
+      213, half a frame after the pop). Held by `boltStance.test.ts` (T1, T2, T3: life + 2; T2 the shot to the change in
+      [1.900, 2.033] s, the push to it in [1.383, 1.517] s) and `roomStillClipStance.test.ts` (the room, + 2), page and
+      room equal (`boltAfterShotPick.test.ts`);
+      the T2 push-to-change floor lands at exactly 1.9 s (57.0 f), one frame below the capture's minimum (57.49 f by the
+      clock), by the short kit timer (LATER 1298, named for T2 as well as the drop case below; filed on agent/next by
+      the merge seat, 2026-11-21);
+    - *the stick's cut*: a nudge cuts the prone clip at once (5 f in, then `seal_prone_lstrafe`), and the press is taken
+      (case (a)); the standing reload's clip cut by the stick at 23 f, the press then taken (case (c), with the stick) -- **reading** for the cut's own time (5 f in, 23 f): no test asserts it, proven once a test asserts the captured cut frames (KILL2); its press-taken-a-frame-after half is the next line's, proven;
+    - *the dive*: running, a prone press inside the 0.5 s dives (posture 6, `seal_dive2prone`), and no
+      `seal_prone_reload_shotgun` is pushed; the press after it is taken at once (case (b2), 3/3) -- **proven** for no clip pushed and the press taken at once, held by `boltStance.test.ts`' finding 2-1 and `boltAfterShotPick.test.ts` (c); the posture 6 / clip name is not asserted;
+    - *the standing reload's deferral*: R1 on an empty magazine plays `seal_reload_shotgun`, and a crouch press waits
+      until it ends (case (c), hands-off, 3/3) or the stick cuts it (3/3) -- research 251 section 6's gap, closed. **Proven** for the deferral and the take a frame after the end or the cut (`roomStillClipStance.test.ts`, the 'at + 95' and 'cut + 2' tests; `boltStance.test.ts` T3), the capture's frame counts for the clip not asserted.
+    Left from the capture, each named: the kit timer runs a frame short in the port (0.467 s against the capture's
+    0.500-0.517 s), which moves every bolt and pump fire lock: **LATER 1298** (filed on agent/next by the merge seat, 2026-11-21), not this fold; until it lands, the
+    hands-off drop-then-up case (the summary's case 4, 1.933-2.033 s) is not held at the capture's bracket
+    (`boltStance.test.ts`' drop case still asserts the reading's ~1.90 s one). Still reading: the M203
+    round mode's after-shot (`AFTER_SHOT_DIVE_FIRE_LOCK_READING`) and the refused states beyond the dive
+    (`AFTER_SHOT_REFUSED_STATES_READING`), which the capture did not exercise; `BOLT_POP_TRANSITION_READING` (the pop of
+    an in-flight drop; the capture's case 4 reached prone 3 f after the shot, before the timer, so it does not settle it).
+  - *The clip.* The M40A1 (102) and the M87ELR (103) carry `ReloadAfterShot` with `ReloadDelayAfterShot` 0.5 and no
+    `ReloadTime` (research 94's table), so their clip runs at rate 1. The kit's frame runs its timer down and, on the frame
+    it drops below 0, begins the after-shot when the kit's flag says so, zeroing the timer either way (`FUN_005c0fd0`
+    D:L476549-476563; the setter `FUN_005c32b0` D:L477655-477680). The after-shot calls the clip pick with its second
+    argument 1 (`FUN_005c3000` D:L477553-477650). The pick classes ids 101-103 into the `Shotgun reload` family -- the id
+    test is unsigned in the ELF (0x5a83e4-0x5a83e8), so 104-106 are out, which the printed C hides (`FUN_005a82e0`
+    D:L462807-462832). It reads the stance **at the timer's end**, not at the shot: still standing "Shotgun reload",
+    crouched "Shotgun crouch reload", prone "Shotgun prone reload" with no speed test, moving standing or crouched the
+    overlay "Moving shotgun reload" (D:L462845-462851, D:L462859-462865, D:L462895-462900; the names bound at
+    D:L495399-495402). On the disc (`motion.rdr` golden L139-142; `MOTION_P.ZAR` golden): `seal_reload_shotgun` 18 keys,
+    `seal_crouch_reload_shotgun` 16, `seal_prone_reload_shotgun` 14, each playback 1.6, not looped, **no `NoInterrupt`**.
+    An absent `NoInterrupt` loads as 0 (the motion loader, D:L131431-131434). Uncut, by the port's end model (PAR-69):
+    about 1.444 / 1.423 / 1.396 s after the push. The `animset.rdr` rows from the family's names to these clips are
+    research 94's and section 2's, not re-read for B-18.
+  - *The gate.* A still clip is pushed on the action stack (`FUN_00588bc0` D:L446083-446086, D:L446292), neither looped
+    nor a stance transition, so the stance request is not taken while it is the top and stays pending, asked again every
+    frame (`FUN_00552ec0` D:L418927-418930, its fall-through at D:L419015; `FUN_00552d60` D:L418875). A stance press alone
+    does not cut it.
+  - *The cut.* Any of the two move axes or the turn past 0.1, once the top's phase is strictly past its `NoInterrupt` (0
+    here: any phase over 0), resumes the ground state (`FUN_00550ef0` D:L418174-418203, `FUN_00587c20`
+    D:L445526-445565); no shotgun type is in the carry-on list (D:L418205-418250), so nothing carries on, and the pending
+    stance is taken on the next ask. On the port's clock (PAR-67) the first cut is two game frames after the push.
+  - *The numbers* (shot at 0, the clip at 0.5 s, then "up"): the original takes the stance about 0.567 s after the shot
+    with any stick or turn, about 1.896 s untouched (0.5 + 1.396, prone). The port before: the rifle's
+    `seal_prone_reload` hold (1.7 s, `NoInterrupt` 0.5, another clip's values) -- 1.355 s and 2.105 s, every stance press
+    held, the prone-pop (OT.R67) refused. Measured on the page after the fix (unit test): 0.567 s with the stick from the
+    press, 1.883 s untouched.
+  - *The dive (the review's finding 2-1).* `FUN_005b4340(actor, 3)` also refuses under a `dive_to_prone` top
+    (D:L469334-469335; the name at D:L495336). A prone press at speed squared 900 or more takes the dive, not the drop
+    (`FUN_00552d60` D:L418881-418894; `FUN_00584b00`), so a shot followed by a drop from a run ends its timer under the
+    dive: no clip is pushed and the timer is zeroed all the same (D:L476561). The bolt's clip is never played for that
+    shot. The port: the page begins no still clip life for an after-shot that ends inside a dive (`matchFirearm.ts`).
+  - *The pop.* Still, with the stance word equal to the stack's posture, the pick pops the stack to its base first
+    (`FUN_0058a4d0` D:L446753-446781, called at D:L462924-462927), so a drop under way is cut short into the clip and a
+    crouch the drop refuses (D:L418953) waits only for the clip. **Not built** (`BOLT_POP_TRANSITION_READING`, section
+    6): the room's mover would have to end its drop on the same command, in `room.ts`'s clip life, outside this task.
+    Until then a crouch pressed during a drop waits for the drop too (`boltStance.test.ts` holds it as `it.fails`).
+  - *What the port does now.* No mover hold for the shotgun, pump and m203 families (`reloadClip.ts` `reloadHolds`;
+    `walk.ts` `holdReload`). The stance gate (`Walker.oneShotOnTop`) also answers while the still clip's life runs, on
+    both sides: the page's `StillReloadLife` (`walk.ts` `stillClipOnTop`) and the room's `reloadLife` (`room.ts`
+    `watchMoves`); both lives already end at the clip's end and at the stick's cut, so the request waits only while the
+    clip runs untouched. This closes research 251 section 6's gap too (a standing still reload of any family now defers a
+    stance press, as the gate reads -- a player-visible behaviour of its own, research 251 section 6). Inside a re-run
+    (`walk.ts` `rerunFrom`) the page asks the life at the replayed command's tick (the review of 0b122c4034, F2). No wire change: `HOLD_CODES`, `protocol.ts` and `net/body.ts` are untouched.
+    Left: the Xbox prototype's runtime (`xboxPrototype/combatRuntime.ts`) still lays the stand-in hold (it names no
+    family), on purpose: that fork is FROZEN by the owner's ruling of 2026-11-21 (no new features; its techniques fold
+    into the standard engine and the fork is retired), so B-18 is not carried into it. The room's after-shot pick
+    is below (*the pick at the timer's end*).
+  - *The pick at the timer's end (the review of 0b122c4034, F1; built; reading, reviewed; capture owed).* The room
+    decided the after-shot's life at the shot's command from that frame's posture and speed, the page at the timer's end,
+    so a stance changed within the 0.5 s, a stop from a run before the timer, or a dive started inside it differed
+    (measured on two movers fed the same commands, `viewer/test/boltAfterShotPick.test.ts`: shot standing then prone,
+    the stand taken 4 commands later in the room; shot walking then stopped, the crouch taken at once in the room, 81
+    commands later on the page). Now `fireAt` sets the timer's lock alone and records the pick (`Player.afterShotPick`);
+    `run`'s command loop, beside `watchCut`, picks the clip after the command before its first (`lockTimer - 1`) from
+    that command's posture, speed and dive test (`Room.afterShotPick`; `FUN_005c0fd0` D:L476549-476563 ->
+    `FUN_005c3000` -> `FUN_005a82e0(actor, 1)` D:L462845-462900) -- outside `watchMoves`, whose hooks run inside the
+    mover's step -- and extends the fire lock by the clip's length (`FUN_005a7ab0` D:L462522-462555) with its still
+    clip's life, its clock from that command -- **an agreement with the page** and with the reload's `lockLife` convention, not a reading of the original (the original's frame order between the kit's post-tick push and `FUN_00552ec0`'s read, and whether 0.5 s is 30 or 31 decrements under the strict `< 0` test, are owed to the capture). Under the dive (D:L469334-469335): no
+    clip, no life, the lock ended at the timer, on both sides (`Fire.beginAfterShot` asks `FireSource.diving`). The
+    record goes as it fires, and one no longer named by the weapon's lock (a swap, a turret's take, a spawn, a new round:
+    each clears or replaces `lockStart` / `lockTimer`, as the page's `cancelReload` / `setWeapon` clear
+    `afterShotPending`) picks nothing. The room runs each command once -- no re-run: a redundant copy is refused by its
+    number, a dropped backlog is stepped outside the loop with its count not advanced -- so the pick fires once, on the
+    first command run at or past the timer's last; a round decided after that command (a timer shorter than the
+    decision, `afterShotLock`'s 0.01 s default) is picked at its decision from the shot's frame. The four cases (shot
+    standing then prone; shot walking then stopped, a crouch at rest; the dive; the stick's cut) take the stance on the
+    same command on both movers. Left: the M203 round mode's after-shot (`room.ts`'s launch path) is still picked at the
+    round, page and room agreeing there (`AFTER_SHOT_DIVE_FIRE_LOCK_READING`, section 6, narrowed to it).
+  - *Known edges (the review of the B-18 folds; none changes a test).* The pick's refusal states beyond the dive are
+    `AFTER_SHOT_REFUSED_STATES_READING` (section 6), not modelled. A turret take on exactly command `timer - 1` can leave the
+    lock standing (`endKitLocks` tests `count < reloadUntil`); probably unreachable; the cure is named: a `count < lockTimer`
+    clause in `endKitLocks`, or clearing `afterShotPick` in `mountKit`. Under the dive `reloadUntil` is `timer - 1`, by
+    `lockTicks`' "less a tick" convention, not exactly the timer. The late-decision path uses the shot's frame and the
+    current dive state (harmless at the 0.01 s timer). The page's `stillClipPopAt` is single while the room's
+    `reloadLifePopAt` is per weapon: a life ending on command E, then a swap on E + 1 with a stance pending, the room may
+    take it at E + 1 and the page at E + 2 (reachability not checked). A stance press replayed inside a life that has since ended is taken at
+    once. The `play.reloadSeconds` stub in `boltAfterShotPick.test.ts` makes the clip seconds equal on both sides by
+    construction, so a browser run is owed for a prone press inside 0.5 s (the mounted body's stance lagging the walker).
+  - *The capture that would make it proven* (PCSX2, the EPH harness; M40A1, a flat map, offline). Per frame:
+    `actor+0x174` (the stance word), `actor+0x374` (the request), `actor+0x534` (the top's type), `actor+0x1c8` (the
+    stack's top index), the top entry's phase, the kit's timer `actor+0x5e0+0x820` and its flag bit, the pad's axes. Runs,
+    each scoped and unscoped: A prone, sticks at rest, fire, stance-up 0.6 s after the shot -- the stance word stays
+    prone until about 1.40 s after the push; B as A, then a stick past 0.1 at 0.8 s -- the top leaves the clip's type on
+    the next frame and the stance word changes a frame or two later; C standing, fire, prone 0.1 s after the shot -- at
+    0.5 s the top is the prone clip one above the base, not 0x19 (the pop); D as C, stance-up at 0.6 s with the stick --
+    up at once; E standing, fire, a stance press at 0.6 s -- the request set, the word unchanged until about 1.44 s; and
+    F running, fire, prone at speed -- the dive's top at the timer's end and no clip pushed.
 
 - **The owner's eye, 2026-10-04** (HUMAN_TASKS H77): the reload while running "is better but it still has notable
   differences from the original which should be recorded but not addressed further today". **NOT ACCEPTED: open.**
@@ -278,4 +427,7 @@ in `play.ts` (`movingForReload`), as the room's is (`weapon.test.ts` holds it). 
 |---|---|---|
 | `RELOAD_BLEND_PLACEHOLDER` (`weaponPose.ts`) | the reload's cross-fades, 0.2 s in and out | **resolved 2026-10-03**: the still clip's cross-fades are its `BlendTime` default 0.4 in and the next play's out (§3.5, `FUN_0028dc90`, `FUN_00287620`); the overlay's are the body's 0.4 both ways (`OVERLAY_BLEND`, `FUN_0057a010` D:L438633, `FUN_00579ef0` D:L438547, `FUN_00576860` D:L436643) -- removed from the code |
 | `RELOAD_POSTURE_SIX_READING` | what posture 6 of `FUN_0057dc20` is (`FUN_005a82e0` D:L462837-462842 plays `Moving rifle reload` there only in a round mode) | *note only*: no constant stands in for it; the port has no sixth posture |
+| `BOLT_POP_TRANSITION_READING` (`reloadClip.ts`) | the pop of an in-flight stance transition when a still reload or after-shot clip is pushed (`FUN_005a82e0` D:L462924-462927 -> `FUN_0058a4d0` D:L446753-446781; B-18, section 5) | reading, reviewed 2026-11-21 (second reader), **not built**: the port lets the drop run on under the clip's life. Settled by building the pop on both movers on the same command (the room's in `lockLife` / `watchCut`), measured by the B-18 capture's run C |
+| `AFTER_SHOT_DIVE_FIRE_LOCK_READING` (`reloadClip.ts`) | the after-shot's fire lock under a dive: `FUN_005a7ab0` holds the fire past the kit's timer (D:L462522, `FUN_005c2400` D:L477159) only while a reload or after-shot type `FUN_005a82e0` pushes is on the stack or the second channel (D:L462524-462555), and under a `dive_to_prone` top none is pushed (D:L469334-469335) -- so the original's lock ends at the timer (B-18, section 5) | reading, pending review. **Built for the firearm's own after-shot** (B-18 F1, section 5, *the pick at the timer's end*): the room picks the clip at the timer's end with its dive test (`room.ts` `afterShotPick`) and the page ends its lock there (`Fire.beginAfterShot`). **Not built for a round mode** (the M203's after-shot): the room's launch path still picks and locks at the round and the page keeps the clip's length there, agreeing with each other, not the original. Settled by the same pick on that path; measured by the B-18 capture's run F |
+| `AFTER_SHOT_REFUSED_STATES_READING` (`reloadClip.ts`) | the states beside the dive in which `FUN_005b4340` refuses the after-shot push (no clip, the lock ending at the timer): body states 8 (D:L469321), 9 and 10 (D:L469409), state 5 or a type-5 top (D:L469329), state 4 or a type-4 top, the climb or hang (D:L469460-469462), the tops at D:L469420-469447 (B-18 folds review, 1a) | reading, pending review, **not built**: the port models only the dive; page and room agree with each other here, not with the original. Settled by modelling those states, or by a capture of a bolt shot followed by a climb within 0.5 s |
 | `OVERLAY_BODY_FLAG_READING` | what bit 4 of `body+0xe1` is (`FUN_0057a010` D:L438581: the overlay plays only with it set; research 80 names the same bit on the death class) | *note only*: the port always draws the overlay |

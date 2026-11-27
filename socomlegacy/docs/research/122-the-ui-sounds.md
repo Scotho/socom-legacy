@@ -315,7 +315,7 @@ are *note only*.
 | `GROUP_14_MASTER_READING` | the master volume of the menu sounds' group | `SetMasterVolume` group 14 at 0x400 in the archived boots; the slider not traced | *note only* |
 | `BOOT_POPUP_METAL_READING` | the two `.METAL` before the intro movie | `dlgIntroScreen` `do_onstart`'s two `POPUPDIALOG`s (`PopUpDialog` plays `.METAL`, §4) | *note only* |
 | `STOP_ON_EXIT_FLAG_READING` | `SOUND` flag 0x200 | READERX's `dlgExitState` source names `STOP_ON_EXIT` on the commands that carry 0x280; the code sets the slot's +2 (D:L112360); what reads it not traced | open in code: `packages/ui/src/sounds/uiSoundCues.ts` (PLAT-23) |
-| `ROUND_SCREENS_STOP_ALL_READING` (`viewer/src/matchSound.ts`) | what stops and what is not started at the round screens' start | `FUN_002aa910` -> `FUN_00346b30` (`SL_STOPALLSOUNDS`), `FUN_00344f80` (the stream system), `FUN_00348860` (the music slot), D:L151220-151222; MPExitState alone ticked (§14). The page: one `RoundAudioHost.reset` at the first screen frame, then no world sound until the next `roundStart`; the beds' loops and a ring already sounding left open (LATER 580). Settles it: a capture of a round's end with a shot, a voice and the win music sounding | open in code (OBF-31, 2026-10-31); reading, pending review |
+| `ROUND_SCREENS_STOP_ALL_READING` (`viewer/src/matchSound.ts`) | what stops and what is not started at the round screens' start | `FUN_002aa910` -> `FUN_00346b30` (`SL_STOPALLSOUNDS`), `FUN_00344f80` (the stream system), `FUN_00348860` (the music slot), D:L151220-151222; MPExitState alone ticked (§14). The page: one `RoundAudioHost.reset` at the first screen frame, then no world sound until the next `roundStart`; the beds' and emitters' loops off under the screens too, their voices freed, on again with the next round (LATER 580's audio half, 2026-11-19, §14); a ring's duck already running ended at once, the masters restored (`FUN_00341060`, D:L244181; LATER 580, §14). Settles it: a capture of a round's end with a shot, a voice and the win music sounding | open in code (OBF-31, 2026-10-31); reading, pending review |
 
 ## 13. What PLAT-23 built on this reading, and what it found (2026-10-02)
 
@@ -384,8 +384,8 @@ end screen"). Read at the source in the retail decompilation, every line re-read
 `packages/viewer/src/matchSound.ts` (`ROUND_SCREENS_STOP_ALL_READING`), `matchFirearm.ts` and `matchThrow.ts`, the test
 `packages/viewer/test/roundScreenSilence.test.ts`.
 
-- **The trigger.** Online, a client's mission tick `FUN_002aa490` finds the host's +0x113 at 4 or 6 -- after the host's
-  own 3.0 s wait, the page's `ENGINE_READ_S` (research 81 §13, `ROUND_SCREENS_SILENCE_WALK_READING`) -- and calls the
+- **The trigger.** Online, a client's mission tick `FUN_002aa490` finds the host's +0x113 (r0001; +0x117 at r0004,
+  0x2abf30) at 4 or 6 -- after the host's own 3.0 s wait, the page's `ENGINE_READ_S` (research 81 §13, `ROUND_SCREENS_SILENCE_WALK_READING`) -- and calls the
   mission's end `FUN_002aa910` (D:L151127-151131; the function at D:L151203).
 - **The stop of every sound, once.** `FUN_002aa910` calls, in order, `FUN_00346b30` (D:L151220), `FUN_00344f80`
   (D:L151221) and `FUN_00348860` (D:L151222).
@@ -396,8 +396,14 @@ end screen"). Read at the source in the retail decompilation, every line re-read
     D:L243967-243994: each queued handle released through `FUN_00347810` and unlinked) and `FUN_00347120(0,0)`
     (D:L244192; the function D:L244390-244424: the list re-filtered, `FUN_00346550` again, `FUN_003408f0`).
   - `FUN_00344f80` (D:L243215-243233) is `VagStreaming OFF`'s own call (`FUN_0027a5e0` D:L124485, §4 row 134): the
-    stream object's stop through its vtable +0x14, its mode `DAT_0048dd98` to 0, `FUN_0034b8c0` (the stream queue
-    `DAT_0049e158` cleared, D:L246965-246985), a `FUN_0033f130(.., 6, ..)` command 0x4c, 989snd 0x34 (`FUN_0033f700`,
+    stream object's stop through its vtable +0x14, its mode `DAT_0048dd98` to 0, `FUN_0034b8c0` (`Headset::Reset`,
+    D:L246963-246985: the headset object `DAT_0049e158`'s state words +0x00..+0x14 and its handle +0x34 reset, its
+    request to idle 3 and its admission byte +0xb to 1, then the device state `DAT_0049e150` to 0; its queue of waiting
+    lines at +0x18 is left as it is (whether a line left there still plays once the streams are off, at the stream
+    call D:L246755-246761, is not read). r0004's twin `FUN_00368f50` (D4:L268249-268259)
+    calls `FUN_00368f90`, which first flushes that queue through `Headset::Flush` `FUN_00367d80` (r0001
+    `FUN_0034a6f0`, D:L246428-246452) and then makes the same writes), a `FUN_0033f130(.., 6, ..)` command 0x4c,
+    989snd 0x34 (`FUN_0033f700`,
     D:L240175-240180), `FUN_0033f5f0` (D:L240141-240170: waits on the IOP, sends 0x35 and clears `DAT_00488fb0`, the
     open flag `FUN_0033f720` tests before it opens a stream with the 0xb000 buffer that is a VPK's, research 124 R124.1),
     `DAT_004a1798` to 0, `FUN_0034be10` (D:L247186-247204), the four stream slots `DAT_003dffb0..c8` to -1, and
@@ -439,10 +445,32 @@ end screen"). Read at the source in the retail decompilation, every line re-read
   code unchanged). No source decides it either way: `FUN_002ce9e0` ticking only the top state (D:L171877-171888) argues
   against it, but where a chat line received under MPExitState is handled has not been read. Settled by that read or a
   capture of a taunt sent at a round's end.
-- **Left open** (LATER 580): the beds' and emitters' loops (`SL_STOPALLSOUNDS` stops every voice, and nothing of
-  CoreState restarts them; the page's loops run on under the screens), a ringing ears' duck and its fade timer already
-  running at the screens' start (`RingingEars`; its tone is a transient voice, `WebAudioOut.play`'s set, so the reset
-  stops it; no new ring starts), the walk and the room's mover still stepped (LATER 580's first
-  half), and a projectile already in the air whose blast the room tells under the screens (the room's, its sound through
+- **Closed 2026-11-19 (LATER 580's audio half; reading, pending review):** the beds' and emitters' loops --
+  `SL_STOPALLSOUNDS` stops every voice and nothing of CoreState restarts them; the next round's restart starts the zAnim
+  sets again (`FUN_002232a0` D:L75858-75866, reached by `FUN_00223680`'s pop at D:L75935-75936); the mission's end
+  `FUN_002aa910` itself deactivates both sets before the stop (`FUN_0026a100` on 0x3f12f8 / 0x3f1300, then
+  `FUN_0026c2e0`, D:L151211-151218: "common" and "mission", research 283, 319), so the beds' script and the emitters'
+  animations are stopped, not only their voices (the review of 326c316253, N1). The page: the ambience off from the first screen frame (its loops stopped,
+  their voices freed in the voice budget, research 81 §15, §17), on again with the next round (`matchSound`'s `frame`;
+  `viewer/test/roundScreenSilence.test.ts` "LATER 580", the budget holding none under the screen on MP2's disc data).
+- **Closed 2026-11-19 (LATER 580; reading, pending review):** a ringing ears' duck already running at the screens'
+  start. `FUN_00346b30` (above), the sound-off switch clear (`SOUND_OFF_SWITCH_READING`), first calls `FUN_00341060`
+  (D:L244181): with `DAT_0048de10` set -- positive in the hold, the last decrement's small negative in the fade -- it sets
+  `DAT_003dffe0 = 1` and calls `FUN_003410d0`, which writes every ducked channel back to its saved master and clears the
+  table (D:L241124-241132, D:L241145-241172); then `SL_STOPALLSOUNDS` (D:L244182). The duck is ended at the screens' start;
+  the next round has nothing to resume. The page: `RingingEars.stop` at the first screen frame (`matchSound`'s `frame`,
+  beside the reset), the masters back at once; no ring starts under the screens. (A first reading, 12505fad36, froze the
+  duck instead -- it missed this call; its review found it.) `viewer/test/ringingEars.test.ts`,
+  `roundScreenSilence.test.ts` "LATER 580".
+- **Closed 2026-11-22 (LATER 580's walk half, `agent/shots-580`; reading, pending review):** the walk and the room's
+  mover under the screens -- the same top-only tick (`FUN_002ce9e0` D:L171877-171888, r0001; at r0004 (LATER 580's review, sections 1-2; reading, pending review): the mission tick 0x2abf30 on the host's +0x117 at 4 or 6, the push 0x2ec290 at 0x2ac0a8; the stack's update 0x2eb8f0; MPExitState's tick 0x223680, the pop at 0x22383c; the actor scheduler 0x4a1620 run only from CCoreState's tick 0x1ebed0, so no actor, the dead included, is ticked under the screens). The room
+  steps no body's mover, living or dead, from `ENGINE_READ_S` after the result to the next round (`room.ts`
+  `roundScreensUp`: `run` and `corpse`; its commands still counted; a held body's snapshot carries no velocity); the
+  page's own walk, alive or dead, takes no stick or press and is not stepped from the first screen frame to `roundStart`,
+  its command a tick sent empty (`walk.ts` `setRoundHold`, laid by `netPage.ts`). An adaptation cost, named: the page
+  holds about a round trip after the room, and the client's reconcile lays that lead back under the first screen (a
+  short slide, then held). Unit tier: match `test/roomScreensWalkHold.test.ts`, viewer
+  `test/roundScreenWalkHold.test.ts`.
+- **Left open** (LATER 580): a projectile already in the air whose blast the room tells under the screens (the room's, its sound through
   the gated effects and throwables). Settled by a capture of a round's end with a shot, a voice and the win music
   sounding.

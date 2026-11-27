@@ -1,4 +1,5 @@
 import type { AssetSource } from '@s2u/archive';
+import { addressOf, heldInviteAddress, strippedAddress } from '../../inviteAddressHold';
 import { openedDiscRequest } from '../../discPrompt';
 import { assetSourceFor, discName, type DiscRequest } from '../../discSource';
 import { KEPT_DISC_TITLE } from './disc';
@@ -8,6 +9,7 @@ import { publishDisc, readDisc } from '../../modern/discStore';
 import { beforeLaunch } from '../../modern/launchGate';
 import { pageSession, type ModernSession } from '../../modern/session';
 import type { OverlayPage } from '../../modern/overlay';
+import type { StartMenuLauncher } from '../../startMenuLauncher';
 import type { SourceRequest } from '../../worker';
 import type { Adapters, LaunchPage, LaunchResult } from '../state';
 import { skipMenuEntry, skipMenuOn } from '../skipMenu';
@@ -91,7 +93,12 @@ export interface LaunchDeps {
    */
   start?: () => Promise<SourceRequest>;
   /** MU2-10: the modern UI's overlay, mounted over the game page after the take-down; absent, its module (a dynamic import). */
-  overlay?: () => Promise<{ mountPageOverlay: (doc: Document, page: OverlayPage) => unknown }>;
+  overlay?: () => Promise<{ mountPageOverlay: (doc: Document, page: OverlayPage) => StartMenuLauncher | null | void }>;
+  /**
+   * WM-LAUNCHER (WM.R7; a browser adaptation): the round's START menu's module, to which the mounted overlay's handle is
+   * offered for the document (its SHOW LAUNCHER row); absent, its module (a dynamic import).
+   */
+  startMenu?: () => Promise<{ offerStartMenuLauncher: (doc: Document, launcher: StartMenuLauncher) => () => void }>;
   /** SKIP-MENU (LR.R33): whether "Skip menu" is on; absent, this browser's saved choice (`../skipMenu` `skipMenuOn`). */
   skipMenu?: () => boolean;
 }
@@ -129,11 +136,16 @@ export function gamePage(doc: Document, base: string, hrefs: readonly string[], 
   const win = doc.defaultView!;
   const html = doc.documentElement;
   const prior = { url: `${win.location.pathname}${win.location.search}${win.location.hash}`, state: win.history.state as unknown, style: html.getAttribute('style'), input: html.getAttribute('data-input'), body: doc.body.className };
-  const search = isoSearch(win.location.search);
+  // STREAMER-P1 1b (`../../inviteAddressHold`): an invite the launcher held (Streamer mode's details Hidden) is read from
+  // the held address and handed to the front end in `search`; the address written keeps it bare (a lobby link as the
+  // invite route, which the menu router plans as LOGIN as it plans the link).
+  const at = addressOf(win.location);
+  const search = isoSearch(at.search);
   // A kept path keeps the entry's state (the router's saved trail: Back after a reload at a menu route, N1); a replaced
   // one -- the console's own alias, an unknown path -- starts the game page's entry afresh, as before.
-  const path = skipMenuEntry(win.location.pathname, base, skipMenu);
-  win.history.replaceState(path === win.location.pathname ? prior.state : null, '', `${path}${search}${win.location.hash}`);
+  const path = skipMenuEntry(at.pathname, base, skipMenu);
+  const written = heldInviteAddress() ? strippedAddress({ pathname: path, search }, base) : `${path}${search}`;
+  win.history.replaceState(path === at.pathname ? prior.state : null, '', `${written}${win.location.hash}`);
   // The console's own rules off: they apply only under its mark (`../console.css`); no sheet is told apart by address
   // (a build's are hashed assets), so the design system's is never at risk.
   const marked = html.hasAttribute('data-console');
@@ -165,7 +177,8 @@ export function gamePage(doc: Document, base: string, hrefs: readonly string[], 
 export function liveLaunch(doc: Document, deps: LaunchDeps = {}): LiveLaunch {
   const session = deps.session ?? pageSession();
   const mount = deps.mount ?? mountFrontEnd;
-  const overlay = deps.overlay ?? ((): Promise<{ mountPageOverlay: (doc: Document, page: OverlayPage) => unknown }> => import('../../modern/overlay'));
+  const overlay = deps.overlay ?? ((): Promise<{ mountPageOverlay: (doc: Document, page: OverlayPage) => StartMenuLauncher | null | void }> => import('../../modern/overlay'));
+  const startMenu = deps.startMenu ?? ((): Promise<{ offerStartMenuLauncher: (doc: Document, launcher: StartMenuLauncher) => () => void }> => import('../../startMenuLauncher'));
   const image = deps.image ?? ((): { request: DiscRequest; assets: AssetSource } | null => {
     const request = openedDiscRequest();
     const assets = openedDiscImage(doc);
@@ -216,7 +229,11 @@ export function liveLaunch(doc: Document, deps: LaunchDeps = {}): LiveLaunch {
       page.takeDown();
       // MU2-10 (row MU2-10c): the overlay over the game page the hand-over made -- never over the console (taken down above).
       const game_ = m;
-      void overlay().then((o) => { o.mountPageOverlay(doc, { kind: 'front-end', frontEnd: game_ }); }).catch((e: unknown) => { console.error('overlay: not mounted over the game', e); });
+      // WM-LAUNCHER (WM.R7; a browser adaptation): its handle kept -- offered to the round's START menu (SHOW LAUNCHER).
+      void overlay().then(async (o) => {
+        const handle = o.mountPageOverlay(doc, { kind: 'front-end', frontEnd: game_ });
+        if (handle) (await startMenu()).offerStartMenuLauncher(doc, handle);
+      }).catch((e: unknown) => { console.error('overlay: not mounted over the game', e); });
       return { ok: true };
     },
     cancel(): void { run++; },

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildGrid, CROUCH_MOVING_SPEED_SQ, CROUCH_RUN_QUICK_THROW_READING, heldPower, maxThrowDistance, maxThrowSpeed,
+  actorToWorldPoint, buildGrid, CROUCH_MOVING_SPEED_SQ, CROUCH_RUN_QUICK_THROW_READING, heldPower, maxThrowDistance, maxThrowSpeed,
   releaseSeconds, THROW_ANIMS, THROW_PARAMS, throwAnim, throwClipSeconds, type CollisionOwner, type Grid,
   type GridParams, type WorldPoly,
 } from '@s2u/scene';
 import { GrenadeThrower, launchOf, type GrenadeItem } from '../src/grenade';
-import { releasePowerClears, releaseStance, THROW_CLEARANCE_ENDS, throwClearanceSegment } from '../src/throwCommit';
+import { releasePowerClears, releaseStance, throwClearanceSegment } from '../src/throwCommit';
 import { moverSnapshot, Walker, type PlaySnapshot, type WalkInput } from '../src/mover';
 
 /**
@@ -47,8 +47,11 @@ describe('OBF-8: the crouch-run quick throw, as the original reads', () => {
   });
 
   it('the tap: under the abort threshold refused, nothing thrown (FUN_005be9a0 D:L475497-475498)', () => {
-    expect(releasePowerClears(heldPower(3 / 60))).toBe(false);   // 0.143: three 60 Hz frames
-    expect(releasePowerClears(heldPower(4 / 60))).toBe(true);    // 0.185
+    // LATER 1027 re-pin (comments only): the power is the original's per-game-frame chase at its exact per-second law,
+    // 1 - exp(-3.16099 t) -- three 60 Hz frames (0.05 s) 0.146 (was 0.143, the 60 Hz Euler step), four (0.0667 s) 0.190
+    // (was 0.185); the threshold 0.15 still falls between them.
+    expect(releasePowerClears(heldPower(3 / 60))).toBe(false);   // 0.146: three 60 Hz frames
+    expect(releasePowerClears(heldPower(4 / 60))).toBe(true);    // 0.190
     expect(THROW_PARAMS.abortThreshold).toBe(0.15);
   });
 
@@ -75,7 +78,8 @@ describe('OBF-8: the crouch-run quick throw, as the original reads', () => {
  * 1, the switch `FUN_005870e0` D:L445162-445168 into `FUN_00584c60`) whose stick past 12.4 / 14.8 (D:L444145) pushes the
  * standing run's clip with the state left at 1 (D:L444172-444192: `FUN_00588bc0(.., 2, +0x174, ..)`, no write to
  * `+0x174`). Every throw read takes that state -- `GetThrowAnim` (D:L441773, D:L441827-441843: moving, the standing
- * `Throw grenade`, never a toss), the clearance (`FUN_005499e0` D:L414024-414034: the crouched end) and the hand-open's
+ * `Throw grenade`, never a toss), the clearance (then r0001's `FUN_005499e0` D:L414024-414034, the crouched end; superseded under OT.R97 by r0004's
+ * `0x54e6f0`, which casts from the state's hand point) and the hand-open's
  * reach (`FUN_005c1970` D:L477069-477075: `max_distance_crouch`). The port's snapshot `stance` is the drawn posture
  * (`Walker.posture`, 'stand' through the crouch-run), so the port tossed (`Toss grenade`, the underhand lob, 1.07 s to
  * the hand, the stick cut at 0.75) from a 600 reach.
@@ -83,7 +87,7 @@ describe('OBF-8: the crouch-run quick throw, as the original reads', () => {
 const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
 const floor: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]),
+  points: Float32Array.from([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400]),
 };
 const owners: CollisionOwner[] = [{ modelName: floor.modelName, path: floor.path, first: 0, count: 1 }];
 const forward: WalkInput = { forward: 1, right: 0, boost: false };
@@ -119,16 +123,17 @@ describe('OBF-23: the crouch-run quick tap throws the standing overhand throw, a
     expect(releaseStance(s)).toBe('crouch');                       // what GetThrowAnim and the hand-open read
   });
 
-  it('the clearance asks the crouched end from the standing throw hand (FUN_005499e0 D:L414024-414034)', () => {
+  it("the clearance casts from the crouched state's hand -- the standing throw's, past 15 u/s -- not the standing toss's (r0004 0x54e6f0 from 0x585280's point; research 256 s5)", () => {
     const { s } = crouchRun();
-    const seg = throwClearanceSegment(s, 0.3, 0)!;
-    const ends = throwClearanceSegment({ ...s, stance: 'crouch' }, 0.3, 0)!;
-    expect(seg.to).toEqual(ends.to);
+    const seg = throwClearanceSegment(s, 0.3, 0);
+    const ends = throwClearanceSegment({ ...s, stance: 'crouch' }, 0.3, 0);
+    expect(seg).toEqual(ends);
+    expect(seg.from).toEqual(actorToWorldPoint(s.feet, s.yaw, THROW_ANIMS.standThrow.offset));
     const { stanceState, ...posture } = s;                        // the posture alone: what the port read before OBF-23
     expect(stanceState).toBe('crouch');
-    const toss = throwClearanceSegment(posture, 0.3, 0)!;         // the standing toss's end
-    expect(THROW_CLEARANCE_ENDS.crouch).not.toEqual(THROW_CLEARANCE_ENDS.standToss);
-    expect(seg.to).not.toEqual(toss.to);
+    const toss = throwClearanceSegment(posture, 0.3, 0);          // the standing toss's hand
+    expect(THROW_ANIMS.standThrow.offset).not.toEqual(THROW_ANIMS.standToss.offset);
+    expect(seg.from).not.toEqual(toss.from);
   });
 
   for (const item of ['M67', 'HE', 'AN-M8', 'Mark141'] as const) {

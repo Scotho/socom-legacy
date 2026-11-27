@@ -16,7 +16,7 @@ import type { NavigationData } from '../src/bots/navigation';
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
 function flat(): SimMap {
   const floor: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25,
-    ptcount: 4, cameratype: 0, points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]) };
+    ptcount: 4, cameratype: 0, points: Float32Array.from([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400]) };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: floor.path, first: 0, count: 1 }];
   const ground = packGround(PARAMS, [floor], owners);
   const slots: SpawnSlot[] = [0, 1].flatMap((side) => Array.from({ length: 8 }, (_, index) => ({ side, index,

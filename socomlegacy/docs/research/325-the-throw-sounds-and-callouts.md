@@ -213,9 +213,11 @@ MPBOMB's `NOT FOUND`. The callbacks are `motion-rdr.json`'s: `throw_whoosh@0.45`
 - **"Frag out"**: no ELF string reads `frag_out`, `Frag out`, `rag out`, `ire in` or `FireInTheHole` (the scan above,
   with `FRAG` and `Frag`, whose hits are below; the text key lives in the locale tables, not the code). The ELF's
   `Frag grenade` (0x65d3e0) and `Frag grenade (launcher)` (0x65d450) are item names.
-- **`CHRSND_GRENADE_ALERT`, `_I_GOT_IT`, `_OH_HECK`** are character sound slots 0x33, 0x34, 0x35
-  (`FUN_0053c3a0`, D:L405948-405956). Their plays pass the slot to a controller's `+0x24`, `FUN_005978a0` (D:L454436-
-  454456, the 3 s voice gate `FUN_0053b710`):
+- **`CHRSND_GRENADE_ALERT`, `_I_GOT_IT`, `_OH_HECK`** are character sound slots 0x33, 0x34, 0x35 (`FUN_0053c3a0`,
+  D:L405948-405956). Their plays pass the slot to a controller's `+0x24`, `FUN_005978a0` (D:L454436-454456,
+  `CCharacterType::PlayAt` `FUN_0053b710`). That function's 3 s timer (the speaking actor's +0x424, D:L405267-405295)
+  gates only slots 0x3b-0x3d; these three take its other path, the vocal queue `FUN_003428f0` (D:L405298-405300; its
+  arguments 3.0 and 1.0 not read here), with no timer:
   - 0x33 from `FUN_005cac00` (D:L482711), reached only from CSealCtrlAi's tick (`FUN_0056de10`, its vtable's `+0xc` at
     0x6693fc; D:L432502 -> `FUN_005cba20` D:L483037 -> `FUN_005cb870` D:L482964): an AI soldier alerted by a grenade
     near it;

@@ -4,6 +4,9 @@ import {
   NearestFilter, OneFactor, OrthographicCamera, RenderTarget, Scene, SkinnedMesh, Vector2, type Texture,
 } from 'three';
 import { MeshBasicNodeMaterial, WebGPURenderer } from 'three/webgpu';
+import './vaoCachePrune';   // LATER 1225: a destroyed attribute's cached WebGL2 VAOs deleted with it
+import './stableSkinPrograms';   // LATER 1168: one WebGL2 program per skinned model, installed on three's GLSL builder
+import { installInvariantPosition } from './invariantPosition';
 import { experimentalPass } from './experimentalPass';
 import {experimentalFxaa} from './experimentalFxaa';
 import {setWorldSamplingMaximum} from './experimentalWorldSampling';
@@ -18,19 +21,23 @@ import { LinkLog, type PipelineBackend } from './linkLog';
 import { positionGeometry, texture as textureNode, uniform, uv, vec2, vec4 } from 'three/tsl';
 import { webgpuAnswers, type GpuLike } from './adapterWait';
 import { asksForWebGPU, graphicsBackendOverride, readGraphicsBackend, type GraphicsBackendPreference } from './graphicsBackend';
-import { classGraphics, pageDeviceClass } from './deviceClass';
+import { appleGraphics, classGraphics, pageAppleGpu, pageDeviceClass } from './deviceClass';
 import { watchGraphicsErrors, watchGraphicsLost } from './graphicsLost';
 import { armGraphicsDemotion } from './graphicsDemotion';
+import { installThreeConsole } from './threeConsole';
 import { glowGain, glowHalfSize } from './flash';
 import { GlowFrame, mainPassOf, type RendererLike } from './glowTarget';
 import { skipFreedCompiles, type FreedAttachmentsBackend } from './freedAttachments';
 import { holdDestroysToSubmit, type HeldDestroysBackend } from './heldDestroys';
 import { guardOrphanAttributeDestroys, type OrphanAttributesBackend } from './orphanAttributes';
 import { restoreRenderStateOnThrow, type RenderDepthRenderer } from './renderDepth';
+import { reuseUniformStorage, type UniformStorageBackend } from './reuseUniformStorage';
 import { GLOW_FRAME_WINDOW_ADAPTATION, glowScale, glowScaleLine, glowScaleOverride, readGlowScale, softwareAdapterOf, type AdapterBackend } from './glowScale';
 import { pageFrameSampler } from './frameSampler';
 import { bindVisualPostSeam, createPostSlot, type VisualPostPass } from './visualPostSeam';
 import { trueColourScaleRow } from './trueColourScale';
+import { noteXboxMemory } from './xboxMemoryTrace';
+import { holdPageBlockProbe } from './hdPackBlocks';
 
 /**
  * FLASH_CLEAR_FRAME_READING: the clear takes this frame's wash. The original submits its clear packet
@@ -87,6 +94,21 @@ export interface ViewerRenderer {
    * switch to native (`glowSkipped`).
    */
   glowOwed?(): number;
+  /**
+   * WM-17 (LATER 772; product track, a renderer warm-up, no picture or game timing changed): while a flashbang is in the
+   * air the page calls this each frame; every waiting glow-context job (`prepare`'s glow jobs, the queue's tail) whose
+   * draw is already in a scene goes to the head of the ordinary queue (`CompileQueue.promote`), so a body that joined
+   * in a wave is compiled under the glow context during the fuse, not built by the flash's own frame. With no flashbang
+   * in the air it is not called and the queue keeps its order (the review-F1 order of FLASH-GLOW-BODIES). Returns how many
+   * jobs moved. Not closed: a body joining so late that its compile is unfinished when the flash lands.
+   */
+  promoteGlow?(): number;
+  /**
+   * LATER 938 (`./glowHold`, a renderer adaptation): while held, `prepare`'s glow-twin jobs are kept as the PS2 picture
+   * keeps them (`glowOwed` counts them) -- a job already queued is kept when it comes up -- and at the release they are
+   * queued on the tail as before. The match calls it each frame (`glowHeld`); held only on the Xbox class in play.
+   */
+  holdGlow?(held: boolean): void;
   /** Local test-room experiment, disabled in every ordinary picture mode. */
   setExperimental(settings: ExperimentalSettings): void;
   /**
@@ -109,6 +131,8 @@ export interface ViewerRenderer {
    * of a map already replaced.
    */
   prepare(objects: readonly Object3D[], scene: Scene, camera: Camera, options?: PrepareOptions): Promise<void>;
+  /** XBOX-WARM: `prepare`'s ordinary jobs waiting or in flight (`./compileQueue` `busy`), for `./firstFrameHold`. */
+  compilesBusy?(): number;
   /** Every program link, and whether a frame waited for it (`./linkLog`: research 90 issues #21 and #23). */
   links: LinkLog;
   // The `visual.post` seam (`./visualPostSeam`, FCW-07b; a browser adaptation) is not a property: it is reached only
@@ -151,6 +175,11 @@ interface PrepareJob extends PrepareOptions {
   camera: Camera;
   /** FLASH-GLOW-BODIES: compiled under the glow target's twin rather than for the canvas. */
   glow?: boolean;
+  /**
+   * LATER 938 review F1: a glow job's own canvas compiles done -- kept with the job while it is held (or in the PS2
+   * picture), so a later queueing never lets WM-17's promotion move it ahead of them.
+   */
+  canvasDone?: () => boolean;
 }
 
 /** What three draws: a mesh, a line, points or a sprite. */
@@ -211,18 +240,33 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
   // Only a choice that asks for WebGPU requests an adapter -- Automatic (WEBGPU-DEFAULT, WG-7, LATER 708; the owner's word
   // 2026-11-09, MEGA.R8) and WebGPU; WebGL2 and Xbox bypass WebGPU entirely (browser adaptation).
   const chosen = options.graphics ?? readGraphicsBackend();
+  // Browser adaptation: eagerly compiling the entire scene (including hidden objects and the second glow context)
+  // can exhaust Xbox's browser budget before its first frame. Draws build their programs on demand instead. This
+  // changes preparation only, not visibility, materials, effects or gameplay; first-use compilation can hitch.
+  const demandCompile = chosen === 'xbox' || pageDeviceClass() === 'xbox';
   // S2 (the controller's level-3 review of mega; VS-7's Xbox class, a browser adaptation, `./deviceClass` `classGraphics`):
   // a resolved Automatic on the Xbox class draws on WebGL2 under every preset and in the test room and the Forge, unless
   // the address named it; the class (its probe made once a page, its context let go) is read only for Automatic.
   // XBOX-WEBGL2-ONLY (#790): a WebGPU choice is read against the class too; WebGL2 and the Xbox pick never read it.
-  const graphics = chosen === 'auto' || chosen === 'webgpu' ? classGraphics(chosen, pageDeviceClass(), graphicsBackendOverride() !== null) : chosen;
+  const classed = chosen === 'auto' || chosen === 'webgpu' ? classGraphics(chosen, pageDeviceClass(), graphicsBackendOverride() !== null) : chosen;
+  // MAC-FLOOR step 1 (INTAKE I-3; B-64; a browser adaptation, `./deviceClass` `appleGraphics`): on an Apple GPU a resolved
+  // Automatic draws WebGL2 (its WebGPU drew the detail pass missing in 32 px tiles); a player's WebGPU is kept. (Since
+  // the Apple-only invariant gate below, the page's probe -- made once a page -- is read for every choice.)
+  const graphics = classed === 'auto' ? appleGraphics(classed, pageAppleGpu()) : classed;
   const antialias = options.antialias ?? chosen !== 'xbox';
   const webgpu = asksForWebGPU(graphics) && await webgpuAnswers((globalThis.navigator as Navigator & { gpu?: GpuLike } | undefined)?.gpu);
   // An opaque WebGPU canvas; the WebGL2 fallback ignores it (three's WebGLBackend forces alpha on), so
   // the real fix is that no world draw writes alpha (`blendFactorsFor`, `world.ts`).
+  // MAC-FLOOR step 2 (INTAKE I-3, B-64; `./invariantPosition`): on an Apple GPU only, every vertex program's clip-space
+  // position invariant, before the first program is built; off Apple the shaders are three's own (the picture unchanged).
+  if (pageAppleGpu()) installInvariantPosition();
   const renderer = new WebGPURenderer({ canvas, antialias, forceWebGL: !webgpu, alpha: false, trackTimestamp: options.trackTimestamp === true, ...powerParameters(canvas, options.power, webgpu, antialias) });
   watchGraphicsLost(renderer);                          // PR #631: a lost context or device names its reason on the page (browser adaptation)
   watchGraphicsErrors(renderer);                        // 2026-11-05: an uncaptured GPU error kept, counted and named on the page (the same adaptation)
+  // LATER 859: three's console-only errors (an async compile's scope) told to the beacon; the console unchanged. The beacon
+  // by a dynamic import: a static one would put `console/pageVersion.ts`'s bare package.json import in the e2e graph
+  // Node loads (`test/e2eImportGraph.test.ts`; the page's entry has already loaded the beacon, so it resolves at once).
+  installThreeConsole((m) => { void import('./clientErrorBeacon').then((b) => { b.pageClientErrorBeacon().reportThree(m); }).catch(() => undefined); });
   if (webgpu) armGraphicsDemotion();                    // WG-7, W5: a WebGPU error sets Automatic to WebGL2 for the next load (the same adaptation)
   // The GS wrote its 8-bit result straight to the framebuffer, so the shader's product goes out
   // unconverted; the textures are read the same way (`world.ts`, `makeTexture`). Set this before init:
@@ -231,6 +275,8 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
   // changing to linear output afterwards bypasses that target and leaves native edges unsmoothed.
   renderer.outputColorSpace = LinearSRGBColorSpace;
   await renderer.init();
+  holdPageBlockProbe(renderer);                        // WM-PACK-2 RUNTIME: the BC kinds the HD pack may upload as blocks, until its dispose (browser adaptation)
+  if (graphics === 'xbox') reuseUniformStorage(renderer.backend as unknown as UniformStorageBackend);
   setWorldSamplingMaximum(renderer.getMaxAnisotropy?.() ?? 1);
   const links = new LinkLog();
   links.watch(renderer.backend as unknown as PipelineBackend);
@@ -251,14 +297,19 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
   let mode: Presentation = 'native';
   let cssWidth = 1;
   let cssHeight = 1;
+  // Browser adaptation: fullscreen/viewport notifications can repeat a fixed PS2 size.
+  // Three r186's CanvasTarget.setSize writes both canvas dimensions even when unchanged.
+  // Keep the logical size and ratio too (equal rounded buffers can have different viewports).
+  let appliedWidth: number | undefined, appliedHeight: number | undefined, appliedRatio: number | undefined;
   const apply = (): void => {
-    if (mode === 'ps2') {
-      renderer.setPixelRatio(1);
-      renderer.setSize(PS2_FRAME.width, PS2_FRAME.height, false);
-    } else {
-      renderer.setPixelRatio(ratio);
-      renderer.setSize(cssWidth, cssHeight, false);
-    }
+    const width = mode === 'ps2' ? PS2_FRAME.width : cssWidth;
+    const height = mode === 'ps2' ? PS2_FRAME.height : cssHeight;
+    const pixelRatio = mode === 'ps2' ? 1 : ratio;
+    if (width === appliedWidth && height === appliedHeight && pixelRatio === appliedRatio) return;
+    // Set size and ratio together: setPixelRatio followed by setSize resets twice on a ratio
+    // change. This API also sets the logical viewport, leaves scissor alone and never writes CSS.
+    renderer.setDrawingBufferSize(width, height, pixelRatio);
+    appliedWidth = width; appliedHeight = height; appliedRatio = pixelRatio;
   };
   renderer.setPixelRatio(ratio);
   const baseClear = new Color(BACKGROUND), washedClear = new Color();
@@ -274,6 +325,7 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
   };
   applyClear();
   const backend: Backend = (renderer.backend as BackendFlags).isWebGPUBackend === true ? 'webgpu' : 'webgl2';
+  noteXboxMemory('renderer-ready', { backend, width: canvas.width, height: canvas.height });
   // The PS2 presentation draws the world as the GS did, with no antialiasing (the GS has none; the static
   // packet at 0x3E0880 sets DTHE 0 and nothing else smooths an edge): into a 640x448 target with no samples,
   // copied texel for texel onto the canvas. The canvas keeps its multisampling for the Modern picture -- it
@@ -605,6 +657,8 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
    * would otherwise reach a native flash uncompiled. Cleared by a map's warm (the next map's draws are its own).
    */
   let glowSkipped: PrepareJob[] = [];
+  /** LATER 938: `holdGlow`'s state -- the glow jobs kept in `glowSkipped` while it holds, as in the PS2 picture. */
+  let glowHeldNow = false;
   /**
    * `jobs` kept in `glowSkipped`, the stale ones dropped there and then (the fold's F1): a rebuilt body, a kit's new models,
    * a body gone -- `RemotePlayers.setPrepare` pushes a whole body each time -- would otherwise hold every disposed
@@ -614,12 +668,22 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
     glowSkipped = glowSkipped.filter((j) => !j.stale?.());
     for (const j of jobs) if (!j.stale?.()) glowSkipped.push(j);
   };
+  /** WM-17: whether `o` hangs in a scene a frame draws -- not parked in `scratch` for its compile, not detached. */
+  const inScene = (o: Object3D): boolean => {
+    let at: Object3D = o;
+    while (at.parent) at = at.parent;
+    return at !== scratch && (at as Scene).isScene === true;
+  };
   /** `jobs` on the queue's tail, each run under the glow twin, or kept in `glowSkipped` while the picture is PS2. */
-  const glowJobs = (jobs: readonly PrepareJob[]): Promise<void> => {
-    if (mode === 'ps2') { skip(jobs); return Promise.resolve(); }
+  const glowJobs = (jobs: readonly PrepareJob[], canvasDone: () => boolean = () => true): Promise<void> => {
+    if (mode === 'ps2' || glowHeldNow) { skip(jobs); return Promise.resolve(); }
     return queue.add(jobs.map((job) => ({
       lanes: job.lanes, stale: job.stale,
-      run: () => { if (mode !== 'ps2') return compileOne(job); skip([job]); return Promise.resolve(); },
+      // WM-17: `promoteGlow` brings it forward once its draw is drawn AND its own canvas compiles are done -- a remote body
+      // is put in the scene at its spawn before `prepare` resolves (`RemotePlayers`), and its glow job must never jump
+      // ahead of its own canvas ones (the batch review's F1).
+      wanted: () => (job.canvasDone ?? canvasDone)() && inScene(job.draw),
+      run: () => { if (mode !== 'ps2' && !glowHeldNow) return compileOne(job); skip([job]); return Promise.resolve(); },
     })), { tail: true });
   };
   const viewer: ViewerRenderer = {
@@ -705,11 +769,18 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
       mode = m;
       apply();
       if (mode !== 'ps2' && glowOwed) { const { scene, camera } = glowOwed; glowOwed = null; void warmGlowWorld(scene, camera); }
-      if (mode !== 'ps2' && glowSkipped.length > 0) { const owed = glowSkipped; glowSkipped = []; void glowJobs(owed); }
+      if (mode !== 'ps2' && !glowHeldNow && glowSkipped.length > 0) { const owed = glowSkipped; glowSkipped = []; void glowJobs(owed); }
+    },
+    holdGlow: (held) => {
+      if (held === glowHeldNow) return;
+      glowHeldNow = held;
+      if (!held && mode !== 'ps2' && glowSkipped.length > 0) { const owed = glowSkipped; glowSkipped = []; void glowJobs(owed); }
     },
     presentation: () => mode,
     glowOwed: () => glowSkipped.length,
+    promoteGlow: () => (mode === 'ps2' ? 0 : queue.promote((j) => j.wanted?.() === true)),
     warm: async (scene, camera, extras = []) => {
+      if (demandCompile) return;
       const previous = renderer.getRenderTarget();
       if (mode === 'ps2') renderer.setRenderTarget(frame);
       // RENDER-FINALLY (a renderer adaptation): the finally covers everything after the PS2 frame is set, so a throw here
@@ -757,7 +828,9 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
       const glowJobs = mode === 'ps2' ? [] : warmGlowWorld(scene, camera);
       await Promise.all([live, stand, ...glowJobs, ...warmGlow()]);
     },
+    compilesBusy: () => queue.busy,                    // XBOX-WARM (`./firstFrameHold`)
     prepare: (objects, scene, camera, options = {}) => {
+      if (demandCompile) return Promise.resolve();
       const draws: Object3D[] = [];
       const parked: Object3D[] = [];
       for (const o of objects) {
@@ -783,8 +856,10 @@ export async function createRenderer(canvas: HTMLCanvasElement, options: Rendere
       // when the picture goes native (the review's F2). Never the HUD's passes (the canvas), the shadow map's (its own
       // target, `override`): neither draws into the glow target. A failure costs only a later build (the queue catches it).
       const canvas = queue.add(jobs);
+      let canvasDone = false;
+      void canvas.then(() => { canvasDone = true; });
       const glow = !options.screen && !options.target && !options.override
-        ? glowJobs(ordered.map((draw): PrepareJob => ({ ...options, draw, scene, camera, glow: true })))
+        ? glowJobs(ordered.map((draw): PrepareJob => ({ ...options, draw, scene, camera, glow: true, canvasDone: () => canvasDone })), () => canvasDone)
         : Promise.resolve();
       void Promise.all([canvas, glow]).then(() => { for (const o of parked) if (o.parent === scratch) scratch.remove(o); });   // as they came
       return canvas;

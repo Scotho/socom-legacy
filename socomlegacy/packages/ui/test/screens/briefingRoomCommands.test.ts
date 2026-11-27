@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { setOwnNameDisplay } from '../../src/text/ownNameDisplay';
 import { DIALOG_EVENTS, type DialogDesign } from '../../src/dialog';
 import { UI_COMMAND_TABLE, UiCommandHost, uiCommandRowByName } from '../../src/uiCommands';
 import { UiVarManager, type UiVarValue } from '../../src/uiVars';
@@ -415,6 +416,35 @@ describe('SVC-15: the room\'s PLAYER LIST (RefreshRoomPlayerList FUN_0027d900 ->
       arr(str('42'), str('mike'), keyed('In Lobby', ROOM_PLAYER_IN_LOBBY_COLOR), NO_TAG),   // strcmp: lower case after upper
     ));
     expect([ROOM_PLAYER_IN_LOBBY_COLOR, ROOM_PLAYER_TAG_COLOR]).toEqual([[91, 72, 36], [128, 64, 32]]);
+  });
+
+  it('IQ-183 (a browser adaptation, ownNameDisplay): the own row (the session’s account, case-blind) draws its name by the page’s rule, sorted by its own name still; others unchanged', async () => {
+    setOwnNameDisplay(() => 'YOU');
+    try {
+      const r = await joined({ service: { roomPlayerList: () => Promise.resolve([member(41, 'Zulu', 2), member(45, 'SOCOMC', 2), member(42, 'mike', 2, { endOfList: true })]) } });
+      r.c.RefreshRoomPlayerList(...call(list()));
+      await flush();
+      const lobbyCell = keyed('In Lobby', ROOM_PLAYER_IN_LOBBY_COLOR);
+      expect(r.value(ROOM_PLAYER_LIST_VAR)).toEqual(arr(
+        arr(str('45'), str('YOU'), lobbyCell, NO_TAG),
+        arr(str('41'), str('Zulu'), lobbyCell, NO_TAG),
+        arr(str('42'), str('mike'), lobbyCell, NO_TAG),
+      ));
+      // Sorted by the real name, not the drawn one (the review's F3): "socomc" sorts after "mike", where "YOU" would lead.
+      const lower = await joined({ service: { roomPlayerList: () => Promise.resolve([member(41, 'Zulu', 2), member(45, 'socomc', 2), member(42, 'mike', 2, { endOfList: true })]) } });
+      lower.c.RefreshRoomPlayerList(...call(list()));
+      await flush();
+      expect(lower.value(ROOM_PLAYER_LIST_VAR)).toEqual(arr(
+        arr(str('41'), str('Zulu'), lobbyCell, NO_TAG),
+        arr(str('42'), str('mike'), lobbyCell, NO_TAG),
+        arr(str('45'), str('YOU'), lobbyCell, NO_TAG),
+      ));
+      setOwnNameDisplay(null);
+      const back = await joined({ service: { roomPlayerList: () => Promise.resolve([member(45, 'SOCOMC', 2, { endOfList: true })]) } });
+      back.c.RefreshRoomPlayerList(...call(list()));
+      await flush();
+      expect(back.value(ROOM_PLAYER_LIST_VAR)).toEqual(arr(arr(str('45'), str('SOCOMC'), lobbyCell, NO_TAG)));
+    } finally { setOwnNameDisplay(null); }
   });
 
   it('at most once every ROOM_PLAYER_LIST_PERIOD_S (10 s on the page\'s clock, D:L192307-192308) and one at a time (DAT_0044f9f0, D:L192315 / D:L192424)', async () => {

@@ -728,7 +728,9 @@ describe("FX-1: record v3 keeps a piece's tilt and scale (poses)", () => {
       { asset: "MP2:crate", m: posed(1.26, 0, -2.34, 90, 0, 0) },
       { asset: "MP2:barrel", m: [1.003, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0.998, 0, 4, 5, 6, 1], locked: true },   // scale noise off the lattice
       { asset: "MP2:crate", m: posed(7, 8, 9, 30, 0, 0) },
-      { asset: "MP2:barrel", m: posed(0, 0, 0, 0, 0.3, 0) },                                                // a tilt under half a degree
+      // FN-4: a tilt under half a hundredth of a degree (the record's angle lattice since FN-4, `RECORD_ANGLE_DENOMINATOR`);
+      // before FN-4 this was a tilt of 0.3, under half a WHOLE degree, the lattice then -- a pin of the old lattice, moved.
+      { asset: "MP2:barrel", m: posed(0, 0, 0, 0, 0.003, 0) },
     ]);
     // the text this layout gave before FX-1 (the record's code at f2f17a1ad7), stored by hand
     const before = '{"schema":"forge-layout","version":3,"name":"Yard","base":"MP2","assets":["MP2:crate","MP2:barrel"],'
@@ -740,6 +742,10 @@ describe("FX-1: record v3 keeps a piece's tilt and scale (poses)", () => {
     expect(JSON.stringify(readCreatorRecord(before).record)).toBe(before);
     // the earlier fixtures' texts carry no poses either
     expect("poses" in readCreatorRecord(JSON.stringify(v1), { name: "Yard" }).record).toBe(false);
+    // FN-4 (RED at the FN-4 RED commit, GREEN from its writer's commit): the old case's tilt of 0.3 is now kept, a
+    // version-4 record (a piece's angle off the whole degree)
+    const tilted = recordOfLayout(yardOf([{ asset: "MP2:barrel", m: posed(0, 0, 0, 0, 0.3, 0) }]), "Yard");
+    expect([tilted.version, tilted.pieces, tilted.poses]).toEqual([4, [[0, 0, 0, 0, 0]], [[0, 0.3, 0, 1, 1, 1]]]);
   });
 
   it("the gimbal case is canonical: at a pitch of 90 or -90 the roll is 0 and its turn goes into the yaw", () => {
@@ -755,9 +761,13 @@ describe("FX-1: record v3 keeps a piece's tilt and scale (poses)", () => {
     expect(d.poses).toEqual([[0, -90, 0, 1, 1, 1]]);
     expect(farthest(layoutOfRecord(d).pieces[0]!.m, down)).toBeLessThanOrEqual(1e-6);
     expect(recordOfLayout(layoutOfRecord(d), "Yard")).toEqual(d);
-    // a pitch that rounds to 90 is written by the same rule
-    const near = recordOfLayout(yardOf([{ asset: "MP2:crate", m: posed(0, 0, 0, 30, 89.6, 20) }]), "Yard");
+    // a pitch that rounds to 90 is written by the same rule. FN-4: rounds on the record's hundredth of a degree, so the
+    // pitch is 89.996 here; before FN-4 it was 89.6, which rounded to 90 on whole degrees (a pin of the old lattice, moved)
+    const near = recordOfLayout(yardOf([{ asset: "MP2:crate", m: posed(0, 0, 0, 30, 89.996, 20) }]), "Yard");
     expect([near.pieces[0]![4], near.poses]).toEqual([10, [[0, 90, 0, 1, 1, 1]]]);
+    // FN-4 (RED at the FN-4 RED commit, GREEN from its writer's commit): 89.6 is now kept as it is, its roll beside it
+    const kept = recordOfLayout(yardOf([{ asset: "MP2:crate", m: posed(0, 0, 0, 30, 89.6, 20) }]), "Yard");
+    expect([kept.version, kept.pieces[0]![4], kept.poses]).toEqual([4, 30, [[0, 89.6, 20, 1, 1, 1]]]);
     // a hand-written roll at the gimbal is refused, never read as a second name for the same turn
     expect(checkCreatorRecord({ ...r, poses: [[0, 90, 20, 1, 1, 1]] })).toMatch(/pose 0 is not canonical/);
     expect(checkCreatorRecord({ ...r, poses: [[0, -90, 1, 1, 1, 1]] })).toMatch(/pose 0 is not canonical/);

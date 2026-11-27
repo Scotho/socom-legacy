@@ -38,7 +38,9 @@ for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }])
     const row = await first.boundingBox();
     if (!dock || !filters || !row) throw new Error('the dock, the filter row or the row has no box');
     // The filter row whole: its chips' full height drawn, not shrunk by the column (the today shot's clip).
-    for (const chip of await assets.locator('.fx-asset-filters .fx-chip').all()) {
+    // PR #5: his Characters chip is built and kept hidden (Characters is a tab now, `../src/forge/page.ts` `chipChars`),
+    // so only the chips drawn are measured: a hidden one has no box to hold to the row.
+    for (const chip of await assets.locator('.fx-asset-filters .fx-chip:not([hidden])').all()) {
       const b = await chip.boundingBox();
       if (!b) throw new Error('a filter chip has no box');
       expect(b.y).toBeGreaterThanOrEqual(filters.y - 0.5);

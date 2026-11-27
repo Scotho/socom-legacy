@@ -25,7 +25,7 @@ function hull(): GroundData {
     modelName: 'worldmodel', path, region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0,
     points: Float32Array.from([x, 0, -20, x, 0, 20, x, 40, 20, x, 40, -20]),
   });
-  const floor: WorldPoly = { ...wall('worldmodel/floor', 0), ditype: 3, points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
+  const floor: WorldPoly = { ...wall('worldmodel/floor', 0), ditype: 3, points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) };
   const polys = [floor, wall(DI, 50), wall(DI, 52)];
   const owners: CollisionOwner[] = [
     { modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1, flags: FLAGS },

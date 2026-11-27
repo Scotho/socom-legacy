@@ -11,8 +11,8 @@ describe('launcher pickup after independent equipment depletion (research 361 §
     for (let n = 0; n < 3; n++) ammo.spend('M67', 2);
     const kit = pickupKitOf([54, 15, 121, 121, 255], null, () => 0, ammo.totals(), ammo.state());
     expect(kit.map(s => s.rounds)).toEqual([0, 0, 0, 3, 0]);
-    expect(launcherClaimSlots(kit)).toEqual({ launcher: 2, round: 4 });
+    expect(launcherClaimSlots(kit)).toEqual({ launcher: 2, round: 5 });   // R4P-103: the round appended (Q103B)
     const legacy = pickupKitOf([54, 15, 121, 121, 255], null, () => 0, ammo.totals());
-    expect(launcherClaimSlots(legacy)).toBeNull();
+    expect(launcherClaimSlots(legacy)).toEqual({ launcher: 4, round: 5 });   // pooled: both read live, the empty 4
   });
 });

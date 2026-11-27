@@ -177,7 +177,11 @@ afterwards keeps L3 as FireMode until FIRE RATE is changed again, and changing i
   rank's flow: LATER); CONTROLLER OPTIONS' inert rows (OPT-13's); the stick flags of `FUN_002c5d60` / `FUN_002c5c90`
   (OPT-13's tuner sets); the screens that read pad buttons directly rather than the lanes (WEAPON EXCHANGE's R2, the
   Chat menu's d-pad, the menus' own CROSS / TRIANGLE), which no config remaps in the original either for the menus;
-  the in-round START menu has no layout row (`07-match.md` T1/T2: H241, the owner's).
+  the in-round START menu has no layout row (`07-match.md` T1/T2: H241, the owner's). The refused inventory open's clear
+  of the pad's X, Circle and Triangle (`FUN_0021aaa0` D:L72015-72017; under SURE SHOT a new `Fire` press) is carried
+  through the active map by research [451](451-sure-shot-refused-inventory-clear.md) -- X's and Circle's lanes; Triangle's
+  clear reaches no reader at that note's one update (its §2); the same write at every menu close
+  is that note's §4, left out.
 
 ## 8. Readings and placeholders
 

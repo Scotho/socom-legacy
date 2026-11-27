@@ -22,6 +22,8 @@ export interface PageWorldHooks {
   setNodeOpacity?(path: string, opacity: number): void;
   /** LATER 782: `WorldView.setNodeUvOffset` -- a program's `SCROLL_MOTION` on a node (Fish Hook's washes and water). */
   setNodeUvOffset?(path: string, u: number, v: number): void;
+  /** LATER 951 (research 436): a sky a program holds at the camera -- `WorldView.moveNode` by its move from rest. */
+  moveNode?(path: string, delta: readonly number[]): void;
   /** A program's `SOUND` where the world places it (null: without a place; `SCENE_SOUND_PLACE_READING`), at its volume. */
   sound(name: string, at: [number, number, number] | null, volume: number): void;
   /** XR-04: a program's common-set effect (`COMMON_EFFECT_CALL_READING`) at the calling program's root. */
@@ -50,6 +52,7 @@ export function buildPageWorld(map: LoadedMap, hooks: PageWorldHooks, ambient: r
     visible: (path, on) => { hooks.setNodeActive(path, on); },
     opacity: (path, f) => { hooks.setNodeOpacity?.(path, f); },
     scroll: (path, u, v) => { hooks.setNodeUvOffset?.(path, u, v); },
+    translate: (path, delta) => { hooks.moveNode?.(path, delta); },   // LATER 951: a sky held at the camera
     sound: (name, _path, volume, at) => { hooks.sound(name, at, volume); },   // SCENE_SOUND_PLACE_READING: the node's origin
     call: (name, path) => {
       const at = path !== null ? world.placeOf(path) : null;

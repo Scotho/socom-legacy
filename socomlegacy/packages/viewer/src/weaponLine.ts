@@ -71,37 +71,100 @@ export function weaponLineLengthOf(model: string): number | null {
 }
 
 /**
- * PLACEHOLDER (named; research 86 s3.8): whether the weapon line's query `FUN_0031e160` (D:L416642) meets a polygon from
- * its front only. Unread: the query's own crossing test is not transcribed. `true`: the hull's one-sided test, as the
- * body's segment records take it (`segmentHits`' `frontOnly`, research 281 s4.3) -- the line starts at the body and
- * runs out, so a face it meets first is met from its front either way, but a line starting inside a collider (a body
- * pressed into a corner) would meet the far side's back face under `false`. Settled by a read of `FUN_0031e160`'s
- * crossing test, or a capture with the line starting behind a face. Its polygon set is its own question
- * (`WEAPON_LINE_POLYGON_SET_PLACEHOLDER`).
+ * READING (WEAPON-LINE, 2026-11-23; seat-kill's key-job read pilot/kill/keyjob-weapon-line.md, on patches-contrib's
+ * first read; reading, pending review): the weapon line's query `FUN_0031e160` (D:L416642) meets a polygon from its FRONT
+ * only, on every collider the port's line can meet. The face test's side mask is chosen per collision NODE (r0004
+ * 0x2ef7a0): 0x30, both crossing directions, when the node's `+0x80` bit 1 is set, else 0x20, one direction (r0001 `FUN_002d2890` D:L174831-174837).
+ * The bit's
+ * three stores in r0004 set it on no map node (0x1ff8f4: a ticking object's own flag byte; 0x348708: the particle DI
+ * node, VOLUMETRIC, which the line's consumer drops; 0x559c4c: an actor's skel_root node, a cull box), and the bodies' hit
+ * boxes on the bone nodes keep it clear. So `true` -- `segmentHits`' `frontOnly`, as the body's segment records take it
+ * (research 281 s4.3) -- is the original's for the hull; no per-collider flag is needed while the line walks the hull
+ * alone (`WEAPON_LINE_BODIES_PLACEHOLDER`).
  */
-export const WEAPON_LINE_ONE_SIDED_PLACEHOLDER = true;
+export const WEAPON_LINE_ONE_SIDED_READING = true;
 
 /**
- * PLACEHOLDER (named; research 86 s3.8; fresh review 1's F3): which polygons the weapon line's query `FUN_0031e160`
- * (D:L416642) returns -- whether floors are among them. Unread: the function only fills a query on world `+0x14c` (the
- * review's read), and the set that query walks is not transcribed. `'movement'`: the port asks the movement's surfaces
- * (bit 1 set, bit 18 clear), as the body's segment records' query does (`Walker.segmentHit`), floors among them; the line
- * keeps any slope it meets (D:L416644-416672: only the material's bits 0 and 1 are tested), so a steep ramp ahead is
- * stored and the running jump up it refused (LATER 682). This alone decides LATER 682. Settled by a read of
- * `FUN_0031e160`'s polygon set, or an r0004 capture of a running jump pressed partway up Frostfire's `rmp1`.
+ * READING (WEAPON-LINE, 2026-11-23; seat-kill's key-job read; reading, pending review): the polygons the weapon line's
+ * query returns. The test is the surface word's bit 1 (`SURFACE_SIDE`, the record's byte +8 bit 1) set and, with the mode
+ * byte r0004 0x450b20 at 0 (by brackets around its writer’s calls, not a trace; r0001 `FUN_002d2890`
+ * D:L174845-174862 the filter), `m_cameratype` bit 0 (the word's bit 18, `SURFACE_SKIP`) clear; nothing tests the ground bit
+ * (bit 0), so FLOORS ARE AMONG THEM. That is exactly the port's movement set, `(surfaceWord(p) & (2 | 1 << 18)) === 2`
+ * (`Walker.weaponLine`): over 22 r0004 maps, 202,305 faces, 0 disagree. The line keeps any slope it meets (only the
+ * material's bits 0 and 1 are tested, D:L416644-416672), so a steep ramp ahead is stored and the running jump up it
+ * refused (LATER 682, done; no slope test, as the original).
  */
-export const WEAPON_LINE_POLYGON_SET_PLACEHOLDER = 'movement' as 'movement' | 'walls';
+export const WEAPON_LINE_POLYGON_SET_READING = 'movement' as 'movement' | 'walls';
 
 /**
- * PLACEHOLDER (named; research 86 s3.8; fresh review 1's F1): the weapon line's length with an item up. `FUN_0054e8f0`
- * takes the model of the kit entry the hand byte `+0xf79` picks (D:L416869-416870), so with a grenade up the line is the
- * item's (`grenade` 2.5372 in `WEAPON_LINE_LENGTH_READING`), not the rifle's. The port's mover, shared by the room and the
- * page, carries the firearm hand only (`Walker.hand`, 0 or 1): an item up is held outside it (the room's `held` and
- * throw state, the page's `FirearmHands`), and which entry `+0xf79` names in each item state (selected, raised, cooked,
- * a launcher up) is not read. `'firearm'`: the line keeps the firearm hand's model with an item up. Settled by a read of
- * `+0xf79`'s writes, then the item's model carried into the mover on both sides.
+ * PLACEHOLDER (named; WEAPON-LINE, 2026-11-23; seat-kill's key-job read, its F7): whether the weapon line meets OTHER
+ * ACTORS' bodies. The original's cast walks each cell's object list; the caller switches only its OWN model's collision off
+ * around it (r0004 0x552fd0-0x552ffc, restored 0x553110-0x553128), 0x33b770 excludes no node, a bone box (ditype 3)
+ * passes the polygon test above and the consumer keeps material PERSON -- so by that reading the line can stop at another
+ * player's body pressed within its length. Not traced running, and the gate bits at that moment are unread; nor is what
+ * the move does with a PERSON box as its stored contact. `'hull-only'`: the port's line walks the map's hull alone
+ * (`segmentHits` on the grid). Settled by a capture of a body pressed against another within the line's length (does
+ * the stored contact form), then a read of the contact's use.
  */
-export const WEAPON_LINE_ITEM_MODEL_PLACEHOLDER = 'firearm' as 'firearm' | 'item';
+export const WEAPON_LINE_BODIES_PLACEHOLDER = 'hull-only' as 'hull-only' | 'bone-boxes';
+
+/**
+ * READING (WEAPON-LINE part 2, 2026-11-23; seat-kill's key-job read pilot/kill/keyjob-weapon-line-item.md; reading, pending
+ * review): the weapon line's model BY THE BODY'S MOUNT. `FUN_0054e8f0` takes the model of the weapon mount the hand byte
+ * `+0xf79` picks -- the body's four mounts at actor+0x388 (1 rifle, 2 pistol, 3 grenade: never built, zeroed; 4 launcher),
+ * NOT a kit entry -- and `+0xf79` is NOT rewritten when a grenade, charge or gear item is raised, selected, cooked,
+ * thrown or placed. So: 'firearm' -- with any item up the line keeps the firearm hand's model and length (never the
+ * item's own); 'launcher' -- with a launcher up (`Walker`'s launcher set) the launcher's model (the LAW: AT4, 21.3236),
+ * none where that model has no firepoint node (`WEAPON_LINE_NO_FIREPOINT`: the cast returns false); 'none' -- a launcher
+ * followed by an item leaves the empty mount 3 picked, no line. Not cast at all (the port's own gates): a slide, a mounted
+ * turret, an AI body. Named gaps (the read's G1-G4): the launcher mounts' models are inferred (a capture of the line with
+ * the LAW up settles it: `WEAPON_LINE_MOUNT_MODEL_READING`); no aim-point refresh on the item path was found; the writer of
+ * actor+0x388 is unread; whether the line is cast when dead is unread. The exception (GRENADE-LOWERS, 2026-11-25; a
+ * capture, the port's match reading, pending review): a hand grenade up (class 'y') casts NO line -- PC 2's
+ * L1578-PROBE-WEAPONS (r0004: items 121 / 126, the muzzle probe refused, no weapon-line push) and GRENADE-LOWER-r0004 (the
+ * line never fires with the grenade up, still or walking); `Walker.handGrenadeUp`, after the launcher's gate.
+ */
+export const WEAPON_LINE_ITEM_MODEL_READING = 'by-mount' as const;
+
+/**
+ * WEAPON-LINE part 2 (the review's F3): three cases of the same read the port does not carry, named. (1) A dismount into a
+ * kept item's slot (r0004 0x54abdc) writes the empty mount (3/0): no line, where the port keeps the firearm's. (2) A
+ * launcher abandoned by moving (r0004 0x5569d8) goes to the kit hand's mount for a human -- the port's launcher-down to the
+ * firearm, the same mount by a different path. (3) G5: the rifle/pistol flip of `+0xf79` comes at the swap's HAND-OVER, not
+ * at its press, where the port flips `Walker.hand` at the swap's start -- so the new firearm's length comes a few frames
+ * early. Settled by captures of each with the line's slot logged.
+ */
+export const WEAPON_LINE_MOUNT_CASES_READING = 'dismount-abandon-handover unported' as const;
+
+/**
+ * READING, held by a capture (the read's G1; WEAPONLINE-LAUNCHER-r0004, Shadow PC 2, r0004 on LAN Sandstorm, 2026-11-23;
+ * unreviewed until its second reader): the launcher MOUNT's model is the kit's launcher item's own model
+ * (`heldWeaponModels`' `launcher`). With the LAW (AT-4) in hand (`+0xf79` 4) the stored contact formed at 21.3 u from the
+ * wall and not at 21.4 (two sweeps): the edge in 21.30-21.40, holding the AT4 model's 21.3236. With the RPG-7 in hand
+ * (`+0xf79` 4) no weapon line formed at 8-21 u (a contact at 3 u only, the body's own segment records): no line, as
+ * `WEAPON_LINE_NO_FIREPOINT` gives. The M4A1 SD control on the same wall (`+0xf79` 1) formed at 22.3-22.8 and not at 23.0,
+ * the bracket of WEAPONLINE-LAW-r0004 (22.795 / 22.996). The writer of actor+0x388 (G3) stays unread.
+ */
+export const WEAPON_LINE_MOUNT_MODEL_READING = 'kit-model' as const;
+
+/**
+ * WEAPON-LINE part 2 (the same read): the launcher models with no `firepoint` node in WEAP_GEO, lower case -- the RPG-7's
+ * model spells it `firepont`, so its `+0x14bc` is null and the cast returns false: no line with it up. The rest have one
+ * (`weaponLine.test.ts` over the kit table's launchers, the dev disc).
+ */
+export const WEAPON_LINE_NO_FIREPOINT: ReadonlySet<string> = new Set(['rpg7']);
+
+/**
+ * PLACEHOLDER (named; WEAPON-LINE part 2, 2026-11-23): the 'none' mount of `WEAPON_LINE_ITEM_MODEL_READING` -- a launcher
+ * followed by an item leaves the empty mount 3 picked, no line, until a firearm is raised -- is NOT wired: neither the
+ * room nor the page keeps the body's last raised mount (the room knows the launcher up, `held`, and the hand item; not
+ * which mount the item followed), so `Walker.weaponLineMountNone` is unset and the port keeps the firearm's line there (from the put-away's start,
+ * `launcherMountOn`; before the review's F1 fold the launcher's line ran on through the still lower).
+ * Coupled to the read's G2 (no aim-point refresh found on the item path, which would switch the line off whatever the
+ * mount). Settled by a read of the item path's aim-point refresh (G2) and the mount's writer (G3), then the last-mount
+ * state kept by room and page alike.
+ */
+export const WEAPON_LINE_MOUNT_NONE_PLACEHOLDER = 'unwired' as 'unwired' | 'wired';
 
 /**
  * READING (research 86 s3.8; the controller's ruling between readings, 6d, 2026-11-04, for the owner to see; was

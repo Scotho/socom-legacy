@@ -1,0 +1,74 @@
+[
+ {
+  "name": "cratewood1.tif",
+  "width": 256,
+  "height": 256,
+  "bytes": 262144,
+  "sha256": "5d008f6cc7606f8fc9e17c7e251a86961156eac5eef82dc04a18426b8842834f",
+  "why": "changed: the same name in SOCOM II MP8 holds other pixels",
+  "s2": {
+   "width": 128,
+   "height": 128
+  }
+ },
+ {
+  "name": "gen_cloud_n_sun_256x256.tif",
+  "width": 128,
+  "height": 128,
+  "bytes": 65536,
+  "sha256": "58733f85c63f667285492912a7f703c498560b023a978e30ca1070dff094496f",
+  "why": "SOCOM 1 only: drawn by the sky/sun props or the light-ray parts"
+ },
+ {
+  "name": "gen_sky_base.tif",
+  "width": 16,
+  "height": 16,
+  "bytes": 1024,
+  "sha256": "92c8feae04de7ec86dbb3dc2b0242d9465ffa753f4a93c8fa03d4eba6ad9a6e6",
+  "why": "SOCOM 1 only: drawn by the sky/sun props or the light-ray parts"
+ },
+ {
+  "name": "gen_sky_top.tif",
+  "width": 16,
+  "height": 16,
+  "bytes": 1024,
+  "sha256": "a88917d32161c8578843db91815b069530ecaf09febf646c447626f758fa39a7",
+  "why": "SOCOM 1 only: drawn by the sky/sun props or the light-ray parts"
+ },
+ {
+  "name": "ground.tif",
+  "width": 256,
+  "height": 256,
+  "bytes": 262144,
+  "sha256": "0c4a82bd0c9f941e1849bfbf004343d40452da0bce5aeda011b818467c1c95e0",
+  "why": "changed: the same name in SOCOM II MP8 holds other pixels",
+  "s2": {
+   "width": 128,
+   "height": 128
+  }
+ },
+ {
+  "name": "rockwall2.tif",
+  "width": 256,
+  "height": 256,
+  "bytes": 262144,
+  "sha256": "f964606c48a457fe788ccfbed6f7cf67dbebd49818ea63327657af402a442035",
+  "why": "changed: the same name in SOCOM II MP8 holds other pixels",
+  "s2": {
+   "width": 256,
+   "height": 256
+  }
+ },
+ {
+  "name": "gen_cloudy_blue_sky.tif",
+  "width": 256,
+  "height": 256,
+  "bytes": 262144,
+  "sha256": "3a2ae22b2ffd8e58a07d0a20ab443381cf23af4de4b8812f0f678146c34807de",
+  "why": "sky swap: RUN/MP2.ZDB cuba1a_sky01.tif (SOCOM II's own, at its native size), drawn in place of SOCOM II MP8's gen_cloudy_blue_sky.tif; a browser adaptation's art choice, the owner's pick (MISSION OT.R158)",
+  "s2": {
+   "width": 256,
+   "height": 256
+  }
+ }
+]

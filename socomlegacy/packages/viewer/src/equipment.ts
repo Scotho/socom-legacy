@@ -1,6 +1,6 @@
 import {
   AN_M8, BACKBLAST_CONE, CLAYMORE, EMPTY_ITEM, FULL_SLOT, HE, ITEM, M67, MARK141, ROCKET_LAUNCH_SPEED_READING, SURFACE_SKIP,
-  backblastLaunch, inCone, itemClass, probeWater, segmentHits, surfaceMaterial, surfaceWord, type Grid, type KitTable, type Loadout,
+  aimPickBlocks, backblastLaunch, inCone, itemClass, probeWater, segmentHits, surfaceMaterial, surfaceWord, type Grid, type KitTable, type Loadout,
   type MotionClip, type SurfaceMaterial, type ThrowableRecord, type V3, type WorldPoly,
 } from '@s2u/scene';
 import { aimHitKept, aimQueryAdmits } from './net/aimQuery';
@@ -29,9 +29,10 @@ export { EquipmentSlots, type EquipmentSlotEntry, type EquipmentSlotRecord, type
  *   `POUCH_PLACEHOLDER` (every throwable at its capacity whatever the kit held).
  * - **C4** is timed, not remote, and planted only on a C4 target under the reticle, in reach, held there 0.2 s
  *   (`FUN_005be9a0` L475378-475470; the Action path L452025-452060 `FUN_005c0020(1.0, 0.2, kit, 0x97)`): the target is
- *   the scene destructible the charge qualifies for (`FUN_002739b0`, `SceneHealth.c4TargetAt`) at the node the aim ray
- *   strikes (`aimPick`, `c4TargetOf`), settled (`C4Settle`, `c4PlantAllowed`), on no `INVISIBLE_DI` surface. The page
- *   names it and the struck point on the wire; the room checks them (`c4TargetOf`, `c4Line`; ruling PF.R18). SUP-03
+ *   the scene destructible the charge qualifies for (`FUN_002739b0`, `SceneHealth.c4TargetAt`) at the node of the aim
+ *   ray's opaque record (`c4AimPick`; C4-GLASS: a pane, a fence or a net looked through, research 440; `c4TargetOf`),
+ *   settled (`C4Settle`, `c4PlantAllowed`), on no `INVISIBLE_DI` surface. The page names it and the struck point on
+ *   the wire; the room checks them (`c4TargetOf`, `c4Line`; ruling PF.R18). SUP-03
  *   retired the type-less-action heuristic (research 94 C5.1, 210 s8); PF-13 the stillness gate (research 210 s9).
  * - **The rockets** (LAW, RPG-7) leave straight along the aim at their round's `Muzzle_Velocity`
  *   (`ROCKET_LAUNCH_SPEED_READING`) -- no loft: `FUN_005bf8a0` lofts only the grenade launchers' rounds (`FUN_005bd6d0`:
@@ -230,14 +231,25 @@ export function c4Eligible(health: Pick<SceneHealth, 'accepts'>, id: number, cha
 }
 
 /**
- * C4_REACH_READING: how near the SEAL the C4 target must be -- the action object's default reach, 32 units
- * (`ACTION_RANGE_DEFAULT`, `FUN_002b49f0`), from the feet to the struck point along the ground and strict, as the action
- * pick measures it (`FUN_005aa240` D:L463895), on the page and in the room alike [reading: the plant's own gate is
- * `body+0x208 < 396`, which research 202 s2.1 reads as the squared distance from `skel_root` to the aimed point (19.9
- * units, STRONG, owed a capture: research 206 A30); PF-13 kept the standing reach -- the port poses no `skel_root` in the
- * room, so the hip-bone gate is not ported (research 210 s9.1)].
+ * C4_HIP_REACH_SQ: the C4 plant's one reach gate, page and room -- the squared 3-D distance from the hip (`skel_root`) to
+ * the aim's point must be under 396 (`FUN_005be9a0` D:L475400-475405: `body+0x208 < 396`; the word written each frame by
+ * `FUN_00215c10` as |aimed point - skel_root|^2, research 202 s2.1, research 394). Proven on the running original (research
+ * 440 s8.2): the capture `agent-mail/evidence/later1139-c4reach` (r0004, 2026-11-18) shows the prompt at `+0x208` <= 395.68
+ * and never at >= 396.23, 19.8 u prompting and 20.0 u not, the word the live squared distance (not clamped). Retires
+ * `C4_REACH_READING` (32 u from the feet along the ground) and `C4_THROUGH_REACH_READING` (LATER 1139).
  */
-export const C4_REACH_READING = ACTION_RANGE_DEFAULT;
+export const C4_HIP_REACH_SQ = 396;
+
+/**
+ * C4_HIP_POINT_READING: where the port stands the hip the C4 gate measures from -- `./net/shotCone` `hipPoint`, straight
+ * over the feet at the move's root, else the stance's root height (`./mover` `rootY`: stand 11.484, crouch 5.504, prone
+ * 2.168), the page's and the room's same call on the same body [reading: research 440 s8.3. Stand and prone match r0004's
+ * own still `skel_root` to four decimals and crouch one of its two crouch idles (5.5039; the other, 4.7070, is not
+ * modelled: which plays when is unread) -- `agent-mail/evidence/later1139-c4reach/unpacked-hip`. Left out: that other
+ * crouch idle, the moving heights (the run 10.3047, the walk 11.0176, the crouch walk 9.3281, the crawl 2.2891), the posed
+ * root's x/z offset, the peek's shift, the root's tilt on a slope, and a posed root outside `aimRoot`'s cases].
+ */
+export const C4_HIP_POINT_READING: 'root-over-feet' = 'root-over-feet';
 
 /** What the reticle is on (`aimPick`): the struck node (the polygon's owner path), the point, its material's name. */
 export interface AimPick {
@@ -251,8 +263,8 @@ export interface AimPick {
 /**
  * The first surface along the view from `eye` to `far` that the movement does not skip (bit 18 passed over, as the
  * door pick passes them, `./doors` `pickDoor`); its material by the polygon's byte, byte 0 the map's `defaultMaterial`
- * (`surfaceMaterial`, `FUN_002dc1d0`). Null when nothing is met. C4's opaque aim point (`+0x3dc`). A switch uses
- * `actionRayPick`: this one never sees a bit-18 use volume.
+ * (`surfaceMaterial`, `FUN_002dc1d0`). Null when nothing is met. Not C4's target since C4-GLASS (`c4AimPick`). A
+ * switch uses `actionRayPick`: this one never sees a bit-18 use volume.
  */
 export function aimPick(grid: Grid, eye: readonly number[], far: readonly number[], defaultMaterial = ''): AimPick | null {
   const hit = segmentHits(grid, [eye[0]!, eye[1]!, eye[2]!], [far[0]!, far[1]!, far[2]!], (p) => (surfaceWord(p) & SURFACE_SKIP) === 0)[0];
@@ -272,6 +284,11 @@ export interface ActionRayDetail {
   why: ActionRayWhy;
   actionPath: string | null;
   opaquePath: string | null;
+  /**
+   * C4-GLASS (research 440): the opaque record itself (`+0x3c0`..`+0x3dc`, D:L464272-464290) -- the nearest kept hit,
+   * whether or not an action hit wins `.pick`. C4's target (`c4AimPick`).
+   */
+  opaque: AimPick | null;
 }
 
 /**
@@ -284,7 +301,8 @@ export interface ActionRayDetail {
  * rewrites it is unread). `FUN_002d2890` then keeps a face only from the front (bit 1 clear: the
  * start's `w` is 0x20, D:L174831-174837) and stops that model at its first such face in surface order (bit 0,
  * D:L174890; research 230 §3.4). A nearer face later in the same model, and a face met from behind, are not in the
- * list `FUN_005aa6e0` walks. `segmentHits` still returns every crossing: shots and C4 stay on `aimPick`.
+ * list `FUN_005aa6e0` walks. `segmentHits` still returns every crossing: shots stay on `aimPick`; C4 takes the
+ * opaque hit (`c4AimPick`).
  */
 export function actionRayDetail(
   grid: Grid, eye: readonly number[], far: readonly number[], actions: readonly MapAction[],
@@ -328,10 +346,36 @@ export function actionRayDetail(
   }
   const actionPath = action?.owner.path ?? null;
   const opaquePath = opaque?.owner.path ?? null;
-  if (action && actionD < opaqueD) return { pick: asPick(action), why: 'action', actionPath, opaquePath };
-  if (!opaque) return { pick: null, why: 'no-hit', actionPath, opaquePath };
+  const opaquePick = opaque ? asPick(opaque) : null;
+  if (action && actionD < opaqueD) return { pick: asPick(action), why: 'action', actionPath, opaquePath, opaque: opaquePick };
+  if (!opaquePick) return { pick: null, why: 'no-hit', actionPath, opaquePath, opaque: null };
   const why: ActionRayWhy = action ? (actionD === opaqueD ? 'tied' : 'behind') : 'opaque';
-  return { pick: asPick(opaque), why, actionPath, opaquePath };
+  return { pick: opaquePick, why, actionPath, opaquePath, opaque: opaquePick };
+}
+
+/**
+ * C4-GLASS (the bugs intake's item 1; LATER 276; research 440): C4's target on the page -- the aim ray's OPAQUE record,
+ * which the C4 settle (`FUN_005be6f0` D:L475130-475138), the plant's start (`FUN_005be9a0` D:L475380, D:L475399) and its
+ * callback (`FUN_005c1970` D:L476905-476985) read, never the action record. `actionRayDetail`'s opaque hit with the map's
+ * material table (`surfaceMaterial`, byte 0 the map's `defaultMaterial`): the eye query's admission, front faces only,
+ * the first face per owner, and `aimHitKept` -- so a pane, a fence or a net (`PENETRATION` >= 0.98 without PICKUP,
+ * D:L464145-464160) is looked through and what is behind it is the target. Was `aimPick`, the first face with no
+ * material rule, which made a pane that takes the charge (Frostfire's `pane1`) a C4 target the original never aims at.
+ *
+ * The main controller's cure B (research 440 section 5): the room judges the plant on the line from the head
+ * (`c4Line`; `room.ts` `placeCharge`), so with `head` -- the head the room measures from, `headEye` on the body's
+ * `headPoint` (`./net/shotCone`), as `placeCharge` places it -- the page asks that same line, with the camera's eye
+ * among its eyes as the room's are: a line the room would refuse gives no target (no prompt). Without `head` (a page with
+ * no body; the tests) the opaque hit stands alone. LATER 1139: the reach is one hip gate for every plant (`c4TargetOf`),
+ * so the pick no longer marks a plant `through`.
+ */
+export function c4AimPick(
+  grid: Grid, eye: readonly number[], far: readonly number[], defaultMaterial = '', head: readonly number[] | null = null,
+): AimPick | null {
+  const pick = actionRayDetail(grid, eye, far, [], (byte) => surfaceMaterial(byte, defaultMaterial)).opaque;
+  if (!pick) return null;
+  if (head && !c4Line(grid, head, pick, defaultMaterial, [eye]).clear) return null;
+  return pick;
 }
 
 /**
@@ -368,21 +412,25 @@ export function plantPickFrom(
   return pick && pick.path === claim.path ? { path: pick.path, point: [pick.point[0], pick.point[1], pick.point[2]] } : null;
 }
 
-/** Whether the struck point is within `C4_REACH_READING` of the feet along the ground (strict). */
-export function c4InReach(feet: readonly number[], point: readonly number[]): boolean {
-  const dx = point[0]! - feet[0]!, dz = point[2]! - feet[2]!;
-  return dx * dx + dz * dz < C4_REACH_READING * C4_REACH_READING;
+/**
+ * LATER 1139: whether the struck point is in C4's reach -- its squared 3-D distance from the hip (`./net/shotCone`
+ * `hipPoint`, `C4_HIP_POINT_READING`) under `C4_HIP_REACH_SQ` (396, strict: `FUN_005be9a0` D:L475400-475405). The page's
+ * prompt (`c4TargetOf`) and the room's `placeCharge` ask this one gate.
+ */
+export function c4InReach(hip: readonly number[], point: readonly number[]): boolean {
+  const dx = point[0]! - hip[0]!, dy = point[1]! - hip[1]!, dz = point[2]! - hip[2]!;
+  return dx * dx + dy * dy + dz * dz < C4_HIP_REACH_SQ;
 }
 
 /**
  * The C4 target at the struck node, page and room alike: the destructible there that takes a charge of `chargeDamage`
  * (`SceneHealth.c4TargetAt`: `FUN_002739b0`, health above 0 and shield at most the damage; `C4_ACCEPT_DAMAGE_READING`),
- * its point within `C4_REACH_READING` of the feet along the ground. Its id, else null.
+ * its point in the hip's reach (`c4InReach`: |point - hip|^2 < `C4_HIP_REACH_SQ`; LATER 1139). Its id, else null.
  */
 export function c4TargetOf(
-  health: Pick<SceneHealth, 'c4TargetAt'>, aim: { path: string; point: readonly number[] } | null, feet: readonly number[], chargeDamage: number,
+  health: Pick<SceneHealth, 'c4TargetAt'>, aim: { path: string; point: readonly number[] } | null, hip: readonly number[], chargeDamage: number,
 ): number | null {
-  if (!aim || !c4InReach(feet, aim.point)) return null;
+  if (!aim || !c4InReach(hip, aim.point)) return null;
   return health.c4TargetAt(aim.path, chargeDamage);
 }
 
@@ -436,15 +484,23 @@ export class C4Settle {
  * The room's check of the page's struck point (PF.R18; as `startRefused` keeps a round's start on the head's side): the
  * line from the head to `surface.point`, run `C4_SURFACE_SLACK_PLACEHOLDER` past it, meets nothing before the named
  * node, and meets that node within the slack of the point -- its material the polygon's there (`surfaceMaterial`). The
- * movement's skip surfaces (bit 18) are passed over, as the page's pick passes them. `walled`: something else first;
- * `missed`: the node is not at the point.
+ * movement's skip surfaces (bit 18) are passed over. `walled`: something else first; `missed`: the node is not at the
+ * point.
+ *
+ * C4-GLASS (research 440 section 5): a face the aim's material rule looks through (`materialThrough`) is neither a wall
+ * nor the aimed face; every other face is judged as before (LATER 1139: the reach is the hip gate's, `c4InReach`, whatever
+ * the line passes). The page asks this same line from the same head (`c4AimPick` with `head`). A face of the named
+ * node named exactly `C4_REFUSED_MATERIAL` within the slack is kept only when no other face of that node is, so the
+ * room's name refusal ('c4 surface', `FUN_005c1970` D:L476975-476977) reports a page that names one, while a kept face
+ * behind an `INVISIBLE_DI` shell wins as the page's pick does.
  *
  * LATER 121: and the point is the named node's **first** hit along an eye's line to it -- the head's, or one of `eyes`,
  * the eyes the page may have aimed from (the room's `orderOrigin`: the camera's at the ask's command). The page's aim
  * pick takes the first hit from its camera, as the original's aim record does (`FUN_005aa6e0` with `cam+0xd8`,
  * D:L142028; the hit nearest the eye kept, D:L464163-464169; read at the plant, `FUN_005aa6d0`, `FUN_005be9a0`
  * D:L475399-475419), so a point named on a node's far face -- behind its near one from every eye -- is refused
- * (`missed`), while a top face the camera strikes first over the near edge is not. The SWITCH action's line reads it too.
+ * (`missed`), while a top face the camera strikes first over the near edge is not. The SWITCH press reads the same line
+ * without the opaque rule (`actionLine`).
  * LATER 139: the room hands in only the camera eyes whose look passes through the point (`./net/shotCone` `lookFitsPoint`
  * over the camera's swept locus, at the send and the placing's start), so an eye that sees the point first but does not
  * look at it (an open-topped node's far face from a steep pitch over it) does not count; the head's line keeps its rule.
@@ -453,7 +509,48 @@ export function c4Line(
   grid: Grid, head: readonly number[], surface: { path: string; point: readonly number[] }, defaultMaterial = '',
   eyes: readonly (readonly number[])[] = [],
   slack = C4_SURFACE_SLACK_PLACEHOLDER,
-): { clear: true; material: string } | { clear: false; why: 'walled' | 'missed' } {
+): SurfaceLine {
+  return surfaceLine(grid, head, surface, defaultMaterial, eyes, slack, true);
+}
+
+/**
+ * C4-GLASS: the SWITCH press's line (`room.ts` `useAction`) -- `c4Line` without the opaque-record rule, every face a
+ * wall and the named node's own face found whatever its material, as `c4Line` was before C4-GLASS. A switch's named face
+ * is the action record's (`FUN_005aa6e0` D:L464171-464194: a hit the aim does NOT keep, on an action node -- an `ACTION`
+ * volume), so the C4 rule would refuse it; the switch's line is unchanged (research 440 section 5).
+ */
+export function actionLine(
+  grid: Grid, head: readonly number[], surface: { path: string; point: readonly number[] }, defaultMaterial = '',
+  eyes: readonly (readonly number[])[] = [],
+  slack = C4_SURFACE_SLACK_PLACEHOLDER,
+): SurfaceLine {
+  return surfaceLine(grid, head, surface, defaultMaterial, eyes, slack, false);
+}
+
+/** `c4Line`'s and `actionLine`'s answer: clear with the named face's material, or why not. */
+export type SurfaceLine = { clear: true; material: string } | { clear: false; why: 'walled' | 'missed' };
+
+/**
+ * C4-GLASS (research 440 sections 1, 3; the main controller's cure A): whether the aim's MATERIAL rule looks through `q`
+ * (`FUN_005aa6e0` D:L464149-464151, `aimPickBlocks`: VOLUMETRIC, LIQUID, `PENETRATION` >= 0.98 without PICKUP -- glass,
+ * the thin grate, the net, the chain-link, `ACTION`, `INVISIBLE_DI`), its material by the polygon's byte
+ * (`surfaceMaterial`, byte 0 the map's `defaultMaterial`). `m_cameratype` 1 is bit 18, which every line already passes.
+ * Only such a face is passed over by `c4Line`; any other face -- a ground face with no side
+ * bit, a `m_cameratype` 2 face -- is a wall exactly as before C4-GLASS, so an ordinary plant is judged as it was.
+ */
+function materialThrough(q: WorldPoly, defaultMaterial: string): boolean {
+  return !aimPickBlocks(surfaceMaterial(q.material, defaultMaterial));
+}
+
+/** A face `materialThrough` passes whose material is exactly `C4_REFUSED_MATERIAL`: the room's name refusal still reads it. */
+function refusedByName(q: WorldPoly, defaultMaterial: string): boolean {
+  return surfaceMaterial(q.material, defaultMaterial).name === C4_REFUSED_MATERIAL;
+}
+
+function surfaceLine(
+  grid: Grid, head: readonly number[], surface: { path: string; point: readonly number[] }, defaultMaterial: string,
+  eyes: readonly (readonly number[])[], slack: number, opaque: boolean,
+): SurfaceLine {
   const a: V3 = [head[0]!, head[1]!, head[2]!], p = surface.point;
   const d = [p[0]! - a[0], p[1]! - a[1], p[2]! - a[2]];
   const len = Math.hypot(d[0]!, d[1]!, d[2]!);
@@ -461,10 +558,18 @@ export function c4Line(
   const k = (len + slack) / len;
   const b: V3 = [a[0] + d[0]! * k, a[1] + d[1]! * k, a[2] + d[2]! * k];
   let found: { clear: true; material: string } | null = null;
+  let byName: { clear: true; material: string } | null = null;          // C4-GLASS: a named INVISIBLE_DI face, kept last
   for (const h of segmentHits(grid, a, b, (q) => (surfaceWord(q) & SURFACE_SKIP) === 0)) {
     const at = h.t * (len + slack);
-    if (h.owner.path === surface.path) {
-      if (Math.hypot(h.point[0] - p[0]!, h.point[1] - p[1]!, h.point[2] - p[2]!) <= slack) {
+    const named = h.owner.path === surface.path;
+    const near = Math.hypot(h.point[0] - p[0]!, h.point[1] - p[1]!, h.point[2] - p[2]!) <= slack;
+    // C4-GLASS: what the opaque record looks through is neither the aimed face nor a wall (research 440 section 3).
+    if (opaque && materialThrough(h.poly, defaultMaterial)) {
+      if (named && near && !byName && refusedByName(h.poly, defaultMaterial)) byName = { clear: true, material: C4_REFUSED_MATERIAL };
+      continue;
+    }
+    if (named) {
+      if (near) {
         found = { clear: true, material: surfaceMaterial(h.poly.material, defaultMaterial).name };
         break;
       }
@@ -472,23 +577,36 @@ export function c4Line(
     }
     if (at < len - slack) return { clear: false, why: 'walled' };
   }
+  if (!found) found = byName;
   if (!found) return { clear: false, why: 'missed' };
-  return [head, ...eyes].some((eye) => firstAtPoint(grid, eye, surface, slack)) ? found : { clear: false, why: 'missed' };
+  return [head, ...eyes].some((eye) => firstAtPoint(grid, eye, surface, slack, opaque, defaultMaterial)) ? found : { clear: false, why: 'missed' };
 }
 
-/** LATER 121: whether the line from `eye` to `surface.point` (run `slack` past it) first meets the named node there. */
-function firstAtPoint(grid: Grid, eye: readonly number[], surface: { path: string; point: readonly number[] }, slack: number): boolean {
+/**
+ * LATER 121: whether the line from `eye` to `surface.point` (run `slack` past it) first meets the named node there.
+ * C4-GLASS: under the opaque rule a face of the named node the material rule looks through (`materialThrough`) is passed;
+ * an `INVISIBLE_DI` one within the slack counts only when nothing else of the node is met (as `surfaceLine`).
+ */
+function firstAtPoint(
+  grid: Grid, eye: readonly number[], surface: { path: string; point: readonly number[] }, slack: number, opaque: boolean, defaultMaterial: string,
+): boolean {
   const a: V3 = [eye[0]!, eye[1]!, eye[2]!], p = surface.point;
   const d = [p[0]! - a[0], p[1]! - a[1], p[2]! - a[2]];
   const len = Math.hypot(d[0]!, d[1]!, d[2]!);
   if (!(len > 0)) return false;
   const k = (len + slack) / len;
   const b: V3 = [a[0] + d[0]! * k, a[1] + d[1]! * k, a[2] + d[2]! * k];
+  let byName = false;
   for (const h of segmentHits(grid, a, b, (q) => (surfaceWord(q) & SURFACE_SKIP) === 0)) {
     if (h.owner.path !== surface.path) continue;                    // a wall is the head's line's to judge (`walled`)
-    return Math.hypot(h.point[0] - p[0]!, h.point[1] - p[1]!, h.point[2] - p[2]!) <= slack;
+    const near = Math.hypot(h.point[0] - p[0]!, h.point[1] - p[1]!, h.point[2] - p[2]!) <= slack;
+    if (opaque && materialThrough(h.poly, defaultMaterial)) {
+      if (near && refusedByName(h.poly, defaultMaterial)) byName = true;
+      continue;
+    }
+    return near;
   }
-  return false;
+  return byName;
 }
 
 /**

@@ -202,8 +202,9 @@ export interface DetailDrawState extends DrawState {
  * - **Depth less-or-equal**: the detail textures' own bind packets all set `TEST_1` to `ZTE = 1, ZTST =
  *   GEQUAL` (on all 65 detail records whose texture is on the disc), and the GS's Z grows toward the eye,
  *   so its GEQUAL is GL's less-or-equal. The same vertices through the same transform give the same
- *   depth, so the pass lands on its base and nowhere nearer; and unlike an EQUAL test it does not ask two
- *   programs to agree on the last bit.
+ *   depth, so the pass lands on its base and nowhere nearer. It still asks the two programs to agree: a pass one
+ *   ulp farther than its base fails the test, so on an Apple GPU every vertex program's position is invariant
+ *   (`./invariantPosition`, MAC-FLOOR: a Mac's WebGPU lost the pass in 32 px tiles; elsewhere three's programs agreed).
  * - **The list** is its base's: three draws the opaque list before the transparent one, so a pass in its
  *   base's list, ordered after it (`detailRenderOrder`), can never be drawn before it.
  */

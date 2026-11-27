@@ -24,7 +24,7 @@ import type { DoorWire } from './net/protocol';
  * refuses it while the door's last animation still runs, else starts the animation `FUN_005ec4e0` picks (the second
  * of two only under its side test) with the node and the valve as its context (`FUN_00272bb0(anim, 1, 3, node, 4,
  * valve, ...)`) and logs the use to the net (`FUN_002bb5b0`). The animation does the rest: reads the valve, orders the
- * presser toward the door (`ai::MOVE`, not run here: `DOOR_MOVE_ORDER_READING`), pushes `Open door` on the presser's
+ * presser toward the door (`ai::MOVE`, `DoorHooks.move`: waited for on an AI presser only, LATER 1206), pushes `Open door` on the presser's
  * body (`ai::ANIMATE` 63, `DoorHooks.animate`; `OPEN_DOOR_TYPE`) and holds 0.25 s, swings the node's rotation to the
  * other stop (`OBJECT_MOTION_FROM_TO` with its rotation flag, a quaternion slerp: `FUN_0025fe70` / `FUN_0025f9b0`),
  * plays the door's sound and sets the valve (its `ai::EVENT` is an AI noise no round has an AI to hear). Nothing shuts
@@ -183,6 +183,16 @@ export interface DoorHooks {
    * (`WorldState.doorCall`; the room's `Room` construction). Heard on a quiet run-out too: what it changes is state.
    */
   call?(door: DoorSpec, anim: string): void;
+  /**
+   * LATER 1206 (research 428 s8.4-s8.5; reading, pending review): the door program's `ai::MOVE` gave the presser's
+   * controller a goal -- `point` (world), and `facing` (a flat unit vector toward the node's point) -- as its begin
+   * `FUN_005d5d00` does (`FUN_0056daa0(3.0, ctrl, 3, point)`, `FUN_0056d920(ctrl, 3, dir, 0)`, D:L488964-488977). Answer
+   * null where the MOVE does not block -- a player (`CSealCtrl`, `CRemoteCtrl`: their vtable +0x38 answers 0,
+   * D:L488983-488989), the page's own press, a swing followed off the wire -- else the presser's "done?": arrived (within
+   * `DOOR_MOVE_ARRIVE_READING`) AND facing (within `DOOR_MOVE_FACE_READING`) -- the tick's bit 0 or bit 1 (the review's F1);
+   * the program waits on it, at most `DOOR_MOVE_TIMEOUT_READING` (`FUN_005d5b40`).
+   */
+  move?(door: DoorSpec, point: readonly [number, number, number], facing: readonly [number, number, number], actor: DoorActor): (() => boolean) | null;
 }
 
 interface Door {
@@ -210,6 +220,8 @@ interface Door {
   queued?: boolean;
   /** Who pressed it last (`use`): the ANIMATE's actor (`DoorHooks.animate`). */
   actor: DoorActor;
+  /** LATER 1206: the presser's feet at the use (`use`'s `from`), for the `ai::MOVE`'s direction; null when not given. */
+  from?: readonly number[] | null;
   /** P7 (`DOOR_PREDICT_ADAPTATION`): the page's own press run ahead of the room's word, until the room's snapshot settles it. */
   predicted?: DoorPrediction;
 }
@@ -343,6 +355,12 @@ export const DOOR_CLIPS: readonly string[] = [
 ];
 
 /**
+ * DOOR_MOVE_ORDER_READING -- RETIRED 2026-11-19 by LATER 1206 (research 428 s8.4-s8.5), kept in place with its note: the
+ * MOVE is run (`DoorHooks.move`, the `aiMove` case of the door host), its blocking settled by the controller's vtable +0x38
+ * (an AI's answers, a player's does not: research 377 s6) and its end read (`DOOR_MOVE_ARRIVE_READING`,
+ * `DOOR_MOVE_TIMEOUT_READING`). Still open, for a player: whether a pad-controlled SEAL's controller follows the goal it is
+ * given (LATER 1206's player half, the rig's L1206 capture); the port moves no player for it. The text as it stood:
+ *
  * DOOR_MOVE_ORDER_READING (research 92 section 7): the door program's `ai::MOVE` (set 2 command 16; research 214 section
  * 9's handler read) orders the presser to the point 18 units from the door's node toward it, facing the node, through the
  * actor's navigation goal (`FUN_0056daa0` / `FUN_0056d920` on the object at actor `+0xc0`, D:L488972-488977). Whether a
@@ -355,11 +373,40 @@ export const DOOR_CLIPS: readonly string[] = [
 export const DOOR_MOVE_ORDER_READING = 'not run' as const;
 
 /**
+ * DOOR_MOVE_TIMEOUT_READING (LATER 1206; research 428 s8.4; reading, pending review): the seconds a blocking `ai::MOVE`
+ * holds the door program at most. The begin sets the controller's goal timer `+0x1c0` (and `+0x1b8`) to `DAT_00650ac0`
+ * (D:L488978-488982), 0.4 (0x3ecccccd, the disc's ELF through `tools/elfImage.ts`); the goal driver `FUN_00566dc0` counts
+ * it down by the frame's dt and drops the goal at or under 0 (D:L429080-429098), and the MOVE's tick (`FUN_005d5b40`
+ * D:L488660-488722) is done once the goal is gone. Counted in game frames (`GAME_FRAME_DT`), as `aiAnimate` counts its
+ * waits: 0.4 s is 11.99 frames, 12 counted.
+ */
+export const DOOR_MOVE_TIMEOUT_READING = 0.4;
+
+/**
+ * DOOR_MOVE_ARRIVE_READING (LATER 1206; research 428 s8.4; reading, pending review): the distance at or under which the
+ * MOVE's goal is reached. `FUN_0056daa0` stores 3.0 at the controller's `+0x1b4` and the MOVE's begin overwrites it with
+ * 1.0 (0x3f800000, D:L488981); `FUN_00566dc0` clears the goal's bit 0 -- arrived -- once the flat distance from the body to
+ * the point is at or under `+0x1b4` (D:L429158-429161).
+ */
+export const DOOR_MOVE_ARRIVE_READING = 1.0;
+
+/**
+ * DOOR_MOVE_FACE_READING (LATER 1206's review F1; research 428 s8.5; reading, pending review): the MOVE also holds the
+ * program until the body FACES the goal. The begin sets the facing goal (`FUN_0056d920`, its `+0x170` bit 1, D:L432062;
+ * called at D:L488975-488977) beside the position's bit 0; the tick blocks while bit 0 OR bit 1 is set
+ * (`FUN_005d5b40` D:L488700-488714); the goal driver clears bit 1 only once the turn's residual (vt `+0x9c`) is within
+ * `FUN_0052eb60(turn, 0.0, 0.05)` (D:L429178-429185; (E) `DAT_006501e0` 0.0, `DAT_006501e8` 0x3d4ccccd = 0.05, the disc's
+ * ELF), the turn running once arrived. The residual's unit is taken as radians of yaw (not read). The timeout clears both.
+ */
+export const DOOR_MOVE_FACE_READING = 0.05;
+
+/**
  * A use's run on `spec`'s door, in seconds, from its own program (research 92 section 2): the `ai::ANIMATE` head -- its
  * pre-wait, the push's game frame and its post-wait, each counted in whole game frames (`GAME_FRAME_DT`, as `DoorSet`'s
  * runner steps it) -- then the swing (`OBJECT_MOTION_FROM_TO`'s seconds). Frostfire's: 9 frames (0.300 s) and 0.7 s. A
  * close's sound follows its swing on the next step. Null for a program with no swing; a program with no ANIMATE (one
- * read before #485) is its swing alone.
+ * read before #485) is its swing alone. A player's use: the `ai::MOVE` takes no time for one (LATER 1206); an AI presser's
+ * MOVE holds the program up to `DOOR_MOVE_TIMEOUT_READING` more, which this does not count.
  */
 export function useSeconds(spec: DoorSpec): number | null {
   const ops = spec.programs[0]?.sequences.flatMap((s) => s.ops) ?? [];
@@ -428,6 +475,7 @@ export class DoorSet {
     const program = d.spec.programs[pick] ?? d.spec.programs[0];
     if (!program) return false;
     d.actor = actor;
+    d.from = from;
     d.run = new EffectRun(program, this.host(d), d);
     d.run.update(0);                                              // the timeless head runs now, as the game's first tick
     return true;
@@ -679,7 +727,7 @@ export class DoorSet {
             // head's timeless tick spends phase 0 on a 0 pre-wait (the game's first tick, `use`), the push comes at
             // the first whole frame after it and the valve at the ninth (0.25 s is 7.5 frames: 8 counted), 0.300 s.
             let phase = 0, left = op.prewait, acc = 0;
-            const EPS = 1e-9;                                        // the runner's own slack on a wait (`waitLeft`)
+            const EPS = 1e-9;                                        // a frame count's slack (not the runner's WAIT, LATER 1426)
             return (dt: number): boolean => {
               if (phase === 0 && left <= EPS) { phase = 1; return false; }
               acc += dt;
@@ -689,6 +737,38 @@ export class DoorSet {
                 if (phase === 1) { this.hooks.animate?.(d.spec, op.type, d.actor); left = op.postwait; phase = 3; continue; }
                 left -= GAME_FRAME_DT;
                 if (left <= EPS) return true;
+              }
+              return false;
+            };
+          }
+          case 'aiMove': {
+            // LATER 1206 (research 428 s8.4-s8.5; `FUN_005d5d00` D:L488725-488994): mode 1, the door programs' -- the
+            // node by the reference's low byte, signed, as the other commands' node bytes (0xfa: `NODE_CALLER`, the first
+            // tag-3 context, the door's node; `FUN_0026f4e0`). Its matrices as they stand now (`FUN_003109f0` walks the
+            // current ones): P = that matrix on `pos` (`FUN_003085c0`, a point); d = the flat unit vector from P to the
+            // presser's feet at the use (`FUN_003091d0`, x and z, y 0; left zero when they coincide); the point P + dist x d
+            // (`FUN_00309180`, `FUN_00309240`: P's height) and the facing -d (its y -0, 0x80000000). The goal is given
+            // whoever pressed (D:L488972-488977); the program waits only on a presser whose hook answers (an AI's
+            // controller, D:L488983-488989), each game frame until it answers arrived or `DOOR_MOVE_TIMEOUT_READING` has
+            // passed (`FUN_005d5b40` D:L488660-488722; the timer `FUN_00566dc0` D:L429080-429098). Other modes (2, 3, 4)
+            // are on no door program read, nor a use with no feet: no goal, no time.
+            const from = d.from;
+            if (op.mode !== 1 || !from || !this.hooks.move || !nodeIs(run, (op.node << 24) >> 24)) return;
+            const m = mul4(matrixOfQuat(d.q, d.spec.local), d.spec.parent);
+            const P = apply4(m, op.pos[0], op.pos[1], op.pos[2]);
+            let dx = from[0]! - P[0], dz = from[2]! - P[2];
+            const l = Math.hypot(dx, dz);
+            if (l !== 0) { dx /= l; dz /= l; }
+            const arrived = this.hooks.move(d.spec, [P[0] + op.dist * dx, P[1], P[2] + op.dist * dz], [-dx, -0, -dz], d.actor);
+            if (!arrived) return;
+            const EPS = 1e-9, limit = Math.ceil(DOOR_MOVE_TIMEOUT_READING / GAME_FRAME_DT - EPS);
+            let frames = 0, acc = 0;
+            return (dt: number): boolean => {
+              acc += dt;
+              while (acc >= GAME_FRAME_DT - EPS) {
+                acc -= GAME_FRAME_DT;
+                frames++;
+                if (arrived() || frames >= limit) return true;
               }
               return false;
             };

@@ -46,3 +46,19 @@ export function movieWorkerSleeps(graphics: string): boolean {
 export function xboxMemoryMeasures(): boolean {
   return readGraphicsBackend() === XBOX || pageDeviceClass() === XBOX;
 }
+
+/** Browser resource ownership only: release reproducible menu pixels under a match.
+ * A teardown can call returned after its mount stopped, so resuming must read active
+ * at the call, not remember the state from leave. Image lookups remain synchronous.
+ */
+export function menuTextureLifetime(o: {
+  active(): boolean; enabled(): boolean; stop(): void; release(): void; start(): void;
+}): { start(): void; leave(): void; returned(): void } {
+  let released = false;
+  const start = (): void => { if (o.active()) { o.stop(); o.start(); } };
+  return {
+    start,
+    leave: () => { if (o.active() && o.enabled()) { released = true; o.stop(); o.release(); } },
+    returned: () => { if (released) { released = false; start(); } },
+  };
+}

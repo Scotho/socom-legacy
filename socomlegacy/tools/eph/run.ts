@@ -18,7 +18,7 @@ import {
 import { packContext } from './packContext';
 import { PineClient, pineSocketPath } from './pine';
 import {
-  PAGE_ANIM_COLUMNS, PAGE_STICK_COLUMNS, PAGE_TILT_COLUMNS, QUESTION_CSV_NOTE, buildRunRecord, idleDefinitions, pageCrouchIdle, pcsx2CrouchIdle, questionCsv, seriesCsv, type PageRow,
+  PAGE_ANIM_COLUMNS, PAGE_STICK_COLUMNS, PAGE_TILT_COLUMNS, QUESTION_CSV_NOTE, buildRunRecord, idleDefinitions, pageCrouchIdle, pageDueTick, pageFeetOf, pageScheduleOf, pageTickSeries, pcsx2CrouchIdle, questionCsv, seriesCsv, type PageRow,
   type QuestionRow, type SessionClip, type SessionPause,
 } from './record';
 import { checkRunDir, copyPlan, runLayout, slash, type CopyPlan, type RunLayout } from './runDir';
@@ -35,9 +35,9 @@ import { WindowHelper, pollWindow, type Rect } from './window';
 /**
  * The emulator parity harness's run orchestrator (EPH-2 step 3; docs/specs/2026-10-30-emulator-parity-harness-design.md).
  * Product track (OT.R53): a validation instrument and a browser adaptation, never in a build and never changing the
- * game's behaviour. A heavy run (AGENTS.md, "Layout and local directories", 5): only at the owner's word on his host
- * (EPH.R3), after `loop_lock.sh check`, never beside a gate or a browser run; everything it starts is stopped in a
- * finally.
+ * game's behaviour. A heavy run (AGENTS.md, "Layout and local directories", 5): on a Shadow PC, never the hub PC (S5),
+ * with no owner's word per run since OT.R145 (EPH.R3 amended); after `loop_lock.sh check`, never beside a gate or a
+ * browser run; everything it starts is stopped in a finally.
  *
  *   node --import tsx tools/eph/run.ts --script <file> --map <archive> [--state <slot>] [--dry-run]   automated
  *   node --import tsx tools/eph/run.ts --live --map <archive> [--state <slot>] [--chord l2] [--dry-run]  one pad
@@ -156,7 +156,7 @@ export interface PageSpot { readonly x: number; readonly y: number; readonly z: 
 /** How the run is launched (see the header: never `npx tsx`). */
 export const RUN_COMMAND = 'node --import tsx tools/eph/run.ts';
 
-export const HELP = `EPH run -- the emulator parity harness (a validation instrument; the owner's host only, at his word)
+export const HELP = `EPH run -- the emulator parity harness (a validation instrument; a Shadow PC under the host rule, never the hub PC: OT.R145)
 
   ${RUN_COMMAND} <options>   (from socomlegacy/; not npx tsx, whose Ctrl+C relay kills the run past its stop)
 
@@ -1348,6 +1348,13 @@ function writeOutputs(p: RunPlan, st: RunState, outcome: string, deps: LiveDeps,
   const question = `${p.args.question}-question.csv`;
   deps.writeFile(`${out}/record.json`, JSON.stringify({
     ...record, mode: p.mode, outcome, url: p.url,
+    // LATER 1165 (c): what page.csv's x/y/z hold -- 'tick' (each row's tick's own walker state), 'blended' (the feet between
+    // two ticks at the read; every run before it, where the field is absent), 'mixed' -- and the per-tick series' make.
+    pageFeet: pageFeetOf(st.pageRows),
+    // LATER 1165 (d): the page's input on its own tick schedule -- each event's scheduled and landed tick, and the count on
+    // its tick, one late (a frame that ran two), more (absent in a run before it: per-event CDP writes on the wall clock).
+    pageSchedule: p.mode === 'script' && st.tick0 !== null
+      ? { mode: 'pageTicks', ...pageScheduleOf(st.pageFired, st.tick0, groupWrites(p.pageEvents).reduce((n, w) => n + w.lines.length, 0)) } : null, pageTicks: (() => { const s = pageTickSeries(st.pageRows); return { file: 'page-ticks.csv', ticks: s.ticks.length, filledFromPrev: s.filled, missing: s.missing.length, firstMissing: s.missing.slice(0, 20) }; })(),
     // The script's path: analyze.ts names the case from it (`script` holds the text).
     scriptFile: p.mode === 'script' ? p.args.script : null, pcsx2Argv: p.pcsx2Argv, guest0: st.guest0, tick0: st.tick0,
     pineErrors: (st.recorder?.errors ?? 0) + (st.detection?.pineErrors ?? 0), video: st.video, videoOverlap: st.videoOverlap,
@@ -1379,6 +1386,7 @@ function writeOutputs(p: RunPlan, st: RunState, outcome: string, deps: LiveDeps,
   }, null, 2));
   deps.writeFile(`${out}/pcsx2.csv`, seriesCsv(rows as unknown as Record<string, unknown>[]));
   deps.writeFile(`${out}/page.csv`, seriesCsv(st.pageRows as unknown as Record<string, unknown>[]));
+  deps.writeFile(`${out}/page-ticks.csv`, seriesCsv(pageTickSeries(st.pageRows).ticks as unknown as Record<string, unknown>[]));   // LATER 1165 (c)
   deps.writeFile(`${out}/events.srt`, srtOf(st.captions));
   if (p.mode === 'live') {
     deps.writeFile(`${out}/live.script`, liveScriptText(st.live?.recorded ?? [], st.live?.chord ?? p.chord));
@@ -1679,17 +1687,54 @@ export async function liveRun(p: RunPlan, deps: LiveDeps = hostDeps(), controls?
         const at = guestMs();
         for (const e of m.events) st.pcsx2Fired.push({ event: e, at, lateBy: at - e.t });
       }, { signal, stallMs: SCRIPT_CLOCK_STALL_MS, wallNow: deps.now, wait: () => deps.sleep(1, signal) });
-      // Each pad write is bounded by the same stall bound and the abort (runTimeline bounds a firing, finding E).
-      const pageSide = runTimeline<PageWrite>(groupWrites(p.pageEvents), pageMs, async (w) => {
-        const at = await writePad(w.events);
-        for (const line of w.lines) st.pageFired.push({ event: byLine.get(line)!, at, lateBy: at - w.t });
-      }, { signal, stallMs: SCRIPT_CLOCK_STALL_MS, wallNow: deps.now, wait: () => deps.sleep(1, signal) });
-      await Promise.all([pcsx2Side, pageSide]);
+      // LATER 1165 (d) (Option A): the page side is the whole script handed to the page ONCE, as walk ticks (one write per
+      // ms, ./pageMap groupWrites; due by `pageDueTick`); the page applies each at its own poll (./pageSeed
+      // `__ephPadSchedule`), so no CDP write rides the wall clock. Bounded by the stall bound and the abort.
+      const writes: readonly PageWrite[] = groupWrites(p.pageEvents);
+      // Each entry carries its write's index (review F1: a light Triangle's down and up are two writes of one line).
+      const schedule = writes.flatMap((w, wi) => w.events.map((e) => [pageDueTick(w.t, tick0), e.kind, e.index, e.kind === 'button' ? e.pressed : false, e.value, w.line, wi]));
+      let took = false, refused: unknown = null;
+      void page.evaluate(`window.__ephPadSchedule(${JSON.stringify(schedule)})`).then(() => { took = true; }, (e: unknown) => { refused = e ?? new Error('refused'); });
+      await waitUntil(() => took || refused !== null, {
+        signal, timeoutMs: SCRIPT_CLOCK_STALL_MS, pollMs: 1, sleep: deps.sleep, now: deps.now,
+        fail: () => new Error(`EPH run: the page did not take the script's schedule in ${SCRIPT_CLOCK_STALL_MS} ms of wall time`),
+      });
+      if (refused !== null) throw new Error(`EPH run: the page refused the script's schedule: ${String((refused as Error).message ?? refused)}`);
+      await pcsx2Side;
       const end = (p.events.length ? p.events[p.events.length - 1]!.t : 0) + p.args.tailMs;
       await waitUntil(() => guestMs() >= end, {
         signal, timeoutMs: SCRIPT_CLOCK_STALL_MS, progress: guestMs, pollMs: 10, sleep: deps.sleep, now: deps.now,
         fail: () => new Error(`EPH run: the guest clock stood at ${guestMs()} ms for ${SCRIPT_CLOCK_STALL_MS / 1000} s, short of the tail's end at ${end} ms`),
       });
+      // LATER 1165 (d): the page past the last event's tick (bounded), then where each landed (`__ephPadLog`: [line, due,
+      // landed]) -- each write's lines stamped at its landed tick, as the old write's were at its applied tick.
+      // Review F4: three ticks past the last due tick, so a last event a two- or three-tick frame put late has drained.
+      // Review F2: a page clock that stands short of it for the stall bound fails the run, as the old page timeline did.
+      const lastDue = writes.length ? pageDueTick(writes[writes.length - 1]!.t, tick0) : tick0;
+      if (writes.length) {
+        let seen = await pageMs(), since = deps.now();
+        while (seen < (lastDue + 3 - tick0) * FRAME_MS) {
+          if (deps.now() - since >= SCRIPT_CLOCK_STALL_MS) throw new Error(`EPH run: the page's clock stood at tick ${tick0 + Math.round(seen / FRAME_MS)} for ${SCRIPT_CLOCK_STALL_MS / 1000} s, short of tick ${lastDue + 3} (the last event's ${lastDue} and three more)`);
+          await deps.sleep(10, signal);
+          const now = await pageMs();
+          if (now !== seen) { seen = now; since = deps.now(); }
+        }
+      }
+      // Review F3: the log read bounded by the stall bound and the abort, as the schedule's send is.
+      let log: [number, number, number, number | null][] | null = null, read = false;
+      void page.evaluate('window.__ephPadLog()').then((v) => { log = v as typeof log; read = true; }, () => { read = true; });
+      await waitUntil(() => read, {
+        signal, timeoutMs: SCRIPT_CLOCK_STALL_MS, pollMs: 1, sleep: deps.sleep, now: deps.now,
+        fail: () => new Error(`EPH run: the page did not answer its input log in ${SCRIPT_CLOCK_STALL_MS} ms of wall time`),
+      });
+      const landedBy = new Map<number, number>();
+      for (const [, , landed, wi] of (log as [number, number, number, number | null][] | null) ?? []) if (wi !== null && !landedBy.has(wi)) landedBy.set(wi, landed);
+      for (const [wi, w] of writes.entries()) {
+        const landed = landedBy.get(wi);
+        if (landed === undefined) continue;                  // never landed: no firing, as an unsent write had none
+        const at = (landed - tick0) * FRAME_MS;
+        for (const line of w.lines) st.pageFired.push({ event: byLine.get(line)!, at, lateBy: at - w.t });
+      }
     } else {
       // Live: one physical pad, each change sent at once to both clients through the same translation. Ctrl+C (the
       // abort) or the page closing ends it.

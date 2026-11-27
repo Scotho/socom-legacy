@@ -340,7 +340,7 @@ describe("the walk's own pushed clip: drawn as a flinch is, without the reload g
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
     const floor: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+      points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
     };
     const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
     const walk = new WalkMode(new FlyCamera(canvas()), () => undefined);
@@ -817,7 +817,7 @@ describe("LATER 512c: a stance press under the door clip (and the flinch below i
     { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 },
     [{
       modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]),
+      points: Float32Array.from([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]),
     }],
     [{ modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1 }],
   );
@@ -981,7 +981,7 @@ describe("LATER 526: a refused take's pop and hold placement undone on the walk 
     { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 },
     [{
       modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]),
+      points: Float32Array.from([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]),
     }, ...extra],
     [{ modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1 },
       ...extra.map((p, i) => ({ modelName: p.modelName, path: p.path, first: i + 1, count: 1 }))],

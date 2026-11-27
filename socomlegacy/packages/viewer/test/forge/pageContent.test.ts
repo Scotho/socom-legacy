@@ -43,6 +43,9 @@ vi.mock('../../src/forge/archives', () => ({ Archives: class {
   clips = async () => null;
   list = async () => ({ entries: [], problems: [] });
   load = archiveLoad;
+  census = async () => null;
+  props = async () => null;
+  scriptNames = async () => null;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
@@ -274,17 +277,26 @@ describe('R6: creator content on the mounted Forge', () => {
     expect((api.read().layout as { poses?: unknown }).poses, 'still neither tilted nor scaled').toBeUndefined();
   }, 90_000);
 
-  it('FC2 (ours), RED: a typed Scale X on a disc prop with a pack piece under it is refused in the pack rule\'s words, nothing moved', async () => {
-    // Expected RED today: the parent's S(2, 1, 1) carries the quarter-turned crate to a scale of 2 along its own Z, inside
-    // 0.1..4, so `followersFit` passes and the scale is applied (page.ts:5314, 5325). Expected GREEN after the fix.
+  it('FN-3 (ours), RED: a typed Scale X on a disc prop with a pack piece under it is taken, the pack piece carried level at its own size', async () => {
+    // FN-3 (ours; the owner, 2026-11-14, "agreed on your lean": FN.R4, `socomlegacy/docs/plans/2026-11-14-forge-next.md`):
+    // changed with the rule. Under a parent stretched in the edit (a change of scale that is not uniform: FN-3's
+    // follow-up decides by the change) a carried piece keeps its own size and its turn relative to the parent's; only its
+    // place stretches (`page.ts` `carriedMatrix`). So the disc prop's S(2, 1, 1) no
+    // longer scales the quarter-turned pack crate along its own Z: it stays a turn about the vertical at unit scale, which
+    // the pack rule allows, and the edit is taken -- the crate carried from (50, 0, 50) to (100, 0, 50). Expected RED
+    // before FN-3, at the status line (the refusal in `PACK_PIECE_POSE_REFUSAL`'s words); GREEN after.
+    // FC2's form (before FN-3): the stretch carried the crate to a scale of 2 along its own Z, refused in the pack words.
     const { api, field } = await packUnderDiscProp();
     const revision = api.read().revision;
     field('Scale X').value = '2';
     field('Scale X').dispatchEvent(new Event('change'));
-    expect(statusLine()).toBe(PACK_WORDS);
-    expect(api.read().revision, 'no edit').toBe(revision);
-    expect(field('Scale X').value, 'the disc prop as it was').toBe('1');
-    expect((api.read().layout as { poses?: unknown }).poses, 'neither piece scaled').toBeUndefined();
+    expect(statusLine()).not.toBe(PACK_WORDS);
+    expect(api.read().revision, 'an edit').not.toBe(revision);
+    expect(field('Scale X').value, 'the disc prop stretched').toBe('2');
+    expect((api.read().layout as { poses?: unknown }).poses, 'the disc prop scaled, the pack piece neither tilted nor scaled').toEqual([[1, 0, 0, 2, 1, 1]]);
+    const crate = (api.read().refs as { ref: string; at: number[] }[]).find((r) => r.ref === 'piece:0')!.at;
+    expect(crate[0], 'the pack piece carried, x').toBeCloseTo(100, 4);
+    expect(crate[2], 'the pack piece carried, z').toBeCloseTo(50, 4);
   }, 90_000);
 
   /** Opens `record` through the toolbar's Open, as a person chooses a file. */

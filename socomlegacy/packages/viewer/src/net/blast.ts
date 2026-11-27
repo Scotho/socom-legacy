@@ -214,7 +214,7 @@ export function blastKnock(victim: BlastVictim, point: readonly number[], record
  */
 export function blastSeen(grid: Grid, from: readonly number[], to: readonly number[], ignore?: string): boolean {
   const accept = ignore ? (p: Parameters<typeof roundAdmits>[0] & { path: string }) => roundAdmits(p) && !under(p.path, ignore) : roundAdmits;
-  return segmentHits(grid, [from[0]!, from[1]!, from[2]!], [to[0]!, to[1]!, to[2]!], accept, undefined, true).length === 0;
+  return segmentHits(grid, [from[0]!, from[1]!, from[2]!], [to[0]!, to[1]!, to[2]!], accept, undefined, 'blast').length === 0;   // WM-29: the original's ray rule
 }
 
 /**
@@ -243,7 +243,11 @@ export function blastSeesThrough(m: SurfaceMaterial): boolean {
 export function blastExposed(grid: Grid, from: readonly number[], to: readonly number[], defaultMaterial: string, ignore?: string): boolean {
   const admits = (p: Parameters<typeof roundAdmits>[0] & { path: string }): boolean => roundAdmits(p) && !blastSeesThrough(surfaceMaterial(p.material, defaultMaterial))
     && !(ignore && under(p.path, ignore));
-  return segmentHits(grid, [from[0]!, from[1]!, from[2]!], [to[0]!, to[1]!, to[2]!], admits, undefined, true).length === 0;
+  // WM-29 (8f's check, correction 3): the body's walk skips a hit at squared distance exactly 0 from the start and goes
+  // on (`FUN_005a0e70` D:L459149); line 1 (`blastLine1`) and a resting charge's line (`blastSeen`) have no such skip.
+  const a: [number, number, number] = [from[0]!, from[1]!, from[2]!];
+  return segmentHits(grid, a, [to[0]!, to[1]!, to[2]!], admits, undefined, 'blast')   // WM-29: the original's ray rule
+    .every((h) => (h.point[0] - a[0]) ** 2 + (h.point[1] - a[1]) ** 2 + (h.point[2] - a[2]) ** 2 === 0);
 }
 
 /**
@@ -291,6 +295,21 @@ export const BLAST_HEAD_OVER_READING: Readonly<Record<Stance, number>> = {
  * original's list and its radius factor aside (the factor already reads the lifted point) [note only: research 400 s11].
  */
 export const BLAST_POINT_LIFT_READING = 1;
+
+/**
+ * WM-29 (research 430 s3.1 and s6; the controller's ruling (a), 2026-11-15) [reading]: an UNFLAGGED round that bursts
+ * exactly on a face -- its lifted start in the face's plane, ds = 0 -- is classed IN FRONT of that face by the blast
+ * rule's inclusive start band (scene `segment.ts` `blastHits`: ds + 9.99999975e-6 >= 0, micro 290), so the face is
+ * hit at t = 0 toward any body on the side its raw normal points away from, and line 1 (`blastLine1`, no zero-distance
+ * skip) counts it: that body is refused where the face's material stops the line (its reach gate, the PENETRATION
+ * product -- the fixtures' METAL_THICK does); a body on the side the normal points to is not refused by it. On a wall with both faces a
+ * body on either side is refused by one of them. Beside it, at its own level (the original running, pending review):
+ * the rig's MP12 legs, fifteen impact bursts (nine M203, six RPG) on a stone face, a body behind never touched, bodies
+ * in front hurt or killed about half the time. Where a PLACED charge's `+0x48` sits against the face it is set on is
+ * unread (the note above, research 400 s11); the disc's one placed charge set on a face, C4, carries IgnoreExplosionDI
+ * and asks no line, so the port's C4 at its struck point is not changed by this.
+ */
+export const BLAST_ON_FACE_START_READING = 'in front' as const;
 
 /** LATER 992: the round's lifted `+0x48` (`BLAST_POINT_LIFT_READING` over where it went off): the lines, the radius factor, the count, the flash and the knock's origin read it; GetDamage's node and the effects stay at `at`. */
 export function blastPoint(at: readonly number[]): [number, number, number] {
@@ -340,7 +359,7 @@ export function blastLine1(grid: Grid, from: readonly number[], to: readonly num
   const a: [number, number, number] = [from[0]!, from[1]!, from[2]!], b: [number, number, number] = [to[0]!, to[1]!, to[2]!];
   const order = new Map<WorldPoly, number>();
   // `ignore`: as `blastSeen`'s (FORGE_SCRIPT_BLAST_ADAPTATION; the merge, ours) -- absent, the walk is NADE-BLAST's as written.
-  const hits = segmentHits(grid, a, b, (p) => { order.set(p, order.size); return roundAdmits(p) && !(ignore && under(p.path, ignore)); }, undefined, BLAST_LINE1_SIDES_READING === 'one-sided');
+  const hits = segmentHits(grid, a, b, (p) => { order.set(p, order.size); return roundAdmits(p) && !(ignore && under(p.path, ignore)); }, undefined, 'blast');   // WM-29: the original's ray rule; BLAST_LINE1_SIDES_READING (the one mode since LATER 1252)
   const first = new Map<CollisionOwner, SegmentHit>();
   for (const h of hits) {
     const kept = first.get(h.owner);

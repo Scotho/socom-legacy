@@ -171,7 +171,7 @@ describe('PF-34: the death drops, the claim and the bundle, pure (research 234 s
     expect(p2.state().slots.slice(0, 4)).toEqual([15, 10, 0, 0]);
     expect(flow.residual).toEqual([]);
     // An ammunition no weapon of the taker takes stays whole, and an entry that carries a record (not a firearm's:
-    // the equipment's, task 4) is left as it is.
+    // the equipment's) is left as it is -- by this function: R142 takes it with `takeEquipment` (bundleEquipment.test.ts).
     const kept = transferAmmo([{ ammo: '7.62 x 51mm', count: 40 }, { ammo: 'M67 Ammo', item: 121, count: 2 }], [DEFAULT_RIFLE, P228], [ring(30, [30, 0, 0]), ring(15, [15, 0, 0, 0])]);
     expect(kept).toEqual({ moved: false, filled: [[], []], added: [[], []], residual: [{ ammo: '7.62 x 51mm', count: 40 }, { ammo: 'M67 Ammo', item: 121, count: 2 }] });
     // A slot with no firearm (the port's baked record there, `NO_FIREARM_RECORD_PLACEHOLDER`) takes nothing: the original
@@ -231,10 +231,11 @@ describe('PF-34: the death drops, the claim and the bundle, pure (research 234 s
 });
 
 /**
- * NU-5 L1, pure (research 323 R323.5, §1.6, §7 L1; F1 of its review): `claimWeapon` takes a rocket launcher when
- * `launcherOffered` holds for the taker's kit (`FUN_005bac30` D:L473023-473084), into `FUN_005bae60`'s slot
- * (D:L473101-473152) with no exchange, its round (185, or 186 for 146) beside it with one round (`FUN_0059f0c0`
- * D:L458238-458292); `'family'` otherwise. The taker's kit slots (`kit`: each item and the rounds its ring holds) are
+ * NU-5 L1, pure; R4P-103 (r0004: the reading agent/spc-atlas dcd314b4bd; captures Q-103 / Q103B a1e119affd, Q103C
+ * dcd314b4bd): `claimWeapon` takes a rocket launcher when `launcherOffered` holds for the taker's kit (`FUN_005c1760`
+ * D4:L514677: no launcher 145-150 held, a slot found), into the first slot 2-4 empty or spent (`FUN_005c1990` D4:L499279)
+ * with no exchange and nothing given back, its round (185, or 186 for 146) APPENDED at the record count with one round
+ * (D4:L499303-499309); `'family'` otherwise. The taker's kit slots (`kit`: each item and the rounds its ring holds) are
  * what the room reads off the seat (`KitRounds`, the pouch).
  */
 describe('NU-5 L1: claimWeapon takes a rocket launcher (research 323 §7 L1)', () => {
@@ -245,26 +246,38 @@ describe('NU-5 L1: claimWeapon takes a rocket launcher (research 323 §7 L1)', (
     kit: [...loadout].map((item, i) => ({ item, rounds: rounds[i] ?? 0 })),
   });
 
-  it('a LAW into an empty equipment slot, LAW HEAT beside it with 1; an RPG-7 with its RPG round; no exchange laid', () => {
+  it("R4P-103: a LAW into the first empty slot 2-4, its LAW HEAT APPENDED at the record count (index 5) with 1; an RPG-7 into a spent slot with its RPG round; no exchange laid", () => {
     const got = claimWeapon(law, taker(kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, EMPTY_ITEM, EMPTY_ITEM), [0, 0, 3]), TABLE);
     if ('refused' in got) throw new Error(got.refused);
-    expect(got.loadout).toEqual([DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, ITEM.LAW, ITEM.LAW_HEAT]);
-    expect(got.launcher).toEqual({ slot: 3, round: 4, rounds: 1 });
+    expect([...got.loadout]).toEqual([DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, ITEM.LAW, EMPTY_ITEM, ITEM.LAW_HEAT]);
+    expect(got.launcher).toEqual({ slot: 3, round: 5, rounds: 1 });
     expect(got.replaced).toEqual([]);
     const rpg = claimWeapon({ ...law, item: ITEM.RPG7 }, taker(kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, EMPTY_ITEM, EMPTY_ITEM), [0, 0, 0]), TABLE);
     if ('refused' in rpg) throw new Error(rpg.refused);
-    expect(rpg.loadout).toEqual([DEFAULT_RIFLE.id, HELD_SIDEARM.id, ITEM.RPG7, ITEM.RPG_ROUND, EMPTY_ITEM]);   // the spent M67's slot first
-    expect(rpg.launcher).toEqual({ slot: 2, round: 3, rounds: 1 });
+    expect([...rpg.loadout]).toEqual([DEFAULT_RIFLE.id, HELD_SIDEARM.id, ITEM.RPG7, EMPTY_ITEM, EMPTY_ITEM, ITEM.RPG_ROUND]);   // the spent M67's slot first
+    expect(rpg.launcher).toEqual({ slot: 2, round: 5, rounds: 1 });
+    expect(rpg.replaced).toEqual([]);                                   // the spent M67 is overwritten: nothing given back (FUN_005c2fc0)
   });
 
-  it("refused 'family' for a kit holding a LAW, an M203 rifle or the MGL, and for one with no slot 2-4 free or replaceable", () => {
-    for (const k of [kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, ITEM.LAW, ITEM.LAW_HEAT, EMPTY_ITEM), kit(ITEM.M4_203, HELD_SIDEARM.id, 121, EMPTY_ITEM, EMPTY_ITEM),
-      kit(ITEM.MGL, HELD_SIDEARM.id, 121, EMPTY_ITEM, EMPTY_ITEM)]) {
-      expect(claimWeapon(law, taker(k, [0, 0, 1, 1]), TABLE), k.join(',')).toEqual({ refused: 'family' });
+  it("R4P-103 (Q-103, Q103C): the M203 carrier 61 16 141 175 255 takes the LAW into the spent 203 FRAG's slot 3, the round at 5; one free slot suffices", () => {
+    const carrier = claimWeapon(law, taker(kit(ITEM.M4_203, 16, ITEM.M203, ITEM.M203_FRAG, EMPTY_ITEM), [0, 0, 0, 0]), TABLE);
+    if ('refused' in carrier) throw new Error(carrier.refused);
+    expect([...carrier.loadout]).toEqual([ITEM.M4_203, 16, ITEM.M203, ITEM.LAW, EMPTY_ITEM, ITEM.LAW_HEAT]);
+    expect(carrier.launcher).toEqual({ slot: 3, round: 5, rounds: 1 });
+    expect(carrier.replaced).toEqual([]);
+    const one = claimWeapon(law, taker(kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, 126, EMPTY_ITEM), [0, 0, 3, 3]), TABLE);
+    if ('refused' in one) throw new Error(one.refused);
+    expect([...one.loadout]).toEqual([DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, 126, ITEM.LAW, ITEM.LAW_HEAT]);
+    for (const p of [ITEM.M4_203, ITEM.MGL]) {
+      expect('refused' in claimWeapon(law, taker(kit(p, HELD_SIDEARM.id, 121, EMPTY_ITEM, EMPTY_ITEM), [0, 0, 1]), TABLE), String(p)).toBe(false);
+    }
+  });
+
+  it("refused 'family' for a kit holding a launcher (145-150), and for one with no slot 2-4 empty or spent", () => {
+    for (const k of [kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, ITEM.LAW, ITEM.LAW_HEAT, EMPTY_ITEM), kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, ITEM.RPG7, ITEM.RPG_ROUND, EMPTY_ITEM)]) {
+      expect(claimWeapon(law, taker(k, [0, 0, 0, 1]), TABLE), k.join(',')).toEqual({ refused: 'family' });
     }
     expect(claimWeapon(law, taker(kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, 126, 151), [0, 0, 3, 3, 4]), TABLE)).toEqual({ refused: 'family' });
-    // PICKUP_LAUNCHER_ROUND_SLOT_PLACEHOLDER (decision (i)): a place for the launcher (the empty slot 4) and none for its round.
-    expect(claimWeapon(law, taker(kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, 126, EMPTY_ITEM), [0, 0, 3, 3]), TABLE)).toEqual({ refused: 'family' });
     // No kit read (a caller that lends none): refused, as before L1.
     const { kit: _k, ...bare } = taker(kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, EMPTY_ITEM, EMPTY_ITEM));
     expect(claimWeapon(law, bare, TABLE)).toEqual({ refused: 'family' });

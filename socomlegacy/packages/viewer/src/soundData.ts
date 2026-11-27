@@ -8,7 +8,7 @@ import {
   renderLoopAtLeastOneVoice, reverbImpulse, SampleCache, SOUND_FALLBACKS, type AmbienceLayers, type ReverbImpulse, type SoundBank,
   SOCOM_REVERB_MODE, soundHash, soundParams, weaponGlobals, weaponSounds, zanimEmitters, zanimSounds, type Material, type RenderedSound,
   type SoundParams, type SoundSet, type WeaponSounds, type ZAnimPayload,
-  decodeVagStream, decodeVpk, missionSoundBlocks, parseStreamEntries, streamFile, streamFor, vagStreamGroup, type StreamEntry,
+  decodeVagStreamPcm16, decodeVpkPcm16, floatStream, missionSoundBlocks, parseStreamEntries, streamFile, streamFor, vagStreamGroup, type StreamEntry, type StoredStream, type Pcm16Stream,
 } from '@s2u/sound';
 import { cueNames, needsTexts, roundCuesFromArchive, withObjectiveTexts, type RoundCues } from './roundCues';
 import { readTauntData, type TauntData } from './tauntData';
@@ -57,6 +57,32 @@ export const SOUND_MATERIALS_PATH = 'RUN/READERC.ZAR';
 export const SOUND_WEAPONS_PATH = 'RUN/ZWEAPON.ZAR';
 /** The 989snd streams, 577 MB: the music (VPK) and the voice (VAGp) of research 124, read by range only. */
 export const SOUND_STREAMS_PATH = 'RUN/SOUNDS/VAGSTORE.ZAR';
+/**
+ * LATER 1229 (`STREAM_PCM16_MAX_SECONDS_ADAPTATION`; the controller's split C of PR #790's PCM16 storage; product track, a
+ * browser storage adaptation -- no sample, gain or timing changed): Web Audio plays floats, so a PCM16 stream is expanded
+ * into its buffer at its start (`./audio` `WebAudioOut.stream`): ~0.7-1.35 ms per million samples on the hub, so the round
+ * music (up to 38 s at 32 kHz on MP2/MP51/MP72) cost ~1.7-3.3 ms at a start there and several times that on an Xbox (a
+ * reading), over the controller's 2 ms bar -- the bomb's sting starts mid-round. A stream under 10 s AT 22,050 HZ (the
+ * voices' rate) -- a cap in samples a channel, so the bound holds at any rate (its review's F2): two channels of it are
+ * ~0.3-0.6 ms here -- is kept as the decoder's Int16 (half a float's bytes); a longer one is expanded once, here at load,
+ * and kept as floats as before #790. The samples are the same either way (x / 32768).
+ */
+export const STREAM_PCM16_MAX_SECONDS_ADAPTATION = 10;
+/** LATER 1229: the cap in samples a channel: 10 s at the voices' 22,050 Hz. */
+export const STREAM_PCM16_MAX_SAMPLES = STREAM_PCM16_MAX_SECONDS_ADAPTATION * 22050;
+
+/** The array alone, its buffer exactly its length: `decodeVag` hands a view of a block-sized buffer (its review's F1). */
+const tight = (a: Int16Array): Int16Array => (a.byteOffset === 0 && a.byteLength === a.buffer.byteLength ? a : a.slice());
+
+/**
+ * LATER 1229: a decoded stream as stored -- PCM16 under the cap (each channel its own tight buffer, mono's one shared), else
+ * expanded to floats now (`floatStream`).
+ */
+export function storedStreamOf(s: Pcm16Stream): StoredStream {
+  if (s.left.length >= STREAM_PCM16_MAX_SAMPLES) return floatStream(s);
+  const left = tight(s.left), right = s.right === s.left ? left : tight(s.right);
+  return left === s.left && right === s.right ? s : { ...s, left, right };
+}
 /** libsd, whose data holds the SPU2 reverb presets (socomlegacy/docs/research/81 §9). */
 export const SOUND_LIBSD_PATH = 'RUN/IRX/LIBSD.IRX';
 /** A map's three banks, in the order a name is looked up in them. */
@@ -102,6 +128,11 @@ export interface SoundData {
   /** Each callback's sounds' command volumes, in the same order (1 unless the command's flag 0x10 gives its own). */
   callbackVolumes?: [string, number[]][];
   /**
+   * LATER 1209: each callback's sounds' delays in seconds, in the same order (`callbackPlays`' `delay`: the timed WAITs
+   * ahead of each -- frag_start's `.THROW_OBJECT` 0.2); absent or 0, at once.
+   */
+  callbackDelays?: [string, number[]][];
+  /**
    * `WEAPON_GLOBAL`'s `SoundDistanceClose/Med/Far` in units (metres x `UNITS_PER_METRE`): a remote round past `med`
    * plays its weapon's `FireSoundMed`, past `far` its `FireSoundFar` (`fireVariant`); null without `zweapon.rdr`.
    */
@@ -144,7 +175,7 @@ export interface SoundData {
    * member they were read from, and the 989snd group the entry's class plays it in (`vagStreamGroup`: its level, research
    * 186 §3.1); absent or empty without VAGSTORE (the page's round is then silent).
    */
-  streams?: { name: string; file: string; sound: RenderedSound; group?: number }[];
+  streams?: { name: string; file: string; sound: StoredStream; group?: number }[];
   /**
    * FORGE_SCRIPT_SOUND_ADAPTATION (the owner, 2026-11-10; a browser adaptation): the streams a Forge switch's script
    * plays (`SoundLend`), which its `SOUND` plays as a stream where no bank holds the name (`./matchSound` `sceneSound`).
@@ -162,8 +193,12 @@ export interface SoundData {
  */
 export interface CharacterVoices { damage: string | null; death: string | null; quiet: string | null }
 
-/** HX-2: a hostage's voices -- a character's three, and its `CHRSND_YES` (the order's answer, HX-4a's cue). */
-export interface EscorteeVoices extends CharacterVoices { yes: string | null }
+/**
+ * HX-2: a hostage's voices -- a character's three, and its `CHRSND_YES` (the order's answer, HX-4a's cue). R4P-254
+ * (ESCORTEE-YES): the placed character's name (`teamCharacter`'s, the hostage's `character` on the wire) and its
+ * `CHRSND_NO` (0x38: OnCommand's case 2, `FUN_0058fbe0` D:L450342, inferred unreachable online; resolved, never played).
+ */
+export interface EscorteeVoices extends CharacterVoices { character: string; yes: string | null; no: string | null }
 
 const why = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -248,8 +283,9 @@ export const HOSTAGE_VOICES_READING = {
 
 /**
  * The map's hostages' voices (HX-2): each `chartype.rdr` `escortees` entry's slots as `characterVoicesOf` resolves a
- * player's (the name when filed, else the slot's fallback when filed, else none), and its YES (no fallback); one entry an
- * escortee, none on a map that lists none.
+ * player's (the name when filed, else the slot's fallback when filed, else none), and its YES and NO (no fallback); one
+ * entry an escortee, named by its character (R4P-254: `mp_vip1-3` on MP82 name `^CO_0284` / `^CO_0285`), none on a map
+ * that lists none.
  */
 export function escorteeVoicesOf(table: CharacterTable, chartype: RdrNode, files: (name: string) => boolean = () => true): EscorteeVoices[] {
   const out: EscorteeVoices[] = [];
@@ -262,7 +298,7 @@ export function escorteeVoicesOf(table: CharacterTable, chartype: RdrNode, files
       const fallback = CHARACTER_SLOT_FALLBACKS[name];
       return fallback !== undefined && files(fallback) ? fallback : null;
     };
-    out.push({ damage: slot('CHRSND_DAMAGE'), death: slot('CHRSND_DEATH'), quiet: slot('CHRSND_DEATH_QUIET'), yes: slot('CHRSND_YES') });
+    out.push({ character: c, damage: slot('CHRSND_DAMAGE'), death: slot('CHRSND_DEATH'), quiet: slot('CHRSND_DEATH_QUIET'), yes: slot('CHRSND_YES'), no: slot('CHRSND_NO') });
   }
 }
 
@@ -316,11 +352,14 @@ export function emitterPosition(world: ArrayLike<number> | null, offset: readonl
 }
 
 /**
- * The SOILS index a map's `DefaultMaterial` names, matched without case (MP64 writes `stone`); 0 -- the engine's
- * `UNKNOWN`, no sounds -- for a name no entry spells, as `FUN_002de9e0` answers (MP11's `none`).
+ * The SOILS index a map's `DefaultMaterial` names, matched exactly (case-sensitive), as the game's soil lookup does
+ * (r0001 `FUN_002de9e0` D:L181709-181726; r0004 `FUN_002fb9d0`); 0 -- the engine's `UNKNOWN`, whose step, crawl and
+ * land handles are null and play nothing (`FUN_005a39b0` D:L460419) -- for a name no entry spells exactly: MP11's
+ * `none`, and Shadow Falls' (MP64) lower-case `stone`, so its byte-0 floors are silent as on the console (ATLAS L202;
+ * `defaultMaterialCensus.devdisc.test.ts` holds every map's result). Reading, pending review.
  */
 export function defaultMaterialIndex(materials: readonly Material[], name: string): number {
-  const i = materials.findIndex((m) => m.name.toUpperCase() === name.toUpperCase());
+  const i = materials.findIndex((m) => m.name === name);
   return i > 0 ? i : 0;
 }
 
@@ -350,7 +389,7 @@ function silent(archive: string, missing: string[]): SoundData {
  * them holds (a `MUS_` cue, a `^` line), that map's streams (`readSoundStreams` over its blocks, `lentStreams`); one
  * neither holds is named in `missing`.
  *
- * `surfaces` (the owner, 2026-11-20: "if I pick say broken glass in desert glory, it doesn't make any sound when I walk on
+ * `surfaces` (the Forge's owner (crispy, OT.R112), 2026-11-20: "if I pick say broken glass in desert glory, it doesn't make any sound when I walk on
  * it"; a browser adaptation, FG.R2): the materials a forge layout's hull is made of beyond the map's own, by SOILS name --
  * its floors' and all of its polygons'. Their steps, crawls, landings and rounds' impacts are wanted as the map's own
  * surfaces' are, so one the map's banks lack is borrowed as any missing sound is (`borrowMissing`). The original's map
@@ -426,6 +465,7 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
   // The zAnims: the common set and the mission's, a command's bytes out of its animation's Seq_Data.
   let callbacks: [string, string[]][] = [];
   let callbackVolumes: [string, number[]][] = [];
+  let callbackDelays: [string, number[]][] = [];
   const beds = { outside: [] as string[], inside: [] as string[] };
   let layers: AmbienceLayers = { outside: [], inside: [] };
   let emitters: SoundData['emitters'] = [];
@@ -463,6 +503,7 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
     const plays = [...callbackPlays(archives, payload)];
     callbacks = plays.map(([name, p]) => [name, p.map((x) => x.sound)]);
     callbackVolumes = plays.map(([name, p]) => [name, p.map((x) => x.volume)]);
+    callbackDelays = plays.filter(([, p]) => p.some((x) => (x.delay ?? 0) > 0)).map(([name, p]) => [name, p.map((x) => x.delay ?? 0)]);   // LATER 1209
     const infos = zanimSounds(archives, payload);
     // The casings' sounds are named in the shell_eject zAnims' name tables, played from inside their particle command.
     for (const a of archives) for (const set of a.sets) for (const anim of set.anims) {
@@ -493,7 +534,9 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
     const name = parseWorldRoot(Zar.parse(await readZdbMember(source, mapPath, `${archive}.ZED`))).defaultMaterial;
     // A name no SOILS entry spells is the game's 0, UNKNOWN, which has no sounds: `FUN_002de9e0` (decomp, the map's
     // load at 152109) answers 0 for a name its table lacks, and `FUN_002ddc30` sets that as the default. Death Trap
-    // (MP11) writes `none`, so its byte-0 floors are silent on the console too (research 90 item 26): no error.
+    // (MP11) writes `none`, so its byte-0 floors are silent on the console too (research 90 item 26): no error. The
+    // compare is case-sensitive (r0001 `FUN_002de9e0` D:L181709-181726; r0004 `FUN_002fb9d0`): Shadow Falls (MP64)
+    // writes `stone`, which is UNKNOWN too -- its nine byte-0 floor faces are silent (ATLAS L202; reading, pending review).
     defaultMaterial = defaultMaterialIndex(materials, name);
   } catch (e) { missing.push(`${archive}.ZED: ${why(e)}`); }
 
@@ -576,7 +619,7 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
     for (const v of [...(characterVoices?.seal ?? []), ...(characterVoices?.terrorist ?? [])]) for (const n of [v.damage, v.death, v.quiet]) if (n) wanted.add(n);
     // HX-2: a hostage's bank voices (its YES, `^CO_0343`, is a stream group: never a bank's, HOSTAGE_VOICES_READING)
     for (const v of escorteeVoices ?? []) for (const n of [v.damage, v.death]) if (n) wanted.add(n);
-    try { await borrowMissing(source, banks, sets, new Set([...wanted, ...grenadeWanted]), archive, missing); } catch (e) { missing.push(`borrowing: ${why(e)}`); }
+    try { await borrowMissing(source, banks, sets, new Set([...wanted, ...grenadeWanted]), archive, missing, borrowBanksMax(surfacesIn)); } catch (e) { missing.push(`borrowing: ${why(e)}`); }
     // Research 304: a grenade's sound only from the map's own banks -- the borrowing keeps its bank choice for the rest.
     for (const b of banks) if (b.only) b.only = b.only.filter((n) => !grenadeWanted.has(n) || wanted.has(n));
     // A forge switch's sounds, out of the banks of the map each was chosen from (`lend`).
@@ -611,10 +654,13 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
     ...(taunts.grenadeWarnings?.seal.flat() ?? []), ...(taunts.grenadeWarnings?.terrorist.flat() ?? [])].flatMap(v => v?.sound.startsWith('^') ? [v.sound] : []))] : [];
   // Research 304 section 8: mission cues can name MP_COMMON groups too (breach success ^*PT_0024).
   const roundNames = roundCues ? cueNames(roundCues) : [];
-  const tacticalGroups=scriptRoot&&streamEntries?readTacticalSoundGroups(scriptRoot,[...roundNames,...tauntNames],n=>!!streamFor(streamEntries!,missionSoundBlocks(archive),n)):[];
+  // R4P-254: the escortees' YES, a group of this map's streams (`^CO_0284` on MP82: PlayAt's member pick `FUN_00348450`
+  // -> PlaySound3D `FUN_00342b20`), read with the taunts' (the NO is never played online: not read).
+  const escorteeNames = [...new Set((escorteeVoices ?? []).flatMap((v) => (v.yes?.startsWith('^') ? [v.yes] : [])))];
+  const tacticalGroups=scriptRoot&&streamEntries?readTacticalSoundGroups(scriptRoot,[...roundNames,...tauntNames,...escorteeNames],n=>!!streamFor(streamEntries!,missionSoundBlocks(archive),n)):[];
   const groups=new Map(tacticalGroups.map(g=>[g.name,g]));
   const membersOf = (name: string): string[] => groups.get(name)?.members.map(m => m.name) ?? [name];
-  const streamNames=[...new Set(tauntNames.flatMap(membersOf))];
+  const streamNames=[...new Set([...tauntNames, ...escorteeNames].flatMap(membersOf))];
   if (sets) for (const name of streamNames) { const p = soundParams(sets, missionSoundBlocks(archive), name); if (p) params.push([name, p]); }
   // The round's streams out of the cues' own map's blocks (a donor's lines are its blocks', not this map's).
   const streams = !streamEntries ? []
@@ -631,7 +677,7 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
 
   return {
     ...(lentStreams.length ? { lentStreams } : {}),
-    archive, banks, materials, params, weapons, callbacks, callbackVolumes, fireDistances, defaultMaterial, beds, layers, emitters,
+    archive, banks, materials, params, weapons, callbacks, callbackVolumes, callbackDelays, fireDistances, defaultMaterial, beds, layers, emitters,
     reverb, ...(characterVoices ? { characterVoices } : {}), ...(escorteeVoices ? { escorteeVoices } : {}), missing, elevation, standHeight, streams, roundCues, taunts, tacticalGroups,
   };
 }
@@ -645,7 +691,7 @@ export async function soundFromDisc(source: AssetSource, mapPath: string, archiv
  */
 export async function readSoundStreams(
   source: AssetSource, entries: ReadonlyMap<string, ReadonlyMap<number, StreamEntry>>, archive: string, names: readonly string[], missing: string[],
-): Promise<{ name: string; file: string; sound: RenderedSound; group: number }[]> {
+): Promise<{ name: string; file: string; sound: StoredStream; group: number }[]> {
   if (names.length === 0) return [];
   if (!isRanged(source)) { missing.push(`${SOUND_STREAMS_PATH}: not read by range; the round's streams are left out`); return []; }
   const blocks = missionSoundBlocks(archive);
@@ -663,7 +709,7 @@ export async function readSoundStreams(
     zar = Zar.parse(await source.readRange(SOUND_STREAMS_PATH, 0, zarIndexLength(head)));
   } catch (e) { missing.push(`${SOUND_STREAMS_PATH}: ${why(e)}`); return []; }
   const byUpper = new Map(zar.root.children.map((k) => [k.name.toUpperCase(), k]));
-  const out: { name: string; file: string; sound: RenderedSound; group: number }[] = [];
+  const out: { name: string; file: string; sound: StoredStream; group: number }[] = [];
   for (const w of wanted) {
     const key = byUpper.get(w.file.toUpperCase());
     // A member override is the whole file. The disc read is a range at the key's offset, which a mod has no offset for.
@@ -671,7 +717,8 @@ export async function readSoundStreams(
     if (!key && !replaced) { missing.push(`${SOUND_STREAMS_PATH}: no ${w.file}`); continue; }
     try {
       const bytes = replaced ?? await source.readRange(SOUND_STREAMS_PATH, zar.dataOffset + key!.offset, key!.size);
-      out.push({ name: w.name, file: w.file, sound: w.music ? decodeVpk(bytes) : decodeVagStream(bytes), group: w.group });
+      // Browser storage adaptation: retain exact decoder PCM, expand only into the playback buffer.
+      out.push({ name: w.name, file: w.file, sound: storedStreamOf(w.music ? decodeVpkPcm16(bytes) : decodeVagStreamPcm16(bytes)), group: w.group });
     } catch (e) { missing.push(`${w.file}: ${why(e)}`); }
   }
   return out;
@@ -772,15 +819,22 @@ export async function lendBankSounds(source: AssetSource, banks: SoundData['bank
 }
 
 /**
- * The most other maps' banks `borrowMissing` reads (a browser adaptation, bounding the reads): 16 (was 6, the owner,
- * 2026-11-20 -- a forge layout's own surfaces, `soundFromDisc` `surfacesIn`, want more: Desert Glory's own lacks took the
- * six before Broken Glass's steps were reached). A disc map's own lacks are met within six.
+ * The most other maps' banks `borrowMissing` reads (a browser adaptation, bounding the reads): 16 for a forge layout's
+ * own surfaces (the Forge's owner (crispy, OT.R112), 2026-11-20 -- `soundFromDisc` `surfacesIn` wants more: Desert Glory's own lacks took the six
+ * before Broken Glass's steps were reached); six for a disc map (PR #5's import, item B3: a disc map borrows from no more
+ * banks than before the PR). `surfacesIn` comes from the Forge alone (its Play and its lobby match), and it names every
+ * material of the layout's hull, the base map's own included -- so in practice every Forge layout reads up to sixteen,
+ * and only the Forge does.
  */
 const BORROW_BANKS_MAX = 16;
+const BORROW_BANKS_DISC_MAX = 6;
+/** `borrowMissing`'s bound for a map: sixteen where a Forge layout's surfaces are given (`surfacesIn`, any), else six. */
+export const borrowBanksMax = (surfacesIn: LayoutSurfaces | undefined): number =>
+  surfacesIn && (surfacesIn.floors.length > 0 || surfacesIn.all.length > 0) ? BORROW_BANKS_MAX : BORROW_BANKS_DISC_MAX;
 
 export async function borrowMissing(
   source: AssetSource, banks: SoundData['banks'], sets: ReadonlyMap<string, SoundSet>, wanted: ReadonlySet<string>,
-  archive: string, missing: string[],
+  archive: string, missing: string[], max = BORROW_BANKS_DISC_MAX,
 ): Promise<void> {
   const have = new Set<string>();
   for (const b of banks) {
@@ -796,7 +850,7 @@ export async function borrowMissing(
     return m ? `${m[1]}_${m[2]!.toLowerCase()}.bnk` : null;
   };
   const tried = new Set<string>();
-  for (let guard = 0; guard < BORROW_BANKS_MAX && need.length > 0; guard++) {
+  for (let guard = 0; guard < max && need.length > 0; guard++) {
     const cover = new Map<string, string[]>();
     for (const [name, set] of sets) {
       const file = bankOf(name);

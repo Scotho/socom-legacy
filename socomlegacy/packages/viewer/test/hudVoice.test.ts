@@ -674,3 +674,20 @@ describe('LATER 77 (the review\'s F1): the count is 0 again at a match\'s start 
     expect(next.trim()).toMatch(/^voiceEl\.members = 0;/);
   });
 });
+
+describe('STREAMER-P1 (IQ-229 F2): the HUD and the team tags read the display holder (a refused speaker named by nothing)', () => {
+  it('shownVoice puts shownHolder in the holder\'s place; a state without one is as given', async () => {
+    const { shownVoice } = await import('../src/hudVoice');
+    expect(shownVoice({ holder: 7, shownHolder: null, playing: null })).toEqual({ holder: null, shownHolder: null, playing: null });
+    expect(shownVoice({ holder: 7, shownHolder: 7 })).toEqual({ holder: 7, shownHolder: 7 });
+    expect(shownVoice({ holder: 7 })).toEqual({ holder: 7 });
+  });
+  it('the round (matchMount) and the page (main) hand voiceHudFrame and teamTagInput the shown state (a source pin)', () => {
+    const src = (f: string): string => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src', f), 'utf8');
+    for (const f of ['matchMount.ts', 'main.ts']) {
+      const s = src(f);
+      expect(s).toContain('voice: shownVoice(voice.state()), self:');
+      expect(s).toContain('teamTagInput(page, remote, fly.camera, shownVoice(voice.state()),');
+    }
+  });
+});

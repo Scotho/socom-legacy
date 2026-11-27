@@ -139,7 +139,7 @@ export function layoutGround(base: GroundData, pieces: readonly (PieceHull | Con
       polys.push({ ...poly, path: p.owner, points: carry(poly.points, m) });
     }
   }
-  return packGround(base.grid, polys, owners);
+  return packGround(base.grid, polys, owners, base.defaultMaterial);   // FLE-2: the map's default soil
 }
 
 /**

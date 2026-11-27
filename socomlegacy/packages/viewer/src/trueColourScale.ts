@@ -1,6 +1,7 @@
 import { Vector4 } from 'three';
 import type { Node } from 'three/webgpu';
 import { renderGroup, uniform, vec3, vec4 } from 'three/tsl';
+import { setParticleWash } from './particleTint';
 
 /**
  * The zAnim command `TRUE_COLOR_SCALE` (set 0, command 36; `FUN_002642f0` D:L111608-111705) as the engine applies it
@@ -35,6 +36,7 @@ let current: ColourScaleRow | null = null;
 
 /** Sets the row in use (null: none, the colours unchanged). */
 export function setTrueColourScale(row: readonly number[] | null): void {
+  setParticleWash(row);   // R4P-245: the particles' `FUN_003b59a0` takes the same row (`./particleTint`)
   if (!row) { lit.value.set(1, 1, 1, 0); fog.value.set(1, 1, 1, 0); current = null; return; }
   current = [row[0]!, row[1]!, row[2]!, row[3]!];
   lit.value.set(row[0]!, row[1]!, row[2]!, row[3]! / 128);

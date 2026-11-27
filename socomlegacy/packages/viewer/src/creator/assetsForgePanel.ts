@@ -31,7 +31,7 @@ export interface AssetViewportEditor extends ForgeEditor {
   projectCentre?(): AssetDropProjection;
   sourceIdentity(asset: string): object | null;
   /**
-   * A drag over the viewport driven through the page's own Place tool (the owner, 2026-11-14: "when I click an asset the
+   * A drag over the viewport driven through the page's own Place tool (the Forge's owner (crispy, OT.R112), 2026-11-14: "when I click an asset the
    * place tool works smoothly ... the drag and drop is just an interaction abstraction"): `enter` picks the asset as a
    * click on its tile does (false: not this way -- the staged ghost then), `over` moves the tool's ghost, `drop` places as
    * a click in the world does, `leave` puts the tool back as it was. Absent: the staged ghost and `place`.
@@ -378,7 +378,7 @@ export function createAssetTiles(list: HTMLElement, ctx: ForgePanelContext, opti
       }
       const point = project(s, event.clientX, event.clientY);
       s.pending = true;
-      // Let go: the ghost and the "Release to place" hint put away at once (the owner, 2026-11-14: "even if I let go of my
+      // Let go: the ghost and the "Release to place" hint put away at once (the Forge's owner (crispy, OT.R112), 2026-11-14: "even if I let go of my
       // mouse it still gets stuck"); the placement finishes behind them.
       if (s.handle && !s.handle.disposed) s.handle.hide();
       clearHint();

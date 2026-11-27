@@ -61,9 +61,13 @@ test('LATER 215: a joiner back from the lobby keeps an unreadable autosave aside
   await page.locator('.fx-lobby-btn', { hasText: /^LEAVE$/ }).click();
   await expect(page.locator('.fx-lobby-btn', { hasText: /^LEAVE$/ })).toHaveCount(0);
 
-  // The next write: an edit of the layout left open (the host's), autosaved after its 300 ms.
+  // The return (`ownLayoutBack`, async after LEAVE) sets the unreadable autosave aside and only then turns the autosave
+  // back on. PR #5: the button below spawns at once, so its edit could land before that and its 300 ms save be skipped
+  // (Shadow PC 3's run at d033568950: the store still held the seeded text; PC 2's passed). The aside is waited for first.
+  await expect.poll(async () => JSON.parse((await stored()).aside || '[]'), { timeout: 10_000, message: 'the return set the unreadable autosave aside' }).toEqual([UNREADABLE]);
+  // The next write: an edit of the layout left open (the host's), autosaved after its 300 ms. PR #5: the button spawns at
+  // once and selects it (`../test/forge/spawnAtOnce.test.ts`); no click on the view follows.
   await placingTool(page, 'Spawn SEAL').click();                  // OT.R112: the tools row's label (`./forgeBase`)
-  await page.locator('.fx-input').click();
   await expect(page.locator('.fx-outliner')).toContainText('Spawn A');
   // The edit itself, not merely "readable": the store held '' at the join, so a poll for "not UNREADABLE" would pass at once.
   await expect.poll(async () => (await stored()).layout, { timeout: 10_000, message: 'the edit was autosaved (the write this spec is about)' }).toContain('["A",');

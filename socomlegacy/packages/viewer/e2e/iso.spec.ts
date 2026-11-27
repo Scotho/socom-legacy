@@ -7,6 +7,7 @@ import type {} from '../src/hook';
 // The same ISO9660 writer the archive package's tests use: pure TypeScript, no DOM, no dependencies.
 import { buildIso } from '../../archive/test/isoImage';
 import { TEST_ROOM, TEST_ROOM_PAST_SHEET } from './urls';
+import { IMAGE_SYSTEM_CNF } from './fixtureImage';
 
 /**
  * W1.7, milestone M5: the player's own disc image, opened from the panel's file input, lists its maps and
@@ -28,7 +29,9 @@ test.skip(!['MP2.ZDB', 'READERC.ZAR', 'ZWEAPON.ZAR'].every((f) => existsSync(joi
 test.beforeAll(() => {
   mkdirSync(dirname(ISO), { recursive: true });
   const files = ['MP2.ZDB', 'READERC.ZAR', 'ZWEAPON.ZAR'].map((f) => ({ path: `RUN/${f}`, bytes: new Uint8Array(readFileSync(join(FIXTURES, 'RUN', f))) }));
-  writeFileSync(ISO, buildIso(files, 'SCUS_97275'));
+  // LATER 954: the test room checks an image's identity before the worker opens it (DA.R8), so the image carries the
+  // retail line's SYSTEM.CNF (generated, `./fixtureImage` `IMAGE_SYSTEM_CNF`).
+  writeFileSync(ISO, buildIso([{ path: 'SYSTEM.CNF', bytes: new TextEncoder().encode(IMAGE_SYSTEM_CNF) }, ...files], 'SCUS_97275'));
 });
 
 /**

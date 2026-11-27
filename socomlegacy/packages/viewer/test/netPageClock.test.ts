@@ -139,8 +139,13 @@ function liveOutputs(): string {
  * `post` log holds `post: 0.7` and `post: 0.9` beside the two lines' text and scale; netPage.ts is unchanged by it, and with
  * the `post` key dropped from the outputs this tree's digest is the B139 pin's, so nothing else moved. Was B139's
  * '246a943927165d5bbcb560f702fa1f21762569e9d251f09e08cc34bbf3a98519'.
+ * Re-pinned for RELOAD-HITPOSE F1 ONE-CLOCK (a browser adaptation; agent/reload-hitpose): `frame` now reads
+ * `client.shownTick()` and each heard event `client.heardTick()` (`RemotePlayers`' drawn-clock queue), each a
+ * `performance.now` read, so every figure after them moves by those reads' thousandths; with the per-call offset off,
+ * the outputs at 1d4266b405 (before the fold) and at 0f68b53069 are byte-equal (7564 bytes each, sha256 6b70d7c0...,
+ * box/clockdump-0f68b5306), so nothing else moved. Was 'ca6290f07c8bbed3ee4e1bfdb5f382d2bb9c584b8504d22bd515a6b9d77a90a6'.
  */
-const LIVE_DIGEST_BASE = 'ca6290f07c8bbed3ee4e1bfdb5f382d2bb9c584b8504d22bd515a6b9d77a90a6';
+const LIVE_DIGEST_BASE = '397d4eab9a27bcfb00d693a8f51d8b88333fee2d3f551dd9d60a1115c526b2c2';
 
 describe('RE-3: the live page\'s path is byte-equal (the online seat\'s condition 1)', () => {
   it('the live outputs over a fixed sequence hash to the pinned digest (AD-12\'s; was the base commit\'s)', () => {

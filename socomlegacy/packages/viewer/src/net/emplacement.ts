@@ -138,6 +138,15 @@ export function turretPour(rounds: number, capacity: number): number[] {
   return slots;
 }
 
+/**
+ * R4P-R2 (L49; research 215 s4; reading, pending review): the turret's own veto of a mount. r0004's TryMountEntity
+ * (0x54ae60, D4:L452298-452319; r0001 `FUN_005463c0` has no such test) asks the entity's vtable `+0x5c` when the actor's
+ * controller (vtable `+0x34`) answers 0 and the entity's type byte `+0x10` is 3, and refuses the mount on a zero answer.
+ * Which turret classes answer 0 there is not read: `'none'` -- the port refuses no mount on the turret's side. Settled
+ * by a read of the turret classes' vtable `+0x5c` in r0004, then a capture of a refused mount.
+ */
+export const TURRET_MOUNT_VETO_READING = 'none' as 'none' | 'read';
+
 /** What the mount test reads of a placement. */
 export type Mountable = Pick<TurretPlacement, 'origin' | 'mountRange' | 'mountAngleCos' | 'facing'>;
 
@@ -239,6 +248,107 @@ export const TURRET_CLIPS: readonly string[] = [TURRET_MOUNT_CLIPS.rifle, TURRET
 /** The mount clip a body takes from the hand it holds (0 the rifle, 1 the pistol): `FUN_005a6fc0` by `+0xf79`. */
 export function mountClipOf(weapon: 0 | 1): string {
   return weapon === 1 ? TURRET_MOUNT_CLIPS.pistol : TURRET_MOUNT_CLIPS.rifle;
+}
+
+/**
+ * R4P-R2 (L81; reading, pending review -- r0004 not yet captured, the ready queue's Q-R2; corrected 2026-11-24 by the
+ * non-author second read, patches-contrib): the hand whose mount clip a body plays -- its hand class `+0xf79` (1 the
+ * rifle, 2 the pistol, 4 the launcher, 3 grenades and charges, 0 other), here the firearm slot in the hand (0 the rifle,
+ * 1 the pistol) -- the room's, the own page's and the other side's alike (hand review 1 F4: one rule, no split) -- or
+ * null for class 3 or 0, which no caller passes yet (MOUNT_AFTER_LAUNCHER_ITEM_READING). The mount calls r0004's 0x5acbb0 with `+0xf79` itself (`FUN_005acbb0(body,
+ * +0xf79, 0)`, D4:L452444), the helper never seeing the selected item (0x5acc44-0x5acc8c); selecting a grenade, C4, a
+ * satchel, a claymore or the Detonator over a firearm never writes `+0xf79` (the select 0x5ac050 writes only 1 and 2,
+ * D4:L502932-502964, machine code 0x5ac258-0x5ac31c; r0001 the same). The pistol's `Stand -> Turret` plays for class 2
+ * (D4:L503258-503260), the rifle's for 1, 3, 4 and 0 (D4:L503262). So the firearm under any item decides: a grenade over
+ * the pistol mounts with the pistol's clip, over the rifle with the rifle's; class 3 (reached from the launcher
+ * D4:L503129, a remote copy moving in its set D4:L456980, or a release that fell back to the kept item D4:L452168-452169;
+ * never from a firearm in the hand, the third read's scan of `+0xf79`'s stores) with the rifle's. The item itself is put away by the kit selecting the turret's weapon at the mount
+ * (D4:L452400-452404; r0001 the same). r0001's `FUN_005a6fc0` (D:L462173-462200) plays a clip for classes 1 and 2 only.
+ * The launcher (class 4) never reaches it here: its set refuses the mount (LATER 205; PROVEN on r0004, QL55-PC2). *Was*
+ * (the first reading, R4P-R2 before the second read): the classes read as kit items, an item over the pistol mounting
+ * with the rifle's clip.
+ */
+export function mountHandOf(firearm: 0 | 1 | null): 0 | 1 {
+  return firearm === 1 ? 1 : 0;
+}
+
+/**
+ * R4P-R2 hand review 1 F3 (L81; research 215 s4, s8.8; reading, pending review): an item taken FROM THE RAISED LAUNCHER
+ * leaves the hand class 3 (the weapon change with old 4 lowers through `FUN_005a6b70`, which writes the new class,
+ * D4:L503129; the third read, section 4 path (i) and section 5), so a mount before a firearm is next selected plays the
+ * RIFLE's clip, whatever firearm the launcher was raised from. `'slot'`: the port draws the firearm slot still in the
+ * hand -- the pistol's clip after a launcher raised from the pistol; the room's seat steer and its NoFire window read the
+ * same hand (`Player.mountHand`: the steer's shape and `fireAllowed`'s clip), so on this route they follow the pistol's
+ * clip too. Not built yet; a build path (hand re-review A): the room sees both halves, each dated by its command -- the
+ * page's launcher lower (`throw` of the firearm, `lowerLauncher`) and its ROOM-HAND word (`hand`), sent from the same page
+ * handler -- so it can mark an item taken while the launcher was held or lowering and clear the mark at the next firearm
+ * selection, giving `mountHandOf(null)` at the take; the other side needs only the room's chosen hand on the turret
+ * broadcast, an additive field as `releaseHand` is, and the own page the same mark. Checked against the third read's
+ * trial 4 (launcher -> M67 -> mount: 3 before the mount, the rifle's clip).
+ */
+export const MOUNT_AFTER_LAUNCHER_ITEM_READING = 'slot' as 'slot' | 'class 3';
+
+/**
+ * R4P-R2 hand review 1 F4 (research 215 s4, s8.8; reading, pending review): the mount clip of a body with an item up and
+ * no firearm in its kit. The port gives the slot in the hand -- slot 0, the rifle's clip, for a kit with both firearm
+ * slots `FULL_SLOT` (`initialFirearmSlot`) -- `'the rifle clip'`. What the original's kit set-up writes to `+0xf79` with
+ * an item as the set-up item is unread (the third read, section 6); set-up writes the pistol's 2 for any non-rifle item
+ * at once (`ChangeItemModel`, D4:L521116), which would give the pistol's clip. The same family (hand re-review B): a kit
+ * with a `FULL_SLOT` primary and an EQUIP_NONE secondary mounts by its slot 1, the pistol's clip, but releases by the
+ * rifle's (`mountKept` 'secondary', neither firearm present, `dismountSlot` 'saved', `releaseHandOf` 0); if that slot's
+ * class is 2 at the mount, the original may play the pistol's reversed clip -- unread too. Settled by that set-up write
+ * read, or a capture of a mount and a release from such kits.
+ */
+export const ITEM_ALONE_MOUNT_CLIP_READING = 'the rifle clip' as 'the rifle clip' | 'the pistol clip';
+
+/**
+ * R4P-R2 (L67; research 215 s4; reading, pending review): the firearm a release draws when the slot kept at the mount was
+ * an item over the pistol. r0004's 0x54a900 chooses the primary then (`dismountSlot`, D4:L452157-452169) and sets
+ * `+0xf79` from it (D4:L452169), with no swap clip (`SetCurItemByIndex`). The port puts the item away at the release (the
+ * page's `TurretPageDeps.drawn`, the room's ROOM-HAND word) and plays the rifle's reversed clip, but the firearm in the
+ * hand is the page's walk's -- `'kept'`: the pistol stays in the hand, where r0004 draws the rifle. Settled by building
+ * the slot change on the walk and the room's mover together (the command's `weapon`), checked against a capture of r0004
+ * (the queue's Q-R2: dismount after mounting with a grenade over the pistol, read the item drawn).
+ */
+export const DISMOUNT_FIREARM_UNDER_ITEM_READING = 'kept' as 'kept' | 'primary';
+
+/**
+ * R4P-R2 (L67; reading, pending review): the slot the release selects. r0001's `FUN_00545ee0` puts back the slot kept at
+ * the mount (`+0xebc`, D:L412005); r0004's twin 0x54a900 (D4:L452157-452169; the label row's `change`, upheld at its
+ * second read, `data/r0004/labels/changed-008.check.md`) takes the first class-4 slot (the secondary, r4 0x5ce8b0; its
+ * r0001 twin `FUN_005c71a0`, D:L480023) when the kept item is class 4 or no primary exists, else the first slot of the
+ * primary classes (r4 0x5ce940: 0x1f, 0x33, 0x51, 0x5b, 0x8d, 0x65; its r0001 twin `FUN_005c7230`, D:L480048), and falls back to the kept slot when the chosen one is missing; `+0xf79` then takes the
+ * chosen item's fire class, which the reversed clip is chosen by (`StartTurretDismount` 0x5aca70, D4:L503204-503207).
+ * `kept`: what the mount kept -- the primary, the secondary or another item.
+ */
+export function dismountSlot(kept: 'primary' | 'secondary' | 'item', hasPrimary: boolean, hasSecondary: boolean): 'primary' | 'secondary' | 'saved' {
+  if (kept === 'secondary' || !hasPrimary) return hasSecondary ? 'secondary' : 'saved';
+  return 'primary';
+}
+
+/**
+ * R4P-R2 (L67, L87; review 1 F1; the second read, 2026-11-24): the hand a release's reversed clip is of -- the chosen
+ * slot's fire class, which the release writes to `+0xf79` (D4:L452169) and the dismount's clip is chosen by (0x5aca70
+ * D4:L503204-503207: the pistol's for class 2, the rifle's for 1, 3, 4 and 0): the secondary's the pistol's, the
+ * primary's the rifle's, and the kept slot's -- an item, class 3, chosen only with neither firearm (`dismountSlot`
+ * 'saved', D4:L452168-452169) -- the rifle's, whatever clip the mount played. One function for the room's travel, the
+ * release's word (`releaseHand`) and the occupant's own predicted travel, over the same inputs (the firearm slots present:
+ * `../loadout` `firearmSlotPresent`). With no primary, r0004 mounts and releases a pistol hand by the pistol's clip; the
+ * release differs from the mount when it draws the primary over a pistol mount (an item kept), or falls back to the item.
+ */
+export function releaseHandOf(kept: 'primary' | 'secondary' | 'item', hasPrimary: boolean, hasSecondary: boolean): 0 | 1 {
+  return dismountSlot(kept, hasPrimary, hasSecondary) === 'secondary' ? 1 : 0;
+}
+
+/**
+ * R4P-R2 (L106, L97; reading, pending review): the turret anim set on the body (`+0x528` the turret set, r4 0x004507a0).
+ * The take binds it (`FUN_005a6fc0` D:L462175-462200 -> `FUN_0058c350`); r0004's PopBlend (0x58f040, D4:L487376-487382; D4:L537596-537597 names the two turret clips' actions; the second read,
+ * LEADS L54) binds the set held before it again when the reversed `Stand -> Turret` pops (its flag 0x20) -- the release
+ * travel's end, the 17th step (`TURRET_RELEASE_TRAVEL_READING`). So: from the take while mounted, and through a release's
+ * reversed clip. The room's `climbLock` reads the same span (LATER 109).
+ */
+export function onTurretSet(mounted: boolean, releasing: boolean): boolean {
+  return mounted || releasing;
 }
 
 /**
@@ -854,8 +964,12 @@ export function holdStep(t: Pick<TurretPlacement, 'origin'>, w: HoldMover): bool
  * [reading] The node a mounted round's muzzle effect is placed on: the turret's firepoint, turned with the gun -- the node
  * the turret's own fire hands its effect (`FUN_003a8d20` D:L300364: `FUN_00272bb0(effect, 3, 3, +0x288, ...)`, `+0x288`
  * the firepoint, `FUN_003a8f50` D:L300411-300430). The mounted player's round leaves the kit the mount handed the turret's
- * weapon (`FUN_005bc5d0`, D:L412217), whose fire (`FUN_005c5340`) places its flash on the kit's weapon node; which node
- * that is while mounted is unread. Owed: capture B 13 (a mounted burst's flash).
+ * weapon (`FUN_005bc5d0`, D:L412217), whose fire (`FUN_005c5340`) places its flash on the kit's weapon node; while
+ * mounted on a type-3 entity that node is the entity's `+0x284` with the fire point cleared (D:L479463-479479, read
+ * 2026-11-23 for R4P-239). Capture Q-239 settled the flash (none); still owed (capture B 13 or a read): whether the
+ * no-point clip ejects a casing or lights, unread (`MOUNTED_MUZZLE_FLASH_READING`).
+ * SUPERSEDED for the flash by R4P-239 (`../effectRules` `MOUNTED_MUZZLE_FLASH_READING`): a mounted round draws no muzzle
+ * flash; the firepoint now only marks that a body is mounted (`TurretPage.muzzleOf`).
  */
 export const TURRET_MUZZLE_NODE_READING = 'firepoint' as const;
 

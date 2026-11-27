@@ -17,7 +17,7 @@ import { LineBasicNodeMaterial, MeshBasicNodeMaterial } from 'three/webgpu';
  * Drawn in the fragment shader (a quad a plane, its lines from the world position's derivatives) so any step and any
  * zoom costs the same, per view, with nothing rebuilt.
  *
- * A grid on each axis plane (the owner, 2026-11-15: "add the grids on all axes so that we can see them when changing
+ * A grid on each axis plane (the Forge's owner (crispy, OT.R112), 2026-11-15: "add the grids on all axes so that we can see them when changing
  * view in any direction"), one shown at a time as the view that draws looks (`orient`): a perspective view, the workplane's
  * (`Workplane`: flat at y = 0 unless set or picked), depth-tested so it lies under what stands over it, fading with
  * distance; an orthographic view, the workplane's while it faces the view, else the axis plane the view looks straight at
@@ -62,7 +62,7 @@ export function gridTiers(step: number): [number, number | null, number | null] 
 }
 
 /**
- * The workplane (the owner, 2026-11-16: "a button to set the current workplane from a click/sample button and a reset
+ * The workplane (the Forge's owner (crispy, OT.R112), 2026-11-16: "a button to set the current workplane from a click/sample button and a reset
  * button"; then "it should align to the sampled position's normal"; a browser adaptation, FG.R2): a plane -- a point on
  * it and its unit normal, the normal on the side it was picked from. The grid is drawn on it, what is placed on nothing
  * lands on it, and Snap to Workplane seats placements on it. Flat (normal +Y) at height 0 unless set.
@@ -106,7 +106,7 @@ export function rayOnWorkplane(w: Workplane, origin: Vector3, dir: Vector3, reac
 /**
  * The workplane through a picked surface `point` with the surface's normal `normal` (turned to the side it was picked
  * from): a normal within a hair of an axis taken as that axis (a float's tilt is no tilt); while `step` (grid snap on) is
- * given, its distance along the normal on the step at or past the surface on that side (the owner, 2026-11-16: "so that
+ * given, its distance along the normal on the step at or past the surface on that side (the Forge's owner (crispy, OT.R112), 2026-11-16: "so that
  * the workplane is always above"), never rounded into what was picked.
  */
 export function pickedWorkplane(point: Vector3, normal: Vector3, step: number | null): Workplane {
@@ -149,7 +149,7 @@ export class MapGrid {
   private readonly dir = new Vector3();
   private step = 0;
   /**
-   * The workplane (`Workplane`; the owner, 2026-11-16: "if the user has a bunch of geometry above the grid, the workplane
+   * The workplane (`Workplane`; the Forge's owner (crispy, OT.R112), 2026-11-16: "if the user has a bunch of geometry above the grid, the workplane
    * is hidden"; a browser adaptation): the grid a perspective view draws, and an orthographic view not edge-on to it.
    */
   private plane: Workplane = flatWorkplane(0);
@@ -244,7 +244,7 @@ export class MapGrid {
     colour = blend(colour, axisColours ? axisColours[0] as unknown as V3 : rgb(AXIS_COLOURS[a]), onB);
     alpha = max(alpha, max(onA, onB));
     const far = float(1).sub(smoothstep(float(FAR_FADE[0]), float(FAR_FADE[1]), positionWorld.distance(cameraPosition)).mul(this.fadeOn));
-    // Pulled a little toward the camera in depth (the owner, 2026-11-16: a workplane picked off a floor was drawn under it):
+    // Pulled a little toward the camera in depth (the Forge's owner (crispy, OT.R112), 2026-11-16: a workplane picked off a floor was drawn under it):
     // a surface at the grid's own height never covers it, at any range; what stands above it still does.
     const m = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, side: DoubleSide, fog: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -8 });
     m.colorNode = colour;

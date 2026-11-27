@@ -54,7 +54,7 @@
 - Code (HX-5): `packages/match/src/extraction.ts` (the rescue test `rescueTest`/`inZone`, Rescue1-3's valves, the
   `rescued` event, `targetable`'s one line, the readings; the leader resolved through HX-4a's `ExtractionHost.seat`); `packages/match/src/room.ts` (the
   `rescued`/`killed` listeners, `scoreObjective`'s `'none'` and `carriesTeam`, `Player.hostagesRescued` /
-  `escorteesKilled` / `roundRescued`, `hostagePrimaryObjectives`, `countersOf`); `packages/viewer/src/net/objectiveScore.ts`
+  `escorteesKilled` / `roundRescued`, `roundPrimaryObjectives` (was `hostagePrimaryObjectives`, R4P-252), `countersOf`); `packages/viewer/src/net/objectiveScore.ts`
   (`rescue`, `hostageKill`, `statKind`'s `'none'`, `carriesTeam`); `net/protocol.ts` (`MatchStats`' two fields);
   `roundCues.ts` (`hostageCues`, `hostageCueOf`, `RoundCues.hostages` / `decided`); `roundAudio.ts` / `roundAudioHost.ts`
   (`hostage`, `decidedBy` / `decided`); `netPage.ts` (the lines in `kill`, `hostageState`, `eliminated`, `roundStart`;
@@ -133,11 +133,12 @@ No door hook is built here.
 draws the icon (`ActionPrompt` `escortee`); the text rides `HostageOffer.text` for HX-5's HUD. The context's place in
 the action picker: the press's masks are 0x4000 / 0x8000 (`FUN_00592d50` D:L452112-452130), which `FUN_0021f850` appends
 after C4's 0x40000 and before the drop's 0x40 -- so `escortee` sits after C4 and before the drop. AD-6 (2026-10-16;
-reading, pending review; research 214 s4) read the turret's bits (0x80000 / 0x100000, the list's first) and the
-pickups' (0x10 / 0x20, after the victory dance's 0x200000), so `escortee` sits after `pickup` and before `bombDrop`.
-Was: against the pickup and the turret, whose bits were unidentified, its place unread and the port putting it after
-the turret (`ESCORTEE_CONTEXT_ORDER_READING`, retired). (The dispatch's "after door, before switch" is not the read
-order: corrected here.)
+reading, pending review; research 214 s4) read the turret's bits (0x80000 / 0x100000, the list's first) and the pickups'
+(0x10 / 0x20, after the victory dance's 0x200000), so `escortee` sits after `pickup` and before `bombDrop` in the
+original's order (`ACTION_CONTEXT_ORDER_READING`); the port's puts it after C4, ahead of the victory dance and the pickups (OT.R128, amended 2026-11-15; research 214 s4).
+Was: against the pickup and the turret, whose bits were unidentified, its place unread and the port putting it after the
+turret (`ESCORTEE_CONTEXT_ORDER_READING`, retired). (The dispatch's "after door, before switch" is not the read order:
+corrected here.)
 
 ## 2. The bookkeeping (HX-4a)
 
@@ -209,8 +210,15 @@ agree.
 - **The YES** is no event of its own: every page plays it at the body when `unit` moves into or out of 17
   (`NetPage.escorteeVoice`; OnCommand says YES whenever it moves the hostage -- FOLLOW, HOLD, the UnitTick's HOLD), not
   on the first state a page sees of a hostage (a welcome's, a round's reset: the units are forgotten at `welcome` and
-  `roundStart`). Who hears it in the original is unread (`HOSTAGE_YES_AUDIENCE_PLACEHOLDER`); the cue is mp_fem1-3's
-  `^CO_0343` (`HOSTAGE_YES_CUE_READING`). The room half must send a round's reset states after its `roundStart` (§9.1).
+  `roundStart`). Who hears it in the original is unread (`HOSTAGE_YES_AUDIENCE_PLACEHOLDER`). The cue is the PLACED
+  character's own `CHRSND_YES` (R4P-254, 2026-11-24): the page passes the hostage's `character` from the welcome's list,
+  and the sound part plays that character's `escorteeVoices` entry -- mp_fem1-3's `^CO_0343` on MP6, mp_vip1-3's
+  `^CO_0284` on MP82 -- through the one-voice AI vocal queue (`matchSound.ts` `AiVocalQueue`: `FUN_003428f0` ->
+  `FUN_0034ced0` D:L247804-247830 appends; `FUN_0034c650` D:L247425-247479 drops a head entry out of hearing,
+  `FUN_0034d0b0` D:L247882-247893, and plays the next when the current ends), the group's member picked as a stream
+  (`GameAudio.playStream`, `FUN_00348450`). An escortee whose character names no YES is silent (the null handle). The
+  fixed `^CO_0343` (`HOSTAGE_YES_CUE_READING`) is retired. The room half must send a round's reset states after its
+  `roundStart` (§9.1).
 - `HostageStateWire.unit`'s JSDoc says "the seat's id + 0x20" (HX-1's said "its leader's seat id": a seat id 17 would
   read as the escortee unit) -- the union at HX-1's merge keeps HX-4a's line.
 
@@ -299,12 +307,91 @@ What follows is r0001's, kept as the record (R4B.R6).*
 
 `FUN_00224d10` (D:L76467; called at the round's end D:L76026, its result added to `+0x5be`, YOUR STATS' +0x576): it
 counts the living SEALs, Terrorists and escortees, and sums `+0x5a8` (brought out this round) over every SEAL, living or
-dead; for game type 4 (D:L76550-76558): the local player, when a living SEAL and the sum is above 1, +1; when a living
+dead; for game type 4 (D:L76551-76560; was cited D:L76550-76558, R4P-252's re-read): the local player, when a living SEAL and the sum is above 1, +1; when a living
 Terrorist and no SEAL lives, +1 (`PRIMARY_OBJECTIVE_READING`). The room runs it for every seat in `endRound` before the
-+1/+5 (`hostagePrimaryObjectives`, an EXTRACTION room only), from `Player.roundRescued` (zeroed at each round's start;
++1/+5 (`hostagePrimaryObjectives`, an EXTRACTION room only; since R4P-252 `roundPrimaryObjectives`, by the map's game
+type), from `Player.roundRescued` (zeroed at each round's start;
 kept in a takeover's row with the round's score, so a seat taken back mid-round still counts its rescues: the review of
 dcc2f1f8, 2026-10-07).
-The other modes' arms (ESCORT, SUPPRESSION, BREACH) are read in the same function and not built (not this task's).
+The other modes' arms (ESCORT, SUPPRESSION, BREACH) are read in the same function and not built (not this task's;
+since built: ESCORT and SUPPRESSION by R4P-252, BREACH by LATER 1462, below).
+
+**R4P-252 (2026-11-24; reading, pending review; the queue's R4P-252, `docs/atlas/handover/r0004-parity-ready-queue.md`).**
+Re-read at the decompilation (r0001; r0004 moves only the type byte `+0x111` -> `+0x115`, the queue's note): the count
+is D:L76506-76536 (alive is `+0xe1` bit 4; a SEAL by `FUN_002c31d0`, a Terrorist by `FUN_002c30b0`, else an escortee
+by `+200 & 0x20000`, `ESCORTEE_BIT_READING`; `+0x5a8` and `+0x5c4` summed over every SEAL, living or dead); the type is
+read at D:L76539; the arms are SUPPRESSION (5) D:L76541-76550, EXTRACTION (4) D:L76551-76560 (the HX-5 rows' D:L76550-76558
+is a line early), ESCORT (3) D:L76561-76570, BREACH (1) D:L76571-76573 (LATER 1462's re-read; was cited D:L76571-76574); DEMOLITION (2)
+has none.
+
+| game type | a living SEAL +1 when | a living Terrorist +1 when | built |
+|---|---|---|---|
+| 5 SUPPRESSION | no Terrorist lives | no SEAL lives | R4P-252 |
+| 4 EXTRACTION | the SEALs' brought out > 1 | no SEAL lives | HX-5 |
+| 3 ESCORT | an escortee lives, or the SEALs' brought out > 0 | no escortee lives | R4P-252 |
+| 1 BREACH | never | (alive and no SEAL lives) or the SEALs' `+0x5c4` sum on his own console is 0 -- the second, alive or dead; online always 0 (`BREACH_SEAL_TALLY_READING`); every Terrorist seat present but a true mid-round joiner, held at none (`BREACH_JOINER_CREDIT_PLACEHOLDER`) | LATER 1462 |
+
+The room's `roundPrimaryObjectives` (`endRound`'s first line) transcribes types 5, 4, 3 and (LATER 1462, below) 1, the escortees from
+`ExtractionAuthority.hostages`' living ones, the brought out from `Player.roundRescued`; it reads the map's game type
+(0 when the map names none, as `scoreObjective` and the round's report do: a test map with no type takes no arm).
+`escorteesAlive` counts a living VIP whether or not it has faded out, as the original's list walk does (`FUN_001f1e10`
+D:L53543-53546 answers any type-2 body, faded or not); whether a rescued VIP keeps `+0xe1` bit 4 is unread.
+**BREACH stopped, against the queue's spec.** The queue asked that a living SEAL who wins a BREACH round by
+eliminating every Terrorist end with 1; the decompilation gives the SEALs nothing in BREACH (D:L76571-76573 test the
+Terrorist predicate only), and the Terrorists' arm rests on the SEALs' round-block `+0x5c4` (the round block `+0x58c`'s
+`+0x38`, bombs planted: research 261's block `+0x38`), which would credit a dead
+Terrorist too. That counter is stepped only offline or on the local player's own body (`FUN_005455d0`,
+D:L411606-411613), so whether it sums non-zero on a Terrorist's console online rests on the round blocks'
+replication, which is unread. The SEALs do earn BREACH primaries otherwise: the detonation's own `+0x32` and the
+teammates' credit below (both built). Not built; reported to the controller (then `BREACH_ROUND_OBJECTIVE_READING`,
+*note only*).
+
+**BREACH built (LATER 1462, 2026-11-24; reading, pending review).** Two independent reads of r0001 settled the
+replication (LATER 1462 reads 1 and 2, seat-shots; they agree on every point). GetRoundResult runs once per console,
+for its local player (one call site, D:L76026 in `FUN_00223970`, with `FUN_002b3580`'s body; no host test), and sums
+`+0x5c4` over that console's own SEAL copies (D:L76527-76530). `+0x5c4`'s only incrementing writer, `FUN_005455d0`
+(D:L411606-411613), writes only offline or on the planter's own console, and no message carries it (the per-player
+replicated state's six stats words, `FUN_002bd640` D:L162041-162047 / `FUN_002be150` D:L162417-162440; the 0x14-byte
+bomb object, D:L164090-164096). So online a Terrorist's console always sums 0: every Terrorist, alive or dead, takes
+BREACH's +1 every round, plant or not; a SEAL nothing from this arm; offline the sum is the true count
+(`BREACH_SEAL_TALLY_READING`, §8, which replaces `BREACH_ROUND_OBJECTIVE_READING`: one unknown, one name). The port:
+`objectiveScore.ts`' `breachRoundCredit` / `breachSealTally` compute each player's credit as his own console would; the
+room (`roundPrimaryObjectives`) passes online -- the room is the online game, the same test R4P-252's teammate credit
+takes (unconditional in `scoreObjective`) -- and tallies `Player.roundPlanted` (+0x5c4, zeroed with the round). With
+online fixed true, `roundPlanted` is inert: no Terrorist's tally reads it (only a SEAL's own would, and a SEAL takes
+nothing from the arm), so no room test holds it beyond the pure offline cases (review 1's F1). The page's solo room
+(`opts.solo`) takes the online tally too: `DAT_0045a0c1` is `IsNetwork` (research 107:161; reCOM's `m_bNetwork`,
+research 114:86), and BREACH exists only with it set -- the campaign never runs game type 1 (an inference) -- so a
+solo BREACH room is a browser adaptation of the online game, not an offline one (review 1's F4). The arm is the
+first to credit a seat that is not alive. The controller's ruling (A) on LATER 1462 merges what the three reads
+agree on: every Terrorist seat present at the round's end takes it -- alive or dead, held away or passed by at the
+round's start, a bot, a seat that played from the start and reconnected (the takeover's new Player), plant or not,
+whoever won. The one carve-out is the TRUE mid-round joiner, a seat seated after the round's start (`seatedAt`
+against `roundStartTick`; the takeover's kept row carries `seatedAt`, so a reconnect is no joiner): the plain
+reading of `FUN_00223970` credits him (the local body D:L76015, GetRoundResult D:L76026, no ghost test between;
+the tally branch no life test), but whether his console reaches that call is unread, so the port holds him at no
+credit, the LOW choice not merged into a release (PLAN-2 s8): `BREACH_JOINER_CREDIT_PLACEHOLDER`, settled by IQ-176
+(an r0004 capture of a late joiner's YOUR STATS after a BREACH round). In a RESPAWN BREACH room the round is the
+whole match, so a Terrorist who joins after its first tick is a joiner too and takes no round-end credit -- consistent
+with the original scoring per round (the controller's ruling of LATER 1462 F1, 2026-11-24); IQ-176 settles both. It
+replaces `BREACH_CREDIT_SEATS_READING` (the author's `ghostOf` skip, the fold of review 1's F2, which also dropped a reconnected seat; review 2's every-seat value; retired). A third
+read (atlas-maps, read 3, both exports) agrees, naming it the round's bombs-planted tally (CSealStats +0x38 at actor +0x58c); r0004 BombPlanted `FUN_00549ff0` D4:L451763-451780 (offline flag `DAT_0045d481`, local getter `FUN_002b4f90`, caller state 3 at D4:L172706), Reset `FUN_00549c20` at D4:L81939, RemoteRespawn `FUN_0059e690`, UpdateLocalSeal `FUN_002bf280`.
+Held by `roundPrimaryObjectives.test.ts` (the LATER 1462 block, its late-joiner, passed-by and reconnect cases among it) and `results.test.ts`'
+hand-computed BREACH match block.
+
+**The teammates' credit (R4P-252).** Online, `FUN_00545650` (the defuse) in BREACH only (the type read D:L411632, the
+gate D:L411643) and `FUN_00545750` (the detonation) in BREACH or DEMOLITION (D:L411671-411672, D:L411689) step the
+actor's `+0x32` (D:L411644, D:L411690) and call `FUN_00545d80` (D:L411645, D:L411691; the function D:L411914-411936),
+which visits every other player body (type 2, D:L411925; not the actor, D:L411928) that is alive (`+0xe1` bit 4,
+D:L411929) and shares a team bit with the actor (D:L411930). Its call on each goes through member-pointer records the
+decompilation does not resolve; read off the ELF's data (R4P-252's review 1, r0001; r0004's twins the same but the type
+byte): 0x64fd58 and 0x64fd38 point at 0x00545890, which returns the body's round block (`+0x58c`); 0x64fd68 points at
+`FUN_00545650` and 0x64fd48 at `FUN_00545750`. So each living teammate's block gets the scoring method with a third
+argument of 1 -- its `+0x32 += 1` branch (D:L411649, D:L411695); the bomb's direct calls pass 0 (D:L163922,
+D:L163934). Reading, pending review.
+Built in `scoreObjective` behind `OBJECTIVE_TEAMMATE_CREDIT_READING` (`creditsTeammates`, viewer
+`net/objectiveScore.ts`); the room is the online game. Research 192 §3.6 read `FUN_00545d80` as a teammate radio
+comm; amended (R4P-252): it is this credit. Tests: match `test/roundPrimaryObjectives.test.ts`.
 
 ### 4.6 The stats
 
@@ -659,7 +746,12 @@ screen are the gate's browser check.
 | `ORDER_RTT_READING` | server `hostageOrders.ts` | `'one round trip, the room the only refusal'`: the forward `FUN_005e6a00` -> `FUN_002bb970` (D:L497530-497537, D:L160726-160750); a name for the note, no behaviour of its own |
 | `ESCORTEE_PROMPT_READING` | viewer `hostagePage.ts` | `'FOLLOW! 0xe / HOLD POSITION 0xf, action_escortee.tif'`: `FUN_0021ded0` D:L73564-73565 (189 §3, 190 §9); shared with HX-5 |
 | `HOSTAGE_YES_AUDIENCE_PLACEHOLDER` | viewer `hostagePage.ts` | `'everyone, at the body'`: OnCommand plays YES on the console running the AI (ctrl vt+0x24, D:L450379, D:L450537); who else hears it is unread; settles: C2 on a client |
-| `HOSTAGE_YES_CUE_READING` | viewer `hostagePage.ts` | `{ cue: 0x37, sound: '^CO_0343' }`: CHRSND YES; mp_fem1-3's only cues YES, DAMAGE, DEATH (189 §2, 199 §8) |
+| `HOSTAGE_YES_CUE_READING` | was viewer `hostagePage.ts` (removed, R4P-254, 2026-11-24) | was `{ cue: 0x37, sound: '^CO_0343' }`, fixed on every map; replaced by the placed character's own `CHRSND_YES` (`soundData.ts` `escorteeVoicesOf`, the entry's `character`; `^CO_0284` / `^CO_0285` for MP82's mp_vip1-3, read off the disc by `deathVoice.test.ts`). Retired |
+| `AI_VOCAL_HEARING_RANGE_READING` | viewer `matchSound.ts` | `'a group: 160-430; a sound: its own RANGE'` (R4P-254, re-filed at the review's F2; reading, medium, pending review): the hearing check (`FUN_0034d0b0` D:L247890 -> `FUN_00342670`, D:L241930-241944) reads the handle's `+0xc` / `+0xe`; a group's handle is built by `FUN_00348130` with the plain constructor `FUN_00345620` (160 / 430, D:L243411-243425), and the group's load `FUN_00347f00` (D:L244831-244925) and registration `FUN_00343f90` write neither, so a group (`^CO_0284`) is heard by 160-430; its members' 40-200 is the member play's falloff only (`FUN_00342b20`). Was: the first member's RANGE. Medium: not every writer of `+0xc` searched; settles: that search, or capture Q-254 |
+| `AI_VOCAL_QUEUE_AT_SCREENS_READING` | viewer `matchSound.ts` | `'emptied'` (R4P-254, the review's F3; reading, pending review; was `AI_VOCAL_QUEUE_AT_SCREENS_PLACEHOLDER`): the stop-all's second call `FUN_00344f80` (D:L151221) opens on the queue's vtable slot `+0x14` (D:L243218); vtable 0x406bc0 holds `FUN_0034ca20`, which frees the entry pool and empties both lists (D:L247560-247590); r0004 vtable 0x433460 -> 0x36a0d0 (the review's). The page empties it with the round's audio reset (the screens' first frame, a replay seek, the match's end) A LEAD, untraced (the second read): `FUN_0034ca20` also frees the entry pool, so new requests fail until it is refilled (when, after the screens, untraced), and sets `DAT_0048db50` = 0, so every positioned voice counts as unheard; not modelled. |
+| `AI_VOCAL_ENTRY_LIFETIME_READING` | viewer `matchSound.ts` | `3` seconds (R4P-254, the review's F1; reading, pending review): PlayAt `FUN_0053b710` hands the queue 3.0 (D:L405300), stored at the entry's `+4` (`FUN_0034ced0` -> `FUN_0034cd30`, D:L247827; `FUN_0034cd30` is D:L247724-247733, the `+4` store at D:L247731 -- the second read's correction, 2026-11-24); the tick `FUN_0034c920` takes the frame's time off every waiting entry's `+4`, clamped at 0 (D:L247548-247555); `FUN_0034c650` drops a head entry whose `+4` is 0 or less before its hearing is asked (D:L247440-247443). r0004 the same (the review: 0x540160, 0x36a580, 0x369d00, 0x369fd0). Settles: capture Q-254 |
+| (a named difference, no constant) | viewer `matchSound.ts` `AiVocalQueue.request` | the page serves a YES the moment it is asked: the original's request (`FUN_0034ced0`) only appends; the queue is served on its next per-frame tick (`FUN_0034c920`), so the page's voice can start up to one frame earlier (the re-review's remaining 1; inaudible) (folded from five cells to the table's three, the second read) |
+| `AI_VOCAL_UNKNOWN_LENGTH_PLACEHOLDER` | viewer `matchSound.ts` | `0` (R4P-254): the seconds the queue holds a voice whose length the page cannot know (a bank voice mixed off the thread reports 0); the next starts at once. A stream's length is always known. The original knows every voice's end; settles: a port's length for that path |
 | `ESCORTEE_CONTEXT_ORDER_READING` (retired 2026-10-16, AD-6) | was viewer `actionContext.ts` (removed) | settled by the read (reading, pending review; research 214 s4): with the turret's bits (0x80000 / 0x100000) and the pickups' (0x10 / 0x20) read, masks 0x4000 / 0x8000 come after the pickups' and 0x100 / 0x200 and before 0x40 in `FUN_0021f850`'s order (D:L74050-74293): `escortee` after `pickup`, before `bombDrop`. Was: `'after-turret, before-drop'`, against the pickup's and turret's unidentified bits unread. Retired |
 | `RESCUE_TEST_READING` | server `extraction.ts` (`rescueTest`, `inZone`) | `'led (lastLeader resolves), on a kind-1 zone cell'`: `FUN_0056f970` D:L432964-432985; the cell `aiCellOf` on sub-map 0 (`+0xe4`'s stand-in). Owed: C2 (a SEAL leading a hostage onto Safety) |
 | `RESCUE_CREDIT_READING` | server `extraction.ts` (`room.ts` `on('rescued')`) | `'the last leader, a SEAL: +3, brought out +1'`: `FUN_00545480` D:L411554-411572 |
@@ -667,7 +759,11 @@ screen are the gate's browser check.
 | `TERRORIST_LEAD_RESCUE_READING` | server `extraction.ts` | `'a SEAL rescue, no points'`: 0x11 whatever the side, `FUN_00545480` credits a SEAL only (190 U6, V2 s14.12). Owed: C2 (a Terrorist's lead into Safety) |
 | `RESCUE_VALVE_READING` | server `extraction.ts` (`script`) | `'INREGION once per hostage, no leader or alive test; the empty OR arm is INREGION alone'`: MP6's Rescue1-3 (190 s4 C, U9); DF-7 (175 §3): the empty group returns `FUN_0025e960`'s caller's s1 (0x25ebc8-0x25ebd4, D:L108366-108367), so the OR is INREGION alone; INREGION's actor mode has no alive test (`FUN_005ced60` D:L484861-484903, `FUN_0029e4e0`), so a hostage dead on a zone cell counts in Rescue and in its kill one-shot -- the original's double, copied (`extraction.test.ts`). Unread: a corpse's `+0xe4` after death. Reading (DF-7's review). Was: `'INREGION once per hostage, no leader test'`, INREGION on a dead actor unread |
 | `DOUBLE_COUNT_READING` | server `extraction.ts` (`targetable`) | `'copied'`: `FUN_0059ee20` D:L458113-458145 has no state test (199 s2); owner call 2 (HX.R5), C2 -- retired by R4B-04: r0001, superseded by r0004 (research 377 §3, §5; OT.R97) |
-| `PRIMARY_OBJECTIVE_READING` | server `extraction.ts` (`room.ts` `hostagePrimaryObjectives`) | `"a living SEAL with the side's brought out > 1; a living Terrorist with no SEAL alive"`: `FUN_00224d10` D:L76550-76558 |
+| `PRIMARY_OBJECTIVE_READING` | server `extraction.ts` (`room.ts` `roundPrimaryObjectives`, its EXTRACTION arm; was `hostagePrimaryObjectives`) | `"a living SEAL with the side's brought out > 1; a living Terrorist with no SEAL alive"`: `FUN_00224d10` D:L76551-76560 |
+| `OBJECTIVE_TEAMMATE_CREDIT_READING` | viewer `net/objectiveScore.ts` (`creditsTeammates`; `room.ts` `scoreObjective`) | `'each other living teammate +1 primary: the BREACH defuse, the BREACH or DEMOLITION detonation'`: `FUN_00545d80` D:L411914-411936 called at D:L411645 (defuse, BREACH, D:L411643) and D:L411691 (detonation, BREACH or DEMOLITION, D:L411689); every other living same-team body (D:L411928-411930); the ELF's member pointers 0x64fd58 / 0x64fd38 -> 0x00545890 (the round block +0x58c) and 0x64fd68 -> `FUN_00545650`, 0x64fd48 -> `FUN_00545750`, called with 1: `+0x32 += 1` (D:L411649, D:L411695); the direct callers pass 0 (D:L163922, D:L163934); R4P-252, reading, pending review. Owed as confirmation: a GAME COMPLETE frame of a living teammate after an online BREACH defuse (r0004) |
+| `BREACH_SEAL_TALLY_READING` | viewer `net/objectiveScore.ts` (`breachSealTally`, `breachRoundCredit`; `room.ts` `roundPrimaryObjectives`, its BREACH arm) | `'online, a console sums only its own player plants: a Terrorist console 0'`: BREACH's arm of `FUN_00224d10` (D:L76571-76573) credits a Terrorist (`FUN_002c30b0`) only, alive with no SEAL alive or when his console's SEAL `+0x5c4` sum (D:L76527-76530) is 0. GetRoundResult runs once per console for its local player (D:L76026, `FUN_002b3580`'s body; +0x5be / +0x5c0 D:L76028-76029); `+0x5c4`'s only incrementer `FUN_005455d0` (D:L411606-411613) writes offline or on the planter's own console only, its caller `FUN_002c1c30` state 3 (D:L163940-163947) on every console; zeroed by `FUN_00545200` (D:L411429-411469, from D:L75817); carried by no message (`FUN_002bd640` D:L162041-162047, `FUN_002be150` D:L162417-162440: six other stats words; the bomb object 0x14 bytes, D:L164090-164096; `FUN_00545a30` D:L411776 reads not 0x38). Online every Terrorist, dead included, +1 every round; a SEAL never; offline the true count. Two independent reads of r0001 agree (LATER 1462 reads 1 and 2, seat-shots, 2026-11-24, `agent-mail/planning/mega-2026-11-21/pilot/shots/later1462-read-1.md`, `-read-2.md`); r0004 moves only the mode byte (R4P-252's review). A third read covering both exports agrees (atlas-maps, `later1462-read-3-atlas.md`): the round's bombs-planted tally (CSealStats +0x38 at actor +0x58c); r0004 BombPlanted `FUN_00549ff0` D4:L451763-451780 (offline flag `DAT_0045d481`, local getter `FUN_002b4f90`, caller state 3 at D4:L172706), Reset `FUN_00549c20` at D4:L81939, RemoteRespawn `FUN_0059e690`, UpdateLocalSeal `FUN_002bf280`; three agreeing reads, no capture. Not followed: the pointer array built at D:L53726, `FUN_00225070` / `FUN_00225a00`. Would prove it: an r0004 capture (or memory trace) of a Terrorist console's +0x5be after a BREACH round with a remote SEAL plant. Replaces `BREACH_ROUND_OBJECTIVE_READING` (R4P-252's *note only* row, the replication then unread); LATER 1462, reading, pending review |
+| `BREACH_CREDIT_SEATS_READING` (retired) | was viewer `net/objectiveScore.ts` (removed) | was `'the seats that played the round: the room ghostOf false'` (review 1's F2; it also dropped a reconnected seat), then every Terrorist seat, a mid-round joiner included (review 2). Replaced by `BREACH_JOINER_CREDIT_PLACEHOLDER` at the controller's ruling (A) on LATER 1462 -- retired |
+| `BREACH_JOINER_CREDIT_PLACEHOLDER` | viewer `net/objectiveScore.ts` (`room.ts` `roundPrimaryObjectives`, its BREACH arm's joiner skip) | `false`: a TRUE mid-round joiner on the Terrorist side takes no BREACH round-end +1 -- a seat seated after the round's start (`Player.seatedAt` against `roundStartTick`; a takeover's kept row carries `seatedAt`, `TAKEOVER_ROW_READING`, so a reconnected seat is no joiner). Every other Terrorist seat present at the round's end takes it, alive or dead, held away or passed by at the round's start, a bot, plant or not, whoever won (the three reads agree). The plain reading of `FUN_00223970` credits the joiner too (the local body D:L76015, GetRoundResult D:L76026, no ghost test between; the tally branch D:L76571-76573 no life test), but whether a joiner's console reaches that call is unread; the controller's ruling (A) on LATER 1462 holds the port's earlier behaviour, the LOW choice not merged into a release (PLAN-2 s8). Settles it: IQ-176, an r0004 capture of a late joiner's YOUR STATS after a BREACH round. Replaces `BREACH_CREDIT_SEATS_READING` (retired); LATER 1462, open |
 | `HOSTAGES_RESCUED_STAT_READING` | server `extraction.ts` (`MatchStats.hostagesRescued`) | `'+0x24 from the match brought out, not in ESCORT'`: `FUN_00225070` D:L76619-76632; drawn nowhere yet (research 155's stats record, owed) |
 | `ESCORTEES_KILLED_STAT_READING` | server `extraction.ts` (`MatchStats.escorteesKilled`) | `'carried, drawn nowhere'`: +0x18 (`FUN_00545390` D:L411546); YOUR STATS reads +0x576 / +0x578 only (research 216) |
 | `HOSTAGE_KILL_SCORE_READING` | viewer `net/objectiveScore.ts` | `-2`: `FUN_00545390` D:L411524-411547; ESCORT's Terrorist +3 (D:L411530) built in `objectivePoints` for MAP-08b |

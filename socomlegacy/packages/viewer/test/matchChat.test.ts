@@ -1,8 +1,9 @@
 // @vitest-environment node
+import { resetStreamerCache, saveStreamerRow, setSocialLookup, setStreamerMode } from '../src/streamerMode';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { noInput, type PadButton } from '../src/gamepad';
 import { mountChat, MESSAGE_HELP, TACTICAL_HELP, type MatchChatDeps } from '../src/matchChat';
 import { FRONT_END_CAPABILITIES, TESTROOM_CAPABILITIES } from '../src/matchCore';
@@ -278,5 +279,53 @@ describe('one wiring (ONE-WIRE): both switches mount it, its hook is one PART_DE
       expect(s, f).not.toContain('s2u.options');
       if (f !== 'main.ts') expect(s, f).not.toContain('localStorage');   // main.ts's own panel settings are the page's, not the game's
     }
+  });
+});
+
+/**
+ * STREAMER-P1 slice 2 (the controller's ruling on the review's F3; a browser adaptation, `../src/streamerMode`): a
+ * teammate's typed MESSAGE (custom text) in a round asks Chat from others at 'match' -- dropped under Friends & clan only
+ * for a stranger, and under Off; the preset shows it. The game's own recorded orders are not chat and stay.
+ */
+describe('STREAMER-P1: in-round MESSAGES under Chat from others', () => {
+  const data = new Map<string, string>();
+  const g = globalThis as unknown as { localStorage?: unknown };
+  const had = g.localStorage;
+  afterEach(() => { data.clear(); resetStreamerCache(); setSocialLookup(null); g.localStorage = had; });
+  const on = (chatIn: 'matches-friends' | 'friends' | 'off'): void => {
+    g.localStorage = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k, v); }, removeItem: (k: string) => { data.delete(k); } };
+    resetStreamerCache();
+    setStreamerMode(true);
+    saveStreamerRow('chatIn', chatIn);
+  };
+  it('the preset: a stranger\'s message shows', () => {
+    on('matches-friends');
+    const r = rig();
+    r.chat.netDeps().communication(comm({ name: 'kilo', text: 'gg' }));
+    expect(r.posted).toHaveLength(1);
+  });
+  it('Friends & clan only: a stranger\'s message is not posted, a friend\'s is; an order (no text) still is', () => {
+    on('friends');
+    setSocialLookup((who) => who.name === 'pal');
+    const r = rig();
+    r.chat.netDeps().communication(comm({ name: 'kilo', text: 'slur', request: 1 }));
+    expect(r.posted).toHaveLength(0);
+    r.chat.netDeps().communication(comm({ name: 'pal', text: 'hi', sender: 4, request: 2 }));
+    expect(r.posted).toHaveLength(1);
+    r.chat.netDeps().communication(comm({ command: 23, request: 3 }));
+    expect(r.posted).toHaveLength(2);
+  });
+  it('Off: no other player\'s message is posted', () => {
+    on('off');
+    const r = rig();
+    r.chat.netDeps().communication(comm({ name: 'kilo', text: 'hey' }));
+    expect(r.posted).toHaveLength(0);
+  });
+  it('Off: the player\'s OWN typed message is still posted (the slice 2 re-check’s test gap)', () => {
+    on('off');
+    const r = rig();
+    const own = (r.net as { client: { id: number } }).client.id;
+    r.chat.netDeps().communication(comm({ name: 'me', text: 'my words', sender: own }));
+    expect(r.posted).toHaveLength(1);
   });
 });

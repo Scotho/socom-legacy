@@ -1,6 +1,8 @@
 import {
   INVITE_ROUTE, inviteHref, inviteOf, isLobbyId, lobbyInviteOf, withoutInvite, type InviteLink,
 } from '@s2u/ui';
+import { addressOf, holdInviteAddress } from '../../inviteAddressHold';
+import { onStreamerChange } from '../../streamerMode';
 import { answerInvites, clearInviteTaken, markInviteTaken, pageInviteChannel, type InviteChannelOpen } from '../../inviteHost';
 import { LOBBY_LINK_QUICK_WAIT_MS_ADAPTATION, lobbyLinkRoute, markLobbyLinkDirect } from '../../lobbyLinkDirect';
 import { routeSegmentsOfPath } from '../../menuRoutes';
@@ -135,7 +137,10 @@ const randomId = (): string => globalThis.crypto?.randomUUID?.() ?? `${Date.now(
 
 export function liveInvite(win: Window, deps: InviteDeps): LiveInvite {
   const base = deps.base ?? String((import.meta.env as Record<string, unknown> | undefined)?.['BASE_URL'] ?? '/');
-  const link = (): InviteLink | null => inviteAt(win.location, base);
+  // STREAMER-P1 1b (`../../inviteAddressHold`, a browser adaptation): while Streamer mode's details are Hidden the address
+  // is bared at once and the invite held; every read here takes the held address. Turned on later (while attached), then.
+  const link = (): InviteLink | null => inviteAt(addressOf(win.location), base);
+  holdInviteAddress(win, base);
   let spent = false;
   let loaded = !deps.disc.loaded;
   void deps.disc.loaded?.().then(() => { loaded = true; deps.notify?.(); }, () => { loaded = true; });
@@ -195,6 +200,7 @@ export function liveInvite(win: Window, deps: InviteDeps): LiveInvite {
           markInviteTaken(l);                                           // first: the mount skips its own re-offer
           decide(l);                                                    // LOBBY-LINK-DIRECT: a taken lobby link decided as the address's
           win.history.replaceState(null, '', inviteAddress(win.location, base, l));
+          holdInviteAddress(win, base);                                 // STREAMER-P1 1b: bared at once while details are Hidden
           spent = true;
           // START after `take` returns (answerInvites posts 'taken' next); the answerer closed at START, before the
           // front end's own opens. A START refused at once (its needs gone meanwhile) drops the mark.
@@ -209,7 +215,8 @@ export function liveInvite(win: Window, deps: InviteDeps): LiveInvite {
           return true;
         },
       });
-      return { check, detach: () => { if (detached) return; detached = true; answers.close(); } };
+      const offStreamer = onStreamerChange(() => { if (!detached) holdInviteAddress(win, base); });   // STREAMER-P1 1b: turned on later
+      return { check, detach: () => { if (detached) return; detached = true; answers.close(); offStreamer(); } };
     },
   };
 }

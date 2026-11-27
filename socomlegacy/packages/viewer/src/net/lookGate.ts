@@ -1,13 +1,14 @@
 import { SEAL_TUNING } from '@s2u/scene';
 import { LOOK_GAIN, PITCH_RETURN, PRONE_AIM_LEAN_READING, proneAimLean, zoomScale } from '../look';
 import { STICK_PRESETS, stickGainOfSensitivity } from '@s2u/ui';
-import { TICK, type Walker } from '../mover';
+import { TICK, type Stance, type Walker } from '../mover';
 import { shortTurn, wrapYaw } from '../yaw';
 import { Button, type Command } from './protocol';
 
 /**
  * NET-LOOK (the owner's OT.R38 / H115, "Controller only"; web research 223 §3.1, MEDIUM-4): a command's look held to
- * the stick's law, and its `turn` derived from the look it was let move -- never the page's own report. The room
+ * the stick's law, and its `turn` derived from the look it was let move -- never the page's own report
+ * (`TURN_BAND_TURN_SOURCE_READING`: the law's exact inverse on each tick's move, the turn word). The room
  * (`MoverSim.prepare`) and the page's prediction (`WalkMode`, the same gate on the same quantised commands) run this one
  * function, so the two movers face the same way and cut the same reloads.
  *
@@ -24,9 +25,9 @@ import { Button, type Command } from './protocol';
  *
  * Server tolerances with no original (the game has no server, research 91 §15), each named:
  * - `LOOK_SLACK_TICKS_PLACEHOLDER`: a page samples its look once a drawn frame and runs whole ticks, so a frame of two
- *   ticks lays both ticks' turn on its first. The unspent allowance is banked up to this many ticks' worth, and the
- *   derived turn is the look's mean over as many ticks, so an honest stick at any frame rate is not clamped and its
- *   turn is the law's own (late by at most this many ticks at its start).
+ *   ticks lays both ticks' turn on its first. The unspent allowance is banked up to this many ticks' worth, so an honest
+ *   stick at any frame rate is not clamped. (Was also the derived turn's window, the look's mean over as many ticks:
+ *   R4P-208 fix 2 takes the turn off it, `TURN_BAND_TURN_SOURCE_READING`.)
  * - `LOOK_SNAP_GRACE_PLACEHOLDER`: after a facing the room set on a new mover (a spawn, a respawn, a takeover), the
  *   commands the page sent before it heard of it carry the old look. LATER 14 (the original snaps the facing at spawn,
  *   research 91 §4.2 D:L395768-395800 -- an 8-way heading, yaw only; research 270's row): such a command holds the mover
@@ -49,6 +50,40 @@ import { Button, type Command } from './protocol';
  */
 export const LOOK_SLACK_TICKS_PLACEHOLDER = 4;
 export const LOOK_SNAP_GRACE_PLACEHOLDER = 30;
+/**
+ * R4P-208 fix 2 (FINDING-R4P208-turnword s1, s5; the controller's ruling (B); research 251 §7; reading, pending review):
+ * what the derived turn is. `'look-law-word'`: the TURN WORD the original's ground driver turns by and its turn band
+ * squares raw -- `actor+0x23c` = -(the look stick's processed x) x 1.72 / the scope's magnification (x 0.2 in view state
+ * 4), 1.118 at a full push, with no slew past the pad reader's ramp (r0004: the controller 0x59c140 stores it to
+ * controller+0x10 at 0x59c798, the actor pass 0x557080 copies it to +0x23c at 0x5575e8 / 0x5575ec -- a CONDITIONAL copy
+ * (a controller at +0xc0, a state other than 8, +0x105c bit 0x40 set by the controller's vtable+0xc tick; in state 10
+ * with a partner at +0xeac, the partner's controller), then scales it by +0x136c (`TURN_WORD_LINK_SCALE_READING`), the ground driver
+ * turns by `turn_maxrate` x it at 0x556bf0-0x556bfc, the band squares it at 0x58bf78-0x58bfac; r0001 `FUN_005966a0`
+ * D:L453769-453858, `FUN_00551ec0` D:L418613, `FUN_00550ef0` D:L418341, `FUN_00586570` D:L444899-444900). The look law
+ * moves the yaw `turn_maxrate` x that word a second (`../look` `LookLaw.frame`), so a tick's let move over the tick IS
+ * the word x `turn_maxrate` -- the law's exact inverse, per tick (`Walker.turn / turnMaxRate` = `-LookLaw.axis()[0]`),
+ * to within the wire's yaw step (360 / 65536 deg over a full push's 2.135 deg a tick: 0.0029 of the word). The page
+ * samples each tick's look at the tick's own time (`../walk` `WalkMode.frame`), so the moves the gate reads are the
+ * law's. Was: the mean of the last `LOOK_SLACK_TICKS_PLACEHOLDER` ticks' moves, which swung 0.85-1.40 about a held full
+ * push on uneven frames (R4P208-RESCORE-PC2) and dropped the band under the forward. The room (`./moverSim`
+ * `MoverSim.prepare`) and the page run this one class, so both read the same word. Settled by the finding's review and
+ * a capture re-score (byte 66 / 67 / 74 on M51).
+ */
+export const TURN_BAND_TURN_SOURCE_READING = 'look-law-word' as const;
+/**
+ * R4P-208 (the +0x136c read, atlas-parity, a non-author read; research 251 §7; reading, pending review): the factor the
+ * original multiplies the turn word by after the copy. r0004 `FUN_00557080` (CZSealBody::PreTick) multiplies `+0x23c`,
+ * `+0x240` and `+0x244` by `actor+0x136c` when the body's own controller's vtable+0x2c (IsPlayer) answers nonzero
+ * (D4:L457320-457328). `+0x136c` is 1.0 from the constructor (D4:L458607); its one setter `FUN_005590e0`
+ * (D4:L458140-458152) is called only by CSealCtrl::PreTick `FUN_0059a6e0` (D4:L494022-494036), only online: 1.0 when the
+ * link state's age is <= 1500 or the LAN lobby is active, else (5000 - (age - 1500)) x 0.001 saturated to [0, 1]. So it
+ * is 1.0 for a player's SEAL offline, in LAN and online on a healthy link, and a remote SEAL's words are not multiplied
+ * (its controller answers 0). It drops below 1 only for the LOCAL player, ONLINE, during a link stall -- the online stall
+ * fade, not ported (LATER 1535). FEELMV-C7B-PC2's -1.118 (= 0.65 x 1.72) shows 1.0 there. Here it multiplies the
+ * derived turn (`tickTurn`), so x 1.0 changes nothing; the port's move sticks take no such factor (1.0 wherever the
+ * port plays).
+ */
+export const TURN_WORD_LINK_SCALE_READING = 1.0;
 /**
  * NET-LOOK round 3 (finding 3): a weapon record changed under the gate (a pickup: the room takes the claim, the page
  * learns of it from the `kit` event a round trip later). For this many commands after the room's change its gate takes
@@ -118,7 +153,21 @@ export function aimPitchLimits(posture: string, lean = 0): [number, number] {
  */
 export function aimPitchLimitsOf(w: Pick<Walker, 'posture' | 'floorNormal' | 'aimProne' | 'state'>): [number, number] {
   const lean = PRONE_AIM_LEAN_READING === 'saved-floor' && w.aimProne ? proneAimLean(w.floorNormal, w.state.yaw) : 0;
-  return aimPitchLimits(w.posture, lean);
+  return aimPitchLimits(aimPostureOf(w), lean);
+}
+
+/**
+ * LATER 597 (research 86 s6.1; reading, pending review, read at r0004 by a seat-kill key job): the posture as the aim
+ * pair (`FUN_00594600`, D:L452817) and the eye (`FUN_0029ae50`, D:L142591) test the word `+0x174` -- prone only when it is
+ * 2, i.e. `Walker.aimProne` (prone and not in the dive: the dive writes 6, r0001 `FUN_0057e540` D:L440898); through the
+ * dive the standing branch (`'stand'`: -70..60, no lean; the standing eye). The word is not on the original's wire (the
+ * dive is, as an action event each client replays), so every seat derives it from its own dive. The page's eye
+ * (`../walk`) and the room's body posture into `./shotCone` hand it to `scopeEye` (their owners' hunks); the pov camera's eye of a
+ * WATCHING page (`../povCamera`) is left OPEN: whether the port's wire tells a remote body is diving is unread.
+ */
+export function aimPostureOf(w: Pick<Walker, 'posture' | 'aimProne'>): Stance {
+  if (w.aimProne) return 'prone';
+  return w.posture === 'prone' ? 'stand' : w.posture;
 }
 
 /** `LOOK_NARROW_SNAP_ADAPTATION`'s alternatives. */
@@ -194,6 +243,14 @@ const YAW_EPS = 360 / 65536, PITCH_EPS = 0.01;
 const clampTo = (v: number, lim: number): number => (v > lim ? lim : v < -lim ? -lim : v);
 
 /**
+ * The derived turn, rad/s, left positive (`TURN_BAND_TURN_SOURCE_READING`): the yaw move `dYaw` (degrees) the command was
+ * let make over the `ticks` it covers (its own and `cover`'s), inverted through the law per tick -- the turn word x
+ * `turn_maxrate`, times the link scale the original applies after its copy (`TURN_WORD_LINK_SCALE_READING`, 1.0). `+ 0`
+ * keeps a -0 off the mover.
+ */
+const tickTurn = (dYaw: number, ticks: number): number => dYaw / ticks / DEG / TICK * TURN_WORD_LINK_SCALE_READING + 0;
+
+/**
  * RB-2 (the replay batch; OT.R114, RB.R4, RB.R6 -- a BROWSER ADAPTATION, no original: the original's host checks no look,
  * and the law below is itself the room's adaptation, CTL.R2): which gate a mover runs. `'law'` (the default, and every
  * server room's): the look held to `LOOK_RATE_MAX_ADAPTATION` as above. `'free'`: the page's own offline room alone
@@ -219,9 +276,6 @@ export class LookGate {
   private prevScale = 1;
   /** The stance's limits at the last command (an edge snap only on the tick they narrow). */
   private prevLimits: readonly [number, number] | null = null;
-  /** The last ticks' yaw moves, degrees, newest last (the derived turn's mean). */
-  private readonly recent: number[] = [];
-
   /** Ticks the room ran no command for, which the next command's look turned through (`cover`). */
   private covered = 0;
 
@@ -242,7 +296,6 @@ export class LookGate {
     const g = new LookGate(this.mode);
     g.clamps = this.clamps; g.grace = this.grace; g.snapYaw = this.snapYaw; g.skippedN = this.skippedN; g.bankYaw = this.bankYaw; g.bankPitch = this.bankPitch;
     g.prevScale = this.prevScale; g.prevLimits = this.prevLimits; g.covered = this.covered;
-    g.recent.push(...this.recent);
     return g;
   }
 
@@ -260,7 +313,6 @@ export class LookGate {
   allowSnap(): void {
     this.grace = 1;
     this.snapYaw = Number.NaN;                                   // no facing to wait for: the one command, as given
-    this.recent.length = 0;
   }
 
   /**
@@ -284,7 +336,6 @@ export class LookGate {
     const a = { yaw: a1.yaw * ticks, pitch: a1.pitch * ticks };
     if (this.grace > 0) {
       if (this.snapYaw === null) this.snapYaw = ref.yaw;
-      this.recent.length = 0;
       this.bankYaw = this.bankPitch = 0;
       this.prevLimits = limits;
       // A turret's mount (`allowSnap`): the one command as given.
@@ -325,21 +376,15 @@ export class LookGate {
     this.bankYaw = Math.max(0, Math.min(LOOK_SLACK_TICKS_PLACEHOLDER, (availYaw - Math.abs(dYaw)) / a1.yaw));
     this.bankPitch = openPitch ? LOOK_SLACK_TICKS_PLACEHOLDER : Math.max(0, Math.min(LOOK_SLACK_TICKS_PLACEHOLDER, (availPitch - spentPitch) / a1.pitch));
     if (clampedYaw || clampedPitch) this.clamps++;
-    for (let k = 0; k < ticks; k++) this.recent.push(dYaw / ticks);
-    while (this.recent.length > LOOK_SLACK_TICKS_PLACEHOLDER) this.recent.shift();
-    const turn = this.meanTurn();
+    // R4P-208 fold 3 (`TURN_BAND_TURN_SOURCE_READING`): the word is one tick's post-gain look axis and never passes the
+    // view's full push, so a tick that spends the bank reads at most the law's fastest tick in its view (`a1`: the
+    // looser of a zoom step's two, as the allowance) -- the derived turn alone; the yaw and the bank are as above.
+    const turn = clampTo(tickTurn(dYaw, ticks), a1.yaw / DEG / TICK);
     return {
       yaw: held || !clampedYaw ? cmd.yaw : wrapYaw(ref.yaw + dYaw),
       pitch: clampedPitch ? ref.pitch + dPitch : cmd.pitch,
       turn: turn + 0, clampedYaw, clampedPitch,
     };
-  }
-
-  /** The derived turn, rad/s: the mean of the last ticks' yaw moves (`LOOK_SLACK_TICKS_PLACEHOLDER`). */
-  private meanTurn(): number {
-    let sum = 0;
-    for (const d of this.recent) sum += d;
-    return sum / LOOK_SLACK_TICKS_PLACEHOLDER / DEG / TICK;
   }
 
   /**
@@ -353,13 +398,10 @@ export class LookGate {
     if (this.grace > 0) {
       this.grace = 0;
       this.snapYaw = null;
-      this.recent.length = 0;
       return { yaw: cmd.yaw, pitch: cmd.pitch, turn: 0, clampedYaw: false, clampedPitch: false };
     }
     const dYaw = held ? 0 : shortTurn(ref.yaw, cmd.yaw);
-    for (let k = 0; k < ticks; k++) this.recent.push(dYaw / ticks);
-    while (this.recent.length > LOOK_SLACK_TICKS_PLACEHOLDER) this.recent.shift();
-    return { yaw: cmd.yaw, pitch: cmd.pitch, turn: this.meanTurn() + 0, clampedYaw: false, clampedPitch: false };
+    return { yaw: cmd.yaw, pitch: cmd.pitch, turn: tickTurn(dYaw, ticks), clampedYaw: false, clampedPitch: false };
   }
 }
 

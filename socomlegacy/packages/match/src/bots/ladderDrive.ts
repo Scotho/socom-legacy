@@ -41,7 +41,12 @@ export class BotLadderDrive {
     let forward = busy || Math.abs(error) <= LADDER_INPUT_ADAPTATION.alignDegrees ? direction : 0, right = 0;
     if (!this.mounted && !this.approached) {
       const dx = this.link.entry[0] - s.x, dz = this.link.entry[2] - s.z;
-      if (Math.hypot(dx,dz) <= BOT_LADDER_ENTRY_TOLERANCE_ADAPTATION && Math.hypot(s.vx,s.vz) <= LADDER_INPUT_ADAPTATION.entrySpeed) this.approached = true;
+      const inside = Math.hypot(dx,dz) <= BOT_LADDER_ENTRY_TOLERANCE_ADAPTATION;
+      if (inside && Math.hypot(s.vx,s.vz) <= LADDER_INPUT_ADAPTATION.entrySpeed) this.approached = true;
+      // SETTLE-AT-ENTRY (LATER 1173, a bot adaptation, OT.R81; as `BotClimbDrive`): inside the tolerance the stick is
+      // released, so the pad's rest stops the body (`FUN_00586f00`, 0.03) and the speed gate opens -- the PD's damping
+      // alone limit-cycled about the entry once the body answers the stick within the tick (RAMP_LEAD, LATER 1164).
+      else if (inside) { forward = 0; right = 0; }
       else {
         // Reach the selected approach, including its side offset, before pushing at the ladder plane.
         const r = (s.yaw + turn) * Math.PI / 180, fx = -Math.sin(r), fz = -Math.cos(r), rx = Math.cos(r), rz = -Math.sin(r);

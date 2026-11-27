@@ -106,7 +106,7 @@ describe('zero-muzzle script rounds (unit)', () => {
   for (const [height, variant, expected] of [[0, true, '.STONE'], [10, true, '.DEFAULT'], [0, false, '.DEFAULT']] as const) {
     it(`selects the ground variant at height ${height}, variant present ${variant}`, () => {
       const poly: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/deck', region: 0, ditype: 2, material: 0, ptcount: 4, cameratype: 0,
-        points: Float32Array.from([-100, 0, -100, 100, 0, -100, 100, 0, 100, -100, 0, 100]) };
+        points: Float32Array.from([-100, 0, 100, 100, 0, 100, 100, 0, -100, -100, 0, -100]) };
       const grid = buildGrid({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 }, [], [], [poly],
         [{ modelName: 'worldmodel', path: 'worldmodel/deck0', first: 0, count: 1 }]);
       const data = fixtureData(); if (!variant) data.programs.pop();

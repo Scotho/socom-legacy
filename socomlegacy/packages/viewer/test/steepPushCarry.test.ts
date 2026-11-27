@@ -83,8 +83,15 @@ describe.skipIf(!DISC)('the near-vertical floor push is a displacement, never ca
     });
   }
 
-  it('The Ruins (MP12): a jump pressed on the command after a grounded push carries the clip\'s velocity', { timeout: 120_000 }, () => {
-    const start = [877.625, 43.375, 1772.75] as const, yaw = 317.7;
+  it('The Ruins (MP12): at the rig grass height no grounded push fires, and the walk-off and jump keep the stick speed (FLE-2; LATER 833)', { timeout: 120_000 }, () => {
+    // LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): the push's trigger is a thin near-vertical sliver at x ~867.5. From the
+    // recording's row (x 877.625) the walk's ramp read half a tick ahead puts the body 0.21 further along, so its tick 24
+    // has already stepped past the sliver and no tick samples it (no push in 80 ticks; the trunk pushed at tick 25).
+    // The precondition needs a start that samples the sliver: swept over x -0.6..+0.6 in 0.1 steps, the trunk pushes at 10
+    // of 13 starts and the head at 8 of 13, and both push at -0.3, -0.1, +0.2 and +0.4. The start is 0.1 back of the row
+    // (877.525): push at tick 24 at the head and 25 at the trunk. Wherever a push fires, both give v 39.0, carry 39.0 and
+    // a flight of 29.2, so the claims below are unchanged.
+    const start = [877.525, 43.375, 1772.75] as const, yaw = 317.7;
     const w = bodyAt('MP12', start, yaw);
     const stick = stickAlong(-48.06, -43.75, yaw);
     const half = { forward: stick.forward * 0.6, right: stick.right * 0.6 };
@@ -95,7 +102,14 @@ describe.skipIf(!DISC)('the near-vertical floor push is a displacement, never ca
       w.tick({ forward: half.forward, right: half.right, boost: false });
       if (!w.airborne && Math.hypot(w.state.x - x0, w.state.z - z0) > 3) pushed = k;
     }
-    expect(pushed).toBeGreaterThanOrEqual(0);
+    // FLE-2 (2026-11-19; the fall-leave-edge plan, research 151 s9.1): this floor is GRASS (the rig, l-fle2-soil: the body
+    // rests at 42.575 over the floor word 43.375 here), so the body now stands 0.8 under it, as the original's does, and at
+    // that height no start samples the sliver: the sweep of x -0.6..+0.6 in 0.1 steps pushes at 0 of 13 (was 10 of 13).
+    // The push's precondition is gone at this spot -- whether the ORIGINAL is pushed here is not measured (the spot is a
+    // server recording of the port's launch, not a capture) -- so the case keeps its guard, not its push: no launch, the
+    // walk-off and the jump at the stick's speed. The four spots above still push and hold the claim.
+    expect(pushed, 'FLE-2: no push at the rig grass height (0 of 13 starts)').toBe(-1);
+    expect(w.state.y).toBeCloseTo(42.575, 2);
     expect(w.airborne).toBe(false);
     expect(Math.hypot(w.state.vx, w.state.vz)).toBeLessThan(STICK_TOP);
     if (w.jump()) expect(Math.hypot(carriedOf(w)[0], carriedOf(w)[1])).toBeLessThan(STICK_TOP);

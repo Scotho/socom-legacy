@@ -85,7 +85,21 @@ export interface WeaponStance {
   kickBase: number; kickRandom: number;
   /** `KnockCount` (+0x6c, default 3): the round of a pull the knock starts on, at `KnockEntryStrength` (+0x70, default 1). */
   knockCount: number; knockEntry: number;
+  /**
+   * BUG-L250: `ScreenShake` (+0x4c..+0x68, `StanceScreenShake`), the shake the weapon release starts on the local player's
+   * round (`FUN_005c5340` D:L479251-479265); null for the constructor's eight zeros (no block read).
+   */
+  screenShake: StanceScreenShake | null;
 }
+
+/**
+ * One axis of a stance's `ScreenShake` (`xaxis` / `yaxis`): `base`, `rand`, `decr`, `dps` -- the four floats the parser
+ * stores at `+0x4c..+0x58` (x) and `+0x5c..+0x68` (y) (`FUN_003cda30` D:L322327-322370, `puVar9[0x13..0x1a]`), the
+ * camera's shake inputs (`FUN_002994e0`). The names are the viewer's `ShakeAxis` (`look.ts`), so the record passes through.
+ */
+export interface StanceShakeAxis { base: number; rand: number; decr: number; dps: number }
+/** A stance's `ScreenShake`: the two axes (the viewer's `Shake`). */
+export interface StanceScreenShake { x: StanceShakeAxis; y: StanceShakeAxis }
 
 /** One stance's rifle kick (`Reticule_Modifiers STANCE_*`): rates in radians a second, sizes in radians. */
 export interface RifleKick { rate: number; returnRate: number; baseDist: number; randomDist: number }
@@ -151,7 +165,7 @@ export interface WeaponRecord {
   maxFireMode: number;
   /** The fire modes the switch stops on, 1 single, 2 burst, 3 automatic (weapon `+0xd0..`: `FUN_003d2a80`/`2a30`). */
   fireModes: number[];
-  /** `RecoilPct` (weapon `+0x6c`): what a round adds to the body's `+0x378` (capped at 10; `FUN_0057d510`). */
+  /** `RecoilPct` (weapon `+0x6c`): what a round adds to the body's `+0x378` (capped at 10; `FUN_0057d510`), the bend's (viewer `recoilBend.ts`, research 442). */
   recoilPct: number;
   /** WEAPON: the rifle kick per stance (`FireRifleKick*`), null for a stance the record does not give. */
   rifleKick: Record<keyof typeof KICK_STANCES, RifleKick | null>;
@@ -239,11 +253,48 @@ function records(script: RdrNode, key: string): RdrNode[][] {
 const STANCE_DEFAULTS: WeaponStance = {
   knock: 0, knockReturn: 0, knockMax: 0, swayRateX: 0, swayRateY: 0, swayLimitX: 0, swayLimitY: 0, sniperDecay: 0,
   dilateFire: 0, dilateMove: 0, dilateMoveMult: 1, constrict: 0, targetMin: 0, targetMax: 0,
-  kickRate: 0, kickReturnRate: 0, kickBase: 0, kickRandom: 0, knockCount: 3, knockEntry: 1,
+  kickRate: 0, kickReturnRate: 0, kickBase: 0, kickRandom: 0, knockCount: 3, knockEntry: 1, screenShake: null,
 };
 
+/** `ScreenShake`'s four keys in each axis, in the parser's order (D:L322331-322346: base, rand, decr, dps). */
+const SHAKE_KEYS: (keyof StanceShakeAxis)[] = ['base', 'rand', 'decr', 'dps'];
+
+/**
+ * `FUN_0032f0d0` (D:L230212-230245, with `FUN_0032f0e0`): the value list after the first `key` under `node`, depth first in
+ * the file's order -- a nested list is searched before the keys after it. Unlike `rdrGet`, it reaches any depth.
+ */
+function findDeep(node: RdrNode, key: string): RdrNode | undefined {
+  if (typeof node === 'string') return undefined;
+  for (let i = 0; i < node.length; i++) {
+    const v = node[i]!;
+    if (Array.isArray(v)) { const found = findDeep(v, key); if (found !== undefined) return found; }
+    else if (v === key && i + 1 < node.length) return node[i + 1];
+  }
+  return undefined;
+}
+
+/**
+ * BUG-L250: one stance's `ScreenShake` as the parser fills it (`FUN_003cda30` D:L322327-322370): `prev` (the stance
+ * before's, the parser's copy) and, when `ScreenShake` is a list, each of `xaxis` / `yaxis` that is a list overwrites the
+ * keys it holds. All three lookups are `FUN_0032f0d0` on `param_2` -- the record's node, where `Reticule_Modifiers` was
+ * found (D:L322197) -- not the stance's (`uVar13`): each stance takes the record's first block (reading, pending review;
+ * the disc's twelve are alike in each record's three stances and all under `Reticule_Modifiers`, `test/weapons.test.ts`).
+ */
+function stanceShake(scope: RdrNode, prev: StanceScreenShake | null, where: string): StanceScreenShake | null {
+  if (!Array.isArray(findDeep(scope, 'ScreenShake'))) return prev;
+  const out: StanceScreenShake = prev
+    ? { x: { ...prev.x }, y: { ...prev.y } }
+    : { x: { base: 0, rand: 0, decr: 0, dps: 0 }, y: { base: 0, rand: 0, decr: 0, dps: 0 } };
+  for (const axis of ['x', 'y'] as const) {
+    const node = findDeep(scope, `${axis}axis`);
+    if (!Array.isArray(node)) continue;
+    for (const k of SHAKE_KEYS) { const v = optReal(node, k, `${where} ScreenShake ${axis}axis`); if (v !== undefined) out[axis][k] = v; }
+  }
+  return out;
+}
+
 /** The file's key for each `WeaponStance` field, in the parser's order (0x3cda30). */
-const STANCE_KEYS: [keyof WeaponStance, string][] = [
+const STANCE_KEYS: [Exclude<keyof WeaponStance, 'screenShake'>, string][] = [
   ['knock', 'ReticuleKnock'], ['knockReturn', 'ReticuleKnockReturn'], ['knockMax', 'ReticuleKnockMax'],
   ['dilateFire', 'TargetDilateUponFire'], ['dilateMove', 'TargetDilateUponMovement'],
   ['dilateMoveMult', 'TargetDilateUponMovementMult'], ['constrict', 'TargetConstrict'], ['targetMin', 'TargetMin'],
@@ -306,9 +357,10 @@ function optReal(node: RdrNode | undefined, key: string, where: string): number 
  * constructor's), then each key present overwrites its field. The file's per-stance `AccuracyBurstCnt_*` and
  * `AccuracyScalar_*` have no string in the ELF (research 84 §2): nothing reads them, and neither does this.
  * `internalName`: the record's; for r0004's M60E3 the stand pass replaces each of `R0004_M60E3_STAND`'s keys it reads
- * (R4B-01, OT.R97; r4 0x3efbd0).
+ * (R4B-01, OT.R97; r4 0x3efbd0). `record`: the record's node, which the parser's `ScreenShake` lookups search
+ * (`stanceShake`); absent (the arsenal's reticle read), `modifiers` -- the same on the disc, whose every block sits there.
  */
-export function weaponStances(modifiers: RdrNode | undefined, where: string, internalName?: string): Record<WeaponStanceName, WeaponStance> {
+export function weaponStances(modifiers: RdrNode | undefined, where: string, internalName?: string, record?: RdrNode): Record<WeaponStanceName, WeaponStance> {
   const out = {} as Record<WeaponStanceName, WeaponStance>;
   let prev = STANCE_DEFAULTS;
   const m60 = internalName === R0004_M60E3_NAME;
@@ -316,11 +368,14 @@ export function weaponStances(modifiers: RdrNode | undefined, where: string, int
     const node = modifiers === undefined ? undefined : rdrGet(modifiers, STANCE_NODES[stance]);
     const s: WeaponStance = { ...prev };
     // R4B-01: r0004 forces a value only in stance 0 and only once its key has been read (r4 0x3f0030, 0x3f00d8, 0x3f0120).
-    const forced: Partial<Record<keyof WeaponStance, number>> | undefined = m60 && stance === 'stand' ? R0004_M60E3_STAND : undefined;
+    const forced: Partial<Record<Exclude<keyof WeaponStance, 'screenShake'>, number>> | undefined = m60 && stance === 'stand' ? R0004_M60E3_STAND : undefined;
     for (const [field, key] of STANCE_KEYS) {
       const v = optReal(node, key, `${where} ${STANCE_NODES[stance]}`);
       if (v !== undefined) s[field] = forced?.[field] ?? v;
     }
+    // The review's F1: the parser reads the shake only inside the Reticule_Modifiers block (D:L322197-322198), then by a
+    // depth-first search on the record (FUN_0032f0d0, D:L230212-230245); no block, no shake.
+    if (modifiers !== undefined) s.screenShake = stanceShake(record ?? modifiers, prev.screenShake, `${where} ${STANCE_NODES[stance]}`);
     out[stance] = s;
     prev = s;
   }
@@ -362,7 +417,7 @@ export function weaponRecord(script: RdrNode, name: string, options: WeaponReadO
   for (const [key, mode] of [['BurstMode', 2], ['SingleMode', 1], ['AutoMode', 3]] as const) {
     if (rdrGet(record, key) !== undefined) { enabled.add(mode); maxFireMode = Math.max(maxFireMode, mode); }
   }
-  const stances = weaponStances(modifiers, where, name);
+  const stances = weaponStances(modifiers, where, name, record);
   // WEAPON's per-stance kick, off the parsed stances (so a stance inherits the one before, as the parser copies it);
   // null for a stance with no kick (the constructor's zeros).
   const kick = (stance: WeaponStanceName): RifleKick | null => {
@@ -511,7 +566,7 @@ function stance(
     knock, knockReturn, knockMax, swayRateX: swayRateX!, swayRateY: swayRateY!, swayLimitX: swayLimitX!, swayLimitY: swayLimitY!,
     sniperDecay: sniperDecay!, dilateFire: dilateFire!, dilateMove: dilateMove!, dilateMoveMult: dilateMoveMult!,
     constrict: constrict!, targetMin: targetMin!, targetMax: targetMax!, kickRate: kickRate!, kickReturnRate: kickReturnRate!,
-    kickBase: kickBase!, kickRandom: kickRandom!, knockCount, knockEntry,
+    kickBase: kickBase!, kickRandom: kickRandom!, knockCount, knockEntry, screenShake: null,
   };
 }
 

@@ -1,9 +1,10 @@
 import { forgeEl } from '../shell/panel';
 import { showInspectorData, type InspectorEditor } from './inspectorPanel';
 import { closeStepMenu, openStepMenu, STEP_COMMAND, STEP_FAMILY } from './stepMenu';
+import { pageSettings } from '../../pageStore';
 
 /**
- * The Script editor's node view (the owner, 2026-11-13: "a nice nodal ui that makes sense for our custom scripting ... a
+ * The Script editor's node view (the Forge's owner (crispy, OT.R112), 2026-11-13: "a nice nodal ui that makes sense for our custom scripting ... a
  * nodal view of the same underlying data"; then "the node parameters inside the node ... the node editor sideways ... the
  * + more obvious"; a browser adaptation, FG.R2): a script's steps -- the one `ScriptStep` list the Inspector's rows edit
  * -- drawn as a flow of nodes, left to right as the game runs a program's commands. Its event first (When pulled, When
@@ -120,12 +121,12 @@ export interface ScriptGraph {
   /** Its bar's switch (the map's script, the selection's, an original map's): the one shown, and what a press does. */
   setView(view: ScriptView, pick: (view: ScriptView) => void): void;
   /**
-   * The Original map tab's pickers (the owner, 2026-11-13: "see the official maps' map scripting node network"): the
+   * The Original map tab's pickers (the Forge's owner (crispy, OT.R112), 2026-11-13: "see the official maps' map scripting node network"): the
    * base map's programs, each with its sequences; the one shown; what a choice does. Null: none (a blank floor).
    */
   setDisc(programs: readonly { name: string; sequences: readonly string[] }[] | null, at: { program: string; sequence: number }, pick: (at: { program: string; sequence: number }) => void): void;
   /**
-   * The script's sequences (the owner, 2026-11-13: "call sequence and end sequence"): Main, then its named ones, the one
+   * The script's sequences (the Forge's owner (crispy, OT.R112), 2026-11-13: "call sequence and end sequence"): Main, then its named ones, the one
    * shown (`at`, null Main), and what a press does -- show one, add one, rename one (a double click), remove one. Null:
    * none shown (an original map's, which has its own picker).
    */
@@ -182,7 +183,7 @@ export function buildScriptGraph(doc: Document): ScriptGraph {
   const left = forgeEl(doc, 'span', 'fx-sg-bar-left');
   left.append(views, discPicks, title);
   // The script's sequences: Main and its named ones, a tab each; + adds one.
-  // The script shown's sequences (`setSequences`): drawn in the legend (the owner, 2026-11-13: "I don't want that top
+  // The script shown's sequences (`setSequences`): drawn in the legend (the Forge's owner (crispy, OT.R112), 2026-11-13: "I don't want that top
   // sequence bar anymore. Have the new sequence button in the left bar too").
   let seqNow: { sq: { names: readonly string[]; at: number | null; locked: boolean }; hooks: SequenceHooks } | null = null;
   let seqSig = '';
@@ -190,16 +191,16 @@ export function buildScriptGraph(doc: Document): ScriptGraph {
   const canvas = forgeEl(doc, 'div', 'fx-sg-canvas');
   const graph = forgeEl(doc, 'div', 'fx-sg-graph');
   canvas.append(graph);
-  // The legend (the owner, 2026-11-13: "a little legend on the left to show all the flags"): beside the canvas.
+  // The legend (the Forge's owner (crispy, OT.R112), 2026-11-13: "a little legend on the left to show all the flags"): beside the canvas.
   const legendEl = forgeEl(doc, 'aside', 'fx-sg-legend');
   legendEl.setAttribute('aria-label', 'Valves, sequences and game valves');
   const body = forgeEl(doc, 'div', 'fx-sg-body');
-  // Its width the person's (the owner, 2026-11-13: "make the sidebar list either wider, resizable"): a drag on its edge,
+  // Its width the person's (the Forge's owner (crispy, OT.R112), 2026-11-13: "make the sidebar list either wider, resizable"): a drag on its edge,
   // kept in this browser (a per-viewer convenience; none kept, its default).
   const LEGEND_KEY = 's2u-forge-program-sidebar';
   const LEGEND_MIN = 200, LEGEND_MAX = 560;
   const setLegendWidth = (w: number): number => { const v = Math.round(Math.min(LEGEND_MAX, Math.max(LEGEND_MIN, w))); legendEl.style.flexBasis = `${v}px`; return v; };
-  try { const kept = Number(globalThis.localStorage?.getItem(LEGEND_KEY)); if (kept) setLegendWidth(kept); } catch { /* its default */ }
+  { const kept = Number(pageSettings.get(LEGEND_KEY)); if (kept) setLegendWidth(kept); }   // none kept or unreadable: its default
   const grip = forgeEl(doc, 'div', 'fx-sg-legend-grip');
   grip.title = 'Drag to resize';
   grip.setAttribute('role', 'separator');
@@ -215,11 +216,11 @@ export function buildScriptGraph(doc: Document): ScriptGraph {
     const up = (): void => {
       grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up);
       grip.classList.remove('is-dragging');
-      try { globalThis.localStorage?.setItem(LEGEND_KEY, String(Math.round(last))); } catch { /* this session only */ }
+      pageSettings.set(LEGEND_KEY, String(Math.round(last)));   // refused: this session only
     };
     grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
   });
-  grip.addEventListener('dblclick', () => { legendEl.style.flexBasis = ''; try { globalThis.localStorage?.removeItem(LEGEND_KEY); } catch { /* none kept */ } });
+  grip.addEventListener('dblclick', () => { legendEl.style.flexBasis = ''; pageSettings.remove(LEGEND_KEY); });
   body.append(legendEl, grip, canvas);
   root.append(bar, body);
   let legendSig = '';
@@ -263,7 +264,7 @@ export function buildScriptGraph(doc: Document): ScriptGraph {
       }
       items.push(row);
     }
-    // The sequences of every script (the owner, 2026-11-13: "add our sequences to the left hand side bar").
+    // The sequences of every script (the Forge's owner (crispy, OT.R112), 2026-11-13: "add our sequences to the left hand side bar").
     // The script shown's first (its Main, then its own, each renamed by a double click or removed by its x), then the rest.
     const seqs = [...(l.sequences ?? [])].sort((a, b) => Number(b.mine === true) - Number(a.mine === true));
     const cur = seqNow;
@@ -371,10 +372,10 @@ export function buildScriptGraph(doc: Document): ScriptGraph {
   zoomOut.addEventListener('click', () => setZoom(zoom - 0.1));
   zoomIn.addEventListener('click', () => setZoom(zoom + 0.1));
   zoomWord.addEventListener('click', () => setZoom(1));
-  // The wheel zooms (the owner, 2026-11-13: "add scrolling to the node editor to zoom in/out"), about the pointer: the
+  // The wheel zooms (the Forge's owner (crispy, OT.R112), 2026-11-13: "add scrolling to the node editor to zoom in/out"), about the pointer: the
   // point under it stays under it. A drag of the empty space pans. Over an open dropdown list, the wheel is the list's.
   canvas.addEventListener('wheel', (e) => {
-    // A dropdown's own list scrolled (its options are its select's; the owner, 2026-11-13: "don't scroll when I am in a
+    // A dropdown's own list scrolled (its options are its select's; the Forge's owner (crispy, OT.R112), 2026-11-13: "don't scroll when I am in a
     // dropdown scroll list"), or the + menu: theirs, not a zoom. Any node's list open: the wheel left to it too.
     if ((e.target as HTMLElement).closest('select, option, .fx-sg-menu')) return;
     try { if (canvas.querySelector('select:open')) return; } catch { /* `:open` unknown to this browser: the target's test above */ }
@@ -408,7 +409,7 @@ export function buildScriptGraph(doc: Document): ScriptGraph {
   // The + menu: the steps a wire takes (`./stepMenu`, the Step rows' menu too).
   const closeMenu = (): void => { closeStepMenu(); };
   const openMenu = (anchor: HTMLElement, at: number, otherwise = false): void => {
-    // An If's passing lane: another Else if (the owner, 2026-11-13: "immediately show the else if"), its Otherwise made, empty or with the command chosen in it.
+    // An If's passing lane: another Else if (the Forge's owner (crispy, OT.R112), 2026-11-13: "immediately show the else if"), its Otherwise made, empty or with the command chosen in it.
     const offered: (readonly [string, string])[] = otherwise ? [['elseif', 'Else if (another test)'], ['else', 'Otherwise only (an empty lane)'], ...(modelNow?.addKinds ?? [])] : [...(modelNow?.addKinds ?? [])];
     openStepMenu(doc, anchor, offered, (kind) => hooksNow?.insert(at, kind, otherwise));
   };
@@ -517,7 +518,7 @@ export function buildScriptGraph(doc: Document): ScriptGraph {
     };
     it.branches.forEach((br, i) => {
       const lane = forgeEl(doc, 'div', `fx-sg-lane is-${i === 0 ? 'then' : modelNow!.steps[br.k]!.do}`);
-      // Each branch's own condition heads its lane, the If's too (the owner, 2026-11-13: "if, else if ... else ... stacked
+      // Each branch's own condition heads its lane, the If's too (the Forge's owner (crispy, OT.R112), 2026-11-13: "if, else if ... else ... stacked
       // on top of each other"): the chain reads down its first column, each lane's steps to its right.
       lane.append(forgeEl(doc, 'div', 'fx-sg-stub'), head(node(i === 0 ? it.k : br.k), null), sequence(br.body, br.k + 1, true));
       lanes.append(lane);

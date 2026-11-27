@@ -34,7 +34,7 @@ function tentWorld(): WorldState {
     modelName: 'worldmodel', path, region: 0, ditype, material: 25, ptcount: points.length / 3, cameratype: 0, points: Float32Array.from(points),
   });
   const polys = [
-    poly('worldmodel/floor', 3, [-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+    poly('worldmodel/floor', 3, [-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
     poly(HEALTHY, 2, [10, 0, -100, 10, 0, 100, 10, 50, 100, 10, 50, -100]),
     poly(LEFT, 2, [-40, 0, -100, -40, 0, 100, -40, 10, 100, -40, 10, -100]),
   ];

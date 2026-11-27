@@ -30,7 +30,7 @@ import type { MatchExchange } from './matchExchange';
 import { MobileTip, tipText, type TipStore } from './mobileTip';
 import type { GamePad } from './setupPad';
 import { attachTouchControls, attachWalkTouch, under, wantsTouchControls, type StanceTouch, type TouchTarget } from './touch';
-import { frameOfPoint } from './weaponExchange';
+import { frameOfClientPoint } from './weaponExchange';
 import { canOpen } from './weaponSelectState';
 import type { InputDevice } from './weaponSelect';
 
@@ -40,7 +40,7 @@ export { TOUCH_LAYER_MARKUP } from './touchMarkup';
 export const TOUCH_TIP_MS = 12000;
 
 /** The classes the part may set on its root, every one taken off at `dispose` (`styles.css` reads them). */
-const ROOT_CLASSES = ['touch', 'pad-on', 'is-walking', 'is-taunts-open', 'tip-on', 'is-exchange-open', 'is-inv-shown'] as const;
+const ROOT_CLASSES = ['touch', 'pad-on', 'is-walking', 'is-taunts-open', 'tip-on', 'is-exchange-open', 'is-inv-shown', 'is-claim-shown'] as const;
 
 /**
  * FI.R4 ("A controller selected" is the pad the game reads): whether `GamePad`'s choice, after this frame's poll, resolved
@@ -109,6 +109,20 @@ export interface MatchTouch {
   weaponsFrame(): void;
   /** INV's state, for the hook: shown, or null with no INV under the root. */
   weaponsShown(): boolean | null;
+  /**
+   * SEAT_CLAIM_ADAPTATION (a service adaptation with no original; the owner's word, 2026-11-25): a spectator's claim is
+   * offered with its control (`NetPage.seatClaimView`: its line names R1, "R1 HOLD: JOIN") -- `is-claim-shown` on the
+   * root, so the fly camera's layer, which has no R1, shows the walk pad's R1 alone of it (`styles.css`). Its press is
+   * the pad's R1, which the claim's hold reads (`NetPage.spectatorPad`'s `r1`, the page's held buttons), whatever the
+   * controller layout's lanes. Told each frame; the same answer again does nothing.
+   */
+  claimShown(on: boolean): void;
+  /**
+   * LATER 1604 (SEAT_CLAIM_NO_PAD_ADAPTATION): whether the layer shows now -- a coarse pointer's, or a fine-pointer page's
+   * after its first touch (`touch` on the root) -- and no read pad hides it (FI.R4). Its R1 is there to hold, so the
+   * claim's line keeps naming R1 (`./seatClaim` `seatClaimDeviceOf`).
+   */
+  touchShown(): boolean;
   /** The menu match's walk and Chat menu on the root (`/testroom`'s are its `Ui`'s `is-walking` and its frame's `is-taunts-open`). */
   pageState(walking: boolean, chat: boolean): void;
   /** The tip under the root, with `text`, until its close (`dismiss`) or `TOUCH_TIP_MS` (`/testroom`'s is its `Ui.showTip`). */
@@ -135,9 +149,43 @@ export function mountTouch(root: HTMLElement, d: MatchTouchDeps): MatchTouch {
   /** The fly camera's lift buttons and the rim's boost: the two touch lanes with no pad button (the fly camera's own). */
   const own = { jump: false, crouch: false, boost: false };
   /** The pad's buttons into the lanes through the pad's active map, as a controller's are, with the fly camera's own beside them. */
+  /**
+   * LATER 1059 (`./stanceButton` `STANCE_TOUCH_EVENT_TIME_ADAPTATION`): each button's press time by its event (ms, the
+   * page clock), and, once its lift is in (`up`, not a cancel), the press's whole length by the events, seconds.
+   */
+  const downAt: (number | null)[] = Array.from({ length: 16 }, () => null);
+  const pressLength: (number | null)[] = Array.from({ length: 16 }, () => null);
+  /** The stance lane's press length by its events, when every button holding the lane has its lift in; else undefined. */
+  const stanceLength = (): number | undefined => {
+    let most: number | undefined;
+    for (let i = 0; i < buttons.length; i++) {
+      if (!buttons[i]!.pressed) continue;
+      const alone = Array.from({ length: 16 }, (_, j) => ({ pressed: j === i, value: j === i ? 1 : 0 }));
+      if (!padInput({ axes: [], buttons: alone }).stance) continue;
+      const len = pressLength[i];
+      if (len === null || len === undefined) return undefined;   // a press still down: the frame loop's hold
+      most = Math.max(most ?? 0, len);
+    }
+    return most;
+  };
+  /** Whether every button holding the stance lane has its press time by its event (the lane is the touch layer's, timed). */
+  const stanceTimed = (): boolean => {
+    let any = false;
+    for (let i = 0; i < buttons.length; i++) {
+      if (!buttons[i]!.pressed) continue;
+      const alone = Array.from({ length: 16 }, (_, j) => ({ pressed: j === i, value: j === i ? 1 : 0 }));
+      if (!padInput({ axes: [], buttons: alone }).stance) continue;
+      if (downAt[i] === null || downAt[i] === undefined) return false;
+      any = true;
+    }
+    return any;
+  };
   const sync = (): void => {
     const lanes = padInput({ axes: [], buttons });
     for (const f of PAD_FLAGS) input[f] = lanes[f];
+    const len = input.stance ? stanceLength() : undefined;
+    if (len === undefined) delete input.stanceLength; else input.stanceLength = len;
+    if (input.stance && stanceTimed()) input.stanceTimed = true; else delete input.stanceTimed;
     if (own.jump) input.jump = true;
     if (own.crouch) input.crouch = true;
     if (own.boost) input.boost = true;
@@ -151,10 +199,21 @@ export function mountTouch(root: HTMLElement, d: MatchTouchDeps): MatchTouch {
   // main.ts:1030-1041: a release kept until the frame after the press was read, so a tap shorter than a frame is an edge.
   const letGo = new Set<number>();
   let liftLetGo = false;
-  const hold = (index: number, down: boolean, how: 'up' | 'cancel' = 'up'): void => {
+  const hold = (index: number, down: boolean, how: 'up' | 'cancel' = 'up', at?: number): void => {
     const b = buttons[index];
     if (!b) return;
-    if (down) { b.pressed = true; b.value = 1; letGo.delete(index); sync(); } else letGo.add(index);
+    if (down) {
+      downAt[index] = at ?? null; pressLength[index] = null;
+      b.pressed = true; b.value = 1; letGo.delete(index); sync();
+    } else {
+      const from = downAt[index];
+      if (how === 'up' && at !== undefined && from !== null && from !== undefined && b.pressed) pressLength[index] = Math.max(0, at - from) / 1000;
+      // A cancel's lift is in too, with no length: the lane is no longer timed, so the stall deferral never waits on it
+      // (the fresh review's F1 on b0ed898761) -- the frame loop decides, as before.
+      if (how === 'cancel') downAt[index] = null;
+      letGo.add(index);
+      sync();
+    }
     if (!down && how === 'cancel' && holdsAction(index)) d.cancelAction();
   };
   /** FI.R4: the game reads a connected pad -- the layer hidden, and no press reaches it. */
@@ -185,7 +244,7 @@ export function mountTouch(root: HTMLElement, d: MatchTouchDeps): MatchTouch {
     if (touchFire) fire(false);
     own.jump = false; own.crouch = false; own.boost = false; liftLetGo = false;
     for (const reset of walkResets) reset();
-    buttons.forEach((b) => { b.pressed = false; b.value = 0; });
+    buttons.forEach((b, i) => { b.pressed = false; b.value = 0; downAt[i] = null; pressLength[i] = null; });
     letGo.clear(); sync();
   };
   const stopFullscreen = built ? mountMobileFullscreen(root) : () => {};
@@ -214,6 +273,7 @@ export function mountTouch(root: HTMLElement, d: MatchTouchDeps): MatchTouch {
       for (const r of walkResets) r();               // the review's F1: no button keeps a finger the screen took
       sync();
     },
+    touchShown: () => root.classList.contains('touch') && !padOn,
     padConnected: (on) => {
       if (on === padOn) return;
       padOn = on;
@@ -227,7 +287,7 @@ export function mountTouch(root: HTMLElement, d: MatchTouchDeps): MatchTouch {
         buttons.forEach((b, i) => {
           if (!b.pressed) return;
           if (holdsAction(i)) d.cancelAction();
-          b.pressed = false; b.value = 0; letGo.delete(i);
+          b.pressed = false; b.value = 0; letGo.delete(i); downAt[i] = null; pressLength[i] = null;
         });
         for (const r of walkResets) r();             // the review's F1: no button keeps the finger an inert layer hides
         own.jump = false; own.crouch = false; own.boost = false;   // F6: the fly camera's lift and boost let go with it
@@ -235,7 +295,7 @@ export function mountTouch(root: HTMLElement, d: MatchTouchDeps): MatchTouch {
       }
     },
     endFrame: () => {
-      for (const i of letGo) { buttons[i]!.pressed = false; buttons[i]!.value = 0; }   // read this frame; let go for the next
+      for (const i of letGo) { buttons[i]!.pressed = false; buttons[i]!.value = 0; downAt[i] = null; pressLength[i] = null; }   // read this frame; let go for the next
       letGo.clear();
       if (liftLetGo) { own.jump = false; own.crouch = false; liftLetGo = false; }
       sync();
@@ -255,6 +315,7 @@ export function mountTouch(root: HTMLElement, d: MatchTouchDeps): MatchTouch {
       if (root.classList.contains('is-inv-shown') !== show) root.classList.toggle('is-inv-shown', show);
     },
     weaponsShown: () => (weapons ? !weapons.hidden : null),
+    claimShown: (on) => { if (root.classList.contains('is-claim-shown') !== on) root.classList.toggle('is-claim-shown', on); },
     pageState: (walking, chat) => {
       root.classList.toggle('is-walking', walking);
       root.classList.toggle('is-taunts-open', chat);
@@ -299,7 +360,12 @@ export function exchangeTaps(canvas: HTMLElement, exchange: ExchangeTapsMenu, o:
   canvas.addEventListener('pointerdown', (e) => {
     if (!exchange.isOpen() || (o.touchOnly && e.pointerType !== 'touch' && e.pointerType !== 'pen')) return;
     const r = canvas.getBoundingClientRect();
-    const [fx, fy] = frameOfPoint(e.clientX - r.left, e.clientY - r.top, { width: r.width, height: r.height });
+    // The menu is drawn on the canvas's drawing buffer, which the page may show on a box of another shape (the PS2
+    // picture's 640 x 448 on a 4:3 box, 4:3 stretched's buffer over the window): the tap is read on the buffer
+    // (`frameOfClientPoint`). An element with no buffer of its own is read as its box.
+    const { width, height } = canvas as Partial<HTMLCanvasElement>;
+    const buffer = typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0 ? { width, height } : undefined;
+    const [fx, fy] = frameOfClientPoint(e.clientX - r.left, e.clientY - r.top, { width: r.width, height: r.height }, buffer);
     if (exchange.menu.tap(fx, fy, exchange.gate())) { e.preventDefault(); e.stopImmediatePropagation(); }
   }, { capture: true, ...(o.signal ? { signal: o.signal } : {}) });
 }

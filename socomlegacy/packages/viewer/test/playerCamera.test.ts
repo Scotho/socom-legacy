@@ -4,7 +4,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PerspectiveCamera } from 'three';
 import { FsAssetSource } from '@s2u/archive/node';
-import { buildGrid, GAME_FRAME_DT, isCameraSurface, probeFloor, segmentHit, SEAL_TUNING, type CollisionOwner, type Grid, type GridParams, type WorldPoly } from '@s2u/scene';
+import { buildGrid, GAME_FRAME_DT, isCameraSurface, materialTable, probeFloor, segmentHit, SEAL_TUNING, type CollisionOwner, type Grid, type GridParams, type WorldPoly } from '@s2u/scene';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { FlyCamera, TOUCH_LOOK } from '../src/camera';
 import { MAX_PITCH_RATE, MAX_YAW_RATE, MOUSE_RADIANS_PER_COUNT, PITCH_PER_YAW } from '../src/look';
@@ -16,6 +16,7 @@ import {
 } from '../src/playerCamera';
 import { groundGrid, packGround, rootY, WalkMode, EYE_HEIGHT, TICK } from '../src/walk';
 import { STANCE_HOLD_S_PLACEHOLDER } from '../src/stanceButton';
+import { STANCE } from '../src/mover';
 
 /**
  * The game's third-person camera (web sprint 2, W2.1): `FUN_0029a950`'s target and eye, `FUN_00296f10`'s look line,
@@ -34,6 +35,16 @@ const floor = (y: number): WorldPoly => quad([-200, y, -200, 200, y, -200, 200, 
 const wallZ = (z: number, x0: number, x1: number, y0 = 0, y1 = 60): WorldPoly => quad([x0, y0, z, x1, y0, z, x1, y1, z, x0, y1, z], 2, 'worldmodel/wallz');
 /** A vertical wall across z at `x`, z0..z1, y0..y1. */
 const wallX = (x: number, z0: number, z1: number, y0 = 0, y1 = 60): WorldPoly => quad([x, y0, z0, x, y0, z1, x, y1, z1, x, y1, z0], 2, 'worldmodel/wallx');
+/**
+ * LATER 1057: the same face wound the other way, its normal reversed. The pass is one-sided on the hull (a face counts
+ * only entered from its front: `FUN_002d2890` side mode 0x20, research 382 s8), and `wallZ` faces +z -- the camera's
+ * side at yaw 0 -- so a wall meant to stand behind the body and stop the boom is wound to face the body (-z).
+ */
+const rewound = (p: WorldPoly): WorldPoly => {
+  const q = p.points, out: number[] = [];
+  for (let i = q.length / 3 - 1; i >= 0; i--) out.push(q[i * 3]!, q[i * 3 + 1]!, q[i * 3 + 2]!);
+  return { ...p, points: Float32Array.from(out) };
+};
 
 function world(polys: WorldPoly[]): Grid {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
@@ -169,7 +180,7 @@ describe('the placed camera on open ground (FUN_0029bf70 with no hit, FUN_0029bc
 
 describe('the pass against the hull (FUN_0029bf70)', () => {
   it('a wall 10 behind the actor pulls the eye in to 0.75 short of it, never through', () => {
-    const cam = new PlayerCamera(world([floor(0), wallZ(10, -50, 50)]));
+    const cam = new PlayerCamera(world([floor(0), rewound(wallZ(10, -50, 50))]));
     for (let i = 0; i < 120; i++) {
       settle(cam, ORIGIN, 0, 0, STAND);
       const eye = cam.view(1).eye;
@@ -184,19 +195,19 @@ describe('the pass against the hull (FUN_0029bf70)', () => {
   });
 
   it('a camera-type-1 polygon within 2.75 of the target is passed over for the next hit (FUN_0029cd20); at 5 it stops the eye', () => {
-    const typeOne = (z: number): WorldPoly => ({ ...wallZ(z, -50, 50), cameratype: 1, path: 'worldmodel/camera1' });
-    const near = new PlayerCamera(world([floor(0), typeOne(2), wallZ(10, -50, 50)]));
+    const typeOne = (z: number): WorldPoly => ({ ...rewound(wallZ(z, -50, 50)), cameratype: 1, path: 'worldmodel/camera1' });
+    const near = new PlayerCamera(world([floor(0), typeOne(2), rewound(wallZ(10, -50, 50))]));
     settle(near, ORIGIN, 0, 0, STAND, 3);
     close(near.view(1).eye, [0, 21.484, 10 - CAM_MARGIN]);                  // not inside the head, 1.25 behind the target
-    const far = new PlayerCamera(world([floor(0), typeOne(5), wallZ(10, -50, 50)]));
+    const far = new PlayerCamera(world([floor(0), typeOne(5), rewound(wallZ(10, -50, 50))]));
     settle(far, ORIGIN, 0, 0, STAND, 3);
     close(far.view(1).eye, [0, 21.484, 5 - CAM_MARGIN]);
   });
 
   it('a filtered hit still counts as a hit (DAT_00416038): the distance lets out during the hold', () => {
     // A plain wall behind x < 0 only, a type-1 polygon 2 behind everywhere.
-    const typeOne: WorldPoly = { ...wallZ(2, -100, 100), cameratype: 1, path: 'worldmodel/camera1' };
-    const cam = new PlayerCamera(world([floor(0), wallZ(10, -100, 0), typeOne]));
+    const typeOne: WorldPoly = { ...rewound(wallZ(2, -100, 100)), cameratype: 1, path: 'worldmodel/camera1' };
+    const cam = new PlayerCamera(world([floor(0), rewound(wallZ(10, -100, 0)), typeOne]));
     settle(cam, [-10, 0, 0], 0, 0, STAND, 3);                               // the plain wall behind: pulled in, held
     expect(cam.distance()).toBeCloseTo(9.25, 6);
     settle(cam, [20, 0, 0], 0, 0, STAND, 1);                                // past its end: only the filtered hit
@@ -220,7 +231,7 @@ describe('the pass against the hull (FUN_0029bf70)', () => {
   });
 
   it('holds the pulled-in distance 1.5 s after the last hit, then lets it out at 3 % a game frame', () => {
-    const cam = new PlayerCamera(world([floor(0), wallZ(10, -50, 50)]));
+    const cam = new PlayerCamera(world([floor(0), rewound(wallZ(10, -50, 50))]));
     settle(cam, ORIGIN, 0, 0, STAND, 5);
     expect(cam.distance()).toBeCloseTo(10 - CAM_MARGIN, 6);
     const away: Vec3 = [120, 0, 0];                                          // past the wall's end: nothing behind
@@ -679,7 +690,7 @@ describe('walk mode\'s camera (W2.1)', () => {
     made.push(mode);
     mode.setGround(packGround(
       { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 },
-      [floor(0), wallZ(10, -50, 50)],
+      [floor(0), rewound(wallZ(10, -50, 50))],
       [{ modelName: 'worldmodel', path: 'worldmodel/ground', first: 0, count: 1 }, { modelName: 'worldmodel', path: 'worldmodel/wall', first: 1, count: 1 }],
     ), null);
     fly.setPose({ x: 0, y: 30, z: 0, yaw: 0, pitch: 0 });
@@ -769,6 +780,214 @@ describe('the peek on the camera (web research 86 section 4.2; FUN_0029a950, FUN
       expect(v.eye[0]).toBeGreaterThanOrEqual(lastEye - 1e-9);
       expect(Math.abs(aimYaw(v))).toBeLessThan(0.2);
       lastEye = v.eye[0];
+    }
+  });
+});
+
+describe('JUMP_OVERHEAD_CAMERA_ADAPTATION: a jump under a roof keeps the drawn camera in the room', () => {
+  /** `floor(h)` is wound facing down: the underside of a roof at `h`, with no face above it (a room's ceiling). */
+  const roofed = (h: number): Grid => world([floor(0), floor(h)]);
+  const jumped = (grid: Grid, feet: Vec3, root: number): PlayerCamera => {
+    const cam = new PlayerCamera(grid);
+    settle(cam, ORIGIN, 0, INIT_AIM_PITCH, STAND, 60);
+    cam.jumping = true;                                                   // the walk's gate: the jump's action / the air
+    cam.tick(feet, 0, INIT_AIM_PITCH, root, 1 / 60, true);
+    cam.tick(feet, 0, INIT_AIM_PITCH, root, 1 / 60, true);
+    return cam;
+  };
+
+  it('standing, the eye and the look point are under the roof; the standing jump\'s root and a running jump\'s feet leave them there', () => {
+    for (const h of [23, 24, 26, 28, 30]) {
+      const grid = roofed(h);
+      for (const [feet, root] of [[ORIGIN, STAND], [ORIGIN, 15.08], [[0, 6, 0], STAND], [[0, 12, 0], STAND]] as [Vec3, number][]) {
+        const v = jumped(grid, feet, root).view(1);
+        expect(v.eye[1], `roof ${h}, feet ${feet[1]}, root ${root}: the eye`).toBeLessThan(h);
+        expect(v.target[1], `roof ${h}, feet ${feet[1]}, root ${root}: the look point`).toBeLessThan(h);
+        expect(segmentHit(grid, [feet[0], feet[1] + 1, feet[2]], v.eye), `roof ${h}, feet ${feet[1]}, root ${root}: the body sees its eye`).toBeNull();
+      }
+    }
+  });
+
+  it('with no roof over the body the jump\'s camera is the pass\'s own, untouched; the game\'s aim is the pass\'s under a roof too', () => {
+    const open = new PlayerCamera(world([floor(0)]));
+    settle(open, ORIGIN, 0, INIT_AIM_PITCH, STAND, 60);
+    open.jumping = true;
+    open.tick(ORIGIN, 0, INIT_AIM_PITCH, 15.08, 1 / 60, true); open.tick(ORIGIN, 0, INIT_AIM_PITCH, 15.08, 1 / 60, true);
+    const free = open.view(1);
+    close(free.eye, free.aim.eye, 6);
+    close(free.target, free.aim.target, 6);
+    const under = jumped(roofed(23), ORIGIN, 15.08).view(1);
+    expect(under.aim.target[1]).toBeCloseTo(15.08 + 10, 6);                // the game's look point: the posed root's, as before
+    expect(under.target[1]).toBeLessThan(23);
+  });
+
+  it('the airborne lift is rechecked where it is drawn: a lift that would carry the eye through the roof is held under it', () => {
+    const still = new PlayerCamera(world([floor(0)]));
+    settle(still, ORIGIN, 0, INIT_AIM_PITCH, STAND, 60);
+    const h = still.view(1).eye[1] + 1.5;                                   // a roof the standing camera clears
+    const cam = new PlayerCamera(roofed(h));
+    cam.jumping = true;                                                     // airborne: the walk's gate (review F1)
+    settle(cam, ORIGIN, 0, INIT_AIM_PITCH, STAND, 60);
+    const flat = cam.view(1), lifted = cam.view(1, [0, 2.5, 0]);
+    expect(flat.eye[1]).toBeLessThan(h);
+    expect(flat.eye[1] + 2.5).toBeGreaterThan(h);                           // the lift added after the recheck crossed it
+    expect(lifted.eye[1]).toBeLessThan(h);
+    close(lifted.aim.eye, flat.aim.eye, 6);                                 // the game's aim is not lifted
+    // In the open the lift is the plain offset.
+    const openLift = still.view(1, [0, 2.5, 0]), openFlat = still.view(1);
+    close(openLift.eye, [openFlat.eye[0], openFlat.eye[1] + 2.5, openFlat.eye[2]], 6);
+    close(openLift.target, [openFlat.target[0], openFlat.target[1] + 2.5, openFlat.target[2]], 6);
+  });
+
+  it('a drawn offset that is no jump (a turret catch-up restart) does not open the cap: under the roof it is the plain offset (review F1)', () => {
+    const still = new PlayerCamera(world([floor(0)]));
+    settle(still, ORIGIN, 0, INIT_AIM_PITCH, STAND, 60);
+    const h = still.view(1).eye[1] + 1.5;
+    const cam = new PlayerCamera(roofed(h));                                // `jumping` false: on the floor
+    settle(cam, ORIGIN, 0, INIT_AIM_PITCH, STAND, 60);
+    const flat = cam.view(1), lifted = cam.view(1, [0, 2.5, 0]);
+    const capped = new PlayerCamera(roofed(h)); capped.jumping = true;
+    settle(capped, ORIGIN, 0, INIT_AIM_PITCH, STAND, 60);
+    const cl = capped.view(1, [0, 2.5, 0]);
+    // The cap did not open: the overhead axis clamp pulls the capped eye in (z 10.57 here); the uncapped one stays back
+    // (z 18.71). The lift still moves the recheck (the ruling), so the near clearance (H309) keeps it under the roof.
+    expect(lifted.eye[2]).toBeGreaterThan(cl.eye[2] + 4);
+    expect(lifted.eye[1]).toBeLessThan(h);
+    close(lifted.aim.eye, flat.aim.eye, 6);                                 // the game's aim is not lifted
+  });
+});
+
+describe('JUMP_OVERHEAD_CAMERA_ADAPTATION: the walk feeds the gate (review F4)', () => {
+  it('on the floor standing and prone the gate is shut; from the jump through the air it is open; after the landing shut', () => {
+    const fly = new FlyCamera(canvas());
+    fly.setScale(0.1);
+    const mode = new WalkMode(fly);
+    mode.setGround(GROUND, [150, 0, 150]);
+    mode.bindKey();
+    try {
+      mode.setMode('walk');
+      const inner = mode as unknown as { walker: { jump(): boolean; airborne: boolean; action: { name: string } | null; stance: string }; player: PlayerCamera };
+      const frames = (n: number): void => { for (let i = 0; i < n; i++) mode.frame(TICK); };
+      frames(10);
+      expect(inner.player.jumping, 'standing on the floor').toBe(false);
+      expect(inner.walker.jump(), 'a standing jump starts').toBe(true);
+      frames(1);
+      let open = 0, airborneShut = 0;
+      for (let i = 0; i < 300 && (inner.walker.airborne || inner.walker.action !== null); i++) {
+        if (inner.player.jumping) open++;
+        else if (inner.walker.airborne) airborneShut++;
+        frames(1);
+      }
+      expect(open, 'the gate was open in the jump').toBeGreaterThan(0);
+      expect(airborneShut, 'never shut while airborne').toBe(0);
+      frames(3);
+      expect(inner.walker.airborne || inner.walker.action !== null, 'landed and settled').toBe(false);
+      expect(inner.player.jumping, 'after the landing').toBe(false);
+    } finally {
+      mode.unbindKey();
+    }
+  });
+});
+
+describe.skipIf(!MP2)(`JUMP_OVERHEAD_CAMERA_ADAPTATION on Frostfire's hull${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+  it('under the refinery\'s low roof (23.6 over the floor) a standing jump\'s eye stays where the body sees it, at every facing', async () => {
+    // The report (Discord, 2026-11-19): "In frostfire going into tunnels if you jump you can see through the whole map".
+    const map = await loadMap(new FsAssetSource(FIXTURES), 'RUN/MP2.ZDB');
+    const grid = groundGrid(map.ground!);
+    const feet: Vec3 = [396, 138, 852], hip: Vec3 = [feet[0], feet[1] + 10, feet[2]];
+    const roof = segmentHit(grid, [feet[0], feet[1] + 1, feet[2]], [feet[0], feet[1] + 40, feet[2]], isCameraSurface)!;
+    expect(roof.point[1] - feet[1]).toBeCloseTo(23.6, 1);
+    for (const yaw of [0, 90, 180, 270]) {
+      const cam = new PlayerCamera(grid);
+      settle(cam, feet, yaw, INIT_AIM_PITCH, STAND, 40);
+      expect(segmentHit(grid, hip, cam.view(1).eye, isCameraSurface), `standing, yaw ${yaw}`).toBeNull();
+      cam.jumping = true;
+      cam.tick(feet, yaw, INIT_AIM_PITCH, 15.08, 1 / 60, true); cam.tick(feet, yaw, INIT_AIM_PITCH, 15.08, 1 / 60, true);
+      const v = cam.view(1);
+      expect(v.aim.target[1], `yaw ${yaw}: the game's look point is over the roof`).toBeGreaterThan(roof.point[1]);
+      expect(v.eye[1], `yaw ${yaw}: the drawn eye is under it`).toBeLessThan(roof.point[1]);
+      expect(segmentHit(grid, hip, v.eye, isCameraSurface), `the jump, yaw ${yaw}`).toBeNull();
+    }
+  });
+});
+
+describe(`JUMP_OVERHEAD_CAMERA_ADAPTATION is the jump's only (Crossroads, no jump)${fixture('RUN/MP72.ZDB') ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+  // #842's overhead cap ran on every camera: a prone body beside an upper road slab (wc10/di_road10) or under the edge of
+  // a sloped roof (wc16/di_roof16) had a face over its axis below the look point, and the drawn eye was put CAM_MARGIN
+  // under it -- here under the floor (cameraWallClip's B-19 sweep, seat-movement's row diff: 165 poses moved, 69 under
+  // the feet). H309 rules out see-through, not a camera moved where nothing was wrong: the cap is the jump's.
+  const PRONE_ROOT = STANCE.prone.rootY;
+  const spots: { feet: Vec3; next180: Vec3 }[] = [
+    // `next180`: agent/next's drawn eye at yaw 180, pitch -20 (seat-movement's run of the sweep at 860632b675).
+    { feet: [420, 0, 1380], next180: [420, 15.86, 1360.22] },
+    { feet: [1940, 176.37, 940], next180: [1940, 186.6, 935.7] },
+    { feet: [1980, 176.37, 940], next180: [1980, 186.6, 935.7] },
+  ];
+  it.skipIf(!fixture('RUN/MP72.ZDB'))('a prone body not jumping keeps its drawn eye over its feet, as on next, at eight facings', async () => {
+    const map = await loadMap(new FsAssetSource(FIXTURES), 'RUN/MP72.ZDB');
+    const grid = groundGrid(map.ground!);
+    for (const { feet, next180 } of spots) {
+      for (const yaw of [0, 45, 90, 135, 180, 225, 270, 315]) {
+        const cam = new PlayerCamera(grid);
+        settle(cam, feet, yaw, -20, PRONE_ROOT, 8);
+        const v = cam.view(1);
+        expect(v.eye[1], `feet ${feet.join(',')} yaw ${yaw}: the drawn eye over the feet`).toBeGreaterThan(feet[1]);
+        if (yaw === 180) close(v.eye, next180, 1);
+      }
+    }
+  });
+});
+
+describe('JUMP-CAMERA-DIP (Craig\'s playtest, 2026-11-22): the jump\'s overhead cap ignores water and the ground under the body, and never casts from under the floor', () => {
+  // The report: "the majority of the time when my character jumps, the camera is going underneath the screen and jumping
+  // back up. this was every time in the water and while climbing a ramp, usually while on flat ground too"; the same with
+  // the camera aimed level. The cap met a wading body's WATER surface over its axis, or -- the drawn lift lagging below the
+  // simulated feet -- the ground from below, and put the drawn eye CAM_MARGIN under it. A real roof can be modelled facing
+  // up (Frostfire's refinery), so the fix keys on the material and on where the cast starts, not on the face's direction.
+  const upFacing = (y: number): WorldPoly => rewound(floor(y));
+  /** A water surface: the engine's first LIQUID material (`materialTable`, the SOILS key). */
+  const LIQUID = materialTable().findIndex((m) => m.liquid);
+  const water = (y: number): WorldPoly => ({ ...upFacing(y), material: LIQUID, path: 'worldmodel/water' });
+  const jumpIn = (grid: Grid, pitch: number): PlayerCamera => {
+    const cam = new PlayerCamera(grid);
+    settle(cam, ORIGIN, 0, pitch, STAND, 60);
+    cam.jumping = true;
+    cam.tick(ORIGIN, 0, pitch, 15.08, 1 / 60, true);
+    cam.tick(ORIGIN, 0, pitch, 15.08, 1 / 60, true);
+    return cam;
+  };
+  it('WATER: wading (the water surface 8 over the feet), a jump keeps the drawn eye over the water, aimed at rest and level', () => {
+    expect(LIQUID).toBeGreaterThanOrEqual(0);
+    const grid = world([upFacing(0), water(8)]);
+    for (const pitch of [INIT_AIM_PITCH, 0]) {
+      const v = jumpIn(grid, pitch).view(1);
+      expect(v.eye[1], `pitch ${pitch}: the drawn eye`).toBeGreaterThan(8);
+      expect(v.target[1], `pitch ${pitch}: the look point`).toBeGreaterThan(8);
+    }
+  });
+  it('THE GROUND FROM BELOW: a drawn lift that starts the overhead cast under an up-facing ground does not drop the camera under it', () => {
+    const grid = world([upFacing(0)]);
+    const cam = jumpIn(grid, INIT_AIM_PITCH);
+    const v = cam.view(1, [0, -2, 0]);                                     // the drawn feet a little under the simulated
+    expect(v.eye[1], 'the drawn eye').toBeGreaterThan(0);
+    expect(v.target[1], 'the look point').toBeGreaterThan(0);
+  });
+  it('THE RAMP: running uphill, the airborne feet sit just under the slope at their own column (MP64: 1.46 under walkable terrain); that ground is no roof', () => {
+    // seat-movement's MP64 frame at c481097c1b: sim feet y 121.17, the up-cast met worldmodel/walkable_terrain_2062
+    // (n.y 0.908, up-facing) at 122.63 and put the drawn eye 0.90 over the feet. The walker's own floor window
+    // (PROBE_LIFT_FLOOR_R0004.stand, 11.48 over the feet) is the ground the body is over, not a roof.
+    const grid = world([upFacing(-20), upFacing(1.46)]);
+    for (const pitch of [INIT_AIM_PITCH, 0]) {
+      const v = jumpIn(grid, pitch).view(1);
+      expect(v.eye[1], `pitch ${pitch}: the drawn eye`).toBeGreaterThan(15);
+    }
+  });
+  it('a ROOF still caps the jump, as #842 asks (H309): a down-facing underside and an up-facing slab met from below alike', () => {
+    for (const roof of [floor(24), upFacing(24)]) {
+    const grid = world([upFacing(0), roof]);
+    const v = jumpIn(grid, INIT_AIM_PITCH).view(1);
+    expect(v.eye[1]).toBeLessThan(24);
+    expect(v.target[1]).toBeLessThan(24);
     }
   });
 });

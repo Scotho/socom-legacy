@@ -14,6 +14,7 @@ import { mouseSite } from './mouseTesting';
 import { droppedFolder, type DirRequest } from './discSource';
 import { MapBar, reloadOnMap } from './testroomMapBar';
 import { bindFullscreenButton } from './mobileFullscreen';
+import { pickedVariant, pickerEntries, type PickerEntry } from './variants/pickerOptions';
 
 /** The overlays a viewer can switch on, in the order the panel lists them. */
 export const TOGGLES = ['grid', 'collision', 'spawns', 'wireframe', 'untextured',
@@ -25,6 +26,12 @@ export type ToggleName = (typeof TOGGLES)[number];
 export const SLIDERS = ['brighten', 'fognear', 'fogfar'] as const;
 export type SliderName = (typeof SLIDERS)[number];
 
+/** A picker option's words: the archive's label (`labelFor`), with a variant's own name in place of the parent's (DAY-PICK). */
+function entryLabel(e: PickerEntry): string {
+  const label = labelFor(e.map);
+  return e.variant ? e.name + label.slice(e.map.name.length) : label;
+}
+
 /** The page's controls, found once and typed, so the rest of the viewer never touches `getElementById`. */
 export class Ui {
   private readonly maps = find<HTMLSelectElement>('maps');
@@ -35,7 +42,7 @@ export class Ui {
   /** The last reading of the server's rooms, so a new map list carries it (null: not known). */
   private playerCounts: PlayerCounts | null = null;
   /** Each option's map, for its label (`labelFor`) and its archive (the rooms' key). */
-  private readonly optionMaps = new WeakMap<HTMLOptionElement, MapInfo>();
+  private readonly optionMaps = new WeakMap<HTMLOptionElement, PickerEntry>();
   private readonly status = find<HTMLParagraphElement>('status');
   private readonly diagnostics = find<HTMLUListElement>('diagnostics');
   private readonly diagnosticsCount = find<HTMLElement>('diagnostics-count');
@@ -109,15 +116,16 @@ export class Ui {
 
   /** The map list, named from each archive's own `mission.rdr`. The value is the archive-relative path. */
   setMaps(maps: MapInfo[], selected: string | null): void {
-    this.maps.replaceChildren(...maps.map((m) => {
+    // DAY-PICK (VARIANT_TESTROOM_ADAPTATION): each accepted variant after its parent (`./variants/pickerOptions`).
+    this.maps.replaceChildren(...pickerEntries(maps).map((e) => {
       const option = document.createElement('option');
-      option.value = m.path;
-      option.textContent = labelFor(m) + mapSuffix(this.playerCounts, m.archive);
-      option.selected = m.path === selected;
-      this.optionMaps.set(option, m);
+      option.value = e.value;
+      option.textContent = entryLabel(e) + mapSuffix(this.playerCounts, e.map.archive);
+      option.selected = e.value === selected;
+      this.optionMaps.set(option, e);
       return option;
     }));
-    this.mapBar?.setMaps(maps, selected);
+    this.mapBar?.setMaps(maps, selected === null ? null : pickedVariant(selected).path);   // the bar lists archives only
   }
 
   /**
@@ -131,16 +139,16 @@ export class Ui {
     const total = totalText(counts);
     if (this.playersOnline && this.playersOnline.textContent !== total) this.playersOnline.textContent = total;
     for (const option of this.maps.options) {
-      const m = this.optionMaps.get(option);
-      if (!m) continue;
-      const text = labelFor(m) + mapSuffix(counts, m.archive);
+      const e = this.optionMaps.get(option);
+      if (!e) continue;
+      const text = entryLabel(e) + mapSuffix(counts, e.map.archive);
       if (option.textContent !== text) option.textContent = text;
     }
   }
 
   select(path: string): void {
     this.maps.value = path;
-    this.mapBar?.follow(path);
+    this.mapBar?.follow(pickedVariant(path).path);
   }
 
   onMapChange(handler: (path: string) => void): void {

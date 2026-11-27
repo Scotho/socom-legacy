@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { MAP_VARIANTS } from '@s2u/archive';
 import { playListNumbers, type MissionRecord, type ZAnimUiCommand } from '@s2u/ui';
 import { CREATE_GAME_OFFER_ADAPTATION, CreateGameOfferRead, fetchCreateGameOffer, missionsFromReaderc, offerWithRooms } from '../src/createGameHost';
 import { FrontEndSession, type FrontEndDisc } from '../src/frontEnd';
@@ -58,9 +59,9 @@ describe('fetchCreateGameOffer: <base>/maps read once, the offer\'s map numbers 
 });
 
 const MISSIONS: MissionRecord[] = [
-  { number: 51, name: 'VIGILANCE', type: 5, multiplayer: true }, { number: 71, name: 'FISH HOOK', type: 4, multiplayer: true },
+  { number: 51, name: 'VIGILANCE', type: 5, multiplayer: true }, { number: 64, name: 'SHADOW FALLS', type: 5, multiplayer: true }, { number: 71, name: 'FISH HOOK', type: 4, multiplayer: true },
   { number: 72, name: 'CROSSROADS', type: 2, multiplayer: true }, { number: 1, name: 'BLIZZARD', type: 2, multiplayer: true },
-  { number: 2, name: 'FROSTFIRE', type: 5, multiplayer: true }, { number: 6, name: 'DESERT GLORY', type: 4, multiplayer: true },
+  { number: 2, name: 'FROSTFIRE', type: 5, multiplayer: true }, { number: 5, name: 'ABANDONED', type: 5, multiplayer: true }, { number: 6, name: 'DESERT GLORY', type: 4, multiplayer: true },
   { number: 7, name: 'NIGHT STALKER', type: 2, multiplayer: true }, { number: 10, name: 'BLOOD LAKE', type: 4, multiplayer: true },
   { number: 12, name: 'THE RUINS', type: 2, multiplayer: true },
 ];
@@ -76,10 +77,10 @@ describe('the session hands the offer to CREATE GAME (FrontEndSession option cre
   it('the eight (V13-2, V13-3, DF-14) the server\'s offer names, read at each GetAvailableMPMissions; none (null or absent): the eight; the whole offer only on the server\'s all-maps word (BAM.R4)', () => {
     let offer: readonly number[] | null = null;
     const s = new FrontEndSession({ disc: disc(), startDialog: 'dlgMenu.rdr', missions: () => MISSIONS, createGameOffer: () => offer });
-    expect(rows(s)).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
+    expect(rows(s)).toEqual([51, 64, 71, 72, 1, 2, 5, 5, 6, 7, 12]);                 // DAY-4 (DAY.R7): ABANDONED (DAY), the accepted variant, after its map
     offer = [72, 2, 10];
-    expect(rows(s)).toEqual([72, 2]);                         // OT.R58: MP10 (outside the eight) never listed, whatever the offer
-    expect(rows(new FrontEndSession({ disc: disc(), startDialog: 'dlgMenu.rdr', missions: () => MISSIONS }))).toEqual([51, 71, 72, 1, 2, 6, 7, 12]);
+    expect(rows(s)).toEqual([72, 2]);                         // OT.R58: MP10 (outside the ten) never listed, whatever the offer
+    expect(rows(new FrontEndSession({ disc: disc(), startDialog: 'dlgMenu.rdr', missions: () => MISSIONS }))).toEqual([51, 64, 71, 72, 1, 2, 5, 5, 6, 7, 12]);
     // BAM.R4 / P537-L2: the server's CREATE_GAME_ALL_MAPS word (`allBotGames`, `CreateGameOfferRead.allMaps`) lists it whole.
     let all = false;
     const t = new FrontEndSession({ disc: disc(), startDialog: 'dlgMenu.rdr', missions: () => MISSIONS, createGameOffer: () => offer, allBotGames: () => all });
@@ -96,14 +97,15 @@ describe('the session hands the offer to CREATE GAME (FrontEndSession option cre
   });
 
   const readerc = resolve(process.env.SOCOM_DISC ?? '__no_disc__', 'RUN/READERC.ZAR');
-  it.skipIf(!existsSync(readerc))('the all-map test offer reaches all 22 native mission rows (dev disc)', async () => {
+  it.skipIf(!existsSync(readerc))('the all-map test offer reaches all 22 native mission rows, each MAP_VARIANTS row after its map (DAY-4, DAY.R7, DAY-RN1: 26 rows; dev disc)', async () => {
     const missions = missionsFromReaderc(new Uint8Array(readFileSync(readerc)));
     const offer = await fetchCreateGameOffer('http://h', async () => json(200, {
       maps: missions.map(m => `MP${m.number}`), offer: 'served', allCreateGameMaps: true,
     }));
     const s = new FrontEndSession({ disc: disc(), startDialog: 'dlgMenu.rdr', missions: () => missions, createGameOffer: () => offer, allBotGames: () => true });
     expect(missions).toHaveLength(22);
-    expect(rows(s)).toEqual(missions.map(m => m.number));
+    expect(rows(s)).toEqual(missions.flatMap(m => [m.number, ...MAP_VARIANTS.filter(v => v.level === m.number).map(() => m.number)]));
+    expect(rows(s)).toHaveLength(26);                          // MP64 day, MP5 day, MP6 night, MP8 day
   });
 });
 

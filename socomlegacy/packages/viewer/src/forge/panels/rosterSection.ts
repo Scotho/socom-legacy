@@ -95,7 +95,7 @@ export function buildRosterSection(doc: Document): RosterSection {
       grid.append(col);
     }
     body.append(grid, forgeEl(doc, 'p', 'fx-dim fx-setting-note',
-      'Each column is a character type from a disc map, with that map’s body and kit, in Play here. The lobby’s ARMORY and its server match keep the map’s own.'));
+      'Each column is a character type from a disc map, with that map’s body and kit. Play here uses these columns, and so does a lobby made from this layout: its ARMORY and its match.'));
   };
 
   return { body, draw, onChange: (cb) => { listeners = [...listeners, cb]; } };

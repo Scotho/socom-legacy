@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Mesh, Scene, Vector3, type MeshBasicMaterial, type Vector2 } from 'three';
 import {
-  buildGrid, EMPTY_ITEM, HELD_RIFLE, HELD_SIDEARM, materialTable, readKitTable, tracerRound, type Grid, type GridParams, type MotionClip, type WeaponRecord, type WorldPoly,
+  buildGrid, EMPTY_ITEM, GAME_FRAME_DT, HELD_RIFLE, HELD_SIDEARM, materialTable, readKitTable, tracerRound, type Grid, type GridParams, type MotionClip, type WeaponRecord, type WorldPoly,
 } from '@s2u/scene';
 import { passingSound } from '@s2u/sound';
 import { WeaponPose } from '../src/weaponPose';
@@ -27,6 +27,7 @@ import type { StillReloadLife } from '../src/stillReloadLife';
 import { packGround, WalkMode, type GroundData } from '../src/walk';
 import { Zoom } from '../src/zoom';
 import { GrenadeThrower } from '../src/grenade';
+import { mountThrowables } from '../src/matchThrow';
 import { meterPower, meterTint } from '../src/reticle';
 import type { PlaySnapshot } from '../src/walk';
 import { ScopePulse } from '../src/rumble';
@@ -187,10 +188,10 @@ describe('the Fire source: one, with every page\'s hooks', () => {
     fire.subscribe((e) => { if (e.type === 'dry' || e.type === 'reloadStart') types.push(e.type); });
     item = true;
     fire.pull();
-    fire.update(1 / 60); fire.update(1 / 60);
+    fire.update(GAME_FRAME_DT); fire.update(GAME_FRAME_DT);                       // read twice with the throwable up
     expect(types).toEqual([]);
     item = false;
-    fire.update(1 / 60);
+    fire.update(GAME_FRAME_DT);
     expect(types).toEqual(['dry', 'reloadStart']);
   });
   it('the look carries the pad\'s pitch push (main.ts\'s; the front end\'s copy had dropped it)', () => {
@@ -490,6 +491,43 @@ describe("PF-34: the room's kit after a pickup (`takeKit`, research 234 s6), on 
     expect(setRing).toHaveBeenCalledWith(firearm.records()[0], [30, 30, 0, 0, 0, 0, 0, 0, 0, 0], undefined, [1], [18]);
     expect(setRing).toHaveBeenLastCalledWith(firearm.records()[1], ring(12), undefined, [], []);
   });
+  it('PICKUP-LINE (research 234 §7 PICKUP_TEXT_PLACEHOLDER): a walk-over\'s take posts its ammo names on the small window; a claim posts none', () => {
+    const { firearm, hud } = rig();
+    const post = vi.spyOn(hud, 'postSmallMessage');
+    const kit = [HELD_RIFLE.id, HELD_SIDEARM.id, 121, 255, 255];
+    // The equipment take (LATER 1129's `kit`): slot 2's M67 topped up -- the rig's "M67 Ammo".
+    firearm.takeKit(kit, null, [ring(30), ring(12)], [[], []],
+      { taken: true, equipment: [{ slot: 2, kind: 'M67', rounds: [1, 0], current: 0, added: [1, 0] }] }, [[], []]);
+    expect(post.mock.calls).toEqual([['M67 Ammo']]);
+    // A firearm pour (PICKUP_TEXT_FIREARM_READING): the rifle record's ammo name.
+    post.mockClear();
+    firearm.takeKit(kit, null, [[30, 30, 0, 0, 0, 0, 0, 0, 0, 0], ring(12)], [[1], []], undefined, [[18], []]);
+    expect(post.mock.calls).toEqual([[firearm.records()[0].ammo]]);
+    // A weapon claim (a slot) and a resume post nothing.
+    post.mockClear();
+    firearm.takeKit(kit, 0, [ring(0), ring(12)]);
+    firearm.takeKit(kit, null, [ring(30), ring(12)], undefined, { pouch: {}, held: null } as never);
+    expect(post).not.toHaveBeenCalled();
+  });
+  it('PICKUP-LINE (PICKUP_TEXT_READING): the posted line is the ZAMMO record\'s DisplayName, not its InternalName, on both paths', () => {
+    // A synthetic table whose names differ (the disc's own pair: "GL HE Ammo" shows "M79 HE Ammo"; research 101 PF-34),
+    // the rifle's round given a DisplayName of its own: the wiring `takeKit -> pickupLines -> hud.postSmallMessage`
+    // must hand the post the DisplayName for an equipment slot (`ammoNameOf`) and for a firearm pour (`ammoDisplayNameOf`).
+    const rifleAmmo = HELD_RIFLE.ammo!;
+    const table = { arsenal: { items: new Map([[121, { id: 121, name: 'M79 SHELL', cls: 'grenade', ammo: 'GL HE Ammo', magazine: 1, mags: 1 }]]),
+      byName: new Map(), order: [], ammoDisplayNames: new Map([['GL HE Ammo', 'M79 HE Ammo'], [rifleAmmo, 'RIFLE ROUND SHOWN']]) },
+    records: new Map([[HELD_RIFLE.id, HELD_RIFLE], [HELD_SIDEARM.id, HELD_SIDEARM]]), rounds: new Map() } as never;
+    const { firearm, hud, loadouts } = rig();
+    vi.spyOn(loadouts, 'tables').mockReturnValue(table);
+    const post = vi.spyOn(hud, 'postSmallMessage');
+    const kit = [HELD_RIFLE.id, HELD_SIDEARM.id, 121, 255, 255];
+    firearm.takeKit(kit, null, [ring(30), ring(12)], [[], []],
+      { taken: true, equipment: [{ slot: 2, kind: 'M67', rounds: [1, 0], current: 0, added: [1, 0] }] }, [[], []]);
+    expect(post.mock.calls).toEqual([['M79 HE Ammo']]);
+    post.mockClear();
+    firearm.takeKit(kit, null, [[30, 30, 0, 0, 0, 0, 0, 0, 0, 0], ring(12)], [[1], []], undefined, [[18], []]);
+    expect(post.mock.calls).toEqual([['RIFLE ROUND SHOWN']]);
+  });
   it("a claim into the slot not in the hand keeps the hand's fire mode as switched (stored with its firearm first, as spawnKit does)", () => {
     const { firearm } = rig();
     const kit = [HELD_RIFLE.id, HELD_SIDEARM.id, 121, 255, 255];
@@ -630,7 +668,7 @@ describe('the frame steps', () => {
     firearm.roundEffects({ type: 'round', weapon: { name: 'M4A1' }, from: [0, 0, 0], to: [0, 0, -10], hit: false } as never, 0);
     expect(fired).toEqual(['M4A1']);
   });
-  it("MAP-10b: a mounted body's round is flashed at the turret's firepoint, not its rifle; the page's own turret round is drawn (the path, the flash on the frame, the report) and sends nothing", () => {
+  it("MAP-10b + R4P-239: a mounted body's round draws NO muzzle flash (no node; never its rifle's); the page's own turret round is drawn (the path, no flash, the report) and sends nothing", () => {
     const fired: string[] = [], heard: string[] = [];
     const frame = Float32Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 7, 8, 9, 1]);
     const { firearm, remote } = rig({
@@ -641,9 +679,8 @@ describe('the frame steps', () => {
     const onRound = vi.spyOn(firearm.effects, 'onRound');
     firearm.roundEffects({ type: 'round', weapon: { name: 'PKM TURRET' }, from: [7, 8, 9], to: [7, 8, -10], hit: false } as never, 7);
     expect(rifle).not.toHaveBeenCalled();
-    const flash = onRound.mock.calls[0]![1] as { node: { elements: number[] }; muzzle: number[] };
-    expect([...flash.node.elements]).toEqual([...frame]);
-    expect(flash.muzzle).toEqual([0, 0, 0]);
+    expect(onRound).toHaveBeenCalledTimes(1);
+    expect(onRound.mock.calls[0]![1], 'R4P-239: a mounted round hands the muzzle animation no node (no flash)').toBeNull();
     firearm.roundEffects({ type: 'round', weapon: { name: 'M4A1' }, from: [0, 0, 0], to: [0, 0, -10], hit: false } as never, 3);
     expect(rifle).toHaveBeenCalledWith(3);                          // not mounted: the rifle's frame, as before
     expect(fired).toEqual(['PKM TURRET', 'M4A1']);
@@ -658,7 +695,7 @@ describe('the frame steps', () => {
     firearm.turretRound(record, [7, 8, 9], [0, 0, -1], frame, 5);
     expect(onRound).toHaveBeenCalledTimes(1);
     expect((onRound.mock.calls[0]![0] as { weapon: { id: number }; to: number[] }).weapon.id).toBe(205);
-    expect([...(onRound.mock.calls[0]![1] as { node: { elements: number[] } }).node.elements]).toEqual([...frame]);
+    expect(onRound.mock.calls[0]![1], 'R4P-239: the own turret round hands no muzzle node either').toBeNull();
     expect(heard).toEqual(['PKM TURRET']);
   });
 });
@@ -870,7 +907,9 @@ describe('NU-2: aimReticle draws the hand\'s set and the throw meter', () => {
     expect(frame()).toBe(0);                                                     // up, not held: the empty frame
     expect(firearm.reticle.currentSet()).toBe(4);
     g.pull();
-    for (let n = 1; n <= 30; n++) expect(frame()).toBeCloseTo(32 * (1 - 0.95 ** n), 9);
+    // LATER 1027 re-pin: the power after n updates of 1/60 s is the chase's exact per-second law, 1 - (1 - 3G)^(n / 60G)
+    // (was the 60 Hz Euler step's 1 - 0.95^n).
+    for (let n = 1; n <= 30; n++) expect(frame()).toBeCloseTo(32 * (1 - (1 - 3 * GAME_FRAME_DT) ** (n / 60 / GAME_FRAME_DT)), 9);
     const atRelease = g.stats().power;
     g.release();
     let held = 0;
@@ -895,7 +934,7 @@ const FLOOR: GroundData = packGround(
   { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 },
   [{
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]),
+    points: Float32Array.from([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]),
   }],
   [{ modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1 }],
 );
@@ -1139,7 +1178,7 @@ describe('NU-3a: aimReticle under a raised launcher', () => {
  * (`FirearmHands.kitTaken`), which `matchThrow.test.ts` "NU-5" carries on to the raise.
  */
 describe('NU-5 L1: the firearm part hands a claimed launcher\'s round slots on (FirearmHands.kitTaken)', () => {
-  it("takeKit with the LAW in slot 3 and its LAW HEAT in 4 (no firearm slot, no ring written): kitTaken gets round slots holding one LAW HEAT", () => {
+  it("takeKit with the LAW in slot 3 and its LAW HEAT appended at index 5 (R4P-103; no firearm slot, no ring written): the page's kit takes six records, kitTaken gets round slots holding one LAW HEAT", () => {
     const table = { arsenal: { items: new Map([
       [145, { id: 145, name: 'LAW', cls: 'rocketLauncher', magazine: 1, mags: 1 }],
       [185, { id: 185, name: 'LAW HEAT', cls: 'rocketRound', magazine: 1, mags: 1 }],
@@ -1149,10 +1188,34 @@ describe('NU-5 L1: the firearm part hands a claimed launcher\'s round slots on (
     vi.spyOn(loadouts, 'tables').mockReturnValue(table);
     loadouts.take([HELD_RIFLE.id, HELD_SIDEARM.id, 121, EMPTY_ITEM, EMPTY_ITEM]);
     const ring = (n: number): number[] => [n, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    firearm.takeKit([HELD_RIFLE.id, HELD_SIDEARM.id, 121, 145, 185], null, [ring(30), ring(12)], [[], []]);
+    firearm.takeKit([HELD_RIFLE.id, HELD_SIDEARM.id, 121, 145, EMPTY_ITEM, 185], null, [ring(30), ring(12)], [[], []]);
+    expect([...loadouts.loadout()]).toEqual([HELD_RIFLE.id, HELD_SIDEARM.id, 121, 145, EMPTY_ITEM, 185]);
     expect(taken).toHaveLength(1);
     expect(taken[0]!.ring(185)?.total()).toBe(1);
-    expect(firearm.heldRounds().find((h) => h.slot === 4)).toEqual({ slot: 4, id: 185, rounds: 1 });
+    expect(firearm.heldRounds().find((h) => h.slot === 5)).toEqual({ slot: 5, id: 185, rounds: 1 });
+  });
+
+  // R4P-103 fresh review F3: the taker's own reconnect. The room's resume broadcasts `spawn` with the live six-record kit
+  // (room.ts's respawn: `kit: [...p.loadout]`) before `resume`: the page's spawn takes that kit as the room's own (not a
+  // loadout answer), so the resume's take sees no launcher enter the kit -- no `launcherTaken` (which would set the round
+  // to PICKUP_LAUNCHER_ROUNDS_READING whatever the room holds) and no `swapRifleClaim` on a resume.
+  it('a resume of a taker whose LAW was fired: the spawn takes the six-record kit, the resume\'s take claims nothing and plays no claim clip', () => {
+    const table = { arsenal: { items: new Map([
+      [145, { id: 145, name: 'LAW', cls: 'rocketLauncher', magazine: 1, mags: 1 }],
+      [185, { id: 185, name: 'LAW HEAT', cls: 'rocketRound', magazine: 1, mags: 1 }],
+    ]) }, records: new Map([[HELD_RIFLE.id, HELD_RIFLE], [HELD_SIDEARM.id, HELD_SIDEARM]]), rounds: new Map() } as never;
+    const taken: KitRounds[] = [];
+    const { firearm, loadouts, walk } = rig({ hands: hands({ kitTaken: (r) => { taken.push(r); } }) });
+    vi.spyOn(loadouts, 'tables').mockReturnValue(table);
+    const swap = vi.spyOn(walk, 'pickupSwap');
+    const six = [HELD_RIFLE.id, HELD_SIDEARM.id, 121, 145, EMPTY_ITEM, 185];
+    firearm.spawnKit('seal', six);                                         // the room's spawn of the resumed body
+    expect([...loadouts.loadout()]).toEqual(six);
+    const ring = (n: number): number[] => [n, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    firearm.takeKit(six, null, [ring(30), ring(12)], undefined, { pouch: {}, held: null });   // the resume
+    expect([...loadouts.loadout()]).toEqual(six);
+    expect(taken).toHaveLength(0);                                          // no launcherTaken: the round not re-set
+    expect(swap).not.toHaveBeenCalled();                                    // no swapRifleClaim on a resume
   });
 });
 
@@ -1463,7 +1526,7 @@ describe('NU-3b C5: aimReticle greys a blocked muzzle and a climb, blacks an emp
     vi.spyOn(play, 'weaponStats').mockReturnValue({ ...play.weaponStats(), raise: { ...play.weaponStats().raise, weight: 1 } });
     const block = vi.spyOn(firearm.fire, 'blockedMuzzle').mockReturnValue([right.x, right.y, right.z]);
     firearm.reticle.render({ autoClear: true, getDrawingBufferSize: (v: Vector2) => v.set(640, 448), render: () => {} });
-    firearm.aimReticle(1 / 60);
+    firearm.aimReticle(GAME_FRAME_DT);   // LATER 1027 (3): the pip steps a game frame, not 1/60
     expect(firearm.reticle.state().pip.offset![0]).toBeGreaterThan(26);
     expect(firearm.reticle.state().colour).toBe('blocked');
     block.mockReturnValue(null);
@@ -1814,6 +1877,54 @@ describe('AD-3: aimReticle reads the perception\'s mark and the special actors',
     expect(frame().colour).toBe('rest');                                   // rejected: the mark cleared
     expect(feedOf(play).enemies).toBe(0);                                  // and the count with it
   });
+
+  // LATER 1595 FIRST-PERSON-RAISE (the owner's word for v0.4.32, 2026-11-25; reading, pending review): the raise's scope
+  // term is IsZoomed and not IsUsingBinocs (`FUN_00594cf0` D:L453087-453092, r0004 D4:L494002-494006): `FUN_005be6c0`
+  // true at a zoom state of 4 or more (D:L475078-475090), `FUN_005b90f0` the binoculars' 4 (D:L471991-471997) -- so a
+  // scope zoom, state 5 on, the zoom's own 'scope' view (`Zoom.view`). Plain first person (states 1-2) is no scope: the
+  // original keeps the rifle down there (FP-NEARPOINT-r0004, PC 2: +0xf74 2 held, eye 115.89). Was: `walk.view() ===
+  // 'scope'`, the walk's head view, true in every view from the head (LATER 1583's d4/d8, PAGE-NEARPOINT-PAIRED-PC5).
+  for (const state of [1, 2] as const) {
+    it(`1595: plain first person (zoom state ${state}) with the walk in its head view asks no scope -- aiming false`, () => {
+      const { frame, walk, firearm, play } = setUp({ at: [60, 0, -200] });
+      vi.spyOn(walk, 'view').mockReturnValue('scope');                     // the walk's view from the head (states 1-12)
+      firearm.zoom.set(state);
+      expect(firearm.zoom.view()).toBe('first');
+      frame();
+      expect(feedOf(play).aiming).toBe(false);
+    });
+  }
+
+  it('1595: the binoculars (zoom state 4) ask no scope -- aiming false', () => {
+    const { frame, walk, firearm, play } = setUp({ at: [60, 0, -200] });
+    vi.spyOn(walk, 'view').mockReturnValue('scope');
+    firearm.zoom.set(4);
+    frame();
+    expect(feedOf(play).aiming).toBe(false);
+  });
+
+  it('1595: a scope zoom (zoom state 5) asks the rifle up -- aiming true', () => {
+    const { frame, walk, firearm, play } = setUp({ at: [60, 0, -200] });
+    vi.spyOn(walk, 'view').mockReturnValue('scope');
+    firearm.zoom.set(5);
+    expect(firearm.zoom.view()).toBe('scope');
+    frame();
+    expect(feedOf(play).aiming).toBe(true);
+  });
+
+  it('1595, end to end: in plain first person with no trigger and no enemy marked the 5.0 s hold runs out and the rifle is down', () => {
+    const { frame, walk, firearm, play, fly } = setUp({ at: [0, 0, 200] });   // behind the camera: never marked
+    vi.spyOn(walk, 'view').mockReturnValue('scope');
+    firearm.zoom.set(1);
+    const snap = {
+      feet: [0, 0, 0], yaw: 0, pitch: 0, vx: 0, vz: 0, vy: 0, airborne: false, crouched: false, stance: 'stand',
+      landing: null, jumps: 0, ground: { state: 'idle' }, action: null, turnRate: 0,
+    } as unknown as PlaySnapshot;
+    const body = { snapshot: () => snap, view: () => walk.view() };
+    for (let i = 0; i < 336; i++) { frame(); play.frame(1 / 60, body, fly.camera); }   // 5.6 s: past the 5.0 s hold
+    expect(feedOf(play)).toMatchObject({ trigger: false, aiming: false, enemies: 0 });
+    expect(play.raisedUp()).toBe(false);
+  });
 });
 
 /**
@@ -2091,11 +2202,35 @@ describe.skipIf(ZWEAPON === null)(`TURRET-CONE P1: the turret reticle blooms per
       expect([weapon, Math.hypot(before.offsetX, before.offsetY)]).toEqual([weapon, 0]);
       w.firearm.trigger(true);
       w.firearm.turretRound(record, [5, 20, -2], line, null, 1);
+      // SWAPFIRE-CONE-ORDER F2: within the frame the round reads the frame-begin cache (nothing rewrites it in the pull);
+      // the next frame's sample, taken before its tick, holds the bloom.
+      expect([weapon, w.firearm.turretCone().radius]).toEqual([weapon, expect.closeTo(min * ty * RADIUS_FACTOR, 12)]);
+      w.firearm.trigger(false);
+      w.frame();
       expect([weapon, w.firearm.turretCone().radius]).toEqual([weapon, expect.closeTo((min + dilate) * ty * RADIUS_FACTOR, 12)]);
     }
     expect(15 * ty * RADIUS_FACTOR).toBeCloseTo(0.0252636, 6);
     expect(6 * ty * RADIUS_FACTOR).toBeCloseTo(0.0101054, 6);
     expect(2 * ty * RADIUS_FACTOR).toBeCloseTo(0.0033685, 6);
+  });
+
+  // SWAPFIRE-CONE-ORDER's review F2 (research 321 s3.1): the mounted round is the same path in the original -- the kit's
+  // fire, the controller's slot +0x74 (r0004 0x597a90), the cache written in the pre-tick pass (0x5c3cb0 at 0x59bef0)
+  // -- so `turretCone()` is the cone the frame BEGAN with (`gunFrame`'s sample, taken after the turret's record is
+  // named), not the cone after the frame's reticle tick.
+  it("SWAPFIRE-CONE-ORDER F2: a mounted round on a frame that ticks reads the frame-begin cone, not the post-tick one (r0004 0x597a90 reads the cache 0x5c3cb0 writes at 0x59bef0)", () => {
+    const ty = tangentPerPixel().y;
+    const { w, on, record, acc } = mounted(205);
+    on.mounted = true;
+    w.settle();
+    w.firearm.trigger(true);
+    w.firearm.turretRound(record, [5, 20, -2], line, null, 1);         // bloomed to 23
+    w.firearm.trigger(false);
+    w.frame();                                                         // samples 23, then its tick closes the reticle
+    const live = acc.cone(w.firearm.zoom.state(), w.firearm.zoom.magnification());
+    expect(acc.state().size).toBeLessThan(23);                         // the frame ticked
+    expect(w.firearm.turretCone().radius).toBeCloseTo(23 * ty * RADIUS_FACTOR, 12);
+    expect(w.firearm.turretCone().radius).not.toBeCloseTo(live.radius, 6);
   });
 });
 
@@ -2299,9 +2434,15 @@ describe.skipIf(ZWEAPON === null)(`LATER 97: the mounted zoom${ZWEAPON === null 
     acc.trigger();                                                            // a new pull: kit+0x818 from 0
     gun.round([0, 0, -1]);
     expect([w.firearm.zoom.state(), acc.rounds()], 'the first round kicks, no drop').toEqual([5, 1]);
+    expect(acc.state().offset[1], 'the first scoped round adds no knock').toBe(carried);
+    const scale = w.firearm.zoom.magnification();                            // cam+0x474 at the second round
     gun.round([0, 0, -1]);
     expect(w.firearm.zoom.state(), 'the second drops to first person (X1)').toBe(1);
-    expect(acc.state().offset[1], 'the knock kept (RED before: 0)').toBe(carried);
+    // AS-34 L77 (research 84 s8): the drop first, then Recoil's gate reads 1 -- the knock kept AND the second round's own knock,
+    // capped at ReticuleKnockMax x the magnification. *Was:* `toBe(carried)` (the second round added nothing).
+    const s = acc.save().weapon.stances.stand;                              // the M4A1's own row
+    const knock2 = s.knockCount === 2 ? s.knock * s.knockEntry : s.knockCount < 2 ? s.knock : 0;   // the pull's 2nd round (D:L477755-477761)
+    expect(acc.state().offset[1], 'the knock kept (RED before: 0) and the round\'s own').toBeCloseTo(Math.max(carried - knock2, -s.knockMax * scale), 9);
     w.firearm.stepZoom('in');
     expect(w.firearm.zoom.state(), 'back in the scope (the control)').toBe(5);
     w.firearm.stepZoom('out');
@@ -2774,6 +2915,82 @@ describe('BLOOM-SWAP: a grenade up closes the bloom on the page (gunFrame -> Acc
     w.frame();
     expect(acc.state().size).toBe(1);                                 // the rifle's tick lifts the carried 0 to its 1
   });
+
+  // SWAP-FIRE P1 (keyjob SWAP-FIRE (i) section 7 "P1"; reading, pending review): the grenade's launch runs the round's
+  // reticle step on the item's own record (r4 0x5cdbc0 -> 0x5ca830, r0001 `FUN_005c3360` D:L477714-477808), so the size
+  // leaves 0 for clamp(0 + 13, 2, 6) on the launch frame. Driven through `mountThrowables`' own 'throw' handler.
+  it.skipIf(zweapon === null)(`SWAP-FIRE P1: the Mk141 up and closed to 0, its 'throw' fires: the size is at least the record's TargetMin 2 on that frame (6)${zweapon ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+    const w = walking({ network: () => true, hands: hands({ itemUp: () => true, handItem: () => 123 }) });
+    w.loadouts.setMap(readKitTable(zweapon!), null);
+    w.firearm.spawnKit('seal', [62, 15, 123, 126, EMPTY_ITEM]);
+    const t = mountThrowables({
+      scene: w.scene, walk: w.walk, fly: w.fly, play: w.play, loadouts: w.loadouts, view: () => null, map: () => null, net: () => null,
+      firearm: () => w.firearm, audio: { onAnimCallback: () => null, onFire: () => null, play: () => {}, onRoundPast: () => {} } as never,
+    });
+    w.settle();
+    const acc = w.firearm.accuracy;
+    w.until(() => acc.state().size <= 0, 120);
+    expect(acc.state().size).toBe(0);
+    const info = { item: 'Mark141', fireAnim: 'frag_start', from: [5, 40, 6], velocity: [0, 0, 0], sound: '', power: 1, fromHand: false };
+    (t.grenade as unknown as { emit(kind: 'throw', i: unknown): void }).emit('throw', info);
+    expect(acc.state().size).toBeGreaterThanOrEqual(2);
+    expect(acc.state().size).toBe(6);                                 // zweapon.rdr Mark141 STANCE_STAND: 13 clamped to [2, 6]
+  });
+
+  // SWAP-FIRE P1b (keyjob SWAP-FIRE P1 review F1; reading, pending review): r4's fire gate 0x5c77f0 zeroes the pull count
+  // kit+0x818 on every tick that reaches it with the trigger's state byte 0 (0x5c7860-0x5c786c) or 3 (0x5c78c0-0x5c78cc),
+  // whatever item is in the slot -- so a throw's count starts from 0 each pull and is 1 at its launch (r4 0x5c93c8): the
+  // Mk141's KnockCount 3 is never reached by throws in a row, and no knock is added. Driven by the throwables' own trigger
+  // edges (`MatchThrowables.hands`), no firearm trigger edge between.
+  const throwRig = (zweapon: Uint8Array) => {
+    const w = walking({ network: () => true, hands: hands({ itemUp: () => true, handItem: () => 123 }) });
+    w.loadouts.setMap(readKitTable(zweapon), null);
+    w.firearm.spawnKit('seal', [62, 15, 123, 126, EMPTY_ITEM]);
+    const t = mountThrowables({
+      scene: w.scene, walk: w.walk, fly: w.fly, play: w.play, loadouts: w.loadouts, view: () => null, map: () => null, net: () => null,
+      firearm: () => w.firearm, audio: { onAnimCallback: () => null, onFire: () => null, play: () => {}, onRoundPast: () => {} } as never,
+    });
+    w.settle();
+    const info = { item: 'Mark141', fireAnim: 'frag_start', from: [5, 40, 6], velocity: [0, 0, 0], sound: '', power: 1, fromHand: false };
+    const emitThrow = (): void => { (t.grenade as unknown as { emit(kind: 'throw', i: unknown): void }).emit('throw', info); };
+    return { w, t, emitThrow };
+  };
+  it.skipIf(zweapon === null)(`SWAP-FIRE P1b (review F1): three throws in a row, each its own pull of the throwable's trigger: the count is 1 at each launch, no knock${zweapon ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+    const { w, t, emitThrow } = throwRig(zweapon!);
+    expect(t.grenade.select('Mark141')).toBe(true);
+    const h = t.hands();
+    const acc = w.firearm.accuracy;
+    for (let i = 0; i < 3; i++) {
+      expect(h.trigger(true)).toBe(true);                             // the throwable's press (state 1), not the firearm's
+      expect(h.trigger(false)).toBe(true);                            // its let-go (state 3): 0x5c78c0-0x5c78cc zeroes +0x818
+      emitThrow();                                                    // the launch: +1 (r4 0x5c93c8)
+      expect(acc.state().burst, `throw ${i + 1}`).toBe(1);
+      expect(acc.state().offset[1], `throw ${i + 1}`).toBe(0);        // KnockCount 3 never reached
+    }
+  });
+  // F2: the launch frame's order -- the bloom's tick first, the launch after, in one kit tick (r4 0x5c7d54 before 0x5c7e14).
+  // The page holds it by the frame's order: `gunFrame` (the bloom) before `throws.frame` (the grenade's update, its
+  // 'throw'), on both pages. The frame here is the page's order with the throw's hand-open in `throws.frame`'s seat.
+  it.skipIf(zweapon === null)(`SWAP-FIRE P1b (review F2): the launch frame in the page's order (the bloom, then the launch): the size read after that frame is 6${zweapon ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+    const { w, emitThrow } = throwRig(zweapon!);
+    const acc = w.firearm.accuracy;
+    w.until(() => acc.state().size <= 0, 120);
+    const dt = 1 / 60;
+    w.walk.frame(dt);
+    w.firearm.gunFrame(dt, true);
+    w.firearm.kitFrame(dt, true);
+    emitThrow();                                                      // `throws.frame`'s seat: after the bloom's tick
+    w.firearm.aimReticle(dt);
+    expect(acc.state().size).toBe(6);                                 // not 6 - 60/60: the close ran before the launch
+  });
+  it('SWAP-FIRE P1b (review F2): both pages run the bloom (gunFrame) before the throws (throws.frame) in one frame', () => {
+    const src = (f: string): string => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src', f), 'utf-8');
+    for (const f of ['main.ts', 'matchMount.ts']) {
+      const s = src(f), gun = s.indexOf('firearm.gunFrame(dt, walking)'), thr = s.indexOf('throws.frame(dt, frameTime.real())');
+      expect(gun, f).toBeGreaterThan(-1);
+      expect(thr, f).toBeGreaterThan(gun);
+    }
+  });
 });
 
 /**
@@ -2862,11 +3079,11 @@ describe("SEGMENT-BODY part 4 (fresh review 1's F1): the page's mover casts the 
     firearm.spawnKit('seal', [254, 16, 123, 122, 254]);          // no primary (FULL_SLOT), a sidearm
     walk.setGround(FLOOR, null);
     expect(walk.respawn([0, 0, 0], 0)).toBe(true);
-    expect(heldOf(walk)).toEqual({ rifle: null, pistol: 'a_mark23' });
+    expect(heldOf(walk)).toEqual({ rifle: null, pistol: 'a_mark23', launcher: null });
     firearm.spawnKit('seal');                                    // the baked kit: the M4A1 SD and the Mark 23
-    expect(heldOf(walk)).toEqual({ rifle: 'm4Acarbine_sd', pistol: 'a_mark23' });
+    expect(heldOf(walk)).toEqual({ rifle: 'm4Acarbine_sd', pistol: 'a_mark23', launcher: null });
     firearm.takeKit([254, HELD_SIDEARM.id, 121, 255, 255], null, [[0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [12, 0, 0, 0, 0, 0, 0, 0, 0, 0]]);
-    expect(heldOf(walk)).toEqual({ rifle: null, pistol: 'a_mark23' });
+    expect(heldOf(walk)).toEqual({ rifle: null, pistol: 'a_mark23', launcher: null });
   });
 });
 
@@ -3024,6 +3241,10 @@ describe('TRIGGER-SWAP: a trigger held from a throwable or the launcher into the
     const { firearm, play } = rig({ hands: hands({ itemUp: () => up, trigger: () => up, heldPulls: () => (up ? null : 0) }) });
     const feed = (): boolean => (play as unknown as { weaponInput: () => { trigger: boolean } }).weaponInput().trigger;
     firearm.trigger(true);
+    // LATER 1147 (research 443): the raise hears the kit's held read (`Fire.padHeldRead`), the pad's state 2 (`FUN_002c60c0`
+    // D:L166671-166686): the press's first read is state 1, not held; its second is. Was: true at the press.
+    expect(feed()).toBe(false);
+    firearm.fireFrame(GAME_FRAME_DT, true);              // the first read
     expect(feed()).toBe(true);
     firearm.suspendTrigger?.();                          // the grenade comes up over the held trigger
     up = true;

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseRdr, parseZdb, rdrGet, Zar, zdbMember, type RdrNode } from '@s2u/archive';
@@ -290,7 +290,8 @@ describe.skipIf(!existsSync(HX2_READERC) || !existsSync(HX2_MP6))('the hostages\
     const chartype = parseRdr(readerm.data(readerm.root.children.find((k) => k.name === 'chartype.rdr')!));
     expect(HOSTAGE_VOICES_READING.slots).toEqual(['CHRSND_YES', 'CHRSND_DAMAGE', 'CHRSND_DEATH']);
     const voices = escorteeVoicesOf(table, chartype);
-    expect(voices).toEqual(Array.from({ length: 3 }, () => ({ damage: '.FEMALE_DAMAGE', death: '.FEMALE_DEATH', quiet: null, yes: '^CO_0343' })));
+    // R4P-254: each entry carries its placed character's name, and its NO (mp_fem1-3 name none: null)
+    expect(voices).toEqual([1, 2, 3].map((n) => ({ character: `mp_fem${n}`, damage: '.FEMALE_DAMAGE', death: '.FEMALE_DEATH', quiet: null, yes: '^CO_0343', no: null })));
     for (const who of ['mp_fem1', 'mp_fem2', 'mp_fem3']) {
       for (const slot of ['CHRSND_RESTRAINED', 'CHRSND_HELPME', 'CHRSND_PANIC', 'CHRSND_WAIT_UP', 'CHRSND_NO', 'CHRSND_DEATH_QUIET']) {
         expect(characterSlot(table, who, slot), `${who} ${slot}`).toBeNull();
@@ -301,7 +302,7 @@ describe.skipIf(!existsSync(HX2_READERC) || !existsSync(HX2_MP6))('the hostages\
     expect(characterVoicesOf(table, chartype)).not.toHaveProperty('escortee');
     expect(escorteeVoicesOf(table, [['navyseals', []]])).toEqual([]);
     // a voice the map's script does not file falls back as a player's does (DAMAGE MALE_DAMAGE, DEATH DEATH_SOUNDS), else none
-    expect(escorteeVoicesOf(table, chartype, () => false)[0]).toEqual({ damage: null, death: null, quiet: null, yes: null });
+    expect(escorteeVoicesOf(table, chartype, () => false)[0]).toEqual({ character: 'mp_fem1', damage: null, death: null, quiet: null, yes: null, no: null });
   });
 });
 
@@ -316,7 +317,7 @@ describe.skipIf(!HAVE_DISC)("the hostages' voices on MP6's own script (SOCOM_DIS
   it("on MP6 a hostage's damage and death voices resolve to nothing and its YES to the HOSTAGE group's ^CO_0343, three streams CO_0343A-C in the HOSTAGE block, not a bank sound (HOSTAGE_VOICES_READING)", async () => {
     expect(HOSTAGE_VOICES_READING.mp6).toEqual({ damage: null, death: null, yes: '^CO_0343' });
     const d = await soundFromDisc(new FsAssetSource(DISC), 'RUN/MP6.ZDB', 'MP6');
-    expect(d.escorteeVoices).toEqual(Array.from({ length: 3 }, () => ({ ...HOSTAGE_VOICES_READING.mp6, quiet: null })));
+    expect(d.escorteeVoices).toEqual([1, 2, 3].map((n) => ({ character: `mp_fem${n}`, ...HOSTAGE_VOICES_READING.mp6, quiet: null, no: null })));
     expect(d.characterVoices!.seal[0]).toEqual({ damage: '.SEAL_DAMAGE', death: '.SEAL_DEATH', quiet: null });
     expect(d.missing.filter((m) => /CO_0343|FEMALE/.test(m))).toEqual([]);          // no bank is asked for a stream
     const vc = parseBankFile(d.banks.find((b) => b.file === 'MP6_vc.bnk')!.bytes).names;
@@ -327,4 +328,56 @@ describe.skipIf(!HAVE_DISC)("the hostages' voices on MP6's own script (SOCOM_DIS
     expect(['^*CO_0343A', '^*CO_0343B', '^*CO_0343C'].map((n) => { const e = entries.get('HOSTAGE')!.get(soundHash(n) | 0) ?? entries.get('HOSTAGE')!.get(soundHash(n) >>> 0); return e ? streamFile(e) : null; }))
       .toEqual(['CO_0343A.VAG', 'CO_0343B.VAG', 'CO_0343C.VAG']);
   }, 60_000);
+});
+
+/**
+ * R4P-254 ESCORTEE-YES (atlas r0004 queue row 68): an escortee's YES (CHRSND 0x37) and NO (0x38) are slots of the PLACED
+ * character (`character.rdr`), resolved as its other slots are (the own name when filed, no fallback) -- `mp_vip1-3`
+ * (placed only on MP82) name `^CO_0284` and `^CO_0285`, `mp_fem1-3` `^CO_0343` and no NO. Each entry carries the name
+ * `teamCharacter` gives, which the page matches against the hostage's `character` on the wire.
+ */
+describe("R4P-254: an escortee's YES and NO are its placed character's own slots", () => {
+  const root: RdrNode = ['characters', [
+    'mp_hostage_extract', ['anim_set', ['Hostage anim set']],
+    'mp_vip1', ':', 'mp_hostage_extract', ['sounds', ['CHRSND_YES', ['^CO_0284'], 'CHRSND_NO', ['^CO_0285']]],
+    'mp_fem1', ':', 'mp_hostage_extract', ['sounds', ['CHRSND_YES', ['^CO_0343'], 'CHRSND_DEATH', ['.FEMALE_DEATH']]],
+  ]];
+  const table = parseCharacterTable(root);
+  const chartype: RdrNode = ['escortees', [['character', ['mp_vip1'], 'name', ['Vip1']], ['character', ['mp_fem1'], 'name', ['Fem1']]]];
+
+  it('each entry names its character, its YES and its NO (CHRSND_NO, the own slot, no fallback)', () => {
+    expect(escorteeVoicesOf(table, chartype)).toEqual([
+      // (every name filed here: a DAMAGE / DEATH the character does not name falls back, as a player's)
+      { character: 'mp_vip1', damage: 'MALE_DAMAGE', death: 'DEATH_SOUNDS', quiet: null, yes: '^CO_0284', no: '^CO_0285' },
+      { character: 'mp_fem1', damage: 'MALE_DAMAGE', death: '.FEMALE_DEATH', quiet: null, yes: '^CO_0343', no: null },
+    ]);
+    // a NO the map's script does not file is null, as the YES: neither has a fallback (CHARACTER_SLOT_FALLBACKS)
+    expect(escorteeVoicesOf(table, chartype, (n) => n !== '^CO_0285')[0]).toMatchObject({ yes: '^CO_0284', no: null });
+    expect(CHARACTER_SLOT_FALLBACKS).not.toHaveProperty('CHRSND_YES');
+    expect(CHARACTER_SLOT_FALLBACKS).not.toHaveProperty('CHRSND_NO');
+  });
+});
+
+describe.skipIf(!HAVE_DISC)("R4P-254: MP82's escortees on the disc (SOCOM_DISC)", () => {
+  it("MP82 places mp_vip1-3, whose YES is ^CO_0284 and NO ^CO_0285 on MP82's own script", async () => {
+    const d = await soundFromDisc(new FsAssetSource(DISC), 'RUN/MP82.ZDB', 'MP82');
+    expect(d.escorteeVoices?.map((v) => [v.character, v.yes, v.no])).toEqual([1, 2, 3].map((n) => [`mp_vip${n}`, '^CO_0284', '^CO_0285']));
+  }, 60_000);
+
+  it("the YES is a group of streams the page loads with the round's (PlayAt's member pick FUN_00348450): ^CO_0284's members are read off VAGSTORE", async () => {
+    // A ranged view of the disc directory (`isRanged`), as the browser's ISO source is: the streams are read by range.
+    const fs = new FsAssetSource(DISC);
+    const ranged = Object.assign(Object.create(fs) as FsAssetSource, {
+      size: async (p: string) => statSync(join(DISC, p)).size,
+      readRange: async (p: string, o: number, l: number) => {
+        const fd = openSync(join(DISC, p), 'r');
+        try { const b = new Uint8Array(l); readSync(fd, b, 0, l, o); return b; } finally { closeSync(fd); }
+      },
+    });
+    const d = await soundFromDisc(ranged, 'RUN/MP82.ZDB', 'MP82');
+    const group = d.tacticalGroups?.find((g) => g.name === '^CO_0284');
+    expect(group?.members.length).toBeGreaterThan(0);
+    const loaded = new Set((d.streams ?? []).map((s) => s.name));
+    for (const m of group!.members) expect(loaded.has(m.name), m.name).toBe(true);
+  }, 300_000);
 });

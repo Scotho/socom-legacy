@@ -216,7 +216,7 @@ describe('a round\'s mark is clipped to the drawn world (Fire.setClip)', () => {
   }
   const aim = (): FireAim => ({ eye: [0, 20, 0], far: [0, 20, -1000] });
 
-  it('the mark\'s mesh is the clip, its lastShade the colour under the hit; a wall drawn late is clipped a frame later', () => {
+  it('the mark\'s mesh is the clip, its lastShade the colour under the hit; a wall drawn late (the dev viewer revealing) is clipped a frame later', () => {
     const g = grid();
     // The drawn wall stops at x = 0.2: a mark at x = 0 must not hang past it.
     const root = new Group();
@@ -234,11 +234,14 @@ describe('a round\'s mark is clipped to the drawn world (Fire.setClip)', () => {
 
     wallMesh.visible = false;
     const late = new Fire({ grid: () => g, aim }, DEFAULT_RIFLE, undefined, () => 0.5);
-    late.setClip(new MarkClipper(root));
+    const lateClipper = new MarkClipper(root);
+    lateClipper.worldWhole = false;                       // MARK_LATE_REVEAL_ADAPTATION: the dev viewer still revealing (research 431)
+    late.setClip(lateClipper);
     late.shoot();
-    expect(late.decalMeshes()[0]!.visible).toBe(true);    // the bare square until the wall is drawn
+    expect(late.decalMeshes()[0]?.visible ?? false).toBe(false);   // held, slotless, until the wall is drawn (was: the bare square)
     wallMesh.visible = true;
     late.update(1 / 60);
+    expect(late.decalMeshes()[0]!.visible).toBe(true);
     for (const v of vertices(late.decalMeshes()[0]!.geometry)) expect(v.p[0]).toBeLessThanOrEqual(0.2 + 1e-5);
   });
 
@@ -289,7 +292,7 @@ describe('the footprint and the grenade\'s scorch are clipped the same way (FUN_
     const grid: Grid = (() => {
       const poly: WorldPoly = {
         modelName: 'worldmodel', path: 'worldmodel/f', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0,
-        points: Float32Array.from([-2000, 0, -2000, 2000, 0, -2000, 2000, 0, 2000, -2000, 0, 2000]),
+        points: Float32Array.from([-2000, 0, 2000, 2000, 0, 2000, 2000, 0, -2000, -2000, 0, -2000]),
       };
       const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
       return buildGrid(params, [], [], [poly], [{ modelName: 'worldmodel', path: 'worldmodel/f0', first: 0, count: 1 }]);

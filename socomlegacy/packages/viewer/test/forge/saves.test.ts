@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { emptyLayout, type Layout } from '../../src/forge/layout';
-import { layoutOfRecord, recordOfLayout } from '../../src/forge/record';
+import { layoutOfRecord, recordOfLayout, type LayoutRecord } from '../../src/forge/record';
 import {
   deleteNamed, FORGE_AUTOSAVE_ASIDE_KEY, FORGE_SAVES_ASIDE_KEY, FORGE_SAVES_KEY, joinerSavePreset, readSaveList, readSaves, renameNamed, SAVE_LIMIT,
   AUTOSAVE_ASIDE_LIMIT_ADAPTATION, dropKeptAside, keptAside, readAutosaveAside, saveNamed, setAsideAutosave, setAsideSaves,
@@ -52,6 +52,43 @@ describe('FORGE: named saves', () => {
     read = readSaves(store);
     expect(read.map((s) => s.name)).toEqual(['Other']);
     expect(PAGE_SETTING_KEYS).toContain(FORGE_SAVES_KEY);
+  });
+
+  it('FN-4, RED: a version-4 record (a piece turned 58.67 / 38.93 / 27.03) is saved and read back as it was', () => {
+    // FN-4 (the Forge lane's FN.R5; a browser adaptation): the record's version 4 keeps a piece's angles on a hundredth of a
+    // degree. Expected RED at the RED commit: `saveNamed` checks the record (`checkRecord`, as the list's reader does),
+    // which refuses version 4, so nothing is kept and `readSaves` gives none. GREEN from the readers' commit. Written,
+    // NOT RUN (the host rule).
+    const fine = {
+      schema: 'forge-layout', version: 4, name: 'Fine', base: 'MP2', assets: ['MP2:crate'],
+      pieces: [[0, 1, 0, 2, 58.67]], poses: [[0, 38.93, 27.03, 1, 1, 1]], spawns: [['A', 1, 0, 2, 0]], ids: { pieces: ['p0'], spawns: ['s0'] },
+    } as unknown as LayoutRecord;
+    const store = memory();
+    expect(writeSaves(saveNamed([], 'Fine', fine, 1_000, 'id-fine').saves, store)).toBe(true);
+    const read = readSaves(store);
+    expect(read.map((s) => s.name)).toEqual(['Fine']);
+    expect(JSON.stringify(read[0]!.record)).toBe(JSON.stringify(fine));
+  });
+
+  it('FN-4 fix round 2, RED: a saved record of a newer build (version 5) is listed as unreadable, the cause named, kept as it was', () => {
+    // FN-4, fix round 2 (a browser adaptation). Written, NOT RUN (the host rule). Expected RED at 6270731b3c (the reason
+    // is "not a forge record of version 2, 3 or 4"), GREEN from the fix; the entry is kept either way (`readSaveList`).
+    const later = {
+      id: 'later', savedAt: 7,
+      record: {
+        schema: 'forge-layout', version: 5, name: 'Later', base: 'MP2', assets: ['MP2:crate'],
+        pieces: [[0, 1, 0, 2, 0]], spawns: [['A', 1, 0, 2, 0]], ids: { pieces: ['p0'], spawns: ['s0'] },
+      },
+    };
+    const store = memory();
+    store.set(FORGE_SAVES_KEY, JSON.stringify({ v: 1, saves: [later, { id: 'b', savedAt: 2, record: recordOfLayout(layout(), 'Ok') }] }));
+    const list = readSaveList(store);
+    expect(list.saves.map((x) => x.name)).toEqual(['Ok']);
+    expect(list.unreadable).toEqual([
+      { name: 'Later', why: 'this layout was saved by a newer build (record version 5): update the game to open it', raw: later },
+    ]);
+    expect(writeSaves(list.saves, store, list.unreadable)).toBe(true);
+    expect((JSON.parse(store.data.get(FORGE_SAVES_KEY)!) as { saves: unknown[] }).saves).toContainEqual(later);
   });
 
   it('refuses a name the record will not keep, and a list past its cap', () => {

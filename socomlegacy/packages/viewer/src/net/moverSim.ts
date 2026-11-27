@@ -167,9 +167,13 @@ export class MoverSim {
   prepare(cmd: Command, out?: TickResult): WalkInput {
     const w = this.walker, m = this.moves;
     this.seq = cmd.seq;
+    w.raised = cmd.raised === true;                              // LATER 1201: the raise picks the head line's table
     // SEP-POP / COMBINED-CUT (OT.R93): a command that states the mode lays the cut in both modes unless the room has marked
     // this seat AI (`ai`: `IsAi`, the refusal by id), and its mode SEPARATE's own (`Walker.stanceSeparate`).
     if (cmd.separate !== undefined) { w.stanceCut = !this.ai; w.stanceSeparate = cmd.separate; }
+    // IDLE-FRAME (BOT ADAPTATION, `Walker.idleFrame`): the 30 Hz read window is a pad's; an AI seat's stick is the planner's
+    // every tick. Laid on every command from the seat's kind, so an adoption or a release switches it on its next command.
+    w.idleFrame = !this.ai;
     w.commandSeq = cmd.seq;                                      // the heavy landing's coin (LANDING_HIT_DRAW_READING)
     // OT.R38: the look held to the stick's law from where the mover faces, its turn derived (`./lookGate`); a move that
     // holds the yaw (a ladder, its "180") lays its own in the tick, as before.

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
+import { PerspectiveCamera } from 'three';
 import { Hud, spectatorHudView } from '../src/hud';
 import { deadHelpLines } from '../src/weaponSelect';
 import { NetPage, type NetPageDeps } from '../src/netPage';
@@ -7,7 +8,7 @@ import type { WebSocketLike } from '../src/net/client';
 import { PROTOCOL_VERSION, type Rules, type ServerEvent } from '../src/net/protocol';
 import type { RemotePlayers } from '../src/remotePlayers';
 import type { WalkMode } from '../src/walk';
-import { HELD_RIFLE, HELD_SIDEARM } from '@s2u/scene';
+import { GAME_FRAME_DT, HELD_RIFLE, HELD_SIDEARM } from '@s2u/scene';
 import { noInput } from '../src/gamepad';
 import { voteRowsOpen } from '../src/spectatorVote';
 import { canOpen, SPECTATE_KIT_CHANGE_OWNER } from '../src/weaponSelectState';
@@ -366,6 +367,7 @@ describe('protocol 7 on the page: the loadout request, its answer, the kits the 
     server({ type: 'joined', id: 2, name: 'Foe', team: 'terrorist' });
     server({ type: 'shot', id: 2, weapon: 57, from: [0, 0, 0], to: [1, 0, 0], normal: null, material: null });
     server({ type: 'shot', id: 2, weapon: 15, from: [0, 0, 0], to: [1, 0, 0], normal: null, material: null });
+    for (let i = 0; i < 2; i++) net.frame(GAME_FRAME_DT, new PerspectiveCamera(), false);   // R4P-253: one shown a game frame
     expect(effects).toEqual(['552', HELD_SIDEARM.name]);       // an item without a record here: the side's slot that holds it
     net.close();
   });

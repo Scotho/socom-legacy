@@ -49,21 +49,26 @@ function rig(record: WeaponRecord, rings: readonly number[], o: { mode?: number;
 describe('LATER 179: the last round of a firearm of one projectile arms no reload (FUN_005c5340 D:L479296-479300)', () => {
   it('a semi-automatic\'s last round leaves 0/N -- no reload, no click, held or let go -- until the next press: the click and the reload at once', () => {
     const r = rig(DEFAULT_RIFLE, [1, 30], { mode: 1 });
-    expect(r.fire.pull()).not.toBeNull();                                          // the last round
+    expect(r.fire.pull()).toBeNull();
+    r.frames(10);                                                                  // held: the last round at the second read; count 1 = limit 1
     expect(r.fire.state().magazine).toMatchObject({ rounds: 0, reloading: false });
-    r.frames(10);                                                                  // held: the pull's count 1 is the limit 1
     r.fire.release();
     r.frames(10);
     expect(r.types()).toEqual([]);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 0, spare: 0, reloading: false });
     expect(r.fire.pull()).toBeNull();                                              // the press: the dry branch's pressed path
+    r.fire.update(GAME_FRAME_DT);                                                  // its first read (pad 1)
+    expect(r.types()).toEqual([]);
+    r.fire.update(GAME_FRAME_DT);                                                  // its second read (pad 2)
     expect(r.types()).toEqual(['dry', 'reloadStart']);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 30, reloading: true });
   });
 
   it('R still reloads it over ReloadDelay (FUN_00594cf0 D:L453459-453463, unchanged)', () => {
     const r = rig(DEFAULT_RIFLE, [1, 30], { mode: 1 });
-    r.fire.pull(); r.fire.release(); r.frames(5);
+    r.fire.pull(); r.fire.update(GAME_FRAME_DT); r.fire.update(GAME_FRAME_DT);   // the last round at the second read (LATER 1147)
+    r.fire.release(); r.frames(5);
+    expect(r.fire.state().magazine).toMatchObject({ rounds: 0 });                // was a press no step read: the round never left
     expect(r.fire.reload()).toBe(true);
     expect(r.types()).toEqual(['reloadPress']);
     r.fire.update(GAME_FRAME_DT + 1e-6);                    // LATER 330: RELOAD_DELAY (0.01 s) is one whole game frame
@@ -73,16 +78,17 @@ describe('LATER 179: the last round of a firearm of one projectile arms no reloa
   it('an automatic held through empty reloads on the next frame, at once, with the click only when the emptying round was the pull\'s first (D:L476618)', () => {
     const first = rig(DEFAULT_RIFLE, [1, 30], { mode: 3 });
     first.fire.pull();                                                             // the pull's first round empties it
-    first.frames(1);                                                               // the press's own frame: its round, no dry branch
-    expect(first.types()).toEqual([]);
-    first.frames(1);
+    let j = 0;
+    while (first.fire.state().magazine.rounds > 0 && j++ < 200) first.frames(1);   // the round at the press's second read
+    expect(first.types()).toEqual([]);                                             // its own step: no dry branch
+    first.fire.update(GAME_FRAME_DT);                                              // the next kit step
     expect(first.types()).toEqual(['dry', 'reloadStart']);
     const third = rig(DEFAULT_RIFLE, [3, 30], { mode: 3 });
     third.fire.pull();
     let k = 0;
     while (third.fire.state().magazine.rounds > 0 && k++ < 200) third.frames(1);   // the third round leaves on some frame
     expect(third.types()).toEqual([]);                                             // not on the emptying round's own frame
-    third.frames(1);
+    third.fire.update(GAME_FRAME_DT);
     expect(third.types()).toEqual(['reloadStart']);                                // the count 3: no click; no reloadPress (no timer)
   });
 
@@ -92,8 +98,10 @@ describe('LATER 179: the last round of a firearm of one projectile arms no reloa
     r.frames(60);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 0, reloading: false });
     expect(r.types()).toEqual([]);
-    r.fire.release(); r.frames(1);
-    r.fire.pull();
+    r.fire.release(); r.fire.update(GAME_FRAME_DT);                                // a step reads it up: the count cleared
+    r.fire.pull(); r.fire.update(GAME_FRAME_DT);                                   // the first read
+    expect(r.types()).toEqual([]);
+    r.fire.update(GAME_FRAME_DT);                                                  // the second
     expect(r.types()).toEqual(['dry', 'reloadStart']);
   });
 
@@ -101,10 +109,10 @@ describe('LATER 179: the last round of a firearm of one projectile arms no reloa
     const r = rig(DEFAULT_RIFLE, [0, 30], { mode: 1 });
     r.air.on = true;
     expect(r.fire.pull()).toBeNull();
-    r.frames(3);                                                                   // the press's frame ran it once; two more frames
+    for (let k = 0; k < 4; k++) r.fire.update(GAME_FRAME_DT);                      // the first read, then three held reads
     expect(r.types()).toEqual(['dry', 'dry', 'dry']);
     r.air.on = false;
-    r.frames(1);
+    r.fire.update(GAME_FRAME_DT);
     expect(r.types()).toEqual(['dry', 'dry', 'dry', 'dry', 'reloadStart']);
     r.frames(5);
     expect(r.types().length).toBe(5);
@@ -113,11 +121,12 @@ describe('LATER 179: the last round of a firearm of one projectile arms no reloa
   it('the trigger let go in the air: nothing on landing, offline -- the next press reloads', () => {
     const r = rig(DEFAULT_RIFLE, [0, 30], { mode: 1 });
     r.air.on = true;
-    r.fire.pull(); r.fire.release();
+    r.fire.pull(); r.fire.update(GAME_FRAME_DT); r.fire.update(GAME_FRAME_DT);   // read twice in the air: one click
+    r.fire.release();
     r.air.on = false;
     r.frames(10);
     expect(r.types()).toEqual(['dry']);
-    r.fire.pull();
+    r.fire.pull(); r.fire.update(GAME_FRAME_DT); r.fire.update(GAME_FRAME_DT);
     expect(r.types()).toEqual(['dry', 'dry', 'reloadStart']);
   });
 
@@ -131,7 +140,10 @@ describe('LATER 179: the last round of a firearm of one projectile arms no reloa
 
   it('the shotgun keeps its arm at the last shell: ReloadDelay, then the reload (its pellets after the first, D:L479296-479320)', () => {
     const r = rig(SHOTGUN, [1, 7], { mode: 1 });
-    expect(r.fire.pull()).not.toBeNull();
+    expect(r.fire.pull()).toBeNull();
+    r.fire.update(GAME_FRAME_DT);
+    expect(r.types()).toEqual([]);
+    r.fire.update(GAME_FRAME_DT);                                                  // the second read: the last shell
     expect(r.types()).toEqual(['reloadPress']);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 0, reloading: true });
     r.fire.update(0.5);
@@ -144,10 +156,11 @@ describe('LATER 179: the last round of a firearm of one projectile arms no reloa
 describe('LATER 48: online, a refill weapon\'s dry branch asks with no press (bVar6, D:L476596-476615)', () => {
   it('the Mark 23 fired dry and let go: the next frame the click and the reload, no press, no reloadPress', () => {
     const r = rig(MARK_23, [1, 12], { mode: 1, online: true });
-    r.fire.pull(); r.fire.release();
-    r.frames(1);                                                                   // the round's own frame
+    r.fire.pull(); r.fire.update(GAME_FRAME_DT); r.fire.update(GAME_FRAME_DT);   // the round at the second read
+    r.fire.release();
     expect(r.types()).toEqual([]);
-    r.frames(1);
+    expect(r.fire.state().magazine).toMatchObject({ rounds: 0 });
+    r.fire.update(GAME_FRAME_DT);
     expect(r.types()).toEqual(['dry', 'reloadStart']);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 12 });
   });
@@ -155,18 +168,21 @@ describe('LATER 48: online, a refill weapon\'s dry branch asks with no press (bV
   it('fired dry in the air: the click each frame while refused, the reload (the refill: its last magazine) on the landing frame, the trigger up', () => {
     const r = rig(MARK_23, [1], { mode: 1, online: true });
     r.air.on = true;
-    r.fire.pull(); r.fire.release();
-    r.frames(3);                                                                   // the round's own frame, then two
+    r.fire.pull(); r.fire.update(GAME_FRAME_DT); r.fire.update(GAME_FRAME_DT);   // the round at the second read
+    r.fire.release();
+    r.fire.update(GAME_FRAME_DT); r.fire.update(GAME_FRAME_DT);                    // two steps, the trigger up
     expect(r.types()).toEqual(['dry', 'dry']);
     r.air.on = false;
-    r.frames(1);
+    r.fire.update(GAME_FRAME_DT);
     expect(r.types()).toEqual(['dry', 'dry', 'dry', 'reloadStart']);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 12, spare: 0 });
   });
 
   it('offline the same pistol waits for a press (the pressed path only)', () => {
     const r = rig(MARK_23, [1, 12], { mode: 1 });
-    r.fire.pull(); r.fire.release();
+    r.fire.pull(); r.fire.update(GAME_FRAME_DT); r.fire.update(GAME_FRAME_DT);   // the last round at the second read (LATER 1147)
+    r.fire.release();
+    expect(r.fire.state().magazine).toMatchObject({ rounds: 0 });                // was a press no step read: the round never left
     r.frames(10);
     expect(r.types()).toEqual([]);
   });
@@ -181,7 +197,8 @@ describe('LATER 179\'s review F1: the dry branch is the hand\'s item\'s -- a sto
   it('online, the Mark 23 emptied in the air, a grenade taken up: no click and no refill on landing; the pistol back in the hand, the click and the refill', () => {
     const r = rig(MARK_23, [1, 12], { mode: 1, online: true });
     r.air.on = true;
-    r.fire.pull(); r.fire.release();
+    r.fire.pull(); r.fire.update(GAME_FRAME_DT); r.fire.update(GAME_FRAME_DT);   // the round at the second read
+    r.fire.release();
     r.hand.on = false;                                                             // the grenade up (no airborne gate, no kit swap)
     r.frames(3);
     r.air.on = false;
@@ -189,7 +206,7 @@ describe('LATER 179\'s review F1: the dry branch is the hand\'s item\'s -- a sto
     expect(r.types()).toEqual([]);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 0, reloading: false });
     r.hand.on = true;
-    r.frames(1);
+    r.fire.update(GAME_FRAME_DT);
     expect(r.types()).toEqual(['dry', 'reloadStart']);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 12, reloading: true });
   });
@@ -198,7 +215,7 @@ describe('LATER 179\'s review F1: the dry branch is the hand\'s item\'s -- a sto
     const r = rig(DEFAULT_RIFLE, [0, 30], { mode: 1 });
     r.air.on = true;
     r.fire.pull();
-    r.frames(2);                                                                   // the press's frame, then one more
+    for (let k = 0; k < 3; k++) r.fire.update(GAME_FRAME_DT);                      // the first read, then two held reads
     expect(r.types()).toEqual(['dry', 'dry']);
     r.hand.on = false;
     r.frames(3);
@@ -207,7 +224,7 @@ describe('LATER 179\'s review F1: the dry branch is the hand\'s item\'s -- a sto
     expect(r.types()).toEqual(['dry', 'dry']);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 0, reloading: false });
     r.hand.on = true;
-    r.frames(1);
+    r.fire.update(GAME_FRAME_DT);
     expect(r.types()).toEqual(['dry', 'dry', 'dry', 'reloadStart']);
   });
 });

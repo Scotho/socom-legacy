@@ -6,7 +6,7 @@ import { UI_TICK_SECONDS } from '../../src/clock/uiClock';
 import { f32 } from '../../src/text/f32';
 import { MenuQueue, MENU_RECORD } from '../../src/screens/menuQueue';
 import {
-  FADER_OPAQUE_ALPHA, MENU_KEYWORDS, MENU_STEP_CLAMP, MenuShell, type MenuShellHost, type ShellScripts,
+  FADER_OPAQUE_ALPHA, MENU_KEYWORDS, MENU_STEP_CLAMP, MENU_SWITCH_COUNTDOWN, MenuShell, type MenuShellHost, type ShellScripts,
 } from '../../src/screens/menuShell';
 import { POPUP_UNCONNECTED, PopupSlot } from '../../src/screens/popupSlot';
 
@@ -253,6 +253,44 @@ describe('the switch (FUN_00365a00) and its fade', () => {
     expect(g.currentName).toBe('b');
     for (let i = 0; i < 60; i++) frame(g, 1 / 60);
     expect(g.currentName).toBe('b');
+  });
+
+  // WM-OPTIONS-EXIT (product track, a browser adaptation): a host that hides MENUFADER (the in-match Settings) may ask
+  // the switch at once -- no fade, no countdown. Without it (every front-end host) the original's switch stands.
+  it('switchAtOnce (a host-given browser adaptation): dispatched on the consuming frame, no fade and no countdown', () => {
+    const { host, log } = fake({ a: design(), b: design() });
+    host.switchAtOnce = true;
+    const q = new MenuQueue();
+    const g = new MenuShell(q, host);
+    g.start('a');
+    g.screen.fader.opacity = 0;
+    frame(g, 1 / 30);
+    log.length = 0;
+    q.switchMenu('b');
+    frame(g, 1 / 30);
+    expect(g.switchState).toBe(-1);
+    expect(g.currentName).toBe('b');
+    expect(log).toContain('b: start');
+    expect(g.screen.backplane.visible).toBe(true);
+    expect(q.history).toEqual(['a']);
+  });
+
+  it('switchAtOnce false or absent: the original\'s switch, fade then the countdown, unchanged', () => {
+    expect(timeline(0, 1 / 30)).toMatchObject({ fading: 15, frozen: 4 });
+    const { host, log } = fake({ a: design(), b: design() });
+    host.switchAtOnce = false;
+    const q = new MenuQueue();
+    const g = new MenuShell(q, host);
+    g.start('a');
+    g.screen.fader.opacity = 0;
+    frame(g, 1 / 30);
+    log.length = 0;
+    q.switchMenu('b');
+    frame(g, 1 / 30);
+    expect(g.switchState).toBe(MENU_SWITCH_COUNTDOWN);
+    let frames = 0;
+    for (; frames < 200 && !log.includes('b: start'); frames++) frame(g, 1 / 30);
+    expect(frames).toBe(15 + 4);
   });
 });
 

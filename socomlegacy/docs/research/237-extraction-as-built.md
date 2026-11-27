@@ -460,6 +460,76 @@ therefore counts to 17, 30 and 31, never to 00 or 08 (190 C2 "Who counts", V2 #1
 are not players, so nothing changes there: the room test kills the last SEAL with three hostages alive and reads a
 Terrorist elimination at the watch (17 s, the host's script's, `ELIMINATION_PERSPECTIVE_READING`, H101).
 
+### 2.5 The hit body posed (LATER 831, 2026-11-18; reading, pending review)
+
+HIT-POSE (research 217 §3.6a) judges a player on its live skeleton; a hostage was still judged on its stance's idle set
+(`civ_stand` or `civ_crouch` at key 0) while the shooter's page draws it playing the No_weapon set
+(`remotePlayers.ts` `escorteeSnapshot`, the stand-to-crouch transition `escorteeTransition`, a `Play` with
+`CIV_ANIM_SET`). The round meets the actor's skeleton as the animation left it, a hostage's as a SEAL's (its body is the
+SEAL's actor, §2.3; `FUN_005abbc0` D:L464672-464803 meets the nodes, research 91 §1.3) -- so the port's room poses the
+hostage as the page draws it, the same rule as the players'.
+
+**The RED** (match `test/hitPoseHostage.test.ts`, unit test on the committed fixtures `RUN/MP6.ZDB`, `MOTION_P.ZAR`,
+`READERC.ZAR`; a synthetic floor; no capture): a hostage following its leader at 6-65 u/s, the page's drawn chest
+(`spinehi`'s box centre) against the room's rewound one at the page's own render moment: worst 3.572 u, mean 2.716 u, the
+first bone a level ray at the drawn chest records differing at 216 of 235 moments (the page's `rshoulder_wgt`, the
+room's `spinehi`). A still, standing hostage: 0.480 u (the idle set is `civ_stand`'s key 0, the page loops its 7 keys),
+the first bone agreeing.
+
+**As built.** The room keeps a `HitPoser` per targetable hostage (`room.ts` `hostagePose`), made with the No_weapon set
+(`HitPoser`'s `anims`, `CIV_ANIM_SET`) on the hostage's escortee hit body, stepped once a tick on the hostage's body as
+the snapshot carries it (`ExtractionAuthority.bodies`, `hitPoseSnapshot`), turned as the page's copy turns it
+(`HitPoser.stepEscortee`: `escorteeHitSnapshot` and `EscorteeTransition`, `net/hitPose.ts` -- `escorteeSnapshot` and
+`escorteeTransition` transcribed, because `remotePlayers.ts` draws with three.js and imports `hitPose.ts`; the test's last
+case holds the two equal), with the follower's root tilt (`HostageFollow.rootTilt`). Each `HostagePast` keeps the pose
+(`pose`, `poseAt`, as a player's `Past`; `ExtractionAuthority.remember`'s `pose`), and the room now takes the hostages'
+history after the AI's move (`stepRoom`: `rememberHostages` after `ExtractionAuthority.step`), as a player's entry follows
+its run -- it was taken before it, so the entry at a snapshot tick held the body a tick behind the snapshot the step
+sends, about 2 u back at a run's 65 u/s, and `drawnPastOf`'s premise (that entry is that snapshot's body) did not hold
+for a hostage. The four hostage sites read it: the
+round's rewind (`rewoundBodies`) and LATER 1141's vouching bodies through `pastBoxes` at the drawn pick
+(`hostagePast` -> `drawnPastOf`, research 217 §3.6d -- `HostagePast` is a `Past` without the peek and the raise, so its
+type is unchanged); the order pick (`orderPick`, its LATER 853 rewind now the same drawn pick) and a launched round's
+direct hit (`bodyCast`) at the present through `hostageLiveVolumes` (the last tick's pose). Without a poser -- no
+escortee hit body, or one without motion -- each falls back to the idle set as before. The perf fold is the players':
+the boxes are read lazily from the poser's ring (`HitPoser.boxesAt`), and the snapshot's hostage bodies are read once a
+tick only when an escortee hit body has motion.
+
+**Live in a served game** (2026-11-18, the wiring's commit): `simMap.ts` gives each escortee's `SimSkeleton` its
+`motion` -- `ESCORTEE_MOTION_CLIPS` (`HIT_POSE_CLIPS` and the No_weapon set's `CIV_ANIMS`) with `motion.rdr`'s table, read
+in `skeletonSource`'s one `clipsFromPack` call only where the map lists escortees (MP6; every other map's load is as
+before), one object shared by the map's escortees; the players' motion is unchanged. The test now takes the motion off
+`simSkeletonsFromBytes` (a case holds it equal to the clips a page's copy loads), and strips it for the idle fallback.
+The page's aim goes with it: `remotePlayers.ts` `aimBody` gives a hostage its drawn body (`Play.drawnBody`, the copy's
+No_weapon pose) as a player's, so the claim point (`aimDistance`, LATER 1141's vouching) and the order's pick
+(`aimBodies`, `orderPick`) meet the posed body the room meets; a copy not yet played falls back to the idle set
+(`aimVolumes`), as the room does without motion (viewer `test/remoteAim.test.ts`; `test/pageAimAlloc.test.ts`'s
+reference path follows). Central `test/roomHostageOrderEye.test.ts` (HX-OBEY) modelled the
+page's offer on the idle set: its page pick now takes the posed body (the room's live pose standing in for the copy the
+file does not draw), and its grate case aims at the posed body's middle. That case's `cast.blocked` empty had held only
+because the idle kneel was never met on its line; with the posed body met, a kept `METAL_GRATE` face about 1 u ahead of
+the eye blocks it, so the line now asserts only that it meets the hostage. The head-to-eye clip's refusal, which the
+case holds, is unchanged. Whether H129's hole shows along any line from that eye is not shown there (LATER 1233).
+
+**The numbers, the room on the reader's motion** (match `test/hitPoseHostage.test.ts`, unit test on the committed
+fixtures): the walk's worst chest offset 0.350 u, mean 0.130 u, the first bone differing at 18 of 235 moments, each at a
+box's edge (posed alone, history still before the AI's move: worst 2.452 u, mean 1.713 u, 162 differing); the still
+control 0.009 u. Unchanged by LATER 891's present-tick fallback (`drawnPastOf` takes `pastOf` at or past the newest
+entry, a bot's moment): the page's moment is `INTERP_DELAY_MS` behind the room, never at its newest entry. The residual is
+the walk loop's phase, `HIT_POSE_CLOCK_READING`: the page's copy takes the newer snapshot's walk while it draws the moment
+between the two, so its loop runs one to two ticks ahead of the room's pose at the pick (a diagnostic run found the
+page's body-frame chest nearest the room's entry about two ticks past the pick). No browser run and no capture measured
+it: unit tests only.
+
+What is not the page's (each named):
+- `HIT_POSE_CLOCK_READING` (research 217 §6): the walk loop's phase, the room's tick clock against the page's frames.
+- `HOSTAGE_HIT_POSE_TRANSITION_READING` (`net/hitPose.ts`; 'room-tick'): the stand-to-crouch transition starts at the
+  tick the room's AI turns the stance; the page's copy starts it when the drawn (newer snapshot's) stance turns, so for
+  the clip's 0.4 s the room's key can lead the page's by up to a snapshot interval. Nothing on the wire carries the
+  transition's clock. Settles with the clock on the wire, or the poser started at the snapshot tick the stance is first
+  sent crouched, against a capture of the drawn kneel.
+- The root tilt: the room's follower's against the page's own `remoteTiltStep` (LATER 891's leftover, a hostage's too).
+
 ## 3. The rules as built
 
 The rules are MP6's `objectives` script (HX.R6), decoded twice: H2's listing and V2's raw read (190 §4, §10.7).
@@ -538,9 +608,16 @@ The room keeps the round's total (`roundTotalS`) from `startRound` on. `penaltyM
 the round is in play or in a decided hold, because the host's update keeps running when only `start` and
 `mission_timer` have stopped. On a rise it cuts the total, sets the clock's end to the round's start plus the total,
 tells every page `roundTime` with the new total, and marks the score dirty so the rows' `timeLeft` follows. **One minute
-per observed change** (`PENALTY_COALESCE_READING`): two rises between two looks cost 60 s, not 120. 190 C3.5 grades that
-edge BELIEVED; capture C2 settles it (§7). In the room, two SEAL kills in one tick fire SealKill1 and SealKill2 in the
-same tick and cost one minute.
+per rise** (`PENALTY_COALESCE_READING`; re-filed 2026-11-15): two rises between two looks cost 120 s. Measured on the
+original by the rig, n = 2 (H1a, H1b; r0004 on MP71, the host's per-frame log; relayed, not harness-scored): one minute
+per hostage a SEAL kills, `mp_penalty` rising once a frame in successive frames from 1.93-1.98 s after the deaths and
+the round total (game `+0xE4` in r0004) cut 60,000 ms in the frame after each rise -- three killed, 360000 -> 180000;
+two killed, 360000 -> 240000; a wounded hostage costs nothing. The code as read agrees: `FUN_002a9ee0` is a stub into
+`FUN_002c00f0`, one compare and one call of `FUN_002a6960`, one cut per call that sees a rise. The conflict is closed
+(research 433 s6); the value is a reading. (Until 2026-11-15 this read "one minute per observed change", 190 C3.5's
+BELIEVED edge.) In the room, two SEAL kills in one tick fire SealKill1 and SealKill2 in the same tick and cost two
+minutes in that one step, 2 s after the deaths; the original cuts one minute in each of n successive frames -- the same
+total, other frames (a named difference, not changed).
 
 ### 3.4 A hostage's death
 
@@ -639,7 +716,7 @@ bookkeeping.
 | `RESCUE_WIN_HOLD_READING` | viewer `net/rules.ts` | `2 + 2 + 20 + 1` = 25 s: the rescue branch's WAIT 2, WAIT 2, `success` (190 C2's table; V2 claim 12) |
 | `HOSTAGE_KILL_WIN_HOLD_READING` | viewer `net/rules.ts` | `2 + 20 + 1` = 23 s: the hostage-kill branch's WAIT 2, `failure`; the same value as `eliminatedHoldS('MP6')` (190 C2; V2 claim 12) |
 | `PENALTY_MINUTE_READING` | server `extraction.ts` (`Room.penaltyMinute`) | `{ cut: 60, floor: 1 }`: `FUN_002a6960` D:L148936-148949 (190 C3.5, V2 claim 10) |
-| `PENALTY_COALESCE_READING` | server `extraction.ts` | `'one minute per observed change'`: D:L150711-150716 (190 C3.5, BELIEVED). Owed: C2, game +0xe0 around a double SEAL kill (s7) |
+| `PENALTY_COALESCE_READING` | server `extraction.ts` | `'one minute per rise'` (2026-11-15): reading -- measured on the original by the rig, n = 2 (H1a, H1b; relayed, not harness-scored): one minute per hostage a SEAL kills, one rise per frame in successive frames from 1.93-1.98 s after the deaths, the total cut 60 s in the frame after each (three killed: 360 -> 180 s; two: 360 -> 240 s); the code as read agrees (`FUN_002a9ee0`, a stub into `FUN_002c00f0`: one cut per call that sees a rise); the conflict closed; the port cuts n x 60 s in one step 2 s after the deaths (the same total, other frames); research 433 s6 and s8 |
 | `RESCUECHECK_READING` | server `extraction.ts` (`sealCheck`) | `'all three resolved'`: SEALcheck's four equality branches (190 s4 C; V2 s10.7) |
 | `ONE_SHOT_WAIT_READING` | server `extraction.ts` | `2` s: HostKill's and SealKill's WAIT 2 before their valves (190 s4 C's table); the script's frames approximated by room ticks |
 | `HOSTAGE_KILL_LINE_READING` | viewer `net/rules.ts` (`netPage.ts`'s `kill` case) | `'none'`: `FUN_00547860` D:L412863-412909's escortee `else` (190 C3, V2 claim 9) |
@@ -649,11 +726,12 @@ bookkeeping.
 | `DEAD_IN_FADE_READING` | server `extraction.ts` | `'a corpse at its frozen opacity'`: a dead hostage's AI is not stepped (238 s2.6), the fade's `SetActive` (D:L422207) no longer called; the body kept dead, a hidden one dropped. Owed: C2 (what the console draws) |
 | `SPECTATOR_HOSTAGE_READING` | viewer `spectatorView.ts` | `'included'`: a spectator's cycle (`FUN_00546fa0` D:L412598-412609, argument 0) and jump (`FUN_00294f40` D:L139404-139408) test no escortee bit -- only the dead player's arm does; that a hostage is a type-2 entry of `0x4362e0` is inferred (a step). Owed: C2 (a spectator's Right on MP6) |
 | `TIMEOUT_ABORT_WINDOW_READING` | -- | *note only*: each decision's branch stops `mission_timer` after its WAITs, a 2-4 s window where `abort` can still fire (190 U5); the room's `decided` state leaves the play arm, so no time-out follows a decision |
+| `HOSTAGE_HIT_POSE_TRANSITION_READING` | viewer `net/hitPose.ts` (`EscorteeTransition`), match `room.ts` (`hostagePose`) | `'room-tick'` (LATER 831; reading, pending review): the room's hostage poser runs the stand-to-crouch from the tick its AI turns the stance; the page's copy from the drawn stance's turn, up to a snapshot interval later (s2.5). Owed: the transition's clock on the wire, or the poser started at the first crouched snapshot, against a capture of the drawn kneel |
 | what | read | settles |
 | the starts | the three hostages' positions and facing at round start | `HOSTAGE_START_LIFT_READING`, `HOSTAGE_FACING_READING` (HX-0b) |
 | the mask | body `+0xc8` of a hostage at round start | `HOSTAGE_TEAM_READING` (HX-0b) |
 | the AI word | `+0x70` across a round (state, opacity nibble, bits 28-29) | `HOSTAGE_STATE_RATE_READING`'s nibble |
-| the minute | game `+0xe0` (ms) and `+0xc0` around one SEAL kill and around two in one update | `PENALTY_MINUTE_READING`, `PENALTY_COALESCE_READING` |
+| the minute | game `+0xe0` (ms) and `+0xc0` around one SEAL kill and around two in one update (the per-rise rule measured by the rig, H1a and H1b, n = 2, not harness-scored; a harness-scored capture still owed) | `PENALTY_MINUTE_READING`, `PENALTY_COALESCE_READING` |
 | a kill in the fade | what a console draws of a hostage killed at partial opacity | `DEAD_IN_FADE_READING` |
 | the one-shots | the valves' timing after a kill (the WAIT 2) | `ONE_SHOT_WAIT_READING` |
 | the spectator | a spectator's Right on MP6 with the hostages alive: whether the follow lands on one | `SPECTATOR_HOSTAGE_READING` |

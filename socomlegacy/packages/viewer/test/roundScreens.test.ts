@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  BACKSOLID_RGB, counterShown, countdownText, heldScreen, hitPct, pickMvp, READERX_LAYOUT, revealedRows, ROUND_COUNTERS, ROUND_LIST_COLUMNS,
+  BACKSOLID_RGB, counterShown, countdownText, heldScreen, hitPct, pickMvp, READERX_LAYOUT, revealedRows, ROUND_ASSISTS_HEADER_ADAPTATION,
+  ROUND_COLUMNS_SQUEEZE_ADAPTATION, ROUND_COUNTERS, ROUND_LIST_COLUMNS, ROUND_LIST_COLUMNS_ADAPTATION, squeezedColumnX, squeezedX,
   ROUND_NAME_CUT_READING, ROUND_SCREEN_TIMEOUT_DIALOG, ROUND_SCREEN_TIMEOUT_S, ROUND_SCREENS_AFTER_S, roundScreenBitmaps, roundScreenFrame, roundScreenLayout, ROW_REVEAL, screenTimedOut, sortRows, timePlayedText, yourStatsOf,
   type RoundScreen, type RoundText,
 } from '../src/roundScreens';
@@ -14,6 +15,7 @@ import { FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { armoryFromDisc } from '../src/armoryData';
 import { armoryFrame } from '../src/armoryView';
 import { FONT_TEXT_01, textWidth } from '../src/hudFont';
+import { ENGINE_READ_S } from '../src/roundPresentation';
 import { parseRdr, Zar } from '@s2u/archive';
 import { loadDialog, type DialogRecord } from '@s2u/ui';
 
@@ -67,27 +69,28 @@ describe('countdownText', () => {
 });
 
 describe('the round lists (dlgMultiplayerRound.rdr, dlgMultiplayerFinal.rdr; research 179 s10 s2, s5, s9)', () => {
-  it('the headers read SCORE, KILLS, DEATHS by increasing x, centred at 368 / 470 / 578 at y 75 and 277 (column table 0x3e51c0; V1 #8)', () => {
-    expect(ROUND_LIST_COLUMNS).toEqual(['score', 'kills', 'deaths']);
+  it('the headers read SCORE, KILLS, DEATHS, (WM-DATA) ASSISTS by increasing x, the disc\'s 368 / 470 / 578 squeezed to 353 / 430 / 513 / 590 at y 75 and 277 (column table 0x3e51c0; V1 #8)', () => {
+    expect(ROUND_LIST_COLUMNS).toEqual(['score', 'kills', 'deaths']);                 // the disc's three, unchanged
+    expect(ROUND_LIST_COLUMNS_ADAPTATION).toEqual(['score', 'kills', 'deaths', 'assists']);
     for (const kind of ['roundComplete', 'finalRound'] as const) {
       const headers = byRole(roundScreenLayout(screen({ kind })).texts, 'header');
       for (const y of [75, 277]) {
         const line = headers.filter((t) => t.y === y).sort((a, b) => a.x - b.x);
         expect(line.map((t) => [t.text, t.x, t.align, t.scale])).toEqual([
-          ['SCORE', 368, 'centre', 0.9], ['KILLS', 470, 'centre', 0.9], ['DEATHS', 578, 'centre', 0.9],
+          ['SCORE', 353, 'centre', 0.9], ['KILLS', 430, 'centre', 0.9], ['DEATHS', 513, 'centre', 0.9], ['ASSISTS', 590, 'centre', 0.9],
         ]);
       }
     }
   });
 
-  it('a row is name at x 75, numbers right-justified at 373 / 475 / 582, rows at y 94 + 20k and 296 + 20k, scale 0.9; the local row\'s name gold, its numbers white (FUN_002b3580 D:L76322-76324)', () => {
+  it('a row is name at x 75, numbers right-justified at the disc\'s 373 / 475 / 582 squeezed to 358 / 435 / 517 / 595, rows at y 94 + 20k and 296 + 20k, scale 0.9; the local row\'s name gold, its numbers white (FUN_002b3580 D:L76322-76324)', () => {
     const rows = byRole(roundScreenLayout(screen({})).texts, 'row');
     expect(rows.every((t) => t.scale === 0.9)).toBe(true);
     expect(rows.filter((t) => t.x === 75).map((t) => [t.text, t.y, t.align])).toEqual(
       [['P2', 94, 'left'], ['P1', 114, 'left'], ['P3', 296, 'left'], ['P4', 316, 'left']]);
-    // P2 (the local row): score 10, kills 5, deaths 1 in SCORE, KILLS, DEATHS order.
+    // P2 (the local row): score 10, kills 5, deaths 1, no assists carried (a dash) in SCORE, KILLS, DEATHS, ASSISTS order.
     expect(rows.filter((t) => t.y === 94 && t.x !== 75).map((t) => [t.text, t.x, t.align])).toEqual(
-      [['10', 373, 'right'], ['5', 475, 'right'], ['1', 582, 'right']]);
+      [['10', 358, 'right'], ['5', 435, 'right'], ['1', 517, 'right'], ['-', 595, 'right']]);
     expect(rows.find((t) => t.text === 'P2')!.rgba).toEqual(GOLD);
     expect(rows.filter((t) => t.y === 94 && t.x !== 75).every((t) => t.rgba.join() === WHITE.join())).toBe(true);
     expect(rows.find((t) => t.text === 'P1')!.rgba).toEqual(WHITE);
@@ -96,10 +99,10 @@ describe('the round lists (dlgMultiplayerRound.rdr, dlgMultiplayerFinal.rdr; res
     expect(clan.find((t) => t.text === '[ABC]')).toMatchObject({ x: 20, y: 94, rgba: GOLD });
   });
 
-  it('FINAL ROUND\'s lists: the seals at x 355 with 18 / 120 / 227 (373 / 475 / 582), the terrorists at 355 with 8 / 110 / 217, the name at 65', () => {
+  it('FINAL ROUND\'s lists: the seals at x 355 with 18 / 120 / 227 (373 / 475 / 582), the terrorists at 355 with 8 / 110 / 217, the name at 65 -- each squeezed (WM-DATA)', () => {
     const rows = byRole(roundScreenLayout(screen({ kind: 'finalRound', secondsLeft: 10 })).texts, 'row');
-    expect(rows.filter((t) => t.y === 94).map((t) => [t.text, t.x])).toEqual([['P2', 65], ['10', 373], ['5', 475], ['1', 582]]);
-    expect(rows.filter((t) => t.y === 296).map((t) => [t.text, t.x])).toEqual([['P3', 65], ['6', 363], ['3', 465], ['2', 572]]);
+    expect(rows.filter((t) => t.y === 94).map((t) => [t.text, t.x])).toEqual([['P2', 65], ['10', 358], ['5', 435], ['1', 517], ['-', 595]]);
+    expect(rows.filter((t) => t.y === 296).map((t) => [t.text, t.x])).toEqual([['P3', 65], ['6', 348], ['3', 425], ['2', 507], ['-', 585]]);
   });
 
   it('a side sorts by score, then kills, then name in reverse strcmp order, highest first (FUN_00225f30 D:L77014-77068; D:L76309)', () => {
@@ -148,7 +151,7 @@ describe('ROUND COMPLETE and FINAL ROUND around the lists (research 179 s10 s1, 
     expect(fin.map((t) => [t.text, t.x, t.y, t.scale])).toEqual([['LOSER', 200, 70, 0.9], ['WINNER', 200, 270, 0.9]]);
   });
 
-  it('the screen is multplay_back.tif under translucent backsolid panels: Team_back (5,10) 300x230 at 0.4, Team_back_Terr (5,240), column backs 100x180 at 0.3, 16 row strips 300x17 at 0.8 whatever the player count; no team bar', () => {
+  it('the screen is multplay_back.tif under translucent backsolid panels: Team_back (5,10) 300x230 at 0.4, Team_back_Terr (5,240), column backs (WM-DATA: four, 70x180) at 0.3, 16 row strips 300x17 at 0.8 whatever the player count; no team bar', () => {
     for (const rows of [ROWS, [ROWS[0]!]]) {
       const { quads, tris, panels } = roundScreenLayout(screen({ rows }), PS2, SIZES);
       expect(quads.filter((q) => q.texture === 'multplay_back.tif')).toEqual([
@@ -158,13 +161,15 @@ describe('ROUND COMPLETE and FINAL ROUND around the lists (research 179 s10 s1, 
       expect(solid).toHaveLength(panels.length);
       expect(solid).toContainEqual(expect.objectContaining({ x: 155, y: 125, w: 300, h: 230, rgba: [1, 1, 1, 0.4] }));    // Team_back
       expect(solid).toContainEqual(expect.objectContaining({ x: 155, y: 340, w: 300, h: 200, rgba: [1, 1, 1, 0.4] }));    // Team_back_Terr
-      expect(solid.filter((q) => q.w === 100 && q.h === 180 && q.rgba[3] === 0.3)).toHaveLength(6);
+      expect(solid.filter((q) => q.w === 70 && q.h === 180 && q.rgba[3] === 0.3)).toHaveLength(8);
+      expect(solid.filter((q) => q.w === 100)).toHaveLength(0);
       const strips = solid.filter((q) => q.w === 300 && q.h === 17);
       expect(strips).toHaveLength(16);
       expect(strips.every((q) => q.rgba[3] === 0.8)).toBe(true);
       expect(strips.map((q) => q.y - 8.5)).toEqual([80, 100, 120, 140, 160, 180, 200, 220, 280, 300, 320, 340, 360, 380, 400, 420]);
-      expect(solid.filter((q) => q.w === 100 && q.h === 17)).toHaveLength(48);
+      expect(solid.filter((q) => q.w === 70 && q.h === 17)).toHaveLength(64);
       expect(panels.filter((p) => p.name.startsWith('Kills_back_Seal') && p.h === 17).map((p) => p.alpha)).toEqual([1, 1, 1, 1, 0.9, 0.9, 0.9, 0.9]);
+      expect(panels.filter((p) => p.name.startsWith('Assists_back_Seal') && p.h === 17).map((p) => p.alpha)).toEqual(Array(8).fill(0.9));
       // No team bar: nothing in the scoreboard's team colours (32,32,64) / (64,32,32), and only the backdrop as a shape.
       const team = (c: readonly number[]) => [c[0]! / 255, c[1]! / 255, c[2]! / 255].join();
       expect([...tris, ...quads].some((x) => [team([32, 32, 64]), team([64, 32, 32])].includes(x.rgba.slice(0, 3).join()))).toBe(false);
@@ -212,24 +217,23 @@ describe('ROUND COMPLETE and FINAL ROUND around the lists (research 179 s10 s1, 
     expect(screenTimedOut(heldScreen(final, 100)!.upFor)).toBe(true);
   });
 
-  it('ROUND-90: the screens open the engine\'s read after the roundOver -- the same 3 s as the page\'s own (netPage.ts ENGINE_READ_S, read as text)', () => {
+  it('ROUND-90: the screens open the engine\'s read after the roundOver -- the shared page clock uses the same 3 s', () => {
     expect(ROUND_SCREENS_AFTER_S).toBe(3);
-    const page = readFileSync(resolve(import.meta.dirname, '../src/netPage.ts'), 'utf8');
-    expect(/const ENGINE_READ_S = (\d+(?:\.\d+)?);/.exec(page)?.[1]).toBe(String(ROUND_SCREENS_AFTER_S));
+    expect(ENGINE_READ_S).toBe(ROUND_SCREENS_AFTER_S);
     expect(ROUND_SCREEN_TIMEOUT_DIALOG).toBe('dlgNetError.rdr');                // GameStatePopCommand(dlgNetError.rdr)
   });
 });
 
 describe('GAME COMPLETE (dlgMultiplayerFinalReally.rdr; research 179 s10 s6, s7, s9, s10)', () => {
-  it('the MVP is the highest total score, then kills, then name, over both sides (FUN_002256f0 D:L76771-76885); its name at (20,155), its numbers at y 155 x 375 / 475 / 580', () => {
+  it('the MVP is the highest total score, then kills, then name, over both sides (FUN_002256f0 D:L76771-76885); its name at (20,155), its numbers at y 155 x 375 / 475 / 580 squeezed (WM-DATA) to 360 / 435 / 515 / 595', () => {
     const rows = [row(1, 'seal', 3, 1, 12), row(2, 'terrorist', 3, 4, 12), row(3, 'terrorist', 2, 0, 12), row(4, 'seal', 9, 9, 8)];
     expect(pickMvp(rows)!.name).toBe('P2');                       // 12 / 3 twice: the greater name
     expect(pickMvp([])).toBeNull();
     const texts = final({ rows });
     expect(byRole(texts, 'mvpLabel')).toEqual([expect.objectContaining({ text: 'MVP', x: 20, y: 135, scale: 1, rgba: GOLD })]);
     expect(byRole(texts, 'mvp').map((t) => [t.text, t.x, t.y, t.align])).toEqual(
-      [['P2', 20, 155, 'left'], ['12', 375, 155, 'right'], ['3', 475, 155, 'right'], ['4', 580, 155, 'right']]);
-    expect(words(final({ rows, mvp: 'P4' }), 'mvp')).toEqual(['P4', '8', '9', '9']);
+      [['P2', 20, 155, 'left'], ['12', 360, 155, 'right'], ['3', 435, 155, 'right'], ['4', 515, 155, 'right'], ['-', 595, 155, 'right']]);
+    expect(words(final({ rows, mvp: 'P4' }), 'mvp')).toEqual(['P4', '8', '9', '9', '-']);
     expect(byRole(final({ rows, mvp: null }), 'mvp')).toEqual([]);
   });
 
@@ -272,16 +276,16 @@ describe('GAME COMPLETE (dlgMultiplayerFinalReally.rdr; research 179 s10 s6, s7,
     expect(at(5)).toEqual([['6', 390, 231, 'centre'], ['4', 555, 232, 'centre'], ['4', 390, 302, 'centre'], ['6', 555, 302, 'centre']]);
   });
 
-  it('sums each side into SEAL TOTALS (20,85) and TERRORIST TOTALS (20,110) at 375 / 475 / 580; WINNER +220 on the side with more rounds', () => {
+  it('sums each side into SEAL TOTALS (20,85) and TERRORIST TOTALS (20,110) at 375 / 475 / 580, squeezed (WM-DATA) to 360 / 435 / 515 / 595; WINNER +220 on the side with more rounds', () => {
     const texts = final();
     expect(byRole(texts, 'totalsLabel').map((t) => [t.text, t.x, t.y, t.scale])).toEqual([['SEAL TOTALS', 20, 85, 0.9], ['TERRORIST TOTALS', 20, 110, 0.9]]);
     const totals = byRole(texts, 'totals');
-    expect(totals.filter((t) => t.y === 85).map((t) => [t.text, t.x])).toEqual([['14', 375], ['7', 475], ['4', 580]]);
-    expect(totals.filter((t) => t.y === 110).map((t) => [t.text, t.x])).toEqual([['8', 375], ['4', 475], ['7', 580]]);
+    expect(totals.filter((t) => t.y === 85).map((t) => [t.text, t.x])).toEqual([['14', 360], ['7', 435], ['4', 515], ['-', 595]]);
+    expect(totals.filter((t) => t.y === 110).map((t) => [t.text, t.x])).toEqual([['8', 360], ['4', 435], ['7', 515], ['-', 595]]);
     expect(byRole(texts, 'result').map((t) => [t.text, t.x, t.y])).toEqual([['WINNER', 240, 85]]);
     expect(byRole(final({ wins: { seal: 2, terrorist: 5 } }), 'result').map((t) => [t.text, t.y])).toEqual([['WINNER', 110]]);
     expect(byRole(final({ wins: { seal: 3, terrorist: 3 } }), 'result')).toEqual([]);
-    expect(byRole(texts, 'header').filter((t) => t.y === 55).map((t) => [t.text, t.x])).toEqual([['SCORE', 368], ['KILLS', 475], ['DEATHS', 578]]);
+    expect(byRole(texts, 'header').filter((t) => t.y === 55).map((t) => [t.text, t.x])).toEqual([['SCORE', 353], ['KILLS', 435], ['DEATHS', 513], ['ASSISTS', 595]]);
   });
 
   it('the two-line round captions, TIME PLAYED at (470,350) and its value +25, the lobby line at (20,430); no round lists', () => {
@@ -296,6 +300,79 @@ describe('GAME COMPLETE (dlgMultiplayerFinalReally.rdr; research 179 s10 s6, s7,
     expect(byRole(texts, 'row')).toEqual([]);
     expect(byRole(texts, 'countdown')).toEqual([]);
     expect(READERX_LAYOUT.gameComplete.panels.filter((p) => p.name.startsWith('YourStatsRow')).map((p) => p.y)).toEqual([208, 231, 254, 277, 300, 323, 346, 369, 392]);
+  });
+});
+
+/**
+ * WM-DATA, the post-round screens' look (product track, a browser adaptation; the owner's call 1, decided 2026-11-15
+ * through the main controller 8f: "squeeze each column just a bit and add an assists in the same way", "the squeeze is
+ * acceptable. leave a bit of padding if you can"): four columns of 70 with 10 between them over the disc's 315..625, in
+ * the order SCORE, KILLS, DEATHS, ASSISTS; ROUND COMPLETE and FINAL ROUND list `roundAssists`, GAME COMPLETE `assists`;
+ * a dash where a row carries none. `READERX_LAYOUT` stays the disc's (the disc test above compares it).
+ */
+describe('WM-DATA: the post-round squeeze and the assists column (a browser adaptation)', () => {
+  it('four columns 70 wide, 10 apart, over the disc\'s span: 315 / 395 / 475 / 555, the last ending at 625', () => {
+    expect(ROUND_COLUMNS_SQUEEZE_ADAPTATION).toEqual({ x0: 315, w: 70, gap: 10 });
+    expect(ROUND_LIST_COLUMNS_ADAPTATION.map(squeezedColumnX)).toEqual([315, 395, 475, 555]);
+    expect(squeezedColumnX('assists') + ROUND_COLUMNS_SQUEEZE_ADAPTATION.w).toBe(625);
+    // A string keeps its offset from its column's centre: the disc's SCORE header 368 (centre 365) -> 353 (centre 350);
+    // ASSISTS takes KILLS' offsets in its own backing (centre 590). PR #940's centring not taken (the owner, 2026-11-25).
+    expect(squeezedX(368, 0, 'score')).toBe(353);
+    expect(squeezedX(475, 1, 'assists')).toBe(595);
+    expect(squeezedX(582, 2, 'deaths')).toBe(517);
+    expect(ROUND_ASSISTS_HEADER_ADAPTATION).toBe('ASSISTS');
+  });
+
+  it('the disc\'s transcription is untouched: READERX_LAYOUT keeps the three 100-wide backings; the screen draws the squeezed set', () => {
+    const disc = READERX_LAYOUT.roundComplete.panels.filter((p) => /^(Score|Kills|Deaths)_back_Seals$/.test(p.name)).map((p) => [p.name, p.x, p.w]);
+    expect(disc).toEqual([['Score_back_Seals', 315, 100], ['Kills_back_Seals', 420, 100], ['Deaths_back_Seals', 525, 100]]);
+    for (const kind of ['roundComplete', 'finalRound', 'gameComplete'] as const) {
+      const { panels } = roundScreenLayout(screen({ kind }));
+      const backs = panels.filter((p) => /^(Score|Kills|Assists|Deaths)_back(_Seals)?$/.test(p.name)).map((p) => [p.name.split('_')[0], p.x, p.w]);
+      expect(backs, kind).toEqual([['Score', 315, 70], ['Kills', 395, 70], ['Deaths', 475, 70], ['Assists', 555, 70]]);
+      expect(Math.min(...panels.map((p) => p.x))).toBe(5);
+      expect(Math.max(...panels.map((p) => p.x + p.w))).toBe(625);
+    }
+  });
+
+  it("the disc's column transcription is untouched: headers at 368 / 470 / 578 (y 75 / 277), numbers at 365 + 8 / 110 / 217, the totals and the MVP at 350 + 25 / 125 / 230 (y 155); the squeeze is drawn, not transcribed", () => {
+    const L = READERX_LAYOUT;
+    expect(L.lists.headers).toEqual([368, 470, 578]);
+    expect(L.lists.name).toBe(-290);
+    expect(L.roundComplete.teams.map((t) => [t.headerY, t.list.x, ...t.list.columns])).toEqual([[75, 365, 8, 110, 217], [277, 365, 8, 110, 217]]);
+    expect(L.roundComplete.teams[0].list.columns.map((c) => L.roundComplete.teams[0].list.x + c)).toEqual([373, 475, 582]);
+    expect(L.gameComplete.headers.x).toEqual([368, 475, 578]);
+    expect([L.gameComplete.lists.x, ...L.gameComplete.lists.columns, L.gameComplete.lists.mvpY]).toEqual([350, 25, 125, 230, 155]);
+    expect(L.gameComplete.lists.columns.map((c) => L.gameComplete.lists.x + c)).toEqual([375, 475, 580]);
+  });
+
+  it('ROUND COMPLETE and FINAL ROUND list the round\'s assists (`roundAssists`); GAME COMPLETE the match\'s (`assists`)', () => {
+    const rows = [
+      row(1, 'seal', 2, 3, 4, { assists: 9, roundAssists: 2 }), row(2, 'seal', 5, 1, 10, { self: true, assists: 3, roundAssists: 0 }),
+      row(3, 'terrorist', 3, 2, 6, { assists: 1, roundAssists: 1 }), row(4, 'terrorist', 1, 5, 2),
+    ];
+    for (const kind of ['roundComplete', 'finalRound'] as const) {
+      const listed = byRole(roundScreenLayout(screen({ kind, rows })).texts, 'row');
+      expect(listed.filter((t) => t.y === 94 && t.x === 595).map((t) => t.text), kind).toEqual(['0']);    // P2 first by score
+      expect(listed.filter((t) => t.y === 114 && t.x === 595).map((t) => t.text), kind).toEqual(['2']);
+      expect(listed.filter((t) => t.y === 316).map((t) => t.text), kind).toContain('-');                 // P4 carries none
+    }
+    const texts = final({ rows });
+    // The totals: SEALs 9 + 3; Terrorists the one row that carries them (1).
+    expect(byRole(texts, 'totals').filter((t) => t.x === 595).map((t) => [t.text, t.y])).toEqual([['12', 85], ['1', 110]]);
+    expect(byRole(texts, 'mvp').filter((t) => t.x === 595).map((t) => t.text)).toEqual(['3']);            // P2, the MVP
+  });
+
+  it('a room with no live match record (no assists on any row): a dash in every assists cell, never 0', () => {
+    for (const kind of ['roundComplete', 'finalRound'] as const) {
+      const cells = byRole(roundScreenLayout(screen({ kind })).texts, 'row').filter((t) => t.align === 'right');
+      const assists = cells.filter((_, i) => i % 4 === 3);
+      expect(assists.map((t) => t.text), kind).toEqual(['-', '-', '-', '-']);
+    }
+    const texts = final();
+    expect(byRole(texts, 'totals').filter((t) => t.x === 595).map((t) => t.text)).toEqual(['-', '-']);
+    expect(byRole(texts, 'mvp').filter((t) => t.x === 595).map((t) => t.text)).toEqual(['-']);
+    expect([...byRole(texts, 'totals'), ...byRole(texts, 'mvp')].some((t) => t.x === 595 && t.text === '0')).toBe(false);
   });
 });
 

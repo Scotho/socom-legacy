@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
 import { PerspectiveCamera } from 'three';
-import { HELD_RIFLE, HELD_SIDEARM } from '@s2u/scene';
+import { GAME_FRAME_DT, HELD_RIFLE, HELD_SIDEARM } from '@s2u/scene';
 import { Hud } from '../src/hud';
 import { LOCAL_RETRY_MS, NetPage, WAITING_LINE_READING, ABANDON_LINE_READING, type NetPageDeps } from '../src/netPage';
 import type { WebSocketLike } from '../src/net/client';
@@ -9,6 +9,7 @@ import { SERVER_CLOSING_REFUSAL, SERVER_CLOSING_RETRY_MS, type ServerEvent } fro
 import { countdownLine, OWNER_LAUNCH_COUNTDOWN_S } from '../src/net/rules';
 import type { RemotePlayers } from '../src/remotePlayers';
 import type { WalkMode } from '../src/walk';
+import { runThrowWireTrace, THROW_WIRE_TRACE } from './helpers/throwWireTrace';
 
 /**
  * The connection as the owner met it (2026-09-30's play test of e373be70): Online = Local with no server on 8787 read
@@ -51,6 +52,17 @@ const welcome = (over: Partial<Extract<ServerEvent, { type: 'welcome' }>> = {}):
   type: 'welcome', id: 1, version: 9, map: 'MP2', tick: 0, role: 'player', team: 'seal', queue: 0, name: 'Tester',
   players: [], rules: 'classic', round: 1, rounds: 11, ghost: false, ...over,
 } as ServerEvent);
+
+it('preserves the complete throw packet and once-only refund trace across transport extraction', () => {
+  const p = page(); p.socket().onopen?.({} as Event); p.server(welcome());
+  const refund = vi.fn(); (p.net as unknown as { deps: NetPageDeps }).deps.staleThrow = refund;
+  let seq = 0; const lastSeq = vi.spyOn(p.net.client, 'lastSeq').mockImplementation(() => seq);
+  const send = vi.spyOn(p.net.client, 'send');
+  try {
+    const start = runThrowWireTrace(p.net, value => { seq = value; }, value => p.server({ type: 'stale', request: 'throw', seq: value }));
+    expect({ start, messages: send.mock.calls.map(call => call[0]), refunds: refund.mock.calls }).toEqual(THROW_WIRE_TRACE);
+  } finally { p.net.close(); send.mockRestore(); lastSeq.mockRestore(); }
+});
 
 describe('Online = Local with no server (the owner, 2026-09-30)', () => {
   it('the status is local and retries in 3 s, however many attempts; the shared server keeps its backoff', () => {
@@ -518,6 +530,9 @@ describe("#425: another player's tracer rounds, every fourth of the shots this p
       (e) => { got.push(e.tracer ? e.tracerKind ?? null : null); };
     const shot = { type: 'shot', id: 2, weapon: 54, from: [0, 20, 0], to: [0, 20, -500], normal: null, material: null } as ServerEvent;
     for (let i = 0; i < 8; i++) p.server(shot);
+    // R4P-253: shown from the copy's count, one a game frame (REMOTE_SHOT_DRAIN_PER_TICK_READING) -- eight frames, eight shown.
+    const camera = new PerspectiveCamera();
+    for (let i = 0; i < 8; i++) p.net.frame(GAME_FRAME_DT, camera, false);
     expect(got).toEqual([null, null, null, 'enemy', null, null, null, 'enemy']);
   });
 });

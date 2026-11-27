@@ -150,7 +150,19 @@ function element(q: RdrLookup, ul: RdrNode | undefined, lr: RdrNode | undefined,
  */
 export const SHORT_GLYPH_CODE_READING = 'an integer-spelled token an int node, another number a float (0), else a string (its first byte)';
 
-/** `FUN_0035bef0`: one `charoffsets` record into the map. */
+/**
+ * HASH_C_GLYPH_ALIAS_READING (R4P-324; web research 111 §9, 263 §3a; L113): r0004's face loader 0x003796b0, on the
+ * `Code`-field path only (0x379760), parses a record whose code is 0x43 (`C`) a second time into glyph 0xb2
+ * (0x37979c-0x3797cc) -- made or extended through the map's `operator[]` as any code is -- with the record's texture
+ * index (0x3797d8) and baseline (0x3797e0-0x3797f8), no offset applied; the common tail that writes the kerning and
+ * `color` (0x3799c4-0x379a80) is not reached, so the alias keeps the defaults (kerning 0, no colour, advance -1;
+ * 0x379cd0-0x379d08). 0xb2 is the byte `Censor` writes over a typed `#C`, so a recipient's `#C` draws as `#` and a `C`.
+ * The same block makes 0xb8 from `B` (0x379804-0x37980c); `Censor` never writes it, so it is not built here. r0001's
+ * `FUN_0035bef0` has neither. [reading]
+ */
+export const HASH_C_GLYPH_ALIAS_READING = 'a Code record of C also makes glyph 0xb2: its elements, texture and baseline; kerning 0, no colour, advance -1' as const;
+
+/** `FUN_0035bef0`: one `charoffsets` record into the map; on the `Code` path a `C` also into 0xb2 (`HASH_C_GLYPH_ALIAS_READING`). */
 function readGlyph(q: RdrLookup, map: Map<number, TextGlyph>, rec: RdrNode): void {
   const texture = (q.int(rec, 'texture') ?? 1) - 1;
   let code = q.int(rec, 'Code');
@@ -174,6 +186,17 @@ function readGlyph(q: RdrLookup, map: Map<number, TextGlyph>, rec: RdrNode): voi
     g.elements.push(element(q, list[1], list[2], null));
   } else {
     for (const el of q.list(rec, 'Elems') ?? []) g.elements.push(element(q, q.find(el, 'UL'), q.find(el, 'LR'), el));
+    if (code === 0x43) {
+      // HASH_C_GLYPH_ALIAS_READING: the record parsed again into 0xb2, its texture and baseline; kerning, colour untouched.
+      let alias = map.get(0xb2);
+      if (!alias) {
+        alias = { code: 0xb2, texture, baseline: 0, lKerning: 0, rKerning: 0, advance: -1, color: null, elements: [] };
+        map.set(0xb2, alias);
+      }
+      for (const el of q.list(rec, 'Elems') ?? []) alias.elements.push(element(q, q.find(el, 'UL'), q.find(el, 'LR'), el));
+      alias.texture = texture;
+      alias.baseline = q.int(rec, 'baseline') ?? 0;
+    }
   }
   g.texture = texture;
   g.baseline = q.int(rec, 'baseline') ?? 0;

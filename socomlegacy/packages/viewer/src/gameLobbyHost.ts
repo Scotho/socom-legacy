@@ -1,7 +1,8 @@
 import {
   appendGameLobbyChat, ArmoryProfileCommands, GameLobbyCommands, type LobbyTextChat, type ArmoryLoadoutProfile, type ArmoryLoadoutRecord, type ArmoryLoadoutService, type ArmoryLoadoutSide, type BotSetting, type LobbySide, type GameJoinService, type GameLobbyLobby, type GameLobbyMatchStart, type GameListEntry, type GameSocketPort,
-  type GameLobbyVoicePort, type GameSeatPass, type JoinGameQuery, type JoinGameReply, type UiCommandHost, type UiVarManager, type ValveStore, type WorldReportQuery, type ZAnimUiCommand,
+  type GameLobbyVoicePort, type GameSeatPass, type JoinGameQuery, type JoinGameReply, type SeatQueueState, type UiCommandHost, type UiVarManager, type ValveStore, type WorldReportQuery, type ZAnimUiCommand,
 } from '@s2u/ui';
+import { clearNetEnding, netEndingOf, setNetEnding, type NetEnding } from './net/netEnding';
 import { tunersOfVars } from './audio';
 import {
   GAME_HELLO_WAIT_MS_ADAPTATION, GAME_RETOKEN_REASONS, GAME_RETOKEN_WAIT_MS_ADAPTATION, gameSeatOpen, gameSeatProvider, isGameToken, isPinnedSocket, isSeatOf, pinnedGameDoor, socketHost,
@@ -16,9 +17,11 @@ import { SERVER_UPDATE_CLOSE, type ServerEvent, type Team } from './net/protocol
 const GAME_ENDED_CLOSE_CODE = 4007;
 import type { VoiceDown } from './net/voiceWire';
 import { dropRetry, GAME_FINAL_CLOSES, retryDueAt } from './netPage';
+import { SEAT_CLAIM_TAKEN_LINE_ADAPTATION } from './seatClaim';
 import type { TauntMenuDeps } from './tauntMenu';
 import { mountHeadset, type Headset } from './voice/headset';
 import { LOBBY_TALK_BUTTON, TalkInput } from './voice/talkInput';
+import { ensureSocialLoaded, friendOrClan, streamerAllows, voiceFromOthers } from './streamerMode';
 import { mountVoice, type MatchVoice, type MatchVoiceDeps, type VoiceState } from './voice/voiceClient';
 
 /**
@@ -399,6 +402,8 @@ export class GameLobbyVoice implements GameLobbyVoicePort, GameSocketVoice {
     tuners(): { headset: number };
     /** The headset's lines (`LOBBY_VOICE_LINE_ADAPTATION`). */
     line(text: string): void;
+    /** STREAMER-P1 slice 3: a seat's name by its room id (`GameSocketHost.seatName`); absent, none. */
+    seatName?(id: number): string | null;
   }) {}
 
   private seconds(): number { return this.o.deps.seconds?.() ?? performance.now() / 1000; }
@@ -406,13 +411,18 @@ export class GameLobbyVoice implements GameLobbyVoicePort, GameSocketVoice {
   private entry(): number | null { return this.floorOf !== null && this.floorOf === this.o.link() ? this.floor : null; }
 
   button(on: boolean): void { this.circle = on; }
+  /** STREAMER-P1 slice 3: whether a speaker (a room member id) is a friend or clan mate, by its seat's name (`../socialSet`). */
+  friendOrClan(id: number): boolean { const name = this.o.seatName?.(id) ?? null; return name !== null && friendOrClan({ name }); }
   recording(): boolean { const c = this.o.link(); return this.flag && c !== null && this.entry() === c.id; }
   /**
    * The bar's talker: VOICE-LATE (B; `./hudVoice` `heardTalker`, research 226 §3.2) the speaker whose voice the lobby's
    * client plays now, else the floor entry's holder (`FUN_0027cbf0`'s, research 170 §5.1) -- the early hint.
    */
   holder(): number | null {
-    const entry = this.entry(), playing = this.voice?.state().playing ?? null;
+    // STREAMER-P1 (IQ-229 F2, display only): a speaker Streamer mode refuses in the lobby names no talker -- the bar as free.
+    const raw = this.entry(), self = this.o.link()?.id ?? null;
+    const entry = raw !== null && raw !== self && !streamerAllows(voiceFromOthers(), 'lobby', this.friendOrClan(raw)) ? null : raw;
+    const playing = this.voice?.state().playing ?? null;
     if (playing === null) return entry;
     return heardTalker(entry, playing, this.o.link()?.id ?? null) ?? entry;
   }
@@ -450,7 +460,9 @@ export class GameLobbyVoice implements GameLobbyVoicePort, GameSocketVoice {
     // pad's loss and the window's focus as the talk input's releases, the DEV R key as CIRCLE; no modulation in the
     // lobby (`VOICE_MOD_LOBBY_OFF_READING`, the headset's phase).
     const headset = this.headset ??= (makeHeadset ?? ((line: (text: string) => void) => mountHeadset({ line })))((text) => { this.o.line(text); });
-    this.voice ??= mountVoice({ ...d, net: () => { const l = this.o.link(); return l ? { client: l } : null; }, tuners: d.tuners ?? (() => this.o.tuners()), headset });
+    // STREAMER-P1 (a browser adaptation, `./streamerMode`): the game lobby is a lobby for Streamer mode's voice rows.
+    if (!this.voice) ensureSocialLoaded();                              // STREAMER-P1 3: the lists asked once if never read this session
+    this.voice ??= mountVoice({ ...d, net: () => { const l = this.o.link(); return l ? { client: l } : null; }, tuners: d.tuners ?? (() => this.o.tuners()), headset, place: 'lobby', friendOrClan: (id) => this.friendOrClan(id) });
     const h = headset.frame({ phase: 'lobby', spectator: false });
     // The DEV R key (`keys('lobby')`, H87 VOICE-KEY) is CIRCLE on the lobby's screen -- over its ARMORY too under
     // LOBBY_ARMORY_VOICE_ADAPTATION, not in the original's ARMORY (`armoryRadioOff`).
@@ -592,6 +604,8 @@ export interface GameSocketHostOptions {
    * (`./serverUpdate` `pageServerUpdate`); absent, the seat's end alone.
    */
   serverUpdate?: () => void;
+  /** SEAT_QUEUE_BUTTON_ADAPTATION: the room holds a seat for this seat's claim (`seatComing`); absent, nothing shown. */
+  seatComing?: () => void;
 }
 
 /**
@@ -644,6 +658,13 @@ export class GameSocketHost implements GameSocketPort {
   private roundStartedN = 0;
   /** LATE-SPAWN-HANDOFF (LATER 56): the seat's own last `spawn` heard in the lobby and its place in the order, or null. */
   private ownSpawn: { ev: Extract<ServerEvent, { type: 'spawn' }>; n: number } | null = null;
+  /** SEAT_QUEUE_BUTTON_ADAPTATION: the seat seated by its own claim in the lobby, its load (the screen's READY) owed. */
+  private seatLoadOwed = false;
+  /**
+   * SEAT_QUEUE_BUTTON_ADAPTATION: the room's last lobby view said the game is launched (`gameLobby.launched`, the screen's
+   * `late_joiner`). Only then is the READY a late seat's load; in a lobby not launched it is the seat's own READY.
+   */
+  private lobbyLaunched = false;
   /** LATER 734: the room's last `kitHeld` of each side heard on this socket, in the order heard (`GameLobbyHandOff.kitHeld`). */
   private kitsHeld = new Map<Team, Extract<ServerEvent, { type: 'kitHeld' }>>();
   /** LATER 80: the room's round counter as its events since the welcome tell it (`roundWelcome`), or null with none heard. */
@@ -658,6 +679,8 @@ export class GameSocketHost implements GameSocketPort {
   private refusal: string | null = null;
   /** The room's last game lobby view's seats (the bridge's `gameLobby`): every seat's side now, for the hand-off. */
   private seats: SeatsView = null;
+  /** STREAMER-P1 slice 3: a seat's name by its room id in the last game lobby view (a game room's names are its accounts'), or null. */
+  seatName(id: number): string | null { return this.seats?.find((s) => s.id === id)?.name ?? null; }
   /** ONL-16b: the lobby's voice (`GameLobbyVoice`), and the client's voice frames' listener. */
   private voice: GameSocketVoice | null = null;
   private offVoice: (() => void) | null = null;
@@ -711,6 +734,7 @@ export class GameSocketHost implements GameSocketPort {
   private hold(held: boolean): void { if (this.held !== held) { this.held = held; this.o.holds(held); } }
 
   open(mediusWorldId: number, pass?: GameSeatPass): boolean {
+    clearNetEnding();   // LATER 359b, NET-RES-3: a new game's seat: the last one's ending line gone
     this.drop();
     const ticket = this.o.ticket();
     if (ticket === null) return false;
@@ -758,6 +782,8 @@ export class GameSocketHost implements GameSocketPort {
     this.roundStarted = null;                                     // a new socket: no round of an earlier game handed on
     this.roundEnded = null; this.scored = null;
     this.ownSpawn = null;                                         // LATE-SPAWN-HANDOFF: nor a spawn of an earlier game
+    this.seatLoadOwed = false;                                    // SEAT_QUEUE_BUTTON_ADAPTATION: nor an earlier seat's load
+    this.lobbyLaunched = false;                                   // SEAT_QUEUE_BUTTON_ADAPTATION: until this socket's view says
     this.kitsHeld.clear();                                        // LATER 734: a new seat is told its own
     this.refusal = null;
     this.off = client.on((ev) => this.event(ev));
@@ -787,6 +813,9 @@ export class GameSocketHost implements GameSocketPort {
         // its abandon and its return after a game over (`room.ts` `abandon`, `returnToLobby`); a round starts only after a
         // launch (`startRound`) -- whether or not this socket heard the game's last `roundOver`.
         if (!ev.launched) this.roundNow = 1;
+        // SEAT_QUEUE_BUTTON_ADAPTATION: a lobby back from its game (or not launched yet) owes no late seat's load
+        this.lobbyLaunched = ev.launched;
+        if (!ev.launched) this.seatLoadOwed = false;
         this.feed?.gameLobby(ev);
         break;
       }
@@ -798,7 +827,15 @@ export class GameSocketHost implements GameSocketPort {
       case 'demoted': this.ownSpawn = null; this.welcome = queuedWelcome(this.welcome, ev); break;
       // B138's BTL.R8: a promotion heard in the lobby -- a queued joiner put in a CPU's or a leaver's place -- is the seat's
       // welcome from now on (`queuedWelcome`), so the match does not replay the spectator's welcome over the seated walk.
-      case 'promoted': this.welcome = queuedWelcome(this.welcome, ev); break;
+      case 'promoted':
+        this.welcome = queuedWelcome(this.welcome, ev);
+        // SEAT_QUEUE_BUTTON_ADAPTATION: seated by its own claim (`NetClient.seatedByClaim`) in a launched game -- the load
+        // is owed: the page runs the screen's own READY (`takeSeatLoad`), the late seat's hand-off, as its press would. A
+        // claim seated in a lobby not launched (a queue kept across the game's return to its lobby) is a player there,
+        // whose READY is its own to press: the screen's READY run for it would ready it for the next launch.
+        if (this.client?.seatedByClaim && this.lobbyLaunched) this.seatLoadOwed = true;
+        break;
+      case 'seatComing': this.o.seatComing?.(); break;           // SEAT_QUEUE_BUTTON_ADAPTATION: the held seat's line
       // LATER 734: the room's tell of the seat's held kit (a unicast), the last of its side, re-ordered as the newest.
       case 'kitHeld': this.kitsHeld.delete(ev.team); this.kitsHeld.set(ev.team, ev); break;
       case 'roundStart':
@@ -843,6 +880,32 @@ export class GameSocketHost implements GameSocketPort {
   }
 
   /**
+   * SEAT_QUEUE_BUTTON_ADAPTATION (`@s2u/ui` `seatQueue`): the room's word for this seat while it is a welcomed watcher
+   * the room tells its seats (`seats`, sent to a watcher and a queued claim only) -- claims taken, seats free, its place,
+   * a held seat -- or null (a player, a queued joiner, no socket or welcome).
+   */
+  seatQueue(): SeatQueueState | null {
+    const c = this.client;
+    if (!c || c.state !== 'open' || !this.welcome || c.role !== 'spectator' || c.seats === null) return null;
+    return { claim: c.seats.claim, open: c.seats.open, queue: c.queue, coming: c.seatComing };
+  }
+
+  /** SEAT_QUEUE_BUTTON_ADAPTATION: the room's last lobby view said the game is launched (`gameLobby.launched`). */
+  launched(): boolean { return this.lobbyLaunched; }
+
+  /** SEAT_QUEUE_BUTTON_ADAPTATION: the queue's button pressed -- a claim (`on`), or the queue's leave. */
+  seatClaim(on: boolean): void {
+    if (this.client?.state === 'open') this.client.seatClaim(on);
+  }
+
+  /** SEAT_QUEUE_BUTTON_ADAPTATION: the owed load of a seat seated by its claim in the lobby, taken once (true), else false. */
+  takeSeatLoad(): boolean {
+    const owed = this.seatLoadOwed && !this.stopped && this.lobbyLaunched;
+    this.seatLoadOwed = false;
+    return owed;
+  }
+
+  /**
    * ONL-23: the seat's line (`{ type: 'chat', text }`, the bridge's relay, research 263 §1), on an open socket only.
    * SVC-19 (research 266 §3.1): `team`, the keyboard's TEAM (`ChatRecipient`), sent as `team: true`; ALL sends none.
    */
@@ -868,6 +931,15 @@ export class GameSocketHost implements GameSocketPort {
     if (client?.state !== 'open' || client.role !== 'player' || client.team !== c.side) return;
     client.send({ type: 'loadout', picks: c.picks.map((p) => ({ ...p })), char: c.char });
   }
+
+  /**
+   * ROUTE-GUARD (`./menuRoutes` `HISTORY_TRAP_IN_GAME_ADAPTATION`, a browser adaptation): a game is joined on this socket --
+   * from the room's `welcome` (`reached`: the GAME LOBBY entered) through a drop's reopen, and again from `adopt` of a
+   * welcomed client (the match's return to the same game's lobby); not at the `open` alone -- a socket accepted and never
+   * welcomed is left open on the BRIEFING ROOM by the join's timeout (`abort_join` never disconnects) -- nor after the
+   * hand-off (the match's then: `LobbyMatch.phase`), `close` (BACK) or the seat's end. Reads only.
+   */
+  joined(): boolean { return !this.stopped && this.reached; }
 
   /** BACK (`DisconnectFromGameServer`): the page's own close -- the session let go, no dialog; a placed game's door and provider forgotten. */
   close(): void { this.drop(); this.door = null; this.reseater = null; }
@@ -957,7 +1029,12 @@ export class GameSocketHost implements GameSocketPort {
   }
 
   /** The seat's end, told once: no retry, the client let go, the lobby's voice released (a final close, a refusal, the session gone). */
-  private seatEnd(code: number | null, refusal: string | null = null): void {
+  private seatEnd(code: number | null, refusal: string | null = null, ending: NetEnding | null = null): void {
+    // LATER 359b, NET-RES-3: #365's text names the close (4007's #528 takes none). Only ever SET here, never cleared: the
+    // match's own end (`netPage.ts` endGame) may have named it already, and the lobby's socket ends after it with no code
+    // of its own (the review fold's disc case); a new game's `open` clears it.
+    const named = ending ?? netEndingOf(code);
+    if (named !== null) setNetEnding(named);
     this.stopped = true;
     this.off?.(); this.off = null; this.offVoice?.(); this.offVoice = null; this.voice?.release(); this.client = null;
     this.feed?.seatEnded(code, refusal);
@@ -985,7 +1062,7 @@ export class GameSocketHost implements GameSocketPort {
         this.connect(r.seat);
         return;
       }
-      if (r.kind === 'ended') { this.seatEnd(r.close); return; }
+      if (r.kind === 'ended') { this.seatEnd(r.close, null, r.why ?? null); return; }
       if (r.kind === 'signed-out') { this.seatEnd(null); return; }
       this.backoff();
     };
@@ -1038,6 +1115,7 @@ export class GameSocketHost implements GameSocketPort {
     this.stopped = true;
     this.held = false;                                             // the hold passes with the client (`held: true`)
     this.choice = null;                                            // ARMORY-SAVE: the map's load drops IDFromBriefing (research 309 §2.3)
+    this.seatLoadOwed = false;                                     // SEAT_QUEUE_BUTTON_ADAPTATION: loading, nothing owed
     // LATE-WATCH F1: a round the room has said over is an older round than the one under way -- its start would
     // restart the clock at full length and post its banner -- so it is not handed on; a late seat takes the kept score,
     // less its wait, after it (`GameLobbyHandOff.score`).
@@ -1256,6 +1334,8 @@ export interface GameLobbyMount {
    * `AdvanceMPMission` adds to the UI variables (`mission_title`, the title bar's `MPgamename`); absent, none.
    */
   missionVars?: import('@s2u/ui').GameLobbyCommandsOptions['missionVars'];
+  /** AS-17 / L98: `GameLobbyCommandsOptions.suspendMenuInput` -- the menu shell's input suspend (`MenuShell.suspendInput`); absent, none. */
+  suspendMenuInput?: (seconds: number) => void;
 }
 
 /** The mount (`FrontEndSession`'s one call): the rows, the gate, the lobby's states 15 and 17, the game socket; `frame` once a frame. */
@@ -1266,6 +1346,7 @@ export function connectGameLobby(host: UiCommandHost, m: GameLobbyMount): { comm
     pinned: m.pinned, ticket: () => lobby.ticket(), holds: (h) => { lobby.socketHolds(h); }, socket: m.socket, matchStart: m.matchStart,
     ...(m.system ? { system: m.system } : {}),                       // SA-43c Part 2: the room's system message, to the front end's routing
     ...(m.serverUpdate ? { serverUpdate: m.serverUpdate } : {}),     // OBF-4: the host's update, the page's warning and reload
+    seatComing: () => { appendGameLobbyChat(m.uiVars, `${SEAT_CLAIM_TAKEN_LINE_ADAPTATION}\n`); },   // SEAT_QUEUE_BUTTON_ADAPTATION: the lobby's text panel
     // SA-6c (GAME_RETOKEN_ADAPTATION): a placed seat's re-token over the room service's transport, its 401 the session lost
     ...(gameToken ? { retoken: { ask: (g: number, t: string, signal: AbortSignal) => gameToken(g, t, signal), sessionLost: (t: string) => { lobby.sessionLost(t); } } } : {}),
   }) : null;
@@ -1275,6 +1356,7 @@ export function connectGameLobby(host: UiCommandHost, m: GameLobbyMount): { comm
     // are posted (a playtest instrument; nothing is posted in a release build or without `?devmode`); SA-7d: a placed
     // game's to its pinned door, forwarded to its process (`GameSocketHost.reportTo`)
     link: () => socket.link(), lateJoiner: () => m.valves().find('late_joiner')?.value === 1, deps: { reportTo: () => socket.reportTo(), ...(m.voice ?? {}) },
+    seatName: (id) => socket.seatName(id),                            // STREAMER-P1 3
     inArmory: () => m.valves().find('GoneToArmory')?.value === 1,
     tuners: () => tunersOfVars(m.uiVars),
     // LOBBY_VOICE_LINE_ADAPTATION: the lobby's text panel, a line each.
@@ -1294,6 +1376,7 @@ export function connectGameLobby(host: UiCommandHost, m: GameLobbyMount): { comm
     ...(m.allBotGames ? { allBotGames: m.allBotGames } : {}),       // P537-L2: the server's all-maps word
     ...(m.joinRefused ? { joinRefused: m.joinRefused } : {}),
     ...(m.missionVars ? { missionVars: m.missionVars } : {}),     // LOBBY-MAPNAME: FUN_002acc10's UiVars half
+    ...(m.suspendMenuInput ? { suspendMenuInput: m.suspendMenuInput } : {}),   // AS-17 / L98: r0004's create pause (FUN_001f3bb0)
   });
   socket?.attach(commands);
   commands.register(host);

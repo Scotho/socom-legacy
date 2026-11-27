@@ -34,7 +34,7 @@ const quad = (pts: number[], material: number): WorldPoly => ({
   modelName: 'worldmodel', path: 'worldmodel/q', region: 0, ditype: 3, material, ptcount: 4, cameratype: 0, appflags: 0, points: Float32Array.from(pts),
 });
 const floor = (x0: number, z0: number, x1: number, z1: number, y: number, material = 25): WorldPoly =>
-  quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], material);
+  quad([x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z0], material);
 
 /** A floor at 0, a pool whose water stands at 6 (x -100..-60, z 20..60) and one at 25 (x 60..100). */
 function map(): LoadedMap {

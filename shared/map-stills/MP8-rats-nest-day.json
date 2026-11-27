@@ -1,0 +1,21 @@
+{
+  "mapId": "MP8",
+  "mapName": "Rat's Nest",
+  "variant": "day",
+  "build": "b8b6ee15ab",
+  "camera": {
+    "x": 758.14,
+    "y": 82.72,
+    "z": 779.41,
+    "yaw": 254.6,
+    "pitch": 5.3
+  },
+  "image": "MP8-rats-nest-day.png",
+  "adaptation": "a browser adaptation (the original has no Day maps): our own port rendered in the test room, approved by the owner 2026-11-25",
+  "source": "ratsnest-day-2048x1024.png (sha256 335e028fd551444600defba175c57e9abfd906655ebe6c3f6066b0ca1516d807), ffmpeg scale=-2:558:flags=lanczos,crop=640:558",
+  "record": "DAY-CG-PICS-PC4 (RESULT-PC4.md): Shadow PC 4, testroom?map=MP8&renderer=webgl2&devmode&variant=day&view=modern; the build carried the MP82 skycap sky swap, no sky is in frame",
+  "savedAt": "2026-11-25",
+  "width": 640,
+  "height": 558,
+  "sha256": "57d7756d9e38c33480b780626b73e2c0525fb77888972a86cbad5a489826d988"
+}

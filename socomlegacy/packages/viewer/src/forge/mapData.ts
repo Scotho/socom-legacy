@@ -200,7 +200,7 @@ export function mapDataGroups(map: MapDataSource, floorAt: (x: number, z: number
   })));
   add('flares', 'Flares', (map.flares ?? []).map((f, i) => at(`flare:${i}`, f.name || `Flare ${i + 1}`, f.at, `Flare ${f.name || i + 1} (a light's glow, turned to the camera)`, f)));
   // The map's own ambient effects (its mission set's self-starting programs) where its scene roots them.
-  // Emitters (the owner, 2026-11-14: "use emitters").
+  // Emitters (the Forge's owner (crispy, OT.R112), 2026-11-14: "use emitters").
   add('ambients', 'Emitters', (map.ambientPlaces ?? []).map((a, i) => {
     const node = a.node.split('/').pop() ?? a.node;
     return at(`ambient:${i}`, `${a.program} \u00b7 ${node}`, a.at, `Emitter ${a.program} at ${node} (played from the round's start; the Emitters tab places a copy)`, a);

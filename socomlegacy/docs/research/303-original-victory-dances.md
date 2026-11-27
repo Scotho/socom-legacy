@@ -78,15 +78,16 @@ None is added; ordinary game ambience remains. `test/victoryDisc.test.ts` reads 
 ## 3. Original code readings
 
 - **The action and its emblem.** `FUN_0021ded0` (D:L73439+) loads `action_victory_dance.tif` (0x3e4db0, D:L73563)
-  and, when the map's library lacks it, uses `action_x.tif` (0x3e4bf0, D:L73548) in its place (D:L73569-73570);
-  it lays action 0x15's record at `0x0040d460` (D:L73772-73773) with the caption `VICTORY DANCE` (D:L73781).
-  `FUN_0021fd58` tests mask `0x200000` and adds its record; `FUN_0021f850` (D:L74042+) appends the bits in a fixed
-  order, `0x200000` after C4's `0x40000`, `0x20000` and `0x8` (D:L74205), before the hostage orders' `0x4000`/`0x8000`
-  and the drop's `0x40` -- so the port's list has it after C4 and before the pickup, the escortee and the drop: AD-6
-  (2026-10-16; reading, pending review; research 214 s4) read the turret's bits (`0x80000` / `0x100000`, the list's
-  first two) and the pickups' (`0x10` / `0x20`, after `0x200000`), so the turret comes first and the victory point before
-  the pickup. Was: after C4, the pickup and the turret, whose bits were unread (`PICKUP_CONTEXT_ORDER_READING`,
-  `TURRET_ACTION_BIT_READING`, both retired). It is separate from taunts.
+  and, when the map's library lacks it, uses `action_x.tif` (0x3e4bf0, D:L73548) in its place (D:L73569-73570); it
+  lays action 0x15's record at `0x0040d460` (D:L73772-73773) with the caption `VICTORY DANCE` (D:L73781). The mask
+  `0x200000` test and its record are a block inside `FUN_0021f850` (D:L74205-74216; 0x21fd58 is no function start);
+  `FUN_0021f850` (D:L74042+) appends the bits in a fixed order, `0x200000` after C4's `0x40000`, `0x20000` and `0x8`
+  (D:L74205), before the hostage orders' `0x4000`/`0x8000` and the drop's `0x40` -- so the original's list has it
+  after C4 and before the pickup, the escortee and the drop (the port's puts the escortee ahead of it, OT.R128 amended
+  2026-11-15; research 214 s4): AD-6 (2026-10-16; reading, pending review; research 214 s4) read the turret's bits
+  (`0x80000` / `0x100000`, the list's first two) and the pickups' (`0x10` / `0x20`, after `0x200000`), so the turret
+  comes first and the victory point before the pickup. Was: after C4, the pickup and the turret, whose bits were
+  unread (`PICKUP_CONTEXT_ORDER_READING`, `TURRET_ACTION_BIT_READING`, both retired). It is separate from taunts.
 - **The list's rotation.** `0x00595320` (inside the player update) reads logical Action; its release invokes
   `FUN_00592d50` (D:L451971+). While held, Left press writes rotation 3, Right press rotation 2 (`+0xedc`).
   `FUN_0021d9d0` (D:L73286+; D:L73332-73386 the rotation) rotates head→tail or tail→head, rebuilding when
@@ -106,9 +107,12 @@ None is added; ordinary game ambience remains. `test/victoryDisc.test.ts` reads 
 - `FUN_00589900` (D:L446425+) excludes death-transition/special-motion states, falls/landings under a
   particular flag, and Slide. It does not establish a standing-only rule.
 - **The start.** `FUN_0057dcc0` (D:L440577-440613) clears the prior action (`FUN_0058a4d0`), pushes a victory motion
-  preserving current stance (`FUN_00588bc0(..., 0xd)`), picks the variant when none is given (`FUN_005e3da0`), then
-  sends the chosen variant via native network event `0x22` (`FUN_002bbaf0`). Its fifth argument `0xd` suppresses
-  generic network emission; **it is not actor state13**.
+  preserving current stance (`FUN_00588bc0(..., 0xd)`), and, the clip already started, recovers the chosen motion's
+  index (kind, motion id) for the network event (`AnimSet::GetVariantIndex` `FUN_005e3da0`, called at D:L440592-440594
+  after the clip is pushed at D:L440588, its body D:L495888-495907 and its callee `FUN_005e5790` D:L496918-496935; the
+  weighted pick itself is `CAnimTypeRec::PickVariant` `FUN_005e5970`, reached from the push `FUN_00588bc0` through
+  `FUN_005e3c20`, D:L446090 and D:L495816), then sends the chosen variant via native network event `0x22`
+  (`FUN_002bbaf0`). Its fifth argument `0xd` suppresses generic network emission; **it is not actor state13**.
 - **The pick.** `FUN_005e5970` (D:L497005-497040) adds the single-precision weights in order and returns the first
   whose sum is at least the draw (`rand() x 4.656613e-10`), the last one past them. The port uses the existing R5900
   float addition helper (`chooseVictory`).

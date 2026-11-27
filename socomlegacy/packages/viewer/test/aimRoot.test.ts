@@ -37,11 +37,11 @@ describe('JUMP-AIM-ROOT: the aim frame\'s root', () => {
     expect(aimRoot(null, { action: 'jump', posture: 'crouch' }, posed(Number.NaN))).toBeNull();
     expect(aimRoot(null, { action: null, posture: 'crouch' }, posed(Number.POSITIVE_INFINITY))).toBeNull();
   });
-  it(`a standing body (JUMP_AIM_ROOT_BODIES_READING '${JUMP_AIM_ROOT_BODIES_READING}'), a prone one, a still crouch at or under the crouch root: unchanged (null)`, () => {
+  it(`a standing body (JUMP_AIM_ROOT_BODIES_READING '${JUMP_AIM_ROOT_BODIES_READING}'), a still crouch at or under the crouch root: unchanged (null); a prone one: its posed root (LATER 661)`, () => {
     expect(JUMP_AIM_ROOT_BODIES_READING).toBe('crouched');
     expect(aimRoot(null, { action: 'jump', posture: 'stand' }, posed(15))).toBeNull();
     expect(aimRoot(null, { action: null, posture: 'stand' }, posed(14))).toBeNull();
-    expect(aimRoot(null, { action: null, posture: 'prone' }, posed(9))).toBeNull();
+    expect(aimRoot(null, { action: null, posture: 'prone' }, posed(9))).toBe(9);           // LATER 661: FUN_0029a950's posed root
     // The crouch idles' roots as the room's and the page's animators pose them (seal_crouch 5.5039, the two alert idles
     // 5.0313 and 4.7070: the seat-box probe jf-1 on the fixture disc's clips): never above the crouch root.
     for (const r of [5.50390625, 5.0313, 4.707]) expect(aimRoot(null, { action: null, posture: 'crouch' }, posed(r)), `${r}`).toBeNull();

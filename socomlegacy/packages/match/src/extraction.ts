@@ -2,13 +2,25 @@ import { TRAVERSAL_CLIPS } from '../../viewer/src/traversal';
 import type { SimClips } from '../../viewer/src/simMap';
 import { HostageObstacles } from './hostageObstacles';
 import { HostageYieldRandom, HOSTAGE_YIELD_SEED_PLACEHOLDER, type HostageActor } from './hostageActors';
-import { GameFrameAccumulator, GAME_FRAME_DT, ITEM, zoneContains, zonesOfKind, type AiLoc, type AiMaps, type AiZone, type EscorteeStart } from '@s2u/scene';
+import { GameFrameAccumulator, GAME_FRAME_DT, ITEM, segmentHit, zoneContains, zonesOfKind, type AiLoc, type AiMaps, type AiZone, type EscorteeStart } from '@s2u/scene';
 import { BodyFlag, TICK_HZ, type BodyState, type ServerEvent, type SimMap, type Team } from '../../viewer/src/sim';
 import type { Health } from '../../viewer/src/net/damage';
+import type { HitPoser } from '../../viewer/src/net/hitPose';
 import { HOSTAGE_KILL_WIN_HOLD_READING, RESCUE_WIN_HOLD_READING } from '../../viewer/src/net/rules';
 import { ACTION_CODES, type HostageStateWire, type HostageWire, type KillHow } from '../../viewer/src/net/protocol';
-import { HostageAi, type HostageWorldBody } from './hostageAi';
-import { FollowTrail, HostageFollow, type FollowLeader } from './hostageFollow';
+import { cowerTest, HostageAi, type HostageWorldBody } from './hostageAi';
+import { scopeEyeHeight as scopedEyeHeight } from '../../viewer/src/cameraRig';
+import { rootY } from '../../viewer/src/mover';
+
+/** LATER 1188: a cower clip's action code on the wire (`ACTION_CODES`' appended cower names; prone `proneCover`). */
+const COWER_ACTIONS = {
+  guard_flashbang_cower: 'cowerStand', guard_flashbang_cower2: 'cowerStand2',
+  guard_crouch_flashbang_cower: 'cowerCrouch', guard_crouch_flashbang_cower2: 'cowerCrouch2', guard_prone_cover: 'proneCover',
+} as const;
+import { fleeCell, fleeDepth, scanDangers, type Danger, type DangerMarks } from './hostageDanger';
+import { navVisibility } from './hostageVisibility';
+import { FollowTrail, HostageFollow, type FollowDoors, type FollowLeader } from './hostageFollow';
+import { bindDoorMarkers, followDoorAt, followDoorCells } from './hostageDoors';
 import { HOSTAGE_PATH_SLICE_BUDGET_PLACEHOLDER, HostagePathPlanner } from './hostagePath';
 import {
   HostageLeaders, onCommand, orderRefusal, releaseLeader, unitOfSeat, unitTick, PLAYER_TEAM_MASKS, type HostageCommand, type OrderPick,
@@ -95,12 +107,40 @@ export const HOSTAGE_ELIMINATION_READING = 'never counted';
 export const PENALTY_MINUTE_READING = { cut: 60, floor: 1 } as const;
 
 /**
- * One minute per OBSERVED change of `mp_penalty`: the update compares the valve with the value it last saw and calls
- * `FUN_002a6960` once (D:L150711-150716) -- two increments between two updates cost 60 s, not 120 (190 C3.5, BELIEVED;
- * capture C2's game +0xe0 around a double SEAL kill settles it, research 237 s7). The room reads the valve once a tick
- * (`takePenalty`). [reading]
+ * One minute per RISE of `mp_penalty` -- one for each hostage a SEAL kills, however many rise between two looks. WM-HOSTAGE
+ * 3 (research 433 s6). Measured on the original by the rig, n = 2 (H1a, H1b: r0004 on MP71, the host's per-frame log;
+ * relayed, not harness-scored): one minute per hostage a SEAL kills, one rise per frame -- H1a, three killed by one
+ * claymore: `mp_penalty` (game +0x40) 1, 2, 3 in three successive frames from 1.93 s after the deaths, the round total
+ * (game +0xE4 in r0004) 360000 -> 300000 -> 240000 -> 180000 ms, one cut in the frame after each rise; H1b, two killed
+ * (a third wounded, no cut): 1, 2 from 1.98 s, 360000 -> 300000 -> 240000. The code as read agrees: `FUN_002a9ee0`
+ * (D:L150711-150719) is a full copy of `FUN_002c00f0`'s body (D:L163050-163057), one compare with the last value seen (game
+ * +0xc0) and one call of `FUN_002a6960` -- one cut per call that sees a rise. The conflict (research 433 s6) is CLOSED.
+ * THE PORT'S DIFFERENCE (a named reading, no change now): `script` raises all the rises in ONE step `ONE_SHOT_WAIT_READING`
+ * (2 s) after the deaths and the room cuts n x 60 s in that step (`takePenalties`, `penaltyMinute`); the original cuts
+ * one minute in each of n successive frames from 1.93-1.98 s after -- the same total, other frames. Was 'one minute per
+ * observed change' (190 C3.5, BELIEVED), then V1 alone (n = 1). [reading]
  */
-export const PENALTY_COALESCE_READING = 'one minute per observed change';
+export const PENALTY_COALESCE_READING = 'one minute per rise';
+
+/**
+ * One hostage killed by a SEAL (`mp_hostages_by_seals` 1): the script's SealKill1 says one minute off (WAIT 2, then
+ * `mp_penalty` += 1, `killcount` += 1; research 190 s4) and `start`'s branch 4 needs `mp_hostages_by_seals >= 2`, so the
+ * round runs on. MEASURED on the original by the rig's V2 (r0004, MP71, one run, not harness-scored; relayed by the main
+ * controller 2026-11-15): one hostage killed by the leader's own claymore -- the timer 04:35 -> 03:34 (exactly one minute),
+ * "THE SEALS HAVE KILLED A HOSTAGE" / "ONE MINUTE HAS BEEN DEDUCTED FROM THE MISSION TIMER", no "TERRORISTS WIN", the round
+ * ran on to its shortened end; the killer's score -2, his kills, team kills, deaths and suicides unchanged. The port does
+ * exactly this (research 433 s6). [reading]
+ */
+export const ONE_SEAL_HOSTAGE_KILL_ROUND_READING = 'one minute off, the round runs on';
+
+/**
+ * A dead hostage no longer counts toward its leader's follower count (the port's `led` set filters on `alive`), so the
+ * leader's heading latch releases (research 435 s2; FUN_005fcc40 clears it while the count +0x520 < 1). The original's
+ * count is kept by FUN_005fcf10 (D:L509489-509501: a release, a new leader, the leader's death); that a hostage's own
+ * death takes 1 off it is NOT cited. Settled by that citation, or a rig read of the leader's +0x520 across a following
+ * hostage's death. [placeholder]
+ */
+export const HOSTAGE_DEATH_RELEASE_PLACEHOLDER = 'a dead hostage counts as no follower';
 
 /**
  * `rescuecheck`: SEALcheck sets it (and stops) when `freecount == 3`, or `freecount == 2 AND killcount == 1`, or
@@ -317,6 +357,18 @@ export interface ExtractionHost {
   pick?(issuer: number, eye: V3, dir: V3, seq?: number, target?: number, viewTick?: number): OrderPick;
   /** HX-4a: an order refused, by why (the room's tally, INT.R5's report to the issuer). */
   dropped?(why: OrderRefusal | 'unknown hostage', issuer: number): void;
+  /**
+   * WM-HOSTAGE task 2 (research 428 s5 item 2, s5a): the room's doors as a following hostage uses one
+   * (`HOSTAGE_DOOR_ACTION_READING`). `nodes` the door set's `DoorSpec.node`s in its order; `valve` door `i`'s valve now;
+   * `use` the room's own use of door `i` with pick 0 by hostage `actor` (`DoorSet.use`, its swing, and the same `doorUse`
+   * broadcast a player's use sends -- no wire change, WM.R11), true when it started. It fires no rules event
+   * (`HOSTAGE_DOOR_RULE_EVENT_READING`). Absent: no hostage uses a door (each meets a shut one with plain steering).
+   */
+  door?: {
+    nodes(): readonly string[];
+    valve(i: number): number;
+    use(i: number, feet: V3, actor: number): boolean;
+  };
 }
 
 /** HX-4a: a seat as the orders read it (`ExtractionHost.seat`). */
@@ -338,6 +390,13 @@ export interface HostagePast {
   tick: number; feet: V3; yaw: number; posture: 'stand' | 'crouch' | 'prone'; alive: boolean;
   /** PRONE-TILT-2 (5): the root's tilt while a knock owns the body (`HostageFollow.rootTilt`), else null. */
   tilt?: readonly number[] | null;
+  /**
+   * LATER 831 (HIT-POSE for the hostages; research 237 s2.5): the body's live pose at the tick, as a player's `Past` keeps
+   * it -- the room's poser and the stamp it kept that tick's pose under (`HitPoser.keep`). Absent (no escortee motion, not
+   * targetable): the stance's idle set by `posture` and `tilt`.
+   */
+  pose?: HitPoser;
+  poseAt?: number;
 }
 
 /** One hostage in the room. */
@@ -559,6 +618,11 @@ export class ExtractionAuthority {
   /** HX-4a (research 239 s2): the leaders' counts (`+0x520`, `HOSTAGES_CONTROLLED_READING`). */
   readonly leaders = new HostageLeaders();
   private readonly planner: HostagePathPlanner | null;
+  /**
+   * WM-HOSTAGE task 2 (research 428 s4; `MARKER_BIND_READING`): each cell whose bound type-1 marker names a door of the
+   * room's door set, as that door's index -- bound once at load from the map's actions in their order.
+   */
+  private readonly doorCells: ReadonlyMap<string, number>;
   /** Actor +0xe4, distinct from the navigable occupancy cell +0xe8 (research 335 section 9). */
   private readonly rawCells = new Map<number, AiLoc>();
   private readonly obstacles = new HostageObstacles();
@@ -568,6 +632,15 @@ export class ExtractionAuthority {
   /** LEADER_TRAIL_LIFE_READING: each seat's body's placement stamp as last seen (`HostageWorldBody.placement`). */
   private readonly placements = new Map<number, number>();
   private frameBodies: readonly HostageWorldBody[] = [];
+  /**
+   * LATER 1170 (research 445): the room's live frags and C4 for the hostages' danger scan (`setDangers`); null, no scan.
+   * `dangerMarks` each hostage's marks (`+0x18`), `dangerSeen` the objects' seen bits (`+0x1c`, shared by every AI);
+   * `fleeGoals` each fleeing hostage's cell (`fleeCell`), null when its walk found none.
+   */
+  private dangers: (() => readonly Danger[]) | null = null;
+  private readonly dangerMarks = new Map<number, Set<number>>();
+  private readonly dangerSeen = new Set<number>();
+  private readonly fleeGoals = new Map<number, AiLoc | null>();
   /**
    * EXTRACTION (game type 4) or ESCORT (game type 3). Escort plays research 175 §4 with the map's script
    * (`escortScriptOf`): a staging latch, SEALcheck's wait, then the promotion and the extraction zones.
@@ -620,6 +693,12 @@ export class ExtractionAuthority {
     this.extractZones = named(this.escort.extract);
     // Research 333 §4: the room's planner queue, served once a game frame in `step` (HOSTAGE_PATH_SLICE_READING).
     this.planner = ai ? new HostagePathPlanner(ai, this.obstacles, HOSTAGE_PATH_SLICE_BUDGET_PLACEHOLDER.expansions) : null;
+    // Research 428 s4: the markers bound at load (`bindDoorMarkers`), each action at its placed node's origin
+    // (`MARKER_BIND_POSITION_READING`; `SimMap.meta.actions` holds the placed records in load order).
+    const planner = this.planner;
+    this.doorCells = ai && planner && host.door
+      ? followDoorCells(bindDoorMarkers(ai, (map.meta?.actions ?? []).map((a) => ({ node: a.node, at: a.at })), (l) => planner.point(l)), host.door.nodes())
+      : new Map();
     this.zones = ai ? zonesOfKind(ai, 1).map((z) => z.zone) : [];
     // HX-0b's review: the starts' `at` tuples are shared by reference across the map's rooms -- copied, every one.
     this.hostages = starts.map((s, i) => {
@@ -627,12 +706,27 @@ export class ExtractionAuthority {
       return {
         id: HOSTAGE_ID_BASE + i, name: s.name, character: s.character, start, at: [...start.at], yaw: s.yaw, alive: true,
         health: hostageHealth(), ai: null as unknown as HostageAi, motion: this.planner ? new HostageFollow(this.planner, map.grid, [...start.at], s.yaw, map.defaultMaterial, host.clips ?? null,
-          { id: HOSTAGE_ID_BASE + i, actors: () => this.probeActors(), yieldRandom: () => this.yieldRandom.next() }) : null, leader: null, lastLeader: null, diedAt: -1,
+          { id: HOSTAGE_ID_BASE + i, actors: () => this.probeActors(), yieldRandom: () => this.yieldRandom.next() }, this.followDoors(HOSTAGE_ID_BASE + i)) : null, leader: null, lastLeader: null, diedAt: -1,
         deathClip: null, deathCause: null, history: [],
       };
     });
     for (const h of this.hostages) { h.ai = this.newAi(h); this.locOf(h); }
     for (const h of this.hostages) this.told.set(h.id, JSON.stringify(this.stateOf(h)));
+  }
+
+  /**
+   * WM-HOSTAGE task 2 (research 428 s5 item 2): the doors hostage `id`'s follower may use (`FollowDoors`) -- the bound door
+   * of a cell (`doorCells`), its valve, and the room's use of it by this hostage (`ExtractionHost.door`). Undefined when
+   * the room lends no doors or the map binds none to a door.
+   */
+  private followDoors(id: number): FollowDoors | undefined {
+    const door = this.host.door;
+    if (!door || this.doorCells.size === 0) return undefined;
+    return {
+      at: (loc) => followDoorAt(this.doorCells, loc),
+      valve: (i) => door.valve(i),
+      use: (i, feet) => door.use(i, feet, id),
+    };
   }
 
   /** Research334 §10. Live identities and retained navigation, independent of occupancy bit32.
@@ -662,8 +756,30 @@ export class ExtractionAuthority {
       id: h.id, random: () => this.host.random(),
       signal: (state, signal) => {
         if (state.id === 9 && (signal === 1 || signal === 2)) h.motion?.stop();
+        // SHOTS-1208 r152: follow's enter (signal 0) sets the start gate +0x76 (`FUN_005fdf80` D:L510077); a resume does not.
+        if (state.id === 9 && signal === 0) h.motion?.enter();
         // The leader's trail is kept with no follower left (`LEADER_TRAIL_LIFE_READING`).
         if (state.id === 9 && signal === 1 && h.leader !== null) this.leaders.controlHostageAction(h, null);
+        // LATER 1170: the flight ended or suspended -- its route dropped.
+        if (state.id === 0x1b && (signal === 1 || signal === 2)) { h.motion?.stopRun(); this.fleeGoals.delete(h.id); }
+      },
+      // LATER 1170: 0x1b's frame -- whether its object is gone: no longer in the room's feed (its handle no longer
+      // matches) or its thrower no longer resolves (`FUN_0029e4e0` on `+0xac` returns 0: D:L423017, D:L423024-423026, the
+      // review's F2) -- and only while it stands, the run to its cell.
+      flee: (dt, pid) => {
+        const d = (this.dangers?.() ?? []).find((x) => x.pid === pid);
+        const gone = !d || d.owner === null;
+        const goal = this.fleeGoals.get(h.id) ?? null;
+        let moving = false;
+        if (h.motion) {
+          if (goal && !gone) moving = h.motion.run(dt, goal) === true;
+          else { h.motion.stop(); h.motion.physics(dt); }
+          h.at = h.motion.feet; h.yaw = h.motion.yaw;
+        }
+        // LATER 1224: whether the run moves (0x1b's move child) and whether the hostage is inside the object's flee radius
+        // R (`FUN_003d4500`, the distance from the feet to the object, D:L423067-423077): 0x1b's subs 6 / 7 / 8.
+        const inside = d ? Math.hypot(h.at[0] - d.pos[0], h.at[1] - d.pos[1], h.at[2] - d.pos[2]) < d.radius : false;
+        return { gone, moving, inside };
       },
       follow: (dt, id) => {
         const body = this.frameBodies.find(b => b.id === id && b.alive), trail = this.trails.get(id);
@@ -678,6 +794,48 @@ export class ExtractionAuthority {
         return h.motion;
       },
     });
+  }
+
+  /** LATER 1170: the room's danger feed for the hostages' scan (research 445 s7): its live frags and C4. */
+  setDangers(feed: () => readonly Danger[]): void {
+    this.dangers = feed;
+  }
+
+  /**
+   * LATER 1170 (research 445 s1, s3; `FUN_005cb870` before the AI driver in the controller's tick, D:L432502 / D:L432513):
+   * one hostage's danger scan this game frame; on a flight, 0x1b pushed and its cell found (`fleeCell` from the hostage's
+   * cell, away from the object where it stands: HOSTAGE_FLEE_LANDING_PLACEHOLDER).
+   */
+  private scanDanger(h: Hostage, bodies: readonly HostageWorldBody[]): void {
+    if (!this.dangers || h.ai.hidden) return;                    // HOSTAGE_DANGER_GATE_BITS_PLACEHOLDER: a hidden hostage takes no push
+    const dangers = this.dangers();
+    if (!dangers.length) return;
+    let marks = this.dangerMarks.get(h.id);
+    if (!marks) this.dangerMarks.set(h.id, marks = new Set());
+    const m: DangerMarks = { marks, seen: this.dangerSeen };
+    const y = (h.yaw * Math.PI) / 180;
+    const eye: [number, number, number] = [h.at[0], h.at[1] + 18, h.at[2]];   // the view cone's apex (HOSTAGE_SIGHT_PLACEHOLDER)
+    // LATER 1245 (the review's F1): the walk starts at the hostage's last traversable cell (`+0xe8`, D:L482700).
+    const cell = this.obstacles.actorCell(h.id) ?? this.planner?.locate(h.at) ?? null;
+    // SHOTS-1208 r125: the scan's 0x1b gate is the whole can-push test (`FUN_005f5cd0(ctrl, 0x1b, 0)`, D:L482954-482955),
+    // not 0x1b's presence alone: 0x13 or 0x1c on the stack refuses it too (their masks lack bit 27; `HostageAi.canFlee`).
+    const r = scanDangers({ id: h.id, feet: h.at, eye, forward: [-Math.sin(y), 0, -Math.cos(y)], team: h.start.team, inFlight: !h.ai.canFlee }, dangers, m, {
+      actor: (id) => bodies.some((b) => b.id === id && b.alive),   // HOSTAGE_DANGER_NEIGHBOUR_READING
+      // LATER 1245 (research 445 s3): the original's visibility walks the AI navigation grid (`navVisibility`,
+      // `FUN_00538d10`), not the collision hull: a charge on MP6's breach wall lies in an open cell on the room's side,
+      // seen through the wall (PC 1's capture). Off the grid (no cell) the original's visibility keeps its initial 1.0
+      // (`FUN_00538d10` D:L403754-403756, the review's F2). With no navigation at all (a map built by hand: tests only)
+      // the hull's line.
+      visible: (from, to) => {
+        if (this.planner) return cell ? navVisibility(this.planner, cell, to) : 1;
+        const hit = segmentHit(this.map.grid, from, to); return hit && hit.t < 0.99 ? 0 : 1;
+      },
+      localHuman: () => false,                                    // HOSTAGE_DANGER_REMOTE_PLANTER_READING
+    });
+    if (!r.flee || !h.ai.flee(r.flee.pid)) return;
+    const here = this.planner?.locate(h.at) ?? null;
+    const away: [number, number] = [h.at[0] - r.flee.pos[0], h.at[2] - r.flee.pos[2]];
+    this.fleeGoals.set(h.id, here && this.planner ? fleeCell(this.planner, here, away, fleeDepth(r.flee.radius), r.flee.kind, r.flee.pos) : null);   // LATER 1226: the landing, HOSTAGE_FLEE_LANDING_PLACEHOLDER
   }
 
   /** A listener; returns its removal. */
@@ -709,6 +867,7 @@ export class ExtractionAuthority {
     this.leaders.clear();
     this.trails.clear(); this.placements.clear(); this.frameBodies = [];
     this.obstacles.clear(); this.occupiedActors.clear(); this.rawCells.clear();
+    this.dangerMarks.clear(); this.dangerSeen.clear(); this.fleeGoals.clear();   // LATER 1170
     this.fired = { hostKill: 0, sealKill: 0, rescue: new Set() };
     this.pending = [];
     this.penaltySeen = 0;
@@ -729,7 +888,7 @@ export class ExtractionAuthority {
       h.alive = true;
       h.health = hostageHealth();
       h.motion = this.planner ? new HostageFollow(this.planner, this.map.grid, [...h.start.at], h.start.yaw, this.map.defaultMaterial, this.host.clips ?? null,
-        { id: h.id, actors: () => this.probeActors(), yieldRandom: () => this.yieldRandom.next() }) : null;
+        { id: h.id, actors: () => this.probeActors(), yieldRandom: () => this.yieldRandom.next() }, this.followDoors(h.id)) : null;
       h.ai = this.newAi(h);
       h.leader = h.lastLeader = null;
       h.diedAt = -1;
@@ -763,6 +922,8 @@ export class ExtractionAuthority {
         for (const id of this.trails.keys()) {
           if (!players.some(p => p.id === id)) { this.trails.delete(id); this.placements.delete(id); }
         }
+        // HOSTAGE_DEATH_RELEASE_PLACEHOLDER: a dead hostage leads no follower count here (the original's count +0x520 is
+        // kept by FUN_005fcf10 D:L509489-509501; that a hostage's death takes 1 off it is not cited -- research 435 s7).
         const led = new Set(this.hostages.filter(h => h.alive && h.leader !== null).map(h => h.leader!));
         const located = new Map<number, AiLoc | null>();
         for (const body of players) {
@@ -773,10 +934,12 @@ export class ExtractionAuthority {
             trail.points.length = 0;
           }
           if (!body.alive) continue;
+          // FUN_005fcc40 D:L509375-509376: the heading's latch (+0x515) clears each tick while the body leads no one.
+          if (!led.has(body.id)) trail.release();
           const loc = this.planner?.locate(body.feet) ?? null;
           located.set(body.id, loc);
           if (!loc) continue;
-          // The heading is the follow tick's (FUN_005fc970 D:L509297-509347), run for a led body only.
+          // The heading is the follow tick's (FUN_005fc970 D:L509297-509358), run for a led body only; latched (FollowTrail).
           if (led.has(body.id) && body.yaw !== undefined && body.velocity && body.topSpeed !== undefined)
             trail.updateHeading(GAME_FRAME_DT, { id: body.id, feet: body.feet, yaw: body.yaw, velocity: body.velocity,
               topSpeed: body.topSpeed, stance: body.stance ?? 0 });
@@ -802,12 +965,19 @@ export class ExtractionAuthority {
             if (h.motion?.thrown) { h.motion.physics(GAME_FRAME_DT); h.at = h.motion.feet; h.yaw = h.motion.yaw; }
             continue;
           }
+          this.scanDanger(h, bodies);                                 // LATER 1170: the scan before the AI driver
           h.ai.step(GAME_FRAME_DT, { feet: h.at, bodies });
-          if (h.ai.state !== 9 && h.motion) {
+          // LATER 1170: 9 and 0x1b move the body in their own Tick (`follow`, `flee`). LATER 1205: by the state that TICKED
+          // this frame -- the driver pops a state its Tick finished in the same frame, so the state after the step is not it.
+          if (h.ai.ticked !== 9 && h.ai.ticked !== 0x1b && h.motion) {
             h.motion.stop();
             if (h.motion.physics(GAME_FRAME_DT)) h.at = h.motion.feet;
             h.yaw = h.motion.yaw;
           }
+          // LATER 1185: the ShotAt push (`FUN_0056fd00`, ctrl +0x10 from the entity tick `FUN_00550ef0` D:L418091), a frame
+          // task at priority 4.6 (D:L50925, D:L145104) -- AFTER the AI driver's pre-tick at 1.0 (D:L50922, D:L145123,
+          // D:L418526, D:L432513; the 1185 r2 review's F1): a 0x13 pushed here ticks on the next frame's driver.
+          h.ai.controllerUpdate();
           const at = this.planner?.locate(h.at);
           if (at) this.rawCells.set(h.id, at);
           if (at && this.planner!.traversable(at)) this.obstacles.moveActor(h.id, at);
@@ -886,7 +1056,7 @@ export class ExtractionAuthority {
     this.pending = this.pending.filter((p) => p.at > now);
     for (const p of due) {
       if (p.kind === 'hostKill') this.valves.rescuecount++;      // "THE SEALS HAVE BEEN CREDITED WITH RESCUING THAT HOSTAGE"
-      else this.valves.penalty++;                                // "ONE MINUTE HAS BEEN DEDUCTED FROM THE MISSION TIMER"
+      else this.valves.penalty++;                                // "ONE MINUTE HAS BEEN DEDUCTED FROM THE MISSION TIMER": each rise its own minute (PENALTY_COALESCE_READING; one alone, ONE_SEAL_HOSTAGE_KILL_ROUND_READING)
       this.valves.killcount++;
     }
     if (!this.valves.rescuecheck && sealCheck(this.valves.freecount, this.valves.killcount)) this.valves.rescuecheck = 1;
@@ -954,10 +1124,17 @@ export class ExtractionAuthority {
     }
   }
 
-  /** Each living hostage's past, once a tick after the movers (`Room.remember`), at most `keep` ticks. */
-  remember(tick: number, keep: number): void {
+  /**
+   * Each living hostage's past, once a tick after the movers and this step's AI (`Room.rememberHostages`; LATER 831: it
+   * was before the AI's move, a tick behind the snapshot), at most `keep` ticks. LATER 831: `pose`,
+   * the room's poser stepped on the hostage's body this tick (`Room.hostagePose`), its pose kept with the entry; absent
+   * or null, none.
+   */
+  remember(tick: number, keep: number, pose?: (h: Hostage) => { pose: HitPoser; poseAt: number } | null): void {
     for (const h of this.hostages) {
-      h.history.push({ tick, feet: [...h.at], yaw: h.yaw, posture: POSTURES[h.ai.stance], alive: h.alive && !h.ai.hidden, tilt: h.motion?.rootTilt ?? null });
+      const posed = pose?.(h) ?? null;
+      h.history.push({ tick, feet: [...h.at], yaw: h.yaw, posture: POSTURES[h.ai.stance], alive: h.alive && !h.ai.hidden, tilt: h.motion?.rootTilt ?? null,
+        pose: posed?.pose, poseAt: posed?.poseAt });
       if (h.history.length > keep) h.history.shift();
     }
   }
@@ -973,6 +1150,22 @@ export class ExtractionAuthority {
   /** The posture its hit volumes take: the AI's stance (its own skeleton's idles, the room's `volumesOf({ escortee })`). */
   posture(h: Hostage): 'stand' | 'crouch' | 'prone' {
     return POSTURES[h.ai.stance];
+  }
+
+  /**
+   * LATER 1188 (research 447 s12): a flashbang's burst at `point` reached hostage `h` (the room's `blastHostages`: its
+   * gate and line passed, `FUN_005a0e70` D:L459194-459228 -> `FUN_005a5250` D:L461250-461294): within the item's radius
+   * of the feet (`R`, the record's, D:L461255-461262), the cower test (`cowerTest`) from the head
+   * (`HOSTAGE_COWER_HEAD_PLACEHOLDER`) and the body's facing -- the original's is the world head look, the body's facing
+   * composed with the head look's turn (SHOTS-1208 r117, not folded: no hostage head-look rotator is modelled; the same
+   * placeholder); passed, the cower (`HostageAi.cower`). Whether it cowers.
+   */
+  flashCower(h: Hostage, point: readonly number[], radius: number): boolean {
+    if (!h.alive || Math.hypot(h.at[0] - point[0]!, h.at[1] - point[1]!, h.at[2] - point[2]!) >= radius) return false;
+    const posture = this.posture(h), y = (h.yaw * Math.PI) / 180;
+    const head: [number, number, number] = [h.at[0], h.at[1] + scopedEyeHeight(posture, rootY(posture)), h.at[2]];
+    if (!cowerTest(head, [-Math.sin(y), 0, -Math.cos(y)], point)) return false;
+    return h.ai.cower();
   }
 
   /**
@@ -1042,11 +1235,16 @@ export class ExtractionAuthority {
     return this.mode === 'escort' && this.truecount >= 1;
   }
 
-  /** Whether `mp_penalty` rose since the last look (`PENALTY_COALESCE_READING`: one minute however many rises). */
+  /** Whether `mp_penalty` rose since the last look (the rises taken: `takePenalties`). */
   takePenalty(): boolean {
-    if (this.valves.penalty <= this.penaltySeen) return false;
-    this.penaltySeen = this.valves.penalty;
-    return true;
+    return this.takePenalties() > 0;
+  }
+
+  /** How many times `mp_penalty` rose since the last look, taken (`PENALTY_COALESCE_READING`: one minute each). */
+  takePenalties(): number {
+    const rises = Math.max(0, this.valves.penalty - this.penaltySeen);
+    this.penaltySeen = Math.max(this.penaltySeen, this.valves.penalty);
+    return rises;
   }
 
   /** A hostage's state as `hostageState` carries it. */
@@ -1074,7 +1272,10 @@ export class ExtractionAuthority {
    */
   bodies(): BodyState[] {
     return this.hostages.filter((h) => !h.ai.hidden).map((h) => {
-      const stance = h.ai.stance, pose = h.alive ? h.motion?.traversalPose : null, a = h.motion?.action ?? null;
+      const stance = h.ai.stance, pose = h.alive ? h.motion?.traversalPose : null;
+      // LATER 1188: the cower clip as the body's action when no knock's is on (`HostageAi.cowerClip`).
+      const cw = h.alive && !h.motion?.action ? h.ai.cowerClip : null;
+      const a = h.motion?.action ?? (cw ? { name: COWER_ACTIONS[cw.name], serial: h.ai.cowerSerial, t: cw.t, seconds: cw.seconds, reversed: false } : null);
       return {
         id: h.id, feet: [...h.at], yaw: h.yaw, pitch: 0,
         vx: h.motion?.velocity[0] ?? 0, vy: h.motion?.velocity[1] ?? 0, vz: h.motion?.velocity[2] ?? 0,

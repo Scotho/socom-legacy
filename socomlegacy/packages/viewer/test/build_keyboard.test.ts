@@ -8,6 +8,7 @@ import { KBM_POINTER_LOCK_SITE } from '../src/camera';
 import { VOICE_COUNTERS_MARKER } from '../src/voice/voiceCounters';
 import { VOICE_REPORT_MARKER, VOICE_REPORT_PATH } from '../src/voice/voiceReport';
 import { CLOSE_REPORT_MARKER, CLOSE_REPORT_PATH } from '../src/net/closeReport';
+import { KILL_FEED_PREVIEW_HOOK } from '../src/killFeed';
 import { builtTitle, readBuiltDist, VIEWER_DIST } from './builtDist';
 
 /**
@@ -201,6 +202,29 @@ describe('the close report is a development build only (LATER 62)', () => {
   });
 });
 
+/**
+ * WM-DATA-FEED's capture hook (`src/killFeed.ts` `seatKillFeedPreview`, a test instrument): seated only by `Hud`'s
+ * constructor under a literal `import.meta.env.DEV`, which every build folds away -- so a release holds neither the
+ * call nor the hook's window name (`KILL_FEED_PREVIEW_HOOK`).
+ */
+describe('the kill feed preview hook is a development build only (WM-DATA-FEED review F3)', () => {
+  it('its window name is the one constant, read by the seat alone, called only under the literal gate', () => {
+    expect(KILL_FEED_PREVIEW_HOOK).toBe('__s2uKillFeedPreview');
+    const feed = readFileSync(resolve(here, '../src/killFeed.ts'), 'utf-8');
+    expect(feed.match(/__s2uKillFeedPreview/g)).toHaveLength(1);
+    const hud = readFileSync(resolve(here, '../src/hud.ts'), 'utf-8');
+    expect(hud.split(/\r?\n/).filter((l) => l.includes('seatKillFeedPreview(')).map((l) => l.trim()))
+      .toEqual(['constructor() { super(); if (import.meta.env.DEV) seatKillFeedPreview(this, MESSAGE_SCALE); }']);   // #835: Hud extends HudState
+  });
+});
+
+describe.skipIf(!dist.built)(builtTitle('the built viewer has no kill feed preview hook (WM-DATA-FEED review F3)', dist), () => {
+  it("its window name not in dist/viewer/assets/*.js", () => {
+    expect(js).not.toContain(KILL_FEED_PREVIEW_HOOK);
+    expect(js).not.toContain('__s2uKillFeedPreview');
+  });
+});
+
 describe.skipIf(!dist.built)(builtTitle('the built viewer has no close report (LATER 62)', dist), () => {
   it("neither its marker nor its route in dist/viewer/assets/*.js", () => {
     expect(js).not.toContain(CLOSE_REPORT_MARKER);
@@ -273,7 +297,33 @@ describe("PARITY-1's exemptions: the release's match holds no development tool (
 
   it("the front end's match mounts none of /testroom's development tools: no tactical map, no teleport, no ?devmode switch, no playtest overlay, no taunt editor (PAR-14, PAR-15, PAR-16)", () => {
     const mount = src('matchMount.ts');
-    expect(mount).not.toMatch(/\bTacMap\b|from '\.\/tacMap'/);
+    // PR #5 (crispy's import; OT.R114, as keyboardGate's OT_R114_TESTROOM and its RB-8 form check): the Forge's offline
+    // Play match carries the test room's tactical map (M, - and =). It is never the front end's: the one TacMap made is
+    // made only for a `kbm` page (`if (o.kbm !== undefined)`; only `forge/match.ts` passes one), and the front end's match
+    // (`frontEnd.ts`'s loader, `lobbyMatch.ts`) names no `kbm`. Every other TacMap line in matchMount.ts is refused.
+    const tacLines = mount.split('\n').filter((l) => /\bTacMap\b|from '\.\/tacMap'/.test(l)).map((l) => l.trim());
+    const tacAllowed = [
+      "import { TacMap } from './tacMap';",
+      'let tacMap: TacMap | null = null;',
+      'if (o.kbm !== undefined) tacMap = new TacMap(() => walk.mode() === \'walk\' && !armory.isOpen() && !(o.blocked?.() ?? false));',
+    ];
+    for (const l of tacLines) expect(tacAllowed, l).toContain(l);
+    expect(tacLines.filter((l) => l.includes('new TacMap('))).toHaveLength(1);
+    // PR #5's review: the whole call, its second argument the match's own client, so one that always allows turns red;
+    // and its keys' gate inside `kbmWin`'s `addEventListener` (the window's listener only through `call`).
+    expect(mount).toContain('const kbmNow = (): boolean => attached && o.kbm !== undefined && kbmAllowed(o.kbm, (net?.client ?? o.client)?.url);');
+    expect(mount).toMatch(/\n {2}const kbmWin = \{\n {4}addEventListener: \(type: string, fn: EventListenerOrEventListenerObject\): void => \{\n {6}const call: EventListener = \(e\) => \{\n {8}if \(type === 'keydown' && \(!kbmNow\(\) \|\| \(o\.blocked\?\.\(\) \?\? false\)\)\) return;\n[^]*?\n {6}win\.addEventListener\(type, call\);\n {4}\},\n/);
+    expect(mount).toContain('tacMap.bindKey(target, () => fly.pose().yaw, kbmNow);');           // its keys ask kbmNow at each press
+    // PR #5's review: every module that imports the mount (statically or by `import()`), read from the source tree, not a
+    // hand list -- a new caller is checked without an edit here; only the Forge's Play match (`forge/match.ts`) names a
+    // `kbm`. The three the hand list named stay required callers, so the walk cannot shrink unseen.
+    const walk = (d: string): string[] => readdirSync(resolve(here, '../src', d), { withFileTypes: true })
+      .flatMap((e) => (e.isDirectory() ? walk(`${d}${e.name}/`) : /\.tsx?$/.test(e.name) ? [`${d}${e.name}`] : []));
+    const callers = walk('').filter((f) => f !== 'matchMount.ts' && /from '(?:\.\.?\/)+matchMount'|import\('(?:\.\.?\/)+matchMount'\)/.test(src(f)));
+    for (const f of ['frontEnd.ts', 'lobbyMatch.ts', 'xboxPrototype/matchLoader.ts', 'serialMatchWorker.ts', 'playerSettings.ts', 'forge/match.ts']) expect(callers, f).toContain(f);
+    const KBM_CALLERS = ['forge/match.ts'];
+    for (const f of KBM_CALLERS) expect(src(f), f).toMatch(/\bkbm\b/);
+    for (const f of callers.filter((x) => !KBM_CALLERS.includes(x))) expect(src(f), f).not.toMatch(/\bkbm\b/);
     expect(mount).not.toMatch(/function teleport|\{ teleport \}|\bteleport[(:]/);       // code, not the comments that say why there is none
     expect(mount).not.toMatch(/\bdevMode\(|DEV_PARAM/);
     expect(mount).not.toMatch(/playtestReport|mountPlaytestOverlay/);

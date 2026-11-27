@@ -5,7 +5,7 @@ import {
   encodeCommands, groundGrid, packGround, PROTOCOL_VERSION, ROUND_WATCH_S, TICK_HZ, type ClientEvent, type MapMeta, type ServerEvent, type SimKits,
   type SimMap,
 } from '../../viewer/src/sim';
-import { FLASH_FRIENDLY_FIRE_READING } from '../../viewer/src/net/blast';
+import { BLAST_ON_FACE_START_READING, FLASH_FRIENDLY_FIRE_READING } from '../../viewer/src/net/blast';
 import { Room, type Conn } from '../src/room';
 
 /**
@@ -16,7 +16,7 @@ import { Room, type Conn } from '../src/room';
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),   // its front UP (the grenade query is one-sided)
 };
 
 /** The flat map; with `wall`, a wall across x = 30 from z -200 to 200, 80 high (between a blast at 0 and x 60). */
@@ -310,21 +310,24 @@ describe('the room\'s blast (FUN_005a0e70)', () => {
 /**
  * PF-35 (research 235 §1-§2, 194 §7 A11; ruling PF.R55): C4's `IgnoreExplosionDI` in the room's player blast. The flat
  * floor and a C4 target across z 330 (x -40..40, 60 high: health 1, shield 17 -- `roomEquipment.test.ts`' `barrierMap`,
- * copied, not imported); the charge planted 10 short of it, a SEAL's head on the far side. C4 and its records as the
+ * copied, not imported); the charge planted from 10 short of it and set at its struck point ON the wall's plane (z 330:
+ * `room.ts`, the charge's pos is `surface.point`; WM-29's review), a SEAL's head on the far side. C4 and its records as the
  * room tests write them (`roomBarriers.test.ts`), the flagged one carrying the bit the disc's `C4 Ammo` carries
  * (`throwableRecord`, `projectile.test.ts`).
  */
 const C4_WALL = 'worldmodel/access1/good_parts/di_good';
-function c4Map(): SimMap {
+function c4Map(faces: 'both' | 'toward the charge' = 'both'): SimMap {
   const wall: WorldPoly = { ...FLOOR, path: C4_WALL, ditype: 2, points: Float32Array.from([-40, 0, 330, 40, 0, 330, 40, 60, 330, -40, 60, 330]) };
   // Research 386 §3.2: the blast's line to a head is one-sided (`blastSeen`), so the wall has both faces, as MP83's `access1`
   // barrier it copies has on the disc (`di_good` at z 1593.37, -z, and 1593.75, +z; review 3) -- its face toward the
   // charge (normal -z) the one that stops the M67's line. Many disc faces have no back face (386 §3.2).
   const back: WorldPoly = { ...wall, points: Float32Array.from([-40, 60, 330, 40, 60, 330, 40, 0, 330, -40, 0, 330]) };
-  const polys: WorldPoly[] = [FLOOR, wall, back];
+  // WM-29: 'toward the charge' leaves the one face whose raw normal is -z (`back`), so a body on the charge's side of
+  // the wall is IN FRONT of the only face the charge's start lies on (BLAST_ON_FACE_START_READING).
+  const polys: WorldPoly[] = faces === 'both' ? [FLOOR, wall, back] : [FLOOR, back];
   const owners: CollisionOwner[] = [
     { modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 },
-    { modelName: 'worldmodel', path: C4_WALL, first: 1, count: 2, flags: 0x1001 },
+    { modelName: 'worldmodel', path: C4_WALL, first: 1, count: polys.length - 1, flags: 0x1001 },
   ];
   const ground = packGround(PARAMS, polys, owners);
   const slot = (side: 0 | 1, index: number, x: number, z: number): SpawnSlot => ({
@@ -389,10 +392,10 @@ function c4Kits(c4: ThrowableRecord): SimKits {
  * `charge`: the kit table's C4. `plantC4`: the page's plant 2 ahead of the planter's feet, naming the wall (PF-13's
  * `target`/`surface`); `dropM67`: an M67 let go at the planter's feet. After either the planter walks off.
  */
-function c4Setup(charge: ThrowableRecord, at: Record<number, [number, number, number]>) {
+function c4Setup(charge: ThrowableRecord, at: Record<number, [number, number, number]>, faces: 'both' | 'toward the charge' = 'both') {
   let seed = 1;
   const random = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-  const room = new Room(c4Map(), null, { now: () => 0, random, roundSeconds: 60 }, null, c4Kits(charge));
+  const room = new Room(c4Map(faces), null, { now: () => 0, random, roundSeconds: 60 }, null, c4Kits(charge));
   const clients = new Map<number, Client>();
   for (const id of Object.keys(at).map(Number)) {
     const c = new Client();
@@ -426,7 +429,7 @@ function c4Setup(charge: ThrowableRecord, at: Record<number, [number, number, nu
 
 describe('IgnoreExplosionDI in the room\'s player blast (PF-35, FUN_005a0e70)', () => {
   it('a C4 going off behind a wall hurts the SEAL whose head the blast cannot see (005a0e70 D:L459192-459193: the queued ray\'s veto skipped with the bit, IGNORE_EXPLOSION_DI_READING); the M67 at the same point and the same SEAL is occluded, as before', () => {
-    // The charge at z 320 (10 short of the wall), the Terrorist's feet at z 338: 18 from the blast; the line from it to
+    // The C4 at its struck point on the wall (z 330), the M67 dropped at z 318; the Terrorist's feet at z 338; the line to
     // his head (18.3 up) meets the wall about 10 up its 60.
     const c4 = c4Setup(C4_FLAGGED, { 1: [0, 0, 338], 2: [0, 0, 318] });
     c4.plantC4();
@@ -448,7 +451,10 @@ describe('IgnoreExplosionDI in the room\'s player blast (PF-35, FUN_005a0e70)', 
     // 1: a Terrorist 18 off in the open; 3: the planter's mate behind the wall, 18 off; 4: a Terrorist behind the wall
     // 62 off (the charge's Explosion_Radius 50).
     const at: Record<number, [number, number, number]> = { 1: [-18, 0, 320], 2: [0, 0, 318], 3: [0, 0, 338], 4: [0, 0, 382] };
-    const flagged = c4Setup(C4_FLAGGED, at), plain = c4Setup(C4_PLAIN, at);
+    // WM-29 (research 430 s6): the charge sits at its struck point, ON the wall's plane; an unflagged one there is refused
+    // by a face whose raw normal points away from the body (the pin below). So this comparison, which is about the BIT, is
+    // made at a wall with the one face toward the charge: the Terrorist in the open is in front of it, and both are asked.
+    const flagged = c4Setup(C4_FLAGGED, at, 'toward the charge'), plain = c4Setup(C4_PLAIN, at, 'toward the charge');
     expect([1, 2, 3, 4].map((id) => flagged.room.player(id)!.team)).toEqual(['terrorist', 'seal', 'seal', 'terrorist']);
     for (const s of [flagged, plain]) { s.plantC4(); s.run(6.3); }
     expect(flagged.room.player(2)!.grenades.C4).toBe(3);
@@ -472,8 +478,10 @@ describe('IgnoreExplosionDI in the room\'s player blast (PF-35, FUN_005a0e70)', 
  * fuse's end.
  */
 describe("C4's blast on a seat in reach at its fuse's end (BOMB-DAMAGE)", () => {
+  // WM-29 (the controller's ruling (a), 2026-11-15): the disc's own C4 -- its round carries IgnoreExplosionDI in every
+  // file that holds it (`scene/test/c4IgnoreExplosionDIDisc.test.ts`, dev-disc; the committed copy, `projectile.test.ts`).
   it('a Terrorist 18 off in the open is untouched to just short of Timer1 and hurt at it: the blast event and his health', () => {
-    const s = c4Setup(C4_PLAIN, { 1: [-18, 0, 320], 2: [0, 0, 318] });
+    const s = c4Setup(C4_FLAGGED, { 1: [-18, 0, 320], 2: [0, 0, 318] });
     s.plantC4();
     expect(s.room.player(2)!.grenades.C4).toBe(3);                           // planted
     const hp = [...s.room.player(1)!.health.hp];
@@ -486,6 +494,42 @@ describe("C4's blast on a seat in reach at its fuse's end (BOMB-DAMAGE)", () => 
     expect(s.of(1).of('hurt')).toHaveLength(1);
     const q = s.room.player(1)!;
     expect(!q.alive || q.health.hp.some((v, i) => v < hp[i]!)).toBe(true);
+  });
+});
+
+/**
+ * WM-29 (research 430 s3.1, s6; BLAST_ON_FACE_START_READING): the named pin of the rule for a round the disc does not
+ * have -- an UNFLAGGED charge at its struck point, exactly on a face. Its lifted start is in the face's plane (ds = 0),
+ * in front by the micro's inclusive band, so the face is hit at t = 0 toward a body on the side its raw normal points
+ * away from, and line 1 refuses him. The wall with both faces refuses a body on either side; with the one face toward
+ * the charge, the body on the charge's side (in front of it) is reached. The same seat, the same distance.
+ */
+describe('WM-29: an unflagged round that bursts exactly on a face (BLAST_ON_FACE_START_READING)', () => {
+  const at: Record<number, [number, number, number]> = { 1: [-18, 0, 320], 2: [0, 0, 318] };
+  it('is the reading the pin names', () => { expect(BLAST_ON_FACE_START_READING).toBe('in front'); });
+
+  it('on a wall with both faces: the Terrorist 18 off, on the charge\'s side, is refused (the +z face, hit at t = 0)', () => {
+    const s = c4Setup(C4_PLAIN, at);
+    s.plantC4();
+    expect(s.room.player(2)!.grenades.C4).toBe(3);
+    s.run(6.3);
+    expect(s.of(1).of('blast')).toEqual([]);
+    expect(s.of(1).of('hurt')).toEqual([]);
+  });
+
+  it('on a wall with the one face toward the charge: the same Terrorist is in front of it and is reached', () => {
+    const s = c4Setup(C4_PLAIN, at, 'toward the charge');
+    s.plantC4();
+    s.run(6.3);
+    expect(s.of(1).of('blast')).toHaveLength(1);
+    expect(s.of(1).of('hurt')).toHaveLength(1);
+  });
+
+  it('control: the disc\'s flagged C4 on the wall with both faces asks no line and reaches him', () => {
+    const s = c4Setup(C4_FLAGGED, at);
+    s.plantC4();
+    s.run(6.3);
+    expect(s.of(1).of('blast')).toHaveLength(1);
   });
 });
 

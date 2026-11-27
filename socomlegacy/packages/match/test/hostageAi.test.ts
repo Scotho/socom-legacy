@@ -168,7 +168,7 @@ describe('the hostage AI on the server (HX-3)', () => {
   });
 
   it("the masks (AI_STACK_MASKS_READING; V5 §12.2): [0x17] admits 0x11 and 9; [0x11] admits 2 and refuses 9 and 0x17; CAiSHostage refuses 0x10 always and 0x13 outside sub-states 5 and 6", () => {
-    expect(AI_STACK_MASKS_READING).toEqual({ [0x17]: 0x190f4bc0, [9]: 0x1ffffdfe, [0x11]: 0x190c48c6, [2]: 0x3ffffffa });
+    expect(AI_STACK_MASKS_READING).toEqual({ [0x17]: 0x190f4bc0, [9]: 0x1ffffdfe, [0x11]: 0x190c48c6, [2]: 0x3ffffffa, [0x1b]: 0x310468c2, [0x13]: 0x31040800, [0x1c]: 0x21042000 });   // LATER 1170: 0x1b, research 445 s4; LATER 1185: 0x13, research 447 s2.2; LATER 1188: 0x1c, s12
     const bits = (m: number) => [...Array(32).keys()].filter((b) => ((m >>> b) & 1) === 1);
     expect(bits(AI_STACK_MASKS_READING[0x11])).toEqual([1, 2, 6, 7, 11, 14, 18, 19, 24, 27, 28]);
     const ai = new HostageAi({ id: 240, random: seq(0.5) });

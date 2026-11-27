@@ -4,6 +4,8 @@ import { findNode, SliderWidget, type PadSlotName, type UiDrawItem, type UiSound
 import type { GamepadLike, PadButton } from './gamepad';
 import { attachMenuPointer, padSnapshot } from './menuInput';
 import { claimSettingsEditor } from './settingsEditorOwnership';
+import type { SettingsAdvancedTab } from './settingsAdvanced';
+import { startMenuLauncher } from './startMenuLauncher';
 import { readFrontEndDisc, type FrontEndDisc } from './frontEnd';
 import { pageUiTextures, type PageUiTextures } from './frontEndAssets';
 import { NATIVE_OPTIONS_DIALOGS, NativeOptionsHost, nativeOptionsMissing, type NativeOptionsAssets, type NativeOptionsState } from './nativeOptionsHost';
@@ -128,7 +130,15 @@ export class NativeSettings {
   private gpuAsked = false;
   /** GM-19a: what drew the frame on show (the GPU surface or the software presenter), for `readFrame`. */
   private drawer: UiPresenter | null = null;
+  /** WM-6A: Settings last closed into the launcher (ADVANCED), until START asks (`closedIntoLauncher`). */
+  private launched = false;
   constructor(private readonly o: NativeSettingsOptions) {}
+
+  /**
+   * WM-6A (a browser adaptation, `./settingsAdvanced`): whether Settings last closed into the launcher -- START's question,
+   * answered once, so START closes with it and the overlay's close lands in PLAY (`./startMenu` `StartMenuSettings`).
+   */
+  closedIntoLauncher(): boolean { const was = this.launched; this.launched = false; return was; }
 
   /**
    * GM-09 (a test seam, a browser adaptation): the frame the overlay's canvas shows -- transparent, straight RGBA, top
@@ -242,11 +252,25 @@ export class NativeSettings {
       // released at close -- one per open, as the editor (its input) is made per open.
       if (this.editor) {
         const input = this.editor.input, gpuCanvas = this.gpuMount?.canvas;
-        const soft = attachMenuPointer(input, canvas), gpuRelease = gpuCanvas ? attachMenuPointer(input, gpuCanvas) : null;
+        // WM-6A: a tap in the ADVANCED prompt's box is SQUARE (`./menuInput` `attachMenuPointer`).
+        const editor = this.editor, advanced = { design: () => editor.shell.design, square: () => { editor.press('SQUARE'); } };
+        const soft = attachMenuPointer(input, canvas, advanced), gpuRelease = gpuCanvas ? attachMenuPointer(input, gpuCanvas, advanced) : null;
         this.releasePointer = () => { soft(); gpuRelease?.(); };
       }
     }
     this.phase = 'open';
+  }
+
+  /**
+   * WM-6A (a browser adaptation, `./settingsAdvanced`): after ADVANCED's save and leave closed Settings (its lock let go),
+   * the page's launcher (`./startMenuLauncher`) opened at the tab; `launched` when it took the open, for START. No page
+   * launcher, or an open refused: nothing more -- Settings closed as RETURN closes it.
+   */
+  private openLauncher(tab: SettingsAdvancedTab): void {
+    const launcher = this.o.doc ? startMenuLauncher(this.o.doc) : null;
+    if (!launcher) return;
+    try { launcher.open({ settings: tab }); } catch (e) { console.error('settings: the launcher did not open', e); }
+    this.launched = launcher.isOpen();
   }
 
   /**
@@ -310,7 +334,12 @@ export class NativeSettings {
     const padStick = padSnapshot(physical), touchStick = padSnapshot(touch);
     const stickX = this.releasing ? 0 : touchStick.stickX || padStick.stickX;
     const stickY = this.releasing ? 0 : touchStick.stickY || padStick.stickY;
-    if (!editor?.frame(now, { down, stickX, stickY })) { this.close(); return; }
+    if (!editor?.frame(now, { down, stickX, stickY })) {
+      const tab = editor?.advancedTab ?? null;
+      this.close();                                                  // the settings lock released here, synchronously
+      if (tab) this.openLauncher(tab);                               // WM-6A: ADVANCED's save and leave ran whole
+      return;
+    }
     const ctx = this.canvas?.getContext('2d');
     if (ctx) {
       const got = this.o.hd?.();

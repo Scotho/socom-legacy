@@ -13,7 +13,7 @@ import { Room, type Conn } from '../src/room';
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
 };
 const wallAt = (x: number, material: number, path: string): WorldPoly => ({
   ...FLOOR, path, ditype: 2, material, points: Float32Array.from([x, 0, -200, x, 0, 200, x, 80, 200, x, 80, -200]),

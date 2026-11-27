@@ -3,7 +3,7 @@ import { parseZdb } from '@s2u/archive';
 import { aiCellOf, materialTable, type AiLoc } from '@s2u/scene';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { aiMapsFromBytes } from '../src/loadMap';
-import { ACTION_CONTEXT_BITS, ACTION_CONTEXT_ORDER, contextPrompt, pickContext } from '../src/actionContext';
+import { ACTION_CONTEXT_BITS, ACTION_CONTEXT_ORDER, ACTION_CONTEXT_ORDER_READING, contextPrompt, pickContext } from '../src/actionContext';
 import { actionInputs, fireContext, fireTable, pageSources } from '../src/actionWiring';
 import { ACTION_ICONS } from '../src/hud';
 import { HUD_LIBRARIES } from '../src/hudAssets';
@@ -45,7 +45,7 @@ function rig(over: { bars?: string; unit?: number; opacity?: number; alive?: boo
 }
 
 describe('HX-4a: the hostages part on the page (research 239 s1, s3)', () => {
-  it("the page offers FOLLOW! on an unled living hostage under its crosshair within 20 cells and HOLD POSITION on one in its own unit, with action_escortee.tif (ESCORTEE_PROMPT_READING; FUN_0021ded0 D:L73564-73565); nothing past the fade, nothing through a blocking surface; escortee sits after the pickups and before the drop in the context order (bits 0x4000 and 0x8000, FUN_0021f850 D:L74050-74293; AD-6); the fire sends hostageOrder for the offered hostage and command", () => {
+  it("the page offers FOLLOW! on an unled living hostage under its crosshair within 20 cells and HOLD POSITION on one in its own unit, with action_escortee.tif (ESCORTEE_PROMPT_READING; FUN_0021ded0 D:L73564-73565); nothing past the fade, nothing through a blocking surface; escortee sits after the pickups and before the drop in the original's context order (bits 0x4000 and 0x8000, FUN_0021f850 D:L74050-74293; AD-6) and, by the owner's ruling OT.R128, ahead of the pickups in the port's; the fire sends hostageOrder for the offered hostage and command", () => {
     expect(ESCORTEE_PROMPT_READING).toBe('FOLLOW! 0xe / HOLD POSITION 0xf, action_escortee.tif');
     expect(ESCORTEE_PROMPTS).toEqual({ 4: { text: 'FOLLOW!', action: 0xe, mask: 0x4000 }, 5: { text: 'HOLD POSITION', action: 0xf, mask: 0x8000 } });
     expect(HOSTAGE_YES_AUDIENCE_PLACEHOLDER).toBe('everyone, at the body');
@@ -73,14 +73,19 @@ describe('HX-4a: the hostages part on the page (research 239 s1, s3)', () => {
     expect(contextPrompt('escortee')).toBe('escortee');
     expect(ACTION_ICONS.escortee).toBe('action_escortee.tif');
     expect(HUD_LIBRARIES.HUD).toContain('action_escortee.tif');
-    // The context: after the pickups and before the drop (AD-6: the picker's 0x4000/0x8000 come after the pickups'
-    // 0x10/0x20 and 0x100/0x200, and before 0x40, FUN_0021f850 D:L74050-74293).
+    // The context: in the original's order after the pickups and before the drop (AD-6: the picker's 0x4000/0x8000 come
+    // after the pickups' 0x10/0x20 and 0x100/0x200, and before 0x40, FUN_0021f850 D:L74050-74293); in the port's, by the
+    // owner's ruling OT.R128 against it (amended 2026-11-15), ahead of the victory point and the pickups (after C4) and still before the drop.
     expect(ACTION_CONTEXT_BITS.escortee).toEqual([0x4000, 0x8000]);
     expect(ACTION_CONTEXT_ORDER.indexOf('escortee')).toBeGreaterThan(ACTION_CONTEXT_ORDER.indexOf('c4'));
-    expect(ACTION_CONTEXT_ORDER.indexOf('escortee')).toBe(ACTION_CONTEXT_ORDER.indexOf('pickup2') + 1);   // LkPaioX5 (c): after the second TAKE (0x20)
-    expect(ACTION_CONTEXT_ORDER.indexOf('escortee')).toBe(ACTION_CONTEXT_ORDER.indexOf('bombDrop') - 1);
+    expect(ACTION_CONTEXT_ORDER_READING.indexOf('escortee')).toBe(ACTION_CONTEXT_ORDER_READING.indexOf('pickup2') + 1);   // LkPaioX5 (c): after the second TAKE (0x20)
+    expect(ACTION_CONTEXT_ORDER_READING.indexOf('escortee')).toBe(ACTION_CONTEXT_ORDER_READING.indexOf('bombDrop') - 1);
+    expect(ACTION_CONTEXT_ORDER.indexOf('escortee')).toBe(ACTION_CONTEXT_ORDER.indexOf('c4') + 1);        // OT.R128, amended 2026-11-15
+    expect(ACTION_CONTEXT_ORDER.indexOf('escortee')).toBe(ACTION_CONTEXT_ORDER.indexOf('victory') - 1);   // OT.R128, amended 2026-11-15
+    expect(ACTION_CONTEXT_ORDER.indexOf('escortee')).toBe(ACTION_CONTEXT_ORDER.indexOf('pickup') - 2);    // OT.R128, amended 2026-11-15
+    expect(ACTION_CONTEXT_ORDER.indexOf('escortee')).toBeLessThan(ACTION_CONTEXT_ORDER.indexOf('bombDrop'));
     expect(pickContext({ escortee: true, bombDrop: true })).toBe('escortee');
-    expect(pickContext({ escortee: true, pickup: true })).toBe('pickup');
+    expect(pickContext({ escortee: true, pickup: true })).toBe('escortee');   // OT.R128 (the original's order: the pickup)
     expect(pickContext({ escortee: true, turret: true })).toBe('turret');
     expect(pickContext({ escortee: true, c4: true, door: true })).toBe('door');
     // The lane: the part's offer is the context's input; its fire is the part's.

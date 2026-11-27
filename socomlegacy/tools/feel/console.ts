@@ -87,7 +87,7 @@ export const CONSOLE = {
   proneForward: c(11, 'decomp', 'FUN_00583500: motion.rdr seal_prone_crawl 1.1 m/s x the class axis, no ramp'),
   /** Keyboard W+D: both axes a full byte (PCSX2's binds, the host port's keys), the class keeps one axis at 1. */
   proneDiagonalKeys: c(11, 'decomp', 'FUN_00583500 on the pad reader\'s (1, 1) (FUN_002da930: per-axis clamp, no disc): one axis x 11'),
-  fallTime42: c(18 * 525 / 15734, 'decomp', 'FUN_0059b440: v += g dt, then the height, per 525/15734 s game frame: 42 units under dynamics.rdr gravity 235 in 18 frames (0.601 s; closed form 0.598; web spec section 7 W2.2b; research 208 section 4)'),
+  fallTime42: c(19 * 525 / 15734, 'decomp', 'FUN_0059ad30 D:L456314-456321 and FUN_0059b440 D:L456496, D:L456515-456528 (LANDING_FRAME_READING, reading, pending review): a walk-off lands a game frame after the frame that reaches the floor -- 42 units under dynamics.rdr gravity 235 are reached on frame 18, the landing is frame 19 (0.634 s). Supported by research 151 s8 (the capture of the original on MP51 by walk-off, s8.1, and the r0004 memory trace, s8.4, for drops of 49-58 u; no 42 u drop captured). Was 18 frames (0.601 s; research 208 section 4), the contact frame. (This row no longer tells K from K+1 at its 2-tick tolerance: the late landing is guarded by landingFrame / fallPoseStep.)'),
   fallCarry: c(65, 'decomp', 'no air control outside the Jump state (DAT_003deae8): the horizontal velocity at the edge is kept'),
   // ---- the move stick: the pad reader on the left stick (the dump's block, the decompilation's law) ------------------
   /** `(127.5 - byte) x 0.007843138`, per axis dead zone 0.3 and rescale, the circle x sqrt 2, clamp; no curve, no ramp. */

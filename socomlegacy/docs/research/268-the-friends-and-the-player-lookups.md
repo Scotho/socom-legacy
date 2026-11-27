@@ -140,7 +140,8 @@ his roommates only; no page on the web site. Built:
      no "on the lobby" check, so any player can ask it of anyone.
    - **FindPlayer** (`chat.ts:170-174`, `onLobby` at `:229-231`): a name is found only while its account is in a room
      or a game, so its answer says whether the player is on the lobby -- the original's search, as Horizon answers it
-     (logged in or not, MLS.cs:1370-1379).
+     (logged in or not, MLS.cs:1370-1379). *Since LATER 1550 (2026-11-24): also while logged in on the main menu
+     (`WHISPER_REACH_READING`; the last item of this note).*
    - **The clan roster** (`clans.ts:588-599`, `roster`): each member's online state from `presence?.(id)`, to any
      asker for any clanId. Nothing is wired today -- `createServices` builds the `ClanService` with no presence
      (`bridge.ts:874`), so every row is offline (`ROSTER_ONLINE_STATE_READING`) -- but once that presence is wired it
@@ -649,3 +650,16 @@ The two server names are §5 exclusions of research 101 (the online services' ow
   (§3.6).
 - **The proven level**: ONL-32's transcript of a PlayerInfo for a known account, an unknown one and a player on the
   menus (the three readings of §1.8).
+- **LATER 1550** (2026-11-24, seat-services; the main controller's ruling the same day; reading, pending review): ADD NEW
+  FRIEND by the exact name of a player logged in and resting on the SOCOM II ONLINE main menu answered caption 334 ("...
+  is not currently logged in") though he was logged in (PC 4's IQ198-L1546-B-PC4), while a clan invite to the same kind
+  of account worked. The cause: `/lobby/friend-request` `{ name }` resolves by FindPlayer (`FRIEND_REQUEST_BY_NAME_ADAPTATION`),
+  whose "on the lobby" was the room service's rooms and game seats only; the clan invite asks AccountGetID, which reads no
+  presence (`ACCOUNT_GET_ID_PRESENCE_OWNER`). FindPlayer now finds every logged-in player -- in a room, a game seat, or on
+  the main menu -- on four agreeing sources (Horizon's FindPlayer, desktop@be557831 `MLS.cs:1346-1396`; caption 334's
+  words; the friend row's MAIN MENU for a lobby named "Medius...", `FUN_00301a70` D:L202724-202778, S:0x3f6090 /
+  S:0x3f6098; the port's own `roomPresence`, which already showed that player at the main menu): `chat.ts`
+  `WHISPER_REACH_READING`. FindPlayer is one message (Lobby 0x39) for the whisper and the friend add alike, so **the
+  widening reaches whispers too**: a whisper to a player on the main menu is now found and carried (the page there polls
+  `/lobby/chat-lines`); a room's line is unchanged. Held by `chat.test.ts` and `friends.test.ts` ("LATER 1550");
+  `accountGetId.test.ts`'s owner's-case line re-pinned (FindPlayer finds the roomless player now).

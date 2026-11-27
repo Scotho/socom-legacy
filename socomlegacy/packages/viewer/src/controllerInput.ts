@@ -1,7 +1,7 @@
 import { GAME_FRAME_DT, GameFrameAccumulator } from '@s2u/scene';
 import { pressurePad } from './pressurePad';
 import { PRESSURE_SEPARATE_TOAST, pressureDetector, recordPressureDefault, takePressureDefault } from './pressureDetect';
-import { PAD_BUTTON, PAD_DEAD_ZONE, type Input, type PadLike, type PadSource } from './gamepad';
+import { activePadMap, PAD_BUTTON, PAD_DEAD_ZONE, type Input, type PadButton, type PadLike, type PadMap, type PadSource } from './gamepad';
 import { knownLayout } from './padKnownLayouts';
 import { padFamily } from './padFamily';
 import { standardView, type PadLayout } from './padLayout';
@@ -16,6 +16,19 @@ import {
   setControllerStanceMode, SETUP_KEY, STANCE_MODE_KEY,
 } from './startupSettings';
 
+/**
+ * PAD-DS3 part 5 (reading, pending review; the key job's non-author re-read at r0004, 2026-11-23): the buttons whose
+ * pressure the original feeds the grenade throw's power. The pressure read (r0004 `0x2c8040`, its one caller 0x59b948;
+ * r0001 `FUN_002c6350` D:L166819-166835, called at D:L453481) picks the pad report's field by the button the control map
+ * gives Fire (the map's byte `+0x14`, action 2): button 0xa (R1) -> field 0x1d, button 9 (X) -> field 0x1a, any other
+ * button -> 0.0. The byte times `PRESSURE_SCALE` (1/255, r0004 0x64edd8 = 0x3b808081; r0001 `DAT_00650660`) is the
+ * chase's target (`@s2u/scene` `stepThrowPower`). That `+0x14` is Fire's, that 0xa is R1 and 9 is X (the input-name
+ * parser r0004 0x2c8360), that the pad update pairs field 0x1d with R1's digital bit and 0x1a with X's (0x2f8824-0x2f8898),
+ * and the report's packing (the descriptor filler 0x1bdd58, the reader 0x1bda78) are re-read at r0004 by the fresh review
+ * (keyjob-r1-throw-review.md, section (d), 2026-11-23); only the pad's own byte order (DualShock 2 / 3) rests outside
+ * the disc. Still a reading, pending review: no capture (research 373, section 7).
+ */
+export const THROW_PRESSURE_BUTTONS_READING: readonly PadButton[] = ['R1', 'Cross'];
 export const padKey = (pad: PadLike): string => `${pad.index}:${pad.id}`;
 const profileKey = (pad: PadLike): string => `${SETUP_KEY}.pad.${JSON.stringify([pad.id, pad.mapping, pad.buttons.length, pad.axes.length])}`;
 export const buttonDown = (b: { pressed: boolean; value: number }): boolean => b.pressed || b.value >= 0.5;
@@ -268,6 +281,34 @@ export class ControllerInput {
    */
   pressureCapable(): boolean { return this.config.nativePressure ?? pressureDetector.capable(this.raw); }
   /**
+   * PAD-DS3 part 5 (reading, pending review; research 373, section 7): the pressure, 0..1, of the pad button Fire is on,
+   * for the grenade throw's power (`./grenadeCore` `GrenadeSource.firePressure`) -- only where the original would read one:
+   * the active preset's Fire (`map`, the original's control map) on R1 or X (`THROW_PRESSURE_BUTTONS_READING`). Null --
+   * the throw feeds 1, exactly as before (the controller's ruling F5 = option A, a browser adaptation: the port's
+   * rebinding and a digital pad have no original) -- on a pad not pressure-capable (`pressureCapable`), with no standard
+   * pad read or the page unfocused, with the preset's Fire on any other button or on more than one, with the profile
+   * driving that logical button from another physical one (rebound), or with SEPARATE's Crouch or Prone bound to that
+   * physical button in the match (taken from the game, `poll`; the review's F2). The value is the button's own as the reader gives it:
+   * the WebHID reader's byte / 255 (`./pressurePad`, `PRESSURE_SCALE`'s scale), or the Gamepad API's analog value (the
+   * browser's scale; an adaptation).
+   */
+  firePressure(map: PadMap = activePadMap()): number | null {
+    const pad = this.view;
+    if (!pad || !this.focused || !this.pressureCapable()) return null;
+    const fire = map.lanes.filter(([, lane]) => lane === 'fire');
+    if (fire.length !== 1 || !THROW_PRESSURE_BUTTONS_READING.includes(fire[0]![0])) return null;
+    const logical = PAD_BUTTON[fire[0]![0]];
+    if ((this.config.bindings[logical] ?? -1) !== logical) return null;
+    // Review F2: SEPARATE's Crouch or Prone bind on that physical button takes it from the game in the match (`poll`'s
+    // `taken`, the same test): it cannot fire, so a throw another input starts while it is held feeds 1.
+    // Comparing the LOGICAL index with the binds (physical buttons) is valid only because the unrebound guard above makes
+    // physical == logical here; an edit to that guard must revisit this line.
+    const c = this.config;
+    if (this.releaseCrouch && controllerStanceMode() === 'separate' && (logical === c.crouch || logical === c.prone)) return null;
+    const v = pad.buttons[logical]?.value;
+    return v !== undefined && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : null;
+  }
+  /**
    * PS2P (the owner, 2026-11-01: "default to the new separate mode we have with the two states bound"): entering SEPARATE
    * on a pressure-capable pad, an unbound Crouch takes the button Prone was cloned onto (Triangle's, `cloneTriangleToProne`):
    * one button, light and firm (`StancePress`). Called after `cloneTriangleToProne` and before `bindTouchpadCrouch` (which
@@ -461,15 +502,24 @@ export class ControllerInput {
     // button hold the logical Triangle too, Triangle's own button kept -- only where no logical button is bound to the
     // Prone button (the fold's review F1: the console dispatches every logical button down, so a button with its own job
     // keeps it alone; cloned on Triangle's own button, nothing changes).
-    const proneFree = this.releaseCrouch || !c.bindings.some((ph, lg) => ph === c.prone && lg !== PAD_BUTTON.Triangle);
+    // LATER 1175 (X7; the owner, 2026-11-18: "approved, assign" to "should the touchpad (the Crouch bind) close menus the
+    // way Triangle does?", then "it should be any bound control to crouch not just touch pad"): the Crouch bind's button
+    // -- whatever the live profile binds it to, SEP-SHOW's touchpad or a remap -- holds the logical Triangle the same way,
+    // under the same `stanceOff` (the press stays Crouch's in the game: `this.crouch`), and in the front end only where no
+    // logical button is bound to it, as Prone's. Only with Triangle's stance off: with Prone unbound Triangle is the
+    // stance's, and a Crouch held as Triangle would be a stance press.
+    const free = (b: number): boolean => this.releaseCrouch || !c.bindings.some((ph, lg) => ph === b && lg !== PAD_BUTTON.Triangle);
+    const proneFree = free(c.prone);
+    const crouchDown = c.crouch >= 0 && c.crouch !== c.prone && free(c.crouch) && held(c.crouch);
     let triangleFromProneOnly = false;
-    if (triangleOff && proneFree) {
+    if (triangleOff && (proneFree || crouchDown)) {
       const p = pad.buttons[c.prone];
-      const proneDown = !!p && (buttonDown(p) || (this.pressureCapable() && p.value > STANCE_PRESS_ACTIVE_PLACEHOLDER));
+      const proneDown = proneFree && !!p && (buttonDown(p) || (this.pressureCapable() && p.value > STANCE_PRESS_ACTIVE_PLACEHOLDER));
       const own = c.bindings[PAD_BUTTON.Triangle] ?? -1;
       const ownDown = own >= 0 && (!this.releaseCrouch || (own !== c.prone && own !== c.crouch)) && held(own);
-      triangleFromProneOnly = proneDown && !ownDown;
-      buttons[PAD_BUTTON.Triangle] = proneDown ? { pressed: true, value: p!.value } : ownDown ? pad.buttons[own]! : released;
+      triangleFromProneOnly = (proneDown || crouchDown) && !ownDown;
+      buttons[PAD_BUTTON.Triangle] = proneDown ? { pressed: true, value: p!.value } : crouchDown ? pad.buttons[c.crouch]!
+        : ownDown ? pad.buttons[own]! : proneFree ? released : buttons[PAD_BUTTON.Triangle]!;
     }
     return { ...pad, id: pad.id, index: pad.index, connected: pad.connected, mapping: pad.mapping, nativePressure, stanceCancelled: pad.stanceCancelled, axes,
       stickZone: this.config.deadZone,   // PZG: the zone the sticks were guarded with, for `padStick` and `padRaw`

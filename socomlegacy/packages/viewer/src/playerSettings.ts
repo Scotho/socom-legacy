@@ -14,6 +14,7 @@ import { NativeSettings, readNativeOptionsAssets } from './nativeSettings';
 import { playOptionsOf, restoreValveModule, VALVE_MODULE, type PlayOptions } from './originalOptions';
 import { pageCard } from './pageStore';
 import { pagePicture, type PictureKeeper } from './picture';
+import { pageShape } from './shape';
 import { localStartMenuOptions, playOptionsGlobals, sessionStartMenuOptions, type StartMenuOptions } from './startMenu';
 import { cardTauntTexts, TAUNT_VARS } from './tauntSettings';
 import { makeUiSoundHost, readUiSoundFiles, type UiSoundAudio } from './uiSoundHost';
@@ -208,7 +209,7 @@ export function pageCardReads(read: PageCardReaders = PAGE_CARD_READERS, card: C
 }
 
 /** The parts of the match's mount the player's settings answer (`./matchMount` `MatchMountOptions`). */
-export type PageMatchMountDeps = Pick<MatchMountOptions, 'options' | 'taunts' | 'messages' | 'externalWhispers' | 'startMenuOptions' | 'gameVars' | 'picture' | 'settings'>;
+export type PageMatchMountDeps = Pick<MatchMountOptions, 'options' | 'taunts' | 'messages' | 'externalWhispers' | 'startMenuOptions' | 'gameVars' | 'picture' | 'shape' | 'settings'>;
 
 /**
  * RB-10 (PS-2, PS-3; the replay batch, OT.R114's "unify a players settings ... to apply to forge/test room"; product
@@ -332,6 +333,7 @@ export function pageMatchDeps(card: CardSlots = pageCard, o: { picture?: Picture
           valve: (name) => (name === 'ComeFromLan' ? 1 : valve(name)),
         },
         picture: o.picture ?? pagePicture(),
+        shape: pageShape(),                                              // VIDEO-SHAPE (a browser adaptation): the page's shape
         ...(settings ? { settings } : {}),
       };
     },

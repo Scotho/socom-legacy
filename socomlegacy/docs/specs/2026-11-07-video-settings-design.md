@@ -160,7 +160,7 @@ the native VIDEO patch's rows equal the schema's rows for `native` (through `vid
 
 | group | row | values | default | apply | surfaces | notes |
 |---|---|---|---|---|---|---|
-| Quality | **Preset** | Automatic / Performance / Balanced / Quality / Custom | **Automatic** (new browsers); a saved Balanced stays Balanced | live | launcher, overlay | Custom appears when any row below deviates from the preset's values; Restore defaults → Automatic. The native screen has no Preset row: its RENDER SCALE strip shows the resolved preset, and a press there leaves Automatic for that preset (the launcher then reads Performance / Balanced / Quality) |
+| Quality | **Preset** | Automatic / Performance / Balanced / Quality / Lite / Custom | **Automatic** (new browsers); a saved Balanced stays Balanced | live | launcher, overlay | Custom appears when any row below deviates from the preset's values; Restore defaults → Automatic. The native screen has no Preset row: its RENDER SCALE strip shows the resolved preset, and a press there leaves Automatic for that preset (the launcher then reads Performance / Balanced / Quality). **Lite** (WM-5a, 2026-11-14; a browser adaptation, no original; stored `lite`; named so by the controller's ruling A, seat 8f -- "Low power" is a value of the Power preference row on the same page): 720p at 75 %, at most 30 frames a second, shadows Off, antialias Off (the Xbox row's), the renderer left Automatic's (a preset's graphics row is written to the renderer's key and would overwrite a saved Xbox pick; the Xbox class draws WebGL2 under every preset already). Choosing it is the player's own choice of the whole bundle (ruling B): where no picture is saved, the PS2 picture is SAVED at that moment (`s2u.viewer.picture`); a saved picture is kept; after it nothing about the picture follows the preset -- a row changed (Lite becoming Custom) or another preset chosen never moves it. Its words: "Lite: For consoles and low-power devices: the PS2 640 x 448 picture at most 30 frames a second, no shadows (sets the PS2 picture unless you have chosen one under Video)." The native strip lights PERFORMANCE under it (the tier its 720p stands for); not on the probe's ladder. Evidence: the second developer's physical report from his console (stable at 30 fps in PS2 mode with the 30 cap), no measurement of ours |
 | Display | **Render scale** | 50-100% in steps of 5 | the preset's (Quality 100, Balanced 100 of ratio 1, Performance 75) | live | launcher, overlay; native as today's three-box strip | a percent of the preset's ratio cap; the adaptive ratio works under it (§4.4). The native strip keeps three boxes (`videoSettingsRows.ts:24-25` already widened the step to fit three; RETURN sits at 430 of 448, so no fourth row or box fits) |
 | Display | **Resolution ceiling** | 720p / 1080p / 1440p / Native | the preset's (Performance 1080, Balanced 1440, Quality Native) | live | launcher, overlay | replaces the hidden height constants; a 4K display at Balanced still draws 2560x1440 (CPS.R7 (b)) |
 | Display | **Frame cap** | Off / 30 / 60 / 120 | Off | live | launcher, overlay | draws skipped between cap intervals; the simulation steps real time as today (§3); the note "Vsync is the browser's and always on" |
@@ -214,10 +214,31 @@ the native VIDEO patch's rows equal the schema's rows for `native` (through `vid
      8 (a table of vendor tokens, no benchmark download: detect-gpu's benchmark data stopped updating 2025-12).
 2. **The class's start**: Xbox → WebGL2, antialias Off, ceiling 720p, render scale 75%, shadows Off (the 1.9 ms
    lever, CPS `:350-357`), HD packs and lobby prepare refused, the movie worker rested (the existing Xbox preset's
-   set), frame cap 60. Software → Performance (shadows Off), ceiling 720p. Touch → Balanced (ratio at most 1, as a
-   Balanced touch browser draws today; Quality's 1.5 touch cap is one step up), shadows On. Low memory → Performance.
+   set), frame cap 60 -- **frame cap 30 and the PS2 picture since WM-5a** (below). Software → Performance (shadows Off), ceiling 720p. Touch → Balanced (ratio at most 1, as a
+   Balanced touch browser draws today; Quality's 1.5 touch cap is one step up), shadows On -- **shadows Off since WM-5a**. Low memory → Performance.
    Standard → Balanced. High → Quality. The renderer under Automatic follows `DEFAULT_GRAPHICS_BACKEND_ADAPTATION` (WebGL2 today;
    WebGPU when LATER 708 flips on the owner's word) except the Xbox class, which never asks for WebGPU.
+   **Amended 2026-11-14 by WM-5a** (the weekend mega sprint; the owner's word in seat redotcom-8f: "move forward on
+   the defaults that allowed xboxes to join today (ps2 mode and 30fps i think)"; product track, each a browser
+   adaptation with no original; the evidence is the second developer's physical report from his console -- the live
+   page stable at 30 fps in PS2 mode with the 30 cap, on live and on a test server, with bots and people -- not a
+   measurement of ours):
+
+   | class | row | was | now |
+   |---|---|---|---|
+   | Xbox | frame cap | 60 | **30** (`CLASS_START_ADAPTATION`) |
+   | Xbox | picture (VIDEO MODE) | Modern | **PS2** where none is saved (`CLASS_PICTURE_ADAPTATION`, laid by `picture.ts` `pictureDefault`, which reads the device class alone; never written -- a first load on an Xbox-class page with nothing saved writes no key at all -- and a saved picture always wins) |
+   | Touch | shadows | Medium | **Off** (the Xbox row's lever); the PS2 picture and the 30 cap are NOT a phone's start -- on a capable phone a visible downgrade, and nothing measures the weak ones yet |
+
+   Every other class's start is unchanged. A saved choice -- a preset, a frame cap, a shadow tier, a picture -- is never
+   moved by a class's start: the start applies under Automatic only, and the picture's default only where no picture
+   is saved. No schema version and no migration: the picture's key and the v2 JSON are as they were.
+   The picture's own choices (the controller's rulings C and D, seat 8f): a press on Home's Video row is a choice and
+   is saved even when it is the picture shown by default (the keeper's `choose`); the native VIDEO strip's echo of its
+   own selection writes nothing (`set` writes a change only); the row's reset empties the key and reads the class's
+   default again (the keeper's `clear`) -- it never writes the default into the key. Choosing a picture never moves a
+   video-settings row (the second developer's PS2 graphics profile, c443823002, is not this shape: a player who picks
+   the PS2 picture for its look keeps his preset, his frame cap and his antialiasing).
 3. **The first-match probe** (Standard and High only): the first `PROBE_SECONDS_ADAPTATION` = 3 s of drawn frames
    after `firstDrawn` and the warm-ups (`warmThrows`, `warmEffects`, `warmShadow` done; the first frame after the
    loading hold skipped) give a smoothed frame time; above 20 ms the class's start drops one preset, below 10 ms at

@@ -34,37 +34,14 @@ function rawPalettes(pal: Uint8Array | undefined): Map<number, { format: number;
   return out;
 }
 
-export function discTextureRecords(disc: string, warn: (m: string) => void = () => undefined): DiscTextureRecord[] {
-  const out: DiscTextureRecord[] = [], seen = new Set<string>();
-  const library = (where: string, txr: Uint8Array, pal: Uint8Array | undefined): void => {
-    const zar = Zar.parse(txr), palettes = PaletteTable.fromZars(pal ? [Zar.parse(pal)] : []), raw = rawPalettes(pal);
-    for (const k of zar.find('textures')?.children ?? []) {
-      const dat = zar.child(k, 'texdat');
-      if (!dat) continue;
-      const rec = parseTextureRecord(k.name, zar.data(dat));
-      if (!rec.tex0) continue;
-      const t = rec.tex0, p = raw.get(t.cbp);
-      const key = `${sha(rec.pixels)}|${p ? sha(p.buf) : ''}|${t.psm}|${t.tw}|${t.th}|${t.csa}|${t.cpsm}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const d = decodeTexture(rec, palettes).rgba;
-      out.push({
-        where: `${where}:${k.name}`, name: k.name, width: rec.width, height: rec.height,
-        psm: t.psm, tbw: t.tbw, tbp0: t.tbp0, cbp: t.cbp, tw: t.tw, th: t.th, tcc: t.tcc, csa: t.csa, cpsm: t.cpsm, csm: t.csm,
-        pixels: rec.pixels, pal: p?.buf ?? null, palFormat: p?.format ?? null,
-        rgbaSha256: sha(new Uint8Array(d.data.buffer, d.data.byteOffset, d.data.byteLength)), rgba: d.data,
-      });
-    }
-  };
-  const pairs = (where: string, members: Map<string, () => Uint8Array>): void => {
-    for (const [name, read] of members) {
-      if (!/_TXR\.ZED$/i.test(name)) continue;
-      const pal = members.get(name.replace(/_TXR\.ZED$/i, '_PAL.ZED'));
-      try { library(`${where}/${name}`, read(), pal?.()); } catch (e) { warn(`${where}/${name}: ${(e as Error).message}`); }
-    }
-  };
-  const walk = (dir: string): string[] => readdirSync(dir).flatMap((n) => { const p = join(dir, n); return statSync(p).isDirectory() ? walk(p) : [p]; });
-  const files = walk(disc);
+/** One archive of texture banks: a directory's loose `*.ZED` or one ZDB's members, read only when asked (WM-50). */
+export interface TextureSource {where:string;members:()=>Map<string, () => Uint8Array>}
+
+const walkFiles = (dir: string): string[] => readdirSync(dir).flatMap((n) => { const p = join(dir, n); return statSync(p).isDirectory() ? walkFiles(p) : [p]; });
+
+/** Every texture source under a root, in the order `discTextureRecords` reads them: the loose directories, then the ZDBs. */
+export function textureSources(disc: string): TextureSource[] {
+  const files = walkFiles(disc), out: TextureSource[] = [];
   const byDir = new Map<string, Map<string, () => Uint8Array>>();
   for (const f of files) {
     if (!/\.ZED$/i.test(f)) continue;
@@ -72,12 +49,54 @@ export function discTextureRecords(disc: string, warn: (m: string) => void = () 
     if (!byDir.has(d)) byDir.set(d, new Map());
     byDir.get(d)!.set(basename(f).toUpperCase(), () => new Uint8Array(readFileSync(f)));
   }
-  for (const [d, m] of byDir) pairs(d, m);
+  for (const [d, m] of byDir) out.push({ where: d, members: () => m });
   for (const f of files) {
     if (!/\.ZDB$/i.test(f)) continue;
-    const bytes = new Uint8Array(readFileSync(f)), m = new Map<string, () => Uint8Array>();
-    for (const e of parseZdb(bytes)) m.set(e.name.replace(/^.*[\\/]/, '').toUpperCase(), () => zdbSlice(bytes, e));
-    pairs(relative(disc, f).replace(/\\/g, '/'), m);
+    out.push({ where: relative(disc, f).replace(/\\/g, '/'), members: () => {
+      const bytes = new Uint8Array(readFileSync(f)), m = new Map<string, () => Uint8Array>();
+      for (const e of parseZdb(bytes)) m.set(e.name.replace(/^.*[\\/]/, '').toUpperCase(), () => zdbSlice(bytes, e));
+      return m;
+    } });
   }
   return out;
+}
+
+/**
+ * The records of one source: each `*_TXR.ZED` with its `_PAL`, de-duplicated against `seen` (one shared set for the
+ * whole disc, `discTextureRecords`); `null` keeps every named record, a repeat of another's texels, palette and TEX0
+ * included -- how WM-50's per-map coverage counts an archive's records (the HD plan's MP71 row: 56 records, 55 images).
+ */
+export function sourceRecords(src: TextureSource, warn: (m: string) => void = () => undefined, seen: Set<string> | null = new Set()): DiscTextureRecord[] {
+  const out: DiscTextureRecord[] = [], members = src.members();
+  for (const [name, read] of members) {
+    if (!/_TXR\.ZED$/i.test(name)) continue;
+    const pal = members.get(name.replace(/_TXR\.ZED$/i, '_PAL.ZED'));
+    try { libraryRecords(`${src.where}/${name}`, read(), pal?.(), seen, out); } catch (e) { warn(`${src.where}/${name}: ${(e as Error).message}`); }
+  }
+  return out;
+}
+
+function libraryRecords(where: string, txr: Uint8Array, pal: Uint8Array | undefined, seen: Set<string> | null, out: DiscTextureRecord[]): void {
+  const zar = Zar.parse(txr), palettes = PaletteTable.fromZars(pal ? [Zar.parse(pal)] : []), raw = rawPalettes(pal);
+  for (const k of zar.find('textures')?.children ?? []) {
+    const dat = zar.child(k, 'texdat');
+    if (!dat) continue;
+    const rec = parseTextureRecord(k.name, zar.data(dat));
+    if (!rec.tex0) continue;
+    const t = rec.tex0, p = raw.get(t.cbp);
+    const key = `${sha(rec.pixels)}|${p ? sha(p.buf) : ''}|${t.psm}|${t.tw}|${t.th}|${t.csa}|${t.cpsm}`;
+    if (seen) { if (seen.has(key)) continue; seen.add(key); }
+    const d = decodeTexture(rec, palettes).rgba;
+    out.push({
+      where: `${where}:${k.name}`, name: k.name, width: rec.width, height: rec.height,
+      psm: t.psm, tbw: t.tbw, tbp0: t.tbp0, cbp: t.cbp, tw: t.tw, th: t.th, tcc: t.tcc, csa: t.csa, cpsm: t.cpsm, csm: t.csm,
+      pixels: rec.pixels, pal: p?.buf ?? null, palFormat: p?.format ?? null,
+      rgbaSha256: sha(new Uint8Array(d.data.buffer, d.data.byteOffset, d.data.byteLength)), rgba: d.data,
+    });
+  }
+}
+
+export function discTextureRecords(disc: string, warn: (m: string) => void = () => undefined): DiscTextureRecord[] {
+  const seen = new Set<string>();
+  return textureSources(disc).flatMap((src) => sourceRecords(src, warn, seen));
 }

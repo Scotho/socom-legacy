@@ -5,6 +5,7 @@ import {
   phaseRate, pronePlay, standPlay, type DirectionClass, type Motion, type MotionSets, type PlayNode,
 } from './locomotion';
 import { HEAD_LOOK_NODES, HeadLook, lookFractions } from './headLook';
+import { bendTable, layBend } from './recoilBend';
 import type { MotionTable } from './motionTable';
 import type { LandingKind } from './physics';
 import type { Mount } from './heldItem';
@@ -130,6 +131,12 @@ export interface MoverSnapshot {
    * death action does not meet). Absent or false: alive.
    */
   dead?: boolean;
+  /**
+   * Research 442 (LATER 1144): the body's recoil value (`+0x378`, `./recoilBend` `RecoilBend`) and the hand's item
+   * (`+0xf79`: the rifle 1, the pistol 2; null with no gun) -- `FUN_0057b550` bends the body by them after the aim's twist
+   * and before the run's bank (`aim`). Absent or null: no bend (another's body: `RECOIL_BEND_REMOTE_READING`).
+   */
+  recoilBend?: { value: number; hand: 'rifle' | 'pistol' | null } | null;
 }
 
 /**
@@ -234,6 +241,9 @@ export interface PoseLayer {
    * `FUN_00577000`). Asked once a step with the play's weighted nodes (`current.nodes`, in their order); the answer is
    * aligned with them, null (or a null entry) for none. The Fire set's (`./weaponPose` `fireLayer`): `FUN_0057a330`
    * D:L438828-438859.
+   * LATER 1221 (its review's F1): the answer -- its list, its layers and their parts' arrays -- is read only inside this
+   * step's pose and may be the layer's own scratch, rewritten at its next call: the animator keeps none of it past the step
+   * (`freeze` copies what it holds), and a layer serves one animator.
    */
   nodes?(current: LayerContext): readonly (NodeLayer | null)[] | null;
 }
@@ -801,6 +811,10 @@ export class Animator {
   private readonly nodeSubs: (readonly (NodeLayer | null)[] | null)[] = [];
   /** FL-0: a node's parts with its sub-nodes folded in (`foldSub`): references, live until the node's `add`. */
   private readonly folded: PartPose[] = [];
+  /** LATER 1221: a local written since the world was last composed (`aim` composes it once at its end). */
+  private poseDirty = false;
+  /** LATER 1221: `foldSub`'s first node part per skeleton slot (-1 none), reset after each fold. */
+  private readonly foldFirst: Int32Array;
 
   constructor(private readonly skeleton: Skeleton, clips: Iterable<MotionClip>, private readonly table: MotionTable | null, options: AnimatorOptions = {}) {
     for (const c of clips) this.motions.set(c.name, motionOf(c, entryOf(c.name, table)));
@@ -819,6 +833,7 @@ export class Animator {
     this.lookQ = this.bind.map(() => null);
     this.heldIdx = HELD_NODES.map((name) => skeleton.indexOf(name)).filter((i) => i >= 0);
     this.rifleIdx = skeleton.indexOf(HELD_PART);
+    this.foldFirst = new Int32Array(skeleton.size).fill(-1);
     this.heldOwn = this.heldIdx.map(() => ({ local: { q: [0, 0, 0, 0], t: [0, 0, 0] }, spine: false }));
     this.overlaidOn = this.heldIdx.map(() => false);
     this.overlaidSpine = this.heldIdx.map(() => false);
@@ -1371,7 +1386,8 @@ export class Animator {
       if (i === this.root && tilt) copy4(tilt, shown.q);
       this.skeleton.setLocal(i, partMatrixInto(shown.q, shown.t, this.local16));
     }
-    this.skeleton.update();
+    // LATER 1221: the world composed once, at the aim's end (`aim`'s `finally`), not after each write.
+    this.poseDirty = true;
     this.aim(play, mover);
   }
 
@@ -1451,12 +1467,16 @@ export class Animator {
     if (out !== parts) for (let j = 0; j < count; j++) out[j] = parts[j]!;
     let m = count;
     const subCount = sub.length;
+    // LATER 1221 (a browser adaptation, the same pose): each node part's slot once per fold -- the first `out[j]` (j <
+    // count) of each slot, as the scan found it -- where the scan recomputed every part's slot for every sub-node part.
+    const first = this.foldFirst;
+    for (let j = count - 1; j >= 0; j--) { const i = this.slotOf(out, count, out[j]!.name); if (i >= 0) first[i] = j; }
     for (let s = 0; s < subCount; s++) {
       const sp = sub[s]!;
       const i = this.slotOf(sub, subCount, sp.name);
       if (i < 0) continue;
-      let p: PartPose | null = null;
-      for (let j = 0; j < count; j++) if (this.slotOf(out, count, out[j]!.name) === i) { p = out[j]!; break; }
+      const at = first[i] ?? -1;
+      const p: PartPose | null = at >= 0 ? out[at]! : null;
       if (!p) { if (FIRE_SUB_MISSING_BONE_READING === 'whole') out[m++] = sp; continue; }
       if (w >= 0.999) { copy4(sp.rotation, p.rotation); copy3(sp.translation, p.translation); }
       else if (w > 0.001) {
@@ -1465,6 +1485,7 @@ export class Animator {
         t[0] = t[0] + (st[0] - t[0]) * w; t[1] = t[1] + (st[1] - t[1]) * w; t[2] = t[2] + (st[2] - t[2]) * w;
       }
     }
+    first.fill(-1);
     return m;
   }
 
@@ -1536,7 +1557,16 @@ export class Animator {
    *   (the game's snapshot would carry them, D:L439152-439191 and D:L439196-439204 being the driver's too; a tenth of a
    *   degree's difference for the bank).
    */
+  /**
+   * LATER 1221: the aim's writes (the head look, the twist's rebuild, the bend and the bank) and then, on every way out of
+   * it, the world composed once if any write left it stale (`poseDirty`): one whole `update` a step where there were up to
+   * four (the original keeps no palette between its rotation writes, `FUN_0057a330`; a node's place is walked on demand).
+   */
   private aim(play: Play, mover: MoverSnapshot): void {
+    try { this.aimWrites(play, mover); } finally { if (this.poseDirty) { this.skeleton.update(); this.poseDirty = false; } }
+  }
+
+  private aimWrites(play: Play, mover: MoverSnapshot): void {
     this.lastBank = 0;
     this.lastTwist = 0;
     this.lookOn = false;
@@ -1565,7 +1595,7 @@ export class Animator {
           const i = this.skeleton.indexOf(HEAD_LOOK_NODES[k]!);
           if (i >= 0) this.skeleton.setLocal(i, partMatrixInto(this.looked(i, this.shown[i]!.q, this.lookedQ), this.shown[i]!.t, this.local16));
         }
-        this.skeleton.update();
+        this.poseDirty = true;                                   // LATER 1221: composed where read, and at the aim's end
       }
     }
     const lo = this.skeleton.indexOf('spinelo'), hi = this.skeleton.indexOf('spinehi');
@@ -1580,12 +1610,14 @@ export class Animator {
       const from = this.from, built = this.built;
       if (from) {
         for (let i = 0; i < built.length; i++) this.skeleton.setLocal(i, partMatrixInto(this.looked(i, built[i]!.q, this.lookedQ), built[i]!.t, this.local16));
-        this.skeleton.update();
+        this.poseDirty = true;                                   // LATER 1221
         rebuilt = true;
       }
       const p = (mover.pitch * Math.PI) / 180;
       const aimDir = this.aimDir;
       aimDir[0] = 0; aimDir[1] = Math.sin(p); aimDir[2] = -Math.cos(p);
+      // LATER 1221: the two parts read here composed with their ancestors (the same floats a whole `update` gives them).
+      this.skeleton.updateChain(lo); this.skeleton.updateChain(hi);
       const palette = this.skeleton.palette();
       // Laid on the pose built, then the cross-fade's mix (`mixLocalInto`'s slerp: FUN_0028e0d0's FUN_00306ae0).
       this.lay(lo, this.turn(palette[lo]!, aimDir, weight * TWIST_SHARE.spinelo));
@@ -1593,6 +1625,19 @@ export class Animator {
     }
     let localLo = this.looked(lo, this.shown[lo]!.q, this.loQ);
     const localHi = this.looked(hi, this.shown[hi]!.q, this.hiQ);
+    // Research 442: the recoil bend (FUN_0057b550, called at D:L439196 after the look and the twist, before the bank at
+    // D:L439197-439204): each table bone's bend composed before its rotation, v x its offset on its translation
+    // (`./recoilBend` `layBend`). The spine's here, under the bank; the other bones' after the cross-fade's rewrite below.
+    const bend = mover.recoilBend, bendRows = bend && bend.value > 0 ? bendTable(stance, bend.hand) : null;
+    let loT: readonly [number, number, number] = this.shown[lo]!.t, hiT: readonly [number, number, number] = this.shown[hi]!.t;
+    let localHiBent: readonly [number, number, number, number] = localHi;
+    if (bendRows) {
+      for (const r of bendRows) {
+        const i = this.skeleton.indexOf(r.bone);
+        if (i === lo) { const b = layBend(localLo, loT, r, bend!.value); localLo = b.q; loT = b.t; }
+        else if (i === hi) { const b = layBend(localHiBent, hiT, r, bend!.value); localHiBent = b.q; hiT = b.t; }
+      }
+    }
     const yaw = (mover.yaw * Math.PI) / 180;
     const vzLocal = -(mover.vx * -Math.sin(yaw) + mover.vz * -Math.cos(yaw));
     const turnRate = mover.turnRate ?? 0;
@@ -1603,15 +1648,23 @@ export class Animator {
       b[0] = 0; b[1] = 0; b[2] = Math.sin(angle / 2); b[3] = Math.cos(angle / 2);
       localLo = qmulInto(b, localLo, this.bankedQ);
     }
-    if (!rebuilt && this.lastTwist === 0 && this.lastBank === 0) return;
+    if (!rebuilt && this.lastTwist === 0 && this.lastBank === 0 && !bendRows) return;
     if (rebuilt) {
       for (let i = 0; i < this.shown.length; i++) {
         if (i !== lo && i !== hi) this.skeleton.setLocal(i, partMatrixInto(this.looked(i, this.shown[i]!.q, this.lookedQ), this.shown[i]!.t, this.local16));
       }
     }
-    this.skeleton.setLocal(lo, partMatrixInto(localLo, this.shown[lo]!.t, this.local16));
-    this.skeleton.setLocal(hi, partMatrixInto(localHi, this.shown[hi]!.t, this.local16));
-    this.skeleton.update();
+    if (bendRows) {
+      for (const r of bendRows) {
+        const i = this.skeleton.indexOf(r.bone);
+        if (i < 0 || i === lo || i === hi) continue;
+        const b = layBend(this.looked(i, this.shown[i]!.q, this.lookedQ), this.shown[i]!.t, r, bend!.value);
+        this.skeleton.setLocal(i, partMatrixInto(b.q, b.t, this.local16));
+      }
+    }
+    this.skeleton.setLocal(lo, partMatrixInto(localLo, loT, this.local16));
+    this.skeleton.setLocal(hi, partMatrixInto(localHiBent, hiT, this.local16));
+    this.poseDirty = true;                                       // LATER 1221: the one whole update, in `aim`'s finally
   }
 
   /** The twist laid on part `i`'s pose built, then the cross-fade's mix with the frozen pose, into `shown` (`aim`). */

@@ -306,4 +306,30 @@ describe('PF-34: a pickup changes the live kit, never the pick (research 234 s3)
     l.take([1, 2] as unknown as Loadout);
     expect(l.loadout()).toEqual([38, 15, 121, 126, 255]);
   });
+
+  // R4P-103 (r0004: the reading agent/spc-atlas dcd314b4bd, D4:L499303-499309; Q103B a1e119affd): a claimed launcher's round
+  // is appended after the kit's last record, so the room's `kit` after a launcher claim names six records -- taken whole.
+  it("R4P-103: a kit of six records (the LAW's round appended at index 5) is taken whole; past the original's 30 records, or a non-id, nothing", () => {
+    const l = new PlayerLoadout();
+    l.setMap(table, map);
+    l.spawn('seal');
+    const before = [...l.loadout()];
+    l.take([54, 15, 121, 145, 255, 185]);
+    expect([...l.loadout()]).toEqual([54, 15, 121, 145, 255, 185]);
+    l.take([54, 15, 121, 145, 255, 256]);
+    expect([...l.loadout()]).toEqual([54, 15, 121, 145, 255, 185]);
+    l.take(new Array(31).fill(255));
+    expect([...l.loadout()]).toEqual([54, 15, 121, 145, 255, 185]);
+    expect(before).toHaveLength(5);
+  });
+
+  // R4P-103 fresh review F3: a resumed taker's spawn names the room's live kit -- six records after a launcher claim
+  // (room.ts's respawn sends `[...p.loadout]`), taken whole as the room's own kit (`wireKit`, 5-30), never refused for the
+  // type's kit; a malformed one still falls back.
+  it("R4P-103 F3: a match's spawn kit of six records (a resumed taker's) is taken whole; past 30 records, the type's kit", () => {
+    const l = new PlayerLoadout();
+    l.setMap(table, map);
+    expect([...l.spawn('seal', { network: true, kit: [54, 15, 121, 145, 255, 185] })]).toEqual([54, 15, 121, 145, 255, 185]);
+    expect([...l.spawn('seal', { network: true, kit: new Array(31).fill(255) })]).toEqual([54, 15, 121, 126, 194]);
+  });
 });

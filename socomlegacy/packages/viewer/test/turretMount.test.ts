@@ -27,8 +27,8 @@ import { simMapFromBytes, SIM_CLIPS, type SimMap } from '../src/simMap';
  * The mount's body (research 215 s7): the turret anim set's clips off `animset.rdr` and `motion.rdr` (`FUN_005a6fc0`
  * D:L462173-462200, the names D:L495412-495414), the seat `FUN_005463c0` (D:L412260-412316) records and `FUN_005b3340` (PB-2)
  * steers the actor to -- `origin + R(facing) x (refPt - root)` -- on Crossroads (the fixture) and Vigilance (the disc),
- * the room's steer onto it (`SeatSteer`, TURRET_SEAT_READING), and the firepoint's frame a mounted round's flash is placed
- * on (TURRET_MUZZLE_NODE_READING).
+ * the room's steer onto it (`SeatSteer`, TURRET_SEAT_READING), and the firepoint's frame (TURRET_MUZZLE_NODE_READING; a
+ * mounted round's flash was placed on it until R4P-239, which draws none).
  */
 
 const FIXTURES = process.env.S2U_TEST_FIXTURES ? resolve(process.env.S2U_TEST_FIXTURES) : resolve(import.meta.dirname, '../../../test-fixtures');
@@ -250,7 +250,7 @@ describe('the seat and its steer (no game data)', () => {
     // On a floor 13.69 under the place: written there, its height the floor's; a falling mover is stood on it.
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
     const floor: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
+      points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) };
     const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
     const w = new Walker(groundGrid(packGround(params, [floor], owners)));
     expect(w.place(0, probeLiftOf('stand'), 12)).toBe(true);

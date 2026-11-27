@@ -18,8 +18,8 @@
 ## Tests
 
 - [ ] A test that failed before this change, and passes now (paste both runs)
-- [ ] On the final commit of this pull request: `npm run typecheck` clean; `npm test`, `npm run build` and the browser
-      specs (`npm run e2e -w @s2u/socomlegacy`) green; tests that skipped (no disc) listed as skipped
+- [ ] On the final commit of this pull request: `npm run typecheck` clean; `npm test` and `npm run build` green;
+      tests that skipped (no disc) listed as skipped. (The browser specs are run by the maintainers at import.)
 
 ## Notes
 

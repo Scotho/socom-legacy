@@ -1,5 +1,5 @@
 /**
- * What each material of the table (`@s2u/scene` `materialTable`, by SOILS name) has on the disc (the owner,
+ * What each material of the table (`@s2u/scene` `materialTable`, by SOILS name) has on the disc (the Forge's owner (crispy, OT.R112),
  * 2026-11-20: "for each one that is broken or doesn't have sound or hit effects, label it"): read off the disc once and
  * transcribed here; `test/forge/materialCoverage.test.ts` reads the disc again and holds this to it (SOCOM_ISO).
  * - **steps**: `materials.rdr`'s step sounds (STEPSOUND, STEALTH_STEPSOUND, CRAWLSOUND, LANDSOUND): `'yes'` held by

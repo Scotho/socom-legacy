@@ -42,8 +42,10 @@ const tree = (d: string): string[] => readdirSync(resolve(SRC, d), { withFileTyp
 // `console/` since CX-28 (2026-10-18), with its subfolders: MODAL-CLOSE read `console/input.ts` alone, so the adapters'
 // key listeners (`adapters/replays.ts`' release stoppers, `adapters/index.ts`' keyboard-seen mark) went unread.
 // `forge/shell/` since the FC2 batch review's B-5 (2026-11-13): the dock shell's sash keys (`forge/shell/dockShell.ts`,
-// 434a494cbc), its workspace's and the card stack's keys went unread while `forge/` was read flat.
-const files = [...readdirSync(SRC), ...['net', 'voice', 'forge'].flatMap((d) => readdirSync(resolve(SRC, d)).map((f) => `${d}/${f}`)), ...tree('modern'), ...tree('console'), ...tree('forge/shell')].filter((f) => f.endsWith('.ts'));
+// 434a494cbc), its workspace's and the card stack's keys went unread while `forge/` was read flat. `forge/` with every
+// subfolder since PR #5's review (crispy's import, OT.R112): `forge/geometry/` and `forge/panels/` held thirteen key
+// listeners the folder list never read; walked, a folder added later is read without an edit here.
+const files = [...readdirSync(SRC), ...['net', 'voice'].flatMap((d) => readdirSync(resolve(SRC, d)).map((f) => `${d}/${f}`)), ...tree('modern'), ...tree('console'), ...tree('forge')].filter((f) => f.endsWith('.ts'));
 /**
  * A line that attaches a key listener: `addEventListener('keydown' | 'keyup', ...)`; since CX-28 a helper's
  * `name(target, 'keydown' | 'keyup', ...)` too -- the console's `on()` (`console/input.ts`) attaches its keymap and its
@@ -65,13 +67,36 @@ const NOT_GAME_INPUT: readonly [string, string][] = [
   ['forge/page.ts', "doc.addEventListener('keydown', event => {"],
   ['forge/page.ts', "doc.addEventListener('keydown', (e) => {"],
   ['forge/page.ts', "field.addEventListener('keydown', (e) => {"],   // the outliner's folder rename: Enter keeps, Escape cancels (a text field's own keys)
-  ['forge/scrub.ts', "doc.addEventListener('keydown', onKey, true);"],
+  // PR #5 (crispy's rewrite, OT.R112; as `forge/releaseGate.test.ts` lists them, 81e22ef980): the scrub's Escape listens on
+  // the field's own document (`keys`), was `doc`, the same Escape-only cancel; the asset picker's and the asset preview
+  // card's Escape (each `onKey` an Escape-only close, FP-1b below); AI Navigation mode's soil menu's Escape (`away`: a key
+  // other than Escape does nothing).
+  ['forge/scrub.ts', "keys.addEventListener('keydown', onKey, true);"],
+  ['forge/page.ts', "doc.addEventListener('keydown', onKey, true);"],
+  ['forge/aiPaint.ts', "doc.addEventListener('keydown', away, true);"],
   // The Forge shell's own (FC2 B-5; browser adaptations): Escape closing an open workspace (the dock shell's and the old
   // panel host's, each on the workspace's own root), and the card stack's Escape (its Back) and its Tab focus trap.
   ['forge/shell/dockShell.ts', "workspace?.root.addEventListener('keydown', onWorkspaceKey);"],
   ['forge/shell/panel.ts', "workspace?.root.addEventListener('keydown', onWorkspaceKey);"],
   ['forge/shell/cards.ts', "host.addEventListener('keydown', onKey);"],     // Escape: the top card's Back
   ['forge/shell/cards.ts', "doc.addEventListener('keydown', onTab);"],      // Tab: the top card's focus trap
+  // PR #5's review (the scan walks `forge/` whole now; crispy's import, OT.R112; as `forge/releaseGate.test.ts` lists them).
+  // On the document, each bound only while its own popup is open and Escape-only (the PR #5 review case below holds each
+  // handler's form): Geometry mode's climb menu (`away`), its block-shape menu (`key`), the script graph's step menu (`key`).
+  ['forge/geometry/editor.ts', "doc.addEventListener('keydown', away, true);"],
+  ['forge/geometry/editor.ts', "doc.addEventListener('keydown', key, true);"],
+  ['forge/panels/stepMenu.ts', "doc.addEventListener('keydown', key, true);"],
+  // On a field or a control of its own, each a whole line, so a handler taking another key no longer matches: the
+  // Inspector's suggestion field and a held-open Data dropdown (Escape, Enter or Tab closes its list), an Inspector field's
+  // Enter (commits, by blur); the script graph's sequence rename (Enter keeps, Escape cancels) and a node head's Enter or
+  // Space (a button's activation: choose the node); the texture inspector's two number fields' Enter (commits, by blur).
+  ['forge/panels/inspectorPanel.ts', "input.addEventListener('keydown', (k) => { if (k.key === 'Escape' || k.key === 'Enter' || k.key === 'Tab') suggestOpen?.close(); });"],
+  ['forge/panels/inspectorPanel.ts', "s.addEventListener('keydown', (k) => { if (k.key === 'Escape' || k.key === 'Enter' || k.key === 'Tab') close(); });"],
+  ['forge/panels/inspectorPanel.ts', "if (input instanceof HTMLInputElement && e.kind !== 'check') input.addEventListener('keydown', (k) => { if (k.key === 'Enter') input.blur(); });"],
+  ['forge/panels/scriptGraph.ts', "input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); finish(true); } else if (e.key === 'Escape') { e.preventDefault(); finish(false); } });"],
+  ['forge/panels/scriptGraph.ts', "head.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });"],
+  ['forge/panels/textureInspector.ts', "i.addEventListener('keydown', (k) => { if (k.key === 'Enter') i.blur(); });"],
+  ['forge/panels/textureInspector.ts', "distance.addEventListener('keydown', (k) => { if (k.key === 'Enter') distance.blur(); });"],
   ['startupNavigation.ts', 'this.clearFocus()'],                 // a key clears the pad's focus ring
   ['ui.ts', "pop.querySelector('#controls-tabs')?.addEventListener('keydown'"], // the tabs' arrows (twice)
   ['ui.ts', "button.addEventListener('keydown'"],                  // a tab's arrow keys
@@ -93,6 +118,10 @@ const NOT_GAME_INPUT: readonly [string, string][] = [
   // round's USB-keyboard text line, the original's own text entry (`FUN_002c6c70`) -- a player's, in every build, as the
   // soft keyboard's text entry is; never a game control (`ROUND_TEXT_KEYS_READING`) and no `keyboardSite`.
   ['roundTextLine.ts', "target.addEventListener('keydown', down, true)"],
+  // STREAMER-P1 (OT.R152, a labelled browser adaptation; the controller's ruling, 2026-11-24): Streamer mode's Ctrl+Shift+S
+  // toggle, in every build, as the feature ships in a release. Not game input: it reads that chord only and never prevents or
+  // stops any other key, so the game's keys (Ctrl's crouch among them) fire as before (`test/streamerMode.test.ts` pins it).
+  ['streamerMode.ts', "target.addEventListener('keydown', e0.onKey, true);"],
   // LATER 86: the modern tree's focus and accessibility keys, one by one (file :line at 2026-10-17, then the reason). A
   // browser adaptation's own controls; none reaches the game.
   ['modern/overlay/index.ts', "root.addEventListener('keydown', onKey)"],        // :329 the overlay's Tab trap (`trapTab`)
@@ -110,6 +139,7 @@ const NOT_GAME_INPUT: readonly [string, string][] = [
   // the launcher's menu keys, every build -- the console's menus only (the overlay over a game reads none), never a game key.
   ['console/input.ts', "on(win, 'keydown', onMenuKey)"],
   ['console/input.ts', "on(doc, 'keydown', onAccountKeys, true)"],          // browser account disclosure: native activation/accessibility; underlying keys stand down
+  ['console/donations.ts', "win.addEventListener('keydown', key, true)"],      // PR #824 :142 the donation meter's own keys: native activation (Enter, Space) on the meter, and its open dialog's Tab trap and Escape -- the launcher's, never a game key
   // RVK-B (LATER 966): the viewer takes its keys in every build now (`RVK_REPLAY_VIEWER` below); these three stay as they read.
   ['console/adapters/replays.ts', "layer.addEventListener('keydown', stopAll, true)"], // :257 a caller's `keyboard: false`: every key stops at the layer
   ['console/adapters/replays.ts', "layer.addEventListener('keyup', stopAll, true)"],   // :258 the same at keyup (a button's Space clicks there)
@@ -154,6 +184,22 @@ const OT_R68_FORGE: readonly [string, string][] = [
   // FC2-6 (434a494cbc; the FC2 batch review's B-5): the dock shell's sash -- the arrows along its split resize the two panes
   // beside it (Shift a larger step), as the old docks' resize handle did; the editor's own, every build.
   ['forge/shell/dockShell.ts', "el.addEventListener('keydown', (e) => {"],
+  // PR #5 (crispy's rewrite, OT.R112; the same entries as `forge/releaseGate.test.ts`'s OT_R68, 81e22ef980): each an
+  // editor key, none a game key -- the Outliner's rename key (`outliner.rename`, typing refused first); Ctrl / Cmd held
+  // flipping the snaps for a drag; AI Navigation mode's Shift (the sampler's cursor) and its Escape (Select, then
+  // deselect, only while the mode is active); the shortcut editor's chord capture (Edit > Preferences), which reads every
+  // key while it records one.
+  ['forge/page.ts', "outliner.addEventListener('keydown', (e) => {"],
+  ['forge/page.ts', "doc.addEventListener('keydown', (e) => { if (e.key === 'Control' || e.key === 'Meta') setCtrlSnapFlip(true); }, true);"],
+  ['forge/page.ts', "doc.addEventListener('keyup', (e) => { if (e.key === 'Control' || e.key === 'Meta') setCtrlSnapFlip(false); }, true);"],
+  ['forge/aiPaint.ts', "doc.addEventListener('keydown', (e) => {"],
+  ['forge/aiPaint.ts', "doc.addEventListener('keyup', (e) => { if (e.key === 'Shift') this.setShift(false); }, true);"],
+  ['forge/shortcutEditor.ts', "win.addEventListener('keydown', onKey, true);"],
+  ['forge/shortcutEditor.ts', "win.addEventListener('keyup', onKeyUp, true);"],
+  // PR #5's review (the scan walks `forge/` whole now): Geometry mode's shortcuts (`forge/geometry/editor.ts` `onKey`),
+  // an editor key; `onKey` opens on `!this.active || this.deps.matchHeld()` (fbe25ad323), held by the case below as
+  // `forge/releaseGate.test.ts` holds it, so a Play match reads none of them.
+  ['forge/geometry/editor.ts', "doc.addEventListener('keydown', (e) => this.onKey(e), true);"],
   // R4 (dot's FCW-S1-ASSETS, b293f72f7) named the asset preview's keys here; FUI-22 (D1) made the preview a tooltip,
   // which takes no keys, so the line went and its entry with it (the page's Escape hides the tooltip, `forge/keys.ts`).
   ['camera.ts', "globalThis.addEventListener('keydown', this.onKeyDown)"],        // under `DEV || this.forgeKbm`
@@ -171,6 +217,12 @@ const OT_R68_FORGE: readonly [string, string][] = [
 const OT_R114_TESTROOM: readonly [string, string][] = [
   ['main.ts', 'testroomKeys('],
   ['traversalPage.ts', "target.addEventListener('keyup', ((e: KeyboardEvent) => {"],
+  // PR #5 (crispy's import; OT.R114 (1), "keyboard and mouse is ALLOWED for the test room and the forge", not an online
+  // match): the Forge's Play match's copy of the test room's keys (X, I, 1-5, B), `matchMount.ts` `bindTestroomKeys`, each
+  // on `kbmWin`, whose keydown asks `kbmNow` (a `kbm` page -- only `forge/match.ts` passes one -- while its client is the
+  // loopback, `kbmAllowed`) at each press; bound only `if (o.kbm !== undefined)`. The case below holds that form.
+  ['matchMount.ts', "target.addEventListener('keydown', ((e: KeyboardEvent) => {"],
+  ['matchMount.ts', "target.addEventListener('keyup', ((e: KeyboardEvent) => {"],
 ];
 
 // LATER 86's two findings (the replay transport's playback keys, `replays/transport.ts`, and the viewer's Escape for Back,
@@ -209,10 +261,36 @@ const FORGE_PAGE_EXEMPT_LINES: Readonly<Record<string, number>> = {
   "doc.addEventListener('keydown', event => {": 1,
   // FC2-4: three -- the Play settings popup's and the Select settings popup's Escape (page.ts:11326, 11775), and his menu
   // bar's (page.ts:12202): Escape shuts an open File / Edit / Window menu, no other key, on one line.
-  "doc.addEventListener('keydown', (e) => {": 3,
+  // PR #5 (as `forge/releaseGate.test.ts`, 81e22ef980): five -- those three and his workplane pick's and tile drag's
+  // Escape, each an Escape-only guard. His Ctrl snap line opens with the same words but is OT.R68's (listed there, so
+  // not counted here).
+  "doc.addEventListener('keydown', (e) => {": 5,
+  // PR #5: the asset picker's and the asset preview card's, each `onKey` an Escape-only close.
+  "doc.addEventListener('keydown', onKey, true);": 2,
   "field.addEventListener('keydown', (e) => {": 1,   // the outliner's folder rename: Enter keeps, Escape cancels (a text field's own keys)
 };
 const ESCAPE_ONLY = /^\s*if \((?:e|event)\.key !== 'Escape' \|\| \w+\.hidden\) return;$/;
+/** PR #5: the guard with its state the other way round -- `!workplanePicking || e.key !== 'Escape'`, `e.key !== 'Escape' || !tileDrag?.started`. */
+const ESCAPE_ONLY_STATE = /^\s*if \((?:!\w+ \|\| )?e\.key !== 'Escape'(?: \|\| ![\w?.]+)?\) return;$/;
+/** PR #5: a named handler's whole body one Escape-guarded close (`const onKey = ...`, the line before its listener's). */
+const ESCAPE_ONLY_ONKEY = /^\s*const onKey = \(e: KeyboardEvent\): void => \{ if \(e\.key === 'Escape'\) \{ [^{}]* \} \};$/;
+/** PR #5: a line OT.R68's group claims is the editor's, not an accessibility exemption (his Ctrl snap line). */
+const otR68Claims = (l: string): boolean => OT_R68_FORGE.some(([f, frag]) => f === 'forge/page.ts' && l.includes(frag));
+/**
+ * PR #5's review: an OPEN FINDING, not an exemption ruled (as `forge/releaseGate.test.ts`'s `OPEN_MATCH_UNGUARDED`) --
+ * Geometry mode's Shift and Ctrl / Cmd held, on the document with no `active` or `matchHeld` guard: under a Play match
+ * started in Geometry mode a press still runs `setShiftHeld` and `setCtrlHeld` (the paint UI and hover, a drag under way,
+ * the Knife's point redrawn). Reported to the coordinator; each pinned to its whole line so the scan stays red on any
+ * change until it is ruled or guarded.
+ */
+const OPEN_MATCH_UNGUARDED: readonly [string, string][] = [
+  ['forge/geometry/editor.ts', "doc.addEventListener('keydown', (e) => { if (e.key === 'Shift') this.setShiftHeld(true); if (e.key === 'Control' || e.key === 'Meta') this.setCtrlHeld(true); }, true);"],
+  ['forge/geometry/editor.ts', "doc.addEventListener('keyup', (e) => { if (e.key === 'Shift') this.setShiftHeld(false); if (e.key === 'Control' || e.key === 'Meta') this.setCtrlHeld(false); }, true);"],
+];
+/** PR #5's review: a named popup handler's whole body one Escape-guarded close (`const key = ...`, before its listener). */
+const ESCAPE_ONLY_KEY = /^\s*const key = \(e: KeyboardEvent\): void => \{ if \(e\.key === 'Escape'\) \{ [^{}]* \} \};$/;
+/** PR #5's review: the climb menu's `away` -- its one statement a close on Escape (a key) or a press outside (a pointer). */
+const ESCAPE_ONLY_AWAY = /const away = \(e: Event\): void => \{\n\s*if \(e instanceof KeyboardEvent \? e\.key === 'Escape' : [^\n?]*\) \{\n\s*this\.closeClimbMenu\(\);\n\s*if \(e instanceof KeyboardEvent\) e\.stopPropagation\(\);\n\s*\}\n\s*\};\n/;
 /** FC2-4: the one-line form -- the handler's whole body one Escape-guarded shut of the menu bar's open menus. */
 const ESCAPE_ONLY_INLINE = /=> \{ if \((?:e|event)\.key === 'Escape'\) for \(const m of menus\) if \(m\.d\.open\) shut\(m\); \}\);\s*$/;
 
@@ -236,7 +314,7 @@ describe('every game keyboard listener is a development build\'s only (OT.R29, "
       const lines = readFileSync(resolve(SRC, f), 'utf-8').split('\n');
       lines.forEach((line, i) => {
         if (!keyListener(line)) return;
-        if ([...NOT_GAME_INPUT, ...OT_R62_ESCAPE, ...LAUNCHER_START, ...OT_R68_FORGE, ...OT_R114_TESTROOM, ...RVK_REPLAY_VIEWER].some(([file, frag]) => f === file && line.includes(frag))) return;
+        if ([...NOT_GAME_INPUT, ...OT_R62_ESCAPE, ...LAUNCHER_START, ...OT_R68_FORGE, ...OT_R114_TESTROOM, ...RVK_REPLAY_VIEWER, ...OPEN_MATCH_UNGUARDED].some(([file, frag]) => f === file && line.includes(frag))) return;
         if (lines.slice(Math.max(0, i - 14), i + 1).some((l) => l.includes('import.meta.env.DEV'))) return;
         bad.push(`${f}:${i + 1}: ${line.trim()}`);
       });
@@ -247,10 +325,14 @@ describe('every game keyboard listener is a development build\'s only (OT.R29, "
     const lines = readFileSync(resolve(SRC, 'forge/page.ts'), 'utf-8').split('\n');
     for (const [frag, count] of Object.entries(FORGE_PAGE_EXEMPT_LINES)) {
       expect(NOT_GAME_INPUT.some(([f, x]) => f === 'forge/page.ts' && x === frag), frag).toBe(true);
-      const at = lines.flatMap((l, i) => (l.includes(frag) ? [i] : []));
+      const at = lines.flatMap((l, i) => (l.includes(frag) && !otR68Claims(l) ? [i] : []));
       expect(at, frag).toHaveLength(count);
       if (frag.startsWith('doc.')) {
-        for (const i of at) expect(ESCAPE_ONLY.test(lines[i + 1]!) || ESCAPE_ONLY_INLINE.test(lines[i]!), `forge/page.ts:${i + 1}`).toBe(true);
+        for (const i of at) {
+          const onKeyAt = frag.includes('onKey') ? lines.slice(0, i).map((l) => l.includes('const onKey = ')).lastIndexOf(true) : -1;
+          expect(ESCAPE_ONLY.test(lines[i + 1]!) || ESCAPE_ONLY_STATE.test(lines[i + 1]!) || ESCAPE_ONLY_INLINE.test(lines[i]!)
+            || (onKeyAt >= 0 && ESCAPE_ONLY_ONKEY.test(lines[onKeyAt]!)), `forge/page.ts:${i + 1}`).toBe(true);
+        }
       }
     }
     // Beside them only the native Settings range's keyup (FDL-1), pinned to its one line by `forge/releaseGate.test.ts`.
@@ -326,6 +408,32 @@ describe('every game keyboard listener is a development build\'s only (OT.R29, "
     const wrapped = main.filter((l) => keyListener(l) && l.includes('testroomKeys('));
     expect(wrapped.length).toBeGreaterThanOrEqual(6);
     for (const l of wrapped) expect(l, l.trim()).toMatch(/addEventListener\??\.?\('key(down|up)', testroomKeys\(/);
+    // PR #5: the Forge Play match's copy (`matchMount.ts`): every key listener there is inside `bindTestroomKeys`, on
+    // `kbmWin`, whose keydown asks `kbmNow` (OT.R114's page, offline: `kbmAllowed`), and the binding is a `kbm` page's only.
+    const mm = readFileSync(resolve(SRC, 'matchMount.ts'), 'utf-8').split('\n');
+    // PR #5's review: the whole call, its second argument the match's own client (the loopback's URL), so an argument that
+    // always allows turns this red; and the keydown gate inside `kbmWin`'s own `addEventListener`, not anywhere in the file.
+    expect(mm.filter((l) => l.trim() === 'const kbmNow = (): boolean => attached && o.kbm !== undefined && kbmAllowed(o.kbm, (net?.client ?? o.client)?.url);')).toHaveLength(1);
+    const win0 = mm.findIndex((l) => l === '  const kbmWin = {');
+    expect(win0).toBeGreaterThan(0);
+    const win1 = mm.findIndex((l, i) => i > win0 && l === '  };');
+    expect(mm[win0 + 1]).toBe('    addEventListener: (type: string, fn: EventListenerOrEventListenerObject): void => {');
+    expect(mm[win0 + 2]).toBe('      const call: EventListener = (e) => {');
+    expect(mm[win0 + 3]).toBe("        if (type === 'keydown' && (!kbmNow() || (o.blocked?.() ?? false))) return;");
+    expect(mm.slice(win0, win1).filter((l) => l.includes('win.addEventListener(type, call);'))).toHaveLength(1);
+    expect(mm.filter((l) => l.includes("if (type === 'keydown' && (!kbmNow() || (o.blocked?.() ?? false))) return;"))).toHaveLength(1);
+    const binder = mm.findIndex((l) => l.includes('const bindTestroomKeys = (): void => {'));
+    expect(binder).toBeGreaterThan(0);
+    expect(mm[binder + 1]).toContain('const target = kbmWin as unknown as EventTarget;');
+    const binderEnd = mm.findIndex((l, i) => i > binder && l === '  };');
+    const mmAt = mm.flatMap((l, i) => (keyListener(l) && /addEventListener\(/.test(l) && !l.includes("if (type === 'keydown'") ? [i] : []));
+    expect(mmAt).toHaveLength(5);
+    for (const i of mmAt) {
+      expect(i, `matchMount.ts:${i + 1}`).toBeGreaterThan(binder);
+      expect(i, `matchMount.ts:${i + 1}`).toBeLessThan(binderEnd);
+      expect(mm[i]!.trim().startsWith('target.addEventListener('), `matchMount.ts:${i + 1}`).toBe(true);
+    }
+    expect(mm.filter((l) => l.includes('bindTestroomKeys()')).map((l) => l.trim().split(';')[0])).toEqual(['if (o.kbm !== undefined) bindTestroomKeys()']);
   });
   it("RVK-B: the replay viewer's group -- each entry one live line, every build's, on the viewer's own element, never the window, the global or the document", () => {
     const devFold = 'import.meta.en' + 'v.DEV';                       // split: the leak check's key-file name
@@ -381,6 +489,25 @@ describe('every game keyboard listener is a development build\'s only (OT.R29, "
     const all = files.map((f) => readFileSync(resolve(SRC, f), 'utf-8')).join('\n');
     for (const site of KEYBOARD_SITES) expect(all, site).toContain(`keyboardSite('${site}')`);
   });
+  it("PR #5's review: the scan walks every folder of src/forge/; each geometry/ and panels/ entry names one live line, each popup's document handler Escape-only, Geometry mode's onKey behind the match", () => {
+    for (const f of ['forge/geometry/editor.ts', 'forge/panels/stepMenu.ts', 'forge/panels/inspectorPanel.ts', 'forge/panels/scriptGraph.ts', 'forge/panels/textureInspector.ts']) expect(files, f).toContain(f);
+    const isSub = (f: string): boolean => f.startsWith('forge/geometry/') || f.startsWith('forge/panels/');
+    const sub = [...NOT_GAME_INPUT, ...OT_R68_FORGE, ...OPEN_MATCH_UNGUARDED].filter(([f]) => isSub(f));
+    expect(sub).toHaveLength(13);
+    const read = (f: string): string[] => readFileSync(resolve(SRC, f), 'utf-8').split(/\r?\n/);
+    for (const [file, frag] of sub) expect(read(file).filter((l) => l.includes(frag) && keyListener(l)), `${file}: ${frag}`).toHaveLength(1);
+    for (const [file, frag] of NOT_GAME_INPUT.filter(([f, x]) => isSub(f) && x.startsWith('doc.'))) {
+      const lines = read(file);
+      const at = lines.findIndex((l) => l.includes(frag));
+      const name = frag.includes(', away,') ? 'const away = ' : 'const key = ';
+      const from = lines.slice(0, at).map((l) => l.includes(name)).lastIndexOf(true);
+      expect(from, `${file}:${at + 1}`).toBeGreaterThanOrEqual(0);
+      if (name === 'const away = ') expect(ESCAPE_ONLY_AWAY.test(`${lines.slice(from, at).join('\n')}\n`), `${file}:${at + 1}`).toBe(true);
+      else expect(ESCAPE_ONLY_KEY.test(lines[from]!), `${file}:${from + 1}`).toBe(true);
+    }
+    // Geometry mode's `onKey`: its first line refuses every key while the mode is off or a match is held (fbe25ad323).
+    expect(read('forge/geometry/editor.ts').join('\n')).toMatch(/private onKey\(e: KeyboardEvent\): void \{\n\s*if \(!this\.active \|\| this\.deps\.matchHeld\(\) \|\| /);
+  });
   it("FC2 B-5: the scan reads forge/shell/, and each of its exemptions names one live key listener line", () => {
     expect(files).toContain('forge/shell/dockShell.ts');
     const shell = [...NOT_GAME_INPUT, ...OT_R68_FORGE].filter(([file]) => file.startsWith('forge/shell/'));
@@ -433,6 +560,23 @@ describe('a release build reads no key (vi.stubEnv DEV false)', () => {
     state.isOpen = false;
     key(window, 'KeyA'); expect(keys.next()).toBeNull();
     detach();
+  });
+  it("ENTER_OPENS_CHAT_ADAPTATION (the owner, 2026-11-15): the text entry's listener in a release build also queues Enter for the dispatch's step 6, only with no keyboard up on a screen that binds USBKBD_ENTER, and no other key", () => {
+    vi.stubEnv('DEV', false);
+    let binds = false;
+    const keys = new SoftKeyboardKeys(() => 0), state = { isOpen: false };
+    const screen = {};                                                                    // the showing screen's design when it binds the event
+    const detach = keys.attach(window, state, true, () => (binds ? screen : null));
+    key(window, 'Enter'); expect(keys.menuKey()).toBeNull();
+    binds = true;
+    for (const code of ['KeyA', 'Space', 'KeyX', 'ArrowUp', 'KeyT', 'Escape']) {
+      key(window, code);
+      expect([code, keys.menuKey(), keys.next()]).toEqual([code, null, null]);
+    }
+    key(window, 'Enter'); expect(keys.menuKey()).toBe(0x28);
+    key(window, 'NumpadEnter'); expect(keys.menuKey()).toBe(0x58);
+    detach();
+    key(window, 'Enter'); expect(keys.menuKey()).toBeNull();
   });
   it('KEYBOARD-WHISPER (OT.R48): the online round text line reads keys in a release build only in an online round, and only the keys its USB map acts on', () => {
     vi.stubEnv('DEV', false);
@@ -681,7 +825,7 @@ describe('RB-8: the test room reads its keys in a release build while its predic
   it("the source: each class's gate is the literal fold or its opt-in, and the press asks the opt-in again", () => {
     const src = (f: string): string => readFileSync(resolve(SRC, f), 'utf-8');
     const dev = 'import.meta.en' + 'v.DEV';
-    for (const f of ['fire.ts', 'scoreboardKeys.ts', 'tacMap.ts']) {
+    for (const f of ['fireCore.ts', 'scoreboardKeys.ts', 'tacMap.ts']) {
       expect(src(f), f).toContain(`if (${dev} || kbm !== null) {`);
       expect(src(f), f).toContain(`if (!${dev} && !this.kbm?.()) return;`);
     }

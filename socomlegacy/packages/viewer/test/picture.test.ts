@@ -6,8 +6,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Ui } from '../src/ui';
 import { EXPERIMENTAL_DEFAULTS } from '../src/experimentalGraphics';
 import * as picture from '../src/picture';
-import { MATCH_CANVAS_CLASS, MATCH_EXPERIMENTAL_OFF, parsePicture, PICTURE_KEY, PICTURE_PS2_CLASS, pictureKeeper, type VideoPicture } from '../src/picture';
+import { MATCH_CANVAS_CLASS, MATCH_EXPERIMENTAL_OFF, pagePicture, parsePicture, PICTURE_KEY, PICTURE_PS2_CLASS, pictureDefault, pictureKeeper, type VideoPicture } from '../src/picture';
 import { PAGE_SETTING_KEYS } from '../src/pageStore';
+import { CLASS_PICTURE_ADAPTATION } from '../src/autoQuality';
+import type { DeviceClass } from '../src/deviceClass';
+import { GRAPHICS_BACKEND_KEY } from '../src/graphicsBackend';
+import { VIDEO_SETTINGS_KEY_V2, videoSettingsKeeperV2 } from '../src/videoSettings';
+import { liveOptions, VIDEO_PRESET_ROW } from '../src/console/adapters/options';
 
 // B206 ML-6 (plan 2026-11-06-mods-loader, ML.R11, R12; OT.R110): the HD (GoE SouL) picture is removed with HD-HOLD. A
 // stored 'experimental' (a browser that chose it before HD-HOLD) reads as MODERN, is never taken by the keeper, and is
@@ -124,5 +129,168 @@ describe("RB-16: the test room's look, shadows and frame counter from the shared
     expect(fps.style.display).toBe('none');
     ui.setFpsShown(true);
     expect(fps.style.display).toBe('');
+  });
+});
+
+/**
+ * WM-5a (the weekend mega sprint; product track, a browser adaptation -- the second developer's physical report from his
+ * console, not measured by us: the live page stable at 30 fps in the PS2 picture with the 30 fps cap): the picture's
+ * default is the device class's alone -- the Xbox class's is PS2 -- where the player has saved no picture; it is never
+ * written, and a saved picture is always the player's. The controller's rulings (seat 8f): choosing the Lite preset is
+ * the player's own choice of the whole bundle, so it SAVES the PS2 picture where none is saved, and nothing about the
+ * picture follows the preset after (B); a press saves (C); `clear()` empties the key and reads the default again (D).
+ */
+describe("WM-5a: the picture's default by class and preset; a saved picture kept", () => {
+  const CLASSES: readonly DeviceClass[] = ['xbox', 'software', 'touch', 'lowMemory', 'standard', 'high'];
+  const memory = (entries: [string, string][] = []) => {
+    const store = new Map<string, string>(entries);
+    return { store, read: (key: string) => store.get(key) ?? null, write: (key: string, v: string) => { store.set(key, v); } };
+  };
+  afterEach(() => { localStorage.clear(); });
+
+  it('the class table: PS2 for the Xbox class, Modern for every other', () => {
+    expect(Object.keys(CLASS_PICTURE_ADAPTATION).sort()).toEqual([...CLASSES].sort());
+    for (const c of CLASSES) expect(CLASS_PICTURE_ADAPTATION[c], c).toBe(c === 'xbox' ? 'ps2' : 'modern');
+    for (const c of CLASSES) expect(pictureDefault(() => c, () => null), c).toBe(CLASS_PICTURE_ADAPTATION[c]);
+  });
+
+  it('the Xbox class with no picture saved starts in PS2; nothing is written', () => {
+    const { store, read, write } = memory();
+    const k = pictureKeeper(read, write, () => 'xbox');
+    expect(k.get()).toBe('ps2');
+    expect(store.has(PICTURE_KEY)).toBe(false);
+    expect(pictureKeeper(read, write, () => 'standard').get()).toBe('modern');
+  });
+
+  it("a saved picture is the player's: Modern saved on the Xbox class stays Modern", () => {
+    const { store, read, write } = memory([[PICTURE_KEY, 'modern']]);
+    const k = pictureKeeper(read, write, () => 'xbox');
+    expect(k.get()).toBe('modern');
+    expect(store.get(PICTURE_KEY)).toBe('modern');
+    expect(pictureKeeper(memory([[PICTURE_KEY, 'experimental']]).read, () => {}, () => 'xbox').get()).toBe('modern');   // ML-6's removed picture is a choice saved: Modern
+  });
+
+  it("the page's keeper: an Xbox pick with nothing saved reads PS2, unwritten; a picture saved later wins at once", () => {
+    localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox');
+    expect(pagePicture().get()).toBe('ps2');
+    expect(localStorage.getItem(PICTURE_KEY)).toBeNull();
+    pagePicture().set('modern');
+    expect([pagePicture().get(), localStorage.getItem(PICTURE_KEY)]).toEqual(['modern', 'modern']);
+    localStorage.removeItem(PICTURE_KEY);                                               // a cleared key: the default again, still unwritten
+    expect(pagePicture().get()).toBe('ps2');
+    expect(localStorage.getItem(PICTURE_KEY)).toBeNull();
+  });
+
+  // WM-R20-FOLDS item 2 (the controller's ruling, seat 8f, over ruling B; the saved-settings audit's R1): passing through
+  // Lite is not a choice of picture. Lite (and a Custom made from it) draws the PS2 picture while it is the preset, but
+  // writes no picture: another named preset chosen brings the class's default back, and a picture the player pressed
+  // himself is never touched. These replace ruling B's pins ("Lite saves PS2 for good").
+  it('the default: the class, or PS2 while Lite or a Custom made from Lite is the stored preset (item 2)', () => {
+    const lite: [string, string] = [VIDEO_SETTINGS_KEY_V2, JSON.stringify({ preset: 'lite', overlay: 'fps' })];
+    const fromLite: [string, string] = [VIDEO_SETTINGS_KEY_V2, JSON.stringify({ preset: 'custom', from: 'lite', overlay: 'fps' })];
+    const custom: [string, string] = [VIDEO_SETTINGS_KEY_V2, JSON.stringify({ preset: 'custom', overlay: 'fps' })];
+    const quality: [string, string] = [VIDEO_SETTINGS_KEY_V2, JSON.stringify({ preset: 'quality', from: 'lite', overlay: 'fps' })];
+    for (const c of CLASSES) {
+      expect(pictureDefault(() => c, memory([lite]).read), c).toBe('ps2');
+      expect(pictureDefault(() => c, memory([fromLite]).read), c).toBe('ps2');
+      expect(pictureDefault(() => c, memory([custom]).read), c).toBe(CLASS_PICTURE_ADAPTATION[c]);
+      expect(pictureDefault(() => c, memory([quality]).read), c).toBe(CLASS_PICTURE_ADAPTATION[c]);   // 'from' counts under Custom only
+    }
+  });
+
+  it('choosing Lite with no picture saved draws the PS2 picture and writes no picture (item 2)', () => {
+    expect(localStorage.getItem(PICTURE_KEY)).toBeNull();
+    videoSettingsKeeperV2().set({ preset: 'lite' });
+    expect([localStorage.getItem(PICTURE_KEY), pagePicture().get()]).toEqual([null, 'ps2']);
+  });
+
+  it('Lite then one row changed (now Custom, made from Lite) keeps the PS2 picture, unwritten (item 2)', () => {
+    const k = videoSettingsKeeperV2();
+    k.set({ preset: 'lite' });
+    k.set({ frameCap: 60 });
+    expect(k.get().preset).toBe('custom');
+    expect([localStorage.getItem(PICTURE_KEY), pagePicture().get()]).toEqual([null, 'ps2']);
+    k.set({ shadows: 'low' });                                                          // a further row: still made from Lite
+    expect(pagePicture().get()).toBe('ps2');
+    k.set({ preset: 'balanced' });                                                      // another named preset: the class's again
+    expect([localStorage.getItem(PICTURE_KEY), pagePicture().get()]).toEqual([null, 'modern']);
+  });
+
+  it('Lite then Quality: the picture only Lite drew is taken back -- MODERN on a standard device, nothing written (item 2)', () => {
+    const k = videoSettingsKeeperV2();
+    k.set({ preset: 'lite' });
+    k.set({ preset: 'quality' });
+    expect(k.get().preset).toBe('quality');
+    expect([localStorage.getItem(PICTURE_KEY), pagePicture().get()]).toEqual([null, 'modern']);
+  });
+
+  it("the launcher's Preset row: Quality, Right onto Lite, Left back -- no picture key saved and the picture what it was (item 2, audit R1)", () => {
+    const o = liveOptions(() => {}, { signedIn: () => false, pads: () => [], touch: () => false });
+    try {
+      videoSettingsKeeperV2().set({ preset: 'quality' });
+      const before = pagePicture().get();
+      o.step!(VIDEO_PRESET_ROW, 1);                                                    // LiveOptions declares step optional; liveOptions defines it
+      expect(videoSettingsKeeperV2().get().preset).toBe('lite');
+      expect(pagePicture().get()).toBe('ps2');
+      o.step!(VIDEO_PRESET_ROW, -1);
+      expect(videoSettingsKeeperV2().get().preset).toBe('quality');
+      expect([localStorage.getItem(PICTURE_KEY), pagePicture().get()]).toEqual([null, before]);
+    } finally { o.dispose(); }
+  });
+
+  it('a PS2 picture the player pressed, then Lite, then Quality: his PS2 is kept (item 2)', () => {
+    pagePicture().choose('ps2');
+    const k = videoSettingsKeeperV2();
+    k.set({ preset: 'lite' });
+    k.set({ preset: 'quality' });
+    expect([localStorage.getItem(PICTURE_KEY), pagePicture().get()]).toEqual(['ps2', 'ps2']);
+  });
+
+  it('Lite then Restore defaults: the class default again, nothing written (item 2)', () => {
+    const k = videoSettingsKeeperV2();
+    k.set({ preset: 'lite' });
+    k.restoreDefaults();
+    expect([localStorage.getItem(PICTURE_KEY), pagePicture().get()]).toEqual([null, 'modern']);
+  });
+
+  it('the Xbox class: Lite then Quality still draws PS2 (its class default), nothing written (item 2)', () => {
+    localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox');
+    const k = videoSettingsKeeperV2();
+    k.set({ preset: 'lite' });
+    expect(pagePicture().get()).toBe('ps2');
+    k.set({ preset: 'quality' });
+    expect([localStorage.getItem(PICTURE_KEY), pagePicture().get()]).toEqual([null, 'ps2']);
+  });
+
+  it('Lite with Modern saved keeps Modern (B)', () => {
+    localStorage.setItem(PICTURE_KEY, 'modern');
+    videoSettingsKeeperV2().set({ preset: 'lite' });
+    expect([localStorage.getItem(PICTURE_KEY), pagePicture().get()]).toEqual(['modern', 'modern']);
+  });
+
+  it('a press is a choice: choose() saves the picture shown by default, unheard; set() of the same picture (the native strip echo) writes nothing (C)', () => {
+    const { store, read, write } = memory();
+    const heard: string[] = [];
+    const k = pictureKeeper(read, write, () => 'xbox');
+    k.observe((p) => heard.push(p));
+    k.set('ps2');
+    expect(store.has(PICTURE_KEY)).toBe(false);
+    k.choose('ps2');
+    expect([store.get(PICTURE_KEY), k.get(), heard]).toEqual(['ps2', 'ps2', []]);
+    k.choose('modern');
+    expect([store.get(PICTURE_KEY), k.get(), heard]).toEqual(['modern', 'modern', ['modern']]);
+  });
+
+  it('clear() empties the saved picture and reads the class default again, told once (D)', () => {
+    const { store, read, write } = memory([[PICTURE_KEY, 'modern']]);
+    const heard: string[] = [];
+    const k = pictureKeeper(read, write, () => 'xbox');
+    k.observe((p) => heard.push(p));
+    k.clear();
+    expect([store.get(PICTURE_KEY) ?? '', k.get(), heard]).toEqual(['', 'ps2', ['ps2']]);
+    const std = memory([[PICTURE_KEY, 'ps2']]);
+    const s = pictureKeeper(std.read, std.write, () => 'standard');
+    s.clear();
+    expect([std.store.get(PICTURE_KEY) ?? '', s.get()]).toEqual(['', 'modern']);
   });
 });

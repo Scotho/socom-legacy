@@ -123,7 +123,7 @@ describe('NU-6 R1 + P3: the room\'s raise and still lower drawn on another page,
     { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 },
     [{
       modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]),
+      points: Float32Array.from([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]),
     }],
     [{ modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1 }],
   );
@@ -209,6 +209,22 @@ describe('NU-6 R1 + P3: the room\'s raise and still lower drawn on another page,
     for (let i = 0; i < 5; i++) b.tick();
     expect(b.sim.weapon).toBe(1);
     raiseAndLower(b, 'pistolToLauncher');
+  });
+
+  // R4P-103 fresh review F2: a launcher claim appends its round after the kit's last record (`FUN_005a4b70`
+  // D4:L499303-499309; the reading agent/spc-atlas dcd314b4bd), so the room's `taken.kit` -- like a resumed seat's
+  // `spawn`, the welcome's players and a replay's kits, all through `setKit` -- names six records: the copy takes them
+  // (`wireKit`, 5-30), hangs the claimed launcher (the side kit's launcher find) and holds the kit the spectator reads.
+  it("R4P-103 F2: a taken kit of six records re-hangs the copy's launcher and is the kit the page holds for the body", () => {
+    const b = bridge();
+    b.remote.setKit(2, [54, 15, 121, 255, 255]);                 // the taker's kit before the claim: no launcher
+    expect(b.tick().carried).toEqual([]);
+    const six = [54, 15, 121, 145, 255, 185];                    // the LAW into slot 3, its LAW HEAT at index 5
+    b.remote.setKit(2, six);                                     // `taken.kit` (netPage's `taken` case)
+    expect(b.tick().carried).toEqual(['model145']);
+    expect(b.remote.playerKit(2)).toEqual(six);
+    b.remote.setKit(2, new Array(31).fill(255));                 // past the original's 30 records: nothing changes
+    expect(b.remote.playerKit(2)).toEqual(six);
   });
 
   it('REMOTE_LAUNCHER_HAND_READING names the rule', () => {

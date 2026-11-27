@@ -2,13 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PadButton } from '../src/gamepad';
 import {
   drawStartMenu, localStartMenuOptions, StartMenu, START_FULLSCREEN_TYPE, START_MENU_ADAPTATION_TEXT, START_MENU_LAYOUT, START_MENU_LOCKOUT_SECONDS,
-  START_MENU_FULLSCREEN_NOTICE_ADAPTATION, START_MENU_REPEAT_SECONDS, START_MENU_SOUNDS, START_SHOW_FPS_TYPE, type StartMenuAdaptations,
+  START_MENU_FULLSCREEN_NOTICE_ADAPTATION, START_MENU_REPEAT_SECONDS, START_MENU_SOUNDS, type StartMenuAdaptations,
 } from '../src/startMenu';
 
 /**
- * cq41E0VR (product track; the controller 5d's call, option (a), logged for the owner): two browser-adaptation rows in the
- * match's START menu -- FULLSCREEN (the document into and out of fullscreen) and SHOW FPS (a read-only frame-rate readout).
- * The original has neither; with no `adaptations` the menu is the original's, row for row.
+ * cq41E0VR (product track; the controller 5d's call, option (a), logged for the owner): a browser-adaptation row in the
+ * match's START menu -- FULLSCREEN (the document into and out of fullscreen). The original has none; with no
+ * `adaptations` the menu is the original's, row for row. WM-LAUNCHER (WM.R7) took SHOW FPS off the START menu (its
+ * readout stays on the native VIDEO OPTIONS) and added SHOW LAUNCHER (`./startMenuLauncher.test.ts`).
  */
 function rig(adaptations?: StartMenuAdaptations, settings = true) {
   let active = false;
@@ -30,21 +31,21 @@ function rig(adaptations?: StartMenuAdaptations, settings = true) {
   return { menu, step, tap, walkTo, press, sounds };
 }
 
-function fakes(o: { refuse?: boolean; shown?: boolean } = {}) {
-  let fs = false, shown = o.shown ?? false;
+function fakes(o: { refuse?: boolean } = {}) {
+  let fs = false;
   /** A granted request (or any exit) flips the state; a refused request calls `refused` and leaves it. */
   const fullscreen = { active: () => fs, toggle: vi.fn((refused: () => void) => { if (!fs && o.refuse) refused(); else fs = !fs; }) };
-  const fps = { shown: () => shown, toggle: vi.fn(() => { shown = !shown; }) };
-  return { fullscreen, fps };
+  return { fullscreen };
 }
 
-describe('cq41E0VR: the START menu\'s FULLSCREEN and SHOW FPS rows (browser adaptations)', () => {
-  it('the two rows sit after the original rows (and SETTINGS) in a match, labelled in the menu\'s style', () => {
+describe('cq41E0VR: the START menu\'s FULLSCREEN row (a browser adaptation)', () => {
+  it('the row sits after the original rows (and SETTINGS) in a match, labelled in the menu\'s style; no SHOW FPS row (WM-LAUNCHER)', () => {
     const r = rig(fakes());
-    expect(r.menu.labels().slice(-2)).toEqual([START_MENU_ADAPTATION_TEXT.fullscreenOff, START_MENU_ADAPTATION_TEXT.showFpsOff]);
-    expect(START_MENU_ADAPTATION_TEXT).toMatchObject({ fullscreenOn: 'FULLSCREEN: ON', fullscreenOff: 'FULLSCREEN: OFF', showFpsOn: 'SHOW FPS: ON', showFpsOff: 'SHOW FPS: OFF' });
-    expect(r.menu.state().placed.slice(-2)).toEqual([START_FULLSCREEN_TYPE, START_SHOW_FPS_TYPE]);
-    expect(r.menu.state().placed.slice(0, -2)).toEqual([0, 12, 2, 3, 4, 5, 8, 9, 11]);
+    expect(r.menu.labels().at(-1)).toBe(START_MENU_ADAPTATION_TEXT.fullscreenOff);
+    expect(START_MENU_ADAPTATION_TEXT).toMatchObject({ fullscreenOn: 'FULLSCREEN: ON', fullscreenOff: 'FULLSCREEN: OFF' });
+    expect(r.menu.labels().some((l) => l.startsWith('SHOW FPS'))).toBe(false);
+    expect(r.menu.state().placed.at(-1)).toBe(START_FULLSCREEN_TYPE);
+    expect(r.menu.state().placed.slice(0, -1)).toEqual([0, 12, 2, 3, 4, 5, 8, 9, 11]);
   });
 
   it('without adaptations the menu is the original\'s (and SETTINGS\') rows alone', () => {
@@ -98,21 +99,9 @@ describe('cq41E0VR: the START menu\'s FULLSCREEN and SHOW FPS rows (browser adap
     expect(r.menu.drawnState().notice).toBeNull();
   });
 
-  it('SHOW FPS: off by default; CROSS toggles it on and off, the menu staying open', () => {
-    const f = fakes(), r = rig(f);
-    expect(r.menu.labels().at(-1)).toBe(START_MENU_ADAPTATION_TEXT.showFpsOff);
-    r.walkTo(START_SHOW_FPS_TYPE);
-    r.press();
-    expect(f.fps.toggle).toHaveBeenCalledTimes(1);
-    expect(r.menu.labels().at(-1)).toBe(START_MENU_ADAPTATION_TEXT.showFpsOn);
-    r.step([], START_MENU_REPEAT_SECONDS + 0.01); r.press();
-    expect(r.menu.labels().at(-1)).toBe(START_MENU_ADAPTATION_TEXT.showFpsOff);
-    expect(r.menu.isOpen()).toBe(true);
-  });
-
-  it('the cursor wraps through the adaptation rows back to RESUME', () => {
+  it('the cursor wraps through the adaptation row back to RESUME', () => {
     const r = rig(fakes());
-    r.walkTo(START_SHOW_FPS_TYPE);
+    r.walkTo(START_FULLSCREEN_TYPE);
     r.step([], START_MENU_REPEAT_SECONDS + 0.01); r.tap('Down');
     expect(r.menu.state().cursor).toBe(0);
   });
@@ -121,7 +110,8 @@ describe('cq41E0VR: the START menu\'s FULLSCREEN and SHOW FPS rows (browser adap
     const sizes = { white: { width: 1, height: 1 } };
     const frame = { width: 640, height: 448 };
     const box = (quads: ReturnType<typeof drawStartMenu>) => quads.filter((q) => q.texture === 'white' && q.turn === 0 && q.w === 312);
-    const plain = rig().menu, grown = rig(fakes()).menu;
+    // Two rows past the room: FULLSCREEN and (WM-LAUNCHER) SHOW LAUNCHER.
+    const plain = rig().menu, grown = rig({ ...fakes(), launcher: () => ({ open: () => {}, isOpen: () => false }) }).menu;
     const y1 = (q: { y: number; h: number }): number => q.y + q.h / 2;
     expect(y1(box(drawStartMenu(frame, sizes, plain.drawnState()))[0]!)).toBe(START_MENU_LAYOUT.boxes[0].y1);
     expect(y1(box(drawStartMenu(frame, sizes, grown.drawnState()))[0]!)).toBe(START_MENU_LAYOUT.boxes[0].y1 + 2 * START_MENU_LAYOUT.rows.pitch);

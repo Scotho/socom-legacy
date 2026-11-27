@@ -126,8 +126,27 @@ export function roomRefusals(text: string): Refusal[] {
     for (let s = fnOf(n); s; s = fnOf(s)) { const f = forwarders.get(`${s.getStart(sf)}:${name}`); if (f) return f; }
     return undefined;
   };
+  // LATER 876: a method may hand its own parameter on to ANOTHER forwarder (`turretDropped` -> `refusedRound` ->
+  // `dropped`): that method is a forwarder too, followed to a fixpoint; such a call is counted at ITS callers.
+  const chained = new Set<ts.Node>();
+  for (let grew = true; grew;) {
+    grew = false;
+    const chain = (n: ts.Node): void => {
+      if (ts.isCallExpression(n) && !chained.has(n)) {
+        const f = forwarderOf(n);
+        const arg = f && n.arguments.length > f.i ? unwrap(n.arguments[f.i]!) : null;
+        const fn = fnOf(n);
+        if (f && arg && ts.isIdentifier(arg) && fn && ts.isMethodDeclaration(fn)) {
+          const i = fn.parameters.findIndex((q) => ts.isIdentifier(q.name) && q.name.text === arg.text);
+          if (i >= 0) { forwarders.set(`this.${fn.name.getText(sf)}`, { kind: f.kind, i, prefix: f.prefix }); chained.add(n); grew = true; }
+        }
+      }
+      ts.forEachChild(n, chain);
+    };
+    chain(sf);
+  }
   const callers = (n: ts.Node): void => {
-    if (ts.isCallExpression(n)) {
+    if (ts.isCallExpression(n) && !chained.has(n)) {
       const f = forwarderOf(n);
       if (f && n.arguments.length > f.i) for (const r of reasonsOf(n.arguments[f.i]!, sf)) out.push({ key: `${f.kind}: ${f.prefix}${r}`, member: memberOf(n), line: at(n) });
     }
@@ -183,8 +202,8 @@ const isNoPage = (e: Entry): e is NoPage => 'sender' in e;
 export const REFUSAL_MIRRORS: Record<string, Entry> = {
   // ---- any kind (`ev.type`, `kind`): the decision's order, the mount, the prompts' common gate ----
   '*: stale': { room: { 'room.ts:decide': 'netPage.ts:event' }, how: 'wire', note: "the page's journal refunds on the room's `stale` (case 'stale')" },
-  '*: too many waiting': { room: { 'room.ts:timed': 'net/client.ts:lastSeq' }, how: 'wire' },
-  '*: its command never ran': { room: { 'room.ts:settle': 'net/client.ts:lastSeq' }, how: 'wire' },
+  '*: too many waiting': { room: { 'room.ts:timed': 'net/client.ts:lastSeq' }, how: 'wire', note: 'LATER 1407: a throw\'s told to its thrower (`stale`, request \'throw\', its seq), as a round\'s is (LATER 876)' },
+  '*: its command never ran': { room: { 'room.ts:settle': 'net/client.ts:lastSeq' }, how: 'wire', note: 'LATER 1407: a throw\'s told to its thrower (`stale`, request \'throw\', its seq), as a round\'s is (LATER 876)' },
   '*: ahead': { room: { 'room.ts:turretRequest': 'turretPage.ts:claimSeq' }, how: 'wire' },
   '*: mounted': { room: { 'room.ts:decide': 'turretPage.ts:action', 'room.ts:mountedRefused': 'turretPage.ts:action' }, how: 'refuses', note: 'mounted, the action press is the turret\'s' },
   '*: releasing': { room: { 'room.ts:releaseRefused': 'turretPage.ts:travelling' }, how: 'refuses' },
@@ -199,7 +218,7 @@ export const REFUSAL_MIRRORS: Record<string, Entry> = {
   'look: turn': { room: { 'room.ts:run': 'net/client.ts:shadowStep' }, how: 'refuses', note: 'the page steps the same LookGate' },
   'look: pitch': { room: { 'room.ts:run': 'net/client.ts:shadowStep' }, how: 'refuses', todo: 'AR-5', note: "lookAllowance's kick rate on every command, the page's kick scoped only" },
   // ---- the hand's rounds ----
-  'fire: shape': { room: { 'room.ts:text': 'netPage.ts:sendRound' }, how: 'wire' },
+  'fire: shape': { room: { 'room.ts:text': 'net/firearmWire.ts:sendRound' }, how: 'wire' },
   'fire: not alive': { room: { 'room.ts:fire': 'matchFirearm.ts:ready' }, how: 'refuses' },
   'fire: no frame': { room: { 'room.ts:fire': 'matchFirearm.ts:roundSeq' }, how: 'wire' },
   'fire: nofire': { room: { 'room.ts:fireAt': 'walk.ts:fireAllowed', 'room.ts:fire': 'turretPage.ts:mountFireRefused' }, how: 'refuses', note: 'Fire.source.fireRefused' },
@@ -211,13 +230,13 @@ export const REFUSAL_MIRRORS: Record<string, Entry> = {
   },
   'fire: launcher': { room: { 'room.ts:fireAt': 'matchThrow.ts:trigger' }, how: 'refuses', note: 'the launcher\'s trigger, the firearm\'s ready time' },
   'fire: no firearm': { room: { 'room.ts:fireAt': 'matchFirearm.ts:ready' }, how: 'refuses' },
-  'fire: rate': { room: { 'room.ts:fireAt': 'fire.ts:pullRound', 'room.ts:turretRound': 'actionWiring.ts:TurretTrigger.frame' }, how: 'refuses', note: 'fireGate gapOpen/scheduleOpen, ROOM_GATE_MIRROR_ADAPTATION' },
-  'fire: reload or empty': { room: { 'room.ts:fireAt': 'fire.ts:tryFire' }, how: 'refuses' },
+  'fire: rate': { room: { 'room.ts:fireAt': 'fireCore.ts:pullRound', 'room.ts:turretRound': 'actionWiring.ts:TurretTrigger.frame' }, how: 'refuses', note: 'fireGate gapOpen/scheduleOpen, ROOM_GATE_MIRROR_ADAPTATION' },
+  'fire: reload or empty': { room: { 'room.ts:fireAt': 'fireCore.ts:tryFire' }, how: 'refuses' },
   'fire: swapping': { room: { 'room.ts:fireAt': 'matchFirearm.ts:ready', 'room.ts:turretRound': 'turretPage.ts:mountFireRefused' }, how: 'refuses' },
   'fire: binoculars': { room: { 'room.ts:fireAt': 'matchFirearm.ts:fireRefused', 'room.ts:turretRound': 'matchActions.ts:sendTurretRound' }, how: 'refuses' },
-  'fire: muzzle *': { room: { 'room.ts:fireAt': 'fire.ts:ray' }, how: 'claims', note: 'startRefused far/walled: the page\'s muzzle and its startWalled' },
-  'fire: dir': { room: { 'room.ts:fireAt': 'fire.ts:ray', 'room.ts:turretRound': 'turretPage.ts:round' }, how: 'claims' },
-  'fire: cone: *': { room: { 'room.ts:fireAt': 'fire.ts:ray', 'room.ts:turretRound': 'turretPage.ts:round' }, how: 'claims', todo: 'AR-1', note: 'scoped: the room checks the SniperDistLimit box, never the sway point' },
+  'fire: muzzle *': { room: { 'room.ts:fireAt': 'fireCore.ts:ray' }, how: 'claims', note: 'startRefused far/walled: the page\'s muzzle and its startWalled' },
+  'fire: dir': { room: { 'room.ts:fireAt': 'fireCore.ts:ray', 'room.ts:turretRound': 'turretPage.ts:round' }, how: 'claims' },
+  'fire: cone: *': { room: { 'room.ts:fireAt': 'fireCore.ts:ray', 'room.ts:turretRound': 'turretPage.ts:round' }, how: 'claims', todo: 'AR-1', note: 'scoped: the room checks the SniperDistLimit box, never the sway point' },
   // ---- the turret's rounds (turretDropped) ----
   'fire: no turret weapon': { room: { 'room.ts:turretRound': 'matchActions.ts:turretRecord' }, how: 'refuses' },
   'fire: before the mount': { room: { 'room.ts:turretRound': 'turretPage.ts:claimSeq' }, how: 'wire' },
@@ -225,41 +244,43 @@ export const REFUSAL_MIRRORS: Record<string, Entry> = {
   'fire: empty': { room: { 'room.ts:turretRound': 'turretPage.ts:round' }, how: 'refuses' },
   // ---- throwables, charges, the Detonator ----
   'throwStart: shape': { room: { 'room.ts:text': 'netPage.ts:throwStartEvent' }, how: 'wire' },
-  'throwStart: not alive': { room: { 'room.ts:takeThrowStart': 'grenade.ts:startThrow' }, how: 'refuses' },
+  'throwStart: not alive': { room: { 'room.ts:takeThrowStart': 'grenadeCore.ts:startThrow' }, how: 'refuses' },
   'throwStart: unknown kind': { room: { 'room.ts:takeThrowStart': 'netPage.ts:throwStartEvent' }, how: 'wire' },
-  'throwStart: none left': { room: { 'room.ts:takeThrowStart': 'grenade.ts:pull' }, how: 'refuses' },
+  'throwStart: none left': { room: { 'room.ts:takeThrowStart': 'grenadeCore.ts:pull' }, how: 'refuses' },
   'throwStart: no frame': { room: { 'room.ts:takeThrowStart': 'net/client.ts:lastSeq' }, how: 'wire' },
-  'throwStart: airborne': { room: { 'room.ts:takeThrowStart': 'grenade.ts:startThrow' }, how: 'refuses' },
+  'throwStart: airborne': { room: { 'room.ts:takeThrowStart': 'grenadeCore.ts:startThrow' }, how: 'refuses' },
   'throwStart: swapping': { room: { 'room.ts:takeThrowStart': 'matchThrow.ts:takeSlot' }, how: 'refuses' },
   'throwStart: nofire': {
-    room: { 'room.ts:takeThrowStart': 'grenade.ts:startThrow' }, how: 'refuses', todo: 'new',
+    room: { 'room.ts:takeThrowStart': 'grenadeCore.ts:startThrow' }, how: 'refuses', todo: 'new',
     note: 'the page holds only the climb\'s NoFire (CLIMB_THROW_REFUSED_READING); no other playing motion\'s NoFire is asked at the release',
   },
   'throwStart: binoculars': { room: { 'room.ts:takeThrowStart': 'matchThrow.ts:trigger' }, how: 'refuses' },
   'throwStart: launcher': { room: { 'room.ts:takeThrowStart': 'matchThrow.ts:trigger' }, how: 'refuses' },
-  'throwStart: rate': { room: { 'room.ts:takeThrowStart': 'grenade.ts:pull' }, how: 'refuses', note: 'the phase: no wind-up before the last throw is out' },
-  'throwStart: net cap': { room: { 'room.ts:takeThrowStart': 'grenade.ts:netCapRefused' }, how: 'refuses' },
-  'throw: not alive': { room: { 'room.ts:throwGrenade': 'grenade.ts:startThrow', 'room.ts:placeCharge': 'grenade.ts:pull', 'room.ts:detonate': 'grenade.ts:pull' }, how: 'refuses' },
+  'throwStart: rate': { room: { 'room.ts:takeThrowStart': 'grenadeCore.ts:pull' }, how: 'refuses', note: 'the phase: no wind-up before the last throw is out' },
+  'throwStart: net cap': { room: { 'room.ts:takeThrowStart': 'grenadeCore.ts:netCapRefused' }, how: 'refuses' },
+  'throwStart: hurt': { room: { 'room.ts:takeThrowStart': 'grenadeCore.ts:hitCancel' }, how: 'refuses', note: 'LATER 1456: a release the page sent before it heard the hurt that cancelled it' },
+  'throw: not alive': { room: { 'room.ts:throwGrenade': 'grenadeCore.ts:startThrow', 'room.ts:placeCharge': 'grenadeCore.ts:pull', 'room.ts:detonate': 'grenadeCore.ts:pull' }, how: 'refuses', note: 'LATER 1407: a hand throw\'s refusal told to its thrower (`stale`, request \'throw\', its seq), the page retiring its copy (grenadeCore.ts giveBack)' },
   'throw: unknown kind': { room: { 'room.ts:throwGrenade': 'netPage.ts:throwEvent', 'room.ts:placeCharge': 'netPage.ts:throwEvent' }, how: 'wire' },
   'throw: slot': { room: { 'room.ts:throwGrenade': 'netPage.ts:throwEvent' }, how: 'wire' },
-  'throw: none left': { room: { 'room.ts:throwGrenade': 'grenade.ts:pull', 'room.ts:placeCharge': 'grenade.ts:pull' }, how: 'refuses' },
-  'throw: no frame': { room: { 'room.ts:throwGrenade': 'net/client.ts:lastSeq', 'room.ts:launchRocket': 'net/client.ts:lastSeq' }, how: 'wire' },
+  'throw: none left': { room: { 'room.ts:throwGrenade': 'grenadeCore.ts:pull', 'room.ts:placeCharge': 'grenadeCore.ts:pull' }, how: 'refuses', note: 'LATER 1407: a hand throw\'s refusal told to its thrower (`stale`, request \'throw\', its seq), the page retiring its copy (grenadeCore.ts giveBack)' },
+  'throw: no frame': { room: { 'room.ts:throwGrenade': 'net/client.ts:lastSeq', 'room.ts:launchRocket': 'net/client.ts:lastSeq' }, how: 'wire', note: 'LATER 1407: a hand throw\'s refusal told to its thrower (`stale`, request \'throw\', its seq), the page retiring its copy (grenadeCore.ts giveBack)' },
   // P38-room (9bc897234) took the Detonator's FireWait out of `detonate`: no `rate` there, so its `new` gap is gone.
-  'throw: rate': { room: { 'room.ts:throwGrenade': 'grenade.ts:pull' }, how: 'refuses' },
-  'throw: net cap': { room: { 'room.ts:throwGrenade': 'grenade.ts:netCapRefused', 'room.ts:placeCharge': 'grenade.ts:startPlacing' }, how: 'refuses' },
-  'throw: hand *': { room: { 'room.ts:throwGrenade': 'grenade.ts:startThrow', 'room.ts:placeCharge': 'grenade.ts:placeCharge' }, how: 'claims', note: 'startRefused far/walled on the release point the page sends' },
-  'throw: launch': { room: { 'room.ts:throwGrenade': 'grenade.ts:startThrow' }, how: 'claims', note: 'throwLaunchAllowed bounds the page\'s velocity (TB-9: power sampled from 0)' },
-  'throw: facing': { room: { 'room.ts:placeCharge': 'grenade.ts:placeCharge' }, how: 'claims' },
+  'throw: rate': { room: { 'room.ts:throwGrenade': 'grenadeCore.ts:pull' }, how: 'refuses', note: 'LATER 1407: a hand throw\'s refusal told to its thrower (`stale`, request \'throw\', its seq), the page retiring its copy (grenadeCore.ts giveBack)' },
+  'throw: net cap': { room: { 'room.ts:throwGrenade': 'grenadeCore.ts:netCapRefused', 'room.ts:placeCharge': 'grenadeCore.ts:startPlacing' }, how: 'refuses', note: 'LATER 1407: a hand throw\'s refusal told to its thrower (`stale`, request \'throw\', its seq), the page retiring its copy (grenadeCore.ts giveBack)' },
+  'throw: hand *': { room: { 'room.ts:throwGrenade': 'grenadeCore.ts:startThrow', 'room.ts:placeCharge': 'grenadeCore.ts:placeCharge' }, how: 'claims', note: 'startRefused far/walled on the release point the page sends; for a hand throw, walled is the start-tie (throwTied, LANE-KILL B-06); LATER 1407: a hand throw\'s refusal told to its thrower (`stale`, request \'throw\', its seq), the page retiring its copy (grenadeCore.ts giveBack)' },
+  'throw: launch': { room: { 'room.ts:throwGrenade': 'grenadeCore.ts:startThrow' }, how: 'claims', note: 'throwLaunchAllowed bounds the page\'s velocity (TB-9: power sampled from 0); LATER 1407: a hand throw\'s refusal told to its thrower (`stale`, request \'throw\', its seq), the page retiring its copy (grenadeCore.ts giveBack)' },
+  'throw: unclear': { room: { 'room.ts:throwGrenade': 'grenadeCore.ts:startThrow' }, how: 'refuses', note: 'LANE-KILL B-06: the same throwClear (r0004 0x54e6f0; r0001 FUN_005499e0 superseded under OT.R97) the page asks at its release request; LATER 1407: a hand throw\'s refusal told to its thrower (`stale`, request \'throw\', its seq), the page retiring its copy (grenadeCore.ts giveBack)' },
+  'throw: facing': { room: { 'room.ts:placeCharge': 'grenadeCore.ts:placeCharge' }, how: 'claims' },
   'throw: {shut}': { room: { 'room.ts:placeCharge': 'walk.ts:actionGateShut' }, how: 'refuses' },
-  'throw: no c4 target': { room: { 'room.ts:placeCharge': 'grenade.ts:c4CommitOk' }, how: 'refuses' },
-  'throw: c4 hand': { room: { 'room.ts:placeCharge': 'grenade.ts:placeCharge' }, how: 'claims' },
+  'throw: no c4 target': { room: { 'room.ts:placeCharge': 'grenadeCore.ts:c4CommitOk' }, how: 'refuses' },
+  'throw: c4 hand': { room: { 'room.ts:placeCharge': 'grenadeCore.ts:placeCharge' }, how: 'claims' },
   'throw: c4 reach': { room: { 'room.ts:placeCharge': 'equipment.ts:c4InReach' }, how: 'refuses' },
   'throw: c4 *': { room: { 'room.ts:placeCharge': 'equipment.ts:c4Line' }, how: 'refuses' },
   'throw: c4 surface': { room: { 'room.ts:placeCharge': 'equipment.ts:c4Line' }, how: 'refuses' },
-  'throw: charges down': { room: { 'room.ts:placeCharge': 'grenade.ts:startPlacing' }, how: 'refuses' },
-  'throw: wading': { room: { 'room.ts:placeCharge': 'grenade.ts:startPlacing', 'room.ts:raiseLauncher': 'rocket.ts:selectSlot' }, how: 'refuses', note: 'and the launcher\'s raise, rocket.ts selectSlot' },
-  'throw: ground': { room: { 'room.ts:placeCharge': 'grenade.ts:placeCharge' }, how: 'refuses', note: 'placeGround: no ground in reach sets nothing down' },
-  'throw: no claymore': { room: { 'room.ts:detonate': 'grenade.ts:takeDetonator' }, how: 'refuses' },
+  'throw: charges down': { room: { 'room.ts:placeCharge': 'grenadeCore.ts:startPlacing' }, how: 'refuses' },
+  'throw: wading': { room: { 'room.ts:placeCharge': 'grenadeCore.ts:startPlacing', 'room.ts:raiseLauncher': 'rocket.ts:selectSlot' }, how: 'refuses', note: 'and the launcher\'s raise, rocket.ts selectSlot' },
+  'throw: ground': { room: { 'room.ts:placeCharge': 'grenadeCore.ts:placeCharge' }, how: 'refuses', note: 'placeGround: no ground in reach sets nothing down' },
+  'throw: no claymore': { room: { 'room.ts:detonate': 'grenadeCore.ts:takeDetonator' }, how: 'refuses' },
   // ---- the launcher (`launchRocket`'s `told`, the raise and the lower) ----
   'throw: hand': { room: { 'room.ts:launchRocket': 'rocket.ts:pull' }, how: 'refuses' },
   'throw: raise': { room: { 'room.ts:launchRocket': 'matchThrow.ts:trigger' }, how: 'refuses', note: 'raiseRefused, LATER 192' },
@@ -278,18 +299,18 @@ export const REFUSAL_MIRRORS: Record<string, Entry> = {
   'throw: round hand': { room: { 'room.ts:launchRound': 'matchThrow.ts:trigger' }, how: 'refuses', note: 'an item or the launcher up takes the trigger' },
   'throw: round raise': { room: { 'room.ts:launchRound': 'matchThrow.ts:trigger' }, how: 'refuses', note: 'the launcher\'s lowering, the firearm\'s ready time (`firearmReadyAt`), as fire: launcher' },
   'throw: round carrier': { room: { 'room.ts:launchRound': 'matchFirearm.ts:showFireMode' }, how: 'refuses', note: 'the round mode set only for a round the kit holds (`kitRounds.round`)' },
-  'throw: round empty': { room: { 'room.ts:launchRound': 'fire.ts:tryFire' }, how: 'refuses' },
-  'throw: round reload': { room: { 'room.ts:launchRound': 'fire.ts:tryFire' }, how: 'refuses', note: 'the reload and the after-shot lock' },
-  'throw: round wait': { room: { 'room.ts:launchRound': 'fire.ts:tryFire' }, how: 'refuses', note: 'the round\'s FireWait (`Fire.launch` sets `wait`)' },
+  'throw: round empty': { room: { 'room.ts:launchRound': 'fireCore.ts:tryFire' }, how: 'refuses' },
+  'throw: round reload': { room: { 'room.ts:launchRound': 'fireCore.ts:tryFire' }, how: 'refuses', note: 'the reload and the after-shot lock' },
+  'throw: round wait': { room: { 'room.ts:launchRound': 'fireCore.ts:tryFire' }, how: 'refuses', note: 'the round\'s FireWait (`Fire.launch` sets `wait`)' },
   'throw: round rate': {
-    room: { 'room.ts:launchRound': 'fire.ts:tryFire' }, how: 'refuses', todo: 'new',
+    room: { 'room.ts:launchRound': 'fireCore.ts:tryFire' }, how: 'refuses', todo: 'new',
     note: 'the kit\'s one wait carries the rifle\'s last gap; the room\'s period chain (`scheduleOpen`, P3-room) is mirrored for a firearm\'s round only (`pullRound`\'s named gate skips a round mode)',
   },
   'throw: round swapping': { room: { 'room.ts:launchRound': 'matchFirearm.ts:ready' }, how: 'refuses', note: 'kit.swapping' },
   'throw: round nofire': { room: { 'room.ts:launchRound': 'matchFirearm.ts:fireRefused' }, how: 'refuses', note: 'walk.fireAllowed' },
   'throw: round binoculars': { room: { 'room.ts:launchRound': 'matchFirearm.ts:fireRefused' }, how: 'refuses' },
-  'throw: round start *': { room: { 'room.ts:launchRound': 'fire.ts:Fire.launch' }, how: 'claims', note: 'startRefused far/walled on the page\'s `launchPoint` (firepoint_203)' },
-  'throw: round speed': { room: { 'room.ts:launchRound': 'fire.ts:Fire.launch' }, how: 'claims', note: 'the round\'s Muzzle_Velocity, inside ROUND_SPEED_SLACK_PLACEHOLDER' },
+  'throw: round start *': { room: { 'room.ts:launchRound': 'fireCore.ts:FireCore.launch' }, how: 'claims', note: 'startRefused far/walled on the page\'s `launchPoint` (firepoint_203)' },
+  'throw: round speed': { room: { 'room.ts:launchRound': 'fireCore.ts:FireCore.launch' }, how: 'claims', note: 'the round\'s Muzzle_Velocity, inside ROUND_SPEED_SLACK_PLACEHOLDER' },
   // ---- the reload ----
   'reload: airborne': { room: { 'room.ts:reload': 'matchFirearm.ts:airborne' }, how: 'refuses' },
   'reload: climb': { room: { 'room.ts:reload': 'walk.ts:climbHolds' }, how: 'refuses' },
@@ -331,13 +352,13 @@ export const REFUSAL_MIRRORS: Record<string, Entry> = {
   'action: no action': { room: { 'room.ts:useAction': 'actionPage.ts:pickAt' }, how: 'refuses' },
   'action: reach': { room: { 'room.ts:useAction': 'actionPage.ts:pickAt' }, how: 'refuses', note: 'actionReachNote' },
   'action: {line.why}': { room: { 'room.ts:useAction': 'actionPage.ts:pickAt' }, how: 'claims', note: 'the room judges the line from its own eyes; the page sends its pick' },
-  'action: used': {
-    room: { 'room.ts:useAction': 'actionPage.ts:pickAt' }, how: 'refuses', todo: 'DMA-3',
-    note: 'the page still picks a used switch; the room drops the press',
-  },
   'action: busy': {
     room: { 'room.ts:useAction': 'actionPage.ts:pickAt' }, how: 'refuses', todo: 'DMA-3',
     note: 'the page offers a switch whose program runs; the room drops the press',
+  },
+  'action: {refused}': {
+    room: { 'room.ts:useAction': 'actionPage.ts:pickAt' }, how: 'refuses',
+    note: 'LATER 976: WorldState.actionRefusal (busy while its program runs; used for a one_shot record after a completed run, or a used Forge switch) -- the page asks the same gate for its prompt (was the literal action: used, DMA-3)',
   },
   'bombAction: shape': { room: { 'room.ts:text': 'matchActions.ts:bombDrop', 'room.ts:bombAction': 'matchActions.ts:bombDrop' }, how: 'wire' },
   'bombAction: not alive': { room: { 'room.ts:bombAction': 'bombPage.ts:prompt' }, how: 'refuses' },
@@ -364,23 +385,23 @@ export const REFUSAL_MIRRORS: Record<string, Entry> = {
     note: 'LATER 180: no bullet round before the rifle is up -- the page alone (WK-4)',
   },
   'fire: mode': {
-    trust: 'FIRE_MODE_TRUST_ADAPTATION', row: 'WK-5', todo: 'WK-5', page: 'fire.ts:pullRound',
+    trust: 'FIRE_MODE_TRUST_ADAPTATION', row: 'WK-5', todo: 'WK-5', page: 'fireCore.ts:pullRound',
     note: 'rounds per pull and the mode\'s wait: the room gates at the record\'s fastest mode, no mode on the wire',
   },
   'throwStart: clear': {
-    trust: 'THROW_CLEAR_TRUST_ADAPTATION', row: 'TB-9', todo: 'TB-9', page: 'grenade.ts:startThrow',
+    trust: 'THROW_CLEAR_TRUST_ADAPTATION', row: 'TB-9', todo: 'TB-9', page: 'grenadeCore.ts:startThrow',
     note: 'throwClear, the stance segment against the world',
   },
   'throwStart: power': {
-    trust: 'THROW_CLEAR_TRUST_ADAPTATION', row: 'TB-9', todo: 'TB-9', page: 'grenade.ts:startThrow',
+    trust: 'THROW_CLEAR_TRUST_ADAPTATION', row: 'TB-9', todo: 'TB-9', page: 'grenadeCore.ts:startThrow',
     note: 'releasePowerClears; no power on the wire',
   },
   'throwStart: stance': {
-    trust: 'THROW_CLEAR_TRUST_ADAPTATION', row: 'TB-9', todo: 'TB-9', page: 'grenade.ts:startThrow',
+    trust: 'THROW_CLEAR_TRUST_ADAPTATION', row: 'TB-9', todo: 'TB-9', page: 'grenadeCore.ts:startThrow',
     note: 'state 3 with no lean clip has no throw',
   },
   'reload: round mode': {
-    trust: 'RELOAD_MODE_TRUST_ADAPTATION', row: 'WK-6', todo: 'WK-6', page: 'fire.ts:beginReload',
+    trust: 'RELOAD_MODE_TRUST_ADAPTATION', row: 'WK-6', todo: 'WK-6', page: 'fireCore.ts:beginReload',
     note: 'latent: a launcher-round mode\'s reload moves the rifle\'s ring in the room; unreachable with retail data',
   },
 };

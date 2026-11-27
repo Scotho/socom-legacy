@@ -162,3 +162,65 @@ describe('FORGE lobby: the voice', () => {
     expect(m.voice.state()).toBeNull();
   });
 });
+
+describe('STREAMER-P1 (slice 2 review F2): the Forge lobby is a lobby for Streamer mode', () => {
+  it('mounts its voice as place lobby', () => {
+    const m = make();
+    m.voice.frame();
+    expect(m.v.mounted[0]!.place).toBe('lobby');
+  });
+});
+
+/**
+ * STREAMER-P1 (the IQ-229 review's (i), the controller's yes): the Forge lobby as the game lobby -- its voice asks friend or
+ * clan by the lobby's seat names, and a speaker Streamer mode refuses there names no talker on its bar.
+ */
+describe('STREAMER-P1: the Forge lobby hears friends and names no refused speaker (IQ-229 review (i))', () => {
+  const data = new Map<string, string>();
+  const g = globalThis as unknown as { localStorage?: unknown };
+  const had = g.localStorage;
+  const setUp = async () => {
+    const sm = await import('../../src/streamerMode');
+    g.localStorage = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k, v); }, removeItem: (k: string) => { data.delete(k); } };
+    sm.resetStreamerCache();
+    return sm;
+  };
+  const tearDown = async () => { const sm = await import('../../src/streamerMode'); sm.setSocialLookup(null); data.clear(); sm.resetStreamerCache(); g.localStorage = had; };
+  const seated = () => {
+    const l = link();
+    const v = fakeVoice(), h = fakeHeadset();
+    const names = new Map<number, string>([[1, 'Mate'], [3, 'Stranger']]);
+    const voice = new ForgeLobbyVoice({
+      link: () => l, line: () => undefined, typing: () => false, inArmory: () => false, seatName: (id) => names.get(id) ?? null,
+      deps: { mount: v.mount, headset: () => h, seconds: () => 0, tuners: () => ({ headset: 1 }) },
+    });
+    return { l, v, voice };
+  };
+  it('the mount gives the voice a friendOrClan over the lobby\'s seat names', async () => {
+    const sm = await setUp();
+    try {
+      sm.setSocialLookup((who) => who.name === 'Mate', null);
+      const { v, voice } = seated();
+      voice.frame();
+      const f = v.mounted[0]!.friendOrClan!;
+      expect([f(1), f(3), f(9)]).toEqual([true, false, false]);
+    } finally { await tearDown(); }
+  });
+  it('a stranger holding the floor names no talker under the preset; a friend and the seat itself do; Off as before', async () => {
+    const sm = await setUp();
+    try {
+      sm.setSocialLookup((who) => who.name === 'Mate', null);
+      const { l, voice } = seated();
+      voice.frame();
+      l.emit({ type: 'voiceFloor', channel: 0, holder: 3 });
+      expect(voice.holder()).toBe(3);                                                // Streamer mode Off
+      sm.setStreamerMode(true);
+      expect(voice.holder()).toBeNull();
+      expect(voice.bar((id) => (id === 3 ? 'Stranger' : null))).toBe(' ');
+      l.emit({ type: 'voiceFloor', channel: 0, holder: 1 });
+      expect(voice.holder()).toBe(1);
+      l.emit({ type: 'voiceFloor', channel: 0, holder: 7 });                          // the seat's own
+      expect(voice.holder()).toBe(7);
+    } finally { await tearDown(); }
+  });
+});

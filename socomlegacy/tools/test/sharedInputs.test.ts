@@ -130,14 +130,14 @@ const ROWS: Row[] = [
   },
   {
     what: 'blastLine: each surface\'s PENETRATION on a blast\'s line to a scene object',
-    page: arg(join(VIEWER, 'grenade.ts'), 'explode', 'blastLine', 5),
+    page: arg(join(VIEWER, 'grenadeCore.ts'), 'explode', 'blastLine', 5),
     room: arg(ROOM, 'sceneBlast', 'blastLine', 5),
     kind: (t) => (t === null ? 'none' : /surfaceMaterial|SOIL_MATERIAL|SOIL_TABLE|materialTable/.test(t) ? 'the SOILS table by the byte'
       : isLiteral(t) ? 'a literal' : `other: ${t}`),
   },
   {
     what: 'the flashbang\'s white-out: the line of sight its level is gated by (`blastSeen`, FUN_005a0e70)',
-    page: body(join(VIEWER, 'grenade.ts'), 'explode'),
+    page: body(join(VIEWER, 'grenadeCore.ts'), 'explode'),
     // NADE-BLAST (V21-AA) moved the room's line test out of `blastPlayers` into `blastLines` (line 1, then `blastExposed`):
     // the gate is a call of either, so the row still reads the room as gated and the page's explode as not (P2's known).
     room: body(ROOM, 'blastPlayers'),
@@ -146,14 +146,14 @@ const ROWS: Row[] = [
   },
   {
     what: 'the mounted gun\'s rate: the fire gate\'s cycle (`./net/fireGate`), as the page\'s hand',
-    page: body(join(VIEWER, 'fire.ts'), 'pullRound'),
+    page: body(join(VIEWER, 'fireCore.ts'), 'pullRound'),
     room: body(ROOM, 'turretRound'),
     kind: (t) => (t !== null && /\b(?:gapOpen|fireCycleTicks|fastestWait|scheduleOpen|fireScheduleTicks)\(/.test(t) ? 'the fire gate'
       : t !== null && /TICK_HZ\s*-\s*1/.test(t) ? 'a private copy' : 'none'),
   },
   {
     what: 'a launched round\'s rate: the fire gate\'s cycle, as the page\'s hand',
-    page: body(join(VIEWER, 'fire.ts'), 'pullRound'),
+    page: body(join(VIEWER, 'fireCore.ts'), 'pullRound'),
     room: body(ROOM, 'launchRound'),
     kind: (t) => (t !== null && /\b(?:gapOpen|fireCycleTicks|fastestWait|scheduleOpen|fireScheduleTicks)\(/.test(t) ? 'the fire gate'
       : t !== null && /TICK_HZ\s*-\s*1/.test(t) ? 'a private copy' : 'none'),
@@ -165,11 +165,11 @@ const ROWS: Row[] = [
     kind: (t) => (t !== null && /\bcone\.frame\(ev\.seq\)/.test(t) ? 'the command\'s frame' : 'the arrival\'s body'),
   },
   {
-    what: 'the round-end primary objective: the rule is handed the game type (FUN_00224d10 has an ESCORT arm, D:L76560-76570)',
+    what: 'the round-end primary objective: the rule is handed the game type (FUN_00224d10 has an ESCORT arm, D:L76561-76570)',
     page: { file: join(MATCH, 'extraction.ts'), in: 'of', label: 'the authority, built per mode (ESCORT included)', read: (fn) => fn.getText() },
-    room: arg(ROOM, 'endRound', 'hostagePrimaryObjectives', 0),
+    // R4P-252 retired P5's known (BO-4): the room's round-end rule is handed the game type and takes ESCORT's own arm.
+    room: arg(ROOM, 'endRound', 'roundPrimaryObjectives', 0),
     kind: (t) => (t !== null && /escort|gameType|mode/i.test(t) ? 'the game type' : 'no game type'),
-    known: { task: 'P5', why: 'BO-4: ESCORT rounds take EXTRACTION\'s primary-objective arm (hostagePrimaryObjectives has no mode)' },
   },
   {
     what: 'the mounted gun\'s cone stance row (TURRET_RETICLE_STANCE_READING)',
@@ -179,14 +179,14 @@ const ROWS: Row[] = [
   },
   {
     what: 'claymoreCone: the point the cone is tested at, the victim\'s feet (research 179 s8.11)',
-    page: arg(join(VIEWER, 'grenade.ts'), 'damageAt', 'claymoreCone', 0),
+    page: arg(join(VIEWER, 'grenadeCore.ts'), 'damageAt', 'claymoreCone', 0),
     room: arg(ROOM, 'blastPlayers', 'claymoreCone', 0),
     kind: (t) => (t === null ? 'none' : /\+\s*10\b/.test(t) ? 'the feet + 10' : /feet/.test(t) ? 'the feet' : `other: ${t}`),
     known: { task: 'P19', why: 'TB-4: the page\'s damageAt tests the cone at the feet + 10' },
   },
   {
     what: 'claymoreCone: the radius (the record\'s ExplosionRadius, not the baked default)',
-    page: arg(join(VIEWER, 'grenade.ts'), 'damageAt', 'claymoreCone', 2),
+    page: arg(join(VIEWER, 'grenadeCore.ts'), 'damageAt', 'claymoreCone', 2),
     room: arg(ROOM, 'blastPlayers', 'claymoreCone', 2),
     kind: (t) => (t === null ? 'the baked default' : /explosionRadius/.test(t) ? 'the record\'s radius' : `other: ${t}`),
     known: { task: 'P19', why: 'TB-4: the page\'s damageAt passes no radius (the baked 250)' },

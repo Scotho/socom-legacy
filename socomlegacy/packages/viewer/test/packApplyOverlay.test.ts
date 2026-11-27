@@ -9,8 +9,9 @@ import {sha256} from '../src/texturePack';
 
 /**
  * B206 ML-4 (plan 2026-11-06-mods-loader, ML.R10; product track, ML.R2): the page-level overlay
- * (`PACK_APPLY_OVERLAY_ADAPTATION`) -- "Applying pack... n/N", the pack's name and a bar; full-screen out of live play, a
- * corner strip in live play; gone at N/N, or after its words on a refusal -- and the spread apply behind it: a synthetic
+ * (`PACK_APPLY_OVERLAY_ADAPTATION`) -- since WM-PACKS-CHIP the owner's 8B chip, "LOADING HD TEXTURES" over "n of N" and a
+ * bar, in the corner in and out of live play, never full-screen; gone at N/N, or after its words on a refusal -- and the
+ * spread apply behind it: a synthetic
  * 3,000-texture pack applied through the HD runtime with the frame budget (`ApplyFrames`), the longest frame measured
  * against ML.R10's limit (50.0 ms), the uploads a frame within the byte budget, and a fake room ticking every frame
  * through it. Synthetic images and made-up keys only, no game data.
@@ -19,26 +20,28 @@ afterEach(()=>{document.body.replaceChildren();});
 
 describe('ML-4: the overlay\'s words and bar (ML.R10)',()=>{
   it('is labelled as an adaptation',()=>{expect(PACK_APPLY_OVERLAY_ADAPTATION).toMatch(/adaptation/i);});
-  it('says "Applying pack... n/N" with the pack\'s name, its bar at n/N, full-screen out of live play',()=>{
+  it('WM-PACKS-CHIP: says "LOADING HD TEXTURES" and "n of N" over its bar at n/N, a corner chip out of live play',()=>{
     const o=new PackApplyOverlay(document,()=>false);
-    o.update({name:'SOCOM II HD',applied:120,total:480,done:false,refused:null});
+    o.update({name:'SOCOM II HD',applied:120,total:480,done:false,refused:null},'hd');
     const el=document.getElementById('s2u-pack-apply')!;
     expect(el).not.toBeNull();
     expect(el.getAttribute('role')).toBe('status');
-    expect(el.querySelector('[data-part=words]')!.textContent).toBe('Applying pack... 120/480');
-    expect(el.querySelector('[data-part=name]')!.textContent).toBe('SOCOM II HD');
+    expect(el.querySelector('[data-part=words]')!.textContent).toBe('LOADING HD TEXTURES');
+    expect(el.querySelector('[data-part=count]')!.textContent).toBe('120 of 480');
     expect((el.querySelector('[data-part=fill]') as HTMLElement).style.width).toBe('25%');
-    expect(el.classList.contains('is-full')).toBe(true);
-    expect(el.classList.contains('is-strip')).toBe(false);
+    expect(el.classList.contains('is-chip')).toBe(true);
+    expect(el.classList.contains('is-full')).toBe(false);
     o.dispose();expect(document.getElementById('s2u-pack-apply')).toBeNull();
   });
-  it('is a corner strip in live play, and follows the live state at each refresh',()=>{
+  it('WM-PACKS-CHIP: the same corner chip in live play on a page whose HUD draws none, at each refresh',()=>{
     let live=true;const o=new PackApplyOverlay(document,()=>live);
     o.update({name:'P',applied:1,total:2,done:false,refused:null});
     const el=document.getElementById('s2u-pack-apply')!;
-    expect(el.classList.contains('is-strip')).toBe(true);
+    expect(el.classList.contains('is-chip')).toBe(true);
+    expect(el.style.display).toBe('');
     live=false;o.refresh();
-    expect(el.classList.contains('is-full')).toBe(true);
+    expect(el.classList.contains('is-chip')).toBe(true);
+    expect(el.classList.contains('is-full')).toBe(false);
     o.dispose();
   });
   it('draws nothing over the menus while its match is hidden (a prepared match), and shows once it is shown',()=>{
@@ -60,7 +63,7 @@ describe('ML-4: the overlay\'s words and bar (ML.R10)',()=>{
     const timers:(()=>void)[]=[];
     const o=new PackApplyOverlay(document,()=>false,(f)=>{timers.push(f);});
     o.update({name:'P',applied:0,total:0,done:true,refused:'the HD pack is not installed'});
-    expect(document.querySelector('[data-part=words]')!.textContent).toBe('P: not applied -- the HD pack is not installed');
+    expect(document.querySelector('[data-part=count]')!.textContent).toBe('P: not applied -- the HD pack is not installed');
     expect(timers.length).toBe(1);timers[0]!();
     expect(document.getElementById('s2u-pack-apply')).toBeNull();
   });

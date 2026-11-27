@@ -131,7 +131,7 @@ describe.skipIf(!HAVE)('CREATE GAME respawn playlist toggle over the original sc
     expect(list(r)).toEqual(selected);
   });
 
-  it('prunes by the mission table TYPE without widening the four-map offer', async () => {
+  it('prunes by the mission table TYPE without widening the eleven-map offer', async () => {
     const r = createGameRig();
     await r.enter();
     // Only missionlist.rdr is read: seeded rows exercise the handler without offering any additional map.
@@ -142,6 +142,9 @@ describe.skipIf(!HAVE)('CREATE GAME respawn playlist toggle over the original sc
     expect(playListNumbers(list(r))).toEqual([51, 64, 81, 2, 5, 8]);
     r.go('SelectGames');
     r.press('CROSS', 10);
-    expect(r.list('AVAILABLE_MISSIONS').items.map((row) => Number(row.captions[0]))).toEqual([51, 2]);
+    // The offer's SUPPRESSION rows with RESPAWN on: VIGILANCE, SHADOW FALLS, FROSTFIRE, ABANDONED (B5, 2026-11-21),
+    // ABANDONED (DAY) after ABANDONED under ABANDONED's filter (DAY-4; DAY-R1 accepted MP5 day), RAT'S NEST (RN-1, 2026-11-24),
+    // RAT'S NEST (DAY) after RAT'S NEST under its filter (OT.R158, 2026-11-25: the owner accepted Rat's Nest (Day)).
+    expect(r.list('AVAILABLE_MISSIONS').items.map((row) => Number(row.captions[0]))).toEqual([51, 64, 2, 5, 5, 8, 8]);
   });
 });

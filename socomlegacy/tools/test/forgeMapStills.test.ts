@@ -66,3 +66,15 @@ describe('the Forge map stills generator (forge-map-stills, FP-15)', () => {
     expect(main(['--check', STILLS_IN_TREE, '--out', MAP_STILLS_TABLE], (l) => console.log(l))).toBe(0);
   });
 });
+
+/**
+ * DAY-STILLS (product track, a browser adaptation): a variant's still (`MP5-abandoned-day.json`, its `variant` set) sits
+ * beside its map's; the Forge opens a map's base, so its starting camera stays the map's own and the variant's is skipped.
+ */
+describe('DAY-STILLS: a variant\'s still is not a Forge start', () => {
+  it('a sidecar with a variant is skipped; the map\'s own camera stays', () => {
+    const day = JSON.stringify({ mapId: 'MP2', variant: 'day', camera: { x: 9, y: 9, z: 9, yaw: 9, pitch: 9 } });
+    const got = readStills(folder({ ...TWO, 'MP2-frostfire-day.json': day }));
+    expect(got.map((s) => s.file)).toEqual(['MP2-frostfire.json', 'MP10-blood-lake.json']);
+  });
+});

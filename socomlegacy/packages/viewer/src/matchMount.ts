@@ -1,4 +1,5 @@
 import { playForgeAmbients } from './forge/forgeObjects';
+import { friendOrClanBySeat } from './streamerMode';
 import { createForgeLighting, liftForgeFog, type ForgeLightingOptions } from './forge/lighting';
 import { FrameGuard } from './frameGuard';
 import { Scene, type Object3D } from 'three';
@@ -29,27 +30,31 @@ import type { ForgePlayPort } from './forge/agent/play';
 import { HostagePage } from './hostagePage';
 import type { ViewerHook } from './hook';
 import { Hud, ownHudName, spectatorHudView, validClientCount, type HudView } from './hud';
+import { bindHudPointer } from './hudPointer';
 import { keepClearWatch } from './hudMessagePanel';
 import { sessionGameDetails } from './scoreboard';
 import { handRoundScreenBitmaps, type ArmoryBitmaps } from './roundScreens';
-import { HudVoiceElement, voiceHudFrame } from './hudVoice';
+import { HudVoiceElement, shownVoice, voiceHudFrame } from './hudVoice';
 import { teamTagInput, teamTags } from './hudTags';
 import { readNameTags } from './nameTags';
 import { readRangeReadout } from './rangeReadout';
+import { readJoinLeaveLine } from './joinLeaveLine';
 import { NO_REGION, RegionCull, regionUnder } from './regionCull';
 import { DEFAULT_LIGHTING, type Lighting } from './lighting';
 import type { LoadedMap } from './loadMap';
-import { itemIcon, PlayerLoadout } from './loadout';
+import { firearmSlotPresent, itemIcon, PlayerLoadout } from './loadout';
 import { dropModels, heldOfItem, WorldDrops } from './drops';
 import { pickupKitOf } from './net/pickupRules';
 import { finalCloseDialog, LOBBY_MATCH_EVENTS_ADAPTATION, missionMapPath, type MatchHandle } from './lobbyMatch';
 import { rankOf } from './mapOrder';
+import { variantGameName } from './variants/gameName';   // DAY-PICK: a told variant's name on the game line (display only)
 import type { NetClient } from './net/client';
 import { orderCellOf, pickSurfaces } from './net/hostageOrder';
 import { corpseShownS, DEATH_CLIPS, FLINCH_CLIPS } from './net/deaths';
-import { TURRET_CLIPS } from './net/emplacement';
+import { mountHandOf, TURRET_CLIPS } from './net/emplacement';
 import type { Rules, ServerEvent, Team } from './net/protocol';
-import { NetPage, type NetPageDeps } from './netPage';
+import { bodiesOfStates } from './pushApartPage';
+import { NetPage, RESUME_RETRY_JITTER_MS_ADAPTATION, type NetPageDeps } from './netPage';
 import { flushedPad } from './padFlush';
 import { ownBodyRead, Play, type PlayClips } from './play';
 import { actionHands, mountActions } from './matchActions';
@@ -67,6 +72,7 @@ import { mountExchange, type ExchangeState } from './matchExchange';
 import { mountArmory } from './matchArmory';
 import type { ArmoryData } from './armoryData';
 import { exchangeTaps, mountTip, mountTouch, promptDeviceOf, readsPad, type MatchTouch } from './matchTouch';
+import { seatClaimDeviceOf } from './seatClaim';
 import { pageSettings, tabSettings, tipStoreOf } from './pageStore';
 import { mountFpsReadout, type FpsReadout } from './matchFps';
 import { documentFullscreen, toggleFullscreen } from './mobileFullscreen';
@@ -78,17 +84,19 @@ import { mountThrowables } from './matchThrow';
 import { MatchAbort } from './matchAbort';
 import { errText, freshCanvasOver, loseWebgl2, noBackendExtra, rendererWithRetry, watchCreationError, watchMatchBackend, type RendererRetryChoice } from './matchNoBackend';   // NO-BACKEND-NOTICE, MATCH-RENDERER-RETRY (#790)
 import { mountTaunts, type MatchTaunts, type TauntsState } from './matchTaunts';
+import { stickWalk } from './menuStick';
 import { mountChat, type ChatState } from './matchChat';
 import { mountVoice, type MatchVoice, type VoiceState } from './voice/voiceClient';
 import { externalWhispers, mountRoundChat, type RoundQueueLine } from './roundChat';
 import { mountRoundTextLine } from './roundTextLine';
-import { localStartMenuOptions, StartMenu, type StartMenuOptions, type StartMenuState } from './startMenu';
+import { localStartMenuOptions, StartMenu, startMenuLauncher, type StartMenuOptions, type StartMenuState } from './startMenu';
 import type { PlayOptions } from './originalOptions';
 import { matchOptions, type MatchOptions } from './matchOptions';
 import type { NativeSettings } from './nativeSettings';
 import { fireModeInputFor } from './fireModeInput';
 import { padButtonsDown } from './weaponExchange';
-import { postScriptMessage, refusalLine } from './matchMessages';
+import { postScriptMessage, refusalLine, roundChatPost, setRoundChatIcons } from './matchMessages';
+import { roundChatIconsFrom } from './roundChatIcons';
 import { buildPageWorld, type PageWorld } from './matchWorld';
 import type { RenderedSound } from '@s2u/sound';
 import type { SoundData } from './soundData';
@@ -97,24 +105,33 @@ import { flinchPose, RemotePlayers } from './remotePlayers';
 import { mountCharShadow } from './charShadow';
 import { ratioTargetOf, shadowRendererOf, type MatchRenderer } from './matchRenderer';
 import { MATCH_CANVAS_CLASS, MATCH_EXPERIMENTAL_OFF, PICTURE_PS2_CLASS, VIDEO_PICTURE_DEFAULT, type VideoPicture } from './picture';
+import { effectiveShape, SHAPE_43_CLASS, shapeBox, VIDEO_SHAPE_DEFAULT, type VideoShape } from './shape';
 import { detailDistanceFor, detailDistanceKeeper } from './detailDistance';
 import { PS2_FRAME } from './renderer';
 import { ApplyFrames, hdTextures, rendererUploader } from './hdTexturePack';
 import { HdServedPack, lazyHdPackDecoders } from './hdTexturePackServed';
 import { pageHdStore } from './hdTexturePackStore';
 import { PackApplier, pageTextureChoice, type GxSwitch, type HdSwitch, type TextureChoiceKeeper } from './packs/pagePacks';
-import { PackApplyOverlay } from './packApplyOverlay';
+import { matchHudUp, PackApplyOverlay } from './packApplyOverlay';
+import { feedPackApplyChip } from './packApplyChip';
 import { gxApplyProgress, pageGxPacks, type TexturePackTarget } from './texturePackRuntime';
 import { warmMapEffects } from './matchWarm';
-import { AdaptiveRatio, pixelRatioCap, watchViewport, type ViewportWindow } from './matchViewport';
+import { firstFrameHold } from './firstFrameHold';
+import { packRevealHold } from './packRevealHold';
+import { AdaptiveRatio, deferredRatio, pixelRatioCap, watchViewport, type ViewportWindow } from './matchViewport';
 import { renderCapForV2, VIDEO_SCHEMA, videoSettingsKeeper, videoSettingsKeeperV2, type FrameCap, type VideoSettingsV2 } from './videoSettings';
 import { frameCapGate } from './frameCap';
 import { colourFilter } from './colourFilter';
 import { autoAdaptiveOptions, firstMatchProbe } from './autoQuality';
 import { pageDeviceClass } from './deviceClass';
+import { glowHeld } from './glowHold';
+import { GRAPHICS_LOST_LEAVE_LABEL, GRAPHICS_LOST_REJOIN_LABEL, GRAPHICS_LOST_REJOIN_LINES, setGraphicsLostAction } from './graphicsLost';
+import { keepSeatOnUnload, releaseSeatKeep } from './seatKeep';
+import { applyXboxPs2Effects } from './xboxPs2Effects';
 import { pageFrameSampler } from './frameSampler';
 import { pageVideoReading } from './perfLine';   // VS-10 F3: the perf report's video reading, taken at the mount
 import { beaconMatchBegan, beaconMatchEnded } from './clientErrorBeacon';   // CLIENT_ERROR_BEACON_ADAPTATION: the match's own lifecycle for its reports
+import { feedPackDiag, packUploadDiag } from './matchDiag';   // B-48 (b): the HD pack in contextdiag
 import { noteLoadClosed, noteLoadReply, noteLoadStage, pageMatchDiag } from './matchDiagPage';   // XBOX-DIAG: the loss's ring and the match's input, on the beacon; XBOX-790-LOADDIAG: the load's stages
 import { hidePadHint, PadHint, showPadHint } from './padHint';   // XBOX-PAD-HINT: the Xbox browser's browsing controls named
 import { setInputPhase } from './inputSources';
@@ -122,6 +139,7 @@ import { loadPhaseReached } from './loadMarks';
 import { wantsTouchControls } from './touch';
 import { resolveRules } from './rules';
 import { ScoreboardKeys } from './scoreboardKeys';
+import { damagePanelFrame } from './damagePanel';
 import { GamePad } from './setupPad';
 import { controllerStanceMode } from './startupSettings';
 import { StanceButton } from './stanceButton';
@@ -138,6 +156,7 @@ import { WEAPON_CLIPS } from './weaponPose';
 import type { SourceRequest, ViewerRequest, ViewerResponse } from './worker';
 import { buildWorld, type WorldView } from './world';
 import { markLoad } from './loadMarks';
+import { noteXboxMemory, noteXboxWorkerReply } from './xboxMemoryTrace';
 import { mouseSite } from './mouseTesting';
 
 /**
@@ -212,7 +231,7 @@ export interface MatchMountOptions {
   /** Browser adaptation: constructor-injected normal input, accepted only on an actual private loopback client. */
   normalInput?: ForgePlayPort;
   /**
-   * OT.R114 (RB.R4; a browser adaptation, the owner, 2026-11-16: "implement the same keys as the test room in forge"):
+   * OT.R114 (RB.R4; a browser adaptation, the Forge's owner (crispy, OT.R112), 2026-11-16: "implement the same keys as the test room in forge"):
    * the page whose keyboard and mouse this match reads -- the Forge's Play passes `'forge'`. Each key and click asks
    * `./kbmScope` `kbmAllowed(page, the client's URL)`, so only an offline match (the private loopback) reads them; an
    * online room's never does. Unset (the lobby's matches): controller only, as before (OT.R29).
@@ -259,6 +278,11 @@ export interface MatchMountOptions {
   texturePacks?: { choice?: TextureChoiceKeeper; hd?: () => HdSwitch; gx?: () => GxSwitch<TexturePackTarget> | null };
   /** OT.R79 (`./picture`): VIDEO MODE's picture, drawn and followed while the match runs; absent, MODERN (what the match drew before). */
   picture?: { get(): VideoPicture; observe(f: (picture: VideoPicture) => void): () => void };
+  /**
+   * VIDEO-SHAPE (`./shape`, a browser adaptation): the canvas's shape under the Modern picture -- fill, 4:3, 4:3 stretched
+   * -- drawn and followed while the match runs, as the picture is; absent, fill (what the match drew before).
+   */
+  shape?: { get(): VideoShape; observe(f: (shape: VideoShape) => void): () => void };
   /** The window; absent, the target's document's. */
   win?: MatchWindow;
   /**
@@ -347,7 +371,7 @@ export interface MountedMatch extends MatchHandle {
  * `join()` -- its stage 1 (`prepareMount`): the world, the renderer, VIDEO MODE's picture, the window, the match's audio,
  * and the forge's own (its brighten, lighting, mode and props). Every other option is the hand-off's (`MatchAttachOptions`).
  */
-export const MATCH_STAGE_KEYS = ['assets', 'renderer', 'picture', 'win', 'brighten', 'forgeLighting', 'gameMode', 'extraWorld', 'audio', 'kbm'] as const;
+export const MATCH_STAGE_KEYS = ['assets', 'renderer', 'picture', 'shape', 'win', 'brighten', 'forgeLighting', 'gameMode', 'extraWorld', 'audio', 'kbm'] as const;
 export type MatchStageKey = typeof MATCH_STAGE_KEYS[number];
 
 /** IP3: what the mount's stage 1 is given (`prepareMount`): the stage's options, and what only a prepare names. */
@@ -629,6 +653,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   let lanes!: LaneParts;
   let typed: ReturnType<typeof mountRoundTextLine> | null = null;
   let offHeard: () => void = () => {};
+  let offRounds: () => void = () => {};              // I-4: the input report's round count -- the firearm's `round` events, let go at teardown (the diagnostic is the page's, shared by mounts)
   const adopt = (p: { normalInput: ForgePlayPort | undefined; taunts: MatchTaunts; startMenu: StartMenu; voice: MatchVoice; touch: MatchTouch; keepClear: ReturnType<typeof keepClearWatch>; touchTaps: AbortController; offTip: () => void; playOptions: MatchOptions; lanes: LaneParts; typed: ReturnType<typeof mountRoundTextLine> | null }): void => {
     ({ normalInput, taunts, startMenu, voice, touch, keepClear, touchTaps, offTip, playOptions, lanes, typed } = p);
   };
@@ -727,6 +752,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   let world: PageWorld | null = null;
   let clips: PlayClips | null = null;
   let net: NetPage | null = null;
+  walk.bodiesSource = () => bodiesOfStates(net?.client.bodies());   // LATER 711: as `./main`'s (research 426)
   /**
    * PAR-94 B2 (research 322 §4.1 B2, D2): the room has spawned this page's seat this match -- its own `spawn` heard
    * (`NetPage`'s `case 'spawn'` -> the deps' `respawned`, the hand-off's replayed events included). Until then the frame
@@ -744,6 +770,10 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     buffer: () => { const c = freshDraw?.canvas ?? canvas; return c ? { w: c.width, h: c.height } : null; },   // MATCH-RENDERER-RETRY: the drawn canvas's
     phase: loadPhaseReached,
     links: () => (renderer as { links?: { total?: number } } | null)?.links?.total ?? null,
+    seats: () => remote.ids().length,                  // XBOX-CAUSE-B: the bodies built (players and hostages; review F4)
+    room: () => net?.rows.length ?? null,              // XBOX-CAUSE-B: the room's rows, players and spectators
+    lastLink: () => (renderer as { links?: { lastAt?: number | null } } | null)?.links?.lastAt ?? null,   // XBOX-CAUSE-B
+    drawn: () => firstDrawn,                           // XBOX-CAUSE-B (re-review F1): the match's own first frame, not the load phase
   };
   let endedDialog: number | null = null;
   let gone = false;
@@ -772,6 +802,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     audio: o.audio?.game ?? new GameAudio(silentOut(), undefined, { inline: false }), walk, fly, loadouts, side,
     seat: () => net?.client ?? null, hud, nameOf: (id) => net?.displayNameOf(id) ?? null, others: () => remote,   // research 304, NU-7 W1: a teammate's grenade warning and its line
     screenUp: () => net?.screenUp() ?? false,   // OBF-7: the page's own body not heard under the round screens (ROUND_SCREENS_SILENCE_WALK_READING)
+    viewState: () => firearm.zoom.state(),   // B-86: the own step unplaced in first person and the zoom (`./walkSounds`); the firearm is mounted below, read at a step
   });
   play.onEvent(sound.playEvent);                       // the body's footfalls, clip callbacks and landings, heard
   /** The fog on the scene and behind it (`./matchCore` `liftFog`): with the goggles on, the camera's colour times the lens's. */
@@ -784,7 +815,10 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   // its sounds on the match's audio, its effects the firearm's (read at a call). MATCH-GAPS (research 222 §9): the
   // claymore's refusal on the HUD's message window as the original posts it (`./matchMessages`: 0x65f880, colour 2), and
   // the page's world, whose destructibles are C4's targets (`./matchWorld`: /testroom's `pageWorld`, built at `place`).
+  /** PAD-DS3 part 5: the pad's Fire pressure for the throw (`gamePad`'s reader, set once it is made below); null before. */
+  let padFirePressure: () => number | null = () => null;
   const throws = mountThrowables({
+    firePressure: () => padFirePressure(),
     scene, walk, fly, play, loadouts, view: () => view, map: () => map, net: () => net, firearm: () => firearm,
     audio: sound.audio, refuse: refusalLine(hud), world: () => world?.world ?? null,
     warning: (r) => { sound.grenadeWarning(r); },     // research 304: a teammate's spoken warning
@@ -799,7 +833,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     scene, fly, walk, play, remote, hud, loadouts, view: () => view, map: () => map, body: () => ownBody.view(), net: () => net,
     blocked: () => (o.blocked?.() ?? false) || armory.isOpen() || exchange.isOpen() || taunts.isOpen(), refreshFog: (lens) => { fogLens = lens; refreshFog(); }, sound: sound.firearm,
     hands: throws.hands(actionHands(() => acts)),   // PAR-55: the action part's, asked at each call (made after the firearm)
-    mountedMuzzle: (id) => acts.turrets.muzzleOf(id),   // ACT-2: `./main`'s MAP-10b -- a mounted body's rounds leave the turret's firepoint
+    mountedMuzzle: (id) => acts.turrets.muzzleOf(id),   // ACT-2: `./main`'s MAP-10b -- marks a body mounted (its rounds draw no muzzle flash, R4P-239)
     vibration: () => attached && startMenu.values().vibration,   // CTL-2: VIBRATION (DAT_00650698) as the START menu and the card leave it
     menuOpen: () => attached && startMenu.isOpen(),   // CTL-2 (the review's F2): FUN_00204a40 stops the motors and the pulse; IP3: no menu before attach
   });
@@ -821,6 +855,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     net: () => net, map: () => map, view: () => view, world: () => world?.world ?? null,
     craneToggle: (valve) => cranes.toggleLocal(valve),
     gatePress: (action, seq) => gates.press(action, seq), cranePress: (valve, seq) => cranes.press(valve, seq), isCrane: (valve) => cranes.owns(valve),   // P8
+    gateLever: (action, read) => gates.present(action, read),   // LATER 307: the lever's handles turned on its action
     bombView: {
       roundAudio: sound.roundAudio, hud, remotePlayers: remote, effects: firearm.effects, worldBomb: throws.grenade.worldBomb(),
       ownBody: ownBombBody(play, throws.throwPose, walk, () => firearm.item() === 'pistol'),   // PB-1: `./main`'s, the own body
@@ -835,7 +870,11 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     turret: {
       sound: (name, at) => { sound.audio.play(name, at, 'play', 1); },
       bodyFeet: (id) => remote.feet(id), clips: () => remote.playClips(),
-      hand: (id) => (id === net?.client.id ? walk.hand() : (net?.client.bodies().find((b) => b.id === id)?.slot === 1 ? 1 : 0)),
+      // R4P-R2 (L81; the second read): the mount clip by the hand class `+0xf79` (`mountHandOf`, r0004 0x5acbb0 D4:L452444):
+      // the firearm slot in the hand, any item over it -- the room's rule, and another body's by its slot alike.
+      hand: (id) => (id === net?.client.id ? mountHandOf(walk.hand()) : mountHandOf(net?.client.bodies().find((x) => x.id === id)?.slot === 1 ? 1 : 0)),
+      // R4P-R2 review 2 F1: this page's own kit, read at its take and kept on the mount (the room's `mountKept`).
+      kit: () => { const l = loadouts.loadout(), w = walk.hand(); return { kept: throws.grenade.equipped() ? 'item' : w === 1 ? 'secondary' : 'primary', hasPrimary: firearmSlotPresent(l, 0), hasSecondary: firearmSlotPresent(l, 1) }; },
       round: (record, from, dir, frame, count) => firearm.turretRound(record, from, dir, frame, count),
     },
     hostages,                                        // HX-4a: the hostages' orders (research 239 s7)
@@ -853,9 +892,10 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   // MATCH-01 (research 266 §8): the in-round START menu's rows' captions, the map's HudCLOC (the menu made at attach).
   let menuCaptions: Record<string, string> | null = null;
   // cq41E0VR (browser adaptations, product track; the controller 5d's call, logged for the owner): the START menu's
-  // FULLSCREEN row on the shared helper (`./mobileFullscreen`) and its SHOW FPS readout (`./matchFps`, off by default, kept
-  // on the page's settings path) on the frame time PAR-12 smooths (`adaptiveRatio`, below). A refused request (no user
-  // activation, as from a pad; a frame without the permission) shows the menu's notice and changes nothing else.
+  // FULLSCREEN row on the shared helper (`./mobileFullscreen`), and the SHOW FPS readout (`./matchFps`, off by default, kept
+  // on the page's settings path) on the frame time PAR-12 smooths (`adaptiveRatio`, below) -- since WM-LAUNCHER (WM.R7)
+  // toggled from the native VIDEO OPTIONS only, no longer a START menu row. A refused request (no user activation, as
+  // from a pad; a frame without the permission) shows the menu's notice and changes nothing else.
   const docFullscreen = documentFullscreen(doc);
   const matchFullscreen = {
     active: () => docFullscreen.active(),
@@ -950,7 +990,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   /** A menu over the game holds the keys (the ARMORY, the START menu, TAUNTS, WEAPON EXCHANGE, the R2 inventory). */
   const menuHolds = (): boolean => armory.isOpen() || startMenu.isOpen() || taunts.isOpen() || exchange.isOpen() || throws.inventory.isOpen();
   /**
-   * OT.R114 (RB.R4; the owner, 2026-11-16: "implement the same keys as the test room in forge"; a browser adaptation, the
+   * OT.R114 (RB.R4; the Forge's owner (crispy, OT.R112), 2026-11-16: "implement the same keys as the test room in forge"; a browser adaptation, the
    * original has no keyboard): `/testroom`'s keys on this match, each `./main`'s own, through `kbmWin` (offline only) --
    * X (the action: Cross's edges to the lifecycle, then the traversal's), Q / E (the peek), I (WEAPON EXCHANGE dead, the
    * R2 inventory alive, and their keys while open), 1-5 (the firearms and the equipment slots), B (the fire mode), and
@@ -1043,12 +1083,23 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     warmedFor = m;
     void throws.warm((objects) => r.prepare!(objects, scene, fly.camera, { stale: () => gone || map !== m })).catch(() => { /* a stale warm-up is dropped */ });
   };
+  // LATER 1321 (a browser adaptation; the frame cap is VS-4's): a fit resizes the canvas, which clears it, so the next
+  // animation frame must draw even where the cap would skip it (`drawGate.restart` at that frame's start), else the
+  // browser presents the cleared canvas -- one black frame (a phone's browser bar, a rotation, a window resize).
+  let fitSinceFrame = false;
   const fit = (): void => {
     if (!renderer) return;
+    fitSinceFrame = true;
     // CPS-4a (CPS.R7, a browser adaptation): the render scale's ceiling for the canvas's box (`./videoSettings`), met at
     // the ratio's next tick (`AdaptiveRatio.setCap`); the PS2 frame below draws its 640 x 448 whatever it is. VS-7 review
     // F2: the v2 percent and ceiling (`renderCapForV2`; Balanced's 100 / 1440 is `renderCapFor('balanced')` exactly).
-    const width = Math.max(1, canvas.clientWidth), height = Math.max(1, canvas.clientHeight);
+    // VIDEO-SHAPE (`./shape`, a browser adaptation): under Modern the drawing buffer is the shape's (`shapeBox`) over the
+    // canvas's client box -- under 4:3 that box is already the 4:3 one (`SHAPE_43_CLASS`); under 4:3 stretched the canvas
+    // keeps the window and the browser stretches the 4:3 buffer over it -- and the cap is met on that buffer.
+    const area = { width: Math.max(1, canvas.clientWidth), height: Math.max(1, canvas.clientHeight) };
+    const shown = effectiveShape(shape, picture);
+    const { buffer } = picture === 'ps2' ? { buffer: area } : shapeBox(shown, area);   // PS2: its 640 x 448 frame, the cap on its box as before
+    const width = buffer.width, height = buffer.height;
     adaptiveRatio.setCap(renderCapForV2(renderPct, renderCeiling, globalThis.devicePixelRatio, wantsTouchControls(), width, height).ratioCap);
     if (picture === 'ps2') {
       // OT.R79's PS2 picture, `./main`'s (:1638-1642): the console's 640 x 448 frame, its projection from the map's own
@@ -1058,7 +1109,16 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       return;
     }
     renderer.resize(width, height);
-    fly.setAspect(width / height);
+    // VIDEO-SHAPE: both 4:3 shapes draw the PS2 branch's projection above, at Modern sharpness, so they frame exactly as
+    // the PS2 picture does; stretched is only wider on the screen, never more of the world. Fill keeps the canvas's aspect.
+    // That projection's level, by axis (the source re-read, 2026-11-21): HORIZONTAL is the original's, a reading -- the
+    // map's half angle `m_hfov` off the disc (`@s2u/scene` `cameraParams.ts`, the map's `MP*.ZED` `cameras/camera` record
+    // 0x20) as `FUN_002915f0`'s 320 / tan(hfov) (research 83, research 381 §2). VERTICAL is NOT shown to be the original's:
+    // the port takes tan(`m_vfov`) (0x24), where the re-read finds the engine rewriting the vertical half angle as
+    // hfov x 448 / 640 and using one focal length on both axes (reading, pending review; research 140 :123-126 says the
+    // same of the menu's camera) -- by that reading the port shows about 7 % less of the world top to bottom. Pre-existing
+    // in the PS2 picture; its own task. The Shape row itself is a browser adaptation.
+    fly.setAspect(shown === 'fill' ? width / height : map?.camera ? Math.tan(map.camera.hfov) / Math.tan(map.camera.vfov) : PS2_ASPECT);
   };
   // OT.R79 (LATER 378; `./picture`): VIDEO MODE's picture -- MODERN (the default: native, what the match drew before), PS2
   // (`./main`'s PS2: the frame, the HUD's, the canvas's 4:3 box), EXPERIMENTAL (Modern with the test room's experimental
@@ -1067,20 +1127,23 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   // distance (PF.R60, `./detailDistance`, a browser adaptation): 1 (the original) under PS2, else the page's one
   // stored factor (2 by default), heard while the match runs.
   let picture: VideoPicture = o.picture?.get() ?? VIDEO_PICTURE_DEFAULT;
+  let shape: VideoShape = o.shape?.get() ?? VIDEO_SHAPE_DEFAULT;   // VIDEO-SHAPE (`./shape`): the canvas's shape under Modern
   let hdPack: HdServedPack | null = null, hdLogged = '';
   // B206 ML-3 (ML.R5, R9, R11, R13): the texture pack chosen in MODS -- read at the mount and at each change notice, under
   // every picture, never the picture's switch -- applied to this match's world; ML-4 (ML.R10): behind the overlay, its
   // work spread over the frames (`ApplyFrames`), the room and this page's frame running on. The online guard is on: the
   // front end's match is a room on a server, other players in it or free to join (the Forge's Play too).
   const packFrames = new ApplyFrames();
-  const packLive = (): boolean => !!net && net.client.role === 'player' && walk.mode() === 'walk' && !walk.isDead() && !(o.blocked?.() ?? false);
-  const packOverlay = new PackApplyOverlay(canvas.ownerDocument, packLive, undefined, undefined, () => canvas.style.visibility !== 'hidden');
+  let packHudUp = false;                              // WM-PACKS-CHIP review F2: this match's HUD renders this frame (set where it is shown below)
+  const packOverlay = new PackApplyOverlay(canvas.ownerDocument, () => packHudUp, undefined, undefined, () => canvas.style.visibility !== 'hidden', true);
+  const offPackDiag = feedPackDiag(() => (hdPack ? { ...hdPack.diag(), ...packUploadDiag(packFrames.uploadStats) } : null));   // B-48 (b): contextdiag's hp (`./matchDiag`)
+  const offPackChip = feedPackApplyChip(() => packOverlay.hudChip());   // WM-PACKS-CHIP (an adaptation): while this match's HUD is up it draws the chip
   const packs = new PackApplier<TexturePackTarget>({
     choice: o.texturePacks?.choice ?? pageTextureChoice(),
     registry: hdTextures,
     hd: o.texturePacks?.hd ?? (() => hdPack = new HdServedPack(undefined, (text) => {
       const k = text.replace(/\d+/g, '#'); if (k !== hdLogged) { hdLogged = k; console.info(`[hd] ${text}`); }
-      packOverlay.update(hdPack?.progress() ?? null);
+      packOverlay.update(hdPack?.progress() ?? null, 'hd');
     }, undefined, pageHdStore(),
     // ML-4 (ML.R10) and GM-13d: the pack's decodes, keys and alpha rescale in the decode worker (`HdPackDecoders`).
     lazyHdPackDecoders(() => import('./hdMenuTextures').then((m) => new m.HdMenuDecoder())),
@@ -1124,8 +1187,10 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   const offTierFilter = videoV2.observe((v) => { if (!gone) applyTierAndFilter(v); });   // VS-5 (the keeper is VS-6's above)
   const applyPicture = (): void => {
     const ps2 = picture === 'ps2';
+    applyXboxPs2Effects(firearm, pageDeviceClass(), picture);
     applyDetailDistance();
     canvas.classList.toggle(PICTURE_PS2_CLASS, ps2);
+    canvas.classList.toggle(SHAPE_43_CLASS, !ps2 && effectiveShape(shape, picture) === '4:3');   // VIDEO-SHAPE: Modern's 4:3 box (PS2 has its own)
     hud.setPresentation(ps2 ? 'ps2' : 'native');
     renderer?.setPresentation?.(ps2 ? 'ps2' : 'native');
     renderer?.setExperimental?.(MATCH_EXPERIMENTAL_OFF);
@@ -1135,6 +1200,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     fit();
   };
   const offPicture = o.picture?.observe((p) => { if (!gone) { picture = p; applyPicture(); } }) ?? ((): void => {});
+  const offShape = o.shape?.observe((s) => { if (!gone) { shape = s; applyPicture(); } }) ?? ((): void => {});   // VIDEO-SHAPE: live, as the picture
   applyPicture();
   // VS-6 (the spec's §4.2 Texture filtering, a browser adaptation): the keeper's `filtering`, live -- Anisotropic on under
   // the Modern picture once the renderer has said its maximum, never under PS2 (`./experimentalWorldSampling`
@@ -1143,6 +1209,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   // PAR-12 (research 255 s2): `./main`'s viewport and pixel ratio (`./matchViewport`) -- the window's resize, the phone
   // browser bar's and the rotation; the ratio capped for the device and traded for frames, not while the loading hold stands.
   const unwatchViewport = watchViewport(win, fit);
+  const ratioDefer = deferredRatio();                // B1-RATIO-ORDER (`./matchViewport` `deferredRatio`)
   const adaptiveRatio = new AdaptiveRatio(pixelRatioCap(globalThis.devicePixelRatio, wantsTouchControls()), autoAdaptiveOptions(videoV2.get().preset));   // VS-7: Automatic's floor is the device class's
   // VS-7 (VS.R7, a browser adaptation): Automatic's first-match probe, null once saved or under a preset; VS-10 F2: it re-reads
   // the preset before its save (`still`) and stops at a Restore defaults inside its window.
@@ -1169,7 +1236,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   let placed: MatchAssets | null = null;
   /** The HUD's game line and GAME DETAILS (the session's variables: the hand-off's), `place`'s -- at attach for a prepare. */
   const gameLines = (m: LoadedMap): void => {
-    hud.setGame(m.name, o.gameMode ?? rankOf(m.name)?.mode ?? '');
+    hud.setGame(variantGameName(m.name, m.archive, o.handOff?.welcome?.variant), o.gameMode ?? rankOf(m.name)?.mode ?? '');
     hud.setGameDetails(o.gameVars ? () => sessionGameDetails(o.gameVars!) : null);
   };
   /**
@@ -1236,6 +1303,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     lighting.rig = m.lightRig;
     mapFog(fog, m);
     hud.setBitmaps(m.hud);
+    setRoundChatIcons(hud, roundChatIconsFrom(m.hud));   // ROUND-CHAT (RC-4, V21.R15a): the disc's skull, the drawn eye
     hud.setNavPoints((m.tac?.points ?? []).filter((p) => p.kind === 1));
     if (attached) gameLines(m);
     const built = buildWorld(m);
@@ -1288,6 +1356,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         setNodeActive: (path, on) => { view?.setNodeActive(path, on); },
         setNodeOpacity: (path, f) => { view?.setNodeOpacity(path, f); },   // PB-9b: `./main`'s, the bases' pulse
         setNodeUvOffset: (path, u, v) => { view?.setNodeUvOffset(path, u, v); },   // LATER 782: the shore's scroll
+        moveNode: (path, delta) => { view?.moveNode(path, delta); },   // LATER 951: a sky held at the camera
         sound: (name, at, volume) => { sound.sceneSound(name, at, volume); },   // OBF-31: none under the round screens
         effect: (name, at) => { firearm.effects.play(name, { position: at, normal: [0, 1, 0] }); },
         log: (line) => { console.info(line); },
@@ -1312,6 +1381,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   // BLACK-GAP (`./loadingHold`): the assets settled -- a frame drawn from here on is the world's.
   let worldIn = false;
   let firstDrawn = false;
+  const firstHold = firstFrameHold();                  // XBOX-WARM (`./firstFrameHold`): the world's draws before the first frame
+  const packHold = packRevealHold(undefined, (what, ms) => { const p = hdPack?.progress(); console.info(`[pack-hold] ${what} ${Math.round(ms)} ms ${p ? `${p.applied}/${p.total}` : '-'}`); });                  // B-48 (`./packRevealHold`; product track): the loading screen held while the HD pack applies, capped
   let worldDraws = 0;                                  // frames rendered since the world was ready to draw (IP3: and attached)
   /** IP3: stage 1's gate -- the same frames counted from the mount, attached or not; told once (`MatchStageOne.prepared`). */
   let readyDraws = 0;
@@ -1330,6 +1401,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   }, () => { if (!gone) { worldIn = true; joinNow?.(); } });
   // NO-BACKEND-NOTICE (#790): the renderer's promise kept, watched from the attach (`./matchNoBackend`); its stop at the teardown.
   let noBackend: (() => void) | null = null;
+  let lostLeave: (() => void) | null = null;          // LATER 896: the lost notice's Leave match, this mount's
   // MATCH-RENDERER-RETRY (#790): A, the browser's creation error heard from the first ask; B, one retry of a refused
   // renderer on a fresh canvas over this one (the mount's own canvas only), the save reported on contextdiag.
   const creationError = watchCreationError(canvas);
@@ -1356,6 +1428,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
 
   // ---- the pad (`./main`'s `padFrame`, its game lanes; controller only, OT.R29) ----
   const gamePad = new GamePad({ waitForRest: false, pressClock: () => performance.now() });   // MOVE-S6: the stance press on the game frame
+  padFirePressure = () => gamePad.input.firePressure();   // PAD-DS3 part 5: R1's or X's pressure on a pressure pad (`ControllerInput.firePressure`)
   // ACT-3 (research 214 s4, 250 s4): `./main`'s `pads` (main.ts:1101-1114) for its XR-06 cancel -- a Cross held on a lost pad
   // is a cancel, never the release its vanished lanes would read as. Told the same `nav` as `gamePad`, polled first; no
   // toasts (the front end's pad rows are the setup page's). Its window listeners let go at the teardown (`padsOn`).
@@ -1363,6 +1436,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   const padsOn: [string, EventListener][] = [];
   const stanceButton = new StanceButton();
   let padMerged: Input = noInput();
+  /** SEAT_CLAIM_BUTTONS_ADAPTATION: the R1 button held on the pad or the touch layer this frame (the spectator's claim, `NetPage.spectatorPad`). */
+  let claimR1 = false;
   /** What the game's lanes read last frame: the merged input less the lanes the R2 inventory holds (`./main`'s `padGame`). */
   let padGame: Input = noInput();
   let flushed = false;
@@ -1397,7 +1472,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     // Held (`./main`'s `padFrame` under `loadingJoin.blocked`): no input reaches the camera, and the pad is flushed each
     // frame -- the edges taken against the pad as it is (research 116 R116.13, `./padFlush`), so a button held through
     // the hold is held, not pressed, at its release, and a stick is live at once.
-    fly.setInputSuspended(held || taunts.isOpen() || exchange.isOpen() || armory.isOpen() || startMenu.isOpen());   // and while a menu holds the pad (`./main`'s `menu`; the START menu's: +0x5e1 bit 7, D:L61999-62000)
+    fly.setInputSuspended(held || (taunts.isOpen() && !taunts.walking()) || exchange.isOpen() || armory.isOpen() || startMenu.isOpen());   // and while a menu holds the pad (`./main`'s `menu`; the START menu's: +0x5e1 bit 7, D:L61999-62000)
     if (held) { throws.inventory.close(); firearm.held(); touch.release(); }   // `./main`'s `padFrame` under the hold: the menu closed, `fire.release()`, `releaseTouch()`
     if (held && acts.wiring.lifecycle.down()) acts.cancel('loading');   // ACT-3: `./main`'s (main.ts:1181) -- a Cross held into the hold let go once
     if (held) voice.pad(false);                        // SVC-20b-page (the review's F4): no talk under the hold
@@ -1418,7 +1493,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     // after the FIRE RATE swap, so they target actions (`./padExtras`), never while the hold or a menu holds the pad.
     const padMenu = held || armory.isOpen() || startMenu.isOpen() || taunts.isOpen() || exchange.isOpen() || throws.inventory.isOpen();
     Object.assign(pad, gamePad.extras(pad, padMenu));
-    matchDiag.gameInput(pad);                          // XBOX-DIAG: the game's lanes this frame, with input or not
+    matchDiag.gameInput(pad, true);                    // XBOX-DIAG: the game's lanes this frame, with input or not (the trigger: `gameFire`, below, from the merged input)
     if (held || !flushed) {
       exchange.hold(new Set([...padButtonsDown(polled), ...padButtonsDown(touch.pad)]));   // `./main`'s: WEAPON EXCHANGE's edges against the pad as it is; MP-1 F2: the touch pad's too
       armoryPart.stick(polled, new Set(), false);    // AM-2's review F1: the stick armed through the hold, as the buttons' edges are -- no flick at the release
@@ -1427,17 +1502,21 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       // `./main`'s: a button a screen took before the hold is still owned -- the baseline holds it as released.
       padMerged = exchange.input.frame(padMerged, false);
       padGame = exchange.input.frame(padGame, false);
+      if (held) firearm.holdLevel(padMerged.fire);   // RAISE-1577: this frame's merged R1 level kept through the hold (`./main` :1747's)
       fireModeInputFor(lanes).flush(padGame.fireMode);   // PAR-22: the fire-mode button flushed with it (FUN_002dba60, research 254 s4)
       gamePad.flushExtras();                           // h59U9CLb: no combo spans the flush
       flushed = !held;
-      if (held) return;
+      if (held) { claimR1 = false; return; }
     }
     const down = new Set([...padButtonsDown(polled), ...padButtonsDown(touch.pad)]);   // MP-1 (FI.R3): the touch pad's buttons are a pad's
+    claimR1 = down.has('R1');                          // SEAT_CLAIM_BUTTONS_ADAPTATION: R1 itself, whatever the layout's lanes
+    const padIn = damagePanelFrame(hud, net, down, mergeInput(touch.input, pad), scoreboardKeys.held(), promptDeviceOf(pads.count(), 'pad'));   // WM-13 (a browser adaptation): `./main`'s
+    matchDiag.gameFire(padIn.fire);                    // I-4 (an instrument): the trigger as merged with the touch screen's, once a frame
     o.settings?.frame(now, down, polled, touch.pad);
     const edges = exchange.edges(down);               // `./main`'s: the buttons pressed this frame; the menu's context kept current
     exchange.stick(polled);                           // EXCHANGE-STICK (the owner's ruling 2026-11-12, an adaptation): open, the left stick a d-pad press
     // TAUNTS (`./matchTaunts`, research 301 §7): open, the Chat menu holds the pad -- the game's lanes take nothing.
-    const start = startMenu.pad(down, mergeInput(touch.input, pad), dt);   // MATCH-01: the START menu first; up, the pad is its own
+    const start = startMenu.pad(down, padIn, dt);   // MATCH-01: the START menu first; up, the pad is its own
     matchAbort.frame(dt);
     const chat = taunts.pad(start.held, start.input);   // PAR-5: the touch lanes merged with the pad's (`./main`'s `input`)
     voice.pad(chat.talk);                              // SVC-20b-page: the talk input's flag (W20.R9)
@@ -1448,12 +1527,24 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     const menu = start.owns || chat.owns || (armory.isOpen() ? armory.pad(edges) : exchange.pad(edges));
     if (menu || throws.inventory.isOpen()) normalInput?.cancel('A normal menu owns the input');
     const input = exchange.input.frame(chat.input, menu);
+    // WM-STICK (OT.R130, `./menuStick`): the Circle pop-up's guard leaves a moving player his stick -- the move pair on past
+    // the ownership, the camera not suspended for the menu.
+    // The look pair too (`stickWalk`): the controller's ruling under OT.R130 (2026-11-15), the owner's to overturn -- walking
+    // under the guard, the right stick looks as with no pop-up open; a departure (the original blocks both sticks, rig read). Axes only.
+    if (chat.walk) Object.assign(input, stickWalk(chat.input));
     feedCamera(fly, input, () => !!net?.spectatorCamera());   // PF-31: Triangle the spectator's while the pad is (`./matchCore`)
     const walking = walk.mode() === 'walk';
     // R1, then the R2 inventory (`./main`'s: it reads the merged lanes' edges and hands the game the input less the lanes
     // it holds), then the game's lanes in the player update's order (`./matchLanes`, `FUN_00594cf0`): the jump, the
     // shoulders (the slots the inventory's binds hold), the zoom, the fire mode, the reload, the stance.
-    firearm.triggerLane(padMerged, input);
+    // Research 451 §4, §6: `./main`'s -- on the clear's reach (walking, no menu, the walk unlocked and alive, no turret held,
+    // the mouse not captured, no throwable or launcher up: the hands' trigger, unread) the trigger the merged lane less a
+    // refused open's clear (`InventoryMenu.triggerFeed`, read before its `frame`); off it the merged lane exactly as before.
+    const reach = !menu && walking && !walk.isLocked() && !walk.isDead() && acts.turrets.mounted() === null && !fly.isLocked()
+      && !throws.grenade.equipped() && !throws.rocket.up();
+    const fed = throws.inventory.triggerFeed(padMerged, input, reach);
+    if (!reach) firearm.triggerLane(padMerged, input);
+    else if (fed !== null) firearm.trigger(fed);
     if (!walking && throws.inventory.isOpen()) throws.inventory.close();
     const game = menu || !walking ? input : throws.inventory.frame(padMerged, input, dt, frameTime.real());   // PAR-34: its idle close in real time
     // ACT-3: `./main`'s XR-06 edge (main.ts:1229-1231) -- the ARMORY's or a menu's opening (WEAPON EXCHANGE, the R2
@@ -1462,7 +1553,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     if (over && !menuOver) { acts.cancel(over); stanceButton.reset(); }   // as the R2 inventory's `onOpened`: no tap or hold carried over
     if (pad.stance && !game.stance) gamePad.cancelStancePress();   // OT.R107: a Triangle a menu took is no late pressure Prone
     menuOver = over;
-    fly.setInputSuspended(menu);                       // this frame's menu, as `./main` suspends on its `menu`
+    fly.setInputSuspended(menu && !chat.walk);         // this frame's menu, as `./main` suspends on its `menu` (WM-STICK: not the guard's walk)
     walk.holdForMenu(menu || throws.inventory.isOpen());
     playerLanes(lanes, padGame, game, frameTime.real(), { walking, menu, runAndTalk: startMenu.runAndTalk() });   // PAR-24: the timed holds in real time
     padMerged = input;
@@ -1486,11 +1577,16 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   // FRAME-LOOP-GUARD (LATER 859, `./frameGuard`; a browser adaptation): the frame's body is `step` -- true asks for the
   // next frame -- run through the guard, so a throw inside it (shadow's X3: a failed WebGPU upload out of the render)
   // costs that frame, not the match; after a few throwing frames in a row the Reload notice shows.
+  const glowHoldXbox = pageDeviceClass() === 'xbox';   // LATER 938: read once a mount (the class is memoised a page load)
   const step = (now: number): boolean => {
     if (gone) return false;
     packOverlay.refresh();                             // ML-4: the strip in live play, the panel otherwise (nothing when none shows)
     const dt = Math.min(frameTime.frame(now), 0.1);   // a backgrounded tab must not teleport the camera (PAR-24: the real seconds kept)
+    if (fitSinceFrame) { fitSinceFrame = false; drawGate.restart(); }   // LATER 1321: a resize since the last frame is drawn over now
     const drawFrame = drawGate.shouldDraw(now);        // VS-4: the frame cap's gate -- the draws below wait for it, nothing else
+    // B1-RATIO-ORDER: the held resolution step, put on only in a frame that draws, before its draw -- a resize clears the
+    // canvas, so one in a frame the cap skips (Lite's 30, the Xbox's Automatic) would leave it empty (the review's finding 1).
+    if (drawFrame) ratioDefer.apply(ratioTargetOf(renderer));
     // (`hud.render` also runs `hud.step`: its clocks count real time from its last call, so a skipped frame loses none; only the screen reads that state)
     padFrame(dt, now);
     firearm.beforeMove();                              // the bob (states 1-3)
@@ -1513,14 +1609,23 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     gates.frame(dt);                                   // MAP-07: `./main`'s gates -- the room's slide
     cranes.frame(dt);                                  // Chain Reaction: `./main`'s hooks
     acts.turrets.frame();                              // ACT-1: `./main`'s MAP-10b -- the held turret's look clamped, every occupied gun turned
+    fly.camera.updateMatrixWorld();
+    world?.world.setCamera(fly.camera.position.toArray(), fly.camera.matrixWorld.elements);   // LATER 951 / 1183: ./main's -- the camera and its turn
     world?.world.step(dt);                             // SUP-02: the world's running scene programs (./main's `pageWorld?.step(dt)`)
     firearm.fireFrame(dt, walking);                    // the fire's rate and reload
     acts.turretFrame(frameTime.real(), walk.isDead());   // PAR-24: its cadence in real time; ACT-1: `./main`'s MAP-10b -- the turret's trigger let go off it or dead; its rounds
-    firearm.effectsFrame(dt, fly.camera);              // the effects
+    firearm.effectsFrame(dt, fly.camera, !!renderer && drawFrame); // effects tick every frame; particle draw buffers only for a draw
     fly.camera.updateMatrixWorld();
     sound.frame(fly.camera, walk.gameCamera());        // the game's listener is the camera (0x48dd40; #479: the game's); the reverb, the beds
     const glow = throws.frame(dt, frameTime.real());   // the throws, the launcher, the flashbang's wash (`./matchThrow`; PAR-34: the timed rules in real time)
     renderer?.setGlow?.(glow);                         // and its glow for this frame's render
+    if (throws.grenade.flashInAir()) (renderer as { promoteGlow?: () => number } | null)?.promoteGlow?.();   // WM-17 (LATER 772): `./main`'s twin
+    // LATER 938 (`./glowHold`): on the Xbox class the glow twin's prepare compiles wait while the player is in play, until a
+    // flashbang is in the air (released before WM-17's promotion next frame) or an idle point: dead, spectating, or between
+    // rounds (the round screens up, `NetPage.screenUp` -- the review's F2: a survivor is alive through the round's end).
+    (renderer as { holdGlow?: (held: boolean) => void } | null)?.holdGlow?.(glowHeld({
+      xbox: glowHoldXbox, playing: walk.mode() === 'walk' && !walk.isDead() && (!net || (net.client.role === 'player' && !net.screenUp())), flashInAir: throws.grenade.flashInAir(),
+    }));
     view?.frame(fly.camera, dt, firearm.renderView());   // PF-29: ./main's twin (the zoom's render view; PV-7b: the watched player's while the view is drawn)
     fly.camera.updateMatrixWorld();
     // LATER 129 (PAR-48c, issue #138): the frame's game state runs each frame, as `./main`'s, and only the drawing waits
@@ -1537,21 +1642,30 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       }, !!renderer && drawFrame);                                // TAG-GRACE: only a drawn frame moves the tags' verdicts
     }
     remote.applyZoneGate(net && gateGrid ? (id) => regionCull.drawn(id) : null);
-    if (renderer && drawFrame) {
+    // XBOX-WARM (`./firstFrameHold`; product track): after the attach and before the first world frame, behind the loading
+    // screen, the world is drawn only once the compiles already asked for of `prepare` (a late joiner's bodies) are in.
+    // Never before the attach, and stage 1's `readyDraws` below counts as before (`worldReady`): the prepared report, and so
+    // the room's `loaded`, do not move (LOAD_REPORT_AT_PREPARED_READING, `./lobbyMatch`).
+    const drawWorld = drawFrame && !!renderer && firstHold.drawWorld(now, { firstDrawn: firstDrawn || !attached, compilesBusy: renderer.compilesBusy?.() ?? 0 });
+    if (renderer && drawWorld) {
       if (shadowsOn) shadow.frame(shadowRendererOf(renderer), scene, ownBody.view()?.group ?? null);   // PAR-6: `./main`'s line before the world's render; CPS-4a: not while Shadows are off
       forgeLighting?.update([scene], o.forgeLighting!);
       renderer.render(scene, fly.camera);
     }
     // BLACK-GAP: frames rendered with the world in and its scene compiled (or no warm to wait for); the second's end is the gate.
     // IP3: the hand-off's counted from its attach (frames on the shown canvas); stage 1's (`readyDraws`) from the mount.
-    const worldDrawn = drawFrame && worldIn && !!renderer && (!map || !renderer.warm || sceneWarmedFor === map);   // VS-4: a drawn frame only
+    const worldReady = drawFrame && worldIn && !!renderer && (!map || !renderer.warm || sceneWarmedFor === map);   // VS-4: a drawn frame only
+    const worldDrawn = worldReady && drawWorld;        // XBOX-WARM: a held frame is not drawn
     // (VS-4: under a cap `first-frame` and `tellReady` come an animation frame or so later -- they mean "drawn twice")
     if (!firstDrawn && attached && worldDrawn) worldDraws++;
-    if (!readyTold && worldDrawn) readyDraws++;
-    const firstWorldFrame = !firstDrawn && worldDraws >= 2;
-    net?.spectatorPad(padMerged);                      // PF-31: ./main's twin
-    const spectating = spectatorHudView(net, walk, undefined, exchange.device(), (id) => itemIcon(loadouts.tables(), id));   // LATER 118: the dead's help lines on the prompt's own device (./matchExchange); LATER 117: the watched teammate's held icon
+    if (!readyTold && worldReady) readyDraws++;        // XBOX-WARM: not held -- stage 1's report keeps its time
+    const firstWorldFrame = !firstDrawn && worldDraws >= 2 && !packHold.hold(now, packs.busy());   // B-48: behind the loading screen while the pack applies
+    net?.spectatorPad(padMerged, claimR1);             // PF-31: ./main's twin
+    const spectating = spectatorHudView(net, walk, undefined, exchange.device(), (id) => itemIcon(loadouts.tables(), id), seatClaimDeviceOf(pads.count(), exchange.device(), import.meta.env.DEV, attached && touch.touchShown()));   // LATER 118: the dead's help lines on the prompt's own device (./matchExchange); LATER 117: the watched teammate's held icon
     hud.setSpectator(spectating);                      // PAR-48: ./main's twin (research 282)
+    // SEAT_CLAIM_ADAPTATION: the claim's line drawn with its control (`at`: R1's place in it; a held seat's line has none) --
+    // a touch screen is shown the R1 it names (`./matchTouch` `claimShown`)
+    if (attached) touch.claimShown(!walking && spectating?.claim !== undefined && spectating.claim.at >= 0);
     if (renderer) {
       const scoreboard = (walking || spectating !== null) && (padMerged.scoreboard || scoreboardKeys.held());   // research 87 §12: SELECT held; PAR-48: a spectator's too
       firearm.aimReticle(dt);
@@ -1562,6 +1676,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       hud.setScoreboard(scoreboard);
       // PAR-94 B2: no HUD before the room's spawn of the seat (was: `hud.setVisible(walking)`, the default kit drawn from the mount).
       hud.setVisible(walking && spawned);
+      packHudUp = matchHudUp(walking && spawned, spectating !== null); packOverlay.refresh();   // WM-PACKS-CHIP review F2: dead, spectating or held too
       { const own = ownHudName(net); hud.setPlayerName(own.name, own.tag); }   // NU-9 N1 (research 327): the walker's own name and tag, apart
       traversal.hudFrame(hud);                         // ACT-4: `./main`'s research 86 -- the ladder slide's icon on a ladder
       acts.bomb.hudFrame();                            // ACT-1: `./main`'s XR-06 -- the bomb's compass marks and the fuse in the timer's place
@@ -1579,7 +1694,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       {                                                // MATCH-05: `./main`'s -- the voice element and the hud_talk mark (note 227 §2)
         const page = net;
         const vf = page ? voiceHudFrame(voiceEl, performance.now() / 1000, {
-          voice: voice.state(), self: { id: page.client.id, team: page.client.role === 'player' ? page.client.team : null },
+          voice: shownVoice(voice.state()), self: { id: page.client.id, team: page.client.role === 'player' ? page.client.team : null },
           rows: page.rows, spectators: hud.spectatorCount(), nameOf: (id) => page.displayNameOf(id), clanOf: (id) => page.client.clans.of(id),   // AD-13
           at: (id) => remote.feet(id), own: walk.feet(),
         }) : null;
@@ -1589,7 +1704,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         hud.setCommandMenu(attached && taunts.isOpen());   // NU-9 T3: the Chat menu open hides the tags' texts (D:L56617-56623); IP3: none before attach
         // LATER 415: the tags read the region gate framed before the render (`./regionCull`).
         const tagGrid = walk.grid();
-        hud.setTeamTags(page ? teamTags({ ...teamTagInput(page, remote, fly.camera, voice.state(), tagGrid ? (id) => regionCull.tagDrawn(id) : undefined), original: hud.teammateNamesOriginal() }) : null);   // NU-9 T4 (research 329); LATER 671
+        hud.setTeamTags(page ? teamTags({ ...teamTagInput(page, remote, fly.camera, shownVoice(voice.state()), tagGrid ? (id) => regionCull.tagDrawn(id) : undefined), original: hud.teammateNamesOriginal() }) : null);   // NU-9 T4 (research 329); LATER 671
       }
       hud.setHostageMarks(net?.hostageMarks(map?.ai, map?.forgeZoneMarks) ?? []);   // ACT-5: `./main`'s HX-5 line -- the hostages' and the zones' compass marks
       if (drawFrame) hud.render(renderer.renderer);   // VS-4: the frame cap's gate
@@ -1599,12 +1714,17 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     if (import.meta.env.DEV && devStats && renderer?.renderer.info) lastDraws = frameCountsOf(renderer.renderer.info);   // CPS H9: after the frame's last render (the armory's), its counts copied
     if (import.meta.env.DEV && devStats) lastOverlays = frameOverlaysOf(firearm.effects.lights); if (import.meta.env.DEV && devStats) lastOverlaysCulled = frameOverlaysCulledOf(firearm.effects.lights);   // CPS H10: the overlays the frame drew from (a state: `./renderStats`); the overlay cull: of those, the ones its render left out
     if (import.meta.env.DEV && devStats && renderer) (gpuTimer ??= new GpuTimer(renderer.renderer as unknown as TimestampRendererLike)).frame();   // CPS GPU time: the frame's passes resolved, never awaited
+    // B1-RATIO-ORDER: the step is decided here, after the draw, and held to the next frame's start (`ratioDefer`): a resize
+    // now would clear the frame just drawn and present it empty (the black flicker).
     matchDiag.frame(now);                              // XBOX-DIAG: the ring's sample every 2 s, the input report at 45 s
-    if (adaptiveRatio.frame(frameTime.real(), now, ratioTargetOf(renderer), (o.blocked?.() ?? false) || picture === 'ps2')) fpsReadout?.tick();   // PAR-12: `./main`'s frame tail; the PS2 frame's size is the point; cq41E0VR's readout on its tick
+    if (adaptiveRatio.frame(frameTime.real(), now, ratioDefer.wrap(ratioTargetOf(renderer)), (o.blocked?.() ?? false) || picture === 'ps2')) fpsReadout?.tick();   // PAR-12: `./main`'s frame tail; the PS2 frame's size is the point; cq41E0VR's readout on its tick
     pageFrameSampler().frame(frameTime.real() * 1000, 'match', renderer, canvas, map, net);   // CPS-5 (a browser adaptation): the performance line's sampler, the frame's real ms
     if (autoProbe && videoV2.get().preset !== 'auto') { autoProbe.dispose(); autoProbe = null; }   // VS-10 F2: Automatic left -- the probe fed nothing more
     if (autoProbe && firstDrawn && worldDrawn && picture !== 'ps2' && !(o.blocked?.() ?? false)) autoProbe.frame(frameTime.real() * 1000, (ratioTargetOf(renderer)?.pixelRatio() ?? 0) >= adaptiveRatio.ratioCap());   // VS-7: drawn frames only, after the first world frame -- `worldDrawn` waits for the scene's warm (`warmEffects`) only, not `warmThrows` / `warmShadow` (review F1)
-    if (firstWorldFrame) { firstDrawn = true; markLoad('first-frame'); loadOver = true; sound.audio.endLoad(); o.firstFrame?.(); }   // BLACK-GAP (`./loadingHold`): the front end's loading screen let go
+    if (firstWorldFrame) { firstDrawn = true; markLoad('first-frame'); loadOver = true; sound.audio.endLoad(); o.firstFrame?.();
+      // The experiment's memory trace (an instrument), after the frame's own work so the source pin on this block reads it whole.
+      noteXboxMemory('match-first-frame', { worldPresent: map !== null, backend: renderer?.backend, width: canvas.width, height: canvas.height }, map === null);
+    }   // BLACK-GAP (`./loadingHold`): the front end's loading screen let go
     if (readyDraws >= 2) tellReady(true);             // IP3: stage 1's end -- the same gate, "prepared" as `firstFrame` means drawn
     if (gone || (!attached && readyTold)) return false;   // IP3: a prepared match's frames stopped until its attach
     return true;
@@ -1639,18 +1759,22 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
   // IP3: one teardown -- a mount's `close` and `release`, and a prepared match let go before its attach (`drop`): what was
   // never attached (the hand-off's parts, its hook) is skipped, all the rest let go the same way.
   const teardown = (): void => {
+    lostLeave?.(); lostLeave = null; releaseSeatKeep();   // LATER 896 (review F2, F3): first; its notice goes too
+    noteXboxMemory('match-teardown');
     normalInput?.end('The private match ended');
     gone = true;
     beaconMatchEnded({ seats: net?.rows.length ?? null, map: map?.archive ?? null, scaleAtEnd: ratioTargetOf(renderer)?.pixelRatio() ?? null, video: videoAtStart });   // CLIENT_ERROR_BEACON_ADAPTATION: no elapsed outside a match; VS-8: the match's perf report; VS-10 F3: the mount's video
     if (attached) { matchDiag.end(globalThis.performance?.now() ?? 0); setInputPhase('menu'); }   // XBOX-DIAG: the input report if it never went; the menus' counts again (review F5: never a prepared match's that never attached)
+    offRounds(); offRounds = () => {};                 // I-4: the round subscription let go with the match, so a later mount counts only its own
     if (attached) { padHint.end(); hidePadHint(doc); }   // XBOX-PAD-HINT: never past its match (the notice is the page's: never a prepared match's teardown)
     noBackend?.(); noBackend = null;                   // NO-BACKEND-NOTICE: its timer and its notice end with the match
     creationError.stop(); freshDraw?.stop();           // MATCH-RENDERER-RETRY: the listener, and a retry's canvas and its context
     tellReady(false);                                  // IP3: a prepare still waiting on this mount ends with it
     offHeard();
     offPicture();                                      // OT.R79: the picture no longer followed
+    offShape();                                        // VIDEO-SHAPE: nor the shape
     void packs.dispose(); hdPack = null;               // B206 ML-3: the pack's originals back before the world goes
-    packOverlay.dispose();                             // ML-4: the overlay off the page with the match
+    packOverlay.dispose(); offPackChip(); offPackDiag();              // ML-4: the overlay off the page with the match; WM-PACKS-CHIP: the HUD's feed with it
     offDetailDistance();                               // PF.R60: nor the detail distance
     offVideo();                                        // CPS-4a: nor the video settings
     offFiltering();                                    // VS-6: nor Texture filtering, and the page's sampling let go
@@ -1659,7 +1783,7 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     offTierFilter();                                   // VS-5: nor the tier and the colour filter
     colourFilter(canvas, 'off');                       // VS-5 review F2: a caller's canvas keeps no matrix after the match
     autoProbe?.dispose();                              // VS-7 review F1: the probe's page-hidden listener let go
-    canvas.classList.remove(PICTURE_PS2_CLASS, MATCH_CANVAS_CLASS);   // the canvas's own classes only: the body's are never touched
+    canvas.classList.remove(PICTURE_PS2_CLASS, SHAPE_43_CLASS, MATCH_CANVAS_CLASS);   // the canvas's own classes only: the body's are never touched
     if (import.meta.env.DEV && attached) {             // IP3: the hook is the attached match's
       delete (win as unknown as Record<string, unknown>)[MATCH_WINDOW_HOOK];
       delete (win as unknown as { __crane?: unknown }).__crane;
@@ -1760,8 +1884,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       runAndTalk: () => startMenu.runAndTalk(),   // MATCH-01: RUN AND TALK as the START menu leaves it
       aborting: () => matchAbort.aborting(),
     });
-    // cq41E0VR: the SHOW FPS readout, with the menu whose row toggles it (IP3: at attach, beside the touch layer's parent).
-    const fps = fpsReadout = mountFpsReadout(own ? into : doc.body, {
+    // cq41E0VR: the SHOW FPS readout, made with the START menu (IP3: at attach, beside the touch layer's parent).
+    fpsReadout = mountFpsReadout(own ? into : doc.body, {
       // VS-4 review F1: the drawn rate -- under a cap the cap's interval where the display is faster, the display's otherwise.
       smoothedMs: () => Math.max(adaptiveRatio.smoothedMs(), drawGate.cap() > 0 ? 1000 / drawGate.cap() : 0), store: pageSettings, zIndex: Number(canvas.style.zIndex || 1000) + 1,
       overlay: () => videoV2.get().overlay, rttMs: () => (net && net.client.rtt > 0 ? net.client.rtt : null),   // VS-4: the overlay's mode, the ping
@@ -1779,7 +1903,9 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       abort: () => { matchAbort.abort(); },
       hud,
       settings: o.settings,
-      adaptations: { fullscreen: matchFullscreen, fps },   // cq41E0VR: FULLSCREEN and SHOW FPS (B199)
+      // cq41E0VR: FULLSCREEN (B199). WM-LAUNCHER (WM.R7, a browser adaptation): SHOW LAUNCHER, the overlay the page
+      // offered for this document (`./pageEntry`, `./console/adapters/launch`); none offered, no row.
+      adaptations: { fullscreen: matchFullscreen, launcher: () => startMenuLauncher(doc) },
     });
     startMenu.levelStart();                            // R4B-02 review P2: the level load's mask (r4 0x1f6850, D:L55851-55854)
     // SVC-20b-page (research 226 §3): the voice client -- `/testroom`'s (`./voice/voiceClient`), on the taunts' talk flag,
@@ -1792,7 +1918,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     // `voiceFloor` (server `room.ts` `voiceRoundStart`); with no link then, the voice's `sync` took the set `net` for a
     // new client at its next `pad` and dropped that floor entry, the round's channel null until the next one.
     const voice = mountVoice({ net: () => net ?? { client: o.client }, tuners: () => sound.audio.getTuners(), headset: taunts.headset, reportTo: () => voiceReportSocket(o.handOff),
-      talkCue: (name, volume) => { sound.audio.play(name, null, 'play', volume); },
+      // STREAMER-P1 (IQ-229 F1): Voice from others' friends & clan in a round, by the match's own seat names.
+      friendOrClan: friendOrClanBySeat((id) => net?.nameOf(id) ?? null),
     });
     // `./main`'s overlay: WEAPON EXCHANGE, the R2 inventory and TAUNTS on the HUD's layer (no tactical map here).
     // The tactical map, under the rest (`./main`'s order), for a `kbm` page only.
@@ -1826,6 +1953,9 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
     const keepClear = keepClearWatch(own ? into : doc.body, canvas);   // OT.R82: the touch controls' boxes, at a change (`./hudMessagePanel`)
     const touchTaps = new AbortController();
     exchangeTaps(canvas, exchange, { touchOnly: true, signal: touchTaps.signal });
+    // WM-DATA (a browser adaptation, `./hudPointer`): the pointer over the canvas to the HUD, the scoreboard's hovered
+    // ping; moves, leaves and cancels only -- no input the game reads; gone with the match (the taps' signal).
+    bindHudPointer(canvas, hud, touchTaps.signal);
     const offTip = mountTip({ local: tipStoreOf(pageSettings), session: tipStoreOf(tabSettings), pads: () => pads.count(), show: (text, dismiss) => { touch.showTip(text, dismiss); } });   // the page's settings path (R99.3), as `./main`'s
     /** OPTIONS (research 302 §4; `UIStoreOptions`, 04 O11): the session's stored options, each frame -- the part both pages mount. */
     const playOptions = matchOptions(o.options);
@@ -1954,16 +2084,24 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       hud, win, online: () => !gone && line.online(), whisper: (message, name) => { line.whisper(message, name); },
       actors: () => net?.rows ?? [],
       sender: () => (net ? { id: net.client.id, spectator: net.client.role !== 'player' } : null),
-      menu: () => armory.isOpen() || exchange.isOpen() || throws.inventory.isOpen(),   // ROUND-LINE-YIELDS (#260): a closed DEV line leaves Enter to an open menu
+      menu: menuHolds,   // ROUND-LINE-YIELDS (#260): a closed DEV line leaves its keys to an open menu; ENTER opens the line (ROUND_CHAT_ENTER_OPENS_ADAPTATION), so the START menu and TAUNTS, which take ENTER, are in the list too
+      sendChat: (text, team) => { if (net?.client.state === 'open') net.client.send({ type: 'chat', text, ...(team ? { team: true } : {}) }); },   // RC-2 (V21.R15a): ROUND_CHAT_SEND_ADAPTATION
     }) : null;
     adopt({ normalInput, taunts, startMenu, voice, touch, keepClear, touchTaps, offTip, playOptions, lanes, typed });
     attached = true;                                   // the hand-off's parts in: the frame and `padFrame` reach them from here
     applyTierAndFilter(videoV2.get());                 // VS-5 review F3: the page's one map at this mount's tier (another's teardown resets it)
     beaconMatchBegan();                                // CLIENT_ERROR_BEACON_ADAPTATION: a report's matchElapsedMs counts from here
     setInputPhase('match'); matchDiag.begin(globalThis.performance?.now() ?? 0, diagSource);   // XBOX-DIAG: from the same instant
+    offRounds = firearm.fire.subscribe((e) => { if (e.type === 'round') matchDiag.round(); });   // I-4 (an instrument, read-only): a round the fire lane fired
     padHint.begin(globalThis.performance?.now() ?? 0, matchDiag.xboxConsole);   // XBOX-PAD-HINT: its 10 s from the same mount
     // NO-BACKEND-NOTICE (#790): no renderer by the bound after the attach (or a rejected one): the notice, its Leave match by
     // the START menu's ABORT path (the player's press, never automatic), one contextdiag row `no-backend`.
+    // LATER 896 (`./graphicsLost`, `./seatKeep`): a lost context's notice carries "Reload and rejoin" (the seat kept through
+    // that reload: no bye, no logout) and "Leave match" (the same ABORT path); nothing promised about the body.
+    lostLeave = setGraphicsLostAction({ lines: GRAPHICS_LOST_REJOIN_LINES, actions: [
+      { label: GRAPHICS_LOST_REJOIN_LABEL, run: () => { keepSeatOnUnload(); doc.defaultView?.location.reload(); } },
+      { label: GRAPHICS_LOST_LEAVE_LABEL, run: () => { matchAbort.abort(); } },
+    ] });
     noBackend = watchMatchBackend(made, { doc, leave: () => { matchAbort.abort(); }, report: (why, reason) => { matchDiag.lost(why, globalThis.performance?.now() ?? 0, noBackendExtra(reason, creationError.last())); } });
     if (placed) { gameLines(placed.map); soundLines(placed); }   // `place`'s hand-off lines, when the world came first
     reseat();                                          // the hand-off's client's side, should the lobby's last read differ
@@ -1987,14 +2125,21 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         // ACT-5: and nothing offered from the round before (`hostages.reset()`): a port-side cache clear with no source in the
         // original, changing nothing a player sees (`HostagePage.frame` stales the offer each frame; research 250 s6).
         // PAR-4: and the world drops with the air (`./main`'s `clearAir`: DROP_LIFETIME_PLACEHOLDER).
-        roundClear: () => { firearm.fire.clearMarks(); firearm.effects.clearFootprints(); traversal.clearRipples(); remote.clearWakes(); throws.roundStart(); hostages.reset(); drops.reset(); startMenu.roundStart(); regionCull.reset(); },   // LATER 415 F2
+        // LATER 1542 (reading, pending review): the round's reset closes WEAPON EXCHANGE over the kit (S8, research 94 B4's
+        // round reset) and then the START menu -- the HUD's reset `FUN_001fb790` (D:L57684, D:L57716-57717), online, run by
+        // `FUN_002a7d40` (D:L149755-149757) BEFORE the round start `FUN_001fb420` (D:L149758: `startMenu.roundStart()`'s
+        // cursor and lockout, D:L57616) -- and never at a spawn (MATCH-01's close was `respawned`'s until LATER 1542).
+        roundClear: () => { firearm.fire.clearMarks(); firearm.effects.clearFootprints(); traversal.clearRipples(); remote.clearWakes(); throws.roundStart(); hostages.reset(); drops.reset(); exchange.reset(); startMenu.reset(); startMenu.roundStart(); regionCull.reset(); },   // LATER 415 F2
       }, {
         ...exchange.netHooks(),                          // PAR-1: `./main`'s `answered` -- the menu shows the kit the room will spawn
-        // `./main`'s: the pouch too at a spawn (the page's spent rings do not outlive it); WEAPON EXCHANGE closed over the kit (S8).
-        respawned: () => { spawned = true; throws.grenade.refill(); exchange.reset(); startMenu.reset(); },   // PAR-94 B2: the seat spawned; MATCH-01: the HUD's reset closes the START menu
+        // `./main`'s: the pouch too at a spawn (the page's spent rings do not outlive it). No menu closes here: an open WEAPON
+        // EXCHANGE or START menu stays open over a respawn (LATER 1542: the spawn path, FUN_00547350 / FUN_00598b90, closes
+        // neither; the round's reset above does).
+        respawned: () => { spawned = true; throws.grenade.refill(); },   // PAR-94 B2: the seat spawned
         died: () => { acts.cancel('death'); },           // ACT-3: `./main`'s XR-06 (main.ts:1721) -- a death cancels the action button's hold
       }, {
         ownCorpseExpired: () => play.ownCorpseExpired(), // RSP-6: `./main`'s same rendered-body expiry, no separate timer
+        joinLeaveLines: readJoinLeaveLine() === 'on',    // PRS-888 (a browser adaptation): this browser's Join/leave lines, read at the mount
         respawnInputBlocked: () => throws.inventory.isOpen(), // RSP-8: same existing R2 owner, scoped to the new press gate
         ...throws.netDeps(),
         ...sound.netDeps(),
@@ -2008,6 +2153,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
         ...voice.netDeps(),                              // SVC-20b-page: the floor entry and the room's voice frames
         ...armoryPart.netDeps(),                         // PAR-2: the hello's `armory`, a seat it opens on, the two round ends
         ...(o.gameChat ? { gameChat: o.gameChat } : {}),  // SVC-19: the room's game-session line, to the lobby's panel (research 266 §3.4)
+        // RC-3 ROUND-CHAT (V21.R15a, a browser adaptation): a round line (`chat` with `round`) on the HUD; OFF hides it
+        roundChat: roundChatPost({ hud, external: () => externalWhispers(o.externalWhispers?.()) }),
         ...(o.systemMessage ? { systemMessage: o.systemMessage } : {}),   // SA-43c Part 2: the room's system message, to the front end's routing
         game: {
           id: o.handOff.mediusWorldId, ...gameSeatOf(o.handOff), holds: (h) => { o.holds(h); },   // SA-6b: the pinned URL and ticket, or a placed game's door and token
@@ -2020,7 +2167,8 @@ export function prepareMount(target: HTMLElement, first: MatchStageOne): Prepare
       const path = missionMapPath(o.handOff.mission) ?? '';
       // Protocol 10 (MAP-03): the page's world follows the room's -- handed to the adopted lobby client by `NetPage`
       // (`NetClient.setWorld`), as /testroom's own client takes its `world` dep; none before a map is in.
-      net = new NetPage({ ...deps, world: () => world?.world ?? null }, o.handOff.pinned.url, stemOf(path), welcome?.name ?? '', undefined, false, rules);
+      // LATER 359a F3: the fast retries put off at random, up to RESUME_RETRY_JITTER_MS_ADAPTATION (a room's pages spread).
+      net = new NetPage({ ...deps, world: () => world?.world ?? null, retryJitterMs: () => Math.random() * RESUME_RETRY_JITTER_MS_ADAPTATION }, o.handOff.pinned.url, stemOf(path), welcome?.name ?? '', undefined, false, rules);
       acts.follow(net.client);                           // ACT-1: `./main`'s wave 4 -- the bomb, the turrets and the switches follow this room
       // The adoption's own line (research 250 s2): `/testroom`'s client is new, its welcome still to come; this one was
       // welcomed in the lobby, so the part is told what the NetPage was told -- the welcome's `objective` (the bomb on the
@@ -2075,8 +2223,12 @@ export interface MatchWorker {
 
 /** The front end's match loader: the mission's world decoded while the loading screen shows, then the match mounted on it. */
 export interface MatchLoader {
-  /** The mission's world and clips (the last mission's kept); null on failure. A new public call retries a failed load. */
-  load(mission: string): Promise<MatchAssets | null>;
+  /**
+   * The mission's world and clips (the last mission's kept); null on failure. A new public call retries a failed load.
+   * DAY-8: `variant`, the welcome's (`welcome.variant`), is applied to the worker's map (`matchVariant`); the kept load is
+   * the mission AND the variant.
+   */
+  load(mission: string, variant?: MatchVariant): Promise<MatchAssets | null>;
   /**
    * IP3 (`LOAD_REPORT_AT_PREPARED_READING`): the mission's match made ready to draw before the load is reported -- the
    * mount's own stage 1 (`prepareMount`) on the assets (`load`), its canvas hidden: the construction, `place`, the
@@ -2085,12 +2237,12 @@ export interface MatchLoader {
    * attaches it (no second renderer, world or warm); a `load` or `prepare` of another mission, `dropPrepared`, `dispose`
    * and a lost context on its canvas let it go (its own teardown).
    */
-  prepare(mission: string): Promise<void>;
+  prepare(mission: string, variant?: MatchVariant): Promise<void>;
   /**
    * IP3's lobby prepare (`./lobbyPrepare` `LOBBY_PREPARE_ADAPTATION`): whether `mission`'s match is prepared, being
    * prepared, or neither (null) -- what the hand-off's prepare finds (`./loadMarks` `markLobbyPrepared`).
    */
-  holds(mission: string): 'prepared' | 'preparing' | null;
+  holds(mission: string, variant?: MatchVariant): 'prepared' | 'preparing' | null;
   /**
    * IP3's lobby prepare: the prepared match let go -- or the one being prepared, at once -- by its own teardown (the
    * renderer, the canvas, the world, the effects, the audio); the loader, its worker and its decoded mission kept
@@ -2134,10 +2286,43 @@ export interface MatchLoaderOptions {
    * names one of the forge's stage-1 options, takes no prepared match.
    */
   picture?: MatchMountOptions['picture'];
+  /** VIDEO-SHAPE (`./shape`): the page's shape keeper, as the picture's -- the one the hand-off's mount is given. */
+  shape?: MatchMountOptions['shape'];
   win?: MatchWindow;
   audio?: () => MatchAudio | undefined;
   /** IP3: the seat's side before the hand-off (`MatchStageOne.side`: the game lobby's own client's team); absent, the SEAL's. */
   side?: () => Team | null;
+}
+
+/** DAY-8: the map variant a welcome tells (`./net/protocol` welcome `variant`, DAY-7a); absent, the map as decoded. */
+export type MatchVariant = import('@s2u/archive').MapVariant;
+
+/**
+ * DAY-8 (product track; a browser adaptation, DAY.R1 -- never the original's picture): the told variant applied to the
+ * worker's map, once, before the match's assets -- `./variants/withVariant` over `./variants/profiles`
+ * `loadVariantProfile` (both imported only when a variant is told). With no profile (the switch off, DAY.R9; the public
+ * export without the data; a pair not built), or a diagnostic from `withVariant`, the map as decoded, with one
+ * diagnostic line logged and kept on it (`LoadedMap.diagnostics`; DAY-4's review F2: `withVariant` says nothing for a
+ * missing profile). The worker's map is never mutated.
+ */
+async function matchVariant(map: LoadedMap, variant: MatchVariant): Promise<LoadedMap> {
+  const label = `${map.archive} ${variant}`;
+  let line: string;
+  try {
+    const [{ loadVariantProfile }, { withVariant }] = await Promise.all([import('./variants/profiles'), import('./variants/withVariant')]);
+    const profile = await loadVariantProfile(map.archive, variant);
+    if (profile) {
+      const told = withVariant(map, profile);
+      if (told.diagnostic === undefined) return told.map;
+      line = told.diagnostic;
+    } else {
+      line = `variant ${label}: no profile (not built for this map, or the variant data switch off); drawn as decoded`;
+    }
+  } catch (e) {
+    line = `variant ${label}: the profile would not apply (${e instanceof Error ? e.message : String(e)}); drawn as decoded`;
+  }
+  console.warn(`match load: ${line}`);
+  return { ...map, diagnostics: [...(map.diagnostics ?? []), line] };
 }
 
 /**
@@ -2167,6 +2352,7 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
   const ask = (request: ViewerRequest): Promise<ViewerResponse | null> => new Promise((res) => {
     if (disposed) { res(null); return; }
     waiting.set(request.id, res);
+    noteXboxMemory(`worker-queued:${request.kind}`, { requestId: request.id });
     try {
       if (!worker) {
         const own = serialWorkerRequests ? serialMatchWorker(makeWorker) : makeWorker();
@@ -2174,6 +2360,7 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
         own.addEventListener('message', (e: MessageEvent<ViewerResponse>) => {
           if (disposed || worker !== own || !waiting.has(e.data.id)) return;
           const m = e.data;
+          noteXboxWorkerReply(m);
           if (m.kind === 'progress' || m.kind === 'loading') return;
           noteLoadReply(m);                             // XBOX-790-LOADDIAG: the reply as a stage, its bytes
           // Sound's first answer is retained only while its request is live; its loops settle the request.
@@ -2183,12 +2370,12 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
         });
         own.addEventListener('error', () => {
           if (disposed || worker !== own) return;
-          noteLoadStage('crash'); stopWorker();         // XBOX-790-LOADDIAG: the worker lost
+          noteXboxMemory('worker-crash', {}, true); noteLoadStage('crash'); stopWorker();         // XBOX-790-LOADDIAG: the worker lost
         });
       }
       worker.postMessage(request);
     } catch {
-      noteLoadStage('crash'); stopWorker();           // XBOX-790-LOADDIAG: the worker lost
+      noteXboxMemory('worker-crash', {}, true); noteLoadStage('crash'); stopWorker();           // XBOX-790-LOADDIAG: the worker lost
     }
   });
   /** `./main`'s `askSound`: the map's sound data and its loops, of the same source, its path and archive (MATCH-SOUND). */
@@ -2200,12 +2387,15 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
       return data && r?.kind === 'soundLoops' ? { data, loops: r.loops } : null;
     });
   };
-  let kept: { mission: string; assets: Promise<MatchAssets | null>; failed: boolean } | null = null;
-  const load = (mission: string, retryFailed = false): Promise<MatchAssets | null> => {
+  // DAY-8: one load kept, by its mission AND its told variant (`variant`, absent for the map as decoded).
+  let kept: { mission: string; variant: MatchVariant | undefined; assets: Promise<MatchAssets | null>; failed: boolean } | null = null;
+  const keeps = (mission: string, variant: MatchVariant | undefined): boolean => kept?.mission === mission && kept.variant === variant;
+  const load = (mission: string, variant?: MatchVariant, retryFailed = false): Promise<MatchAssets | null> => {
     if (disposed) return Promise.resolve(null);
-    if (kept?.mission === mission && (!retryFailed || !kept.failed)) return kept.assets;
+    if (keeps(mission, variant) && (!retryFailed || !kept!.failed)) return kept!.assets;
     if (cancelSupersededLoads) {
       generation++;
+      if (kept) noteXboxMemory('match-load-cancelled');
       // XBOX-790-LOADDIAG (an instrument): a load superseded, as a stage of the diagnostic's load.
       if (kept) noteLoadStage('cancelled');
       kept = null;
@@ -2216,6 +2406,7 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
     // XBOX-790-LOADDIAG (an instrument): a decode begun (not the kept mission's), as a stage of the diagnostic's load.
     noteLoadStage('decode');
     const path = missionMapPath(mission);
+    noteXboxMemory('match-load', { map: path?.match(/([^/]+)\.ZDB$/i)?.[1] });
     const assets: Promise<MatchAssets | null> = path === null ? Promise.resolve(null) : (async () => {
       const mapRequest = ask({ kind: 'load', id: ++ids, source, path });
       // On Xbox no animation/effect/audio decode is queued until its predecessor settles. A failed map starts none.
@@ -2229,6 +2420,8 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
         [m, p] = await Promise.all([mapRequest, ask({ kind: 'play', id: ++ids, source, clips: MATCH_CLIPS })]);
       }
       if (stale() || m?.kind !== 'map') return null;
+      // DAY-8: the told variant's profile read beside the effects and the sound, applied before the assets are made.
+      const told = variant === undefined ? null : matchVariant(m.map, variant);
       const effectRequest = ask({ kind: 'effects', id: ++ids, source, path: m.map.path, archive: m.map.archive });
       let e: ViewerResponse | null, sound: MatchAssets['sound'];
       if (serialWorkerRequests) {
@@ -2239,7 +2432,9 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
         [e, sound] = await Promise.all([effectRequest, askSound(m.map.path, m.map.archive)]);
       }
       if (stale()) return null;
-      return { map: m.map, clips: p?.kind === 'play' ? p.data : null, effects: e?.kind === 'effects' ? e.data : null, sound };
+      const map = told ? await told : m.map;
+      if (stale()) return null;
+      return { map, clips: p?.kind === 'play' ? p.data : null, effects: e?.kind === 'effects' ? e.data : null, sound };
     })();
     // PR #631, the Xbox preset only (`releaseWorkerAfterLoad`): the worker let go once this load is in and no request
     // waits -- checked in the same turn as the terminate, so a request asked before it (another mission's load still
@@ -2248,7 +2443,7 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
       const idle = (): void => { if (!stale() && worker && waiting.size === 0) { stopWorker(); } };
       void assets.then(idle, idle);
     }
-    kept = { mission, assets, failed: false };
+    kept = { mission, variant, assets, failed: false };
     // Internal prepare/mount handoffs reuse a failure. Only an explicit public load retries it: restarting here would
     // decode again while the handoff creates its renderer, adding precisely the overlap the Xbox path must avoid.
     // XBOX-790-LOADDIAG review M1 (an instrument): the kept load failed -- no mount comes of it: the diagnostic's lane closed.
@@ -2274,14 +2469,16 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
     prepared = null;
     for (const job of jobs) if (job) letGo(job);
   };
-  const prepare = (mission: string): Promise<void> => {
+  /** DAY-8: a prepare job is of one mission AND one told variant; a prepared mount of another variant is not taken. */
+  const jobOf = (job: PrepareJob | null, mission: string, variant: MatchVariant | undefined): job is PrepareJob => job?.mission === mission && job.variant === variant;
+  const prepare = (mission: string, variant?: MatchVariant): Promise<void> => {
     if (options.hdPack?.()) return Promise.resolve();   // the review's F3: the world waits for the mount's HD collect
-    if (prepared?.mission === mission) return Promise.resolve();
-    if (preparing?.mission === mission) return preparing.done;
+    if (jobOf(prepared, mission, variant)) return Promise.resolve();
+    if (jobOf(preparing, mission, variant)) return preparing.done;
     drop();
-    const job: PrepareJob = { mission, mount: null, done: Promise.resolve(), stale: false, audio: false, offLost: () => {} };
+    const job: PrepareJob = { mission, variant, mount: null, done: Promise.resolve(), stale: false, audio: false, offLost: () => {} };
     job.done = (async (): Promise<void> => {
-      const a = await load(mission).catch(() => null);
+      const a = await load(mission, variant).catch(() => null);
       const doc = options.doc ?? globalThis.document;
       if (!a || !doc || job.stale) { if (preparing === job) preparing = null; return; }
       let settle: (ok: boolean) => void = () => {};
@@ -2290,7 +2487,7 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
       try {
         job.mount = prepareMount(doc.body, {
           assets: Promise.resolve(a), renderer: options.renderer ?? pageRenderer, hidden: true, prepared: (ok) => { settle(ok); },
-          ...(options.picture ? { picture: options.picture } : {}), ...(options.win ? { win: options.win } : {}),
+          ...(options.picture ? { picture: options.picture } : {}), ...(options.shape ? { shape: options.shape } : {}), ...(options.win ? { win: options.win } : {}),
           ...(audio ? { audio } : {}), ...(options.side ? { side: options.side } : {}),
         });
         job.audio = audio !== undefined;
@@ -2345,24 +2542,25 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
     const now = nextMatchOf(v);
     if (now === nextMatch) return;
     nextMatch = now;
-    const mission = (prepared ?? preparing)?.mission;
-    if (mission === undefined) return;
+    const job = prepared ?? preparing;
+    if (!job) return;
     drop();
-    void prepare(mission);
+    void prepare(job.mission, job.variant);
   });
   const takes = (o: Omit<MatchMountOptions, 'assets'>): PrepareJob | null => {
-    const job = [prepared, preparing].find((j) => j?.mission === o.handOff.mission && j.mount !== null) ?? null;
+    const job = [prepared, preparing].find((j) => jobOf(j, o.handOff.mission, o.handOff.welcome?.variant) && j.mount !== null) ?? null;
     if (!job || options.hdPack?.()) return null;
     if (o.win !== undefined && o.win !== options.win) return null;
     if (o.picture !== undefined && o.picture !== options.picture) return null;
+    if (o.shape !== undefined && o.shape !== options.shape) return null;   // VIDEO-SHAPE: as the picture
     if (o.audio !== undefined && !job.audio) return null;
     if (o.renderer !== undefined || o.brighten !== undefined || o.forgeLighting !== undefined || o.gameMode !== undefined || o.extraWorld !== undefined) return null;
     return job;
   };
   return {
-    load: (mission) => { if (kept?.mission !== mission) drop(); return load(mission, true); },
+    load: (mission, variant) => { if (!keeps(mission, variant)) drop(); return load(mission, variant, true); },
     prepare,
-    holds: (mission) => (prepared?.mission === mission ? 'prepared' : preparing?.mission === mission ? 'preparing' : null),
+    holds: (mission, variant) => (jobOf(prepared, mission, variant) ? 'prepared' : jobOf(preparing, mission, variant) ? 'preparing' : null),
     // XBOX-790-LOADDIAG review M1 (an instrument): the front end's drop -- the lobby left, or a load ended with no match
     // started -- closes the diagnostic's lane; the loader's own drops (a load or a prepare after them) do not.
     dropPrepared: () => { drop(); noteLoadClosed(); },
@@ -2370,7 +2568,7 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
     mount: (target, o) => {
       const job = takes(o);
       // Nothing prepared to take: the mount as before (the loader's renderer seam, when given, its default).
-      if (!job?.mount) { drop(); return mountMatch(target, { ...(options.renderer ? { renderer: options.renderer } : {}), ...o, assets: load(o.handOff.mission) }); }
+      if (!job?.mount) { drop(); return mountMatch(target, { ...(options.renderer ? { renderer: options.renderer } : {}), ...o, assets: load(o.handOff.mission, o.handOff.welcome?.variant) }); }
       // The prepared match taken whole: its stage 1 done (or still warming, N1), the hand-off's options attached to it --
       // its canvas shown, `join()` run; its close and release are its own (its canvas its own, removed by its teardown).
       const m = job.mount;
@@ -2389,6 +2587,8 @@ export function matchLoader(source: SourceRequest, makeWorker: () => MatchWorker
 /** IP3: a prepare of one mission (`MatchLoader.prepare`): its prepared mount once made, its settle, whether it was let go. */
 interface PrepareJob {
   mission: string;
+  /** DAY-8: the told variant it was prepared with; absent, the map as decoded. */
+  variant: MatchVariant | undefined;
   mount: PreparedMount | null;
   done: Promise<void>;
   stale: boolean;

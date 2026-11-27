@@ -85,7 +85,7 @@ when taken (2026-11-06).
 | fumadocs-core, fumadocs-ui | 16.17.7 | MIT |
 | fumadocs-mdx | 15.4.9 | MIT |
 | zod | 4.6.7 | MIT |
-| next | 16.4.2 | MIT |
+| next | 16.4.6 | MIT |
 | react, react-dom | 19.3.1 | MIT |
 | tailwindcss, @tailwindcss/postcss | 4.3.3 | MIT |
 | postcss | 8.5.31 | MIT |

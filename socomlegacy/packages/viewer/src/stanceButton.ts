@@ -16,6 +16,40 @@ import type { Stance } from './walk';
  */
 export const STANCE_HOLD_S_PLACEHOLDER = 0.4;
 /**
+ * LATER 1059 -- BROWSER ADAPTATION (issue #813; the main controller's brief for the wm-move seat, 2026-11-15, on the
+ * owner's word of 06:20Z): a touch screen's stance press is judged by its input events' own times (pointerdown to
+ * pointerup, `Input.stanceLength`), not by the frames the page drew between them. The original tells a tap by the press's
+ * pressure peak (under 0.3, `DAT_0066b410`, `FUN_00594cf0` D:L453336-453351), and a press of 0.3 or more decides at once
+ * (D:L453339-453340; the full press D:L453380-453425, its outcomes by the water there) -- the original times nothing,
+ * and the hold's length is the owner's ruled one (research 101 B1); a touch press has no pressure, and on a loaded page the frames' sum and the events disagree (the
+ * virtual pad keeps a lift to the frame's end, so one long frame counted whole turned a 100 ms tap into a hold). It
+ * changes nothing the game decides: the hold's length stays `STANCE_HOLD_S_PLACEHOLDER`, and a press still down keeps the
+ * frame loop's time.
+ */
+export const STANCE_TOUCH_EVENT_TIME_ADAPTATION = 'a touch press judged by the times of its events once its lift is in' as const;
+
+/**
+ * Part of `STANCE_TOUCH_EVENT_TIME_ADAPTATION` (LATER 1059, touch.spec :273's run 8): a frame longer than this, seconds,
+ * is a stall -- a touch lift may be queued behind it -- so a touch hold it would cross waits for it, once a press
+ * (`TOUCH_STALL_WAIT_FRAMES_ADAPTATION`). Three 60 Hz frames; a browser measure, no game value.
+ */
+export const TOUCH_STALL_FRAME_S_ADAPTATION = 0.05;
+
+/**
+ * Part of `STANCE_TOUCH_EVENT_TIME_ADAPTATION` (LATER 1059, 2026-11-24): after the stall frame
+ * (`TOUCH_STALL_FRAME_S_ADAPTATION`), a touch hold with no lift in yet waits up to this many more frames for a queued
+ * lift -- while those frames sum to no more than this many stall frames' worth (3 x 0.05 s), so a real hold waits at
+ * most about 0.15 s more plus the frame that fires it (three short frames; with steady 0.1 s frames two of them, about
+ * 0.2 s; frames over 0.15 s go prone a frame late, as before). Evidence: touch.spec
+ * :273 x10 at 961f3f2afd (box/touch273-961f3f2af, 9/10): the red run's 155 ms tap (down 9391, up 9545 by its events)
+ * met a 533 ms frame and its lift was dispatched 481 ms late, after the TWO frames that followed the stall (17, 50 ms);
+ * the one-frame wait ran out a frame early and the hold fired. Two is the observed need; three is the smallest with a
+ * frame of margin. No early end on a short frame: the red run's wait frames were both short. A browser measure, no game
+ * value; the original's rule (the pressure peak, `FUN_00594cf0` D:L453336-453351) is unchanged.
+ */
+export const TOUCH_STALL_WAIT_FRAMES_ADAPTATION = 3;
+
+/**
  * Research 373 §1 (reading, pending review): the full press's pressure -- `FUN_00594cf0` D:L453336-453341
  * (`0.3 <= pressure` decides at once) and D:L453351 / D:L453380 (the peak `DAT_0066b410` under 0.3 the light press,
  * else the full). Read where a pad gives its stance button's pressure (`./controllerInput` `StancePress`, SEPARATE
@@ -174,7 +208,13 @@ export type StanceAct = 'none' | 'blocked' | 'stance' | 'dive' | 'drop' | 'prone
  * moment -- feeding this lane too would toggle crouch twice. STM.R1a: the pad feeds both binds in SEPARATE only
  * (`./controllerInput` `poll`); COMBINED keeps them in the profile, unread.
  */
-export interface StanceLanes { triangle: boolean; crouch?: boolean; prone?: boolean }
+export interface StanceLanes {
+  triangle: boolean; crouch?: boolean; prone?: boolean;
+  /** LATER 1059 (`STANCE_TOUCH_EVENT_TIME_ADAPTATION`): the stance button's press length by its events, once its lift is in (`Input.stanceLength`). */
+  triangleLength?: number;
+  /** LATER 1059: the stance button is the touch layer's, its press timed by its event (`Input.stanceTimed`): a stall defers the hold once. */
+  triangleTimed?: boolean;
+}
 
 /**
  * What the stance lanes act on (`./walk` `WalkMode`; a test's own): the request each press toggles from (PAR-19,
@@ -215,6 +255,11 @@ export class StanceButton {
   private held = 0;
   private was = false;
   private acted = false;
+  /** LATER 1059: this press's hold deferred once already by a stalled frame (`TOUCH_STALL_FRAME_S_ADAPTATION`). */
+  private deferred = false;
+  /** LATER 1059: the frames, and their seconds, this press's hold has waited after its stall frame. */
+  private waitFrames = 0;
+  private waitS = 0;
   /** OT.R67: the mode last run (`lanes`): a change forgets a press under way. */
   private mode: StanceMode | null = null;
   /** OT.R76: the stance button down last frame, for its fresh press (which closes the pop's window). */
@@ -258,7 +303,7 @@ export class StanceButton {
     const allows = t.stanceAllows?.() ?? null;                // LATER 492: the press's water columns
     // H338: the pad's rules in 'separate' are the original's tap (from prone, a crouch).
     const rules = mode === 'separate' && this.rules === PAD_STANCE ? PAD_STANCE_SEPARATE : this.rules;
-    const go = this.update(lanes.triangle, dt, t.stanceIntent(), allows, rules);
+    const go = this.update(lanes.triangle, dt, t.stanceIntent(), allows, rules, lanes.triangleLength, lanes.triangleTimed === true);
     if (go !== null && ask(go)) act = 'stance';
     // After the stance button's own, in both modes (the batch review's F5).
     const full = proneEdge ? pressInWater('hold', t.stanceIntent(), allows, stanceOnHold(t.stanceIntent())) : null;
@@ -273,13 +318,29 @@ export class StanceButton {
     return act;
   }
 
-  update(down: boolean, dt: number, stance: Stance, allows: StanceAllows | null = null, rules: StanceRules = this.rules): Stance | null {
+  update(
+    down: boolean, dt: number, stance: Stance, allows: StanceAllows | null = null, rules: StanceRules = this.rules, length?: number,
+    timed = false,
+  ): Stance | null {
     let go: Stance | null = null;
     if (down) {
       // The press's own frame counts nothing: its `dt` is mostly time before the press, and a long one (a hitch) would
       // turn a tap into a hold. The hold is timed from the frame after, as late as one frame against the threshold.
-      if (!this.was) { this.held = 0; this.acted = false; } else this.held += dt;
-      if (!this.acted && this.held >= this.holdSeconds) { this.acted = true; go = pressInWater('hold', stance, allows, rules.hold(stance)); }
+      if (!this.was) { this.held = 0; this.acted = false; this.deferred = false; } else this.held += dt;
+      // LATER 1059 (`STANCE_TOUCH_EVENT_TIME_ADAPTATION`): a press whose lift is in carries its length by its events;
+      // that length decides, not the frames' sum -- under the hold's time it is a tap at the release, else a hold now.
+      let long = length !== undefined ? length >= this.holdSeconds : this.held >= this.holdSeconds;
+      // LATER 1059 (touch.spec :273's run 8; the x10 at 961f3f2afd): a touch press with no lift in yet whose hold a stalled
+      // frame would cross waits, once a press, that frame and up to `TOUCH_STALL_WAIT_FRAMES_ADAPTATION` more (summing to
+      // at most that many stall frames) -- a lift queued behind the stall (the browser may run frames before dispatching
+      // it) lands first and is judged by its events' times; a press truly held goes prone a few short frames late.
+      if (long && timed && length === undefined && !this.acted) {
+        if (!this.deferred) {
+          if (dt > TOUCH_STALL_FRAME_S_ADAPTATION) { this.deferred = true; this.waitFrames = 0; this.waitS = 0; long = false; }
+        } else if (++this.waitFrames <= TOUCH_STALL_WAIT_FRAMES_ADAPTATION
+          && (this.waitS += dt) <= TOUCH_STALL_WAIT_FRAMES_ADAPTATION * TOUCH_STALL_FRAME_S_ADAPTATION) long = false;
+      }
+      if (!this.acted && long) { this.acted = true; go = pressInWater('hold', stance, allows, rules.hold(stance)); }
     } else if (this.was && !this.acted) {
       go = pressInWater('tap', stance, allows, rules.tap(stance));
     }

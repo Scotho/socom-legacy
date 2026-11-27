@@ -239,10 +239,12 @@ function surveyMap(stem: string, bytes: Uint8Array, defs: readonly TurretDef[] |
     const runs = new Map<string, { f: SceneInstance; off: string | null }[]>();
     let at = 0, run = '';
     for (const p of placed) {
-      const proto = p.path.slice('clutter/'.length);
+      // LATER 999: a placement's path is `clutter/<model>#<record>`, so the model is the part before `#` and an instance's
+      // run is its own path (one record, its prototype's drawn nodes in order).
+      const proto = p.path.slice('clutter/'.length).replace(/#\d+$/, '');
       let nodes = runs.get(proto);
       if (!nodes) runs.set(proto, nodes = placedWithNodes(models, proto).map(({ f, off }) => ({ f, off })));
-      if (proto !== run || at >= nodes.length) { run = proto; at = 0; }
+      if (p.path !== run || at >= nodes.length) { run = p.path; at = 0; }
       const n = nodes[at++]!;
       items.push({ source: 'clutter', p, node: n.f.node, off: n.off });
     }

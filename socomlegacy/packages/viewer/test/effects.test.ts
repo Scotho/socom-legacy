@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Box3, BoxGeometry, Group, Matrix4, Mesh, MeshBasicMaterial, PerspectiveCamera, Vector3 } from 'three';
@@ -194,7 +194,9 @@ describe("an effect's SOUND that is no placed new play reaches no voice (FUN_002
  */
 describe('PAR-45: a handle\'s stop() stops what its run called, recursively', () => {
   const wait = (seconds: number): EffectOp => ({ op: 'wait', seconds, range: 0, frames: null });
-  const prog = (name: string, ops: EffectOp[]): EffectProgram => ({ name, root: 0, flags: 0, nodes: ['NA'], sequences: [{ name: 's0', activation: 1, ops }] });
+  // R4P-255: 0xa2, the disc's usual flags (a copy whenever all are busy, no limit): the control starts one program twice,
+  // which a no-copy animation's single instance would refuse (`effectInstanceLimit`).
+  const prog = (name: string, ops: EffectOp[]): EffectProgram => ({ name, root: 0, flags: 0xa2, nodes: ['NA'], sequences: [{ name: 's0', activation: 1, ops }] });
   const data = (): EffectData => ({
     archive: 'T', models: [], textures: [], absent: [], materials: ['UNKNOWN'], defaultMaterial: 0, marks: [], footprints: [],
     ambient: [], sceneNodes: [], hitAnims: [], missing: [],
@@ -252,7 +254,7 @@ describe('PAR-45: a handle\'s stop() stops what its run called, recursively', ()
 function deck(material: number) {
   const poly: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/deck', region: 0, ditype: 2, material, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-100, 0, -100, 100, 0, -100, 100, 0, 100, -100, 0, 100]),
+    points: Float32Array.from([-100, 0, 100, 100, 0, 100, 100, 0, -100, -100, 0, -100]),
   };
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/deck0', first: 0, count: 1 }];
@@ -306,6 +308,39 @@ describe.skipIf(!MP2)(`the M4A1 SD's round on the game's data${MP2 ? '' : ` (${F
     expect(sounds).toContain('.BUL_CAS_METAL');          // the bank's name for the data's .BUL_CASE_METAL
     // The smoke source is switched off in the data: nothing was emitted.
     expect(fx.stats().emitted).toBe(0);
+  });
+
+  it('reuses casing geometry height without rescanning a pooled shell or changing its motion and sounds', async () => {
+    const d = await load();
+    let seed = 0;
+    const sounds: string[] = [];
+    const fx = new Effects(() => (seed = (seed * 9301 + 49297) % 233280) / 233280, (name) => sounds.push(name));
+    fx.setData({ ...d, ambient: [] });
+    const floor = deck(25);
+    fx.setWorld(() => floor);
+    const camera = new PerspectiveCamera();
+    const place = { node: new Matrix4().makeTranslation(0, 12, 0), position: [7.8, 0.8, 0] as [number, number, number] };
+    const start = () => {
+      seed = 0; sounds.length = 0;
+      expect(fx.play('muzzle_m4SD', place)).toBe(true);
+    };
+    const finish = () => {
+      const motion = [];
+      for (let i = 0; i < 120; i++) { fx.update(1 / 60, camera); motion.push(fx.stats().lastShell); }
+      return { motion, sounds: sounds.slice() };
+    };
+    start();
+    const shell = fx.object.children.find((o) => o.name.startsWith('bullet_shell'))!;
+    expect(shell).toBeTruthy();
+    const first = finish();
+    expect(first.sounds).toContain('.BUL_CAS_METAL');
+    const traverse = vi.spyOn(shell, 'traverse');
+    try {
+      start();
+      expect(fx.object.children).toContain(shell);
+      expect(finish()).toEqual(first);
+      expect(traverse).not.toHaveBeenCalled();
+    } finally { traverse.mockRestore(); fx.setData(null); }
   });
 
   it('draws the M4A1\'s flash at the muzzle, along the barrel, and scales it up over 0.05 s, then hides it', async () => {
@@ -606,5 +641,53 @@ describe.skipIf(!MP2)(`ROUND_END_EFFECTS_READING on the game's data${MP2 ? '' : 
     fx.update(1 / 30, camera);
     expect(fx.stats().runs).toBe(base);
     expect(fx.stats().ambient).toEqual(ambient);
+  });
+});
+
+/**
+ * FC2/FN-6 (ours; LATER 1041; FORGE_OBJECT_PLACE_ADAPTATION, `./forge/forgeObjects` `playForgeAmbients`): a placed
+ * ambient whose audio script stands in for its sounds is played `{ silent: true }`, and the flag must be in the run's
+ * context before its first update -- `start` runs every op up to the first WAIT at once, and the programs CALLed then,
+ * so a one-off (not `~`) sound on that path played under the replacement (MP10's crickets and frogs, MP6's buzzing
+ * lights). Synthetic programs: a one-off sound then a wait; a call into a program that opens with a one-off sound.
+ */
+describe('FN-6: playProgram({ silent: true }) is silent from its first update, and so is what it calls then', () => {
+  const wait = (seconds: number): EffectOp => ({ op: 'wait', seconds, range: 0, frames: null });
+  const sound = (name: string): EffectOp => ({ op: 'sound', sound: name, node: 0, volume: 1, flags: 0x80, newPlay: true });
+  const prog = (name: string, ops: EffectOp[]): EffectProgram => ({ name, root: 0, flags: 0, nodes: ['NA'], sequences: [{ name: 's0', activation: 1, ops }] });
+  const oneOff = prog('one_off', [sound('ONE_OFF'), wait(100)]);
+  const caller = prog('caller', [{ op: 'call', anim: 'called' }, wait(100)]);
+  const called = prog('called', [sound('CALLED'), wait(100)]);
+  const rig = () => {
+    const heard: string[] = [];
+    const fx = new Effects(() => 0.5, (name) => heard.push(name));
+    fx.setData({
+      archive: 'T', models: [], textures: [], absent: [], materials: ['UNKNOWN'], defaultMaterial: 0, marks: [], footprints: [],
+      ambient: [], sceneNodes: [], hitAnims: [], missing: [],
+      programs: [oneOff, caller, called],
+    });
+    return { fx, heard, tick: () => fx.update(1 / 30, new PerspectiveCamera()) };
+  };
+
+  it('a one-off sound before the first wait is not heard', () => {
+    const { fx, heard, tick } = rig();
+    fx.playProgram(oneOff, 'node_x', new Matrix4(), { silent: true });
+    tick();
+    expect(heard).toEqual([]);
+  });
+
+  it('a one-off sound opening a program CALLed before the first wait is not heard', () => {
+    const { fx, heard, tick } = rig();
+    fx.playProgram(caller, 'node_x', new Matrix4(), { silent: true });
+    tick();
+    expect(heard).toEqual([]);
+  });
+
+  it('CONTROL: without silent, both are heard', () => {
+    const { fx, heard, tick } = rig();
+    fx.playProgram(oneOff, 'node_x', new Matrix4());
+    fx.playProgram(caller, 'node_y', new Matrix4());
+    tick();
+    expect(heard).toEqual(['ONE_OFF', 'CALLED']);
   });
 });

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { sampleClip } from '@s2u/scene';
 import { applyHit, freshHealth, PART } from '../../viewer/src/net/damage';
-import { NO_PART, placedVolumes, posedBoxes, rayRecords, type V3 } from '../../viewer/src/net/hitVolumes';
+import { bodyPointToWorld, NO_PART, placedVolumes, posedBoxes, rayRecords, type V3 } from '../../viewer/src/net/hitVolumes';
 import { writePose } from '../../viewer/src/animator';
 import { simSkeletonsFromBytes, type SimSkeleton } from '../../viewer/src/simMap';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
@@ -40,8 +40,24 @@ import { bodyApplications, walkOrder } from '../src/bodyWalk';
  * original's healths at every phase and every rounding (`exact`). The two 11.7 u BODY rows (s1-front-2, -3) give BODY at
  * every case, and at most idle phases an EXTRA left-arm application before it (the forearm's edge on the line in the
  * port's idle, not in the original's frame): the port's disagreement there is one more application, never a refused
- * round (`extraArm`). Not covered: the live locomotion pose, the Fire set on the target, back and side shots, the
- * Terrorist model, the foot under 0.8 u, the shoulder edges 2.5-3.5 u off the axis (the rig's next spots).
+ * round (`extraArm`). Not covered: the live locomotion pose, back shots, the foot under 0.8 u, the shoulder edges
+ * 2.5-3.5 u off the axis (the rig's next spots).
+ *
+ * SIDE (LATER 1025's side picture, reported, 2026-11-14): on the original B's FACING decides -- on one root, line and
+ * range, yaw 0 took no damage in 4 rounds and yaw 180 BODY in 3, A standing or crouched. The port separates neither
+ * (tallied over all 72 cases a row): on the standing idle every case applies at both yaws (the logged yaw-0 rows BODY
+ * at 282 of 288 cases, LARM+BODY at 6; the yaw-180 rows BODY, RARM+BODY on the crouched shooter's line where the
+ * original took BODY alone, and BODY); the Fire stand alone gives no record at either yaw in any case. Caveat (a), the
+ * yaw's sense: the port's forward is (-sin, -cos) (`hitVolumes.ts` `toWorld`), so at yaw 0 he faces world -z and A, at
+ * -x, sees his left side; the earlier rows pin only yaw 90; Q19 pins the rest (the original's hips and spinehi stand to
+ * -z of his root at yaw 0 and to +z at 180, the port's sense). The 'neither' result never depended on it (the mirrored
+ * rows); an offset's sign does. Caveat (b), the pose: the Fire rows write `seal_fp_stand` whole at full weight
+ * (`writePose`), not the room's `HitPoser`, which blends the Fire version over the idle per node at the eased raise
+ * weight (`WeaponPose.fireLayer`, `sampleFire`) with the head look and the pitch twist; at a steady full raise the two
+ * should agree, which is not tested here, and a partial blend is not covered. The first candidate (a body placed 1-2 u
+ * to world -z of +0x1c, not turned by the yaw) is WITHDRAWN: Q19's node reads turn with the yaw. Q19 below: the port's
+ * Fire stand stands a rigid 0.54 u short of the original's along the facing, and so placed the side line meets no box
+ * at either yaw; the next candidate (not a reading) is the first contact (research 217 s3.6a).
  */
 
 const MP2 = fixture('RUN/MP2.ZDB'), READERC = fixture('RUN/READERC.ZAR'), PACK = fixture('RUN/MOTION_P.ZAR');
@@ -64,7 +80,11 @@ interface Row {
   /** The original's six healths after the round. */
   after: readonly number[];
   /** How the port holds the row: `exact`, the original's parts and healths at every case; `extraArm`, see the header. */
-  held: 'exact' | 'extraArm' | 'report';
+  held: 'exact' | 'extraArm' | 'report' | 'side';
+  /** B's yaw as the rig wrote it (degrees, the port's `placedVolumes` yaw); absent, 90 (facing A at -x). */
+  yaw?: number;
+  /** B's pose: `idle`, the standing idle (absent); `fire`, the Fire stand (`seal_fp_stand`) alone, the full raise. */
+  pose?: 'idle' | 'fire';
   /**
    * The round's own start, where the rig read it (the muzzle at the shot); absent, the line starts at the camera's eye.
    * The two lines cross at the aim point; at an edge of the body they can meet different boxes (r1 of Q10-T).
@@ -147,6 +167,33 @@ const ROWS: readonly Row[] = [
   { id: 'P prone r5', model: 'al_gman01', held: 'report', parts: [], after: [], h: 0, lat: 0, range: 0, root: [875.5, 100.004, 690], eye: [845.593, 108.438, 690.440], hit: [876.26, 101.254, 687.57] },
 ];
 
+/** The Fire stand (`FIRE_VERSIONS`' stand), the pose LATER 1025's rig read a still al_gman01's feet in at c1. */
+const FIRE_STAND = 'seal_fp_stand';
+/** The rig's round on al_gman01 side-on: body 50 -> 31.5 is D - 17.5 at D = 36 (P as the front rows'). */
+const SIDE_ROUND = { damage: 36, piercing: 3 };
+const AFTER_SIDE_BODY = [8, 18.9, 18.9, 31.5, 18.9, 18.9];
+/**
+ * SIDE (LATER 1025's side picture; the rig's side-picture-3 and -4, 2026-11-14, `gate-runner/shadow/out/2026-11-14/
+ * q10-hitreg/side-picture-{3,4}/times.txt`): al_gman01 at c1 side-on to A, the shot through his centreline at chest
+ * height (13.1-13.9 u over his feet) at about 15 u, unscoped. Each shot's B root (+0x1c) and yaw, A's eye (cam +0x2c),
+ * and the crosshair ray's world point (+0x3c0, past the body: only the line's direction), at the trigger; `damaged` from
+ * the six healths before and after. sp3's two and sp4's b0-crouch and b180-stand are the same placings, fired twice.
+ */
+const SIDE_SHOTS: readonly { id: string; yaw: number; root: V3; eye: V3; ray: V3; damaged: boolean }[] = [
+  { id: 'sp3 b0 A crouched', yaw: 0, root: [856.740, 100.004, 688.856], eye: [842.994, 109.908, 689.824], ray: [983.547, 142.939, 679.863], damaged: false },
+  { id: 'sp3 b180 A standing', yaw: 180, root: [855.500, 100.004, 690.000], eye: [843.000, 115.201, 690.000], ray: [943.000, 104.976, 690.038], damaged: true },
+  { id: 'sp4 b180 A crouched', yaw: 180, root: [855.500, 100.004, 690.000], eye: [842.985, 109.908, 689.375], ray: [966.905, 141.356, 695.544], damaged: true },
+  { id: 'sp4 b0 A crouched', yaw: 0, root: [856.740, 100.004, 688.856], eye: [842.994, 109.908, 689.824], ray: [983.554, 143.002, 679.861], damaged: false },
+  { id: 'sp4 b180 A standing', yaw: 180, root: [855.500, 100.004, 690.000], eye: [843.000, 115.201, 690.000], ray: [943.000, 104.967, 690.026], damaged: true },
+  { id: 'sp4 b0 A standing, b180 root', yaw: 0, root: [855.500, 100.004, 690.000], eye: [841.701, 115.201, 691.067], ray: [943.000, 106.034, 683.191], damaged: false },
+  { id: 'sp4 b0 A standing, repeat', yaw: 0, root: [855.500, 100.004, 690.000], eye: [843.000, 115.201, 690.000], ray: [943.000, 105.117, 689.958], damaged: false },
+];
+const SIDE: readonly (Row & { damaged: boolean })[] = SIDE_SHOTS.flatMap((s) => (['idle', 'fire'] as const).map((pose) => ({
+  id: `${s.id} (${pose})`, model: 'al_gman01', held: 'side' as const, yaw: s.yaw, pose, root: s.root, eye: s.eye, hit: s.ray,
+  h: 0, lat: 0, range: 0, round: SIDE_ROUND, damaged: s.damaged,
+  parts: s.damaged ? [BODY] : [], after: s.damaged ? AFTER_SIDE_BODY : [8, 30, 30, 50, 30, 30],
+})));
+
 /** B's feet from a row (see the header); `dx` the range's rounding tried. */
 function feetOf(r: Row, dx: number): V3 {
   if (r.root) return [r.root[0] + dx, r.root[1], r.root[2]];
@@ -169,7 +216,8 @@ describe.skipIf(!HAVE)(`Q10: the original's measured rounds on the port's boxes 
   });
   /** Every case of a row: each idle phase at each rounding of B's x. */
   const cases = (r: Row): Case[] => {
-    const s = r.model ? byModel(r.model)! : sim!, clip = s.idles.stand!;
+    const s = r.model ? byModel(r.model)! : sim!;
+    const clip = r.pose === 'fire' ? s.motion!.clips.find((c) => c.name === FIRE_STAND)! : s.idles.stand!;
     const round = r.round ?? ROUND;
     const o = r.from ?? r.eye;
     const d = [r.hit[0] - o[0], r.hit[1] - o[1], r.hit[2] - o[2]];
@@ -183,7 +231,7 @@ describe.skipIf(!HAVE)(`Q10: the original's measured rounds on the port's boxes 
         const boxes = posedBoxes(s.skeleton);
         s.skeleton.resetToBind();
         const recs: { distance: number; tag: { id: number; part: number }; bone: string }[] = [];
-        rayRecords(o, dir, 400, placedVolumes(feet, 90, boxes), (part, t, bone) => {
+        rayRecords(o, dir, 400, placedVolumes(feet, r.yaw ?? 90, boxes), (part, t, bone) => {
           recs.push({ distance: t, tag: { id: 2, part }, bone: s.skeleton.parts[bone]?.name ?? String(bone) });
         });
         walkOrder(recs);
@@ -284,6 +332,90 @@ describe.skipIf(!HAVE)(`Q10: the original's measured rounds on the port's boxes 
       for (const [k, n] of [...seen].sort((p, q) => q[1] - p[1])) console.log(`  ${String(n).padStart(3)}x ${k}`);
       expect(all.length).toBe(PHASES * DX.length);
     });
+
+  it('SIDE: the side picture on the port\'s boxes, at the logged yaw and mirrored, idle and Fire stand (reported)', () => {
+    const lines: string[] = [];
+    for (const r of SIDE) {
+      for (const yaw of [r.yaw!, (r.yaw! + 180) % 360]) {
+        const all = cases({ ...r, yaw });
+        // The tally over ALL the cases: the parts applied, the first record's box, and the six healths.
+        const seen = new Map<string, number>();
+        for (const c of all) {
+          const key = `${c.parts.map((p) => NAME[p]).join('+') || 'none'} (first ${c.records.split(' ')[0]?.split('@')[0] || '-'}; hp ${c.hp.join('/')})`;
+          seen.set(key, (seen.get(key) ?? 0) + 1);
+        }
+        const tally = [...seen].sort((p, q) => q[1] - p[1]).map(([k, n]) => `${n}x ${k}`).join(', ');
+        lines.push(`${r.id} yaw ${yaw}${yaw === r.yaw ? ' (logged)' : ' (mirrored)'}: original ${r.damaged ? 'BODY' : 'none'}; port over ${all.length}: ${tally}`);
+      }
+    }
+    // Where the Fire stand's boxes stand across the line, on ONE line (sp4 b0 A standing, repeat): B's root moved along
+    // world z (across the line, which runs along x), the outcome at each offset (the most frequent of the 72 cases).
+    const base = SIDE.find((r) => r.id === 'sp4 b0 A standing, repeat (fire)')!;
+    for (const yaw of [0, 180]) {
+      const row: string[] = [];
+      for (let k = -12; k <= 12; k++) {
+        const dz = k / 2, all = cases({ ...base, yaw, root: [base.root![0], base.root![1], base.root![2] + dz] });
+        const seen = new Map<string, number>();
+        for (const c of all) { const key = c.parts.map((p) => NAME[p]).join('+') || '-'; seen.set(key, (seen.get(key) ?? 0) + 1); }
+        row.push(`${dz >= 0 ? '+' : ''}${dz.toFixed(1)} ${[...seen].sort((p, q) => q[1] - p[1]).map(([kk, n]) => `${kk}${n < all.length ? `(${n})` : ''}`).join('/')}`);
+      }
+      lines.push(`Fire stand, B's root moved along z, yaw ${yaw}: ${row.join('; ')}`);
+    }
+    console.log(`Q10 SIDE:\n${lines.join('\n')}`);
+    // One line a row at each of its two yaws, and the sweep's two: a dropped row is caught.
+    expect(SIDE.length).toBe(SIDE_SHOTS.length * 2);
+    expect(lines.length).toBe(SIDE.length * 2 + 2);
+  });
+
+  /**
+   * Q19 (the rig, 2026-11-14; MP2, r0004, memory reads, no shot; `q10-hitreg/q19-facing-nodes/q19-reads.jsonl`): the
+   * original's hips and spinehi world origins (node +0x00 chained through parent +0x64 to *(actor+0x28)), al_gman01
+   * standing (posture 0) and RAISED (+0xf74 = 1, +0x1160 = 0.1) on the side picture's root, at yaw 0 and 180; the
+   * middles of four reads 0.4 s apart (his sway about 0.1 u).
+   */
+  const Q19_ROOT: V3 = [855.5, 100.004, 690];
+  const Q19 = [
+    { yaw: 0, hips: [854.585, 110.629, 687.345], spinehi: [855.225, 112.69, 686.495], line: 'sp4 b0 A standing, repeat (fire)', orig: 'none' },
+    { yaw: 180, hips: [856.475, 110.629, 692.665], spinehi: [855.83, 112.685, 693.525], line: 'sp4 b180 A standing (fire)', orig: 'BODY' },
+  ] as const;
+
+  it('Q19: the Fire stand against the original\'s node origins, and the side line\'s first contact with the body so placed (reported)', () => {
+    const s = byModel('al_gman01')!, clip = s.motion!.clips.find((c) => c.name === FIRE_STAND)!;
+    const lines: string[] = [];
+    for (const q of Q19) {
+      // The port's nodes at key 0, relative to the root, in the world at the yaw (`bodyPointToWorld`: the skeleton's frame, z behind).
+      writePose(s.skeleton, sampleClip(clip, 0, { loop: true }).parts);
+      const rel = (name: string): V3 => {
+        const w = s.skeleton.world[s.skeleton.parts.findIndex((p) => p.name === name)]!;
+        return bodyPointToWorld({ feet: [0, 0, 0], yaw: q.yaw }, [w[12]!, w[13]!, w[14]!]);
+      };
+      const ph = rel('hips'), ps = rel('spinehi');
+      s.skeleton.resetToBind();
+      const f = (v: readonly number[]): string => `(${v.map((x) => x.toFixed(2)).join(', ')})`;
+      const os = [q.spinehi[0] - Q19_ROOT[0], q.spinehi[1] - Q19_ROOT[1], q.spinehi[2] - Q19_ROOT[2]];
+      const oh = [q.hips[0] - Q19_ROOT[0], q.hips[1] - Q19_ROOT[1], q.hips[2] - Q19_ROOT[2]];
+      // The shift that lays the port's spinehi on the original's (across the ground only).
+      const shift: V3 = [os[0]! - ps[0], 0, os[2]! - ps[2]];
+      lines.push(`yaw ${q.yaw}: spinehi original ${f(os)} port ${f(ps)}; hips original ${f(oh)} port ${f(ph)}; `
+        + `spinehi laid on the original's by ${f(shift)} leaves hips off by ${f([oh[0]! - ph[0] - shift[0], oh[1]! - ph[1], oh[2]! - ph[2] - shift[2]])}`);
+      // The side line (its shot at this yaw), B's root moved by that shift and then across the line by dz: the first
+      // record and the parts applied (the most frequent of the 72 cases).
+      const base = SIDE.find((r) => r.id === q.line)!, row: string[] = [];
+      for (let k = -8; k <= 8; k++) {
+        const dz = k / 4;
+        const all = cases({ ...base, yaw: q.yaw, root: [Q19_ROOT[0] + shift[0], Q19_ROOT[1], Q19_ROOT[2] + shift[2] + dz] });
+        const seen = new Map<string, number>();
+        for (const c of all) {
+          const key = `${c.records.split(' ')[0]?.split('@')[0] || '-'}>${c.parts.map((p) => NAME[p]).join('+') || 'none'}`;
+          seen.set(key, (seen.get(key) ?? 0) + 1);
+        }
+        row.push(`${dz >= 0 ? '+' : ''}${dz.toFixed(2)} ${[...seen].sort((p, q2) => q2[1] - p[1]).map(([kk, n]) => `${kk}${n < all.length ? `(${n})` : ''}`).join('/')}`);
+      }
+      lines.push(`  the ${q.line} line (original ${q.orig}), root moved by the shift then dz along world z: ${row.join('; ')}`);
+    }
+    console.log(`Q10 Q19:\n${lines.join('\n')}`);
+    expect(lines.length).toBe(4);
+  });
 
   it('the spread, as the rig read it: a body hit caps every limb; an arm hit alone moves that arm and nothing else', () => {
     const b = freshHealth(); applyHit(b, BODY, ROUND.damage, ROUND.piercing);

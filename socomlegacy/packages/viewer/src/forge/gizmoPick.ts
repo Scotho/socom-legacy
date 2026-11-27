@@ -4,13 +4,13 @@ import type { TransformControls } from 'three/examples/jsm/controls/TransformCon
 /**
  * The transform gizmo made tighter (a browser adaptation, the game has no editor; three's TransformControls):
  *
- * - Its hit shapes thinned (the owner, 2026-11-20: "even if my mouse is a bit away from the handles, it hovers them ...
+ * - Its hit shapes thinned (the Forge's owner (crispy, OT.R112), 2026-11-20: "even if my mouse is a bit away from the handles, it hovers them ...
  *   make the handles only interactable if we are very close"). three tests the pointer against invisible picker shapes
  *   much fatter than the handles it draws (an axis's picker a cone 0.2 wide at its tip, its arrow 0.04); each is made
  *   thinner, about the handle drawn, keeping its length and place, so a point, edge or face beside the gizmo can be
  *   picked. three bakes each shape's place into its points, so they are scaled where they lie: an axis's across its
  *   axis, a ring's tube about its circle, a centre handle about the centre, a plane square about its own middle.
- * - The negative-side handles taken off (the owner, 2026-11-20: "remove the negative handles (the ones that are
+ * - The negative-side handles taken off (the Forge's owner (crispy, OT.R112), 2026-11-20: "remove the negative handles (the ones that are
  *   floating, no lines attached to them)"): the second arrow (move) or cube (scale) three puts on each axis's negative
  *   side, and its picker, so each axis has its one handle at the end of its line.
  *

@@ -277,7 +277,7 @@ const FORWARD: WalkInput = { forward: 1, right: 0, boost: false };
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
 const PLAIN: WorldPoly[] = [{
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]),
+  points: Float32Array.from([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]),
 }];
 const owners = (polys: WorldPoly[]): CollisionOwner[] => polys.map((p, i) => ({ modelName: p.modelName, path: `${p.path}${i}`, first: i, count: 1 }));
 
@@ -893,9 +893,11 @@ describe.skipIf(!motionPack || !readerc || !zweapon)(`PAR-82: WalkMode with the 
     r.walk.unbindKey();
   });
 
-  it("crouched: the stand-in hold (seal_crouch_reload, H77) is not covered by the fall, so no landing hands it back; landed with no clip, the lock ends there (was: the hold handed back, the lock kept)", () => {
+  // *Moved by B-18* (research 150 section 5, "B-18"): `Rifle m203 reload` lays no mover hold (`reloadHolds`; its clip has
+  // no `NoInterrupt`), so there is no stand-in to cover; its life alone is popped by any landing (`landingPops`' family).
+  it("crouched: no stand-in hold (B-18; was seal_crouch_reload, H77); landed with no clip, the life and the lock end there (was: the hold handed back, the lock kept)", () => {
     const r = m203AfterShot('crouch');
-    expect(r.walker().holding?.clip).toBe('seal_crouch_reload');
+    expect(r.walker().holding).toBeNull();
     const { w } = flight(r, SLOW);
     expect(w.landing?.clip).toBeNull();
     expect(w.holding).toBeNull();

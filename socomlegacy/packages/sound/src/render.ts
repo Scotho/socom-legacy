@@ -1,5 +1,6 @@
 import { bankTone, GRAIN, type BankSound, type Grain, type SoundBank, type Tone } from './bank';
 import { decodeVag, type VagSample } from './vag';
+import type { VoiceScratch } from './voiceScratch';
 
 /**
  * One 989snd sound rendered to PCM: the grain sequencer (the IRX's `BlockSoundHandler`), its voices (a tone's sample
@@ -121,6 +122,10 @@ export class SampleCache {
 }
 
 export interface RenderOptions {
+  /** Browser storage adaptation: bounded reusable per-voice intermediates; final PCM stays independent. */
+  scratch?: VoiceScratch;
+  /** Browser storage adaptation: exclusive final-mix channels; undefined keeps ordinary allocation. */
+  output?: MixOutputAllocator;
   /** The play call's volume, 0..0x400 (1024 = the sound's own; research/32 §2). */
   vol?: number;
   /** The play call's pan in degrees, 0 ahead, 90 right, 270 left; `PAN_RESET` for the sound's own. */
@@ -164,10 +169,41 @@ export interface RenderedSound {
   sampleRate: number;
   /** Voices the grains started. */
   voices: number;
+  /**
+   * LATER 1218: each voice started, in order -- its tone's priority byte and flags (the tone's +0 and +0xe, which
+   * `FUN_000069a4` prices), its handler's app volume (the play's, a child's its own: 989snd's `App_Vol`), its sound's
+   * group (`VolGroup`; a child sound's its own), and the seconds it starts and ends at (its envelope run out, its sample
+   * done, or killed) from the render's start. What the page's voice budget asks for (`viewer` `voiceBudget`).
+   */
+  tones?: RenderedTone[];
   /** The tones' sample offsets, in the order they started. */
   samples: number[];
   /** The loudest sample, 0..1. */
   peak: number;
+}
+
+/** One voice of a render (`RenderedSound.tones`). */
+export interface RenderedTone { priority: number; flags: number; volume: number; group: number; start: number; end: number }
+export type MixOutput = Pick<RenderedSound, 'left' | 'right' | 'sendLeft' | 'sendRight'>;
+/** Called once after voice rendering determines the exact shape. Storage must be exclusive to this render.
+ * `identicalSend` proves the same voices feed both pairs in the same order; only then may the allocator
+ * return sendLeft === left AND sendRight === right. Other channels must not overlap. */
+export type MixOutputAllocator = (frames: number, send: boolean, rate: number, identicalSend?: boolean) => MixOutput | undefined;
+
+function checkMixOutput(output: MixOutput, length: number, send: boolean, identicalSend: boolean): void {
+  const channels = send ? [output.left, output.right, output.sendLeft, output.sendRight] : [output.left, output.right];
+  if (channels.some(c => !(c instanceof Float32Array) || c.length !== length)
+    || !send && (output.sendLeft !== null || output.sendRight !== null)) throw new Error('Invalid mix output channels');
+  const shared = identicalSend && output.sendLeft === output.left && output.sendRight === output.right;
+  for (let i = 0; i < channels.length; i++) for (let j = i + 1; j < channels.length; j++) {
+    const a = channels[i]!, b = channels[j]!;
+    if (shared && (i === 0 && j === 2 || i === 1 && j === 3)) continue;
+    if (a.buffer === b.buffer && a.byteOffset < b.byteOffset + b.byteLength && b.byteOffset < a.byteOffset + a.byteLength)
+      throw new Error('Overlapping mix output channels');
+  }
+  // The mixing loops add into their destination. Preserve a fresh array's zeroes,
+  // including silent ranges, even when a caller supplies previously used storage.
+  for (const channel of channels) channel!.fill(0);
 }
 
 // ---- pitch -------------------------------------------------------------------------------------------------
@@ -409,6 +445,8 @@ interface Voice {
   endsAt: number;
   /** Tone flags bit 0: into the reverb; bit 4: into the reverb only (the dry mix's VMIXL/VMIXR bits cleared). */
   reverb: boolean;
+  /** LATER 1218: the tone it keyed (`RenderedSound.tones`). */
+  tone: Tone;
   dry: boolean;
 }
 
@@ -460,6 +498,12 @@ export function soundSampleOffsets(bank: SoundBank, index: number): Set<number> 
  * console's mix of that sound alone, as floats of full scale.
  */
 export function renderSound(bank: SoundBank, index: number, samples: SampleCache, options: RenderOptions = {}): RenderedSound {
+  return renderSoundCore(bank, index, samples, options);
+}
+
+interface LoopFold { frames: number; fadeFrames: number }
+
+function renderSoundCore(bank: SoundBank, index: number, samples: SampleCache, options: RenderOptions, fold?: LoopFold): RenderedSound {
   const random = options.random ?? Math.random;
   const rand = (): number => Math.floor(random() * 0x8000);   // rand(): 0..RAND_MAX, RAND_MAX 0x7fff
   const state = options.state ?? new Map<string, number>();
@@ -516,7 +560,7 @@ export function renderSound(bank: SoundBank, index: number, samples: SampleCache
     voices.push({
       handler: h, sample, step, pos: 0, left: groupStage(l, modifier), right: groupStage(r, modifier),
       env: new Envelope(tone.adsr1, tone.adsr2), start: frame, keyOffAt: Infinity, killAt: Infinity,
-      reverb: (tone.flags & 1) !== 0, dry: (tone.flags & 0x10) === 0,
+      reverb: (tone.flags & 1) !== 0, dry: (tone.flags & 0x10) === 0, tone,
       endsAt: sample.loops || step <= 0 ? Infinity : frame + Math.ceil(sample.pcm.length / step),
     });
     started.push(tone.sampleOffset);
@@ -662,13 +706,29 @@ export function renderSound(bank: SoundBank, index: number, samples: SampleCache
   const cap = maxFrames;
   if (!options.loop) for (const v of voices) if (v.keyOffAt === Infinity && v.sample.loops) v.keyOffAt = cap;
 
+  if (fold) return compactLoopMix(bank, voices, cap, fold, started);
+
+  const mix = (allocate: (frames: number) => Float32Array): RenderedSound => mixVoices(bank, voices, cap, options, started, allocate);
+  return options.scratch ? options.scratch.use(mix) : mix(frames => new Float32Array(frames));
+}
+
+/** Scratch remains leased through final mixing and the caller's output allocator, including reentry. */
+function mixVoices(bank: SoundBank, voices: Voice[], cap: number, options: RenderOptions, started: number[], allocate: (frames: number) => Float32Array): RenderedSound {
+
   // The voices, sample by sample: the envelope, the linear interpolation, the pair.
   let length = options.loop ? cap : 0;
   const rendered: { v: Voice; l: Float32Array }[] = [];
+  const tones: RenderedTone[] = [];
   const limit = options.loop ? cap : cap + OUTPUT_RATE;   // a one-shot's release after the cap still ends
   for (const v of voices) {
-    const out = new Float32Array(Math.max(0, limit - v.start));
     const pcm = v.sample.pcm;
+    // Browser storage adaptation: reserve only frames this voice can reach. Keep
+    // the sample/envelope loop below unchanged. Pitch is an integer / 4096, so its
+    // positions advance exactly on that binary grid; a non-looping sample cannot
+    // write more than ceil(length / step) frames. Looping/zero-step voices retain
+    // the render guard, and every voice also respects its existing KILL boundary.
+    const sampleFrames = !v.sample.loops && v.step > 0 ? Math.ceil(pcm.length / v.step) : Infinity;
+    const out = allocate(Math.max(0, Math.min(limit - v.start, v.killAt - v.start, sampleFrames)));
     let n = 0;
     for (; v.start + n < limit; n++) {
       if (v.start + n >= v.killAt) break;
@@ -684,11 +744,27 @@ export function renderSound(bank: SoundBank, index: number, samples: SampleCache
       v.pos += v.step;
     }
     rendered.push({ v, l: out.subarray(0, n) });
+    tones.push({
+      priority: v.tone.priority, flags: v.tone.flags, volume: v.handler.appVolume, group: bank.sounds[v.handler.sound]?.volGroup ?? 0,
+      start: v.start / OUTPUT_RATE, end: (v.start + n) / OUTPUT_RATE,
+    });
     if (!options.loop) length = Math.max(length, v.start + n);
   }
-  const left = new Float32Array(length), right = new Float32Array(length);
   const anySend = rendered.some(({ v }) => v.reverb);
-  const sendLeft = anySend ? new Float32Array(length) : null, sendRight = anySend ? new Float32Array(length) : null;
+  // Browser storage adaptation: identical voice membership guarantees identical per-channel arithmetic.
+  // A dry-only or send-only voice keeps the ordinary separate stores, even when it happens to be silent.
+  const identicalSend = anySend && rendered.every(({ v }) => v.dry === v.reverb);
+  const output = length > 0 ? options.output?.(length, anySend, OUTPUT_RATE, identicalSend) : undefined;
+  if (output) {
+    // An external allocator must not return previously borrowed scratch: it will be overwritten on the next call.
+    if ([output.left, output.right, output.sendLeft, output.sendRight].some(channel => channel && (options.scratch?.owns(channel.buffer) || rendered.some(({ l }) => l.buffer === channel.buffer)))) {
+      throw new Error('Mix output overlaps voice scratch');
+    }
+    checkMixOutput(output, length, anySend, identicalSend);
+  }
+  const left = output?.left ?? new Float32Array(length), right = output?.right ?? new Float32Array(length);
+  const sendLeft = anySend ? (output?.sendLeft ?? new Float32Array(length)) : null;
+  const sendRight = anySend ? (output?.sendRight ?? new Float32Array(length)) : null;
   let peak = 0;
   for (const { v, l } of rendered) {
     const gl = v.left / 0x7ffe / 32768, gr = v.right / 0x7ffe / 32768;
@@ -696,12 +772,59 @@ export function renderSound(bank: SoundBank, index: number, samples: SampleCache
     if (v.dry) {
       for (let n = 0; n < m; n++) { left[v.start + n]! += l[n]! * gl; right[v.start + n]! += l[n]! * gr; }
     }
-    if (v.reverb && sendLeft && sendRight) {
+    if (v.reverb && sendLeft && sendRight && sendLeft !== left) {
       for (let n = 0; n < m; n++) { sendLeft[v.start + n]! += l[n]! * gl; sendRight[v.start + n]! += l[n]! * gr; }
     }
   }
   for (let n = 0; n < length; n++) peak = Math.max(peak, Math.abs(left[n]!), Math.abs(right[n]!));
-  return { left, right, sendLeft, sendRight, sampleRate: OUTPUT_RATE, voices: voices.length, samples: started, peak };
+  return { left, right, sendLeft, sendRight, sampleRate: OUTPUT_RATE, voices: voices.length, tones, samples: started, peak };
+}
+
+/** Browser storage adaptation: a loop's length is known before mixing. Keep its compact head and fade tail,
+ * round every voice sample as the former Float32 scratch did, then mix in the same voice order. No per-voice
+ * PCM or second full-loop copy is retained. The tail is dropped after the unchanged crossfade. */
+function compactLoopMix(bank: SoundBank, voices: Voice[], frames: number, fold: LoopFold, started: number[]): RenderedSound {
+  const anySend = voices.some(v => v.reverb), headFrames = Math.min(frames, fold.frames);
+  const channels = (length: number): MixOutput => ({ left: new Float32Array(length), right: new Float32Array(length),
+    sendLeft: anySend ? new Float32Array(length) : null, sendRight: anySend ? new Float32Array(length) : null });
+  const head = channels(headFrames), tail = channels(frames - headFrames);
+  const tones: RenderedTone[] = [];                                  // LATER 1218 (merged with the compact loop mix)
+  for (const v of voices) {
+    const pcm = v.sample.pcm, gl = v.left / 0x7ffe / 32768, gr = v.right / 0x7ffe / 32768;
+    let n = 0;
+    for (; v.start + n < frames; n++) {
+      if (v.start + n >= v.killAt) break;
+      if (v.start + n === v.keyOffAt) v.env.keyOff();
+      if (!v.env.tick()) break;
+      let i0 = Math.floor(v.pos);
+      if (i0 >= pcm.length) {
+        if (v.sample.loops && v.sample.loopStart < pcm.length) { v.pos = v.sample.loopStart + (v.pos - pcm.length); i0 = Math.floor(v.pos); }
+        else break;
+      }
+      const i1 = Math.min(i0 + 1, pcm.length - 1), frac = v.pos - i0;
+      const sample = Math.fround((pcm[i0]! * (1 - frac) + pcm[i1]! * frac) * (v.env.level / 32767));
+      v.pos += v.step;
+      const at = v.start + n, target = at < headFrames ? head : tail, i = at < headFrames ? at : at - headFrames;
+      if (v.dry) { target.left[i]! += sample * gl; target.right[i]! += sample * gr; }
+      if (v.reverb && target.sendLeft && target.sendRight) { target.sendLeft[i]! += sample * gl; target.sendRight[i]! += sample * gr; }
+    }
+    tones.push({
+      priority: v.tone.priority, flags: v.tone.flags, volume: v.handler.appVolume, group: bank.sounds[v.handler.sound]?.volGroup ?? 0,
+      start: v.start / OUTPUT_RATE, end: (v.start + n) / OUTPUT_RATE,
+    });
+  }
+  // Metadata describes the original mix before folding, including its tail.
+  let peak = 0;
+  for (const pair of [head, tail]) for (let i = 0; i < pair.left.length; i++) peak = Math.max(peak, Math.abs(pair.left[i]!), Math.abs(pair.right[i]!));
+  for (const key of ['left', 'right', 'sendLeft', 'sendRight'] as const) {
+    const x = head[key], end = tail[key];
+    if (!x || !end) continue;
+    for (let i = 0; i < fold.fadeFrames && i < end.length && i < x.length; i++) {
+      const t = i / fold.fadeFrames;
+      x[i] = x[i]! * Math.sin((t * Math.PI) / 2) + end[i]! * Math.cos((t * Math.PI) / 2);
+    }
+  }
+  return { ...head, sampleRate: OUTPUT_RATE, voices: voices.length, tones, samples: started, peak };
 }
 
 /**
@@ -710,8 +833,14 @@ export function renderSound(bank: SoundBank, index: number, samples: SampleCache
  * a buffer of a few seconds' worth repeats past notice (the page's `LOOP_SECONDS_PLACEHOLDER`).
  */
 export function renderLoop(bank: SoundBank, index: number, samples: SampleCache, seconds: number, fade: number, options: RenderOptions = {}): RenderedSound {
-  const r = renderSound(bank, index, samples, { ...options, vol: options.vol ?? 0x400, pan: options.pan ?? 0, loop: true, maxSeconds: seconds + fade });
   const loopFrames = Math.round(seconds * OUTPUT_RATE), fadeFrames = Math.round(fade * OUTPUT_RATE);
+  const mixOptions = { ...options, vol: options.vol ?? 0x400, pan: options.pan ?? 0, loop: true, maxSeconds: seconds + fade };
+  // A supplied allocator keeps its existing callback timing and ownership contract. Invalid durations keep
+  // the former validation/exception path; the compact path accepts only finite nonnegative lengths.
+  if (!options.output && Number.isFinite(seconds + fade) && seconds >= 0 && fade >= 0) {
+    return renderSoundCore(bank, index, samples, mixOptions, { frames: loopFrames, fadeFrames });
+  }
+  const r = renderSound(bank, index, samples, mixOptions);
   const fold = (x: Float32Array | null): Float32Array | null => {
     if (!x) return null;
     const y = x.slice(0, loopFrames);

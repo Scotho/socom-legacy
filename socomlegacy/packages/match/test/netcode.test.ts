@@ -1,11 +1,13 @@
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { CollisionOwner, GridParams, SpawnSlot, WorldPoly } from '@s2u/scene';
 import {
-  Button, cameraLook, centreClaim, faceToward, groundGrid, holdBits, MoverSim, moverSnapshot, packGround, PROTOCOL_VERSION, probeLiftOf,
+  Button, cameraLook, centreClaim, faceToward, groundGrid, holdBits, MoverSim, moverSnapshot, packGround, PROTOCOL_VERSION,
   quantiseCommand, Walker, wrapYaw,
   type Command, type SimMap,
 } from '../../viewer/src/sim';
 import { NetClient, type NetWalk, type WebSocketLike } from '../../viewer/src/net/client';
+import { TICK_HZ } from '../../viewer/src/net/protocol';
+import { ROUND_SCREENS_AFTER_S } from '../../viewer/src/roundScreens';
 import { Room } from '../src/room';
 import { dashRatio, heldMs, Line, lineSocket, nudgeTally, ownCorrections, ServerLoop, type LineSpec, type V3 } from './helpers/netMeasure';
 
@@ -20,7 +22,7 @@ function map(deck = 30): SimMap {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const floor = (x0: number, z0: number, x1: number, z1: number, y: number): WorldPoly => ({
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1]),
+    points: Float32Array.from([x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z0]),
   });
   // A floor with a raised deck: the run crosses its edge, so the script walks off it and lands (the air, the landing).
   const polys = [floor(-1000, -1000, 1000, 1000, 0), floor(-400, -300, -100, 300, deck)];
@@ -33,6 +35,8 @@ function map(deck = 30): SimMap {
 /** `WalkMode` as the net client drives it: a press applied at once, the ticks on the quantised command. */
 class PageWalk implements NetWalk {
   sim: MoverSim | null = null;
+  /** L208 (option (ii) review F7): the last spawn's `told`, as NetClient passed it (undefined: a page-initiated spawn). */
+  lastTold: { seed?: readonly [number, number, number] } | undefined = undefined;
   tap: ((cmd: Omit<Command, 'seq'>, feet: [number, number, number], facing?: readonly [number, number]) => void) | null = null;
   locked = true;
   /**
@@ -47,13 +51,32 @@ class PageWalk implements NetWalk {
    */
   private snapTo: number | null = null;
   private yawOffset = 0;
+  /**
+   * LATER 580: the round screens' hold, as the page lays it (opt-in, `holdRounds`). `NetPage` lays `screenUp` on its
+   * walk (`netPage.ts` ~:1018, `deps.walk.setRoundHold`): up from `ROUND_SCREENS_AFTER_S` after the `roundOver` ARRIVES
+   * at the page (`case 'roundOver'` sets `screens.start` to the page's now; `roundScreensElapsed`) until a `roundStart`,
+   * a welcome or an `abandoned` clears it. Under it `WalkMode` (`walk.ts` `setRoundHold` ~:1138, `heldFrame` ~:2696)
+   * steps no mover and sends one EMPTY command a tick at the facing held: no stick, no button, no stance.
+   */
+  private screensFrom: number | null = null;
   constructor(readonly grid: ReturnType<typeof groundGrid>, readonly snapLook = false) {}
+  holdRounds(client: NetClient): void {
+    client.on((ev) => {
+      if (ev.type === 'roundOver') this.screensFrom = ev.screens.length ? performance.now() + ROUND_SCREENS_AFTER_S * 1000 : null;
+      else if (ev.type === 'roundStart' || ev.type === 'welcome' || ev.type === 'abandoned') this.screensFrom = null;
+    });
+  }
+  /** Whether the page's round screens are up (`NetPage.screenUp`), so its walk is held. */
+  held(): boolean { return this.screensFrom !== null && performance.now() >= this.screensFrom; }
   setNetTap(tap: typeof this.tap): void { this.tap = tap; this.taps = 0; }
   setLocked(on: boolean): void { this.locked = on; }
-  respawn(at: readonly [number, number, number], yaw: number, replay: readonly Command[] = []): boolean {
+  respawn(at: readonly [number, number, number], yaw: number, replay: readonly Command[] = [], told?: { seed?: readonly [number, number, number] }): boolean {
     this.sim = new MoverSim(new Walker(this.grid), null);
-    this.sim.walker.place(at[0], at[1] + probeLiftOf('stand'), at[2]);   // `walk.ts` respawn: the tick's pick (PL-2)
-    this.sim.walker.state.yaw = yaw;
+    this.lastTold = told;
+    // `walk.ts` respawn (L208): a seeded spawn re-run from its seed; an unseeded told body adopted; a page-initiated seeded.
+    const seedAt = told ? told.seed : at;
+    if (seedAt) { this.sim.walker.seed(seedAt[0], seedAt[1], seedAt[2]); this.sim.walker.state.yaw = yaw; this.sim.walker.runSeedFrame(); }
+    else { this.sim.walker.adopt(at[0], at[1], at[2]); this.sim.walker.state.yaw = yaw; }
     for (const c of replay) this.sim.apply(c);
     this.snapTo = yaw;
     return true;
@@ -66,6 +89,13 @@ class PageWalk implements NetWalk {
     // Locked (dead, or not yet stood anywhere) the page sends no stick and no presses -- but the Action press, the
     // respawn's (`WalkMode.action`).
     const seq = ++this.taps;
+    if (this.sim && this.held()) {
+      // `walk.ts` `heldFrame`: the empty command at the facing held, the mover not stepped.
+      const s = this.sim.walker.state;
+      const cmd = quantiseCommand({ seq, forward: 0, right: 0, yaw: s.yaw, pitch: s.pitch, turn: 0, buttons: 0, stance: 0, weapon: 0 });
+      this.tap?.(cmd, [s.x, s.y, s.z], [s.yaw, s.pitch]);
+      return;
+    }
     if (this.snapLook && this.snapTo !== null && this.sim && !this.locked) { this.yawOffset = this.snapTo - input.yaw; this.snapTo = null; }
     input = { ...input, yaw: wrapYaw(input.yaw + this.yawOffset) };
     if (!this.sim || this.locked) { this.tap?.({ ...input, forward: 0, right: 0, buttons: input.buttons & Button.Action }, [0, 0, 0]); return; }
@@ -135,6 +165,29 @@ describe.each([0, 50, 100, 150])('the netcode at %i ms each way, 2 %% loss (bar 
     expect([s.x, s.y, s.z]).toEqual([p.x, p.y, p.z]);
     expect(Math.hypot(p.x + 300, p.z)).toBeGreaterThan(100);       // it went somewhere
     client.close();
+  });
+});
+
+describe('L208 (option (ii) review F7): NetClient passes the room seed through to the walk', () => {
+  it('the own record spawn of the page reaches the walk with the seed the first frame of the room ran from', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    const m = map();
+    const room = new Room(m, null, { now: () => Date.now() });
+    const page = new PageWalk(m.grid);
+    const client = new NetClient({ url: 'mem', map: 'MP99', name: 'Seed', socket: pair(room, 1) }, page);
+    for (let t = 0; t < 120 && page.lastTold === undefined; t++) { room.step(); vi.advanceTimersByTime(1000 / 60); }
+    expect(page.lastTold, 'the walk was told the spawn').toBeDefined();
+    expect(page.lastTold!.seed, 'with its seed').toBeDefined();
+    const w = room.player(1)!.sim.walker.state, p = page.sim!.walker.state;
+    expect([p.x, p.y, p.z], 'the page re-ran the frame of the room: the same body').toEqual([w.x, w.y, w.z]);
+    // The hand-off (glance N2; F1): a rebind to a new walk re-stands the last spawn with its kept seed.
+    const next = new PageWalk(m.grid);
+    client.rebind(next);
+    expect(next.lastTold?.seed, 'the rebind passes the kept seed').toBeDefined();
+    const q = next.sim!.walker.state;
+    expect([q.x, q.y, q.z], 'the rebound walk: the same body').toEqual([w.x, w.y, w.z]);
+    client.close();
+    vi.useRealTimers();
   });
 });
 
@@ -275,8 +328,13 @@ describe('the others, drawn behind the server (M4)', () => {
       room.step();
       vi.advanceTimersByTime(1000 / 60);
       const other = ca.bodies().find((x) => x.id === 2);
-      if (t > 120 && other) xs.push(other.feet[0]);
+      // On the deck, short of its edge (x -100, a 30 drop): at the edge the server makes the original's one move a game
+      // frame -- the tick before the take-off holds and the frame end crosses whole (LATER 1148, research 444 s9.3) --
+      // and a snapshot of that held tick is a step this smoothness test is not about (LATER 1152 names the draw side). The
+      // cut drops the drawn fall and landing too: this test checks the drawn run on the deck only, not an airborne other.
+      if (t > 120 && other && other.feet[0] < -104) xs.push(other.feet[0]);
     }
+    expect(xs.length).toBeGreaterThan(80);
     // B runs toward +x at a steady speed: A draws it moving every frame, no step backwards, no frozen pair.
     for (let i = 1; i < xs.length; i++) expect(xs[i]!).toBeGreaterThan(xs[i - 1]!);
     const steps = xs.slice(1).map((x, i) => x - xs[i]!);
@@ -285,6 +343,54 @@ describe('the others, drawn behind the server (M4)', () => {
     const lag = b.sim!.walker.state.x - xs[xs.length - 1]!;
     expect(lag).toBeGreaterThan(0);
     expect(ca.snapshotRate()).toBeGreaterThan(25);
+    ca.close(); cb.close();
+  });
+
+  // LATER 1148 (research 444 s9.3, the sill fault's hold): the run above leaves the deck at its edge (x -100, a 30 drop)
+  // as the original makes it, one move a game frame -- the tick between two frame ends holds at the last frame end's
+  // position, since its floor is a drop the frame end decides, and the frame end takes the frame's whole move and the
+  // take-off. The port's own sequence, a regression pin, on the SERVER's mover (the room's walker, which the snapshots
+  // come from) and on B's page prediction alike: a frame end at -100.125, the next 60 Hz step held there on the deck, the
+  // one after it two ticks' move (2.167) on and airborne. (The steps are this loop's; a frame end is decided on the
+  // command's sequence number, research 444.) The drawn hitch this makes is the draw side's (LATER 1152), not this test's.
+  it('the server leaves the deck in one frame-end move: the tick before holds at the edge (LATER 1148)', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+    const m = map();
+    const room = new Room(m, null, { now: () => Date.now() });
+    const a = new PageWalk(m.grid), b = new PageWalk(m.grid);
+    const ca = new NetClient({ url: 'mem', map: 'MP99', name: 'A', socket: pair(room, 1), simulate: { latencyMs: 50 } }, a);
+    const cb = new NetClient({ url: 'mem', map: 'MP99', name: 'B', socket: pair(room, 2) }, b);
+    type Row = { x: number; y: number; air: boolean };
+    const rows: Row[] = [], page: Row[] = [];
+    for (let t = 0; t < 240; t++) {
+      a.play({ forward: 0, right: 0, yaw: 0, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 });
+      b.play({ forward: t > 30 ? 1 : 0, right: 0, yaw: 270, pitch: 0, turn: 0, buttons: 0, stance: 0, weapon: 0 });
+      room.step();
+      vi.advanceTimersByTime(1000 / 60);
+      const w = room.player(2)!.sim.walker, p = b.sim!.walker;
+      rows.push({ x: w.state.x, y: w.state.y, air: w.airborne });
+      page.push({ x: p.state.x, y: p.state.y, air: p.airborne });
+    }
+    for (const [who, r] of [['server', rows], ['page', page]] as const) {
+      const off = r.findIndex((q) => q.air);
+      expect(off, who).toBeGreaterThan(3);
+      const [before, lastEnd, held, frameEnd] = [r[off - 3]!, r[off - 2]!, r[off - 1]!, r[off]!];
+      // a frame end: the last position on the deck, within one frame's move (2.167) of its edge. Pinned by its place, not
+      // its x: -100.125 before LATER 1164's ramp lead moved every position from rest (-101.795 since).
+      expect(lastEnd.x, who).toBeLessThan(-100);
+      expect(lastEnd.x, who).toBeGreaterThan(-100 - 2.167);
+      expect(lastEnd.x - before.x, who).toBeCloseTo(1.083, 3);         // the run's own step into it
+      expect(held.air, who).toBe(false);
+      expect(held.y, who).toBe(30);                                    // still on the deck
+      expect(held.x, who).toBe(lastEnd.x);                             // HELD at the last frame end's position
+      expect(frameEnd.x - held.x, who).toBeCloseTo(2.167, 3);         // the frame's whole move at its end
+      expect(frameEnd.x, who).toBeGreaterThan(-100);                   // past the edge
+      expect(frameEnd.y, who).toBe(30);                                // the take-off: the fall starts after it
+      // Every other grounded step of the run moves (no other hold on open floor), from the run's tenth moving step.
+      const go = r.findIndex((q, t) => t > 0 && q.x !== r[t - 1]!.x) + 10;
+      const holds = r.slice(go, off - 1).filter((q, k) => q.x === r[go + k - 1]!.x).length;
+      expect(holds, `${who}: steps held on open floor`).toBe(0);
+    }
     ca.close(); cb.close();
   });
 });
@@ -328,23 +434,87 @@ describe('a death and a respawn in the stream (M6)', () => {
   });
 });
 
+/** Corrections the page counted, by kind (`NetClient.corrections`, its counts only). */
+type CorrectionCount = { small: number; snapped: number; facing: number };
+
+/**
+ * W3.R11's run: one SEAL through a 2 s match, its round screens and the next match's start, its page held under the screens
+ * as the page holds (`PageWalk.holdRounds`). The counts at the room's hold start (`room.ts` `roundScreensUp`, private: a
+ * test's peek, as NCW-3's at the seat's signals), at the next match's spawn, and at the end.
+ */
+function nextMatchRun(): {
+  latencyMs: number; spawns: number; pageHeld: boolean;
+  beforeHold: NetClient['corrections'] | null; atRoomHold: CorrectionCount | null; atRespawn: CorrectionCount | null; atEnd: CorrectionCount;
+} {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
+  const m = map();
+  const room = new Room(m, null, { now: () => Date.now(), roundSeconds: 2 });
+  const latencyMs = 30;
+  const a = new PageWalk(m.grid, true);                            // LATER 14: its stick snaps to each spawn's facing
+  const ca = new NetClient({ url: 'mem', map: 'MP99', name: 'A', socket: pair(room, 1), simulate: { latencyMs } }, a);
+  a.holdRounds(ca);                                                // LATER 580: held under the round screens, as the page is
+  const count = (): CorrectionCount => ({ small: ca.corrections.small, snapped: ca.corrections.snapped, facing: ca.corrections.facing });
+  const roomHeld = (): boolean => (room as unknown as { roundScreensUp(): boolean }).roundScreensUp();
+  let spawns = 0, pageHeld = false;
+  let beforeHold: NetClient['corrections'] | null = null, atRoomHold: CorrectionCount | null = null, atRespawn: CorrectionCount | null = null;
+  ca.on((ev) => { if (ev.type === 'spawn' && ++spawns === 2) atRespawn = count(); });
+  for (let t = 0; t < (2 + 16 + 23 + 3) * 60; t++) {
+    a.play({ forward: 1, right: (t % 200) < 100 ? 0.4 : -0.4, yaw: t * 0.5, pitch: 0, turn: 0.1, buttons: 0, stance: 0, weapon: 0 });
+    pageHeld ||= a.held();
+    room.step();
+    if (atRoomHold === null && roomHeld()) { atRoomHold = count(); beforeHold = { ...ca.corrections }; }
+    vi.advanceTimersByTime(1000 / 60);
+  }
+  const atEnd = count();
+  ca.close();
+  return { latencyMs, spawns, pageHeld, beforeHold, atRoomHold, atRespawn, atEnd };
+}
+
+const lessCount = (x: CorrectionCount, y: CorrectionCount): CorrectionCount =>
+  ({ small: x.small - y.small, snapped: x.snapped - y.snapped, facing: x.facing - y.facing });
+
+/**
+ * LATER 580's F3 adaptation cost, the bound: the room holds from `lastResult.at + ENGINE_READ_S` on its clock, the page
+ * from its first screen frame, `ROUND_SCREENS_AFTER_S` after the `roundOver` arrives -- about a round trip later (`walk.ts`
+ * `setRoundHold`'s doc: "the network's cost ... the room's place is the one restored"), and the reconcile lays that much
+ * walk back under the first screen. At most a round trip's ticks of corrections, from the run's own latency (LATER 580
+ * reopened for a wire flag that would align the two holds).
+ */
+// One round trip in ticks (2 x the one-way latency, at TICK_HZ), rounded up, + 1 for the tick phase: the page's first held
+// frame and the room's tick that acks it need not share a tick boundary -- not slack (the netcode re-read's F1).
+const roundTripTicks = (latencyMs: number): number => Math.ceil((2 * latencyMs / 1000) * TICK_HZ) + 1;
+
 describe('a new match stands everyone at the start (M6, W3.R11)', () => {
   it('takes no correction when the server re-spawns a living player at the next match', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance', 'Date'] });
-    const m = map();
-    const room = new Room(m, null, { now: () => Date.now(), roundSeconds: 2 });
-    const a = new PageWalk(m.grid, true);                          // LATER 14: its stick snaps to each spawn's facing
-    const ca = new NetClient({ url: 'mem', map: 'MP99', name: 'A', socket: pair(room, 1), simulate: { latencyMs: 30 } }, a);
-    let spawns = 0;
-    ca.on((ev) => { if (ev.type === 'spawn') spawns++; });
-    for (let t = 0; t < (2 + 16 + 23 + 3) * 60; t++) {
-      a.play({ forward: 1, right: (t % 200) < 100 ? 0.4 : -0.4, yaw: t * 0.5, pitch: 0, turn: 0.1, buttons: 0, stance: 0, weapon: 0 });
-      room.step();
-      vi.advanceTimersByTime(1000 / 60);
-    }
-    expect(spawns).toBe(2);                                   // the first match's, and the next's
-    expect(ca.corrections).toEqual({ small: 0, snapped: 0, largest: 0, facing: 0, largestFacing: 0 });
-    ca.close();
+    const r = nextMatchRun();
+    expect(r.spawns).toBe(2);                                   // the first match's, and the next's
+    expect(r.atRoomHold, 'the room held under the round screens').not.toBeNull();
+    expect(r.pageHeld, 'the page held under the round screens').toBe(true);
+    // The first match's play, up to the room's hold: no correction at all.
+    expect(r.beforeHold).toEqual({ small: 0, snapped: 0, largest: 0, facing: 0, largestFacing: 0 });
+    // W3.R11, exact: from the next match's start (the re-spawn) on, no correction at all.
+    expect(lessCount(r.atEnd, r.atRespawn!)).toEqual({ small: 0, snapped: 0, facing: 0 });
+    // LATER 580's F3 cost (`roundTripTicks`): the page's walk past the room's frozen body, laid back under the first
+    // screen -- position corrections, none snapped, at most a round trip's ticks of them.
+    const screenStart = lessCount(r.atRespawn!, r.atRoomHold!);
+    expect(screenStart.snapped).toBe(0);
+    expect(screenStart.small, `the screen-start position corrections ${JSON.stringify(screenStart)}`).toBeLessThanOrEqual(roundTripTicks(r.latencyMs));
+  });
+
+  // GAP (for the controller to file under LATER 580): the FACING is not laid back under the hold. The room holds the
+  // facing it froze at (176.0 here); the page holds its own, a round trip's turn further (178.0), and sends it in each held
+  // command. Each ack's facing differs past `FACING_FLOOR_DEG`, so `NetClient.reconcileFacing` counts a correction --
+  // and, the held commands carrying no look-log step (`walk.ts` `heldFrame` records none, so `WalkMode.reconcileFacing`
+  // has no record of the ack), falls back on the client's shadow, which steps the gate toward each held command's own yaw
+  // and so turns the page by about nothing: one facing correction every held tick (600 at this run), the 2 degrees
+  // never closed until the respawn. Measured with this test's model of the page (`PageWalk` has no `reconcileFacing` of
+  // its own: the shadow path, the one the real walk takes for a held ack too -- source inspection, not a browser run).
+  // Turns green (and this test red: drop `.fails`) once the page lays the room's facing under the hold.
+  it.fails('GAP (LATER 580): the facing too is laid back under the round screens within a round trip', () => {
+    const r = nextMatchRun();
+    expect(r.atRoomHold).not.toBeNull();
+    const screenStart = lessCount(r.atRespawn!, r.atRoomHold!);
+    expect(screenStart.facing, `the screen-start facing corrections ${JSON.stringify(screenStart)}`).toBeLessThanOrEqual(roundTripTicks(r.latencyMs));
   });
 });
 
@@ -569,33 +739,45 @@ const NCW_CASES: NcwCase[] = [
  * 2.03/16.7, 10.70/266.7, 2.16/16.7, 3.03/16.7, 11.28/316.7, 2.79/16.7, 3.14/33.3, 8.95/250, 3.41/33.3, 3.26/33.3,
  * 10.45/300, 3.42/33.3, 4.31/66.7, 16.39/366.7, 4.04/66.7, 4.91/83.3, 10.95/300, 5.14/100, 4.71/66.7, 14.12/333.3,
  * 4.47/100, 2.17/16.7, 2.20/16.7; hitch rows 2.17/16.7, 16.40/200, 32.47/416.7, 40.71/700. The corrections are unchanged.
+ * Re-pinned 2026-11-25 for SEAT_CLAIM_ADAPTATION (`Room.tellSeats`): the room tells a watcher the seats a claim could
+ * take (`seats`) at its welcome -- a frame more down the watcher's line (two when its hello lands before the mover's,
+ * whose join changes the open seats), whose jitter draws from the run's one seeded random, so every later draw of
+ * every line moves (the stall windows, the jitter) and with them the rows. No netcode changed: the same tree with
+ * `tellSeats`' send left out holds the earlier pins on all 27 rows (re-run so by a fresh review, 2026-11-25). The two
+ * no-jitter rows' totals had already moved on main inside their margin (6.06 and 8.55 with or without the send, against
+ * the pins' 6.46 and 8.13) and are re-pinned with the rest. Were (dash/held):
+ * 1.07/0.0, 9.45/250.0, 1.05/0.0, 1.56/0.0, 10.94/316.7, 1.54/0.0, 2.04/16.7, 8.95/250.0, 2.49/16.7, 2.54/16.7,
+ * 10.45/316.7, 2.55/16.7, 3.49/50.0, 12.40/383.3, 3.16/50.0, 3.52/83.3, 10.95/316.7, 3.53/83.3, 3.51/83.3, 11.42/316.7,
+ * 4.47/83.3, 1.08/0.0, 1.07/0.0; hitch rows 1.06/0.0, 8.87/200.0, 16.09/416.7, 24.93/716.7; the corrections (count, max,
+ * total) were 300 ms 6/0.94/3.04, 6/1.20/4.11, 5/1.83/4.12; 400 ms 6/3.00/7.14, 5/1.84/6.10, 5/2.56/6.10; no jitter
+ * 10/2.24/6.46, 10/2.03/8.13.
  */
 const NCW_BASELINE: Record<string, NcwRow> = {
-  '0 ms, stalls none': { dash: 1.07, held: 0.0, count: 0, max: 0, total: 0 },
-  '0 ms, stalls up': { dash: 9.45, held: 250.0, count: 0, max: 0, total: 0 },
-  '0 ms, stalls down': { dash: 1.05, held: 0.0, count: 0, max: 0, total: 0 },
-  '50 ms, stalls none': { dash: 1.56, held: 0.0, count: 0, max: 0, total: 0 },
-  '50 ms, stalls up': { dash: 10.94, held: 316.7, count: 0, max: 0, total: 0 },
-  '50 ms, stalls down': { dash: 1.54, held: 0.0, count: 0, max: 0, total: 0 },
-  '100 ms, stalls none': { dash: 2.04, held: 16.7, count: 0, max: 0, total: 0 },
-  '100 ms, stalls up': { dash: 8.95, held: 250.0, count: 0, max: 0, total: 0 },
-  '100 ms, stalls down': { dash: 2.49, held: 16.7, count: 0, max: 0, total: 0 },
-  '150 ms, stalls none': { dash: 2.54, held: 16.7, count: 0, max: 0, total: 0 },
-  '150 ms, stalls up': { dash: 10.45, held: 316.7, count: 0, max: 0, total: 0 },
-  '150 ms, stalls down': { dash: 2.55, held: 16.7, count: 0, max: 0, total: 0 },
+  '0 ms, stalls none': { dash: 1.08, held: 0.0, count: 0, max: 0, total: 0 },
+  '0 ms, stalls up': { dash: 11.44, held: 316.7, count: 0, max: 0, total: 0 },
+  '0 ms, stalls down': { dash: 1.07, held: 0.0, count: 0, max: 0, total: 0 },
+  '50 ms, stalls none': { dash: 1.55, held: 0.0, count: 0, max: 0, total: 0 },
+  '50 ms, stalls up': { dash: 11.96, held: 316.7, count: 0, max: 0, total: 0 },
+  '50 ms, stalls down': { dash: 1.57, held: 0.0, count: 0, max: 0, total: 0 },
+  '100 ms, stalls none': { dash: 2.50, held: 16.7, count: 0, max: 0, total: 0 },
+  '100 ms, stalls up': { dash: 10.97, held: 316.7, count: 0, max: 0, total: 0 },
+  '100 ms, stalls down': { dash: 2.51, held: 16.7, count: 0, max: 0, total: 0 },
+  '150 ms, stalls none': { dash: 2.53, held: 16.7, count: 0, max: 0, total: 0 },
+  '150 ms, stalls up': { dash: 11.43, held: 350.0, count: 0, max: 0, total: 0 },
+  '150 ms, stalls down': { dash: 2.53, held: 16.7, count: 0, max: 0, total: 0 },
   '200 ms, stalls none': { dash: 3.49, held: 50.0, count: 0, max: 0, total: 0 },
-  '200 ms, stalls up': { dash: 12.40, held: 383.3, count: 0, max: 0, total: 0 },
-  '200 ms, stalls down': { dash: 3.16, held: 50.0, count: 0, max: 0, total: 0 },
-  '300 ms, stalls none': { dash: 3.52, held: 83.3, count: 6, max: 0.94, total: 3.04 },
-  '300 ms, stalls up': { dash: 10.95, held: 316.7, count: 6, max: 1.20, total: 4.11 },
-  '300 ms, stalls down': { dash: 3.53, held: 83.3, count: 5, max: 1.83, total: 4.12 },
-  '400 ms, stalls none': { dash: 3.51, held: 83.3, count: 6, max: 3.00, total: 7.14 },
-  '400 ms, stalls up': { dash: 11.42, held: 316.7, count: 5, max: 1.84, total: 6.10 },
-  '400 ms, stalls down': { dash: 4.47, held: 83.3, count: 5, max: 2.56, total: 6.10 },
-  '300 ms, no jitter, stalls none': { dash: 1.08, held: 0.0, count: 10, max: 2.24, total: 6.46 },
-  '400 ms, no jitter, stalls none': { dash: 1.07, held: 0.0, count: 10, max: 2.03, total: 8.13 },
-  '128 ms steady, room hitch 0 ms': { dash: 1.06, held: 0.0, count: 0, max: 0, total: 0 },
-  '128 ms steady, room hitch 260 ms': { dash: 8.87, held: 200.0, count: 0, max: 0, total: 0 },
+  '200 ms, stalls up': { dash: 11.44, held: 350.0, count: 0, max: 0, total: 0 },
+  '200 ms, stalls down': { dash: 3.03, held: 50.0, count: 0, max: 0, total: 0 },
+  '300 ms, stalls none': { dash: 4.04, held: 50.0, count: 3, max: 0.16, total: 0.21 },
+  '300 ms, stalls up': { dash: 9.96, held: 350.0, count: 9, max: 2.53, total: 9.73 },
+  '300 ms, stalls down': { dash: 3.54, held: 50.0, count: 4, max: 2.30, total: 4.47 },
+  '400 ms, stalls none': { dash: 4.03, held: 83.3, count: 6, max: 2.66, total: 5.60 },
+  '400 ms, stalls up': { dash: 11.87, held: 350.0, count: 1, max: 5.59, total: 5.59 },
+  '400 ms, stalls down': { dash: 5.00, held: 83.3, count: 6, max: 3.03, total: 6.53 },
+  '300 ms, no jitter, stalls none': { dash: 1.06, held: 0.0, count: 10, max: 2.24, total: 6.06 },
+  '400 ms, no jitter, stalls none': { dash: 1.06, held: 0.0, count: 10, max: 2.03, total: 8.55 },
+  '128 ms steady, room hitch 0 ms': { dash: 1.07, held: 0.0, count: 0, max: 0, total: 0 },
+  '128 ms steady, room hitch 260 ms': { dash: 8.36, held: 183.3, count: 0, max: 0, total: 0 },
   '128 ms steady, room hitch 500 ms': { dash: 16.09, held: 416.7, count: 0, max: 0, total: 0 },
   '128 ms steady, room hitch 800 ms': { dash: 24.93, held: 716.7, count: 0, max: 0, total: 0 },
 };

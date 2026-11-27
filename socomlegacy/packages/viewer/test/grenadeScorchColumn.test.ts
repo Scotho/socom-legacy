@@ -66,7 +66,7 @@ const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8
 function floorGrid(y: number, x0 = -2000, x1 = 2000): Grid {
   const poly: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/f', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([x0, y, -2000, x1, y, -2000, x1, y, 2000, x0, y, 2000]),
+    points: Float32Array.from([x0, y, 2000, x1, y, 2000, x1, y, -2000, x0, y, -2000]),
   };
   return buildGrid(PARAMS, [], [], [poly], [{ modelName: 'worldmodel', path: 'worldmodel/f0', first: 0, count: 1 }]);
 }

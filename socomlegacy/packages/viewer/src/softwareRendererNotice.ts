@@ -17,7 +17,11 @@ let dismissed = false;
  * browser is closed (seen on an Xbox, after the UI's GPU restore timed out and a reload: central's `uigpufallback` L4
  * `no-webgl2`); so it says to restart the browser.
  */
-export function softwareRendererText(renderer: string | null): string {
+export function softwareRendererText(renderer: string | null, noWebGL2 = false): string {
+  // LATER 1265: a WebGL1 context but no WebGL2 -- the browser refused (or blocked) WebGL2, which the game draws with.
+  if (noWebGL2) {
+    return 'This browser is not giving the game WebGL2, so a match may have nothing to draw with. After a graphics reset a browser can block a site until it is closed: close the browser completely and open it again.';
+  }
   if (renderer === null) {
     return 'This browser is giving the game no graphics right now (no WebGL context could be made). After a graphics reset a browser can block a site until it is closed: close the browser completely and open it again.';
   }
@@ -38,7 +42,7 @@ const RESTART: readonly [string, string][] = [
 ];
 
 /** One notice on the page, over the launcher, replacing an earlier one; its link opens the help sheet in place. */
-export function showSoftwareRendererNotice(doc: Document, renderer: string | null): HTMLElement {
+export function showSoftwareRendererNotice(doc: Document, renderer: string | null, noWebGL2 = false): HTMLElement {
   doc.querySelector('[data-no-gpu]')?.remove();
   const el = doc.createElement('div');
   el.setAttribute('data-no-gpu', '');
@@ -55,7 +59,7 @@ export function showSoftwareRendererNotice(doc: Document, renderer: string | nul
   el.style.margin = '0';
 
   const line = doc.createElement('p');
-  line.textContent = `${softwareRendererText(renderer)} `;
+  line.textContent = `${softwareRendererText(renderer, noWebGL2)} `;
   const open = doc.createElement('button');
   open.type = 'button';
   open.className = 's2u-chip';
@@ -106,6 +110,7 @@ export function watchSoftwareRenderer(doc: Document, win: Window, probe: (doc: D
       try {
         const found = probe(doc);
         if (found.software) showSoftwareRendererNotice(doc, found.renderer);
+        else if (found.webgl2 === false) showSoftwareRendererNotice(doc, null, true);   // LATER 1265: WebGL1 only
       } catch { /* a page being torn down, or no canvas: no notice */ }
     }, 0);
   });

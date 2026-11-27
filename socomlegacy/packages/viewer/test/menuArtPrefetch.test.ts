@@ -61,6 +61,20 @@ const sameBitmap = (a: unknown, b: unknown): boolean => {
 };
 
 describe('GM-32: the menus\' art prefetched off the main thread (the lookup asks it before the banks)', () => {
+  it.skipIf(!PRESENT)('releases both art image caches and invalidates pending decodes while retaining exact returned pixels', async () => {
+    const a = await art(), { decoder } = await inThread();
+    const first = a.prefetch({ decoder }); expect(await first.finished).toBeNull();
+    const before = a.textures('multplay_back.tif'); expect(before).not.toBeNull();
+    const missing = [...a.missing];
+    expect(typeof a.releaseDecoded).toBe('function'); a.releaseDecoded!();
+    let release!: () => void; const wait = new Promise<void>(r => { release = r; });
+    const pending = a.prefetch({ decoder: async j => { await wait; return decoder(j); } });
+    a.releaseDecoded!(); release(); expect(await pending.finished).toBeNull(); expect(pending.decoded).toBe(0);
+    const after = a.textures('multplay_back.tif'); expect(after).not.toBe(before); expect(sameBitmap(after, before)).toBe(true);
+    expect(a.missing).toEqual(missing);
+    const again = a.prefetch({ decoder }); expect(await again.finished).toBeNull(); expect(again.decoded).toBeGreaterThan(0);
+  });
+
   it('states its byte cap (an adaptation, no original): 16 MiB, above the art the page reads', () => {
     expect((menuArt as Record<string, unknown>).MENU_ART_PREFETCH_ADAPTATION).toEqual({ maxBytes: 16 * 1024 * 1024 });
   });

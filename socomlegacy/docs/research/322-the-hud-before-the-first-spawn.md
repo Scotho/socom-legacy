@@ -538,10 +538,12 @@ desktop's built ELF): a respawn game's late joiner can come up 5 s after its dea
    the request `+0xfcf`, D:L451724-451725). Research 91 §4.1's "from 5 s dead, once the body has faded" is that gate.
 2. **The death's time.** `+0xfb4` is written by the actor's death alone (`FUN_00547af0` D:L413049: the clock) and
    cleared by `FUN_005998b0` (D:L455522); research 329 reads it "0 while alive". The clock is the mission object's
-   `+0xe0` -- 0x4364e0 + 0xe0 is `DAT_004365c0`, to which `FUN_002aa490` adds a float (D:L151067; its caller `FUN_002aab00`, D:L151256-151261, reached by pointer) -- zeroed by
-   `FUN_002ac060` (D:L151914, from the round-reset state `FUN_001f1bb0`, reached by pointer) and by `FUN_002ac410`
-   (D:L152098, the level's load, D:L49730). Research 270's `ROUND_EPOCH_PLACEHOLDER` row, which measured it counting from
-   0 at a round's start, is still open: research 91 §18.1 reads the same word as the round's length in ms. (The review's F3;
+   `+0xe0` -- 0x4364e0 + 0xe0 is `DAT_004365c0`, to which `FUN_002aa490` adds a float (D:L151067; its caller
+   `FUN_002aab00`, D:L151256-151261, reached by pointer) -- zeroed by `FUN_002ac060` (D:L151914, from
+   `CExitState::Init` `FUN_001f1bb0`, the campaign results screen -- research 114 R114.1 -- reached by pointer,
+   D:L53471-53495: the mission clock zeroed at that screen, not at a round reset) and by `FUN_002ac410` (D:L152098,
+   the level's load, D:L49730). Research 270's `ROUND_EPOCH_PLACEHOLDER` row, which measured it counting from 0 at a
+   round's start, is still open: research 91 §18.1 reads the same word as the round's length in ms. (The review's F3;
    was: research 270's row cited as settled.) The read below needs only that the death stamps this clock.
 3. **The late joiner's death at load is a death, stamped, with no fade.** The at-load `FUN_00543d50` (step 3 above), for
    an actor with health (`+0x1044` non-zero) and bit 4 of `+0xe1` set, zeroes the health, sets `+0xfb0` = 6 and calls the

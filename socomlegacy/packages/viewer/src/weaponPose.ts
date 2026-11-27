@@ -1,4 +1,4 @@
-import { GAME_FRAME_DT, sampleClip, type MotionClip, type PartPose } from '@s2u/scene';
+import { GAME_FRAME_DT, sampleClip, sampleClipInto, type MotionClip, type PartPose } from '@s2u/scene';
 import { blendWeight, OVERLAY_BLEND, type LayerContext, type NodeLayer, type PoseLayer } from './animator';
 import { BLEND_TIME_DEFAULT, entryOf } from './locomotion';
 import type { MotionTable } from './motionTable';
@@ -23,7 +23,8 @@ import { fallCovers } from './stillReloadLife';
  *
  * **Not the recoil clips.** `animset.rdr` binds "Rifle recoil" → `seal_recoil` (and the crouch, prone and pistol
  * forms), but no such type name is in the game's image (`socom2_game.elf` holds "Fire stand" and "Rifle reload" and
- * no "recoil" but `RecoilPct`): nothing asks for them, so they are not played. The body's kick is `./rifleKick`'s.
+ * no "recoil" but `RecoilPct`): nothing asks for them, so they are not played. The body's kick is `RecoilPct`'s bend
+ * (`./recoilBend`, `FUN_0057b550`; research 442), laid by the animator; `./rifleKick` is the aim's climb, not the body's.
  *
  * **The reload** (research 150; `FUN_005a82e0` 462815-462941) is picked once, at its start, by the body's speed:
  * still (`|v|^2 <= 400`, 462821-462823) the stance's whole-body clip -- "Rifle reload" `seal_reload`, "Rifle crouch
@@ -201,6 +202,10 @@ export class WeaponPose {
    * (`PoseLayer.nodes`; FL-0): nothing laid over the merged body (`sample` lays none).
    */
   readonly fireLayer: PoseLayer = { sample: () => null, nodes: (c) => this.sampleFire(c) };
+  /** LATER 1221: `sampleFire`'s list, its node layers and their sampled parts, reused each step. */
+  private readonly fireOut: (NodeLayer | null)[] = [];
+  private readonly fireLayers: NodeLayer[] = [];
+  private readonly fireParts: PartPose[][] = [];
   /** The reload clip: the still stance's whole body or the moving overlay, cross-faded as the game's play and channel are. */
   readonly reloadLayer: PoseLayer = { sample: (c) => this.sampleReload(c) };
 
@@ -283,9 +288,11 @@ export class WeaponPose {
    * A reload starts (`FUN_005a82e0`): `moving` the body over 20 a second at the start (`./reloadClip` `reloadMoving`), which
    * picks the family's moving overlay standing or crouched; else the stance's still clip. `length`: the clip's seconds
    * -- the still clip's `playback`, or the record's `ReloadTime` (`reloadSeconds`), the moving one's own `playback`.
-   * `family`: the clip family (`./reloadClip` `reloadFamily`), else the item's.
+   * `family`: the clip family (`./reloadClip` `reloadFamily`), else the item's. `startAt` (RELOAD-HITPOSE F1, the port's
+   * own timing): seconds the clip's clock starts run on by, as `resumeReload` runs a kept one on by its wait -- another
+   * body's reload released on the drawn clock past the tick it was heard under (`./remotePlayers` `frame`); 0 otherwise.
    */
-  startReload(stance: ReloadStance, length: number, family: ReloadItem | null = null, moving = false): void {
+  startReload(stance: ReloadStance, length: number, family: ReloadItem | null = null, moving = false, startAt = 0): void {
     const fam = family ?? this.item;
     const clip = this.clips.get(reloadClip(stance, moving, fam));
     this.kept = null;                                            // LATER 530: a new clip -- a take's kept one is gone
@@ -293,6 +300,7 @@ export class WeaponPose {
     this.pendingRun = false;
     this.cutNote = null;
     this.reload = clip && length > 0 ? this.run(stance, fam, clip, moving && stance !== 'prone', length) : null;
+    if (this.reload && startAt > 0) this.reload.t = startAt;     // F1: run on by the drawn ticks past its mark (`resumeReload`'s `k.t +=`)
     // PAR-95 (research 251 section 12.9): a still clip is pushed on the stack (`FUN_005a82e0` D:L462928 ->
     // `FUN_00588bc0` -> `FUN_0028dc90` D:L446292), which sets the body's snapshot blend over the clip's `BlendTime`
     // (D:L135215-135220): the layer at 1 from its first frame, the body cross-fading from the pose drawn -- the aim's
@@ -436,15 +444,25 @@ export class WeaponPose {
       if (!lead || n.weight > lead.weight) lead = { fire, weight: n.weight };
     }
     if (!lead || !(total > 0)) return null;
-    const out = nodes.map((n): NodeLayer | null => {
+    // LATER 1221 (a browser adaptation, the same floats): the layer's list, each node's layer and its sampled parts are
+    // this pose's own, rewritten each step (the animator reads them in the step and keeps none: `PoseLayer`'s contract).
+    const out = this.fireOut;
+    out.length = nodes.length;
+    for (let k = 0; k < nodes.length; k++) {
+      const n = nodes[k]!;
       const name = versions[n.clip.name];
       const fire = name ? this.clips.get(name) : undefined;
-      if (!fire || !(n.weight > 0)) return null;
+      if (!fire || !(n.weight > 0)) { out[k] = null; continue; }
       const entry = entryOf(fire.name, this.table);
       // FL-0b: at its node's phase, whatever the clip (`PHASE_SHARED`: FUN_0028c380 D:L134213-134216, FUN_0028d670
       // D:L134881-134903). *Was:* a still Fire clip on the layer's own clock over its `playback` seconds.
-      return { parts: sampleClip(fire, n.phase * fire.duration, { loop: entry?.looped ?? true }).parts, weight: this.fireWeight };
-    });
+      const parts = this.fireParts[k] ?? (this.fireParts[k] = []);
+      sampleClipInto(fire, n.phase * fire.duration, { loop: entry?.looped ?? true }, parts);
+      parts.length = fire.parts.length;                            // exactly the clip's parts, as `sampleClip` gave
+      const layer = this.fireLayers[k] ?? (this.fireLayers[k] = { parts, weight: 0 });
+      layer.parts = parts; layer.weight = this.fireWeight;
+      out[k] = layer;
+    }
     this.now.fire = lead.fire.name;
     this.now.fireWeight = this.fireWeight * Math.min(1, share / total);
     return out;

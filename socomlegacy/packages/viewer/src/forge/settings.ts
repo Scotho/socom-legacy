@@ -163,7 +163,9 @@ export function settingsDelta(s: LayoutSettings): Partial<LayoutSettings> {
  * `allowFriendlyFire`, `maxPlayers`, `eqLimit`, `rules`), passed through -- at the disc's values the room's own defaults (11 rounds, 6
  * minutes, no friendly fire, 16 players). Above 16 players this page's own Play room's sides still hold 8 each
  * (`../net/lobby` `TEAM_SIZE`); a forge lobby's room on the match server seats them all, half a side (FG-29's team
- * size, the server's `forgeLobby.ts`), with the start points for them (FG-37, `forgeSimMap.ts`).
+ * size, the server's `forgeLobby.ts`), with the start points for them (FG-37, `forgeSimMap.ts`). FN-1a: the match
+ * server's Forge lobby room takes its options through this same mapping (`match/src/forgeGame.ts` `roomOptions`), so the
+ * EQlimit and RESPAWN rows play online as in this page's Play (research 424).
  */
 export const roomOptionsOf = (s: LayoutSettings): Pick<LoopbackOptions, 'maxRounds' | 'roundSeconds' | 'allowFriendlyFire' | 'maxPlayers' | 'eqLimit' | 'rules'> => ({
   maxRounds: s.rounds, roundSeconds: s.roundSeconds, allowFriendlyFire: s.friendlyFire, maxPlayers: s.players,

@@ -29,7 +29,7 @@ function frameTick(j: number): number {
 function floorPoly(minX: number, minZ: number, maxX: number, maxZ: number, y: number): WorldPoly {
   return {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([minX, y, minZ, maxX, y, minZ, maxX, y, maxZ, minX, y, maxZ]),
+    points: Float32Array.from([minX, y, maxZ, maxX, y, maxZ, maxX, y, minZ, minX, y, minZ]),
   };
 }
 
@@ -187,6 +187,7 @@ describe('movement.landing: the landing clips and the lock (FUN_005af590, FUN_00
     // A synthetic airborne start (the traversal seam's let-go) at g FRAME + d: after the first game frame's gravity
     // the vertical speed is exactly d, the feet move d x FRAME from the floor. The jump's own lattice (79.9 - k g dt) never lands in
     // (-1, 0], so only a start like this tells the gate's 0 apart from a looser one.
+    // FLE-1 (`FALL_FLAG_PLACED_READING`): a let-go is not flagged -- it lands at K, the strict landing's gate as read.
     for (const [d, lands] of [[0, true], [-0.5, true], [0.5, false]] as const) {
       const w = flat();
       w.setAirborne(true, G * FRAME + d);
@@ -226,7 +227,7 @@ describe('movement.landing: the landing clips and the lock (FUN_005af590, FUN_00
     expect(speeds[25]).toBe(0);
   });
 
-  it('a fall over land_hard_fall_rate 115 lands hard: off a 26 deck at 109.8 none, off a 30 deck at 117.6 Jump land hard', () => {
+  it('a fall over land_hard_fall_rate 115 lands hard: off a 23 deck at 109.8 none, off a 26 deck at 117.6 Jump land hard (LATER 1176)', () => {
     const drop = (h: number): Walker => {
       const w = new Walker(world([floorPoly(-200, -200, 0, 200, h), floorPoly(-200, -200, 600, 200, 0)]));
       w.place(-30, h + 1, 0);
@@ -235,11 +236,12 @@ describe('movement.landing: the landing clips and the lock (FUN_005af590, FUN_00
       until(w, FORWARD, (m) => !m.airborne, 200);
       return w;
     };
-    // n game frames of the fall cover g FRAME^2 n (n + 1) / 2; the contact speed is n g FRAME
-    const low = drop(26), high = drop(30);
-    expect(low.landing?.speed).toBeCloseTo(14 * G * FRAME, 9);   // 109.78: under 115 (14 frames cover 27.47)
+    // n game frames of the fall cover g FRAME^2 n (n + 1) / 2; the frame that reaches the floor (n g FRAME) does not land
+    // it, the next adds g FRAME and does (LATER 1176, `LANDING_FRAME_READING`): the landing speed is (n + 1) g FRAME
+    const low = drop(23), high = drop(26);
+    expect(low.landing?.speed).toBeCloseTo(14 * G * FRAME, 9);   // 109.78: under 115 (13 frames cover 23.80)
     expect(low.landing?.clip).toBeNull();
-    expect(high.landing?.speed).toBeCloseTo(15 * G * FRAME, 9);  // 117.62: over 115 (15 frames cover 31.40)
+    expect(high.landing?.speed).toBeCloseTo(15 * G * FRAME, 9);  // 117.62: over 115 (14 frames cover 27.47)
     expect(high.landing?.clip).toBe('landHard');
     expect(high.action?.name).toBe('landHard');
   });
@@ -251,8 +253,9 @@ describe('movement.landing: the landing clips and the lock (FUN_005af590, FUN_00
       w.state.yaw = FACE_X;
       until(w, FORWARD, (m) => m.airborne, 200);
       const air = until(w, STILL, (m) => !m.airborne, 200);
-      expect(air).toBe(frameTick(18));                          // 42 units under 235: 18 frames (0.601 s), tick 37
-      expect(air).toBe(37);
+      // 42 units under 235: 18 frames reach the floor (0.601 s, tick 37); the 19th lands (LATER 1176), tick 39
+      expect(air).toBe(frameTick(19));
+      expect(air).toBe(39);
       expect(w.landing?.clip).toBe('landHard');                 // 141 a second at the contact
       return w;
     };

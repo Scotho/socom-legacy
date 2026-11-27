@@ -11,6 +11,11 @@
 export interface CompileJob {
   lanes?: number;
   stale?: () => boolean;
+  /**
+   * WM-17 (LATER 772; product track, a renderer warm-up): whether the job's draw is where a frame can meet it -- a glow
+   * job's draw already in the scene -- so `promote` may bring it forward while a flashbang is in the air.
+   */
+  wanted?: () => boolean;
   run(): Promise<void>;
 }
 
@@ -22,6 +27,8 @@ export class CompileQueue {
    */
   private readonly tail: { job: CompileJob; resolve: () => void }[] = [];
   private running = 0;
+  /** Of `running`, the ordinary queue's (XBOX-WARM: `busy`). */
+  private runningOrdinary = 0;
 
   constructor(private readonly lanes: number) {}
 
@@ -29,6 +36,12 @@ export class CompileQueue {
   get active(): number { return this.running; }
   /** Waiting, the tail's included. */
   get waiting(): number { return this.jobs.length + this.tail.length; }
+  /**
+   * XBOX-WARM (product track, a renderer warm-up): the ordinary jobs waiting or in flight -- the draws a frame of the
+   * canvas could meet before they are linked; the glow tail is never counted (only a later flash draws it). The match's
+   * first frame waits while this is above 0 (`./firstFrameHold`).
+   */
+  get busy(): number { return this.jobs.length + this.runningOrdinary; }
 
   /**
    * Queues `jobs` behind everything already asked for -- or, with `tail`, behind every ordinary job, asked now or later;
@@ -41,6 +54,21 @@ export class CompileQueue {
     return Promise.all(done).then(() => {});
   }
 
+  /**
+   * WM-17 (LATER 772): the waiting tail jobs `pred` picks, moved in their order to the head of the ordinary queue -- a
+   * flashbang in the air (`ViewerRenderer.promoteGlow`) brings the glow jobs of bodies already drawn ahead of everything
+   * still waiting, so they are compiled during the fuse, not built by the flash's frame. Running jobs are not touched;
+   * a job promoted once is no longer in the tail. Returns how many moved.
+   */
+  promote(pred: (job: CompileJob) => boolean): number {
+    const moved = this.tail.filter((e) => pred(e.job));
+    if (moved.length === 0) return 0;
+    for (const e of moved) this.tail.splice(this.tail.indexOf(e), 1);
+    this.jobs.unshift(...moved);
+    this.pump();
+    return moved.length;
+  }
+
   /** The job that leads: the ordinary queue's first, else the tail's. */
   private lead(): { job: CompileJob; resolve: () => void }[] | null {
     return this.jobs.length > 0 ? this.jobs : this.tail.length > 0 ? this.tail : null;
@@ -48,12 +76,14 @@ export class CompileQueue {
 
   private pump(): void {
     for (let from = this.lead(); from && this.running < (from[0]!.job.lanes ?? this.lanes); from = this.lead()) {
+      const ordinary = from === this.jobs;
       const { job, resolve } = from.shift()!;
       if (job.stale?.()) { resolve(); continue; }
       this.running++;
+      if (ordinary) this.runningOrdinary++;
       let work: Promise<void>;
       try { work = job.run(); } catch { work = Promise.resolve(); }
-      void work.catch(() => {}).finally(() => { this.running--; resolve(); this.pump(); });
+      void work.catch(() => {}).finally(() => { this.running--; if (ordinary) this.runningOrdinary--; resolve(); this.pump(); });
     }
   }
 }

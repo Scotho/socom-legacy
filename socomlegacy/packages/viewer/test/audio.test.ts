@@ -9,13 +9,61 @@ import { parseSceneGraph, worldCollision } from '@s2u/scene';
 import { BANK_GROUP_READING, PAN_RESET, parseBankFile, roundStreamGains, SLOT_FADE_TICKS, soundNameHash, TUNER_DEFAULTS, type RenderedSound, type ReverbImpulse, type StreamTuners, type StreamVoiceGains } from '@s2u/sound';
 import {
   GameAudio, LISTENING_GAIN_PLACEHOLDER, LOOP_SECONDS_PLACEHOLDER, loopMasterGain, MUSIC_SLOT_HANDOVER_SECONDS, panGains, WebAudioOut,
-  type AudioOut, type LoopHandle,
+  type AudioOut, type LoopHandle, type SoundGenerator,
 } from '../src/audio';
 import { ambienceLoops, emitterPosition, LADDER_SLIDE_SOUND, loopKey, renderAmbienceLoops, SOUND_STREAMS_PATH, soundFromDisc, type SoundData } from '../src/soundData';
 import { WalkSounds, type WalkSignals } from '../src/walkSounds';
 import type { AnimStats } from '../src/animator';
 import { footfallsHeard } from '../src/remotePlayers';
 import { BodyFlag, type BodyState } from '../src/net/protocol';
+import { type Pcm16Stream, type StoredStream } from '@s2u/sound';
+
+it('uploads stored PCM16 streams directly as exact floats with unchanged channel gains and start times', () => {
+  const buffers: { channels: Float32Array[]; sampleRate: number }[] = [];
+  const starts: number[] = [], gainValues: { value: number }[] = [];
+  class Ctx {
+    state = 'running'; sampleRate = 48000; currentTime = 7; destination = {};
+    createGain() {
+      const gain = { value: 1, setTargetAtTime() {} }; gainValues.push(gain);
+      return { gain, connect() {}, disconnect() {} };
+    }
+    createChannelSplitter() { return { connect() {}, disconnect() {} }; }
+    createChannelMerger() { return { connect() {}, disconnect() {} }; }
+    createBuffer(count: number, length: number, sampleRate: number) {
+      const channels = Array.from({ length: count }, () => new Float32Array(length));
+      buffers.push({ channels, sampleRate });
+      return { numberOfChannels: count, length, sampleRate, getChannelData: (i: number) => channels[i],
+        copyToChannel: (input: Float32Array, i: number) => {
+          expect(input).toBeInstanceOf(Float32Array); channels[i]!.set(input);
+        } };
+    }
+    createBufferSource() {
+      return { buffer: null, onended: null, connect() {}, disconnect() {}, start: (when: number) => starts.push(when), stop() {} };
+    }
+  }
+  const left = Int16Array.from({ length: 65536 }, (_, i) => i - 32768), right = left.slice().reverse();
+  const sound: Pcm16Stream = { storage: 'pcm16', left, right, sendLeft: null, sendRight: null,
+    sampleRate: 22050, voices: 2, samples: [], peak: 1 };
+  const g = globalThis as unknown as { AudioContext?: unknown }, was = g.AudioContext;
+  g.AudioContext = Ctx;
+  try {
+    const out = new WebAudioOut(); out.prepare();
+    const gains = { left: [0.2, 0.3], right: [0.4, 0.5] } as StreamVoiceGains;
+    out.playStream(sound, gains);
+    expect(gainValues.slice(-5).map(g => g.value)).toEqual([1, 0.2, 0.3, 0.4, 0.5]);
+    out.playMusic(sound, 0, gains);
+    expect(starts).toEqual([7, 7]);
+    expect(buffers).toHaveLength(2);
+    for (const buffer of buffers) {
+      expect(buffer.sampleRate).toBe(22050);
+      expect(buffer.channels).toHaveLength(2);
+      expect(Array.from(buffer.channels[0]!)).toEqual(Array.from(left, n => n / 32768));
+      expect(Array.from(buffer.channels[1]!)).toEqual(Array.from(right, n => n / 32768));
+    }
+    expect(sound.left).toBe(left);
+    out.stopMusic();
+  } finally { g.AudioContext = was; }
+});
 
 const fixtures = resolve(process.env.S2U_TEST_FIXTURES || resolve(dirname(fileURLToPath(import.meta.url)), '../../../test-fixtures'));
 const haveSound = existsSync(resolve(fixtures, 'RUN/SOUNDS/BNKSTORE.ZAR')) && existsSync(resolve(fixtures, 'RUN/MP2.ZDB'));
@@ -40,14 +88,14 @@ class Recorder implements AudioOut {
     return { setGains: (left, right) => { l.gains = [left, right]; }, stop: () => { l.stopped = true; } };
   }
   /** Research 124: the streams, the music slot's plays (with their handover) and its stops. */
-  streams: RenderedSound[] = [];
+  streams: StoredStream[] = [];
   /** Each stream's and each slot cue's gains, in play order (research 186 §3.1: the group's level). */
   streamGains: StreamVoiceGains[] = [];
   musicGains: StreamVoiceGains[] = [];
-  music: { sound: RenderedSound; handover: number }[] = [];
+  music: { sound: StoredStream; handover: number }[] = [];
   musicStops = 0;
-  playStream(sound: RenderedSound, gains?: StreamVoiceGains, _group?: number, _live?: () => StreamVoiceGains): void { this.streams.push(sound); if (gains) this.streamGains.push(gains); }
-  playMusic(sound: RenderedSound, handover: number, gains?: StreamVoiceGains, _group?: number, _live?: () => StreamVoiceGains): void { this.music.push({ sound, handover }); if (gains) this.musicGains.push(gains); }
+  playStream(sound: StoredStream, gains?: StreamVoiceGains, _group?: number, _live?: () => StreamVoiceGains): void { this.streams.push(sound); if (gains) this.streamGains.push(gains); }
+  playMusic(sound: StoredStream, handover: number, gains?: StreamVoiceGains, _group?: number, _live?: () => StreamVoiceGains): void { this.music.push({ sound, handover }); if (gains) this.musicGains.push(gains); }
   stopMusic(): void { this.musicStops++; }
 }
 
@@ -62,6 +110,35 @@ async function mp2(): Promise<SoundData> {
   if (!data) throw new Error('no sound data');
   return data;
 }
+
+it.skipIf(!haveSound)('generated one-shots preserve real-disc PCM, random consumption and recent metadata', async () => {
+  class DirectRecorder extends Recorder {
+    generated = 0;
+    playGenerated(render: SoundGenerator) {
+      this.generated++;
+      const sound = render((length, send) => ({ left: new Float32Array(length), right: new Float32Array(length),
+        sendLeft: send ? new Float32Array(length) : null, sendRight: send ? new Float32Array(length) : null }));
+      this.play(sound); return { seconds: sound.left.length / sound.sampleRate, voices: sound.voices };
+    }
+  }
+  const outputs = [new Recorder(), new DirectRecorder()], calls = [0, 0], results = [];
+  for (const [i, out] of outputs.entries()) {
+    const rand = seeded(7), audio = new GameAudio(out, () => { calls[i]!++; return rand(); }, { inline: false });
+    audio.setData(await mp2()); out.unlock(); audio.setListener(IDENTITY);
+    for (let n = 0; n < 4; n++) { audio.onFire('M4A1 SD', [n, 0, -5]); audio.onFootstep(STONE, [n, 0, -10]); }
+    results.push(audio.stats().recent); audio.setData(null);
+  }
+  expect((outputs[1] as DirectRecorder).generated).toBe(8); expect(calls[1]).toBe(calls[0]); expect(results[1]).toEqual(results[0]);
+  expect(outputs[1]!.played.length).toBe(outputs[0]!.played.length);
+  for (let i = 0; i < outputs[0]!.played.length; i++) {
+    const a = outputs[0]!.played[i]!, b = outputs[1]!.played[i]!;
+    expect({ rate: b.sampleRate, peak: b.peak, voices: b.voices, samples: b.samples }).toEqual({ rate: a.sampleRate, peak: a.peak, voices: a.voices, samples: a.samples });
+    for (const channel of ['left', 'right', 'sendLeft', 'sendRight'] as const) {
+      const ac = a[channel], bc = b[channel];
+      if (!ac) expect(bc).toBeNull(); else expect(Buffer.from(ac.buffer, ac.byteOffset, ac.byteLength).equals(Buffer.from(bc!.buffer, bc!.byteOffset, bc!.byteLength))).toBe(true);
+    }
+  }
+});
 
 /**
  * PAR-89 (research 305, from Chris's PR #90): the dry trigger's `.GUN_EMPTY` (`FUN_005c0fd0` D:L476617-476620, the kit's
@@ -199,6 +276,166 @@ describe("the footfall cap leaves the page's own steps alone (PF-25; FUN_0055285
     for (let i = 0; i < 8; i++) sounds.playEvent({ kind: 'footfall', foot: i % 2 ? 'right' : 'left', clip: 'seal_run', position: [0, 0.5, 0] });
     expect(sounds.counts.footfalls).toBe(8);
     expect(steps).toHaveLength(8);
+  });
+});
+
+describe("LATER 1218: the one-shots share the driver's 48 voices (FUN_000178b8; ./voiceBudget)", () => {
+  it.skipIf(!haveSound)('sixty plays of one sound at once: every one sounds (an equal priority steals the oldest), and no more voices are held than the range of its group; a teardown frees them all', async () => {
+    const out = new Recorder(), audio = new GameAudio(out);
+    audio.setData(await mp2()); out.unlock(); audio.setListener(IDENTITY);
+    for (let i = 0; i < 60; i++) expect(audio.play('.GUN_EMPTY')).toBe(true);
+    expect(out.played).toHaveLength(60);
+    expect(audio.stats().dropped.voices).toBe(0);
+    const budget = (audio as unknown as { voices: { busy(now: number): number } }).voices;
+    const held = budget.busy(performance.now() / 1000);
+    expect(held).toBeGreaterThan(0);
+    expect(held).toBeLessThanOrEqual(48);
+    audio.stopTransient();
+    expect(budget.busy(performance.now() / 1000)).toBe(0);
+  });
+
+  /**
+   * The controller's condition for LATER 1218, as the sweep it ruled on (2026-11-18): a busy moment -- the page's own
+   * footsteps (one every 0.35 s, a run's cadence) and the three nearest others' (the footfall cap, `./remotePlayers`
+   * FOOTFALL_CAP_READING), under N others firing an M4A1 from 20 to 300 u off for four seconds at 60 frames, full auto
+   * (every 0.1 s, 600 a minute) or in bursts (three rounds once a second). A reading (the allocator `FUN_000178b8`
+   * D:L14134 with the disc's priorities -- a step is one voice at 44 for 0.66 s; an M4A1 shot keys 55, 99 (1.12 s), 0, 0
+   * -- not yet captured; the capture: about six bots firing full auto beside the player, the steps counted): every step
+   * sounds with up to 4 shooters full auto or 8 in bursts; past that the 48 voices are all at 99 and the driver refuses
+   * the steps, as the PS2 does. The fifteen-shooter case the condition first asked is the sweep's last row. Every shot
+   * sounds in every row. The edge is range as well as count (the review of 416bd9d94b, F1): the first four shooters
+   * stand within 90 u and play the close `.M4A1` (one voice at 99), the fifth is past it and plays `.M4A1_M` (two at
+   * 99) -- so the rows at one range: within 90 u (60 u) every step sounds up to 4 and drops from 5; at medium range
+   * (150 u) they begin to drop at 2 and mostly go at 3.
+   */
+  it.skipIf(!haveSound)('a busy moment, as a sweep: steps sound up to 4 close full-auto or 8 bursting shooters, fewer at medium range; past that the driver drops them (FUN_000178b8, a reading)', async () => {
+    const data = await mp2();
+    const run = (n: number, burst: boolean, range?: number): string => {
+      let t = 100;
+      const out = new Recorder(), audio = new GameAudio(out, seeded(7), { now: () => t });
+      audio.setData(data); out.unlock(); audio.setListener(IDENTITY);
+      const others: [number, number, number][] = Array.from({ length: 15 }, (_, i) => {
+        const r = range ?? (i < 3 ? 10 + 8 * i : 20 + 20 * i), a = (i * 2 * Math.PI) / 15;
+        return [r * Math.sin(a), 0, r * Math.cos(a)] as [number, number, number];
+      });
+      let own = 0, ownH = 0, near = 0, nearH = 0, shots = 0, shotsH = 0;
+      for (let f = 0; f < 240; f++) {
+        t = 100 + f / 60;
+        audio.setListener(IDENTITY);
+        if (f % 21 === 0) { own++; if (audio.onFootstep(STONE, null, { stance: 0 })) ownH++; }
+        for (let i = 0; i < 15; i++) {
+          if (i < 3 && (f + 7 * i) % 21 === 0) { near++; if (audio.onFootstep(STONE, others[i]!, { stance: 0 })) nearH++; }
+          if (i >= n) continue;
+          const fire = burst ? (f + 9 * i) % 60 < 18 && (f + i) % 6 === 0 : (f + i) % 6 === 0;
+          if (fire) { shots++; if (audio.onFire('M4A1', others[i]!)) shotsH++; }
+        }
+      }
+      return `${burst ? 'bursts' : 'full auto'} x${n}${range ? ` at ${range} u` : ''}: own ${ownH}/${own}, nearest ${nearH}/${near}, shots ${shotsH}/${shots}`;
+    };
+    const rows = [false, true].flatMap((burst) => [0, 3, 4, 5, 8, 10, 15].map((n) => run(n, burst)));
+    rows.push(run(4, false, 60), run(5, false, 60), run(2, false, 150), run(3, false, 150));
+    expect(rows).toEqual([
+      'full auto x0: own 12/12, nearest 35/35, shots 0/0',
+      'full auto x3: own 12/12, nearest 35/35, shots 120/120',
+      'full auto x4: own 12/12, nearest 35/35, shots 160/160',   // at the edge: a script with another draw order heard 33/35
+      'full auto x5: own 3/12, nearest 7/35, shots 200/200',
+      'full auto x8: own 2/12, nearest 4/35, shots 320/320',
+      'full auto x10: own 1/12, nearest 3/35, shots 400/400',
+      'full auto x15: own 1/12, nearest 2/35, shots 600/600',
+      'bursts x0: own 12/12, nearest 35/35, shots 0/0',
+      'bursts x3: own 12/12, nearest 35/35, shots 36/36',
+      'bursts x4: own 12/12, nearest 35/35, shots 48/48',
+      'bursts x5: own 12/12, nearest 35/35, shots 60/60',
+      'bursts x8: own 12/12, nearest 34/35, shots 96/96',
+      'bursts x10: own 3/12, nearest 9/35, shots 120/120',
+      'bursts x15: own 2/12, nearest 5/35, shots 180/180',
+      'full auto x4 at 60 u: own 12/12, nearest 35/35, shots 160/160',
+      'full auto x5 at 60 u: own 3/12, nearest 8/35, shots 200/200',
+      'full auto x2 at 150 u: own 7/12, nearest 25/35, shots 80/80',
+      'full auto x3 at 150 u: own 3/12, nearest 7/35, shots 120/120',
+    ]);
+  }, 180_000);
+});
+
+describe("LATER 1209: a callback's sound waits out its zAnim's WAIT (frag_start's .THROW_OBJECT 0.2 s late; FINDING-X13)", () => {
+  it.skipIf(!haveSound)("the data carries frag_start's 0.2 s and HE_start's none; the page sounds frag_start's on the first frame 0.2 s on, HE_start's at once", async () => {
+    const data = await mp2();
+    const delays = new Map(data.callbackDelays ?? []);
+    expect(delays.get('frag_start')).toEqual([Math.fround(0.2)]);
+    expect(delays.get('HE_start')?.some((d) => d > 0) ?? false).toBe(false);
+    let t = 100;
+    const out = new Recorder(), audio = new GameAudio(out, Math.random, { now: () => t });
+    audio.setData(data); out.unlock(); audio.setListener(IDENTITY);
+    const before = out.played.length;
+    audio.onAnimCallback('frag_start', [0, 0, 0]);
+    expect(out.played.length).toBe(before);                         // not yet: the WAIT ahead of it
+    t += 0.19; audio.setListener(IDENTITY);
+    expect(out.played.length).toBe(before);
+    t += 0.02; audio.setListener(IDENTITY);                         // the first frame past 0.2 s
+    expect(out.played.length).toBe(before + 1);
+    expect(audio.stats().recent.at(-1)!.name.trim()).toBe('.THROW_OBJECT');
+    audio.onAnimCallback('HE_start', [0, 0, 0]);
+    expect(out.played.length).toBe(before + 2);                     // at once
+    // A teardown drops the delayed sounds still owed.
+    audio.onAnimCallback('frag_start', [0, 0, 0]);
+    audio.stopTransient();
+    t += 1; audio.setListener(IDENTITY);
+    expect(out.played.length).toBe(before + 2);
+  });
+});
+
+describe("LATER 1220: a sound's instance limit (FUN_0000d274; ./voiceBudget instanceCheck)", () => {
+  // MP7's own ambience bank holds it (MP7_AM: flags 0x18, limit 1; MP2's does not); the disc's maps as `everyMap` reads them.
+  const mp7 = resolve(fixtures, 'RUN/MP7.ZDB');
+  it.skipIf(!existsSync(mp7) || !existsSync(resolve(fixtures, 'RUN/SOUNDS/BNKSTORE.ZAR')))(".MOVING_THRU_FO on MP7 (limit 1, the quietest stolen): a second at the same loudness is refused; a louder one stops the first and sounds", async () => {
+    let t = 100;
+    const out = new Recorder(), audio = new GameAudio(out, seeded(3), { now: () => t });
+    audio.setData(await soundFromDisc(new FsAssetSource(fixtures), 'RUN/MP7.ZDB', 'MP7')); out.unlock(); audio.setListener(IDENTITY);
+    expect(audio.has('.MOVING_THRU_FO')).toBe(true);
+    // Halfway between its full-volume radius and the edge of its RANGE (`rangeGain`): quieter; 5 u off: full volume.
+    const [inner, outer] = (audio as unknown as { rangeOf(n: string): [number, number] }).rangeOf('.MOVING_THRU_FO');
+    const mid = -(inner + outer) / 2;
+    expect(audio.play('.MOVING_THRU_FO', [0, 0, mid])).toBe(true);
+    const far = audio.stats().recent.at(-1)!.vol;
+    expect(far).toBeLessThan(0x400);
+    expect(audio.play('.MOVING_THRU_FO', [0, 0, mid])).toBe(false);          // the same volume: not louder, refused
+    expect(audio.stats().dropped.instances).toBe(1);
+    expect(audio.play('.MOVING_THRU_FO', [0, 0, -5])).toBe(true);           // nearer, louder: the first is stopped
+    expect(audio.stats().recent.at(-1)!.vol).toBeGreaterThan(far);
+    expect(audio.play('.MOVING_THRU_FO', [0, 0, -5])).toBe(false);           // full volume again: not louder
+    expect(audio.stats().dropped.instances).toBe(2);
+    t += 30;                                                                // both long over: a fresh one plays
+    expect(audio.play('.MOVING_THRU_FO', [0, 0, mid])).toBe(true);
+    // A sound without the limit is never counted.
+    expect(audio.play('.JUMP_WHOOSH')).toBe(true);
+    expect(audio.play('.JUMP_WHOOSH')).toBe(true);
+    expect(audio.stats().dropped.instances).toBe(2);
+  }, 60_000);
+});
+
+describe("LATER 1220 (b): the loops hold voices as the original's do (research 81 s17)", () => {
+  it.skipIf(!haveSound)("MP2: the fan emitter and the bed side that is up hold voices from the start at any distance; the other side's are freed; a teardown keeps them; ambience off frees all", async () => {
+    let t = 100;
+    const out = new Recorder(), audio = new GameAudio(out, seeded(5), { now: () => t });
+    audio.setData(await mp2()); out.unlock();
+    const busy = (): number => (audio as unknown as { voices: { busy(now: number): number } }).voices.busy(t);
+    expect(busy()).toBe(0);
+    audio.setAmbience(true);
+    audio.setEnvironment(false, 0);
+    audio.pump(1e9);
+    audio.setListener(IDENTITY);                        // the listener far from the fan: it holds its voices anyway
+    const outside = busy();
+    expect(outside).toBeGreaterThanOrEqual(2);          // ~FAN_ROTATE's and ~OUTDOOR_AMB's busiest instants
+    audio.setEnvironment(true, 0);                      // indoors: the outdoor side keyed off, the indoor side up
+    audio.setListener(IDENTITY);
+    expect(busy()).toBeGreaterThanOrEqual(2);
+    t += 1000;                                          // loops are held until stopped, not until a render ends
+    expect(busy()).toBeGreaterThanOrEqual(2);
+    const held = busy();
+    audio.stopTransient();                              // a teardown: the one-shots go, the loops keep theirs
+    expect(busy()).toBe(held);
+    audio.setAmbience(false);
+    expect(busy()).toBe(0);
   });
 });
 
@@ -860,7 +1097,12 @@ describe.skipIf(!haveSound)('every map steps on every floor', () => {
     const source = new FsAssetSource(dir);
     const d = await soundFromDisc(source, `RUN/${map}.ZDB`, map);
     expect(d.banks.length).toBeGreaterThanOrEqual(3);
-    const out = new Recorder(), audio = new GameAudio(out, seeded(1));
+    // LATER 1218: each floor's sounds are asked at a step's cadence (0.35 s apart on the page's clock), as a walk asks
+    // them. Under the first build's whole-play budget the asks at one instant were refused on six maps (box
+    // later1218-ccdc32b43); per voice, its review found none refused even at one instant on MP2, MP6 and MP72. This asks
+    // which floors have a sound; the busy-moment sweep asks how many sound at once.
+    let t = 0;
+    const out = new Recorder(), audio = new GameAudio(out, seeded(1), { now: () => t });
     audio.setData(d);
     out.unlock();
     const zdb = new Uint8Array(readFileSync(resolve(dir, `RUN/${map}.ZDB`)));
@@ -870,12 +1112,15 @@ describe.skipIf(!haveSound)('every map steps on every floor', () => {
       const mat = audio.materialOf(m);
       if (!mat?.step) continue;                                    // INVISIBLE_DI, BARREL ...: no step sound in SOILS
       for (const stance of [0, 2] as const) {
+        t += 0.35;
         const got = audio.onFootstep(m, null, { stance });
         if (!got) silent.set(`${mat.name}/${stance}`, (silent.get(`${mat.name}/${stance}`) ?? 0) + 1);
       }
+      t += 0.35;
       if (audio.onLand(50, m).length === 0 && mat.land) silent.set(`${mat.name}/land`, 1);
     }
     expect([...silent.keys()]).toEqual([]);
+    expect(audio.stats().dropped.voices).toBe(0);                   // LATER 1218: at a walk's cadence, the budget refused nothing
     // No casing name is missing: the data's slip is mended and a shell no bank reached stands in (research 90 item 18).
     expect(d.missing.filter((x) => /no bank holds/.test(x))).toEqual([]);
     // Nothing is missing at all (research 90 item 26): an emitter whose node the scene lacks plays where the game plays
@@ -903,6 +1148,20 @@ describe('the streams: a voice of its own, and the one music slot (research 124 
     streams,
   });
   const quiet = (): (() => void) => { const w = vi.spyOn(console, 'warn').mockImplementation(() => undefined); return () => w.mockRestore(); };
+  it('expands a stored stream exactly for an output that only supports ordinary float plays', () => {
+    const out = new Recorder(), fallback: AudioOut = out;
+    fallback.playStream = undefined;
+    const audio = new GameAudio(fallback, seeded(1)), restore = quiet();
+    const left = new Int16Array([-32768, -1, 0, 1, 32767]);
+    const sound: Pcm16Stream = { storage: 'pcm16', left, right: left, sendLeft: null, sendRight: null,
+      sampleRate: 22050, voices: 1, samples: [], peak: 1 };
+    audio.setData(data([{ name: '^PCM_TEST', file: 'TEST.VAG', sound }]));
+    restore(); out.unlock();
+    expect(audio.playStream('^PCM_TEST')).toBe('played');
+    expect(Array.from(out.played[0]!.left)).toEqual(Array.from(left, n => n / 32768));
+    expect(out.played[0]!.right).toBe(out.played[0]!.left);
+    expect(sound.left).toBe(left);
+  });
   it('places a remote taunt stream through native range and pan without moving the sender echo or round cues', () => {
     const out = new Recorder(), audio = new GameAudio(out, seeded(1)), restore = quiet();
     audio.setData(data([{ name: '^TAUNT_TEST', file: 'TEST.VAG', sound: { ...tone(1), voices: 1 }, group: 2 }]));

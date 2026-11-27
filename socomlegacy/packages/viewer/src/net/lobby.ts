@@ -1,3 +1,4 @@
+import { isNameDrawable } from './playerName';
 import { MAX_PLAYERS, MAX_SPECTATORS, type Role, type Team } from './protocol';
 
 /**
@@ -11,8 +12,9 @@ import { MAX_PLAYERS, MAX_SPECTATORS, type Role, type Team } from './protocol';
  *   players' room waits in a FIFO of spectators, and a freed player slot promotes the head, placed by the same team rule.
  * - Watchers (the map viewer's Online setting, 2026-09-29): a join asking to watch is a spectator outside the queue --
  *   never promoted, never counted as waiting -- held to the same `maxSpectators` room as the queue, the two together.
- * - Names (research 91 section 13, W3.R12): at most 30 printable ASCII characters; a blank name is the game's
- *   `"Player%d"` with a random four-digit number; a duplicate takes the lowest free `(2)`, `(3)` suffix within the 30.
+ * - Names (research 91 section 13, W3.R12): at most 30 characters, each one the game's faces draw (NAMES-MIDDLE's
+ *   `NAME_DRAWABLE_ADAPTATION`, `./playerName`; was printable ASCII only); a blank name is the game's `"Player%d"` with a
+ *   random four-digit number; a duplicate takes the lowest free `(2)`, `(3)` suffix within the 30.
  *
  * No I/O, no clock: the caller passes `random` where a guest name may be drawn, so a test can seed it.
  */
@@ -40,7 +42,13 @@ export interface Member {
 export type LobbyChange =
   | { kind: 'joined'; id: number; role: Role; team: Team | null }
   | { kind: 'left'; id: number }
-  | { kind: 'promoted'; id: number; team: Team }
+  /** `claim` (SEAT_CLAIM_ADAPTATION): the seat is a watcher's claim's (`confirm`), not a playing joiner's turn in the queue. */
+  | { kind: 'promoted'; id: number; team: Team; claim?: true }
+  /**
+   * SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: a freed seat held for an enlisted spectator (`enlist`) -- its side counted, no
+   * other joiner takes it -- until the room's `confirm` seats it (`promoted`), or its leave frees it.
+   */
+  | { kind: 'reserved'; id: number; team: Team }
   /** A spectator's 1-based place in the queue changed. */
   | { kind: 'queue'; id: number; position: number }
   | { kind: 'renamed'; id: number; name: string };
@@ -56,15 +64,18 @@ export function assignTeam(seal: number, terrorist: number, teamSize: number = T
 }
 
 /**
- * W3.R12: printable ASCII only (0x20-0x7e), everything else removed, runs of spaces collapsed, trimmed, cut to
- * `NAME_MAX`. Empty after cleaning gives ''.
+ * W3.R12, widened by NAMES-MIDDLE (`NAME_DRAWABLE_ADAPTATION`, the owner's "middle way", MISSION OT.R149): the drawable
+ * characters kept (`isNameDrawable`: the 166 codes every face a name is drawn in can draw; was printable ASCII only),
+ * everything else removed -- the controls, the invisible and zero-width characters, other scripts, emoji -- runs of
+ * spaces collapsed, trimmed, cut to `NAME_MAX` characters. Empty after cleaning gives '' (the caller's `Player####`).
+ * The cut counts CHARACTERS (every drawable code is one UTF-16 unit), not bytes: a non-ASCII name can pass the original's
+ * 30-byte buffer (registry round.teams.name-length) -- 30 "€" is 90 UTF-8 bytes. Every downstream limit counts
+ * characters or takes a name already bounded at create (match token 32 characters; room 256; replay rows 64; account
+ * names 31 bytes at create), so nothing overflows (NAMES-MIDDLE review F4).
  */
 export function sanitizeName(raw: string): string {
   let s = '';
-  for (let i = 0; i < raw.length; i++) {
-    const c = raw.charCodeAt(i);
-    if (c >= 0x20 && c <= 0x7e) s += raw[i];
-  }
+  for (const ch of raw) if (isNameDrawable(ch)) s += ch;
   s = s.replace(/ {2,}/g, ' ').trim();
   // The cut may leave a trailing space: trim again so the name never ends in one.
   return s.slice(0, NAME_MAX).trimEnd();
@@ -101,6 +112,10 @@ export class Lobby {
   private readonly queuedSides = new Map<number, Team>();
   /** Ids of the watchers (spectators by choice, outside the queue), in join order. */
   private readonly watchers = new Set<number>();
+  /** SEAT_CLAIM_ADAPTATION: the queued spectators who came from watching (`enlist`), so `withdraw` can send them back. */
+  private readonly enlistedIds = new Set<number>();
+  /** SEAT_CLAIM: the enlisted spectators a freed seat is held for, by side, until `confirm` (`reserved` changes). */
+  private readonly reservedIds = new Map<number, Team>();
   private counter = 0;
 
   constructor(opts: { maxPlayers?: number; maxSpectators?: number; teamSize?: number } = {}) {
@@ -163,7 +178,10 @@ export class Lobby {
     if (!m) return [];
     this.byId.delete(id);
     this.queuedSides.delete(id);
+    this.enlistedIds.delete(id);
     const changes: LobbyChange[] = [{ kind: 'left', id }];
+    // SEAT_CLAIM: a held seat's holder gone -- the seat is free again, for the queue's next.
+    if (this.reservedIds.delete(id)) { this.drain(changes); this.pushQueue(changes, 0); return changes; }
     if (this.watchers.delete(id)) return changes;
     if (m.role === 'spectator') {
       const at = this.queue.indexOf(id);
@@ -171,6 +189,84 @@ export class Lobby {
       this.pushQueue(changes, at);
       return changes;
     }
+    this.drain(changes);
+    this.pushQueue(changes, 0);
+    return changes;
+  }
+
+  /**
+   * SEAT_CLAIM_ADAPTATION (a service adaptation with no original -- the original keeps a watcher a spectator for good,
+   * research 314 R314.1, R314.7; the owner's word, 2026-11-24): a watcher asks to play. It joins the back of the queue,
+   * the same FIFO a playing joiner past the players waits in, and a free seat takes it at once by the team rule -- so of
+   * two watchers at one free seat, the first to ask is seated and the other is first in line. Returns the changes (its
+   * `reserved` -- the seat held until the room's `confirm`, SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION -- or its place in the
+   * queue), or null when `id` is no watcher (nothing changes).
+   */
+  enlist(id: number): LobbyChange[] | null {
+    if (!this.watchers.has(id) || !this.byId.has(id)) return null;
+    this.watchers.delete(id);
+    this.enlistedIds.add(id);
+    this.queue.push(id);
+    const changes: LobbyChange[] = [];
+    this.drain(changes);
+    if (changes.length) this.pushQueue(changes, 0);
+    else changes.push({ kind: 'queue', id, position: this.queue.length });
+    return changes;   // a free seat: its `reserved` (the room's `confirm` seats it)
+  }
+
+  /**
+   * SEAT_CLAIM_ADAPTATION: an enlisted spectator still in the queue changes its mind -- a watcher again, the queue behind
+   * it moved up (their `queue` changes). Null when `id` did not come from watching or is seated already.
+   */
+  withdraw(id: number): LobbyChange[] | null {
+    const at = this.queue.indexOf(id);
+    if (!this.enlistedIds.has(id) || at < 0) return null;
+    this.queue.splice(at, 1);
+    this.enlistedIds.delete(id);
+    this.watchers.add(id);
+    const changes: LobbyChange[] = [];
+    this.pushQueue(changes, at);
+    return changes;
+  }
+
+  /**
+   * SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: the seat held for `id` (`reserved`) taken -- a player on the side held, its
+   * `promoted`. Empty when no seat is held for it (it left, or was seated already).
+   */
+  confirm(id: number): LobbyChange[] {
+    const team = this.reservedIds.get(id);
+    const m = this.byId.get(id);
+    if (team === undefined || !m) return [];
+    this.reservedIds.delete(id);
+    this.enlistedIds.delete(id);
+    m.role = 'player';
+    m.team = team;
+    return [{ kind: 'promoted', id, team, claim: true }];
+  }
+
+  /** SEAT_CLAIM_ADAPTATION: whether a seat is held for `id` (`reserved`, until `confirm`). */
+  reserved(id: number): boolean {
+    return this.reservedIds.has(id);
+  }
+
+  /** SEAT_CLAIM_ADAPTATION: whether `id` waits in the queue because it asked from watching (`enlist`). */
+  enlisted(id: number): boolean {
+    return this.enlistedIds.has(id);
+  }
+
+  /**
+   * SEAT_CLAIM_ADAPTATION: the seats a watcher's claim could take now -- the players' room left, bounded by the two
+   * sides' places, less what the queue already waits for (a queued head ahead of it takes a freed seat first).
+   */
+  openSeats(): number {
+    const counts = this.teamCounts();
+    const total = counts.seal + counts.terrorist;
+    const room = Math.min(this.maxPlayers - total, 2 * this.teamSize - total);
+    return Math.max(0, room - this.queue.length);
+  }
+
+  /** The queue's heads seated while the room and their side allow, in order (a leave's, an enlist's). */
+  private drain(changes: LobbyChange[]): void {
     // A forced queue head may have waited while the other side freed places. Drain those places once it can move.
     while (this.queue.length) {
       const headId = this.queue[0]!;
@@ -184,12 +280,18 @@ export class Lobby {
       if (team === null || !head) break;
       this.queue.shift();
       this.queuedSides.delete(headId);
+      // SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: an enlisted head's seat is held (its side counted, `teamCounts`), not taken,
+      // until the room's `confirm` -- the page tells its player first. A playing joiner is seated at once, as before.
+      if (this.enlistedIds.has(headId)) {
+        head.team = team;
+        this.reservedIds.set(headId, team);
+        changes.push({ kind: 'reserved', id: headId, team });
+        continue;
+      }
       head.role = 'player';
       head.team = team;
       changes.push({ kind: 'promoted', id: headId, team });
     }
-    this.pushQueue(changes, 0);
-    return changes;
   }
 
   /**
@@ -208,6 +310,9 @@ export class Lobby {
     const required = this.queuedSides.get(from);
     if (required) { this.queuedSides.delete(from); this.queuedSides.set(to, required); }
     if (this.watchers.delete(from)) this.watchers.add(to);
+    if (this.enlistedIds.delete(from)) this.enlistedIds.add(to);
+    const held = this.reservedIds.get(from);
+    if (held) { this.reservedIds.delete(from); this.reservedIds.set(to, held); }
     return [{ kind: 'left', id: from }, { kind: 'joined', id: to, role: m.role, team: m.team }];
   }
 
@@ -219,7 +324,9 @@ export class Lobby {
     const m = this.byId.get(id);
     if (!m || m.role !== 'player' || this.queue.length === 0) return null;
     const changes = this.leave(id);
-    const promoted = changes.some((c) => c.kind === 'promoted');
+    // SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: a claim at the head takes the slot held (`reserved`), seated at the room's
+    // `confirm` -- the slot taken as surely as a joiner's `promoted`
+    const promoted = changes.some((c) => c.kind === 'promoted' || c.kind === 'reserved');
     if (!promoted) {
       // The freed slot could not take the head (a full side): put the player back where it was.
       this.byId.set(id, m);
@@ -286,7 +393,26 @@ export class Lobby {
       out.push({ id: m.id, team: m.team });
     }
     for (const [id, side] of this.queuedSides) this.queuedSides.set(id, side === 'seal' ? 'terrorist' : 'seal');
+    // SEAT_CLAIM: a held seat goes over with its side, so the counts stay whole.
+    for (const [id, side] of this.reservedIds) {
+      const to: Team = side === 'seal' ? 'terrorist' : 'seal';
+      this.reservedIds.set(id, to);
+      const m = this.byId.get(id);
+      if (m) m.team = to;
+    }
     return out;
+  }
+
+  /**
+   * WM-51 (WM.R21, the owner's team swap queue -- a departure from the original on his word, `SWAP_QUEUE_OWNER` in match
+   * `gameLobby.ts`): two players on opposite sides exchange sides together, so the counts never change and no side limit
+   * is tested. False, nothing changed, unless both are players and their sides differ.
+   */
+  tradeTeams(a: number, b: number): boolean {
+    const ma = this.byId.get(a), mb = this.byId.get(b);
+    if (!ma || !mb || ma.role !== 'player' || mb.role !== 'player' || ma.team === null || mb.team === null || ma.team === mb.team) return false;
+    [ma.team, mb.team] = [mb.team, ma.team];
+    return true;
   }
 
   /** A member by id (a copy). */
@@ -300,10 +426,14 @@ export class Lobby {
     return [...this.byId.values()].filter((m) => m.role === 'player').sort((a, b) => a.joinedAt - b.joinedAt).map((m) => ({ ...m }));
   }
 
-  /** The spectators: the queue in its order (head first), then the watchers in join order. */
+  /**
+   * The spectators: the held seats' holders (SEAT_CLAIM: out of the queue, not yet players -- spectators until `confirm`,
+   * so every member is in `players` or here, never in neither), then the queue in its order (head first), then the
+   * watchers in join order.
+   */
   spectators(): Member[] {
     const out: Member[] = [];
-    for (const id of [...this.queue, ...this.watchers]) {
+    for (const id of [...this.reservedIds.keys(), ...this.queue, ...this.watchers]) {
       const m = this.byId.get(id);
       if (m) out.push({ ...m });
     }

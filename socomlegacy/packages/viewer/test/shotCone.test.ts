@@ -3,8 +3,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_RIFLE, GAME_FRAME_DT, HELD_RIFLE, HELD_SIDEARM, PROBE_LIFT, type CollisionOwner, type WeaponRecord, type GridParams, type WorldPoly } from '@s2u/scene';
-import { Accuracy, LOOK_JUMP_READING, perturb, tangentPerPixel, type Cone } from '../src/accuracy';
+import { DEFAULT_RIFLE, GAME_FRAME_DT, HELD_RIFLE, HELD_SIDEARM, PROBE_LIFT, segmentHit, type CollisionOwner, type WeaponRecord, type GridParams, type WorldPoly } from '@s2u/scene';
+import { Accuracy, depthRatio, LOOK_JUMP_READING, perturb, tangentPerPixel, type Cone } from '../src/accuracy';
 import { FlyCamera } from '../src/camera';
 import { CAM_FAR, localCamera, toWorld } from '../src/cameraRig';
 import { ACTION_SECONDS, rootY, Walker, type Stance } from '../src/mover';
@@ -12,9 +12,11 @@ import { pitchStickOf } from '../src/look';
 import { MoverSim } from '../src/net/moverSim';
 import { Button, type Command } from '../src/net/protocol';
 import {
-  aheadOf, bound, cameraLook, centreClaim, coneCoords, coneSlackPx, faceToward, headPoint, pointSegment, ShotCone, type AimMover,
+  aheadOf, AT_BODY_REACH_ADAPTATION, AT_SLACK_ADAPTATION, bound, cameraLook, centreClaim, claimDepth, coneCoords, coneSlackPx, faceToward, headPoint, pointSegment, ShotCone, type AimMover,
   CONE_SLACK_PX_PLACEHOLDER, CONE_SWAY_BOX_ADAPTATION, CONE_WINDOW_PLACEHOLDER, ROOT_POSE_SLACK_PLACEHOLDER, stanceChangeTicks, STANCE_REVERSE_TICKS_READING,
 } from '../src/net/shotCone';
+import { bodyPointToWorld, bodyVolumes, placedVolumes, placeholderVolumes, tiltBodyPoint, type BoneBox, type HitBody, type StanceVolumes } from '../src/net/hitVolumes';
+import { bodyPointDistance, ROOM_SCOPED_ROUND_CAP_ADAPTATION } from '../src/net/shotCone';
 import { PlayerCamera } from '../src/playerCamera';
 import { Traversal } from '../src/traversal';
 import { groundGrid, groundPolygons, packGround, WalkMode, type GroundData } from '../src/walk';
@@ -91,15 +93,20 @@ describe('the camera the server reads is the page\'s (the geometry moved to came
   });
 });
 
-/** A flat floor 800 across at y 0. */
-function flat(): GroundData {
+/** A flat floor 800 across at y 0; with `wallZ`, a wall across it at that z (LATER 1141). */
+function flat(wallZ?: number): GroundData {
   const floor: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]),
+    points: Float32Array.from([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400]),
   };
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
-  return packGround(params, [floor], owners);
+  if (wallZ === undefined) return packGround(params, [floor], owners);
+  const wall: WorldPoly = {
+    modelName: 'worldmodel', path: 'worldmodel/wall', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
+    points: Float32Array.from([-390, 0, wallZ, 390, 0, wallZ, 390, 200, wallZ, -390, 200, wallZ]),
+  };
+  return packGround(params, [floor, wall], [...owners, { modelName: 'worldmodel', path: 'worldmodel/wall0', first: 1, count: 1 }]);
 }
 
 /** The server's mover data after a command. */
@@ -115,8 +122,7 @@ function moverOf(sim: MoverSim): AimMover {
  * The page and the server side by side: the page's `WalkMode` on a flat floor sends its commands; the server's own mover
  * (the room's make: a `Walker` and the traversal moves) runs them and feeds a `ShotCone`.
  */
-function pageAndServer() {
-  const ground = flat();
+function pageAndServer(ground: GroundData = flat()) {
   const c = document.createElement('canvas');
   c.setPointerCapture = () => undefined;
   c.releasePointerCapture = () => undefined;
@@ -141,7 +147,7 @@ function pageAndServer() {
     cone.tick(full, moverOf(sim), ++count);
   });
   return {
-    walk, fly, cone, sim, seq: () => seq,
+    walk, fly, cone, sim, grid, seq: () => seq,
     setWish: (v: typeof wish) => { wish = v; },
     dispose: () => walk.unbindKey(),
   };
@@ -638,19 +644,34 @@ describe('TURRET-CONE: the room\'s cone about the gun\'s own line (ShotCone.chec
     if (order !== 'command-first') cone.tick(cmd(15), still, 15);
     return { before, after: cone.state().offset[1] };
   };
+  // AS-34 L77 (research 84 s8): the drop first, then Recoil's gate reads 1, so the second round also knocks its own 12; the
+  // room caps a scoped command's round at ReticuleKnockMax x the scope's greatest magnification
+  // (ROOM_SCOPED_ROUND_CAP_ADAPTATION, the fresh review's F4). *Was:* `before + return` alone; then the cap at 1.
+  const scopeMax233 = Math.max(1, ...HELD_RIFLE.zoomModes.slice(1));
+  const knocked233 = (before: number): number => Math.max(before - HELD_RIFLE.stances.stand.knock, -HELD_RIFLE.stances.stand.knockMax * scopeMax233);
   it('LATER 233: a scope dropped by a pull\'s second round keeps the knock, the round reaching the room before the drop\'s command; one round (no drop) then the Scope let go clears it', () => {
     const roundFirst = run233('round-first'), one = run233('one-round');
     expect(roundFirst.before, 'the knock carried into the scope (the control)').toBeLessThan(-1);
     expect(roundFirst.after, 'the second round\'s drop clears nothing (RED before: 0)').toBeLessThan(-1);
-    expect(roundFirst.after).toBeCloseTo(roundFirst.before + HELD_RIFLE.stances.stand.knockReturn / 60, 9);   // one command of its return
+    expect(roundFirst.after).toBeCloseTo(knocked233(roundFirst.before) + HELD_RIFLE.stances.stand.knockReturn / 60, 9);   // one command of its return
     expect(one.after, 'one round, no drop: the Scope let go is the Down, FUN_005b9020 clears it').toBe(0);
   });
   it('LATER 233: the round reaching the room after the drop\'s command (the Scope bit already gone) keeps the knock the same -- keyed on its own command', () => {
     const commandFirst = run233('command-first'), roundFirst = run233('round-first');
     expect(commandFirst.before, 'the knock carried into the scope (the control)').toBeLessThan(-1);
     expect(commandFirst.after, 'the late round undoes the leave (RED before: 0)').toBeLessThan(-1);
-    expect(commandFirst.after).toBeCloseTo(commandFirst.before + HELD_RIFLE.stances.stand.knockReturn / 60, 9);
+    expect(commandFirst.after).toBeCloseTo(knocked233(commandFirst.before) + HELD_RIFLE.stances.stand.knockReturn / 60, 9);
     expect(commandFirst.after, 'the same as the round first').toBeCloseTo(roundFirst.after, 9);
+  });
+
+  it("AS-34 F4: a scoped pull's second round in the room is capped at ReticuleKnockMax x the scope's greatest magnification, never under the page's", () => {
+    // The page caps at ReticuleKnockMax x the running magnification (cam+0x474, at most the scope's level); the room, with
+    // no level on the wire, at the greatest -- the lenient side: its box spans the offset to 0, so the page's knock is inside.
+    expect(scopeMax233).toBe(3);                                                                   // the SD's one scope level
+    const r = run233('round-first');
+    expect(r.before, 'the knock carried in, past ReticuleKnockMax - 12').toBeLessThan(-(HELD_RIFLE.stances.stand.knockMax - HELD_RIFLE.stances.stand.knock));
+    expect(r.after, 'the round\'s own 12, not clipped at 45').toBeCloseTo(r.before - HELD_RIFLE.stances.stand.knock + HELD_RIFLE.stances.stand.knockReturn / 60, 9);
+    expect(ROOM_SCOPED_ROUND_CAP_ADAPTATION).toBe("the scope's greatest magnification");
   });
 
   it('checkLine: the line may be any blend of the neighbouring frames\' (the page draws between ticks), and the window\'s widest cone bounds it (a round\'s bloom inside CONE_WINDOW_PLACEHOLDER)', () => {
@@ -675,5 +696,300 @@ describe('TURRET-CONE: the room\'s cone about the gun\'s own line (ShotCone.chec
     expect(wide.frame(6)!.cone.radius).toBeLessThan(opened.radius);
     const edge = corner(lineOf(wide.frame(6)!), opened, 0.98, 0.98);
     expect(wide.checkLine(6, edge, lineOf)).toBeNull();              // command 2's cone is in 6's window
+  });
+});
+
+describe('LATER 1141 (way (a), research 441): the room takes the round\'s aim point `at` (protocol 19)', () => {
+  /** The page and the room on a floor with a wall 60 ahead of the eye down -z; the eye's bare look and a muzzle. */
+  function setup() {
+    const probe = pageAndServer();
+    for (let f = 0; f < 20; f++) probe.walk.frame(1 / 60);
+    const eyeZ = probe.walk.fireAim()!.eye[2];
+    probe.dispose();
+    const rig = pageAndServer(flat(eyeZ - 60));
+    rig.cone.setGrid(rig.grid);
+    rig.fly.setPose({ yaw: 0, pitch: 0 });
+    for (let f = 0; f < 20; f++) rig.walk.frame(1 / 60);
+    const aimAt = rig.walk.fireAim()!, seq = rig.seq();
+    rig.walk.frame(1 / 60);
+    const look = unit([aimAt.far[0] - aimAt.eye[0], aimAt.far[1] - aimAt.eye[1], aimAt.far[2] - aimAt.eye[2]]);
+    const s = rig.sim.walker.state, from: V3 = [s.x + 2, s.y + 10, s.z - 9];
+    const along = (t: number): V3 => [aimAt.eye[0] + look[0] * t, aimAt.eye[1] + look[1] * t, aimAt.eye[2] + look[2] * t];
+    // The wall along the look: where the page's eye ray meets it, cast on the room's hull as the page casts it.
+    const hit = segmentHit(rig.grid, aimAt.eye, along(1000))!;
+    const wallT = hit.t * 1000;
+    return { rig, eye: aimAt.eye as V3, look, seq, from, along, wallT };
+  }
+  /** A round's direction off the line `from` -> `at` at the frame's cone scaled by k = 1 / f, at the corner (kx, ky). */
+  const rolled = (from: V3, at: V3, cone: Cone, f: number | null, kx: number, ky: number): V3 => {
+    const k = f === null ? 1 : 1 / f;
+    return unit(perturb(unit([at[0] - from[0], at[1] - from[1], at[2] - from[2]]), { offsetX: (cone.offsetX + 0) * k + cone.radius * kx, offsetY: cone.offsetY * k + cone.radius * ky, radius: 0 }));
+  };
+
+  it('(a) a body 10 before a wall 60: the room\'s f is the page\'s, and the honest round at every corner is taken', () => {
+    const { rig, eye, look, seq, from, along } = setup();
+    const at = along(10);
+    rig.cone.setBodies([bodyVolumes([at[0], 0, at[2]], 0, 'stand')]);   // F2: the body under the reticle, known to the room
+    const f = depthRatio(eye, look, at, from);
+    expect(claimDepth({ eye, aim: look, at, from, dir: look })).toBeCloseTo(f!, 12);
+    const cone = rig.cone.frame(seq)!.cone;
+    for (const [kx, ky] of [[1, 1], [-1, 1], [1, -1], [-1, -1], [0, 0]] as const) {
+      expect(rig.cone.check(seq, { eye, aim: look, at, from, dir: rolled(from, at, cone, f, kx, ky) }), `${kx},${ky}`).toBeNull();
+    }
+    rig.dispose();
+  });
+
+  it('a round outside the cone about from -> at is refused \'cone\'', () => {
+    const { rig, eye, look, seq, from, along } = setup();
+    const at = along(10), f = depthRatio(eye, look, at, from);
+    const cone = rig.cone.frame(seq)!.cone, tp = tangentPerPixel();
+    const wide = { ...cone, radius: cone.radius * 2 + 4 * CONE_SLACK_PX_PLACEHOLDER * tp.y + 0.01 };
+    expect(rig.cone.check(seq, { eye, aim: look, at, from, dir: rolled(from, at, wide, f, 1, 0) })).toBe('cone');
+    rig.dispose();
+  });
+
+  it('(b) an `at` farther than the room\'s first grid hit along the look is refused \'at\'', () => {
+    const { rig, eye, look, seq, from, along, wallT } = setup();
+    const ok = along(wallT), past = along(wallT + 20);
+    expect(rig.cone.check(seq, { eye, aim: look, at: ok, from, dir: unit([ok[0] - from[0], ok[1] - from[1], ok[2] - from[2]]) })).toBeNull();
+    expect(rig.cone.check(seq, { eye, aim: look, at: past, from, dir: unit([past[0] - from[0], past[1] - from[1], past[2] - from[2]]) })).toBe('at');
+    rig.dispose();
+  });
+
+  it('(c) an `at` off the look by more than AT_SLACK_ADAPTATION is refused \'at\'', () => {
+    const { rig, eye, look, seq, from, along } = setup();
+    const on = along(30);
+    const off: V3 = [on[0] + AT_SLACK_ADAPTATION * 4, on[1], on[2]];
+    expect(rig.cone.check(seq, { eye, aim: look, at: off, from, dir: unit([off[0] - from[0], off[1] - from[1], off[2] - from[2]]) })).toBe('at');
+    // Behind the eye is no aim point either.
+    const back = along(-10);
+    expect(rig.cone.check(seq, { eye, aim: look, at: back, from, dir: unit([back[0] - from[0], back[1] - from[1], back[2] - from[2]]) })).toBe('at');
+    rig.dispose();
+  });
+
+  it('the bare look is the aim: an `aim` off the look by the cone (the pre-19 meaning) is refused with `at` present', () => {
+    const { rig, eye, look, seq, from, along } = setup();
+    const cone = rig.cone.frame(seq)!.cone, tp = tangentPerPixel();
+    const offLook = corner(look, { ...cone, radius: cone.radius + 4 * CONE_SLACK_PX_PLACEHOLDER * tp.y + 0.02 }, 1, 0);
+    // The aim point on that claimed ray (so it passes 'at'): the look itself is what is refused.
+    const at: V3 = [eye[0] + offLook[0] * 30, eye[1] + offLook[1] * 30, eye[2] + offLook[2] * 30];
+    expect(rig.cone.check(seq, { eye, aim: offLook, at, from, dir: unit([at[0] - from[0], at[1] - from[1], at[2] - from[2]]) })).toBe('cone');
+    rig.dispose();
+  });
+
+  it('(d) the cheat surface pinned: a nearer `at` shrinks the cap, and the round down from -> at leaves the reticle past it', () => {
+    // The cap: the room's round at f (`ShotCone.round(seq, f)`) caps the climb at ReticuleKnockMax x f.
+    const { rig, eye, look, seq, from, along, wallT } = setup();
+    const near = along(45), far = along(wallT);                     // past the firepoint (about 37 deep): f > 0
+    const fNear = depthRatio(eye, look, near, from)!, fFar = depthRatio(eye, look, far, from)!;
+    expect(fNear).toBeLessThan(fFar);
+    for (let i = 0; i < 20; i++) rig.cone.round(rig.seq(), fNear);        // on the newest command: no command run again
+    expect(rig.cone.state().offset[1]).toBeCloseTo(-HELD_RIFLE.stances.stand.knockMax * fNear, 9);
+    // The line: the round aimed at a forged near point crosses the look there and, at the wall, stands off the reticle's
+    // point by the muzzle's offset grown by the distance -- it does not go where the reticle points.
+    const line = unit([near[0] - from[0], near[1] - from[1], near[2] - from[2]]);
+    const tWall = (far[2] - from[2]) / line[2];
+    const atWall: V3 = [from[0] + line[0] * tWall, from[1] + line[1] * tWall, from[2] + line[2] * tWall];
+    expect(Math.hypot(atWall[0] - far[0], atWall[1] - far[1])).toBeGreaterThan(5);
+    rig.dispose();
+  });
+
+  it('a round without `at` (the eye\'s own, from the eye) is judged as before 19', () => {
+    const { rig, eye, look, seq } = setup();
+    expect(rig.cone.check(seq, { eye, aim: look, from: eye, dir: look })).toBeNull();
+    rig.dispose();
+  });
+});
+
+
+describe('LATER 1141, the controller\'s ruling on F2 (a loose (C)): an `at` nearer than the hull stands only on a live body', () => {
+  function setup(wall: number) {
+    const probe = pageAndServer();
+    for (let f = 0; f < 20; f++) probe.walk.frame(1 / 60);
+    const eyeZ = probe.walk.fireAim()!.eye[2];
+    probe.dispose();
+    const rig = pageAndServer(flat(eyeZ - wall));
+    rig.cone.setGrid(rig.grid);
+    rig.fly.setPose({ yaw: 0, pitch: 0 });
+    for (let f = 0; f < 20; f++) rig.walk.frame(1 / 60);
+    return rig;
+  }
+  function aimNow(rig: ReturnType<typeof setup>) {
+    const a = rig.walk.fireAim()!, seq = rig.seq();
+    const look = unit([a.far[0] - a.eye[0], a.far[1] - a.eye[1], a.far[2] - a.eye[2]]);
+    const s = rig.sim.walker.state, from: V3 = [s.x + 2, s.y + 10, s.z - 9];
+    const along = (t: number): V3 => [a.eye[0] + look[0] * t, a.eye[1] + look[1] * t, a.eye[2] + look[2] * t];
+    const dFire = (from[0] - a.eye[0]) * look[0] + (from[1] - a.eye[1]) * look[1] + (from[2] - a.eye[2]) * look[2];
+    return { seq, eye: a.eye as V3, look, from, along, dFire, s };
+  }
+  const honestDir = (from: V3, at: V3, cone: Cone, f: number, kx: number, ky: number): V3 =>
+    unit(perturb(unit([at[0] - from[0], at[1] - from[1], at[2] - from[2]]), { offsetX: cone.offsetX / f + cone.radius * kx, offsetY: cone.offsetY / f + cone.radius * ky, radius: 0 }));
+  function burst(rig: ReturnType<typeof setup>, f: number, rounds: number): void {
+    for (let i = 0; i < rounds; i++) rig.cone.round(rig.seq(), f);
+    for (let i = 0; i < 6; i++) rig.walk.frame(1 / 60);
+  }
+  /** A standing body beside `at` along +x whose nearest capsule stands `gap` from it. */
+  function bodyAt(at: V3, gap: number) {
+    let x = at[0];
+    const near = (fx: number): number => Math.min(...placeholderVolumes([fx, 0, at[2]], 0, 'stand').map((c) => pointSegment(at, c.a, c.b) - c.r));
+    while (near(x) < gap) x += 0.01;
+    return bodyVolumes([x, 0, at[2]] as V3, 0, 'stand');
+  }
+  const corners: [number, number][] = [[1, 1], [-1, 1], [1, -1], [-1, -1], [0, 0]];
+
+  it('(i) a forged near-muzzle `at` in open air is clamped to the hull, and its round (the transient\'s top corner) refused', () => {
+    const rig = setup(200);
+    burst(rig, 0.9, 10);
+    const { seq, eye, look, from, along, dFire } = aimNow(rig);
+    const at = along(dFire / (1 - 0.15));
+    const f = depthRatio(eye, look, at, from)!;
+    const cone = rig.cone.frame(seq)!.cone;
+    rig.walk.frame(1 / 60);
+    expect(rig.cone.check(seq, { eye, aim: look, at, from, dir: honestDir(from, at, cone, f, 0, 1) })).toBe('cone');
+    // The room takes the hull's point for it: f from there.
+    expect(rig.cone.depthOf({ eye, aim: look, at, from, dir: look })!).toBeGreaterThan(0.75);
+    rig.dispose();
+  });
+
+  it('(ii) the same `at` on a live body lagged by the whole reach is the page\'s: every corner taken; a hair past the reach, clamped', () => {
+    const rig = setup(200);
+    burst(rig, 0.9, 10);
+    const { seq, eye, look, from, along, dFire } = aimNow(rig);
+    const at = along(dFire / (1 - 0.15));
+    const f = depthRatio(eye, look, at, from)!;
+    const cone = rig.cone.frame(seq)!.cone;
+    rig.walk.frame(1 / 60);
+    rig.cone.setBodies([bodyAt(at, AT_BODY_REACH_ADAPTATION - 0.5)]);
+    for (const [kx, ky] of corners) expect(rig.cone.check(seq, { eye, aim: look, at, from, dir: honestDir(from, at, cone, f, kx, ky) }), `${kx},${ky}`).toBeNull();
+    expect(rig.cone.depthOf({ eye, aim: look, at, from, dir: look })).toBeCloseTo(f, 9);
+    rig.cone.setBodies([bodyAt(at, AT_BODY_REACH_ADAPTATION + 0.5)]);
+    expect(rig.cone.check(seq, { eye, aim: look, at, from, dir: honestDir(from, at, cone, f, 0, 1) })).toBe('cone');
+    rig.dispose();
+  });
+
+  it('the controller S1 ruling (bodies rewound): the reach is 12 u -- an honest round at a body 11.5 u off is taken, at 12.5 u clamped', () => {
+    expect(AT_BODY_REACH_ADAPTATION).toBe(12);
+    const rig = setup(200);
+    burst(rig, 0.9, 10);
+    const { seq, eye, look, from, along, dFire } = aimNow(rig);
+    const at = along(dFire / (1 - 0.15));
+    const f = depthRatio(eye, look, at, from)!;
+    const cone = rig.cone.frame(seq)!.cone;
+    rig.walk.frame(1 / 60);
+    rig.cone.setBodies([bodyAt(at, 11.5)]);
+    expect(rig.cone.check(seq, { eye, aim: look, at, from, dir: honestDir(from, at, cone, f, 0, 1) })).toBeNull();
+    rig.cone.setBodies([bodyAt(at, 12.5)]);
+    expect(rig.cone.check(seq, { eye, aim: look, at, from, dir: honestDir(from, at, cone, f, 0, 1) })).toBe('cone');
+    rig.dispose();
+  });
+
+  // The controller's ruling (a) on the delta re-review's S-1: the room vouches on the hit test's own volumes (`room.ts` builds
+  // them as `rewoundBodies` does), not the placeholder capsules -- an honest `at` on the edge of a posed box far from every
+  // capsule is taken; the capsules alone would clamp it.
+  /** An identity-oriented bone box (body frame) centred at `c`, half-size `h`. */
+  const boneBox = (part: number, c: V3, h: number): BoneBox => ({ part, bone: 0, box: Float32Array.from([-h, -h, -h, h, h, h]), w: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, c[0], c[1], c[2], 1] });
+  /** Feet that put the body-frame point `local` (yaw 0, after `tilt` about `pivot`) on the world point `at`. */
+  const feetFor = (at: V3, local: V3): V3 => { const w = bodyPointToWorld({ feet: [0, 0, 0], yaw: 0 }, local); return [at[0] - w[0], at[1] - w[1], at[2] - w[2]]; };
+  const capsGap = (at: V3, b: HitBody): number => Math.min(...placeholderVolumes(b.feet, b.yaw, 'stand').concat(placeholderVolumes(b.feet, b.yaw, 'prone')).map((c) => pointSegment(at, c.a, c.b) - c.r));
+  const emptySet: Record<'stand' | 'crouch' | 'prone', BoneBox[]> = { stand: [], crouch: [], prone: [] };
+
+  function judged(body: HitBody): { taken: string | null; placeholder: string | null; gap: number; capsGap: number } {
+    const rig = setup(200);
+    burst(rig, 0.9, 10);
+    const { seq, eye, look, from, along, dFire } = aimNow(rig);
+    const at = along(dFire / (1 - 0.15));
+    const f = depthRatio(eye, look, at, from)!;
+    const cone = rig.cone.frame(seq)!.cone;
+    rig.walk.frame(1 / 60);
+    const b = (body as unknown as { make: (at: V3) => HitBody }).make(at);
+    rig.cone.setBodies([b]);
+    const taken = rig.cone.check(seq, { eye, aim: look, at, from, dir: honestDir(from, at, cone, f, 0, 1) });
+    rig.cone.setBodies([bodyVolumes(b.feet, b.yaw, 'stand')]);
+    const placeholder = rig.cone.check(seq, { eye, aim: look, at, from, dir: honestDir(from, at, cone, f, 0, 1) });
+    const out = { taken, placeholder, gap: bodyPointDistance(at, b), capsGap: capsGap(at, b) };
+    rig.dispose();
+    return out;
+  }
+  const maker = (make: (at: V3) => HitBody): HitBody => ({ feet: [], yaw: 0, boxes: null, caps: null, make } as unknown as HitBody);
+
+  it('S-1 (a), the delta re-read finding 4: an empty bone box (min = max) on the `at` vouches for nothing -- the hit test never enters one', () => {
+    const empty: BoneBox = { part: -1, bone: 0, box: Float32Array.from([0, 0, 0, 0, 0, 0]), w: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 30, 0, 1] };
+    const body = placedVolumes([0, 0, 0], 0, [empty]);
+    expect(bodyPointDistance(bodyPointToWorld(body, [0, 30, 0]), body)).toBe(Infinity);
+    const solid = placedVolumes([0, 0, 0], 0, [{ ...empty, box: Float32Array.from([-1, -1, -1, 1, 1, 1]) }]);
+    expect(bodyPointDistance(bodyPointToWorld(solid, [0, 30, 0]), solid)).toBe(0);
+  });
+
+  it('S-1 (a): an extended arm (the live pose boxes, HIT-POSE) 22 u out: an honest `at` on its edge is taken; the capsules would clamp it', () => {
+    const r = judged(maker((at) => { const c: V3 = [-22, 0, 0]; return placedVolumes(feetFor(at, [c[0] - 1, c[1], c[2]]), 0, [boneBox(5, c, 1)]); }));
+    expect(r.gap).toBeCloseTo(0, 6);
+    expect(r.capsGap).toBeGreaterThan(AT_BODY_REACH_ADAPTATION);
+    expect([r.taken, r.placeholder]).toEqual([null, 'cone']);
+  });
+
+  it('S-1 (a): a leaning head (the stance set right lean, a held peek) 18 u to the side: an honest `at` on its edge is taken; the capsules would clamp it', () => {
+    const r = judged(maker((at) => {
+      const c: V3 = [18, 0, 0];
+      const vols: StanceVolumes = { ...emptySet, stand: [boneBox(1, [0, 0, 0], 1)], lean: { stand: { l: [], r: [boneBox(1, c, 1)] }, crouch: { l: [], r: [] }, prone: { l: [], r: [] } } };
+      return bodyVolumes(feetFor(at, [c[0] - 1, c[1], c[2]]), 0, 'stand', vols, null, 1);
+    }));
+    expect(r.gap).toBeCloseTo(0, 6);
+    expect(r.capsGap).toBeGreaterThan(AT_BODY_REACH_ADAPTATION);
+    expect([r.taken, r.placeholder]).toEqual([null, 'cone']);
+  });
+
+  it('S-1 (a): a prone body tilted 60 deg about its root (PRONE-TILT): an honest `at` on its turned box is taken; the capsules would clamp it', () => {
+    const r = judged(maker((at) => {
+      const pivot: V3 = [0, 0, 0], c: V3 = [0, 24, 0];
+      const half = Math.PI / 6, tilt = [0, 0, Math.sin(half), Math.cos(half)];          // 60 deg about the body's z
+      const vols: StanceVolumes = { ...emptySet, prone: [boneBox(2, c, 1)], pivot: { stand: pivot, crouch: pivot, prone: pivot } };
+      const turned = tiltBodyPoint(c, tilt, pivot);
+      return bodyVolumes(feetFor(at, turned), 0, 'prone', vols, tilt, 0);
+    }));
+    expect(r.gap).toBeLessThan(1e-6);
+    expect(r.capsGap).toBeGreaterThan(AT_BODY_REACH_ADAPTATION);
+    expect([r.taken, r.placeholder]).toEqual([null, 'cone']);
+  });
+
+  it('the re-review F2-1: an honest open-sky `at` at the smallest camera cap on disc (550, MP5/MP82) is taken, no body, no wall', () => {
+    const probe = pageAndServer();
+    for (let f = 0; f < 20; f++) probe.walk.frame(1 / 60);
+    probe.dispose();
+    const rig = pageAndServer(flat());                              // nothing on the look within the hull
+    rig.cone.setGrid(rig.grid);
+    rig.fly.setPose({ yaw: 0, pitch: 3 });                          // a little up: the floor never met
+    for (let f = 0; f < 20; f++) rig.walk.frame(1 / 60);
+    burst(rig, 0.93, 12);                                           // the climb at its cap, where f matters most
+    const { seq, eye, look, from, along } = aimNow(rig);
+    const at = along(550);                                          // the page's eyeEnd: aimReach(range, MID 550)
+    const f = depthRatio(eye, look, at, from)!;
+    const cone = rig.cone.frame(seq)!.cone;
+    rig.walk.frame(1 / 60);
+    for (const [kx, ky] of corners) expect(rig.cone.check(seq, { eye, aim: look, at, from, dir: honestDir(from, at, cone, f, kx, ky) }), `${kx},${ky}`).toBeNull();
+    expect(rig.cone.depthOf({ eye, aim: look, at, from, dir: look })).toBeCloseTo(f, 9);
+    rig.dispose();
+  });
+
+  it('(iii) an honest `at` on the hull at the two measured poses\' f (0.40, 0.70) and a walled round from the head pass, no body', () => {
+    for (const want of [0.4, 0.7]) {
+      const probe = setup(400);
+      const p0 = aimNow(probe);
+      const wall = p0.dFire / (1 - want);
+      probe.dispose();
+      const rig = setup(wall);
+      burst(rig, want, 8);
+      const { seq, eye, look, from, along, s } = aimNow(rig);
+      const at = along(wall / -look[2]);                             // the hull's point: the level look meets the wall
+      const f = depthRatio(eye, look, at, from)!;
+      expect(f).toBeCloseTo(want, 1);
+      const cone = rig.cone.frame(seq)!.cone;
+      rig.walk.frame(1 / 60);
+      for (const [kx, ky] of corners) expect(rig.cone.check(seq, { eye, aim: look, at, from, dir: honestDir(from, at, cone, f, kx, ky) }), `f ${want} ${kx},${ky}`).toBeNull();
+      // F1: a walled round leaves the kept head; its f from there, the room's the same.
+      const head: V3 = [s.x, s.y + 15, s.z];
+      const fh = depthRatio(eye, look, at, head)!;
+      for (const [kx, ky] of corners) expect(rig.cone.check(seq, { eye, aim: look, at, from: head, dir: honestDir(head, at, cone, fh, kx, ky) }), `walled f ${want} ${kx},${ky}`).toBeNull();
+      rig.dispose();
+    }
   });
 });

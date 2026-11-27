@@ -1,6 +1,7 @@
 export * from './vag';
 export * from './bank';
 export * from './render';
+export * from './voiceScratch';
 export * from './script';
 export * from './materials';
 export * from './rules';
@@ -8,6 +9,7 @@ export * from './catalog';
 export * from './spuReverb';
 export * from './vpk';
 export * from './vagStream';
+export * from './streamPcm';
 export * from './musicStream';
 export * from './uiSounds';
 export * from './moviePcm';

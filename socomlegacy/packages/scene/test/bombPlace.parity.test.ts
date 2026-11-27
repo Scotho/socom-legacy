@@ -130,8 +130,9 @@ const PROGRAM: EffectProgram = {
       name: 'deactivate', activation: 2,
       ops: [
         // The decoder names the set-2 commands by the `ai` namespace and decodes the ANIMATEs (research 92 section 2;
-        // `aiAnimate`): the types and post-waits are section 9's table, the pre-waits 0, none blocking.
-        { op: 'other', cmd: AI.MOVE, name: 'ai::MOVE' },
+        // `aiAnimate`): the types and post-waits are section 9's table, the pre-waits 0, none blocking. LATER 1206: the
+        // MOVE decoded too (`aiMove`), research 214 section 9's row 1: mode 1, node 0xfa, dist 18, pos 0, dir (0, 0, -1).
+        { op: 'aiMove', mode: 1, node: 0xfa, dist: 18, pos: [0, 0, 0], dir: [0, 0, -1], blocking: false, select: 0 },
         { op: 'other', cmd: AI.SETANIMSET, name: 'ai::SETANIMSET' },
         { op: 'aiAnimate', type: 0x111, prewait: 0, postwait: Math.fround(1.8), blocking: false, select: 0 },
         { op: 'aiAnimate', type: 1, prewait: 0, postwait: Math.fround(8.4), blocking: false, select: 0 },

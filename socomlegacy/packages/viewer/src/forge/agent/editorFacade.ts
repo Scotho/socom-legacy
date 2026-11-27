@@ -12,6 +12,7 @@ import type { AssetFilter } from '../favourites';
 import { yawOf, type Quat, type Vec3 } from '../group';
 import { decodeHistoryStep, type History } from '../history';
 import { placementOf } from '../hide';
+import { extractionPoints } from '../../hostageMarks';
 import { parseCamera, serializeLayout, type Layout, type LayoutBase, type LayoutCamera, type Piece } from '../layout';
 import type { PaletteEntry } from '../library';
 import type { BombMarkerKind } from '../pieces';
@@ -240,6 +241,25 @@ export interface ForgeEditorFacade extends ForgeAgentFacade {
 const AGENT_VIEW_OPERATIONS = new Set(['view.set', 'camera.pose', 'camera.look', 'camera.focus', 'palette.search', 'palette.filter', 'palette.choose',
   'palette.favourite', 'snap.set', 'tool.set']);
 
+/**
+ * Browser adaptation (product track; an agent instrument): the base map's named points, in one order -- the bomb start,
+ * the MPBOMB sites, each spawn slot (named `spawn <side>:<index>` as the test room names its destinations, `../../main`
+ * the agent map), each hostage start by its point's name and each extraction zone's centre (`../../hostageMarks`
+ * `extractionPoints`). `camera.objective` frames one by name; `forge.catalogue {section: "objectivePoints"}` lists them.
+ */
+export interface ForgeObjectivePoint { name: string; kind: 'bombStart' | 'bombsite' | 'spawn' | 'hostage' | 'extraction'; team: number | null; at: [number, number, number] }
+export function objectivePointsOf(map: LoadedMap | null | undefined): ForgeObjectivePoint[] {
+  if (!map) return [];
+  const at = (p: readonly number[]): [number, number, number] => [p[0]!, p[1]!, p[2]!];
+  return [
+    ...(map.bombStart ? [{ name: 'bomb start', kind: 'bombStart' as const, team: null, at: at(map.bombStart) }] : []),
+    ...(map.actions ?? []).filter((a) => a.type === 'MPBOMB').map((a) => ({ name: a.node, kind: 'bombsite' as const, team: a.team ?? null, at: at(a.at) })),
+    ...(map.slots ?? []).map((s) => ({ name: `spawn ${s.side}:${s.index}`, kind: 'spawn' as const, team: s.side, at: at(s.position) })),
+    ...(map.escortees ?? []).map((e) => ({ name: e.name, kind: 'hostage' as const, team: null, at: at(e.at) })),
+    ...extractionPoints(map.ai).map((p, i) => ({ name: `extraction ${i}`, kind: 'extraction' as const, team: null, at: at(p) })),
+  ];
+}
+
 export function createForgeEditorFacade(editor: ForgeAgentEditor): ForgeEditorFacade {
   const { revisions } = editor;
   let agentOwnBusy = false;
@@ -285,6 +305,7 @@ export function createForgeEditorFacade(editor: ForgeAgentEditor): ForgeEditorFa
         basePlacements: agentBasePlacements(),
         hidden: [...editor.hiddenKeys()], objectives: { bombStart: editor.baseMap()?.bombStart ?? null,
           bombSites: (editor.baseMap()?.actions ?? []).filter((a) => a.type === 'MPBOMB') },
+        objectivePoints: objectivePointsOf(editor.baseMap()),
       }, issues: revisions.issues?.issues ?? [], view: { ...editor.view(), revision: agentViewRevision(), snap: editor.snap(), gridStep: editor.gridStep(),
         turnStep: editor.turnStep(), tool: editor.tool(), gizmo: editor.gizmoMode(),
         camera: editor.camera(), scenario: editor.play.status(), saves: editor.named().map(({ id, name, savedAt }) => ({ id, name, savedAt })),
@@ -522,10 +543,8 @@ export function createForgeEditorFacade(editor: ForgeAgentEditor): ForgeEditorFa
       const map = archive ? await editor.loadArchive(archive) : editor.baseMap();
       if (!map) throw new ForgeAgentError('NO_MAP', 'Open a map base or supply an archive');
       const query = (args['name'] as string).toLowerCase().trim();
-      const points = [
-        ...(map.bombStart ? [{ name: 'bomb start', at: map.bombStart }] : []),
-        ...(map.actions ?? []).filter((a) => a.type === 'MPBOMB').map((a) => ({ name: a.node, at: a.at })),
-      ];
+      const points = objectivePointsOf(map);
+      if (!points.length) throw new ForgeAgentError('NOT_FOUND', 'This base map has no named objective points');
       const exact = points.filter((p) => p.name.toLowerCase() === query);
       const matches = exact.length ? exact : points.filter((p) => p.name.toLowerCase().includes(query));
       if (matches.length !== 1) throw new ForgeAgentError(matches.length ? 'AMBIGUOUS_OBJECTIVE' : 'NOT_FOUND', `Choose one of: ${points.map((p) => p.name).join(', ')}`);

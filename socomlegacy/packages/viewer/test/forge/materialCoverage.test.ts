@@ -5,7 +5,7 @@ import { coverageWords, MATERIAL_COVERAGE } from '../../src/forge/materialCovera
 import { materialLabel } from '../../src/forge/hull';
 
 /**
- * The Material lists' labels (the owner, 2026-11-20: "for each one that is broken or doesn't have sound or hit effects,
+ * The Material lists' labels (the Forge's owner (crispy, OT.R112), 2026-11-20: "for each one that is broken or doesn't have sound or hit effects,
  * label it"): what each material lacks on the disc (`../../src/forge/materialCoverage`), held to the disc below.
  */
 describe('the materials\' labels', () => {

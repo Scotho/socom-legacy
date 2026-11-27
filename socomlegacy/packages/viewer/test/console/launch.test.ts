@@ -7,6 +7,7 @@ import { bootConsole, type ConsolePage } from '../../src/console/app';
 import { liveDisc } from '../../src/console/adapters/disc';
 import { liveLaunch } from '../../src/console/adapters/launch';
 import { liveSession } from '../../src/console/adapters/session';
+import { overlayHtml } from '../../src/console/render/overlay';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
 import type { Adapters } from '../../src/console/state';
 import { fetchAccountService } from '../../src/connectHost';
@@ -390,5 +391,67 @@ describe('the hand-over of a folder (DA-4; DA-3 review F2)', () => {
     expect(source).toBe(request);                                   // the very request opened, not a copy
     expect(opts.assets).toBe(assets);
     expect(readDisc(document)).toMatchObject({ state: 'in-game', filename: 'SOCOM2' });
+  });
+});
+
+/**
+ * WM-37 (the owner's "12 b approved on both", 2026-11-15; product track, a browser adaptation): the hand-over above is
+ * drawn by the one shared DEPLOYING panel (`../../src/console/deployPanel`), its words (the opening note, a room's note,
+ * the error) and its Back button (Circle) and close button unchanged in meaning; on a lobby link's address it draws the
+ * direct link's first stage (Disc) of four, so the hand-over and the cover after it read as one sequence.
+ */
+describe('WM-37: the hand-over is the shared DEPLOYING panel', () => {
+  const launchOverlay = (o: { error?: string; room?: string | null } = {}): HTMLElement => {
+    const a = sampleAdapters();
+    page = bootConsole(document, window, a, { keymap: false });
+    const S = { ...page.ctl.S, overlay: 'launch' as const, start: 'launching' as const };
+    S.launch = { ...S.launch, error: o.error ?? '' };
+    if (o.room !== undefined) S.rooms = { ...S.rooms, selected: o.room } as typeof S.rooms;
+    const d = document.createElement('div');
+    d.innerHTML = overlayHtml(S, a);
+    return d.querySelector<HTMLElement>('[data-key="launch"]')!;
+  };
+  afterEach(() => { window.history.replaceState(null, '', '/'); });
+
+  it('the ordinary route: the panel, DEPLOYING its title, the disc line, two steps (the disc, where the game opens), the bar waiting', () => {
+    window.history.replaceState(null, '', '/console');
+    const l = launchOverlay({ room: null });
+    expect(l.classList.contains('cx-launch')).toBe(true);
+    expect(l.querySelector('.dp')).not.toBeNull();
+    expect(l.querySelector('#launch-title')!.textContent).toBe('DEPLOYING');
+    expect(l.querySelector('[data-part="line"]')!.textContent).toBe('Starting SOCOM II from your disc image.');
+    expect([...l.querySelectorAll('.dp__label')].map((e) => e.textContent)).toEqual(['Disc', 'Title screen']);
+    expect(l.querySelector('.dp__step.is-now .dp__label')!.textContent).toBe('Disc');
+    expect(l.querySelector('.dp__bar.is-waiting')).not.toBeNull();
+    expect(l.querySelector('.cx-launch__note')!.textContent).toBe('The game opens at its own title screen.');
+  });
+
+  it('its words, error, Back (Circle) and close kept', () => {
+    window.history.replaceState(null, '', '/console');
+    const l = launchOverlay({ error: 'The game could not start: <x>', room: 'Bravo' });
+    expect(l.querySelector('.cx-launch__note')!.textContent)
+      .toBe('Room Bravo is your target. The game opens at its own LOGIN screen: sign in there, then join Bravo from the briefing rooms.');
+    expect(l.querySelector('.dp__step:last-child .dp__label')!.textContent).toBe('Room Bravo');
+    expect(l.querySelector('[role="alert"]')!.textContent).toBe('The game could not start: <x>');
+    const back = l.querySelector('.cx-launch__back[data-act="press"][data-b="circle"]')!;
+    expect(back.textContent).toContain('Back to launcher');
+    expect(back.classList.contains('is-focused')).toBe(true);
+    expect(l.querySelector('.cx-launch__head [data-close][data-b="circle"]')).not.toBeNull();
+    expect(l.getAttribute('aria-labelledby')).toBe('launch-title');
+  });
+
+  it('a lobby link\'s address: the direct link\'s first stage, Disc, of four; its Back and close still there', () => {
+    window.history.replaceState(null, '', '/online/lobby/TOwttYxGFFw');
+    const l = launchOverlay({ room: null });
+    expect(l.dataset['stage']).toBe('disc');
+    expect(l.querySelector('.dp__kicker')!.textContent).toBe('Direct link · 1 of 4');
+    expect([...l.querySelectorAll('.dp__label')].map((e) => e.textContent)).toEqual(['Disc', 'Load', 'Connect', 'Lobby']);
+    expect(l.querySelector('.dp__step.is-now .dp__label')!.textContent).toBe('Disc');
+    expect(l.querySelector('.dp.is-entering')).not.toBeNull();
+    // the review's F1: the start may go the ordinary way (no direct mark: LOGIN, no cover), so the words are true either way
+    expect(l.querySelector('.cx-launch__note')!.textContent).toBe('The game opens where your link points.');
+    expect(l.textContent).not.toMatch(/Nothing to press|by itself/);
+    expect(l.querySelector('.cx-launch__back[data-b="circle"]')).not.toBeNull();
+    expect(l.querySelector('.cx-launch__head [data-close]')).not.toBeNull();
   });
 });

@@ -79,24 +79,25 @@ describe('NET-DRAIN: a game page refused while the server drains', () => {
       p.socket().onclose?.({ code: SERVER_CLOSING_REFUSAL.code, reason: SERVER_CLOSING_REFUSAL.reason });
     };
     p.socket().onclose?.({ code: 1001, reason: 'server stopping' });   // the drained room's close
-    // SA-57: each retry's socket is answered inside the hello's wait (`GAME_HELLO_WAIT_MS_ADAPTATION`), a socket left
-    // unanswered past it being a drop of its own; was a 60 s step, through which each retry's socket hung `connecting`
-    // (the step that paced one socket a step). The step stays past the reached backoff's 10 s cap: one socket a step.
-    const step = GAME_HELLO_WAIT_MS_ADAPTATION - 5_000;
-    p.run(step);
-    refused();
+    // SA-57: each retry's socket is answered as it is made, never left past its hello's wait. LATER 359a (its review's F2):
+    // the retries are the reached match's fast ones (1.5 s, then 10 s) and a resume attempt's wait is 3 s, so the test
+    // steps a frame at a time until each retry's socket is made, rather than a fixed step past the old 30 s wait.
+    let t = 0;
+    const next = (): void => { const n = p.sockets.length; while (p.sockets.length === n && t < 4 * SERVER_CLOSING_RETRY_MS) { p.run(100); t += 100; } };
+    next();
+    refused();                                                        // the first refusal: the drain's bound starts
+    const start = t;
     let opened = p.sockets.length;
-    for (let i = 0; i < Math.floor(SERVER_CLOSING_RETRY_MS / step); i++) {
-      p.run(step);
+    while (t - start < SERVER_CLOSING_RETRY_MS - 11_000) {           // inside the bound by more than one 10 s step
+      next();
       expect(p.sockets.length).toBe(++opened);
       p.socket().onopen?.({} as Event);
       refused();
+      expect(p.ended).toEqual([]);
     }
-    expect(p.ended).toEqual([]);
-    p.run(step);
-    p.socket().onopen?.({} as Event);
-    refused();
-    p.run(step);
+    while (p.ended.length === 0 && t - start < 2 * SERVER_CLOSING_RETRY_MS) { next(); p.socket().onopen?.({} as Event); refused(); p.run(100); t += 100; }
+    expect(t - start).toBeGreaterThanOrEqual(SERVER_CLOSING_RETRY_MS);
+    expect(t - start).toBeLessThan(SERVER_CLOSING_RETRY_MS + 11_000);   // the re-review's N4: within one 10 s step of the bound
     expect(p.ended).toEqual([GAME_SOCKET_CLOSED_DIALOG_READING]);
     expect(p.net.status().state).toBe('refused');
   });
@@ -458,7 +459,7 @@ describe('HX-1: the hostage cases', () => {
 // `NetPage`'s own (open); its button is the `hostages` part's (`../src/hostagePage`, wired in the wave-4 batch).
 describe('HX-4a: the hostage order on the page', () => {
   it('hostageOrder(id, cmd) sends the client event with the aim and the last seq; a hostageState whose unit changes into or out of 17 plays the YES at the body through escorteeVoice (HOSTAGE_YES_AUDIENCE_PLACEHOLDER)', () => {
-    const voices: [number, string, [number, number, number] | null][] = [];
+    const voices: [number, string, [number, number, number] | null, string | null][] = [];
     const walk = {
       setNetTap: () => undefined, setLocked: () => undefined, respawn: () => true, nudge: () => undefined,
       setTrigger: () => undefined, setDeathPose: () => undefined, setDeathKiller: () => undefined, setMode: () => true,
@@ -471,7 +472,7 @@ describe('HX-4a: the hostage order on the page', () => {
       setEscortee: () => undefined, setOpacity: () => undefined, hydrateCorpse: () => undefined,
     } as unknown as RemotePlayers;
     const states: unknown[] = [];
-    const p = page(false, { walk, remote, escorteeVoice: (id, cue, at) => { voices.push([id, cue, at]); }, hostageState: (ev) => { states.push(ev); } });
+    const p = page(false, { walk, remote, escorteeVoice: (id, cue, at, character) => { voices.push([id, cue, at, character]); }, hostageState: (ev) => { states.push(ev); } });
     p.server(welcome);
     // The send: the aim as `fire` carries it (the eye, the unit direction to the far point), the last command's seq.
     expect(p.net.hostageOrder(240, 4)).toBe(true);
@@ -482,7 +483,7 @@ describe('HX-4a: the hostage order on the page', () => {
     p.server(state(17));
     expect(voices).toEqual([]);
     p.server(state(0x21, 9));                                                  // FOLLOW: into the leader's unit
-    expect(voices).toEqual([[240, 'yes', [1750.26, 50.99, 1179.72]]]);
+    expect(voices).toEqual([[240, 'yes', [1750.26, 50.99, 1179.72], null]]);   // R4P-254: a hostage the welcome did not list names no character
     // One arm (HX-1's, the YES folded in): the map, the dep once per state, the YES once.
     expect(states).toHaveLength(2);
     expect(p.net.hostages().get(240)).toMatchObject({ ai: 9, unit: 0x21 });
@@ -497,11 +498,13 @@ describe('HX-4a: the hostage order on the page', () => {
     p.server(state(17));
     expect(voices).toHaveLength(3);
     // A joiner is seeded by the welcome's list: the first unit change it hears says YES.
-    const j = page(false, { walk, remote, escorteeVoice: (id, cue, at) => { voices.push([id, cue, at]); } });
+    const j = page(false, { walk, remote, escorteeVoice: (id, cue, at, character) => { voices.push([id, cue, at, character]); } });
     j.server({ ...welcome, hostages: [{ id: 240, name: 'Hostage', character: 'mp_fem1', at: [1750.26, 50.99, 1179.72], yaw: 0, alive: true, ai: 0x17, leader: null, rescuer: null, opacity: 1, unit: 17 }] } as ServerEvent);
     const heard = voices.length;
     j.server(state(0x21, 9));
     expect(voices.length).toBe(heard + 1);
+    // R4P-254: the YES names the placed character the welcome listed (its voice group is that character's own)
+    expect(voices.at(-1)).toEqual([240, 'yes', [1750.26, 50.99, 1179.72], 'mp_fem1']);
     j.net.close();
     // A spectator sends no order; nor does a page with no aim.
     const q = page(false, { walk: { ...walk, fireAim: () => null } as unknown as WalkMode });

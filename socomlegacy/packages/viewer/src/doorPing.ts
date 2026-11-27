@@ -15,6 +15,8 @@
  * `DOOR_PING_TIMEOUT_MS_ADAPTATION` is unknown (null; the briefing room draws `--`). The status page (PST-4) reuses it.
  */
 
+import { doorRoutes, type DoorRoutes } from './net/doorRoute';
+
 /** The door's probe route (as `packages/host/src/door.ts` `DOOR_PING_PATH`). */
 export const DOOR_PING_PATH = '/ping';
 
@@ -28,6 +30,13 @@ export const DOOR_PING_TIMEOUT_MS_ADAPTATION = 3_000;
 export const DOOR_PING_ENTRY_WAIT_MS_ADAPTATION = 500;
 
 export interface DoorPingDeps {
+  /**
+   * The door relay (`./net/doorRoute`; product track, an adaptation): the probe goes to the door by the route the page
+   * dials it by now. A direct probe whose request failed outright moves the host to the relay (a timeout or another
+   * status never does); a relayed probe that failed outright or answered other than 204 moves it back to direct (a
+   * timeout never does). The page's `doorRoutes` by default.
+   */
+  routes?: DoorRoutes;
   fetch?: typeof fetch;
   /** The monotonic clock (`performance.now` by default), the one Resource Timing's entries are stamped on. */
   now?: () => number;
@@ -102,24 +111,47 @@ export async function timeDoorPing(door: string, d: DoorPingDeps = {}): Promise<
   const fetchFn = d.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
   const now = d.now ?? (() => performance.now());
   const Observer = d.observer === undefined ? defaultObserver() : d.observer;
-  const url = `${door}${DOOR_PING_PATH}`;
+  const routes = d.routes ?? doorRoutes;
+  const target = routes.dial(door);
+  const url = `${target}${DOOR_PING_PATH}`;
   const abort = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = new Promise<null>((resolve) => { timer = setTimeout(() => { abort.abort(); resolve(null); }, d.timeoutMs ?? DOOR_PING_TIMEOUT_MS_ADAPTATION); });
+  // The review's F1: a browser's fetch rejects at once when aborted, so the race can see that rejection before the
+  // timeout's null -- `timed` keeps a timeout from ever reading as a failed route.
+  let timed = false;
+  const timedOut = new Promise<null>((resolve) => { timer = setTimeout(() => { timed = true; resolve(null); abort.abort(); }, d.timeoutMs ?? DOOR_PING_TIMEOUT_MS_ADAPTATION); });
   const start = now();
   const watch = Observer ? watchEntry(Observer, url, start) : null;   // registered before the fetch
   try {
     const res = await Promise.race([fetchFn(url, { method: 'GET', mode: 'cors', cache: 'no-store', credentials: 'omit', signal: abort.signal }), timedOut]);
-    if (res === null || res.status !== 204) return null;
+    if (res === null) return null;
+    if (res.status !== 204) {
+      if (routes.relayed(target)) routes.failed(target);          // not the door's answer: a Worker without the route, a host down
+      return null;
+    }
     const elapsed = now() - start;
     await res.arrayBuffer().catch(() => undefined);               // the response ended, so its entry is the browser's to add
     const observed = watch ? await entryWithin(watch, d.entryWaitMs ?? DOOR_PING_ENTRY_WAIT_MS_ADAPTATION) : undefined;
     const fromObserver = observed ? phases(observed) : null;
     return milliseconds(fromObserver ?? resourceRoundTrip((d.resources ?? defaultResources)(url), start) ?? elapsed);
   } catch {
+    if (!timed) routes.failed(target);                            // the request failed before any answer, not at the timeout
     return null;
   } finally {
     clearTimeout(timer);
     watch?.stop();
   }
+}
+
+/**
+ * The door relay's check after a door socket closed before it opened (`./net/client` `NetClient`): one ping of the door
+ * it dialled, by the route it dialled. A direct ping flips the route only if its request fails outright
+ * (`timeDoorPing`'s catch) -- the block server's refused HTTPS -- never when the door answers (its own 404, 503 or 403
+ * at the upgrade closed the socket the same way: the review's F2); a relayed ping also flips back on an answer other
+ * than 204. Nothing for a URL outside the zone. Never rejects.
+ */
+export async function checkDoorRoute(dialled: string, routes: DoorRoutes = doorRoutes, d: DoorPingDeps = {}): Promise<void> {
+  const origin = routes.originOf(dialled);
+  if (!origin) return;
+  await timeDoorPing(origin, { ...d, routes }).catch(() => undefined);
 }

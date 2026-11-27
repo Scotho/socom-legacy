@@ -90,7 +90,7 @@ export interface HistoryStep {
    */
   geo?: number;
   /**
-   * The whole selection this state shows (the owner, 2026-11-15: "any selection pattern should be part of the undo"):
+   * The whole selection this state shows (the Forge's owner (crispy, OT.R112), 2026-11-15: "any selection pattern should be part of the undo"):
    * the page's own record of it (`page.ts` `selRecord`: placements, map props, map data, a rules entity, the geometry's
    * points, edges, faces or objects), opaque here. Absent: `picked` alone, as before.
    */
@@ -204,7 +204,7 @@ export function recordGeometryEdit(history: History<string>, geo: number, label:
 
 /**
  * A geometry edit made by the same gesture as the layout edit just recorded (Object mode's gizmo moving placements and
- * geometry objects together, the owner, 2026-11-16: "ok to have mixed selection"): no step of its own -- the current step
+ * geometry objects together, the Forge's owner (crispy, OT.R112), 2026-11-16: "ok to have mixed selection"): no step of its own -- the current step
  * names the geometry's new revision `geo`, so one undo takes back both, and one redo makes both again.
  */
 export function foldGeometryEdit(history: History<string>, geo: number): void {
@@ -216,7 +216,7 @@ export function foldGeometryEdit(history: History<string>, geo: number): void {
 export const SELECT_LABEL = 'Select';
 
 /**
- * A selection made (the owner, 2026-11-15: "any selection pattern should be part of the undo", as Unreal's selection is
+ * A selection made (the Forge's owner (crispy, OT.R112), 2026-11-15: "any selection pattern should be part of the undo", as Unreal's selection is
  * a transaction): a step of its own, the layout and the geometry as the current step has them, the selection `sel`
  * (`picked`, its placements). No step when the current one shows the same selection already; true when one was made.
  */

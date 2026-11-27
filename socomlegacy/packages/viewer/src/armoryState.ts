@@ -1,5 +1,5 @@
 import {
-  applyPicks, EMPTY_ITEM, FULL_SLOT, ITEM, menuValves, pick as pickItem, selectable, slotLocked, VALVE_OF_ITEM,
+  applyPicks, EMPTY_ITEM, FULL_SLOT, ITEM, menuValves, pick as pickItem, replayPicks, selectable, slotLocked, VALVE_OF_ITEM,
   type Arsenal, type Loadout, type Pick, type Side,
 } from '@s2u/scene';
 import { equipmentLimitKit } from './equipmentLimit';
@@ -290,8 +290,8 @@ export function closedArmory(ctx: ArmoryContext): ArmoryState {
 
 /**
  * The picks that reach `kit` from `base` under the room's rules: one per changed slot, slot order (as the rows are
- * walked), when that replays to the very kit (`applyPicks`); else `log`, the picks as they were made, when that does;
- * else null.
+ * walked), when that replays to the very kit (`applyPicks`) -- and, when `log` reaches it too, leaves the same remembered
+ * pair (R4P-221); else `log`, the picks as they were made, when that does; else null.
  */
 export function picksToReach(ctx: ArmoryContext, base: Loadout, kit: Loadout, log: readonly Pick[] = []): Pick[] | null {
   const same = (a: Loadout, b: Loadout): boolean => a.every((x, i) => x === b[i]);
@@ -307,8 +307,14 @@ export function picksToReach(ctx: ArmoryContext, base: Loadout, kit: Loadout, lo
     const r = applyPicks(ctx.arsenal, ctx.valves, ctx.side, base, list);
     return !('refused' in r) && same(r.loadout, kit);
   };
-  if (replay(out)) return out;
-  return log.length && replay(log) ? [...log] : null;
+  // R4P-221: the shorter list stands only if it leaves the remembered pair the picks as made leave (the room replays it).
+  const pair = (list: readonly Pick[]): string => {
+    const r = replayPicks(ctx.arsenal, ctx.valves, ctx.side, base, list);
+    return 'refused' in r ? '' : r.remembered.join();
+  };
+  const logReaches = log.length > 0 && replay(log);
+  if (replay(out) && (!logReaches || pair(out) === pair(log))) return out;
+  return logReaches ? [...log] : null;
 }
 
 /**
@@ -519,7 +525,10 @@ export function stepArmory(ctx: ArmoryContext, s: ArmoryState, input: ArmoryInpu
       const id = stepItem(ctx, kit, s.row, input === 'right' ? 1 : -1);
       if (id === null) return withValves(s, { sounds: ['.SLIDE'] });
       const kits = s.kits.slice(), picks = s.picks.slice();
-      kits[col] = pickItem(ctx.arsenal, ctx.valves, ctx.side, kit, s.row - 1, id).loadout;
+      // R4P-221: the column's remembered pair (the ARMORY's per character), the one its picks leave from the type's kit --
+      // the list the room replays.
+      const was = replayPicks(ctx.arsenal, ctx.valves, ctx.side, ctx.kits[col]!, s.picks[col] ?? []);
+      kits[col] = pickItem(ctx.arsenal, ctx.valves, ctx.side, kit, s.row - 1, id, 'refused' in was ? undefined : was.remembered).loadout;
       picks[col] = [...(s.picks[col] ?? []), { slot: s.row - 1, id }];
       return withValves({ ...s, kits, picks, suspendedUntil: t + SUSPEND.weaponStep }, { sounds: ['.SLIDE'], run: ['CallShowAndSpin'] });
     }

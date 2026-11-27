@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { PRONE_EYE_LOOK_PLACEHOLDER, proneEyeTerms, SCOPE_EYE_READING, scopeEye, scopeEyeHeight, scopePeekShift, toWorld } from '../src/cameraRig';
+import { PRONE_EYE_LOOK_READING, proneEyeTerms, SCOPE_EYE_READING, scopeEye, scopeEyeHeight, scopePeekShift, toWorld } from '../src/cameraRig';
 import { viewFar } from '../src/playerCamera';
 import { rootY } from '../src/mover';
 import { headPoint } from '../src/net/shotCone';
@@ -38,9 +38,9 @@ describe("the scope's and first person's eye (FUN_0029ae50, research 180 §1.3)"
     const prone = scopeEye('prone', posed.seal_prone!);
     expect(prone[1]).toBeCloseTo(5.768, 3);
     expect(prone[2]).toBeCloseTo(-4.9, 12);
-    // The look term and the ground normal the eye is taken at with no body: level, flat (the look term's meaning is owed;
-    // the normal's y is the body's own, PRONE-TILT-2 (2)).
-    expect(PRONE_EYE_LOOK_PLACEHOLDER).toBe(0);
+    // The look term and the ground normal the eye is taken at with no body: level, flat (q is sin(look down) since
+    // PRONE_EYE_LOOK, 0 with no pitch given; the normal's y is the body's own, PRONE-TILT-2 (2)).
+    expect(PRONE_EYE_LOOK_READING).toBe('same-command');   // PRONE_EYE_LOOK: no pitch given, a level look's 0
     expect(proneEyeTerms()).toEqual({ look: 0, groundNormalY: 1 });
     // The formula itself: a slope's normal divides the lift (floored at 0.5) and shortens the reach ahead.
     const slope = scopeEye('prone', 2, 0, { look: 0, groundNormalY: 0.8 });

@@ -120,7 +120,7 @@ export interface ForgeShellPage extends ForgeShell {
   closeTabOf?(id: string): void;
   /**
    * The docks' whole layout now (the tree, the closed tabs' ways back, the sections' open states), as text; and one put
-   * back (the editor's modes each keep their own, the owner 2026-11-15). A text that will not read leaves it as it is.
+   * back (the editor's modes each keep their own, the Forge's owner (crispy, OT.R112), 2026-11-15). A text that will not read leaves it as it is.
    */
   layoutSnapshot?(): string;
   restoreLayout?(snapshot: string): boolean;
@@ -715,7 +715,7 @@ export function revealRow(reveal: (id: string) => void, id: string, label: strin
 }
 
 /**
- * A dropdown row with a note set at its right (the owner, 2026-11-13: "move the none / x items text to the right of the
+ * A dropdown row with a note set at its right (the Forge's owner (crispy, OT.R112), 2026-11-13: "move the none / x items text to the right of the
  * row"; every map list's count): its words, a separator, its note -- in the Forge's own lists (`appearance: base-select`,
  * `forge.css` `.fx-option-note`) the words left and the note right, the separator unseen; a browser's own list and the
  * closed field read the three as one line ("BLIZZARD \u00b7 MP1 \u00b7 6 doors").

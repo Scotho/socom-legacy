@@ -34,7 +34,7 @@ describe('actionRecordsOf', () => {
     const script = [['actions', [
       ['node', ['d'], 'valve', ['d'], 'anim', ['swing', 'kick'], 'type', ['DOOR'], 'range', ['30'], 'bitmap', ['Action_Door_Open.tif']],
       ['node', ['a'], 'valve', ['set_a'], 'anim', ['destroy_a'], 'points', ['2']],
-      ['node', ['r'], 'type', ['SWITCH'], 'team', ['0'], 'elevation', ['15'], 'descriptor', ['GATE SWITCH'], 'tcm', ['1']],
+      ['node', ['r'], 'type', ['SWITCH'], 'team', ['0'], 'elevation', ['15'], 'descriptor', ['GATE SWITCH'], 'tcm', ['1'], 'one_shot', ['1']],
       ['node', ['b'], 'type', ['ACT_BREACH']], ['node', ['w'], 'type', ['WINDOW']], ['node', ['x'], 'type', ['DEFUSE']],
       ['node', ['s'], 'type', ['SATCHEL']], ['node', ['i'], 'type', ['ITEM']], ['node', ['m'], 'type', ['MPBOMB']], ['node', ['q'], 'type', ['BREACH']],
     ]]];
@@ -44,6 +44,9 @@ describe('actionRecordsOf', () => {
     // G1 (action-labels review): the `descriptor` key (the loader's `FUN_0032ee10(.., 0x3f2118 "descriptor")`
     // D:L157285, kept at the action's +0x2c D:L157318-157321) as written, '' when absent.
     expect(records[2]).toMatchObject({ node: 'r', typeCode: 2, team: 0, elevation: 15, range: 32, descriptor: 'GATE SWITCH', tcm: true });
+    // LATER 976: `one_shot` is the key's presence (`0x3f2150` sets `+0x3f` bit 3, D:L157326-157328); absent, no field.
+    expect(records[2]!.oneShot).toBe(true);
+    expect('oneShot' in records[0]!).toBe(false);
     // Review S2: `tcm` is the key's presence (`FUN_0032f0d0(.., 0x3f21c8 "tcm")` sets `+0x3f` bit 2, D:L157420-157422).
     expect(records.slice(3).map((r) => [r.node, r.typeCode])).toEqual([['b', 5], ['w', 1], ['x', 3], ['s', 6], ['i', 7], ['m', 4], ['q', 8]]);
   });

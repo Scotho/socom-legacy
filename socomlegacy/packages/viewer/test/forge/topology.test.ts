@@ -4,7 +4,7 @@ import { box, plane, type PrimitiveOptions } from '../../src/forge/geometry/prim
 import { MeshError, Topo, transact } from '../../src/forge/geometry/topology';
 
 /**
- * The geometry tools' edit core (`src/forge/geometry/topology`; the owner, 2026-11-19: "rebuild it as half edge ... and
+ * The geometry tools' edit core (`src/forge/geometry/topology`; the Forge's owner (crispy, OT.R112), 2026-11-19: "rebuild it as half edge ... and
  * test"): the adjacency, the operators every tool is built from, and the transaction that undoes a tool whole.
  */
 

@@ -264,7 +264,11 @@ cost one minute each (G11). Sounds: `MUS_MP_SEAL/TERR_INTRO_5`, `^PH_0006/0007/0
   `actions.rdr` has no `points` key, so its access actions score 0; the points-2 access actions are MP6, MP11, MP61 Sujo,
   MP62 Enowapi, MP71, MP73, MP82 and MP83 ([214](214-demolition-as-built.md) s5).* Each objective call (second argument 1) also adds +1 to the side's team-score carry for every **living**
   teammate, the scorer included (`FUN_00544d60` D:L411238-411306, game `+0x7c`/`+0x80`). Breach/Demolition destroy and
-  Breach defuse also trigger a teammate radio comm (`FUN_00545d80` D:L411916).
+  Breach defuse, online, also credit every other living teammate one primary objective (`+0x32`) through `FUN_00545d80`
+  (D:L411914-411936) -- not a radio comm, as this line read until 2026-11-24: its member pointers 0x64fd58 / 0x64fd38
+  -> 0x00545890 (the body's round block) and 0x64fd68 -> `FUN_00545650`, 0x64fd48 -> `FUN_00545750`, called with 1
+  (the `+0x32 += 1` branch, D:L411649, D:L411695). R4P-252, research 239 s4.5 (`OBJECTIVE_TEAMMATE_CREDIT_READING`;
+  reading, pending review).
 - **Port:** kills/suicides/team kills, +1 alive, +5 win only (`room.ts` L2150-2154, L2323-2331).
 - **Suggestion:** a `score.ts` table `{ plant: 2, defuse: 2, destroy: mode === BREACH ? 4 : 2, rescue: 3, vipKill: ... }`
   plus `teamBonus(event)`; tests first transcribe each function's numbers. The team score only matters for the respawn

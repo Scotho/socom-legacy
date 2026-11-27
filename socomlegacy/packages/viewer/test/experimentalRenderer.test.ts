@@ -8,7 +8,7 @@ vi.mock('three/webgpu',async importOriginal=>{
   class FakeRenderer {
     samples=4;stencil=false;outputColorSpace='';autoClear=true;target:RenderTarget|null=null;
     backend={isWebGLBackend:true,createRenderPipeline(){}};
-    async init(){} setPixelRatio(){} setSize(){} setClearColor(){}
+    async init(){} setPixelRatio(){} setSize(){} setDrawingBufferSize() {} setClearColor(){}
     getRenderTarget(){return this.target;} setRenderTarget(t:RenderTarget|null){this.target=t;}
     getDrawingBufferSize(v:{set(x:number,y:number):unknown}){return v.set(640,360);}
     render(scene:unknown){seen.draws.push({scene,target:this.target});}

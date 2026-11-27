@@ -86,7 +86,8 @@ describe('cps-frame-hash-2: every world clock of the frame loop reads the held f
     expect(inner.indexOf('view?.frame(fly.camera, dt')).toBeLessThan(inner.indexOf('\n      render(scene, fly.camera);'));
   });
   it('the effects step on the dt they are handed (matchFirearm: `effects.update(dt, camera)`)', () => {
-    expect(src('matchFirearm.ts')).toContain('effectsFrame: (dt, camera) => { effects.update(dt, camera); },');
+    // #835: a third argument, whether the frame draws (particle draw preparation follows the frame cap); the dt is still the one handed.
+    expect(src('matchFirearm.ts')).toContain('effectsFrame: (dt, camera, drawFrame = true) => { effects.update(dt, camera, drawFrame); },');
   });
   it('the world\'s scrolls advance by the frame\'s dt alone (world.ts `frame`)', () => {
     const world = src('world.ts');

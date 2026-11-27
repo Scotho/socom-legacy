@@ -345,8 +345,10 @@ describe('the plain game page at /setup (CX-9b)', () => {
     return { loaders, calls, mount, mounts };
   }
 
-  it("the page's own loaders make no setup page: the viewer, the front end, (a development build's) launch settings, the forge and the overlay (MU2-10)", () => {
-    expect(Object.keys(PAGE_LOADERS).sort()).toEqual(['forge', 'frontEnd', 'launchSettings', 'main', 'overlay']);   // MU2-10: the overlay over the page (MU2.R4); FORGE in every build (FG.R9)
+  it("the page's own loaders make no setup page: the viewer, the front end, (a development build's) launch settings, the forge, the overlay (MU2-10) and the START menu's module (WM-LAUNCHER)", () => {
+    // MU2-10: the overlay over the page (MU2.R4); FORGE in every build (FG.R9); WM-LAUNCHER (WM.R7): the START menu's module
+    // the mounted overlay's handle is offered to (its SHOW LAUNCHER row).
+    expect(Object.keys(PAGE_LOADERS).sort()).toEqual(['forge', 'frontEnd', 'launchSettings', 'main', 'overlay', 'startMenu']);
   });
 
   it('only the disc page stays (no header, no launcher); a refused image is said on it; the next image mounts the front end at once', async () => {

@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { RenderedSound, StreamVoiceGains } from '@s2u/sound';
+import type { StoredStream, StreamVoiceGains } from '@s2u/sound';
 import { GameplayAudioSource } from '../../../tools/gameplayAudioSource';
 import { selectValidationMaps } from '../../../tools/mapValidation';
 import { GameAudio, type AudioOut } from '../src/audio';
@@ -26,9 +26,13 @@ describe.skipIf(!haveDisc)('grenade callouts: map and character through the actu
   it('all 22 maps, both teams, four characters and four playable grenades; map changes cannot reuse the previous voice', async () => {
     const maps = selectValidationMaps(readdirSync(join(disc!, 'RUN')).map((name) => `RUN/${name}`));
     expect(maps).toHaveLength(22);
-    const played: { sound: RenderedSound; gains: StreamVoiceGains }[] = [];
+    const played: { sound: StoredStream; gains: StreamVoiceGains }[] = [];
     const out: AudioOut = { ...silentOut(), unlocked: true, state: 'running', playStream: (sound, gains) => { played.push({ sound, gains }); } };
-    const audio = new GameAudio(out, () => 0.5, { inline: false });
+    // LATER 1220 (b): a callout is a voice-line stream holding one of group 2's voices (24-47) at 0x7f until it ends, and
+    // a stream refused its voice does not sound (IRX D:L9733-9740). Each callout here is asked 30 s after the last, past
+    // any callout's end, as a match asks them; the allocator's refusal of an overlapping 25th is pinned below on purpose.
+    let now = 100;
+    const audio = new GameAudio(out, () => 0.5, { inline: false, now: () => now });
     const seat: { id: number; role: string; team: Team | null } = { id: 1, role: 'player', team: 'seal' };
     let team: Team = 'seal', character = 0;
     const sound = mountSound({
@@ -55,6 +59,7 @@ describe.skipIf(!haveDisc)('grenade callouts: map and character through the actu
             expect(buffers.length, `${map}/${team}/${character}`).toBe(names.length);
             for (const item of [121, 122, 123, 126]) {
               const before = played.length;
+              now += 30;
               expect(sound.grenadeWarning({ id: item, owner: 7, from: [0, 0, 0] })).toBe(warning.sound);
               expect(played.length, `${map}/${team}/${character}/${item}`).toBe(before + 1);
               // Object identity: the output received this map's decoded samples, not merely the expected label.
@@ -65,6 +70,16 @@ describe.skipIf(!haveDisc)('grenade callouts: map and character through the actu
               checked++;
             }
           }
+        }
+        if (map === maps[0]) {
+          // The allocator's rule, on purpose (FUN_000178b8 D:L14134-14135; 0x7f voices are never stolen): 25 callouts
+          // at one instant -- group 2 holds 24 voices -- sound 24, and the 25th is refused (LATER 1220 (b), F2).
+          now += 30;
+          seat.team = 'seal'; team = 'seal'; character = 0;
+          const burst = played.length;
+          for (let k = 0; k < 25; k++) sound.grenadeWarning({ id: 121, owner: 7, from: [0, 0, 0] });
+          expect(played.length - burst, `${map}: 25 overlapping callouts`).toBe(24);
+          now += 30;
         }
         const before = played.length;
         character = 0;

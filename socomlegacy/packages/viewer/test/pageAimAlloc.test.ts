@@ -68,7 +68,8 @@ const inside = (rp: RemotePlayers): Internals => rp as unknown as Internals;
 function oldBody(rp: RemotePlayers, r: any, s: any): HitBody {
   const i = inside(rp);
   const mounted = HIT_POSE_MOUNT_READING === 'idle' && (i.mountPose?.(r.id) ?? null) !== null;
-  if (typeof r.escortee !== 'number' && !mounted) {
+  // LATER 831: a hostage's drawn body too, as `aimBody` now gives it (it was the idle set's)
+  if (!mounted) {
     const play = r.play as any, last = play.last;
     if (play.animator && play.skeleton && last) return placedVolumes(last.drawnFeet ?? last.feet, last.yaw, posedBoxes(play.skeleton));
   }

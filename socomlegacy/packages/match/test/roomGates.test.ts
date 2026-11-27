@@ -55,7 +55,7 @@ function gateMap(extra: WorldPoly[] = []): SimMap {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const floor: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
   };
   const panel: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/epanel_di1', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0,
@@ -336,6 +336,40 @@ describe('lever gates in the room (MAP-07)', () => {
     step(150);
     expect(a.last().doors![1]).toEqual({ valve: 1, phase: 255 });
     expect(room.gates.offset(0)).toEqual([-20, 0, 0]);
+  });
+
+  it("LATER 307: a taken pull is broadcast as every switch's `action` (PF.R26); a refused one, busy or out of reach, broadcasts nothing", () => {
+    const { room, join, step } = setup();
+    const a = join(1), b = join(2);
+    step(2);
+    room.player(1)!.sim.walker.place(4, 0, 10);
+    room.player(2)!.sim.walker.place(4, 0, 400);
+    step(5);
+    const press = (id: number): void => {
+      const p = room.player(id)!;
+      const feet: [number, number, number] = [p.sim.walker.state.x, p.sim.walker.state.y, p.sim.walker.state.z];
+      const look = faceToward({ feet, posture: p.sim.walker.posture }, POINT);
+      p.sim.allowSnap();
+      const command: Command = {
+        seq: p.sim.seq + 1, forward: 0, right: 0, yaw: look.yaw, pitch: look.pitch, turn: 0, buttons: 0, stance: 0, weapon: 0,
+      };
+      room.binary(id, encodeCommands({ viewTick: room.tick, commands: [command] }));
+      step(1);
+      room.text(id, { type: 'action', seq: p.sim.seq, action: 0, surface: { path: 'worldmodel/epanel_di1', point: POINT } });
+    };
+    const actions = (c: { events: ServerEvent[] }): ServerEvent[] => c.events.filter((e) => e.type === 'action');
+    press(2);                                                     // out of reach: refused, nothing sent
+    expect(room.takeDrops()).toEqual({ 'action: reach': 1 });
+    expect(actions(a)).toEqual([]);
+    press(1);                                                     // taken: every page hears it
+    expect(room.takeDrops()).toBeNull();
+    expect(actions(a)).toEqual([{ type: 'action', action: 0, by: 1 }]);
+    expect(actions(b)).toEqual([{ type: 'action', action: 0, by: 1 }]);
+    step(30);
+    press(1);                                                     // the lever's program still runs: busy, nothing sent
+    expect(room.takeDrops()).toEqual({ 'action: busy': 1 });
+    expect(actions(a)).toHaveLength(1);
+    expect(actions(b)).toHaveLength(1);
   });
 
   it("the close's log names the pull that ran, not a refused press in its lead-in", () => {

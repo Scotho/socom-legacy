@@ -568,8 +568,36 @@ export const WEAPON_SELECT_ELEMENT: HudElement = 'weaponSelect';
 type Rgba4 = [number, number, number, number];
 
 /**
+ * EXCHANGE_NARROW_FRAME_ADAPTATION (a browser adaptation, no original -- the console drew one 640 x 448 frame, and a
+ * frame of another shape is the page's own; product track; a player's report, 2026-11-22: "4:3 cuts off loadout when
+ * dead"). The draw scales by height / 448 and stands the layout about the frame's centre line, so on a frame narrower
+ * than 640 of those units the layout's x 0 falls left of the frame's edge by half the shortfall: a square-pixel 4:3
+ * picture (`./shape`'s 4:3 and 4:3 stretched, and any 4:3 window) is 597.3 units wide and loses 21.3 a side, and WEAPON
+ * EXCHANGE's list -- its panel at x -10, its rows at x 12 (`LIST_LAYOUT`) -- loses each name's first letters. On such a
+ * frame the menu's own parts (`EXCHANGE_MENU_PARTS`) are stood on the frame's LEFT edge instead, x 0 at the edge: where
+ * the console's frame has them, the list over the ammo box (`./hudLayout`'s `L` anchor), as the R2 inventory always is
+ * (`anchor: 'left'`). The dead's prompt and the taunt menu's parts keep the centre line (the prompt between the HUD's
+ * boxes; the taunt menu's help panel, x 20..620, would lose its right end from the left edge). A frame 640 units wide or
+ * wider draws exactly as before, and the two anchors meet at 640, so nothing jumps as a window is narrowed. Nothing of
+ * the game's own behaviour changes: the frame's numbers are the original's, only where the page stands them on a frame
+ * the console never had. `./weaponExchange` `frameOfPoint` undoes the same rule for a tap.
+ */
+export const EXCHANGE_NARROW_FRAME_ADAPTATION =
+  'WEAPON EXCHANGE on a frame narrower than 640 units: the menu on the frame\'s left edge, not about its centre line; a browser adaptation, no original' as const;
+/** WEAPON EXCHANGE's own parts -- the slot list and the picker (`LIST_LAYOUT`, `PICKER_LAYOUT`) -- the adaptation moves. */
+const EXCHANGE_MENU_PARTS: ReadonlySet<WeaponSelectPart> = new Set<WeaponSelectPart>([
+  'titlePanel', 'title', 'body', 'bar', 'row', 'pickerPanel', 'pickerHeader', 'pickerBody', 'categoryArrow', 'itemArrow',
+  'cardHighlight', 'cardIcon', 'cardName',
+]);
+/** Whether a frame is narrower than the 640-unit layout at its own scale, height / 448 (exact for whole sizes). */
+export function exchangeFrameNarrow(frame: { width: number; height: number }): boolean {
+  return frame.width * 448 < 640 * frame.height;
+}
+
+/**
  * The layout as the HUD pass's quads on a frame (layer 1, over the in-round HUD), in the layout's order (`DRAW_ORDER`),
- * as `scoreboardLayout` draws: centred on the frame and scaled by height / 448; the strings in `font_text_01` with its
+ * as `scoreboardLayout` draws: centred on the frame and scaled by height / 448 (WEAPON EXCHANGE's own parts from the
+ * left edge on a narrow frame, `EXCHANGE_NARROW_FRAME_ADAPTATION`); the strings in `font_text_01` with its
  * drop shadow, glyph by glyph (a glyph's shadow just before it, `FUN_003625e0` L260602-260620), and the pad glyphs from
  * `font_special_01.tif` in their own colour with no shadow (`./hudFont` `FONT_SPECIAL_01`); each tint and alpha on the
  * 0-128 scale (`ARROW_TINT_SCALE_READING` for the arrows). `sizes` are the loaded bitmaps by name (a bitmap map serves:
@@ -582,7 +610,11 @@ export function drawWeaponSelect(
 ): { quads: HudQuad[]; tris: HudTri[] } {
   const s = frame.height / 448;
   // `left`: the frame's left edge, as `./hud` anchors the weapon box (`L`); the R2 inventory stands in that column.
-  const X = opts.anchor === 'left' ? (x: number): number => x * s : (x: number): number => frame.width / 2 + (x - 320) * s;
+  const left = (x: number): number => x * s, centre = (x: number): number => frame.width / 2 + (x - 320) * s;
+  // EXCHANGE_NARROW_FRAME_ADAPTATION: on a frame under 640 units wide WEAPON EXCHANGE's own parts take the left edge too.
+  const narrow = exchangeFrameNarrow(frame);
+  const fromLeft = opts.anchor === 'left';
+  let X = fromLeft ? left : centre;
   const Y = (y: number): number => y * s;
   const quads: HudQuad[] = [];
   const rect = (texture: string, x0: number, y0: number, x1: number, y1: number, rgba: Rgba4, uv: [number, number, number, number], turn = 0): void => {
@@ -593,6 +625,7 @@ export function drawWeaponSelect(
   };
   const c128 = (rgb: Rgb, alpha: number, scale = 128): Rgba4 => [rgb[0] / scale, rgb[1] / scale, rgb[2] / scale, alpha / 128];
   for (const item of layout.items) {
+    X = fromLeft || (narrow && EXCHANGE_MENU_PARTS.has(item.part)) ? left : centre;   // per part: the menu's own, or the centre line's
     if (item.kind === 'sprite') {
       const size = sizes[item.texture];
       if (!size) continue;

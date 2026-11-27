@@ -67,6 +67,7 @@ capture ("Readings and placeholders" below). The 0.3 threshold and `STANCE_PRESS
 | `STANCE_PRESS_ACTIVE_PLACEHOLDER` | 0 | Narrowed 2026-11-02 (MOVE-S6): the pressure at or under which the button reads released in the press state `+7`, above which a press begins. Which byte re-arms is settled (`STANCE_PRESS_REARM_READING`); the capture (r0004 slot 5, PCSX2 alone, `tools/eph/probe.ts` scripts `probe-s6-light-after-{50,100,150}.txt`, 3 trials each (agent-mail `evidence/eph-hunt-2026-11-01/probes/S6-DELIVERY.md`, data `r0004-s6-delivery/probe.csv`)) shows `+7` pressed (1, 2) at 0.2 and 1.0 and idle (0) at 0. Not measured: a press under 0.2 -- whether the pad's press state reads it. The 2026-11-03 probe (S6-PROVEN, 67 and 50 ms, 4 trials each) varied the timing only, at 0.2: done for the re-arm, not for this. Settles it: the same probe with the light press at 0.05 and 0.1. |
 | `STANCE_PRESS_REARM_READING` | 1 | MOVE-S6, 2026-11-02 (reading, pending review; proven by capture 2026-11-03, below): the idle game frames a new press needs after the release frame. FUN_00594cf0 re-arms only when `+7` reads 0 (D:L453332-453333; r0004 0x59b448-0x59b458, the same test as r0001 0x5959c0-0x5959d0), and `+7` reads 1 / 2 / 3 / 0 for press, held, release frame, idle (r0004 slot 5, PCSX2 alone, `tools/eph/probe.ts` scripts `probe-s6-light-after-{50,100,150}.txt`, 3 trials each (agent-mail `evidence/eph-hunt-2026-11-01/probes/S6-DELIVERY.md`, data `r0004-s6-delivery/probe.csv`)): a light press 50 ms after a full one's release goes 3 -> 1 with no 0 and is not taken (the request `+0x374` unchanged, 2/2 valid trials; t1 void, its full press never reached the pad); at 100 and 150 ms it is (request 2 -> 1, 3/3 each). The port steps the press once a game frame (`ControllerInput.pressClock`, the match pages' `performance.now`). **Proven 2026-11-03 (S6-PROVEN)**, the cites above kept: `probe-s6-light-after-67.txt` and `-50.txt`, 4 trials each (`S6-DELIVERY.md` section "2026-11-03 03:1xZ: one idle frame", data `r0004-s6-idle/probe.csv`): the light press about 67 ms after the full release taken 4/4 (request 2 -> 1, crouched), at about 50 ms refused 4/4 (request 2, prone); what is proven is the timing boundary, within one 30 Hz game frame, and 1 fits it. Caveat, the byte-level rule is narrower: over all 8 trials a single release frame (`+7` 3) followed directly by the press is refused (50 ms t1, t3, t4), a press after an idle (0) frame is taken (67 ms t1, t2, t4), and a [3, 3] prefix splits -- 50 ms t2 refused, 67 ms t3 taken, differing only in the light press's first byte (2 refused, 1 taken; `S6-DELIVERY.md` lines 35, 38, 51-52, ac's correction); so "re-arm after one idle frame" fits every trial whose sampled byte shows the idle frame, and the 30 Hz sampled byte alone does not decide [3, 3] (its sampling phase against `FUN_00594cf0`'s test; not read in code). No harness spec or golden trace holds it; `stancePressRearm.test.ts` holds the captures' outcomes (50, 67, 100, 150 ms); the cited lines' re-read by a reviewer is still owed. |
 | `STANCE_FULL_PRESS_READING` | 0.3 | Re-read 2026-11-01 (reading, pending review): FUN_00594cf0 D:L453339-453341 (`0.3 <= pressure` decides at once), D:L453351 / D:L453380 (the peak under 0.3 the light press, else the full). Proven only by a pressure-scripted capture of the original. |
+| `THROW_PRESSURE_BUTTONS_READING` | `['R1', 'Cross']` | PAD-DS3 part 5, 2026-11-23 (reading, pending review; section 7): the buttons whose pressure feeds the grenade throw's power. The pressure read (r0004 `0x2c8040`, its one caller 0x59b948; r0001 `FUN_002c6350` D:L166819-166835, called at D:L453481) takes the report field by Fire's button in the control map (`+0x14`): 0xa -> field 0x1d, 9 -> field 0x1a, else 0.0 -- the key job's non-author re-read (agent-mail `planning/mega-2026-11-21/pilot/kill/keyjob-r1-throw-read.md`, section 5). Re-read at r0004 by the fresh review (agent-mail `planning/mega-2026-11-21/pilot/kill/keyjob-r1-throw-review.md`, section (d), 2026-11-23): `+0x14` is action 2, Fire (the set-up parser 0x2c8684-0x2c8698, the name table 0x41e090); the input-name parser 0x2c8360 maps "R1" -> 0xa, "X" -> 9; the pad update pairs field 0x1d with digital index 0xb for button 0xa and 0x1a with 0xe for button 9 (0x2f8824-0x2f8898); the descriptor filler 0x1bdd58 and the reader 0x1bda78 make field 0x1d the tenth pressure byte, 0x1a the seventh. Only the pad's own byte order (DualShock 2 / 3: the tenth pressure byte R1, the seventh Cross) rests outside the disc, and it agrees with the game's ten pairs on both the digital and the pressure side. Settles it (raises it to proven): a capture of a partial R1 and a partial X on a grenade (the brief's EPH row). |
 
 ## 2. USB/browser adaptation
 
@@ -82,10 +83,30 @@ separately, leaving 48 payload bytes. Full-report bytes 14..25 hold d-pad, shoul
 byte 22 (payload offset 21). The four stick bytes are 6..9. Digital bits are full-report bytes 2..4. Pressure values
 are divided by 255, not invented from press duration. The decoder rejects other IDs and lengths.
 
-The connection is explicitly requested by a person in controller mapping, limited to that VID/PID, with no output
-or feature reports, driver installation or Bluetooth pairing. A virtual standard pad preserves this report's own
+The connection is explicitly requested by a person in controller mapping, limited to that VID/PID, with no driver
+installation or Bluetooth pairing, and (*changed 2026-11-23, PAD-DS3 part 1; see "The start sequence" below*) with
+no output or feature report beyond that start sequence. A virtual standard pad preserves this report's own
 buttons and axes rather than associating raw pressure with an unrelated browser pad. A stale report is replaced by neutral input after
 250 ms while retaining the connected device identity (browser adaptation), and input cancellation plus a real button-rest requirement prevent a timeout from releasing or rearming a stance press. Disconnect removes listeners and closes the device. Reconnect is explicit per page.
+
+**The start sequence (PAD-DS3 part 1, 2026-11-23; product track, a browser adaptation, OT.R28).** The owner granted a
+change to the listen-only contract above, relayed by the main controller, 2026-11-23, his typing kept: "Our client can
+send anything necessary but rememebr we aee in the browser. The solution we come up with needs to make sense in out
+existing button mapping ui, or updated to accomidate it in the most logical way with hints". On Connect, after the
+browser's chooser and `device.open()`, `startDualShock3` (`viewer/src/pressurePad.ts`) runs the wired DualShock 3's USB
+start as SDL does it -- `SDL_hidapi_ps3.c`, `HIDAPI_DriverPS3_InitDevice`, the non-Bluetooth branch, "Set the controller
+into report mode over USB" (cited by function name; the file was read 2026-11-23 and its line numbers were not kept):
+1. `receiveFeatureReport(0xF2)` (SDL reads 17 bytes);
+2. `receiveFeatureReport(0xF5)` (SDL reads 8 bytes);
+3. `sendReport(0xF5, new Uint8Array(0))`: SDL writes one byte, the report ID under hidapi's convention (SDL skips this
+   write only for ShanWan clones, which a non-stop rumble follows).
+Nothing else is sent: no LED, no rumble (SDL sets them only after input flows), no `0xF4` (SDL sends it over Bluetooth
+only), no feature report. A step that throws is swallowed: the device stays open and the Connect row reaches "silent"
+by its timeout (`PRESSURE_SILENT_MS_ADAPTATION`). **A reading, pending review, not yet run on a physical DS3 (the owner's
+test, 2026-11-24)**; the exact byte SDL's write carries depends on the platform's get-feature behaviour, and the report-ID
+byte is the reading used here. The mapping screen's hints for it (the Connect row's states, the next steps when silent,
+Crouch's light and Prone's firm press on a shared button, and the no-pressure line on the Stance mode row) are the
+approved mock's, `PAD-DS3-UI-MOCK.md`.
 
 Gamepad API analog values and limitations: https://www.w3.org/TR/gamepad/ .
 WebHID permission and platform contract: https://developer.chrome.com/docs/capabilities/hid .
@@ -116,6 +137,19 @@ let-go as a firm press (a phantom prone); LATER 663 (product track) -- Restore d
 re-clones Prone without `bindPressureCrouch`; LATER 664 (product track; simulation if confirmed) -- the 250 ms stall
 assumes a pad that reports continuously: an on-change pad held still is cancelled, and with the guard a COMBINED hold
 never reaches its prone.
+
+*Changed 2026-11-24 (DS3-PRESSURE (a)-(f); product track, browser adaptations, OT.R28 -- no stance rule changed,
+`StancePress` and `STANCE_FULL_PRESS_READING` untouched):* for a player whose factory DS3 gave no pressure, the Button
+mapping now (a) answers a pad's Cross on "Connect USB pressure controller" with `PRESSURE_CONNECT_POINTER_WORDS` and asks
+no chooser (WebHID's `requestDevice` needs a user activation; as LR-25's disc chooser); (b) reads a report that is not
+report 1 of 48 bytes, or `PRESSURE_UNREADABLE_PRESSES_ADAPTATION` (8) Triangle / R1 presses that settle no button order,
+as the row's 'unreadable' state, naming a driver (DsHidMini, ScpToolkit, Steam Input) as the likely cause; (c) says on
+the Stance mode row why the Connect row is absent while a pad is present (no WebHID; or an XInput / DS4 id, possibly a
+DS3 behind a wrapper: `pressureConnectAbsent`); (d) says "Set Stance mode to SEPARATE for light/firm Triangle" once
+pressure is seen outside SEPARATE, never switching a saved mode; (e) pins the chain from fake HID bytes to a light
+Crouch and a firm Prone in SEPARATE (`test/pressureChain.test.ts`: it passed on the code as it was, so the chain is
+wired); (f) shows a copyable readout of the last report's ID, length and first eight bytes with the row's state. Unit
+tests over fake HID reports and devices only; nothing has run on a physical DS3.
 
 ## 3. Evidence ledger
 
@@ -201,3 +235,79 @@ lanes and stanceCut.
   review's re-read). No rendered browser run and no hardware run of the integrated design: a hardware run with a
   054c:0268 pad over WebHID and with a Gamepad API pressure pad is owed (Phil or the owner). Phil's 2026-10-31 physical
   acceptance (§5) was of his design, not this one. No capture of the original.
+
+## 7. PAD-DS3 part 5: R1's pressure and the grenade throw (2026-11-23)
+
+**Simulation track; reading, pending review.** On a pressure-capable pad the pressure of the button Fire is on (R1 or X,
+`THROW_PRESSURE_BUTTONS_READING`) is the throw's target, as the original's controller update reads it; every other case
+feeds 1 exactly as before. The source is the key job's non-author re-read at r0004 (agent-mail
+`planning/mega-2026-11-21/pilot/kill/keyjob-r1-throw-read.md`), with r0001's lines beside it:
+- **The target**: the button's byte x 1/255 (r0004 `0x2c8040`, the scale word 0x64edd8 = 0x3b808081; r0001
+  `FUN_002c6350`, `DAT_00650660`, D:L453481-453482); no dead zone, no curve. The port's WebHID reader already gives
+  byte / 255 (`pressurePad.ts`); a Gamepad API pad's analog value is the browser's own 0..1 (an adaptation).
+- **The chase**: once a game frame with that frame's `dt`, `power = power x (1 - dt x rate) + target x dt x rate`, rate
+  3.0 up (0x64ed58; `DAT_006505e0`) while the target is above the power, 1.5 down (0x64ed50; `DAT_006505d8`) at or
+  under it, no clamp (r0004 0x59b988-0x59b9c8; `FUN_00594cf0` D:L453508-453517). The port's `stepThrowPower`
+  (`@s2u/scene`) already holds these values (`THROW_POWER_RISE` 3, `THROW_POWER_FALL` 1.5) -- checked equal, reused.
+- **The release**: a level test, `target <= power x 0.15` (0x64ede0; `DAT_00650668`, `THROW_RELEASE_FRACTION`), with no
+  chase step that frame (r0004 0x59b96c-0x59b980; D:L453509, D:L453519-453539). Easing off throws shorter (the re-read's
+  F4): the power falls at 1.5 a second while the pressure is under it and the throw goes only at 15% of it; a steady
+  press under 0.15 x power never releases while held.
+- **Sampling (the re-read's F6)**: a fed wind-up is sampled and stepped once a 30 Hz game frame at `GAME_FRAME_DT`
+  (`GrenadeCore.update`, a `GameFrameAccumulator` counted from the press), as the stance press is
+  (`ControllerInput.pressClock`); the digital wind-up keeps its page-rate exact-per-second chase (LATER 1027, research
+  437 section 1), unchanged.
+- **The ruling (the controller, F5 = option A; a browser adaptation)**: pressure feeds the throw only when the active
+  preset's Fire is on R1 or X of a pressure-capable pad and the profile has not rebound that button; otherwise -- a
+  digital pad, Fire elsewhere, rebound, SEPARATE's Crouch or Prone bound to that physical button in the match (the
+  review's F2: the reader takes it from the game, so it cannot fire), no pad, or the pad's button at rest at the press
+  (a key, the mouse or a touch fired) -- the target is 1 held, 0 let go, as before. The original's answer on another
+  button is 0.0 (no grenade can be thrown); the port does not copy that, since its rebinding has no original.
+- **"A digital pad feeds 1" is itself an adaptation** (the review's F5, an observation at the source, not measured):
+  r0004's report reader answers -1 for an index the pad's profile does not hold (`0x1bda78`, 0x1bdac0 -> 0x1bdb4c), so
+  on an original pad with no pressure fields the target would be -1/255 and an armed grenade would release at once at
+  power 0 [inference; no capture]. The port feeds 1 there, under the ruling's "everything else feeds 1 as today".
+- **Code**: `ControllerInput.firePressure` (the source), `GrenadeSource.firePressure` and `GrenadeCore.feedPressure` /
+  `update` (the feed), wired by `matchThrow.ts` and `matchMount.ts` (the match page). `main.ts` (`/testroom`, a hot
+  file) is not wired: its throws feed 1 as before.
+- **Departures named, not new**: LATER 1302's two-frame start (the original's first chase step on the third frame that
+  sees R1 down; the port's on the press's own update) is inherited by a partial pressure; the turret's handed-back
+  wind-up (`mountUntake`, LATER 532) steps its recorded digital levels and feeds 1. A press whose byte reads 0 on its
+  first armed frame releases at power 0 and aborts in the original (the re-read's F4); the port takes such a press as
+  digital (feeds 1), since it cannot tell it from a press of another input -- named here, not settled.
+- **IQ-160 3A (2026-11-24; capture, UNSCORED; r0004, Shadow PC 4, record IQ160-ORIG-PC4; B-46 ruling (b))**: N held
+  game frames frame-locked give the original's power 1 - 0.9^(N - 2) at release (N 4..12: 0.1902, 0.2712, 0.3442,
+  0.4689, 0.6517), and N = 3 (0.1001) throws nothing; the port's `stepThrowPower` gives 1 - 0.9^N. Held RED as two
+  `it.fails` naming LATER 1302 in scene `test/projectile.test.ts` ('B-46 (b)'; registered in
+  `tools/test/itFailsRegister.test.ts`), the fix to v0.4.33; the port unchanged.
+- **Open, for the hardware run to settle (the review's F1; named, behaviour unchanged)**:
+  - *A let-go of the digital bit forces the target to 0.* The port samples the pressure only while the button reads
+    down and takes 0 once it is let go (`GrenadeCore.update`, the fed arm; `GrenadeCore.release` from `matchThrow.ts`'s
+    trigger), while r0004 reads the byte every armed frame whatever the digital state (0x59b948; the arm is bits 0x40 /
+    0x80 only). A pad that drops its digital bit while the byte is still above 0 keeps chasing down at 1.5 in the
+    original until the level test releases it; the port releases at the next game frame at the power it has -- the
+    original's throw slightly longer. Applies to the WebHID DS3 (`pressurePad.ts` takes the pad's own digital bit).
+  - *A light press on a Gamepad API pressure pad may never start a wind-up.* The Fire lane is
+    `buttonDown` = `pressed || value >= 0.5` (`controllerInput.ts`); a browser that leaves `pressed` false under some
+    threshold gives no wind-up to a light R1 at all, where the original arms on the digital bit. The WebHID DS3 uses
+    the pad's digital bit and is not affected.
+- **The room and the wire**: the throw event carries the launch's `from` and `velocity` (`net/protocol.ts`), not the
+  power; the room bounds a claimed launch to the family of the original's launches over power 0..1 and the aim's clamp
+  within `THROW_SLACK_READING` of the stance's fastest (`throwLaunchAllowed`, `throwLaunches`) and asks the release's
+  clearance over that family (`THROW_CLEARANCE_PAIRS_ADAPTATION`). A partial power is inside that family already, so
+  neither changes and the cheat surface is the same.
+- **Evidence apart.** Unit tests on synthetic sources and synthetic pads (`test/throwPressure.test.ts`), the digital
+  sequence pinned from the code before the change. Source inspection: the law's and the mapping's re-read at r0004 by
+  the fresh review (`keyjob-r1-throw-review.md`, sections (b) and (d); PASS WITH FINDINGS, its F1-F5 folded here and in
+  `controllerInput.ts`); the level stays reading, pending review, until the fold is reviewed. No rendered browser run, no hardware run (a 054c:0268 pad over WebHID and a Gamepad
+  API pressure pad on a grenade are owed), no capture of the original's partial R1 (what would raise it to proven).
+- **Captures of the original (2026-11-23; capture, UNSCORED -- not "proven" until a reviewer accepts the comparison)**:
+  PADR1-PC2 (ledger #229, zip sha256 8abdab4b...ec969c) and PADR1B-PC2 (ledger #232, zip sha256 53f0e47f...770156),
+  r0004 in PCSX2 on Shadow PC 2, standing, the Mark141, are the evidence for the release on the ease frame itself (byte
+  127 eased to 12 or 7: 0 frames later), the power carried with no step that frame, and the let-go under the abort power
+  throwing nothing (byte 25); `test/throwPressureCapture.test.ts` drives the port through each leg and compares the
+  launch, LATER 1302's two-frame start modelled (the pitch fits 43 chase steps of a 45-frame hold, not 45). The speed:
+  L4's |v| 238.17 and, since LATER 1428 re-read the posed release hand at the game frame (2026-11-24), L1's 90.549
+  fall inside the span of the reading's release points (L1: table 91.230, the reading's posed hand 90.541; *was* 91.916
+  on the render grid; L4 equals the posed hand within the capture's precision). The page's own launch still samples the
+  hand on the render frame (`Play.partPoint`) until LATER 1428's page half: held as an `it.todo`.

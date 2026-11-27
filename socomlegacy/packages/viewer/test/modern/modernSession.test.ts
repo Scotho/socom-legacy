@@ -142,6 +142,23 @@ describe('the modern session store', () => {
     expect(s.state()).toBe('signed-out');
   });
 
+  it('NAMES-MIDDLE (MU_NAME_CHARACTERS_ADAPTATION): a name central would refuse is said at once, naming its characters, and nothing is sent', async () => {
+    const f = fakeFetch({});
+    const s = createSession(fetchAccountService(BASE, f.fetch), clock());
+    const r = await s.create({ name: 'Craig\u200b\u0430', password: gen('p') });
+    expect(r.ok).toBe(false);
+    expect(s.error()).toMatchObject({ code: 'name-characters', status: null });
+    expect(s.error()!.message).toContain('U+200B');
+    expect(s.error()!.message).toContain('\u0430 (U+0430)');
+    await s.create({ name: 'Ace ', password: gen('p') });
+    expect(s.error()).toMatchObject({ code: 'name-spacing', status: null });
+    expect(f.calls).toHaveLength(0);
+    expect(s.state()).toBe('signed-out');
+    // A drawable name goes to central as before.
+    await s.create({ name: '¡Jöhn', password: gen('p') });
+    expect(f.calls[0]!.url).toBe(`${BASE}/account/create`);
+  });
+
   it('sign out posts /account/logout with the ticket and ends signed out', async () => {
     const ticket = gen('t');
     const f = fakeFetch({ '/account/login': [{ body: { status: 0, ticket } }] });

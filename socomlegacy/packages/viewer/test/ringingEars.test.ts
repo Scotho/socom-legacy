@@ -118,3 +118,36 @@ describe('the ringing ears', () => {
     clock.mockRestore();
   });
 });
+
+/**
+ * LATER 580 (reading, pending review): at the mission's end `FUN_002aa910` calls `FUN_00346b30` (D:L151220), which --
+ * the sound-off switch `DAT_0048dd28` clear (`SOUND_OFF_SWITCH_READING`) -- first calls `FUN_00341060` (D:L244181): a duck
+ * holding or fading (`DAT_0048de10` set) is put back to the saved masters at once (`DAT_003dffe0 = 1`, `FUN_003410d0`,
+ * D:L241124-241132, D:L241145-241172), then `SL_STOPALLSOUNDS`. The page: `stop()` at the first screen frame.
+ */
+describe('LATER 580: the ears ended at the round screens (FUN_00341060)', () => {
+  it('in the hold: stop puts the masters back at once, and nothing comes back later', () => {
+    vi.useFakeTimers();
+    const a = audio(), ears = new RingingEars(a);
+    ears.start(5, 0.35);
+    vi.advanceTimersByTime(2000);
+    ears.stop();
+    expect(ears.ringing).toBe(false);
+    expect(a.volume()).toBeCloseTo(0.8, 9);
+    vi.advanceTimersByTime(20_000);
+    expect(a.volume()).toBeCloseTo(0.8, 9);
+  });
+
+  it('in the fade: stop puts the masters back at once', () => {
+    vi.useFakeTimers();
+    const a = audio(), ears = new RingingEars(a);
+    ears.start(5, 0.35);
+    vi.advanceTimersByTime(6000);
+    expect(a.volume()).toBeLessThan(0.8);
+    ears.stop();
+    expect(ears.ringing).toBe(false);
+    expect(a.volume()).toBeCloseTo(0.8, 9);
+    vi.advanceTimersByTime(20_000);
+    expect(a.volume()).toBeCloseTo(0.8, 9);
+  });
+});

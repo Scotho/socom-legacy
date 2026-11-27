@@ -337,14 +337,14 @@ describe('Rename (sceMcRename, MemoryCard.cpp:1439-1484)', () => {
 
 // ---- the op-sequence harness, fed from the save chain as read (W15.R2) ----
 
-// The lists (the 114 steps, and the page's flow and second save built on them) live in `mcReplay.ts`, shared with the
+// The lists (the 115 steps, and the page's flow and second save built on them) live in `mcReplay.ts`, shared with the
 // page's own test (`packages/viewer/test/optionsSave.test.ts`, OPT-01).
 
 describe('the op-sequence harness (W15.R2: a reading, fed from the save chain as read)', () => {
   it('replays the options save on a fresh card without a divergence', () => {
     const s = setup();
     const steps = optionsSaveOnAFreshCard();
-    expect(steps).toHaveLength(114);
+    expect(steps).toHaveLength(115);
     expect(replayMcOps(s.mc, steps)).toEqual({ replayed: steps.length, divergence: null });
   });
 
@@ -381,24 +381,24 @@ describe('the op-sequence harness (W15.R2: a reading, fed from the save chain as
     });
   });
 
-  it("the page's flow (OPT-01): save_and_leave's 124 steps hold the 114 in order, and replay without a divergence", () => {
+  it("the page's flow (OPT-01): save_and_leave's 128 steps hold the 115 in order, and replay without a divergence", () => {
     const s = setup();
     const flow = optionsSaveAndLeaveOnAFreshCard();
     const read = optionsSaveOnAFreshCard();
-    expect(flow).toHaveLength(124);
+    expect(flow).toHaveLength(128);
     // The probe after the checks and the first Ensure_MC_Dirs_Fast; Ensure_MC_Dirs after the space check and the second.
     expect(flow.slice(6, 6 + OPTIONS_SAVE_PROBE_STEPS)).toEqual(read.slice(0, OPTIONS_SAVE_PROBE_STEPS));
-    expect(flow.slice(11)).toEqual(read.slice(OPTIONS_SAVE_PROBE_STEPS));
-    expect(replayMcOps(s.mc, flow)).toEqual({ replayed: 124, divergence: null });
+    expect(flow.slice(14)).toEqual(read.slice(OPTIONS_SAVE_PROBE_STEPS));
+    expect(replayMcOps(s.mc, flow)).toEqual({ replayed: 128, divergence: null });
   });
 
-  it('the second save (OPT-01): 39 steps on the card the first left, no divergence, no FAILED line, the same twelve files', () => {
+  it('the second save (OPT-01): 44 steps on the card the first left, no divergence, no FAILED line, the same twelve files', () => {
     const s = setup();
     replayMcOps(s.mc, optionsSaveAndLeaveOnAFreshCard());
     s.lines.length = 0;
     const second = optionsSaveAndLeaveOnASavedCard();
-    expect(second).toHaveLength(39);
-    expect(replayMcOps(s.mc, second)).toEqual({ replayed: 39, divergence: null });
+    expect(second).toHaveLength(44);
+    expect(replayMcOps(s.mc, second)).toEqual({ replayed: 44, divergence: null });
     expect(s.lines).toEqual([]);
     expect(Object.keys((s.card.read() as { record: { files: Record<string, unknown> } }).record.files)).toHaveLength(12);
     expect(s.mc.getInfo(0, 0)).toEqual({ result: Succeed, type: 2, free: 8000 - 2993, format: 1 });

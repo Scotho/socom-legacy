@@ -141,7 +141,8 @@ finding): they are tallied now, so the server's log tells them apart too.
 - ~~Fall damage (`applyFall`): no attacker, no request.~~ Reported since 2026-10-03 (FALL-DAMAGE, research 151 §3.3): an
   `applied` report to the faller alone, `request: 'fall'`, `part` 3, the player its own `attacker` and `target`
   (`selfDamage` true: the game sets a fall's killer to the player, `FUN_005ac1f0` L464953-464957), `rawDamage` the loop's
-  take before the clamp (no armour step), `point` the feet, `distance` and `weapon` null; a knock's landing at x 1.2.
+  take before the clamp (no armour step), `point` the feet, `distance` and `weapon` null; a dive's landing at x 1.2 (R4P-104, reading, pending review: r0004 0x585900,
+  0x585980-0x585994; a knock's landing at the plain speed, 0x5b5aa8-0x5b5aac; research 151 §3.4).
 - A shotgun volley's rays after the first on the same body (the volley's once-a-body guard, `FUN_005abbc0`
   L464704-464737): one applied report for the volley, its pellets in `hitLocations`.
 - A spectator's requests (no player to tell).

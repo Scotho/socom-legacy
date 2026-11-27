@@ -88,18 +88,30 @@ describe('steep-ground slide (research 201 §3, §27.3)', () => {
     expect(pushed.walker.state.x).toBeLessThan(at);
   });
 
-  it('a 3-tall steep face holds a standing body and slides a prone one; 4 tall slides standing', () => {
+  it('a 3-tall steep face holds a standing body and pushes a prone one off it (R4P-107); 4 tall slides standing', () => {
     const stand = ramp(3, 60, 1);
     const at = stand.walker.state.x;
     for (let i = 0; i < 30; i++) stand.walker.tick(still);
     expect(stand.walker.state.x).toBeCloseTo(at, 6);
     expect(stand.walker.slideSpeed).toBe(0);
-    const prone = ramp(3, 60, 1);
+    // R4P-107 (`STEEP_FLOOR_CONTACT_PRONE_READING`; r4 0x5542e0-0x554328): r0004 pushes a prone body whose slide has not
+    // started off the face, max(7, |8 x back . n|) x 0.7 along the normal, in one tick -- off this 3-tall face onto the
+    // flat at its foot, no slide left. The lone ramp has no floor for the push to land on, so this case stands it on a
+    // flat floor (a map's face has ground at its foot). *Was* (the prone exemption): the body started the slide here.
+    const run3 = 3 / Math.tan(a60);
+    const prone = scene([
+      poly('flat', [-40, 0, -40, 0, 0, -40, 0, 0, 40, -40, 0, 40], 1),
+      poly('slope', [0, 0, -20, run3, 3, -20, run3, 3, 20, 0, 0, 20], 1),
+    ]);
+    expect(prone.walker.place(run3 * 0.5, 1.5 + 1, 0)).toBe(true);
     prone.walker.stance = 'prone';
     const from = prone.walker.state.x;
     prone.walker.tick(still);
-    expect(prone.walker.slideSpeed).toBeGreaterThan(0);
-    expect(prone.walker.state.x).toBeLessThan(from);
+    expect(prone.walker.state.x).toBeLessThan(from - 3);
+    expect(prone.walker.state.y).toBeCloseTo(0, 3);                // on the flat at the face's foot
+    prone.walker.tick(still);
+    expect(prone.walker.slideSpeed).toBe(0);                         // the flat stops the slide the next tick
+    expect(prone.walker.stance).toBe('prone');
     const tall = ramp(4, 60, 1);
     const foot = tall.walker.state.x;
     tall.walker.tick(still);
@@ -109,7 +121,7 @@ describe('steep-ground slide (research 201 §3, §27.3)', () => {
   it('leaving onto gentler ground faster than land_fall_rate is a landing, and the swap is refused while sliding', () => {
     const degrees = 60, run = 6, height = run * Math.tan(degrees * Math.PI / 180);
     const s = scene([
-      poly('flat', [-40, 0, -40, 2, 0, -40, 2, 0, 40, -40, 0, 40], 1),
+      poly('flat', [-40, 0, 40, 2, 0, 40, 2, 0, -40, -40, 0, -40], 1),
       poly('slope', [0, 0, -20, run, height, -20, run, height, 20, 0, 0, 20], 1),
     ]);
     const x = run * 0.85, y = x * Math.tan(degrees * Math.PI / 180);
@@ -168,8 +180,10 @@ describe('steep-ground slide (research 201 §3, §27.3)', () => {
     // fall line and brings it back (`FUN_0054edf0`, research 201 s3): the body treads in place, measured at most 0.132 up
     // the slope in x and 0.228 in y over the stop, never nearer the wall. (Was: neither x nor y rose, to 1e-4, under the
     // refusal; SEGMENT-BODY's first uphill tick let the slide take one more step down, -0.0099 in x and -0.017 in y.)
-    expect(maxX).toBeLessThanOrEqual(stopped + 0.15);
-    expect(maxY).toBeLessThanOrEqual(yStopped + 0.25);
+    // LATER 1194 (the walls once a game frame, H404 (b)): measured at most 0.157 up the slope in x and 0.272 in y; the
+    // port's output.
+    expect(maxX).toBeLessThanOrEqual(stopped + 0.2);
+    expect(maxY).toBeLessThanOrEqual(yStopped + 0.3);
     expect(s.walker.state.x - wallX).toBeGreaterThan(9.43);
   });
 
@@ -203,7 +217,7 @@ describe('steep-ground slide (research 201 §3, §27.3)', () => {
     const off = (stick: number) => {
       const degrees = 60, run = 6, height = run * Math.tan(degrees * Math.PI / 180);
       const s = scene([
-        poly('flat', [-40, 0, -40, 2, 0, -40, 2, 0, 40, -40, 0, 40], 1),
+        poly('flat', [-40, 0, 40, 2, 0, 40, 2, 0, -40, -40, 0, -40], 1),
         poly('slope', [0, 0, -20, run, height, -20, run, height, 20, 0, 0, 20], 1),
       ]);
       const x = run * 0.85, y = x * Math.tan(degrees * Math.PI / 180);

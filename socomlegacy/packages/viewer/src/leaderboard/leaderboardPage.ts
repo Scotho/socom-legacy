@@ -59,6 +59,8 @@ export interface BoardRow {
   roundsWon?: number | null; roundsLost?: number | null;
   /** LCM-LB: a first page of 3 or fewer only -- the most played map's stem and its display name. */
   topMap?: string | null; topMapName?: string | null;
+  /** DAY-STILLS (a browser adaptation): the top map's variant where it is one (central's `topMapVariant`); its still asked. */
+  topMapVariant?: 'day' | 'night';
   /** LCM-LB: a weapon board's rows only -- the kills and head shots with that weapon. */
   weaponKills?: number; weaponHeadShots?: number;
 }
@@ -212,7 +214,8 @@ export function weaponsUrl(period: BoardPeriod): string {
 export function findUrl(name: string): string {
   return `${LEADERBOARD_API_ADAPTATION}ladder/find?name=${encodeURIComponent(name)}`;
 }
-const stillUrl = (stem: string): string => `${LEADERBOARD_API_ADAPTATION}maps/${stem}/still.png`;
+/** DAY-STILLS: a variant's still at `maps/<STEM>/<variant>/still.png` (central falls back to the night one). */
+const stillUrl = (stem: string, variant?: string): string => `${LEADERBOARD_API_ADAPTATION}maps/${stem}${variant ? `/${variant}` : ''}/still.png`;
 
 /** The first position of the table's page that holds `pos` (a card's position: the first page). */
 export function pageFromForPos(pos: number): number {
@@ -236,7 +239,7 @@ function periodStart(period: BoardPeriod, nowMs: number): number {
 }
 
 /** LCM-12 (LCM.R12): a board's lede -- the game's Player Ranking only for Score over all time; any other, said to be ours. */
-const LEDE_GAME_ADAPTATION = 'Every ranked player by score, as the game\'s own Player Ranking keeps it. Counted games only: five or more players at the start, no respawn.';
+const LEDE_GAME_ADAPTATION = 'Every ranked player by score, as the game\'s own Player Ranking keeps it. Counted games only: four or more players at the start, no respawn.';
 
 /**
  * The lede for a board and a period (`LEDE_GAME_ADAPTATION` for Score over all time; else the board and period named,
@@ -522,7 +525,7 @@ export function leaderboardPage(deps: LeaderboardDeps = {}): HTMLElement {
     const k = element('article', i === 0 ? 'lb-card lb-card--first' : 'lb-card');
     if (r.topMap && /^MP[0-9]{1,2}$/.test(r.topMap)) {
       const img = element('div', 'lb-card-img');
-      img.style.backgroundImage = `url("${stillUrl(r.topMap)}")`;
+      img.style.backgroundImage = `url("${stillUrl(r.topMap, r.topMapVariant)}")`;
       k.append(img);
     }
     const num = element('span', 'lb-card-num', String(r.pos));
@@ -782,7 +785,11 @@ export function leaderboardPage(deps: LeaderboardDeps = {}): HTMLElement {
       const maps = new Map(leaders.top3.map((r) => [r.name, r] as const));
       const cards: CardRow[] = top === null
         ? leaders.top3.map((r) => ({ ...r, topMapName: r.topMapName ?? null }))
-        : top.rows.map((r) => ({ ...r, topMap: r.topMap ?? maps.get(r.name)?.topMap ?? null, topMapName: r.topMapName ?? maps.get(r.name)?.topMapName ?? null }));
+        : top.rows.map((r) => {
+          // DAY-STILLS: the variant goes with whichever row named the top map
+          const v = r.topMap ? r.topMapVariant : maps.get(r.name)?.topMap ? maps.get(r.name)?.topMapVariant : undefined;
+          return { ...r, topMap: r.topMap ?? maps.get(r.name)?.topMap ?? null, topMapName: r.topMapName ?? maps.get(r.name)?.topMapName ?? null, ...(v ? { topMapVariant: v } : {}) };
+        });
       // LCM-LB (the review's item 19): "Updated" is the answer's own age, not the browser's fetch
       data = { leaders, page, top: cards, at: page.at ?? now(), weapons };
       paintBar();

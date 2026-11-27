@@ -43,32 +43,40 @@ function speeds(wish: WalkInput, ticks: number, stance: Stance = 'stand'): { w: 
 const steady = (wish: WalkInput, stance: Stance = 'stand'): number => speeds(wish, 120, stance).v[119]!;
 
 describe('movement.speed: the stick ramp, tick by tick (FUN_00586c10: lower/upper accel 2 and 5, the 8th power)', () => {
-  it('one second of full forward from rest covers 59.042: twelve ticks of the ramp, then 65 a second', () => {
+  it('one second of full forward from rest covers 59.538: twelve ticks of the ramp, then 65 a second', () => {
     const { w } = speeds(input(1, 0), 60);
-    // the stick moves 5 a second: n / 12 of the band on tick n, full from tick 12
+    // the stick moves 5 a second: n / 12 of the band on tick n, full from tick 12. LATER 1164 (RAMP_LEAD;
+    // strafeRamp.test.ts): the move reads the ramp half a tick ahead, (n + 1/2) / 12 on tick n, still full from tick 12
+    // (12.5 / 12 is capped), so the port lands on r0004's frame ends. 59.0417 before the lead; +0.4965 is 11 ramp ticks
+    // x 0.5 / 12 x 65 / 60.
     let law = 0;
-    for (let n = 1; n <= 60; n++) law += Math.min(1, n / 12) * 65 * DT;
-    expect(law).toBeCloseTo(59.0417, 4);
+    for (let n = 1; n <= 60; n++) law += Math.min(1, (n + 0.5) / 12) * 65 * DT;
+    expect(law).toBeCloseTo(59.5382, 4);
     expect(Math.hypot(w.state.x, w.state.z)).toBeCloseTo(law, 9);
   });
 
-  it('a light push ramps at lower_accel 2 + 3 (1 - (1 - |t|)^8): the first tick of 0.1 is 4.018 a second, of 0.5 is 5.404', () => {
+  it('a light push ramps at lower_accel 2 + 3 (1 - (1 - |t|)^8): the first tick of 0.1 is 6.026 a second, of 0.5 is 8.106', () => {
     const limit = (t: number): number => 2 + 3 * (1 - (1 - t) ** 8);
-    expect(speeds(input(0.1, 0), 1).v[0]).toBeCloseTo(limit(0.1) * DT * 65, 9);
-    expect(speeds(input(0.1, 0), 1).v[0]).toBeCloseTo(4.0176, 4);
-    expect(speeds(input(0.5, 0), 1).v[0]).toBeCloseTo(limit(0.5) * DT * 65, 9);
-    expect(speeds(input(0.5, 0), 1).v[0]).toBeCloseTo(5.4040, 4);
+    // LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): the move reads the ramp half a tick ahead, so the first tick moves at
+    // 1.5 ramp steps, limit x 1.5 / 60 of the band. Before the lead: 4.0176 at 0.1 and 5.4040 at 0.5.
+    expect(speeds(input(0.1, 0), 1).v[0]).toBeCloseTo(limit(0.1) * 1.5 * DT * 65, 9);
+    expect(speeds(input(0.1, 0), 1).v[0]).toBeCloseTo(6.0265, 4);
+    expect(speeds(input(0.5, 0), 1).v[0]).toBeCloseTo(limit(0.5) * 1.5 * DT * 65, 9);
+    expect(speeds(input(0.5, 0), 1).v[0]).toBeCloseTo(8.1060, 4);
     // the lateral axis takes lower/upper_x_accel, the same 2 and 5 (dynamics.rdr)
-    expect(speeds(input(0, 0.1), 1).v[0]).toBeCloseTo(4.0176, 4);
-    // half a stick reaches its 32.5 on tick 7 (0.5 / (4.988 / 60) = 6.01 ticks), not before
+    expect(speeds(input(0, 0.1), 1).v[0]).toBeCloseTo(6.0265, 4);
+    // half a stick reaches its 32.5 once n + 1/2 ramp steps pass 0.5 / (4.988 / 60) = 6.01 ticks: on tick 6 with the
+    // lead (tick 7 before it), and not before
     const half = speeds(input(0.5, 0), 8).v;
-    expect(half[5]).toBeLessThan(32.5 - 1e-6);
-    expect(half[6]).toBeCloseTo(32.5, 9);
+    expect(half[4]).toBeLessThan(32.5 - 1e-6);
+    expect(half[5]).toBeCloseTo(32.5, 9);
   });
 
-  it('backing up ramps to seal_run_bw\'s 37: 37 x 5 / 60 on the first tick, 37 from tick 12', () => {
+  it('backing up ramps to seal_run_bw\'s 37: 37 x 5 x 1.5 / 60 on the first tick, 37 from tick 12', () => {
     const { v } = speeds(input(-1, 0), 13);
-    expect(v[0]).toBeCloseTo(37 * 5 * DT, 9);
+    // LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): read half a tick ahead, the first tick is 1.5 ramp steps, 4.625 (3.0833
+    // before the lead). Tick 11 is still under 37 (11.5 / 12) and tick 12 is at it (12.5 / 12, capped).
+    expect(v[0]).toBeCloseTo(37 * 5 * 1.5 * DT, 9);
     expect(v[10]).toBeLessThan(37);
     expect(v[11]).toBeCloseTo(37, 9);
   });

@@ -106,8 +106,8 @@ describe('an abandoned round empties the decal pools and stops the timer (FUN_00
     const posted: string[] = [];
     const hud = (net as unknown as { deps: { hud: Hud } }).deps.hud;
     const post = hud.postMessage.bind(hud);
-    hud.postMessage = ((text: string | readonly string[], ...rest: unknown[]) => {
-      posted.push(Array.isArray(text) ? text.join('/') : String(text));
+    hud.postMessage = ((text: string | readonly (string | { text: string })[], ...rest: unknown[]) => {
+      posted.push(Array.isArray(text) ? text.map((l) => typeof l === 'string' ? l : l.text).join('/') : String(text));
       return (post as (...a: unknown[]) => unknown)(text, ...rest);
     }) as typeof hud.postMessage;
     server({ type: 'roundStart', round: 1, seconds: 360, wins: { seal: 0, terrorist: 0 }, rounds: 11, epoch: 1, startTick: 0 });
@@ -172,8 +172,8 @@ describe('the kill line of a grenade whose thrower has left (review 2, m-13)', (
     const posted: string[] = [];
     const hud = (net as unknown as { deps: { hud: Hud } }).deps.hud;
     const post = hud.postMessage.bind(hud);
-    hud.postMessage = ((text: string | readonly string[], ...rest: unknown[]) => {
-      posted.push(Array.isArray(text) ? text.join('/') : String(text));
+    hud.postMessage = ((text: string | readonly (string | { text: string })[], ...rest: unknown[]) => {
+      posted.push(Array.isArray(text) ? text.map((l) => typeof l === 'string' ? l : l.text).join('/') : String(text));
       return (post as (...a: unknown[]) => unknown)(text, ...rest);
     }) as typeof hud.postMessage;
     server({ type: 'kill', killer: null, victim: 1, weapon: 'M67', how: 'orphan', killerName: 'Alpha', clip: null } as unknown as ServerEvent);
@@ -464,6 +464,21 @@ describe('the Volitile charges reach the page (PF-36, research 235 s5)', () => {
     seen.length = 0;
     server({ type: 'grenade', id: 2, kind: 'Claymore', from: [1, 2, 3], velocity: [0, 0, 0], pid: 9 } as ServerEvent);
     expect(seen).toEqual([]);
+  });
+
+  // R4P-224 (research 235 s10.3): the room's removal of a dead owner's claymore or PMN in a respawn game (no blast).
+  it('R4P-224: chargeGone reaches the removeProjectile dep with its pid; a page without the dep ignores it, as an older page does (the switch default)', () => {
+    const { net, server } = page();
+    const deps = (net as unknown as { deps: NetPageDeps & { removeProjectile?: (pid: number) => void } }).deps;
+    expect(() => server({ type: 'chargeGone', pid: 4 } as unknown as ServerEvent)).not.toThrow();   // no dep: nothing
+    const seen: unknown[][] = [];
+    deps.removeProjectile = (...a) => { seen.push(['gone', ...a]); };
+    deps.detonateProjectile = (...a) => { seen.push(['detonate', ...a]); };
+    server({ type: 'chargeGone', pid: 7 } as unknown as ServerEvent);
+    expect(seen).toEqual([['gone', 7]]);
+    // An event type the page does not know reaches the switch's default: ignored, nothing thrown.
+    expect(() => server({ type: 'noSuchEventYet', pid: 7 } as unknown as ServerEvent)).not.toThrow();
+    expect(seen).toEqual([['gone', 7]]);
   });
 
   it('a page built without tagOwnProjectile or detonateProjectile ignores placed and detonate (each dep optional)', () => {
@@ -893,6 +908,31 @@ describe('ROUND_END_EFFECTS_READING: the page stops its effects ENGINE_READ_S af
       server({ type: 'roundOver', ...result, round: 2 } as ServerEvent);
       now += ENGINE_READ_S * 1000; frame();
       expect(cleared).toBe(2);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
+  it('ROUND_END_CAMERA_FOV_READING (R4P-234b): the view unzoomed at the same moment, after the effects, once a result', () => {
+    let now = 1000;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    try {
+      const { net, server } = page();
+      const deps = (net as unknown as { deps: NetPageDeps }).deps;
+      const order: string[] = [];
+      deps.roundEndEffects = () => { order.push('effects'); };
+      deps.roundEndZoom = () => { order.push('zoom'); };
+      const frame = (): void => { server({ type: 'pong', t: now, tick: 0 } as ServerEvent); net.frame(1 / 60, {} as never, false); };
+      const result = { round: 1, winner: 'seal' as const, wins: { seal: 1, terrorist: 0 }, matchOver: false,
+        screens: [{ screen: 'roundComplete' as const, seconds: ROUND_COMPLETE_S }] };
+      for (let i = 0; i < 5; i++) { now += 1000; frame(); }
+      server({ type: 'roundOver', ...result } as ServerEvent);
+      now += ENGINE_READ_S * 1000 - 1; frame();
+      expect(order).toEqual([]);                                 // a millisecond short: the zoom still drawn
+      now += 1; frame();
+      expect(order).toEqual(['effects', 'zoom']);                // the round end's call: unzoomed
+      for (let i = 0; i < 10; i++) { now += 500; frame(); }
+      expect(order).toEqual(['effects', 'zoom']);                // once
     } finally {
       clock.mockRestore();
     }

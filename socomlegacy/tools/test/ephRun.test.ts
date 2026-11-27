@@ -369,6 +369,10 @@ interface FakeOpts {
   readonly prepareFails?: boolean;
   readonly outDirExists?: boolean;
   readonly padSetHangs?: boolean;
+  /** LATER 1165 (d): how many ticks after its due tick the page lands the write of a script line (default 0). */
+  readonly landLate?: (line: number) => number;
+  /** LATER 1165 (d) review F2: the page's walk tick never advances (a page frozen under the run). */
+  readonly pageClockStops?: boolean;
   /** Sleeps of these ms wait on their gate (released by hand) instead of passing at once on the virtual clock. */
   readonly gated?: readonly number[];
   readonly browserCloseGated?: boolean;
@@ -392,7 +396,7 @@ function fakeHost(o: FakeOpts = {}) {
   let wall = 0;
   const h = {
     log: [] as string[], errors: [] as string[], files: new Map<string, string>(), handlers: new Map<string, () => void>(),
-    kills: [] as string[], exits: [] as number[], pads: [] as string[], writeTicks: [] as number[], keys: [] as string[], batches: [] as string[], steps: [] as string[], waited: [] as string[],
+    kills: [] as string[], exits: [] as number[], pads: [] as string[], writeTicks: [] as number[], schedules: [] as unknown[][][], keys: [] as string[], batches: [] as string[], steps: [] as string[], waited: [] as string[],
     sstates: [...(o.sstates ?? [])], removed: [] as string[], evals: [] as string[], ffmpegArgs: [] as string[][], ffmpegs: [] as FakeChild[],
     saved: [] as number[], order: [] as string[], launched: 0, browserClosed: 0, pineClosed: 0, windowsClosed: 0,
     pcsx2: new FakeChild(false), ffmpeg: new FakeChild(true),
@@ -442,6 +446,16 @@ function fakeHost(o: FakeOpts = {}) {
       if (expr.includes('ephPause')) { h.evals.push(expr); return undefined; }
       if (expr.includes('__ephRealPads')) return o.pad ? o.pad() : null;
       if (expr.includes('loading()')) return { viewer: true, walking: true, loadingBlocked: Boolean(o.pageHeld), armoryOpen: false };
+      // LATER 1165 (d): the whole script handed in once; the log lands each write at its due tick (+ `landLate`).
+      if (expr.includes('__ephPadSchedule')) {
+        if (o.padSetHangs) return new Promise(() => undefined);
+        const list = JSON.parse(expr.slice(expr.indexOf('(') + 1, expr.lastIndexOf(')'))) as unknown[][];
+        h.schedules.push(list);
+        return list.length;
+      }
+      if (expr.includes('__ephPadLog')) {
+        return h.schedules.flat().map((e) => [e[5], e[0], (e[0] as number) + (o.landLate?.(e[5] as number) ?? 0), e[6]]);
+      }
       if (expr.includes('__ephPadWrite')) {
         if (o.padSetHangs) return new Promise(() => undefined);
         h.pads.push(expr);
@@ -450,8 +464,8 @@ function fakeHost(o: FakeOpts = {}) {
         h.writeTicks.push(at);
         return at;
       }
-      if (expr === PAGE_TICK_EXPRESSION) return pageTick++;
-      if (expr.includes('ephFrame')) return { tick: pageTick++, stance: o.pageStance ?? 'crouch', posture: o.pageStance ?? 'crouch', action: null };
+      if (expr === PAGE_TICK_EXPRESSION) return o.pageClockStops ? pageTick : pageTick++;
+      if (expr.includes('ephFrame')) return { tick: o.pageClockStops ? pageTick : pageTick++, stance: o.pageStance ?? 'crouch', posture: o.pageStance ?? 'crouch', action: null };
       if (expr.includes('__ephPadSet')) {
         if (o.padSetHangs) return new Promise(() => undefined);
         h.pads.push(expr);
@@ -723,7 +737,7 @@ describe('liveRun over a fake host', () => {
     expect(h.ffmpeg.written).toEqual(['q']);
     expect(h.kills).toEqual(['pcsx2']);
     expect([h.browserClosed, h.pineClosed]).toEqual([1, 1]);
-    expect([...h.files.keys()].sort()).toEqual(['events.srt', 'page.csv', 'pcsx2.csv', 'record.json', 'run-question.csv', 'script.txt']);
+    expect([...h.files.keys()].sort()).toEqual(['events.srt', 'page-ticks.csv', 'page.csv', 'pcsx2.csv', 'record.json', 'run-question.csv', 'script.txt']);   // LATER 1165 (c): page-ticks.csv
     const rec = recordOf(h);
     expect(rec.outcome).toMatch(/^interrupted/);
     expect(rec.events.map((e) => e.line)).toEqual([1, 2]);
@@ -1081,30 +1095,61 @@ describe('liveRun: the stop order, the forced exit and the failures of the fold 
     expect(() => hostDeps('linux')).toThrow(/Windows-only.*createKeyInjector.*pineSocketPath/);
   });
 
-  it('hunt D4/M5: a same-ms release and press on one axis reach the page as ONE write of the final value', async () => {
+  it('hunt D4/M5: a same-ms release and press on one axis reach the page as ONE write of the final value (LATER 1165 (d): in the one schedule)', async () => {
     const { h, deps } = fakeHost();
     await liveRun(planRun(runArgs('--tail-ms', '100'), scriptCtx('0 lleft 1\n300 lleft 0\n300 lright 1\n')), deps);
     expect(recordOf(h).outcome).toBe('complete');
-    expect(h.pads).toHaveLength(2);
-    expect(h.pads[1]).toContain('["axis",0,false,1]');
-    expect(h.pads[1]).not.toContain('["axis",0,false,0]');
+    expect(h.pads).toEqual([]);                                   // no per-event write in script mode
+    expect(h.schedules).toHaveLength(1);
+    const due = [...new Set(h.schedules[0]!.map((e) => e[0]))];
+    expect(due).toHaveLength(2);
+    const second = h.schedules[0]!.filter((e) => e[0] === due[1] && e[1] === 'axis' && e[2] === 0);
+    expect(second.map((e) => e[4])).toEqual([1]);
   });
 
-  it('hunt M4: a page event is stamped from the tick the write was applied on, not the last sampled row', async () => {
-    const { h, deps } = fakeHost();
+  it('hunt M4 / LATER 1165 (d): a page event is stamped from the tick the page logged it landed on', async () => {
+    const { h, deps } = fakeHost({ landLate: (line) => (line === 2 ? 1 : 0) });
     await liveRun(planRun(runArgs('--tail-ms', '100'), scriptCtx('0 lup 1\n300 lup 0\n300 square 1\n')), deps);
     const rec = recordOf(h) as unknown as { tick0: number; events: { line: number; pageLateMs: number | null }[] };
-    expect(h.writeTicks).toHaveLength(2);
-    const at = (h.writeTicks[1]! + 1 - rec.tick0) * FRAME_MS;
+    const due = h.schedules[0]!.find((e) => e[5] === 2)![0] as number;
+    expect(due).toBe(rec.tick0 + Math.ceil(300 / FRAME_MS - 1e-9) + 1);
+    const at = (due + 1 - rec.tick0) * FRAME_MS;                  // landed one tick late
     expect(rec.events.find((e) => e.line === 2)!.pageLateMs).toBeCloseTo(at - 300, 6);
     expect(rec.events.find((e) => e.line === 3)!.pageLateMs).toBeCloseTo(at - 300, 6);
   });
 
-  it('a page setPad that never settles ends at SCRIPT_CLOCK_STALL_MS with the record written', async () => {
+  it("LATER 1165 (d): record.json lists each page event's scheduled and landed tick, and counts the ones a tick late", async () => {
+    const { h, deps } = fakeHost({ landLate: (line) => (line === 2 ? 1 : 0) });
+    await liveRun(planRun(runArgs('--tail-ms', '100'), scriptCtx('0 lup 1\n300 lup 0\n300 square 1\n')), deps);
+    const s = (recordOf(h) as unknown as { pageSchedule: { mode: string; events: { line: number; lateTicks: number }[]; onTick: number; late1: number; lateMore: number } }).pageSchedule;
+    expect(s.mode).toBe('pageTicks');
+    expect(s.events.map((e) => [e.line, e.lateTicks])).toEqual([[1, 0], [2, 1], [3, 1]]);
+    expect([s.onTick, s.late1, s.lateMore]).toEqual([1, 2, 0]);
+  });
+
+  it("LATER 1165 (d) review F1: a light Triangle's crouch down and up (one script line, two writes) each keep their own landed tick", async () => {
+    const { h, deps } = fakeHost({ landLate: () => 0 });
+    await liveRun(planRun(runArgs('--tail-ms', '100'), ctx()), deps);     // SCRIPT: a full Triangle, then a light one
+    const s = (recordOf(h) as unknown as { pageSchedule: { events: { line: number; scheduledTick: number; landedTick: number; lateTicks: number }[]; onTick: number; late1: number; lateMore: number; unlanded: number } }).pageSchedule;
+    const light = s.events.filter((e) => e.line === s.events[s.events.length - 1]!.line);
+    expect(light).toHaveLength(2);                                            // the down (t - lead) and the up (t)
+    expect(light[0]!.scheduledTick).toBeLessThan(light[1]!.scheduledTick);
+    for (const e of s.events) expect(e.lateTicks, `line ${e.line} tick ${e.scheduledTick}`).toBe(0);
+    expect(s.onTick + s.late1 + s.lateMore).toBe(s.events.length);
+    expect(s.unlanded).toBe(0);
+  });
+
+  it('LATER 1165 (d) review F2: a page whose clock stands short of the last event fails the run, as the old page timeline did', async () => {
+    const { h, deps } = fakeHost({ pageClockStops: true });
+    await expect(liveRun(planRun(runArgs('--tail-ms', '100'), ctx()), deps)).rejects.toThrow(/EPH run: the page's clock stood at tick \d+ for/);
+    expect(recordOf(h).outcome).toMatch(/^failed: EPH run: the page's clock stood/);
+  });
+
+  it('a page that never takes the schedule ends at SCRIPT_CLOCK_STALL_MS with the record written', async () => {
     const { h, deps } = fakeHost({ padSetHangs: true });
     await expect(liveRun(planRun(runArgs(), ctx()), deps))
-      .rejects.toThrow(`EPH timeline: firing script line 2 did not settle in ${SCRIPT_CLOCK_STALL_MS} ms of wall time`);
-    expect(recordOf(h).outcome).toMatch(/^failed: EPH timeline: firing script line 2/);
+      .rejects.toThrow(`EPH run: the page did not take the script's schedule in ${SCRIPT_CLOCK_STALL_MS} ms of wall time`);
+    expect(recordOf(h).outcome).toMatch(/^failed: EPH run: the page did not take the script's schedule/);
     expect(h.kills).toEqual(['pcsx2']);
   });
 });

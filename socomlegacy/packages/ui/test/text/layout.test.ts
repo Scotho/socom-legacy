@@ -65,16 +65,38 @@ describe('FUN_003635c0: a line\'s quads', () => {
     expect([c.quads[1]!.left, c.quads[3]!.left]).toEqual([90, 99]);
   });
 
-  it('#B toggles the bright alpha (x 1.5) and the glyph before it advances by the B\'s width (FUN_003625e0)', () => {
+  // R4P-237 / LEADS L355 (r0004; a reading, pending review): bright text is enabled only while a CWrappedText bound to
+  // the UIVAR `UsagePolicy` draws (FUN_003979e0 0x397a78-0x397aa8, cleared 0x397eac). With it off, `#B` is not
+  // recognised at a glyph start (SeekGlyph 0x37fcb0-0x37fcd0) nor after a glyph (Advance 0x380104-0x380170): `#` and `B`
+  // are drawn as glyphs with their widths; the start state is forced off (ctor 0x380230-0x380250) and there is no 1.5x
+  // (ctor 0x3802e4-0x3802f4, Advance 0x37fe9c-0x37feac).
+  it('bright off (the default, r0004): A#BA draws four glyphs, # and B with their widths, at one alpha', () => {
     const b = layoutText(f, engineCodes('A#BA'), 100, 200, plain);
+    // '#' W 8 steps int(7.5) = 7; 'B' (fixtures.ts: W 11, DispPos.x -1) steps 9: pens 100, 110, 117, 126, 136.
+    expect(b.quads.map((q) => [q.code, q.left, q.rgba[3]])).toEqual([
+      [65, 101, 96], [65, 100, 128], [35, 111, 96], [35, 110, 128], [66, 117, 96], [66, 116, 128], [65, 127, 96], [65, 126, 128],
+    ]);
+    expect(b.pen).toEqual({ x: 136, y: 200 });
+    expect(b.measure.width).toBe(36);
+    expect(layoutText(f, engineCodes('#BA'), 100, 200, plain).quads.map((q) => [q.code, q.rgba[3]])).toEqual([[35, 96], [35, 128], [66, 96], [66, 128], [65, 96], [65, 128]]);
+  });
+
+  it('bright off forces the start state off: a line carried in bold draws at the plain alpha (r0004 ctor 0x380230-0x380250)', () => {
+    expect(layoutText(f, engineCodes('A'), 100, 200, { ...plain, bold: true }).quads.map((q) => q.rgba[3])).toEqual([96, 128]);
+  });
+
+  it('bright on: #B toggles the bright alpha (x 1.5) and the glyph before it advances by the B\'s width (FUN_003625e0)', () => {
+    const on: TextStyle = { ...plain, brightEnabled: true };
+    const b = layoutText(f, engineCodes('A#BA'), 100, 200, on);
     expect(b.quads.map((q) => [q.left, q.rgba[3]])).toEqual([[101, 96], [100, 128], [110, 96], [109, 192]]);
-    expect(layoutText(f, engineCodes('#BA'), 100, 200, plain).quads.map((q) => q.rgba[3])).toEqual([96, 192]);
+    expect(layoutText(f, engineCodes('#BA'), 100, 200, on).quads.map((q) => q.rgba[3])).toEqual([96, 192]);
+    expect(layoutText(f, engineCodes('A'), 100, 200, { ...on, bold: true }).quads.map((q) => q.rgba[3])).toEqual([96, 192]);
   });
 
   it('the colour words reach the GS as the low bytes of a PACKED RGBAQ: an alpha under 0 is 256 + int(alpha) (FUN_00361bd0, BOOT-06)', () => {
     // FUN_003635c0's colour words are int(float) (D:L260695-260705), copied into a PACKED packet whose registers are
     // 0x531 (RGBAQ, UV, XYZ2; D:L260266-260269), which keeps bits 7:0 of each word: -6.14 -> -6 -> 250 (research 141 section 2).
-    const n = layoutText(f, engineCodes('A#BA'), 100, 200, { ...plain, alpha: -6.14 });
+    const n = layoutText(f, engineCodes('A#BA'), 100, 200, { ...plain, alpha: -6.14, brightEnabled: true });
     expect(n.quads.map((q) => [q.shadow, q.rgba[3]])).toEqual([[true, 250], [false, 250], [true, 250], [false, 247]]);
     expect(layoutText(f, engineCodes('A'), 100, 200, { ...plain, alpha: -0.9 }).quads.map((q) => q.rgba[3])).toEqual([0, 0]);
   });

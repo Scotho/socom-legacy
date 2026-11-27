@@ -96,14 +96,17 @@ fire, radius, target-health eligibility, C4 shielding ..."; "replacing every che
 shortcut is insufficient"): the explosion radius, the fragments' law and the knock (`resolveBlast`), the friendly-fire
 gate (`ffRefuses`, PF-22), the scene's shield and health (`blastAt`, `c4TargetAt`), the backblast's and the claymore's
 cones (`reaches`), the direct hit (`directHit`), the flight's collision (`stepGrenade`). The flag is read by name at
-the two lines above and nowhere else. Held by `roomBlast.test.ts` ("the bit changes nothing else: ..."): a flagged C4
-hurts no one outside its radius behind the wall, spares the planter's mate behind the wall with friendly fire off,
-and in the open gives the same `blast` and `hurt` events and health, to the draw, as the unflagged record. This test
-holds an invariance: it was green before the change as after.
+the two lines above (`blast()`'s `seen`, now in `blastPlayers`, and `sceneBlast`), at two more in the room -- the
+hostages' line (`blastHostages`) and a resting charge's (`blastCharges`, below) -- and at one on the page (below);
+nowhere else. Held by `roomBlast.test.ts` ("the bit changes nothing else: ..."): a flagged C4 hurts no one outside its
+radius behind the wall, spares the planter's mate behind the wall with friendly fire off, and in the open gives the
+same `blast` and `hurt` events and health, to the draw, as the unflagged record. This test holds an invariance: it was
+green before the change as after.
 
-**The page.** `viewer/src/grenade.ts`'s own blast look (`damageAt`, the ring on the local body) runs no sight test
-(no `segmentHit` or `seen` in the file), so it carries nothing; `resolveBlast`'s signature is unchanged (PF-23's
-parked branch edits `blast.ts`).
+**The page.** `viewer/src/grenade.ts`'s own blast look (`damageAt`, the ring on the local body) runs no sight test (no
+`segmentHit` or `seen` in the file), so it carries nothing; the page's offline blast on the scene's health
+(`viewer/src/grenadeCore.ts`, `blastAt`'s `clear`) skips its line for the flag, as the room's `sceneBlast` does;
+`resolveBlast`'s signature is unchanged (PF-23's parked branch edits `blast.ts`).
 
 **The planted bomb.** `bombBlast` (XR-08, 213 §5) is a *scene* blast of MPBOMB's record (MPBOMB Ammo, 19): that round has
 no `IgnoreExplosionDI` on the disc, so its line test stands for every destructible, the two demolition bases included:
@@ -267,7 +270,7 @@ review of d76fc4ac).
 
 | name | where | status |
 |---|---|---|
-| `IGNORE_EXPLOSION_DI_READING` | scene `projectile.ts` (`room.ts` `blast`, `sceneBlast`) | `'both blast consumers'`: `FUN_005a0e70` D:L459192-459193's veto and `FUN_003c80e0` D:L319096-319143's material loop, nothing else (§1-§2; was research 94's *note only* row). Owed: capture B (C4 on a barrier with a SEAL behind it: projectile `+5`, the queued ray's hits and the damage recorded) |
+| `IGNORE_EXPLOSION_DI_READING` | scene `projectile.ts` (`room.ts` `blastPlayers`, `blastHostages`, `blastCharges`, `sceneBlast`; viewer `grenadeCore.ts`'s offline `blastAt`) | `'both blast consumers'`: `FUN_005a0e70` D:L459192-459193's veto and `FUN_003c80e0` D:L319096-319143's material loop, nothing else (§1-§2; was research 94's *note only* row). Owed: capture B (C4 on a barrier with a SEAL behind it: projectile `+5`, the queued ray's hits and the damage recorded) |
 | `EXPLOSION_SCRIPT_FLAG_READING` (*note only*) | -- | a FIRE_WEAPON's explosion may set the bit through `FUN_003c82f0` (caller `FUN_0025ccb0` D:L107319); the port's scene-run explosions carry none. Owed: read (the writers of the call's argument) |
 | `MATERIAL_ATTENUATION_PLACEHOLDER` (*note only*; named in viewer `sceneHealth.ts`'s doc) | -- | resolved 2026-10-16 (AD-5, 209 §13-§14): the collision-material loop of `FUN_003c80e0` is read (D:L319096-319143; the target node and its `+0x94` object's nodes skipped, D:L319104-319108) and built as `blastLine` / `reachGate`, which the room's `sceneBlast` takes; the flag skips it. *Was*: the port did not have it, `SCENE_BLAST_REACH_PLACEHOLDER`'s clear line stood in for it |
 | `VOLATILE_READING` | scene `projectile.ts` (`room.ts` `fire`, `blast`, `chargeHit`) | `'damage queues a detonation'`: ammo `+0x28 & 1` (`FUN_003d4400` D:L326522-326525; Claymore Ammo 17, PMN Ammo 44), the interface bound (`FUN_003caf60` L320625-320646), its callback `FUN_003c69c0` reached by a round and a blast (§3-§4; was research 94's *note only* row, resolved there). Owed: capture B (a claymore shot, a PMN in a blast) |
@@ -365,6 +368,36 @@ its room announces trips). Either order ends in one explosion: `detonateRemote` 
 The placer's OWN copy takes the room's `detonate` only once `tagOwn` has given it the room's pid (its launch point
 matched within 0.01, `OWN_PID_READING`); if it does not match, the room's message is ignored and the page's own trip
 still sets the copy off, as today.
+
+**The page half, built (LATER 930, 2026-11-20; reading, pending review).** Online the page no longer trips any PMN copy
+itself: `GrenadeCore`'s `fly` and `startAged` (viewer `grenadeCore.ts`, under both `GrenadeThrower` and the Xbox page's
+`walkingGrenades`) skip `proximityTripped` while `online()` (`roomTrips`), so the room's
+`detonate` is the one trip; offline (no room) the page still trips its copies. The page knows its room announces trips
+without a welcome field: every host runs v0.4.27 (the main controller, 2026-11-20; central's version check refuses an
+older host), and MINES-ROOM shipped in v0.4.20. The false trips it ends: the page's own corpse's feet (the original's dead
+never trip, `FUN_00550ef0` D:L418112-418114) and any snapshot body the room does not test. The room's trip origins are
+the living players and the targetable hostages (`room.ts` `flyGrenades`' `living()`, `PMN_HOSTAGE_TRIP_READING`), so a
+hostage still trips a PMN online, through the room. A consequence: the placer's own copy left untagged (no `placed`
+matched within 0.01) is set off by nothing online. Held by: viewer `test/grenade.test.ts` "RED: LATER 930" (two) and
+"LATER 930 -- offline"; `test/xboxWalkingGrenades.test.ts` "RED: LATER 930" (the Xbox page). Not covered (the review's F1): a replay's page is online (its NetPage) with no room, so a recording made
+before v0.4.20 -- no `detonate` recorded for a PMN's trip -- no longer shows its PMNs go off while it plays; the fold's
+snapshot trip (`REPLAY_PMN_TRIP_READING`) serves a seek only. Its own row is owed.
+Also not covered (the mines re-cut review's A-F1, 2026-11-22): the Xbox page's source answers `online: () => true`
+unconditionally (`xboxPrototype/walkingGrenades.ts` ~:129) while its runtime can mount with no room
+(`walkingRuntime.ts` ~:73-79), so there no PMN copy is tripped by anyone. Moot if no charge can be placed on that
+page without a client (`ThrowWire`'s `client()` throws with none, `walkingGrenades.ts` ~:159); not established. The
+page is frozen (ENGINE-CONVERGENCE): named here, not changed.
+
+**A refused placement, told (LATER 929, 2026-11-20; product track: the telling only).** The room's refusals of a placed
+claymore or PMN that an honest page reaches after it drew and spent the charge (net cap, charges down, wading, ground,
+hand far, hand walled) now send `stale` (request 'throw', its seq), as `launchRocket`'s do (LATER 503). The page's
+`giveBack` takes back the oldest pid-less own copy of that kind and, with no claymore of its own left down, lowers the
+Detonator. The refusals' rules are unchanged (`START_REACH_PLACEHOLDER`, `CHARGE_HAND_HEIGHT_PLACEHOLDER` stand); C4's
+refusals stay untold, and so does 'not alive' (a page dead with its placement in flight keeps its drawn copy; the
+review's F4, a dead page's drawing only). Two races are left (the review's F3): an accepted copy that `placed` never tags
+(its point off by more than 0.01) is the oldest pid-less copy and would be taken in place of the refused one; and a
+refused copy already set off on the page is not taken back. Held by: match `test/roomEquipment.test.ts` "LATER 929" (two); viewer `test/grenade.test.ts`
+"LATER 929" (two) and `test/xboxWalkingGrenades.test.ts` "RED: LATER 929" (the Xbox page's `staleThrow` -> `giveBack`).
 The replay folds the recorded `detonate` (`fold.ts` `foldCharge`: a charge's set-off at its tick, once) and a replay
 played on sets its copy off at the event; `REPLAY_PMN_TRIP_READING` (the fold's trip off the snapshots, for a recording
 made before this change) stands.
@@ -376,3 +409,165 @@ cases -- the claymore laid first, two PMNs one walk-in trips: one `detonate` per
 viewer `test/grenade.test.ts` "a PMN tripped by the page and by the room's `detonate`" (either order: one explosion, no
 throw, no copy left at rest; the placer's own copy, tagged and untagged), `test/replayAir.test.ts` "the PMN's trip in a replay". Owed: a two-client run with a
 spectator (A places, B walks on, C watches: A and C see the explosion), and the H2-H4 rows (LATER 929-931).
+
+## 9. A reloaded page's own charges, and a recycled id (LATER 931, 2026-11-22)
+
+- Status: **reading, pending review** (the first build's fresh review FAILED on B-F1; this is its fix). Source
+  inspection and unit tests; no capture, no browser run, no two-client run; no game or emulator was run.
+- Sources: the mines investigation of 2026-11-12 (`agent-mail/evidence/mines-investigation-2026-11-12/REPORT.md`, H4,
+  Fix C; outside the repository); the mines re-cut's fresh review, part (B) (`agent-mail/planning/mega-2026-11-21/pilot/kill/keyjob-mines-review.md`,
+  outside the repository); match `room.ts` (`DEPARTED_CHARGES_READING`, `TAKEOVER_ROW_READING`, `thrower`, `seat`,
+  `handBack`), `server.ts` `freeId`.
+
+**The page's half (the first build, unchanged).** A page's welcome lays the join envelope's projectiles
+(`applyJoinState`); `netPage.joinSinks` now tells the hydrate `own` when the entry's owner is the page's own id, and
+`GrenadeCore.hydrateLive` lays such a copy `remote: !own`. So after a reload the seat's own claymores are its own again:
+`claymoresDown()` counts them and the Detonator can be taken up and sets them off -- the original keeps the Detonator
+while its owner has a claymore down (`FUN_003cc1f0` D:L321194-321210, `FUN_005bdc30` D:L474637-474641). Every own
+projectile so named is the page's own, not the claymore alone, with these side effects, each the same as a page that
+never reloaded: the copies count toward the net cap (`netCapRefused`, `NET_CAP_READING`), an own C4 shows its fuse bar
+(`C4_FUSE_BAR_SELECTION_ADAPTATION`), and an own rocket's fly-by is skipped (`rocketPast`).
+
+**The recycled id (B-F1, the fix).** An id is not a person: the server hands ids lowest-first (`server.ts` `freeId`), so
+the id a leaver frees is the next joiner's likeliest, and a departed player's charges stay in the room, no one's
+(`DEPARTED_CHARGES_READING`). The first build compared the envelope's owner id with the page's own, so a new page handed
+a leaver's id took his claymores as its own: its cap of four spent, and its Detonator setting off its copies while the
+room, counting none for it, set nothing off -- the room's claymores left armed and unseen. The room now names an owner
+in the envelope only while the projectile's thrower is that live seat (`Room.joinWire` through `thrower`, the room's own
+rule for a kill's credit); otherwise the owner is `JOIN_ORPHAN_OWNER` (match `joinState.ts`; the field stays a number, no shape change, no
+protocol bump). Its value is -2, a value no page ever holds as its own id: the server hands members 1..`MEMBER_ID_CAP`
+(`server.ts` `freeId`), a page's id is 0 before its welcome (viewer `net/client.ts` `NetClient.id`) and the replay
+page's is -1 (`replay/replayClient.ts` `REPLAY_WATCHER_ID`, which runs the same `joinSinks(id)`). The first build's -1
+was the watcher's id (the re-review's F1); match `test/joinState.test.ts` "LATER 931 F1" pins the value against all
+three. The replay fold builds its own envelope from the recorded `grenade` events (`replay/fold.ts`, `owner: ev.id`),
+so a replay names a departed thrower's recorded id where the room names -2; no reader is affected today, the watcher
+being neither (the re-review's F6). The room's seats keep their charges as follows, and the
+envelope now agrees with each: a takeover (`takeOver` -> `seat`) re-points the seat's projectiles to its new body before
+the welcome, so they name the new id; a parked seat resumed (`handBack`, OT.R59) is the same player, so they name it; a
+leave and a later hello (a clean close outside the park, or a new page on the id) gets nothing back -- the charges are no
+one's in the room and now on the page. The same rule covers the PF-28 `ownHeld` skip (`netPage.joinSinks`): an orphan's
+entry no longer carries a reused id the page could mistake for its own and drop. The page itself is unchanged by the fix.
+
+**Left as it stands.** (B-F3) After a reload the page holds its own again (`ownLive()` true), so a later in-page
+reconnect's envelope skips the seat's own entries rather than replacing them by pid: an own charge the room removed while
+the page was away stays drawn. That is PF-28's standing behaviour for a page that never reloaded, not a regression
+against it. (B-F4) `own` cannot be lost to a missing state: `applyJoinState` gives every entry its phase with a state.
+(B-F5) The Xbox page gets none of this: it has no join catch-up (`walkingGrenades.ts` reports projectiles in the air at a
+join unsupported, and its welcome clears the air). A related pre-existing gap, not this change's, and real (traced on
+both sides by the re-review, its answer 3): a page that was already in the room when a player left keeps the leaver's
+copies under his id (the `left` event, `netPage.ts` ~2192, forgets his body, team and votes but none of his grenades);
+if a later joiner is handed that id, takes a claymore and fires a Detonator, the room triggers only its own owner's
+(`f.owner === p`, none for him) yet tells every page the Detonator unconditionally (`room.ts` `detonate` ~9327), and that
+page's `launchRemote('Detonator')` sets off every remote claymore at rest under that owner id within reach
+(`grenadeCore.ts` ~2109): the leaver's copies go off on that page while the room's stay armed, unseen there. The replay
+fold has the same rule (`fold.ts` ~479, `c.owner === ev.id`). Its twin after a takeover: the pages already in the room
+hold the seat's copies under its old id, so the seat's Detonator under its new id matches none of them there, and a later
+joiner handed the old id matches them instead. Not 931's (it needs no reload and no hydrate; it is the M7 Detonator's
+id-keyed telling); 931's fix narrows it, a page joining after the leave holding the copies under -2. Filed as its own
+LATER row (the re-review's F2, numbered by the merge seat).
+
+Held by: match `test/roomEquipment.test.ts` "LATER 931 B-F1" (a recycled id's welcome names no owner for the departed's
+claymore and PMN; the takeover control names the new id; the resumed seat's control, F4, names its own id; "B-F1
+joined", F3, lays the room's real welcome through the page's `NetPage` into a `GrenadeThrower`: none counted down, the
+Detonator refused); match `test/joinState.test.ts` "LATER 931 F1" (the value is no page's id); viewer `test/netPageJoin.test.ts` "LATER 931" (the reloaded
+page's own claymore counted and fired; an orphan's four claymores counted none, the Detonator refused; the `ownHeld` skip
+passing an orphan's; the own hydrate's state) and `test/grenade.test.ts` "RED: LATER 931".
+
+## 10. Placed charges: a deactivated node, the PMN's support check, a dead owner's mines (R4P-224, 2026-11-24)
+
+R4P-224 of the r0004 parity sprint (R4-EXP-PLACED; leads L131 and L148 of `../atlas/LEADS.md`; simulation track).
+Status: **reading, pending review** -- the r0001 lines re-read at the source by the implementer; the r0004 lines are the
+brief's and the leads' (the r0004 export is not on the implementer's host). Nothing here is a capture. Lead L132 (a
+placed charge's model darkened by the AI map's shadow) is the same item's third row and is not built here: it is the
+page's drawing, not the room's (§10.3).
+
+### 10.1 A dead owner's claymores and PMNs (L148)
+
+r0001's dead controller `FUN_00592560`, online (`DAT_0045a0c1`), takes the death's age as the game clock less the body's
+`+0xfb4` and, when it is strictly over 5.0 with the game's respawn byte `+0xdc` set, calls `FUN_005b88c0` on the kit
+every frame (D:L451696-451697). That calls the placed list's clear `FUN_003cceb0` twice on the list whose pointer is
+held at 0x4b5220 (`DAT_004b5220`), for item 0x99 (the claymore) and item 0x9e (the PMN), by the kit owner's word
+(`*(kit + 0x830) + 4`; D:L471683-471696); the clear matches each listed projectile's owner word `+0xac` and its record's
+item byte `+0x7c`, writes state 3, calls `FUN_003c7170` (D:L321674) and frees it -- no blast (D:L321661-321679).
+`FUN_003c7170` is gated on the entry's own bits: it goes on to `FUN_002c1420` only with `+4` bit 0x04 set, `+4` bit 0x10
+clear and the subtype `+9` neither 1 nor 2 (D:L318487-318496; the gate `VOLATILE_SENDER_GATE_READING` names, §6). And
+at state 3 `FUN_002c1420` sends no data: it frees the entry's net object (`FUN_00623470`, the net layer's object free --
+NetFreeObject by the second read; D:L163633-163635). That the other consoles' copies then vanish is INFERRED from the
+net object's free, not read on their side and not captured. r0004: the callee `0x005bee90` unchanged (masked), the
+caller `0x00597d90` reading the respawn byte at 224 for 220; not compared.
+
+The only caller of `FUN_005b88c0` is the human seat's dead controller (`FUN_00592560`, `CSealCtrl::PostMortemPreTick`
+by the second read), so in the original an AI seal's mines never clear this way.
+
+The room: `clearDeadOwnersMines` (`match/src/room.ts`), each tick before the flight, in a respawn room
+(`rules === 'respawn'`, the room's `+0xdc`, as `RoundOverReport.respawn`), takes every seated player dead (`diedAt`)
+strictly more than 5.0 s and removes his claymores and PMNs from the flight list (by the player object, as
+`claymoresDown`). C4, the satchel and every other projectile stay. A classic room keeps them all (its byte clear). Every
+room is a network game (`NET_CAP_READING`), so the online test holds. **CPU seats cleared as human seats (an
+adaptation):** the room makes no seat distinction, so a CPU seat's mines clear too. The original has no CPU seats
+online; a CPU seat is the port's stand-in for an online human player, so its mines clear as a human's would -- the
+port's choice, not the original's AI-seal behaviour (which never clears, above). Whether a CPU seat ever plants a
+claymore or a PMN is unchecked.
+
+**The second read** (patches-contrib, non-author, `pilot/shots/r4p224-mines.second-read.md`, 2026-11-24) upheld the
+behaviour: the strict 5.0 s (r0004 0x597ec0-0x597ecc; r0001 0x592690); the age as the mission timer less the body's
+`+0xfb4`, which the death writes (`OnDeath`, D:L413049) and the body's PreTick reads (D:L418511-418514); and the respawn
+gate `+0xdc` (r0004 `+0xe0`). Its three corrections are folded above (the wire gate and the inferred vanish, the human
+seat's caller, the list's pointer) and in §10.3.
+
+### 10.2 A deactivated node; the PMN's support check (L131)
+
+r0001's PostTick `FUN_003c5310`, for a projectile in state 1 with a node at `+0xcc`, no detonation request (`+0xc4`) and
+a record id of 153 (the claymore) or 151 (C4), walks from that node up its parents (`+100`) and sets the request at the
+first node whose active bit (`+0x5c` bit 0) is clear (D:L316834-316843). State 1 is `SetProjectile`'s (D:L320744); only a
+bounce writes 2 (D:L319683), so a charge laid with no speed keeps 1. `+0xcc` is the node the plant `FUN_005bc730` hands
+`SetWord` `FUN_003c5200` (D:L474023): the target ray's hit node for C4 (D:L476985), the column entry's node for the
+claymore and the PMN (D:L477010). r0004's `0x003e7490` adds the PMN (158) to the walk (D4:L342618-342628; the drift audit
+of 2026-11-23, Codex's read and the Claude (Opus) check): the PMN's support check. The satchel is never in it.
+
+The room: each placed charge keeps its node (`Flying.node`, `chargeNode`): C4 the throw's `surface.path`, the claymore and
+the PMN the collision owner of the world column's accepted surface nearest their point within
+`CHARGE_GROUND_SLACK_PLACEHOLDER`. At each game frame's start (`nodeWalk`, after the `Volitile` queue), a claymore, C4 or
+PMN at rest with no trigger whose node or an ancestor is inactive (`WorldState.isActive`) has its trigger set and goes off
+in that frame's step; the pages are told by the existing `detonate {pid, by: null}` (their `detonateRemote`), except C4,
+whose blast `flyFrame` tells already.
+
+### 10.3 Owed
+
+- **The pages' copies of a dead owner's mines -- built (2026-11-24, the coordinator's word for the page half; reading,
+  pending review).** The original's clear calls `FUN_003c7170` (D:L321674), gated on the entry's `+4` and `+9` bits
+  (§10.1); at state 3 its `FUN_002c1420` sends no data but frees the net object (`FUN_00623470`, D:L163633-163635), and
+  the other consoles' copies vanishing is inferred from that. The port's `chargeGone` models that effect -- an
+  adaptation of transport: the port's own wire, `PROTOCOL_VERSION` unchanged. The room
+  broadcasts the new optional event `chargeGone {pid}` (`viewer/src/net/protocol.ts`) for each charge
+  `clearDeadOwnersMines` removes -- every page, the spectators and the recorder. The page hands it to the optional dep
+  `removeProjectile` (`NetPage.event`, one case), which `matchThrow.ts` wires to `GrenadeCore.removeRemote`: the copy
+  leaves the live list with no blast, no sound and no mark, so it is neither drawn nor tripped (the owner's own page
+  included); the Xbox prototype's walking grenades the same. A late joiner's welcome (`joinWire`, from the flight list)
+  lists none, and the replay fold deletes the charge (`foldEvent`; `EVENT_CLASS.chargeGone` transient, as `detonate`), so a
+  seek's welcome lays none and no trip is folded after it. Additive wire: `PROTOCOL_VERSION` stays 19 (its history's rule:
+  an event an older page ignores keeps the version, as `roundRefused`); an older page reaches its switch's default and
+  ignores it, its copy then drawn as before. `removeProjectile` is not in `PART_DEPS.throwables` (an optional dep: a page
+  that does not hand it ignores the event); listing it there makes every throwables page owe it, a fixture change in
+  five tests -- left to the controller.
+- **L132's shadow** (`FUN_003c5310` D:L316844-316849): the page's drawing; not built.
+- **Captures** (the brief's proof): r0004, charges planted on a node a script then deactivates (a C4, a claymore, a PMN
+  and a satchel), the frame each goes off; r0004 online in a respawn game, a claymore and a PMN planted, the owner dead,
+  watched past 5 s dead.
+
+Held by: match `test/roomPlacedChargesR4P224.test.ts` (the respawn removal at 5.0 s and a tick, the classic control, the
+claymore's and the PMN's node, the floor control; `chargeGone` told to every page at the removal and never before, no
+`detonate`; a late joiner's welcome without the removed charges -- a CONTROL, not a red: committed among the page half's
+reds (6b7a30898b), it was already satisfied by the room's removal (22b71774da), the welcome being built from the flight
+list the removal leaves; the review's F2); viewer `test/chargeGoneR4P224.test.ts` (`removeRemote`:
+no explosion, no sound, a PMN not tripped after it; the fold) and `test/netPageRound.test.ts` "R4P-224" (the dispatch, an
+unknown type ignored), `test/matchThrow.test.ts` "R4P-224" (the mount's real `netDeps().removeProjectile` onto
+`removeRemote`; the review's F3).
+
+### 10.4 Readings
+
+| name | where | status |
+|---|---|---|
+| `DEAD_OWNER_MINES_CLEAR_READING` | match `room.ts` (`clearDeadOwnersMines`) | reading, pending review: `{ afterS: 5.0, items: [153, 158] }` -- in a respawn room a player dead strictly over 5.0 s loses his placed claymores and PMNs, removed with no blast; told to every page as `chargeGone {pid}`, an adaptation of transport modelling the inferred effect of the original's gated `FUN_003c7170` (D:L321674), whose `FUN_002c1420` at state 3 sends no data and frees the net object (`FUN_00623470`, D:L163633-163635); CPU seats cleared as human seats (an adaptation: the original clears the human seat's alone, `FUN_00592560`; whether a CPU seat plants one is unchecked) (§10.1, §10.3; `FUN_00592560` D:L451696-451697, `FUN_005b88c0` D:L471683-471696, `FUN_003cceb0` D:L321661-321679). Upheld by the second read (2026-11-24). Owed: the r0004 capture (§10.3) |
+| `CHARGE_NODE_DEACTIVATION_READING` | match `room.ts` (`nodeWalk`) | reading, pending review: `[153, 151, 158]` -- the placed charges an inactive node or ancestor sets off; r0001's 153 and 151 (`FUN_003c5310` D:L316834-316843), r0004's 158 (`0x003e7490` D4:L342618-342628, not re-read here); state 1 as the port's placed charge at rest (§10.2). Owed: the r0004 capture (§10.3) |
+| `CHARGE_NODE_PATH_READING` | match `room.ts` (`chargeNode`, `placeCharge`) | reading, pending review: C4's node the struck surface (D:L476985), the claymore's and the PMN's the column entry they sit on (D:L477010), as the hull polygon's collision owner (`GRENADE_CONTACT_NODE_READING`) within `CHARGE_GROUND_SLACK_PLACEHOLDER`. Owed: the original's own node for a charge on a multi-node surface |

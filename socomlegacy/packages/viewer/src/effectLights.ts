@@ -13,6 +13,7 @@ import { MODEL_PACK_DRAW } from './modelPackHook';
 import { effectBrighten } from './effectMaterials';
 import type { EffectTexture } from './effectData';
 import {hdTextures} from './hdTexturePack';
+import { LIGHT_MAP_ROW, nightLightRgb } from './nightVision';
 
 /**
  * The zAnim `LIGHT` command's dynamic light, drawn as the engine draws it (socomlegacy/docs/research/89 §10): not a light on the
@@ -34,6 +35,15 @@ import {hdTextures} from './hdTexturePack';
  */
 
 type Vec3 = [number, number, number];
+
+/**
+ * Which receivers VuLightMap folds through row 2 (`LIGHT_MAP_ROW`, LATER 1544): a `CMesh` (visual type 1). The SEAL's
+ * skinned body is one -- its buffer `MESH_<name>` is the `vtype` 1 visual of the model node (research 78 s2.5). The held
+ * weapon and the gear are taken as not one (row 0): a `vtype` 2 `CSubMesh` carries type 2 (`FUN_003b8cd0`), but the
+ * weapon models' own `vtype` is not read. The goggles set all four rows alike, so it changes nothing under them.
+ * Settled by reading the `vtype` key of `WEAP_GEO`'s visuals off the disc (research 89 s16).
+ */
+export const LIGHT_MAP_RECEIVER_ROW_READING = 'skinnedBodyOnly' as const;
 
 /** The lights drawn at once (the engine's per-node limit). */
 export const MAX_LIGHTS = 6;
@@ -166,6 +176,12 @@ export class EffectLights {
   private materials: { add: MeshBasicNodeMaterial; mix: MeshBasicNodeMaterial } | null = null;
   /** The two passes again for each instance count an overlay reads through its material (`sharedInstances`, IP4). */
   private instancedMaterials = new Map<number, { add: MeshBasicNodeMaterial; mix: MeshBasicNodeMaterial }>();
+  /**
+   * The two passes again for a skinned body, a `CMesh` (visual type 1): VuLightMap folds its lights through the lens's
+   * row 2, any other visual's through row 0 (`LIGHT_MAP_ROW`, LATER 1544). Its overlays are skinned, a program of
+   * their own already; this adds no program variant to any other receiver.
+   */
+  private skinnedMaterials: { add: MeshBasicNodeMaterial; mix: MeshBasicNodeMaterial } | null = null;
   private pairs = new Map<Mesh, Pair>();
   private live: LivePass[] = [];
   /** The overlays shown now (by the lights, or by the pre-warm). */
@@ -176,6 +192,8 @@ export class EffectLights {
   /** The spot's rim, read once a texture version (`spotBorderClear`). */
   private rim: { image: unknown; version: number; clear: boolean } | null = null;
   private readonly bound = new Sphere();
+  /** A receiver's world bound is consumed immediately; no per-mesh sphere allocation for each muzzle flash. */
+  private readonly receiverBound = new Sphere();
   private readonly box = new Box3();
   /** Lights begun, for the hook. */
   started = 0;
@@ -199,6 +217,9 @@ export class EffectLights {
     this.materials?.mix.dispose();
     for (const { add, mix } of this.instancedMaterials.values()) { add.dispose(); mix.dispose(); }
     this.instancedMaterials.clear();
+    this.skinnedMaterials?.add.dispose();
+    this.skinnedMaterials?.mix.dispose();
+    this.skinnedMaterials = null;
     this.map?.dispose();
     const rgba = t?.rgba ?? spot();
     const tex = new DataTexture(new Uint8Array(rgba.data.buffer, rgba.data.byteOffset, rgba.data.length), rgba.width, rgba.height, RGBAFormat);
@@ -211,7 +232,7 @@ export class EffectLights {
     tex.generateMipmaps = false;
     tex.needsUpdate = true;
     this.map = tex;
-    this.materials = { add: passMaterial(tex, true, this.slots), mix: passMaterial(tex, false, this.slots) };
+    this.materials = { add: passMaterial(tex, true, this.slots, undefined, LIGHT_MAP_ROW.other), mix: passMaterial(tex, false, this.slots, undefined, LIGHT_MAP_ROW.other) };
   }
 
   /**
@@ -222,17 +243,31 @@ export class EffectLights {
    */
   private receiverMeshes(hidden = false): Mesh[] {
     const out: Mesh[] = [];
+    const roots = this.receivers();
+    const rootSet = new Set(roots);
+    // A held weapon can also be inside the body's root. Update each top-level receiver tree once,
+    // including hidden descendants as before; all transforms are fresh before the bounds are read.
+    for (const root of rootSet) {
+      let covered = false;
+      for (let parent = root.parent; parent; parent = parent.parent) {
+        if (rootSet.has(parent)) { covered = true; break; }
+      }
+      if (!covered) root.updateWorldMatrix(true, true);
+    }
     const seen = new Set<Object3D>();
-    for (const root of this.receivers()) {
-      root.updateWorldMatrix(true, true);
-      (hidden ? root.traverse : root.traverseVisible).call(root, (o) => {
-        const m = o as Mesh;
-        if (seen.has(m) || !m.isMesh || !m.parent || !m.geometry?.getAttribute('position') || m.userData.effectLightPass || m.userData[MODEL_PACK_DRAW] === true) return;
-        seen.add(m);
+    const visit = (o: Object3D): void => {
+      if (seen.has(o) || (!hidden && !o.visible)) return;
+      seen.add(o);
+      const m = o as Mesh;
+      if (m.isMesh && m.parent && m.geometry?.getAttribute('position') && !m.userData.effectLightPass && m.userData[MODEL_PACK_DRAW] !== true) {
         const mat = Array.isArray(m.material) ? m.material[0] : m.material;
         if (!mat?.transparent) out.push(m);
-      });
-    }
+      }
+      for (const child of o.children) visit(child);
+    };
+    // Preserve the supplied order and traverseVisible's root semantics: a separately supplied weapon
+    // can still be visited while an ancestor is hidden. No across-frame visibility or material cache.
+    for (const root of roots) visit(root);
     return out;
   }
 
@@ -244,9 +279,16 @@ export class EffectLights {
     let p = this.pairs.get(m);
     if (!p) {
       const n = sharedInstances(m);
-      let materials = n === null ? this.materials! : this.instancedMaterials.get(n);
-      if (!materials) {
-        materials = { add: passMaterial(this.map!, true, this.slots, n!), mix: passMaterial(this.map!, false, this.slots, n!) };
+      let materials = m instanceof SkinnedMesh ? this.skinnedMaterials
+        : n === null ? this.materials! : this.instancedMaterials.get(n);
+      if (!materials && m instanceof SkinnedMesh) {
+        const heat = LIGHT_MAP_ROW.mesh;
+        materials = { add: passMaterial(this.map!, true, this.slots, undefined, heat), mix: passMaterial(this.map!, false, this.slots, undefined, heat) };
+        this.skinnedMaterials = materials;
+      } else if (!materials) {
+        // Any receiver but the skinned body: row 0 (`LIGHT_MAP_RECEIVER_ROW_READING`).
+        const heat = LIGHT_MAP_ROW.other;
+        materials = { add: passMaterial(this.map!, true, this.slots, n!, heat), mix: passMaterial(this.map!, false, this.slots, n!, heat) };
         this.instancedMaterials.set(n!, materials);
       }
       p = {
@@ -320,7 +362,7 @@ export class EffectLights {
     // What its widest sphere meets (a skinned body always: its bounds do not follow the pose).
     const sphere = new Sphere(new Vector3(...at), lightReach(light));
     const reach = this.receiverMeshes().filter((m) => {
-      const s = m instanceof SkinnedMesh ? null : boundsOf(m);
+      const s = m instanceof SkinnedMesh ? null : boundsOf(m, this.receiverBound);
       return !s || s.intersectsSphere(sphere);
     });
     const pass: LivePass = { light, at: sphere.center, t: 0, alive, slot, reach, on: false, where };
@@ -439,13 +481,13 @@ export class EffectLights {
 }
 
 /** A mesh's bounding sphere in the world, or null when it has none. */
-function boundsOf(m: Mesh): Sphere | null {
+function boundsOf(m: Mesh, out: Sphere): Sphere | null {
   if (m instanceof InstancedMesh) {
     if (!m.boundingSphere) m.computeBoundingSphere();
-    return m.boundingSphere ? m.boundingSphere.clone().applyMatrix4(m.matrixWorld) : null;
+    return m.boundingSphere ? out.copy(m.boundingSphere).applyMatrix4(m.matrixWorld) : null;
   }
   if (!m.geometry.boundingSphere) m.geometry.computeBoundingSphere();
-  return m.geometry.boundingSphere ? m.geometry.boundingSphere.clone().applyMatrix4(m.matrixWorld) : null;
+  return m.geometry.boundingSphere ? out.copy(m.geometry.boundingSphere).applyMatrix4(m.matrixWorld) : null;
 }
 
 /**
@@ -457,7 +499,7 @@ function boundsOf(m: Mesh): Sphere | null {
  * `instanceMatrix.array` (its receiver's) read per object into one buffer node of this material, as three's
  * `skeleton.boneMatrices` is (`Skinning.js` L66), and applied as three's instancing applies it.
  */
-function passMaterial(map: DataTexture, additive: boolean, lights: readonly LightUniforms[], instances?: number): MeshBasicNodeMaterial {
+function passMaterial(map: DataTexture, additive: boolean, lights: readonly LightUniforms[], instances?: number, heat: 0 | 2 = 0): MeshBasicNodeMaterial {
   const m = new MeshBasicNodeMaterial();
   if (instances !== undefined) {
     // `object` null: the reference is the drawn overlay, read at each update (`ReferenceNode.js` L273-279, L310-326);
@@ -483,7 +525,8 @@ function passMaterial(map: DataTexture, additive: boolean, lights: readonly Ligh
     const gate = min(h, 1);
     const uv = vec2(dot(L, T), dot(L, B)).div(max(u.rMax, 1e-4)).add(0.5);
     const texel = textureNode(map, uv).level(float(0));   // no mips: a plain fetch, no derivatives (a cheaper program)
-    const cs = min(u.rgb.mul(f).mul(2), 1).mul(effectBrighten);
+    // The light's colour through the lens row while one is on (VuLightMap's EE fold, LATER 1544), then the VU's `MODULATE`.
+    const cs = min(nightLightRgb(u.rgb, heat).mul(f).mul(2), 1).mul(effectBrighten);
     const mine = additive ? u.adds : float(1).sub(u.adds);
     const as = clamp(texel.a.mul(u.opacity).mul(f).mul(gate).mul(mine), 0, 1);
     if (additive) {

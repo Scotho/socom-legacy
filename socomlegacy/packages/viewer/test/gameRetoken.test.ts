@@ -109,7 +109,7 @@ describe('SA-6c: the seat\'s provider (gameSeatProvider)', () => {
 
   it('-977 (the game gone) ends the seat as 4007; -972 (banned) and -966 (not held) as 4008', async () => {
     expect(await provider(async () => ({ status: -977 })).p.reseat()).toEqual({ kind: 'ended', close: 4007 });
-    expect(await provider(async () => ({ status: -972 })).p.reseat()).toEqual({ kind: 'ended', close: 4008 });
+    expect(await provider(async () => ({ status: -972 })).p.reseat()).toEqual({ kind: 'ended', close: 4008, why: 'removed' });   // LATER 359b: -972 named apart (NET-RES-3's 'removed')
     expect(await provider(async () => ({ status: -966 })).p.reseat()).toEqual({ kind: 'ended', close: 4008 });
   });
 

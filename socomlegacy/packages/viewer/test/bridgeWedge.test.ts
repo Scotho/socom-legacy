@@ -8,7 +8,7 @@ import { simMapFromBytes } from '../src/simMap';
 import { WorldState } from '../src/worldState';
 import { Traversal } from '../src/traversal';
 import { BODY_RADIUS, groundGrid, groundPolygons, probeLiftOf, wallProbeHeights, Walker, WEDGE_PUSH_OUT_ADAPTATION } from '../src/mover';
-import { CLIMBABLE } from '../src/climb';
+import { CLIMBABLE, footStepOffset } from '../src/climb';
 
 /**
  * HOTFIX BRIDGE-WEDGE, HF2-slim (Trello c22ltqhr; research 217 s2.10; LATER 620, LATER 283). Reading, pending capture,
@@ -31,7 +31,7 @@ function world(polys: WorldPoly[]): Grid {
   const owners = polys.map((p, first) => ({ modelName: p.modelName, path: p.path, first, count: 1 }));
   return buildGrid({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 }, [], [], polys, owners);
 }
-const floor0 = (): WorldPoly => quad([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200], 3, 'worldmodel/floor');
+const floor0 = (): WorldPoly => quad([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200], 3, 'worldmodel/floor');
 
 /** A floor at y 0 and a thin fin on z 0 from x -50 to 50, `top` tall, its one face toward -z (Crossroads' rubble fin). */
 const finWorld = (top: number): Grid => world([floor0(), quad([50, 0, 0, -50, 0, 0, -50, top, 0, 50, top, 0], 2, 'worldmodel/fin')]);
@@ -264,27 +264,42 @@ const PINS = [
   { map: 'MP9', x: 1081.96, z: 1206.1, out: [0, 1], top: 17.24 },
   { map: 'MP51', x: 1349.15, z: 409.6, out: [0.908, -0.419], top: -7.39 },
 ] as const;
-for (const c of PINS) {
+/** A back-face case's run off, landed: the walker maker and the walk-out distances (`walkOut`). */
+function backFaceRunOff(c: typeof PINS[number]): number[] {
+  const map = simMapFromBytes(new Uint8Array(readFileSync(resolve(DISC, 'RUN', `${c.map}.ZDB`))), `RUN/${c.map}.ZDB`);
+  const grid = groundGrid(map.ground!), polys = groundPolygons(map.ground!);
+  const make = () => {
+    const w = new Walker(grid);
+    w.driver = new Traversal(grid, polys);
+    w.place(c.x - c.out[0] * 6, c.top + probeLiftOf('stand'), c.z - c.out[1] * 6);
+    w.state.yaw = (Math.atan2(-c.out[0], -c.out[1]) * 180) / Math.PI;
+    for (let i = 0; i < 420; i++) {
+      w.tick({ forward: i < 120 ? 1 : 0, right: 0, boost: false });
+      if (i >= 120 && !w.airborne && w.action === null) break;
+    }
+    return w;
+  };
+  expect(make().airborne).toBe(false);
+  return walkOut(make);
+}
+
+for (const c of PINS.filter((p) => p.map !== 'MP51')) {
   describe.skipIf(!haveDisc(c.map))(`HOTFIX BRIDGE-WEDGE: ${c.map}'s back-face case does not pin${haveDisc(c.map) ? '' : ' (SOCOM_DISC absent)'}`, () => {
     it(`the run off (${c.x}, ${c.z}) lands and walks out in at least 6 of 8 headings`, () => {
-      const map = simMapFromBytes(new Uint8Array(readFileSync(resolve(DISC, 'RUN', `${c.map}.ZDB`))), `RUN/${c.map}.ZDB`);
-      const grid = groundGrid(map.ground!), polys = groundPolygons(map.ground!);
-      const make = () => {
-        const w = new Walker(grid);
-        w.driver = new Traversal(grid, polys);
-        w.place(c.x - c.out[0] * 6, c.top + probeLiftOf('stand'), c.z - c.out[1] * 6);
-        w.state.yaw = (Math.atan2(-c.out[0], -c.out[1]) * 180) / Math.PI;
-        for (let i = 0; i < 420; i++) {
-          w.tick({ forward: i < 120 ? 1 : 0, right: 0, boost: false });
-          if (i >= 120 && !w.airborne && w.action === null) break;
-        }
-        return w;
-      };
-      expect(make().airborne).toBe(false);
-      expect(walkOut(make).filter((d) => d > WALKED).length).toBeGreaterThanOrEqual(6);
+      expect(backFaceRunOff(c).filter((d) => d > WALKED).length).toBeGreaterThanOrEqual(6);
     }, 120_000);
   });
 }
+
+// GAP (LATER 1332; the walls trial, 2026-11-21, the main controller's ruling): with the walls met once a game frame MP51's
+// run off lands at (1347.85, -7.41, 410.38), 3 u deeper into the crates' corner than per tick ((1349.75, -7.82, 413.26)),
+// and walks out in 5 of 8 headings (0, 45 and 315 blocked by the crates within 2.3 u), against 8 of 8: under the owner's
+// own 6-of-8 bar. Not stuck; no capture of the original. His word on the hands-on decides (LATER 1332).
+describe.skipIf(!haveDisc('MP51'))(`HOTFIX BRIDGE-WEDGE: MP51's back-face case${haveDisc('MP51') ? '' : ' (SOCOM_DISC absent)'}`, () => {
+  it.fails('GAP (LATER 1332): the MP51 run off (1349.15, 409.6) lands and walks out in at least 6 of 8 headings', () => {
+    expect(backFaceRunOff(PINS.find((p) => p.map === 'MP51')!).filter((d) => d > WALKED).length).toBeGreaterThanOrEqual(6);
+  }, 120_000);
+});
 
 /**
  * The fold (f9's fixed-starts 22-map sweep on ce721adc5, agent-mail evidence gameplay/hotfix-bridge-wedge): four starts
@@ -434,12 +449,22 @@ describe(`HF2-slim's bound: a healthy body is untouched by the wedge push-out`, 
 // polygon under `land18`, which comes before it in the list (OT.R97).
 const FACE_DROPS = [
   { map: 'MP9', poly: 12898, side: 1, off: 0.5, stance: 'prone', main: [1801.22, 114.30, 1737.03], rest: [1807.30, 161.32, 1739.90], what: 'land_04/congo2_tree4' },
-  { map: 'MP1', poly: 3288, side: 1, off: 0.5, stance: 'stand', main: [2228.66, 117.48, 2671.49], rest: [2226.98, 79.48, 2684.61], what: 'land27/invis27' },
+  // FLE-2 (2026-11-19; research 151 s9.1): MP1's floors are SNOW (its DefaultMaterial, -0.8), so both MP1 rests stand
+  // 0.8 under the floor they landed on: y 79.48 -> 78.68 and 79.49 -> 78.69, x and z unchanged (the step-0 box diff and
+  // the build's run; the port's own rest points, no capture).
+  { map: 'MP1', poly: 3288, side: 1, off: 0.5, stance: 'stand', main: [2228.66, 117.48, 2671.49], rest: [2226.98, 78.68, 2684.61], what: 'land27/invis27' },
   // LATER 785 re-pin: (2227.14, 116.40, 2673.63) -> (2226.98, 79.49, 2684.68). Placed on the ledge at 110.09, the prone
   // body rose onto the top 6.31 over it only by the former 5.5 lift (window + 6.5); its lift in the air is now r0004's prone
   // floor 0 (`AIR_PROBE_ROOT_READING`; on the ground the prone root 2.168, window + 3.17), so it stays on the ledge, is put
   // off it along the face and lands on the floor at 79.49 -- the standing drop's segment-arm rest above, on a floor.
-  { map: 'MP1', poly: 3288, side: -1, off: 0.5, stance: 'prone', main: [2226.98, 79.49, 2684.68], what: 'land27/invis27' },
+  // LATER 1349 re-pin (2026-11-22; LANDING_STANCE_READING, reading, pending review): (2226.98, 78.69, 2684.68) ->
+  // (2225.55, 116.64, 2670.20), on land27's top (117.44, snow -0.8). The drop lands on its first tick, still, so the landing
+  // pushes its clip and writes stance 0 (r0004 0x5b52b0; capture B90-PC4: prone hands-off lands standing 20 frames, then
+  // prone), the prone kept as the request: the standing body's window lifts it from the ledge (110.09) onto the top on
+  // tick 2 (the prone one's did not, LATER 785 above), and when the clip frees it (tick 38) the gate takes the prone back
+  // (`retryStance`, nothing near: `proneRefused` false) and standToProne's root carries it to rest on the top. The port's
+  // own rest, no capture.
+  { map: 'MP1', poly: 3288, side: -1, off: 0.5, stance: 'prone', main: [2225.55, 116.64, 2670.20], what: 'land27/invis27' },   // FLE-2: 79.49 -> 78.69; LATER 1349 (above)
   { map: 'MP51', poly: 1358, side: 1, off: 0.5, stance: 'stand', main: [1525.56, 62.83, 635.38], what: 'wc06/window_frame' },
 ] as const;
 for (const c of FACE_DROPS) {
@@ -467,7 +492,9 @@ for (const c of FACE_DROPS) {
       expect(w.airborne).toBe(false);
       const floor = selectFloor(probeGround(w.grid, w.state.x, w.state.z), w.state.y + probeLiftOf('stand'), w.state.y);
       expect(floor).not.toBeNull();
-      expect(Math.abs(floor!.y - w.state.y)).toBeLessThan(0.5);
+      // FLE-2 (2026-11-19; research 151 s9.1): on a floor = at its height plus its soil's FOOT_STEP_OFFSET (0 or -0.8), the
+      // feet held under a GRASS / SNOW / ... floor by 0.8 (MP1's snow): the gap is within 0.5 of the soil's offset.
+      expect(Math.abs(floor!.y + footStepOffset(floor!.poly.material, w.grid.defaultMaterial ?? 0) - w.state.y)).toBeLessThan(0.5);
       expect(w.state.x).toBeCloseTo(at[0]!, 1);
       expect(w.state.y).toBeCloseTo(at[1]!, 1);
       expect(w.state.z).toBeCloseTo(at[2]!, 1);
@@ -485,6 +512,17 @@ for (const c of FACE_DROPS) {
     // (`land_04/congo2_tree4` and its instance, n_y 0.16, 7.85 over the feet) from behind; the cast is one-sided as the
     // hull's `FUN_002d2890` side mode 0x20 makes it (D:L174831-174837; research 281 s4.3), so the press is now taken: the
     // body stands (at about (1810.43, 162.02, 1736.93)) and walks out at 0, 90 and 270. Was: 'reset', stays prone, [].
+    // FLE-1 (2026-11-19): the stood body now leaves the trunk while standing still and lands on the ground at about
+    // (1812.87, 112.02, 1736.61), where yaw 90 faces the trunk (below).
+    // LATER 1349 (2026-11-22; LANDING_STANCE_READING, reading, pending review): the drop lands on its first tick, still, so
+    // its landing pushes the clip and writes stance 0 (r0004 0x5b52b0; capture B90-PC4), the prone kept as the request; when
+    // the clip frees the body (tick 38) the prone gate refuses it -- an obstacle near, the trunk (`proneRefused`,
+    // PRONE_GATE_READING, FUN_00552ec0 D:L418935-418940: 'kept', the request left and asked every tick) -- so the drop now
+    // rests STANDING at the same point, prone pending. LATER 687's question (a prone body at the rest, the one-sided headroom)
+    // is asked of that body laid prone where it rests (`w.stance = 'prone'`, a synthetic placement as the drop itself is:
+    // no route reaches the rest, below); measured 2026-11-22, its answers are the ones pinned before 1349.
+    // CAVEAT (the controller's 1349 bar): both HF2-slim drops start at ZERO height above their rest (a synthetic placement).
+    // If the original has an unread landing check that skips such a touchdown, these two cases are code to fix, not re-pins.
     if ('rest' in c) {
       it(c.stance === 'prone'
         ? 'LATER 687: prone at the rest no direction clears; the stand press is taken (the one-sided headroom) and walks out'
@@ -494,8 +532,14 @@ for (const c of FACE_DROPS) {
           for (let i = 0; i < 90 && w.pendingStance !== null; i++) w.tick(still(0));
           for (let i = 0; i < 90; i++) w.tick(still(0));
         };
-        const clear = (stand: boolean): number[] => [0, 90, 180, 270].filter((yaw) => {
+        // LATER 1349: the prone case's body is laid prone at the drop's rest (above); the standing case's is the drop's own.
+        const laid = (): Walker => {
           const w = drop();
+          if (c.stance === 'prone') w.stance = 'prone';
+          return w;
+        };
+        const clear = (stand: boolean): number[] => [0, 90, 180, 270].filter((yaw) => {
+          const w = laid();
           if (stand) press(w);
           const x0 = w.state.x, z0 = w.state.z;
           w.state.yaw = yaw;
@@ -504,15 +548,32 @@ for (const c of FACE_DROPS) {
         });
         const own = clear(false), stood = clear(true);
         if (c.stance === 'prone') {
-          const w = drop();
+          const dropped = drop();
+          expect(dropped.stance, 'LATER 1349: the clip landing stands the drop').toBe('stand');
+          expect(dropped.pendingStance, 'LATER 1349: the prone kept as the request').toBe('prone');
+          expect(dropped.stanceGate('prone'), 'LATER 1349: the prone re-take refused by the obstacle term (the trunk)').toBe('kept');
+          const w = laid();
           expect(w.stanceGate('stand'), 'the trunk faces are met from behind: headroom clear').toBe('open');
           press(w);
           expect(w.stance).toBe('stand');
           expect(w.pendingStance).toBeNull();
           expect(own, 'prone: the directions clear').toEqual([]);
-          expect(stood, 'after the stand press: the directions clear').toEqual([0, 90, 270]);
+          // FLE-1 (2026-11-19; the fresh review's trace): the rest is unchanged (pinned above), but after the stand press the
+          // body leaves the trunk while standing still -- a walk-off, now under the flag (`FALL_FLAG_READING`), whose floor
+          // test runs only on frame-end ticks and so misses the leaning face -- and lands on the ground at about (1812.87,
+          // 112.02, 1736.61) (with the flag off it stays on the trunk at about (1810.31, 162.05, 1736.96)). From there yaw 90
+          // walks into the trunk (0.00 moved); 0 and 270 walk out -- two of four, the owner's walk-out bar; not a stuck body.
+          // The port's output, no capture.
+          expect(stood, 'after the stand press: the directions clear').toEqual([0, 270]);
           return;
         }
+        // LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): with the ramp read half a tick ahead, direction 270 from this
+        // synthetic rest moves 2.37 and is held, so the walk-out list is [90, 180] (it was [90, 180, 270]). The owner's bar,
+        // two or more of four directions clear, still holds. That 270 is now held from this rest is a separate finding,
+        // recorded with LATER 1164's classing and not settled here.
+        // LATER 1194B (the walls trial, 2026-11-21; box/walls-trial-91c233c6c, red only with the walls met once a game
+        // frame, the cause-split box): from this rest 270 walks out again, [90, 180, 270] -- the list before LATER 1164's
+        // lead held it. Three of four clear; the owner's bar holds. The port's own rest, no capture.
         expect(own, `${c.stance}: the directions clear in its own stance`).toEqual([90, 180, 270]);
         expect(stood.length, `stood up: clear at ${stood.join(', ')}`).toBeGreaterThanOrEqual(2);
       }, 120_000);
@@ -730,7 +791,46 @@ describe.skipIf(!MP2)(`HF2-slim's cost cut leaves every walker state as it was${
     // hash re-measured: b0's box ft1 at da0f756c8e (data view; was 0de963e2...). The later stateless frame numbering
     // (baadb10904) ends the same frames for these walkers (direct ticks counted from the placing: `throttleFrameEnds`
     // equals the accumulator tick for tick, pinned in throttleFrame.test.ts), so the value stands at it.
-    expect([launched, stood]).toEqual([383, 116]);
-    expect(digest).toBe('1f1b983b2ea089d37b11a1d89fb40cebbe246b6a51961b8551a360d8fc1b9132');
+    // IDLE-FRAME (2026-11-14, R8.1 extended to the idle test, `FUN_00586570` standing; Q12 and Q17 leg D): a redraw to (0, 0) on a tick that ends
+    // no game frame is not read, so the walker runs that tick on its last read instead of stopping (these are plain
+    // walkers, a pad's stick by default: `Walker.idleFrame`). One jump taken on such a tick now launches instead of
+    // standing (383/116 -> 384/115); the states move, so the hash re-measured (seat 8a, the hub, one file, agent/idle-frame).
+    // LATER 1148 (2026-11-17, research 444 s9; `GROUND_FLOOR_PROBE_READING` 'frame-end'): the ground walk's floor is judged
+    // once a game frame at the frame's end, not on each sub-step, so every walker's ground states move; one jump the walk
+    // asks is no longer taken (499 -> 498: 384 launch, 114 stand). Traced (the core seat's trace, old mover beside new,
+    // agent-mail core72c5/later1148-traces/mp2*.trace.test.ts; the review of 42550490c1, finding 7): walker 141 walks off
+    // barrel_single at tick 175 at (534.75, 155, 1196.34) and takes off at the frame's end, one tick later (research 444
+    // s2 item 3, s9); the drift grows, by tick 405 it is in landHard near (418.0, 100, 1065.2), so its jump at tick 432 is
+    // refused. The 'sub-step' arm is the rule before it. Re-measured on the hub, one file, agent/later-1148; unchanged by
+    // the in-between tick's held move over no floor (GROUND_FRAME_TICKS_READING, the census's walls).
+    // LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): the move reads the stick ramp half a tick ahead, so every walker's
+    // `right: 1` redraw from rest covers more ground in its first ticks and the states move. The one jump LATER 1148's
+    // floor refused is taken again, as a stand (498 -> 499: 384 launch, 115 stand), so the hash is re-measured (coreB, the hub,
+    // one file, agent/later-1164). These are the port's own walker states, not a measurement of the original.
+    // LATER 1194 / 1194B (`GROUND_WALLS_PER_TICK_READING` 'per-frame', 2026-11-21, seat-walls; traced, one scratch dump of
+    // every jump's outcome under each arm): the walls met once a frame move walker 117's states, so at tick 893 it is still
+    // in `land` and its jump is refused (the per-tick arm: 384/115, a stand) -- 384/114. LATER 1219 (`PRESS_FRAME_READING`
+    // 'frame-start'): a redraw from rest on a tick inside a frame is read a tick later, so walker 117 is out of `land` by
+    // tick 893 again (a stand), walker 126's jump at tick 902 is taken a tick slower and stands instead of launching, and
+    // walker 57 is in `landHard` at tick 930 and its jump is refused (a stand before): 383/115 ('at-once': 384/114). The
+    // three are the whole difference of the dump (the third fresh review's F3 counted two). These are the port's own walker states, not a measurement of the original.
+    // B-20 (2026-11-22, seat-walls; r0004 0x583530: the jump asks the head ray, a hit refuses): MP2 is Frostfire, and 65
+    // of the walk's presses are under a roof inside the ray (11 walkers, the tunnels and sheds; the first walker 135 at
+    // tick 38, (365.7, 143.1, 1193.6)); one of them (walker 57 at tick 930) was refused before anyway (`landHard`), so 64
+    // fewer jumps: 383/115 -> 336/98. Traced on the hub with a scratch dump of every press (taken / refused with the ray
+    // closed / refused otherwise): those 64 are the whole difference. The port's own walker states.
+    expect([launched, stood]).toEqual([336, 98]);
+    // FLE-1 (2026-11-19; `FALL_FLAG_READING`, research 151 s8): a walk-off lands a game frame after the frame that reaches
+    // the floor, so every walker here that walks off an edge moves (green with the flag off: the A/B on agent/fle-1). The
+    // port's own walker states, not a measurement of the original.
+    // LATER 1194 + 1219 (seat-walls, 2026-11-21, the hub, one file): every walker's ground states move (the walls once a frame,
+    // the press a tick later inside a frame), so the digest re-measured. The port's own states, not the original's.
+    // LATER 1219's clip read (the walls trial, 2026-11-21; `Walker.clipRead`): a stick held through a landing's or a
+    // transition's clip is read on its frames, so the first ground tick after it obeys it at once. The walkers' launched
+    // and stood counts are unchanged ([383, 115]); the states differ after their landings: `adc10fb3...` -> `50890350...`
+    // (the hub, this commit). The port's own pin.
+    // B-20 (2026-11-22): the 64 jumps refused under MP2's roofs (above) move those walkers' states: `50890350...` ->
+    // `8bf10611...` (the hub, one file, agent/b20). The port's own pin.
+    expect(digest).toBe('8bf1061132e0ef511b2a932f6153e10809e56bbbe2262378b7fb3bbddeafcabc');
   }, 120_000);
 });

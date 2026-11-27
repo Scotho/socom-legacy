@@ -110,6 +110,10 @@ describe.skipIf(!ZWEAPON)('the launched rounds off zweapon.rdr', () => {
     expect(frag).toMatchObject({ impactDamage: 0.5, effectiveRange: 3500, maximumRange: 100000 });
     expect(frag.damageModifier).toBeUndefined();
     expect(throwableRecord(script(), 'M203 SMOKE').impact).toBe(false);
+    // R4P-218: r0004 adds 0xb6 to the bounce list (D4:L345838-345844), so the F2000's smoke round bounces too; its
+    // HE and FRAG still go off on impact.
+    expect(throwableRecord(script(), 'F2000 SMOKE').impact).toBe(false);
+    expect(throwableRecord(script(), 'F2000 FRAG').impact).toBe(true);
     expect(throwableRecord(script(), 'M67')).toEqual(M67);
   });
 });

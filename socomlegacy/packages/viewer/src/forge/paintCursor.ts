@@ -1,11 +1,11 @@
 /**
- * The paint brushes' cursor (the owner, 2026-11-15: "another cursor ... to indicate we are painting"; a browser
+ * The paint brushes' cursor (the Forge's owner (crispy, OT.R112), 2026-11-15: "another cursor ... to indicate we are painting"; a browser
  * adaptation, FG.R2): a ring and a dot in the paint's colour, outlined dark so it reads on any surface; its hotspot the
  * dot. The collision brush's (`./geometry/editor`) and the AI cells' (`./aiPaint`).
  */
 export const hexOf = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
 /**
- * The texture sampler's cursor (the owner, 2026-11-16: "it changes the cursor icon to a sample icon"): an eyedropper,
+ * The texture sampler's cursor (the Forge's owner (crispy, OT.R112), 2026-11-16: "it changes the cursor icon to a sample icon"): an eyedropper,
  * outlined dark, its hotspot the tip (lower left).
  */
 export const sampleCursor = (): string => {

@@ -24,7 +24,7 @@ import { Room, type Conn } from '../src/room';
 const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
 };
 /** A face across x = `x` from height `y0` to `y1`, `material`; `side` 'both' lays it twice, wound each way. */
 function band(x: number, y0: number, y1: number, material: number, path: string, side: 'a' | 'b' | 'both' = 'both'): WorldPoly[] {

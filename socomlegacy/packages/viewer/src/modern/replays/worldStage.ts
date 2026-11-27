@@ -586,6 +586,8 @@ export function worldStage(o: WorldStageOptions = {}): ReplayStage {
             client.fail(`The match's world could not open: ${reason}`);
           },
           steer: lane,                                          // RVK-B (the module's doc)
+          // E17 (B-83): the entry's named match, for the room's GAME DETAILS (`ReplayWorldHost.details`)
+          details: () => ({ region: entry.region ?? null, lobbyName: entry.lobbyName ?? null }),
         };
         frame = doc.createElement('iframe');
         frame.className = 'mur__frame';

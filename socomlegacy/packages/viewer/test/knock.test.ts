@@ -13,7 +13,7 @@ import {
 
 const FLOOR: WorldPoly = {
   modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-  points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
 };
 
 function flat(): Walker {
@@ -295,7 +295,7 @@ describe('NU-1a B8: a knock mid-climb settles the climb on its floor pick, then 
     const polys = [
       FLOOR,
       q([-10, 0, 0, 10, 0, 0, 10, h, 0, -10, h, 0], 2, app, 'worldmodel/crate'),
-      q([-10, h, -30, 10, h, -30, 10, h, 0, -10, h, 0], 3, 0, 'worldmodel/cratetop'),
+      q([-10, h, 0, 10, h, 0, 10, h, -30, -10, h, -30], 3, 0, 'worldmodel/cratetop'),
     ];
     const owners: CollisionOwner[] = polys.map((p, i) => ({ modelName: 'worldmodel', path: `${p.path}${i}`, first: i, count: 1 }));
     const w = new Walker(groundGrid(packGround(params, polys, owners)));

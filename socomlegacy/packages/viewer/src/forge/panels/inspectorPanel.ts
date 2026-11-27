@@ -13,7 +13,8 @@ import { openStepMenu, STEP_COMMAND, STEP_FAMILY, stepMenuOpen, closeStepMenu, s
  * X, Y, Z -- so the axis chip's colour is the axis (pitch turns about X, yaw about Y, roll about Z) -- and a reset at the
  * row's end, hidden until the page finds the row off its default. Every field scrubs (`../scrub`): drag left or right to
  * change it, click to type. Pitch, roll and scale are drawn here and the page wires them (FX-9): a single piece's own,
- * each edit one step, its value on the record's lattice (`creator-contracts` `PoseRow`, `../transformStubs`).
+ * each edit one step, its value on the record's lattice (`creator-contracts` `PoseRow`, `../transformStubs`). FN-4: a
+ * piece's pitch, yaw and roll are one turn relative to its parent's, in whole degrees; its scale its own size.
  */
 export interface InspectorDom {
   body: HTMLDivElement;
@@ -170,33 +171,33 @@ export interface InspectorEditor {
    */
   preview?(value: number | null): void;
   /**
-   * An asset tile dropped on the row (the owner, 2026-11-13: "drag and drop assets from the asset browser into the
+   * An asset tile dropped on the row (the Forge's owner (crispy, OT.R112), 2026-11-13: "drag and drop assets from the asset browser into the
    * inspector ... automatically adjust the source"; a browser adaptation): `accepts` while a tile is dragged over it,
    * `take` on its drop.
    */
   drop?: { accepts(): boolean; take(): void };
   /**
-   * A small button at the select's right (the owner, 2026-11-13: "a small button to the right that when clicked opens a
+   * A small button at the select's right (the Forge's owner (crispy, OT.R112), 2026-11-13: "a small button to the right that when clicked opens a
    * mini popup asset browser filtered to that item type"): its icon's markup, its tooltip, and its press (`anchor` the
    * button, where the popup opens).
    */
   browse?: { icon: string; title: string; disabled?: boolean; open(anchor: HTMLElement): void };
   /**
-   * A second small button after `browse` (the owner, 2026-11-14: "an icon next to the asset browser popup button"): a
+   * A second small button after `browse` (the Forge's owner (crispy, OT.R112), 2026-11-14: "an icon next to the asset browser popup button"): a
    * preview of the row's asset -- its icon, its tooltip, whether its preview shows now (`on`, drawn pressed), its press.
    */
   peek?: { icon: string; title: string; on: boolean; open(anchor: HTMLElement): void };
   /** Whose row it is (the selection's reference): a row with a drop or a browse drawn anew for another object. */
   owner?: string;
-  /** Room above the row (the owner, 2026-11-13: "spacing between the steps"): a script's header, each step, its Add row. */
+  /** Room above the row (the Forge's owner (crispy, OT.R112), 2026-11-13: "spacing between the steps"): a script's header, each step, its Add row. */
   gap?: boolean;
   /**
    * Room above the row and a faint line, in the node view too (its `gap` is the Inspector's only): a condition's further
-   * test and its Add a test row (the owner, 2026-11-13: "spacing between each condition test").
+   * test and its Add a test row (the Forge's owner (crispy, OT.R112), 2026-11-13: "spacing between each condition test").
    */
   groupGap?: boolean;
   /**
-   * The row a script's steps start at: the read-only rows drawn before it, not under the steps (the owner, 2026-11-13:
+   * The row a script's steps start at: the read-only rows drawn before it, not under the steps (the Forge's owner (crispy, OT.R112), 2026-11-13:
    * "since we can have many steps they get buried at the bottom").
    */
   stepsStart?: boolean;
@@ -207,14 +208,14 @@ export interface InspectorEditor {
   /** A text field's suggestions, its own dropdown (a `datalist`): any other words still typed (a new flag's name). */
   suggest?: readonly string[];
   /**
-   * A select of script steps drawn as the steps' menu (`./stepMenu`; the owner, 2026-11-13: the + menu's, everywhere):
+   * A select of script steps drawn as the steps' menu (`./stepMenu`; the Forge's owner (crispy, OT.R112), 2026-11-13: the + menu's, everywhere):
    * its options the steps, by family, then any other values (Move up, Move down, Remove) after a line.
    */
   stepMenu?: boolean;
 }
 
 /**
- * A text field's suggestions as a list of its own (the owner, 2026-11-13: "everywhere where we have a flag dropdown, it
+ * A text field's suggestions as a list of its own (the Forge's owner (crispy, OT.R112), 2026-11-13: "everywhere where we have a flag dropdown, it
  * should also list all of our custom flags ... but also allow new flags by string"): a browser adaptation. Its button
  * shows every word, whatever is typed (a `datalist` shows only the ones matching the text, and no arrow); typing narrows
  * the list; a word picked is the field's value; any other text typed still stands (a new flag's name). The list is the

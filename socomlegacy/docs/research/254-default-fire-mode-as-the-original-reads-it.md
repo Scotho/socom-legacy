@@ -183,5 +183,5 @@ and `matchMount.ts` (the same, at its hold), and `test/parity/inputTiming.test.t
 
 | name | value | source | status |
 |---|---|---|---|
-| `FIRE_MODE_DOUBLE_TAP_S_READING` | .25 s | `FUN_002d9ff0` D:L179177, the literal 0x3e800000 | reading, pending review; a capture would measure it running |
-| `FIRE_MODE_HOLD_REPEAT_S_READING` | .4000000059604645 s | `FUN_00594b70` D:L452983, `DAT_00650670` = ELF word 0x3ecccccd | reading, pending review; a capture would measure it running |
+| `FIRE_MODE_DOUBLE_TAP_S_READING` | .25 s | `FUN_002d9ff0` D:L179177, the literal 0x3e800000 | reading, pending review; a capture of r0004 (Q218C-PC2, R4P-218, DEFAULT; carried from atlas 22d47ddf74) shows the double tap stepping once and single presses .5 s apart stepping nothing, but not the .25 s window itself; it puts the step one frame later than the port (the frame after the second press) -- open |
+| `FIRE_MODE_HOLD_REPEAT_S_READING` | .4000000059604645 s | `FUN_00594b70` D:L452983, `DAT_00650670` = ELF word 0x3ecccccd | reading, pending review; a capture of r0004 (Q218C-PC2, R4P-218, DEFAULT; carried) puts the hold's step ~13-14 game frames (~.45 s) after the press, the port's test frame index 12 (~.40 s) -- one to two frames apart or a frame-count difference, open |

@@ -43,7 +43,7 @@ port reads and writes no card byte format, and nothing in a shipped package know
 | # | finding | where it lands | section |
 |---|---|---|---|
 | R102.1 | The scrambler is PC research 80's, as written: two byte passes, `0x96` forward then the last byte backward. The signed reads in the original and in `card_save.py` change nothing (byte arithmetic) | `card/src/scramble.ts` | §1 |
-| R102.2 | **The game's archive layout is fully determined** by the key tree plus three values the head and the gaps carry: `stable_ofs` (a guest heap address, different on every run), the string table with no leading empty name, and **`0xAF` in every alignment gap** (`FUN_00257590` L104078). With those, all 72 saves and the three game-written fixtures are rewritten byte for byte | `archive/src/zar.ts` `writeZar`, `readZarTree`, `ZAR_SAVE_FILL` | §2 |
+| R102.2 | **The game's archive layout is fully determined** (for the saves, written with no requested final size) by the key tree plus three values the head and the gaps carry: `stable_ofs` (a guest heap address, different on every run), the string table with no leading empty name, and **`0xAF` in every alignment gap** (after each key's data, to the alignment, by `zar::CZAR::Insert` `FUN_0025a120` D:L105817-105836, and the directory -> data gap by `zar::CZAR::WriteDirectory` `FUN_00257590` L104078; a trailing fill, written only when the requested final size exceeds the written size, is `0xBD`, D:L104104-104117). With those, all 72 saves and the three game-written fixtures are rewritten byte for byte | `archive/src/zar.ts` `writeZar`, `readZarTree`, `ZAR_SAVE_FILL` | §2 |
 | R102.3 | `card_save.py`'s `build_zar` writes another layout (leading empty name, `stable_ofs` 0, zero gaps) -- the PC launcher's, `created.bin`'s. The game's loader reads both. So PC research 80's "round-trips all 72 example files byte for byte" holds for the scrambler and for one-record `AcctInfo.rdr`; read -> `build_zar` does not give a game-written archive back. This codec does | `pcLauncherLayout`; the layout is a parameter | §2 |
 | R102.4 | **The game's rdr flattening is fully determined** by the typed tree with each node's flags byte: a list's children are one block allocated when the list is reached, depth-first; strings interned as reached; a list with flags `4` points at the first earlier block of equal nodes and has none of its own. All 139 rdr keys in the 76 files come back byte for byte | `archive/src/rdr.ts` `writeRdr`, `readRdrTree`, `RDR_FLAG_SHARED` | §3 |
 | R102.5 | No save holds a float node (type 2): every node in the 139 keys is an int, a string or a list. The float is written and read (synthetic tests) because UI variable files may carry it (the block's "seen in UI var nodes"); no card example proves it | `rdrFloat` | §3 |
@@ -86,10 +86,11 @@ data-size word (word 21) is the blob's size rounded up to 16. What the game's wr
 | the root's name pointer | 0 | 0 (reads as the empty name) |
 | a key without data | offset 0 | offset 0 |
 | each key's data | at the next multiple of 16 after the previous key's | the same |
-| the gaps (keys -> data, between data, after the last) | **0xAF** | 0 |
+| the gaps (keys -> data, between data, after the last) | **0xAF**: after each key's data to the alignment (`FUN_0025a120` D:L105817-105836) and the directory -> data gap (`FUN_00257590` D:L104076-104079); a trailing **0xBD** only when the requested final size exceeds the written size (D:L104104-104117) | 0 |
 
-The fill: `FUN_00258bd0` (the archive's write, L104960-) calls `FUN_00257590` (L104977), which allocates an alignment
-buffer and fills it with `0xAF` (L104077-104078) before writing it. Every gap byte in the 75 game-written files is 0xAF.
+The fill: `FUN_00258bd0` (`zar::CZAR::Flush`, L104960-) calls `FUN_00257590` (L104977), which allocates an alignment
+buffer and fills it with `0xAF` (L104077-104078) before writing it -- the directory -> data gap; each key's own pad
+after its data is `FUN_0025a120`'s (D:L105817-105836). Every gap byte in the 75 game-written files is 0xAF.
 
 `readZarTree` returns the tree with copies of each key's bytes and the `ZarLayout` that writes the same bytes again
 (the fill read from the first gap, `ZAR_SAVE_FILL` when there is none); `writeZar` writes either layout. `Zar.parse`, the

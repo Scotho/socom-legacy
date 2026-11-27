@@ -55,6 +55,31 @@ export interface RatioTarget {
 }
 
 /**
+ * B1-RATIO-ORDER (the owner's black-flicker report, 2026-11-21; a browser adaptation, no original: the console drew one
+ * fixed frame): a ratio the dynamic resolution picks at a frame's tail is held and put on the renderer at the START of the
+ * next frame, before its draw. A drawing-buffer resize clears the canvas, so a resize after the frame's draw handed the
+ * browser an empty frame to present -- one black frame per step, and steps come under load (firefights, the opening
+ * grenades). `wrap` gives `AdaptiveRatio` a target that keeps its pick (and reads it back, so its next decision sees
+ * what it chose); `apply` puts the kept pick on the renderer. Nothing about which ratio is chosen changes.
+ */
+export function deferredRatio(): { wrap(target: RatioTarget | null): RatioTarget | null; apply(target: RatioTarget | null): void; pending(): number | null } {
+  let pending: number | null = null;
+  return {
+    wrap(target) {
+      if (!target) return null;
+      return { setPixelRatio: (ratio) => { pending = ratio; }, pixelRatio: () => pending ?? target.pixelRatio() };
+    },
+    apply(target) {
+      if (pending === null) return;
+      const ratio = pending;
+      pending = null;
+      target?.setPixelRatio(ratio);
+    },
+    pending: () => pending,
+  };
+}
+
+/**
  * VS-3 (the video settings plan, product track; the spec `docs/specs/2026-11-07-video-settings-design.md` §4.4 item 4):
  * the dynamic render scale's hysteresis. **A browser adaptation, every value**: the console drew one 640 x 448 frame at
  * a fixed rate, so no original value stands behind a frame-time target, a band, a smoothing or a step; none changes the

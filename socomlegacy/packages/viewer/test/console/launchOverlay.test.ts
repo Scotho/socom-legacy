@@ -68,3 +68,40 @@ describe('MU2-10c: the console\'s START mounts the overlay over the game it laun
     expect(r.order).toEqual([]);
   });
 });
+
+/**
+ * WM-LAUNCHER (WM.R7; product track, a browser adaptation): the hand-over keeps the overlay's handle it mounts over the
+ * game page and offers it to the round's START menu (`../../src/startMenu` `offerStartMenuLauncher`, its SHOW LAUNCHER
+ * row); a null mount offers none.
+ */
+describe('WM-LAUNCHER: the console\'s START keeps the overlay\'s handle for the START menu\'s SHOW LAUNCHER', () => {
+  function handOver(handle: { open(): void; isOpen(): boolean } | null) {
+    const offered: [Document, unknown][] = [];
+    const mount: FrontEndMount = { canvas: document.createElement('canvas'), status: '', session: Promise.resolve(null), stop: () => {} };
+    const page: LaunchPage = { suspend: () => {}, resume: () => {}, takeDown: () => {} };
+    const session = createSession({ login: async () => ({ status: 0 }), register: async () => ({ status: 0 }) });
+    const run = liveLaunch(document, {
+      session, base: '/', sheets: [], loadSheet: async () => {},
+      image: () => ({ request: { kind: 'iso', file: new File([new Uint8Array(8)], 'socom2.iso') }, assets: fakeAssets }),
+      mount: () => mount,
+      overlay: async () => ({ mountPageOverlay: () => handle }),
+      startMenu: async () => ({ offerStartMenuLauncher: (doc: Document, h: { open(): void; isOpen(): boolean }) => { offered.push([doc, h]); return () => {}; } }),
+    });
+    return { run, page, offered };
+  }
+
+  it('the overlay mounted over the game: its handle offered for the document, once', async () => {
+    const handle = { open: () => {}, isOpen: () => false };
+    const h = handOver(handle);
+    expect(await h.run.run(h.page)).toEqual({ ok: true });
+    await settle();
+    expect(h.offered).toEqual([[document, handle]]);
+  });
+
+  it('no overlay mounted (null): nothing offered', async () => {
+    const h = handOver(null);
+    expect(await h.run.run(h.page)).toEqual({ ok: true });
+    await settle();
+    expect(h.offered).toEqual([]);
+  });
+});

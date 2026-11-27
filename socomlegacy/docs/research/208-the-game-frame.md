@@ -251,3 +251,237 @@ capture's rows as transcribed above. **Owed** (not built): the capture scored by
 score above was made by a scratchpad script (`q12score.py`, run with `python -I`), so no test re-reads `rows.csv`;
 owed is a scorer in `tools/` with a golden of Q12's rows, or the rig's files as a fixture, so the proven rows are held by
 the capture itself, not by their transcription.
+
+**IDLE-FRAME: R8.1 reaches the idle test (2026-11-14; the main controller's order, on seat 8a's reading of the
+reporting player's v0.4.22 feedback).** The idle test: a stick within 0.03 (`DAT_003f3428`) stops the body and keeps
+the raw stick. STANDING it is `FUN_00586570`'s own (D:L444861-444867: both raw axes within 0.03 skip the slope
+`FUN_005b56c0` and the ramp `FUN_00586c10`; the raw stick stored, D:L444868-444869), dispatched by `FUN_005870e0`
+(D:L445165); crouched and prone it is `FUN_00586f00` (D:L445046-445086), called by the stance handlers (D:L443566,
+443663, 443900, 444142), not by `FUN_005870e0`. Q12 and Q17 measured the standing case. The original runs both, like
+the snap, once a game frame on the frame's read (the fresh review's F1 corrected the earlier citation of
+`FUN_00586f00` alone). The port ran it every 60 Hz tick, so a centre crossed between two frames' ends stopped the
+body for one tick, with the ground state idle and the move class reset. The original's read never sees that centre.
+
+**Proven** (the same capture, its velocity column; scored by seat 8a, `agent-mail/evidence/deadzone-shark/reversal-8a/
+q12_velocity.py`):
+- On an uncaught gap the original's velocity jumps whole from +65 to -65, with no zero read at about 1.36 kHz.
+- On a caught gap it reads 0 once, then 10.8, 21.7, 32.5, 43.4, 54.2, 65: zero to full in 199-204 ms (medians at
+  g 10-33).
+- The share of runs with a zero read: 0/6, 3/20, 12/20, 16/20 and 9/10 at g 0, 10, 20, 27 and 33 ms.
+- The port before IDLE-FRAME (the real `Walker`, 240 phases): 0, 60, 100, 100 and 100 %.
+- With IDLE-FRAME the port stops only where the frame's end sees the centre (the phases whose ramp starts there): about
+  g / 33, within the tolerance at every row.
+
+**The rule:** a tick whose stick is at rest and which does not end a game frame (`throttleFrameEnds` of the number
+`throttleFrames` will give it) takes the last tick's read past the test again. A read at rest, a read a tick or more
+old (a clip, an elapsed backlog, a placing), and a frame's end leave the stick as it is (`Walker.idleRead`). It is the
+same browser adaptation of the window as R8.1's snap, with no input delay added.
+
+**Reading, not proven:** that the idle test sits on the frame's read and not between reads (D:L444861-444867 and
+D:L445046-445086 read the frame's saved stick; the capture agrees and does not separate the two).
+
+**What holds it:** `packages/viewer/test/throttleFrame.test.ts`, the describe "IDLE-FRAME (R8.1) against the capture
+rig's Q12": a still tick only where the ramp starts from the centre, and the share of still runs within 0.2 of Q12's.
+Its (b) and (d) are re-pinned: a mid-frame centre tick runs on.
+
+**The browser's dead-zone guard after it.** Since PZG the guard is radial: zero inside it, the raw push passed
+outside. A guard wider than the game's own zone widens the centre the frame's end can see. Seat 8a's model
+(`reversal-8a/settings-model-idleframe.txt`; a transcription, not a capture) runs full-left to full-right thumb flicks
+at in-game DEAD ZONE 0 (a per-axis zone of 0.01). The share of 33 / 50 / 80 / 120 ms flicks with a still tick:
+
+| guard | port | original (no guard) |
+|---|---|---|
+| 0.10 | 10 / 15 / 24 / 36 % (60-tick stops: 20 / 30 / 48 / 72 % before IDLE-FRAME) | 3 / 5 / 8 / 11 % |
+| 0.03 | 3 / 5 / 7 / 11 % | 3 / 5 / 8 / 11 % |
+
+At the default guard (0.15 behind RECRUIT's 0.3) the port's shares are the original's (31 / 47 / 75 / 100 % against
+31 / 48 / 75 / 100 %). A guard wider than the game's own zone is the adaptation's cost: a product-track question,
+not this rule's.
+
+**Q17 leg D (the capture rig, 2026-11-14 evening; scored by the rig, relayed by the main controller).** Files:
+`gate-runner/shadow/out/2026-11-14/q10-hitreg/q17-reversals/` (`D-gaps-rows.csv`, `D-gaps-commands.csv`, `D-score.txt`,
+`setup.log`); the upload is owed, so these numbers are the rig's own score, not yet re-scored here.
+- **Setup:** r0004 on MP2 at the open spot (900,600). `seal_A_scuba` was CROUCHED (posture 1; the order named no stance)
+  and lowered. Digital reversals with gaps of exactly 5, 10 and 15 ms, 20 runs each, read at 1,061 Hz.
+- **No zero-velocity read on an uncaught gap, 0 of 60.** Every uncaught run flips from +65 to -65 within one frame
+  (press to full, median 16-23 ms). This is the original's behaviour that IDLE-FRAME gives the port.
+- **Caught in 0, 25 and 45 % of the runs** (about g / 33).
+- **A caught frame** has a throttle of 0, and the ramp after it starts at 0 (0.1668, 0.3337, ...): the idle test fired.
+  Its velocity reads 4.381, not 0, with the same sign whichever way the reversal goes. A flip carried over would change
+  sign, so this is no carry-over of the strafe. It fits the crouched idle's `Stand -> Crouch` (0x11), which the
+  original pushes over the crouch idle when a crouch run is let go (D:L444316-444317; `CROUCH_RUN_RETURN_READING`,
+  LATER 678). The clip's root moves the body along its own axis on that frame, and the next frame's stick cuts it.
+- **The standing repeat, D-standing** (10 and 15 ms gaps), and the rig's own checks D-aligned-standing and
+  D-aligned-crouched. Files: `D-standing-*`, `D-frames-merged.txt`, `D-caught-components.txt`, `D-aligned-*.csv`;
+  upload owed.
+  - Standing, every caught frame reads exactly 0.000 on both velocity components, Q12's result.
+  - Crouched, every caught frame reads the actor-local vector (lateral -4.381, forward +5.192), |v| 6.79, in both
+    reversal directions. The velocity words +0x2c..+0x34 are the actor's: +0x2c lateral (+ right), +0x34 along the
+    facing (- forward). One run read (-3.245, +2.109). The next frame is pure lateral, and the 1/6 ramp starts.
+  - That fixed vector is `Stand -> Crouch`'s root, left and forward. The port's own table of the clip's travel
+    (`ACTION_CLIPS.standToCrouch.travel`, -1.2 x and +1.27 z over the clip) points the same way. **Reading:** the
+    first frame's root key against -4.381/5.192 is not compared.
+- **One frame per caught gap.** A game frame's words are written over about 1-2 ms, so a 1 kHz read can land
+  mid-write: pad244 is written first, then thr248 and the velocity. The rig merges change points under 8 ms apart into
+  one frame and takes that frame's last read.
+  - By frame, every caught run (15 standing, 25 crouched) has exactly one frame with pad244 at 0. Standing, its speed
+    is 0 on that same frame.
+  - The one standing run whose caught read showed -65 was such a mid-write read; its frame reads 0.
+  - So the idle test's timing is as built: one frame per frame read at the centre. **Score these captures by frame,
+    not by read.**
+- The port in COMBINED takes the crouch idle at once (OT.R93; H405); in SEPARATE it plays `standToCrouch`.
+
+**Q17 legs B and B': the snap's two thresholds bracketed by capture (2026-11-14 evening).** The setup is the same rig
+and spot as leg D, STANDING, lowered and RECRUIT, scored by game frame. Each level is given by its settled `thr248`.
+Files are under `gate-runner/shadow/out/2026-11-14/q10-hitreg/q17-reversals/`: `B1p-*`, `B2p-*`, `B-prime-score.txt`,
+`calib-3-standing.txt`, `B2p-0671-snap-dt.txt`; leg B's rows go up at the rig's stop.
+
+**B1'** holds LEFT at a level, then goes full RIGHT in one step.
+- Held at 0.4952, 0.7329 and 0.7645, it RAMPS (10/10 each), 1/6 a frame through zero.
+- Held at 0.7962 and 0.8279, it SNAPS (10/10).
+
+**B2' and B** go one step down from full RIGHT.
+- To 0.923 and 0.844 it lands in one frame by the ramp (drops of 0.077 and 0.156, under one 1/6 step).
+- To 0.7645 and 0.7487 it ramps 1 -> 0.833 -> target (drops of 0.236 and 0.251).
+- To 0.717 and 0.701 it snaps (drops of 0.283 and 0.299).
+- The "band" of two-frame ramps between snaps is the two tests together, not a third rule. A drop of one ramp step or
+  less finishes by the ramp; a drop past 7.8 x 0.03337 = 0.2603 snaps; between the two, the ramp takes two frames.
+
+**Proven, within these brackets:** the lateral `at` lies between 0.7645 and 0.7962, and the lateral `rate` between
+7.52 and 8.48 a second. The constants 0.78 and 7.8 are the code's reading inside them.
+- The forward axis's 0.9 / 9 are not bracketed: those rows were not run.
+- The shipped `Walker` gives every row's frames within 0.003 (`packages/viewer/test/throttleCapture.test.ts`).
+
+**A known divergence (LATER 1052).** The original divides the ramp and the rate test by the frame's MEASURED time
+(`+0x2e0`; D:L444997-445028). Across Q17's B' files, about 1.7 % of frames are short (+0x2e0 = 0.01672, always that
+value, one vsync early); whether a console runs them as PCSX2 does is unread. On such a frame:
+- the ramp steps half (B1p-hold0676 run 2: 0.236 -> 0.32);
+- a jump over 0.130 snaps: B2' run 8, a 0.251 drop, snapped on a 0.01672 s edge frame.
+The port divides by the constant `GAME_FRAME_DT` and never sees either; MISSION R8 and R8.1 do not name this. The
+player's mid-flick ramps are gated by `at` alone (prev under 0.78 after the caught frame), so a short frame changes
+them only by a half step, which leaves the original the slower.
+
+**Q17 leg C (digital keys, standing, RECRUIT): forward to strafe, and R8's shape deviation.** The rig drove keys, not
+rim sweeps: W, W+D, D at full deflection; files `C1-*`, `C2-*` and `C-score.txt` in the same folder.
+- **On the original:** forward to forward-right holds 65 on every frame while the lateral ramps 1/6 a frame. Forward to
+  right drops the forward throttle to 0 in one frame and ramps the lateral (10.8, 21.7, ... 65 u/s): 193 ms median from
+  the last edge to full, 168 ms under 95 %. With W+D held 17 or 33 ms first, 158 and 142 ms to full.
+- **The port's rule gives the same frame-end values.**
+- **The comparison that holds:** from the INPUT EDGE, over 240 phases of the edge against the frame and tick grids,
+  counting the lateral distance lost against an instant full strafe from the edge (seat 8a's model with NO rig latency,
+  `agent-mail/evidence/deadzone-shark/reversal-8a/legC_fromedge.py` and `legC-fromedge.txt`; not a Walker run):
+  - both lose **6.50 u**, in every C row;
+  - the port's first half step (1/12) comes a mean 8 ms after the edge, the original's first whole step (1/6) a mean
+    17 ms after;
+  - each 1/6 level is reached about 8 ms later in the port (25/58/92/125/158/192 ms against 17/50/83/117/150/184);
+    full speed at 192 against 184 ms.
+  - In expectation over the phase both curves are the same 5 a second ramp from the edge.
+- **So it is R8's named deviation in SHAPE, not in distance:** finer, earlier half steps, and each whole level about
+  8 ms later.
+- **WITHDRAWN:** a first scoring gave the port "+0.5 u and +16 ms under 95 %" a change. It measured from each mover's
+  own first reaction, on speed magnitude, with the port's frame ends aligned to the original's reads. That flatters the
+  original, which reads the stick up to 33 ms after the edge (the port within 16.7 ms) and is still running forward at
+  65 until it does. Do not re-derive it.
+
+**IDLE-FRAME's bot adaptation (the main controller's ruling (a), 2026-11-14, logged for the owner; LATER 1053).** The
+30 Hz read window is a pad's. The room's AI seats keep the per-tick idle test: CPU connections, seats the bots' brain
+adopts, and the bot planner's own movers.
+- **The switch:** `Walker.idleFrame`, laid by `MoverSim.prepare` from `MoverSim.ai` on every command. An adoption or a
+  release switches it on its next command; the first person command after a release reads raw, and the hold starts
+  from the second.
+- **The planner's movers** (navigation's ladder sim, climbDiscovery's climb sim) are now marked AI. Before this branch
+  they were silently a player's MoverSim, which under IDLE-FRAME would have held their synthetic stick. Marked AI, they
+  run as they did on the base: a change back to the base's behaviour, not forward.
+- **Why not the bots too:** a held mid-frame centre moved a bot 0.05 u at botCornerSlide's tick 99, sending it round
+  the corner's other side, where it stalled. Applying the window to bots waits on their steering being hardened
+  (LATER 1053).
+- **What it does not touch:** replays and spectated bodies run no mover (they draw the room's snapshots), so they show
+  people under IDLE-FRAME.
+
+**A seam where page and room can part for one tick.** After the room drops a backlog (`Walker.elapse`) or after a page
+`resume` that re-places the body against the room's `handBack` that does not, the two movers can hold different
+last reads, or one none, so they decide a single mid-frame centre differently for one tick. They heal at the next
+frame end, where both judge the centre alike (`mover.ts`, `idleRead`'s doc). The seam tests in
+`throttleFrame.test.ts` ((h) resume, (i) long drop) drive flicks after the seam and agree, but no test places a
+centre exactly on the first mid-frame tick after one. A test could: script the centre at that tick on both sides and
+assert the one-tick difference and the heal. Not built.
+
+**Synthetic drivers under IDLE-FRAME (2026-11-14; the main controller's rulings).** Every driver in the tree that hands a
+mover a stick with no pad behind it leaned on the per-tick stop. These are the four classes, and how each was classed;
+the next person writing a walking test will meet one of them.
+1. **Bots and the bot planner's own movers: GATED** (a bot adaptation, LATER 1053). The room's AI seats
+   (`MoverSim.ai`: a CPU connection, a seat the bots' brain adopts) and the planner's sims (navigation's ladder sim,
+   climbDiscovery's climb walker, navigation's three probes) and the zombies' walker and obstacle probe keep the
+   per-tick idle test (`Walker.idleFrame` false).
+   Before this branch the sims were silently a player's.
+2. **The hostage follower's walker: GATED** (a scripted body; `hostageFollow.ts` sets `idleFrame` false at
+   construction).
+3. **Test harnesses standing in for a page: NOT gated.** They are fixed to behave as a page would: let go, tick until
+   the body has stopped, re-read the feet, and let go a frame's travel (|v| x `GAME_FRAME_DT`, the walker's own speed)
+   before a turn past 60 degrees, as a player who knows the stop runs on. Example: `extractionWalkway.test.ts`'s
+   `release` and `walkTo` (ruling A(i)). Widening tolerances or marking a harness pad-less is refused: either would
+   hide what players get.
+4. **The bomb-plant sweep's driver: NOT gated.** It is a page-like script whose stop is a person's release, so its
+   walks overrun by up to a tick. It is traced per walk (`bombPlantSweep.parity.test.ts`'s comment): no reachable
+   spot was lost.
+A walking test with a scripted stick should say which class it is in.
+
+**The stick stepped round the rim, and C2 at 50 ms (Q17 leg R; measured on the original running; a note for the
+record, nothing built from it in the weekend batch).** The capture rig on the original running (r0004, MP2, two
+clients, a standing runner; ten runs a leg; reads at about 0.8 kHz, so a time is read to about 1.25 ms;
+shadow-relay-1's report as relayed by the main controller, `agent-mail/evidence/weekend-mega-2026-11-14/INTAKE.md`
+section 38; files in the private bucket under `gate-runner/shadow/out/2026-11-15/q10-hitreg/q17-rim-sweep/` and
+`.../q17-reversals/`, `score.txt` each; this note's author did not open them, and no repository harness scored them).
+What the relay carried, and at what level, for the commanded speed --
+- **proven**, n = 10, with its spread: a HELD rim position gives full speed at every step (64.93 to 65.07; never under
+  95 percent of 65), 10 of 10, and the settled (lateral, forward) throttle per step is the same in 10 of 10;
+- **measured, median only -- not proven** (the relay carried the median only, no spread): stepping the
+  stick round the rim fast DIPS the commanded speed: a step every 17 ms to a median minimum of 51.41 (some runs 33.8),
+  about 134 ms under 95 percent; every 33 ms, 54.19, about 100 ms; every 50 ms, 61.20, about 33 ms; 0 to 3 to 6 with
+  33 ms on the middle step, 54.33, about 133 ms;
+- C2 (the keys W, W+D for 50 ms, then D), n = 10: **measured, not proven** -- a median minimum of 29.82 with a range
+  of 21.65 to 32.52 whose lower end is itself in doubt (the caveat below), so the range is no stated tolerance; about
+  118 ms under 95 percent and full speed about 137 ms after the last edge, medians only (the reads resolve a time to
+  about 1.25 ms, but the relay gave no run-to-run spread for these times).
+No tolerance for a port test is set here: the relay's summary states none, and the tolerance a test holds these values
+to is owed with that test (from the spreads in the `score.txt` files once opened). None of these values (Q17 R, C2, A2
+below) has a capture holder yet: LATER 1036 names Q12's rows only; the holder of these is LATER 1071.
+The limits the rig states: the sweep is STEPPED, not rolled; at RECRUIT (carried from 2026-11-14 for these legs, not
+read on the screen until section 46) a raw 0.259 reads 0 and 0.866 reads full, so five distinct positions, not seven;
+the speeds are the commanded velocity words, not positions. Whether the port's throttle frame (this section's ramp of
+one 1/6 step a game frame, `agent/throttle-frame`, with IDLE-FRAME merged) dips the same way is NOT held by any test:
+none steps the stick round the rim or drives C2's diagonal. The test that would show it is a
+`viewer/test/throttleFrame.test.ts` case stepping the stick round the rim every 17, 33 and 50 ms and through C2,
+reading the commanded speed's minimum and time under 95 percent against these medians; the strafing work (MISSION
+R8.1) takes it. The CUSTOM / DEAD ZONE 0 legs were skipped: the options path to the slider is not yet found on the
+rig.
+
+**A caveat on the rim sweep's deep outliers, and the CUSTOM / DEAD ZONE legs (the rig, 2026-11-15; INTAKE section 46;
+bucket `.../2026-11-15/q10-hitreg/q17-reversals-slider0/`).** The rig found a limit in its OWN stepping: a step change
+is two window messages, and 2 of 60 changes in the CUSTOM control showed one frame with a neutral stick between two
+non-neutral steps. So a single zero-axis frame between two commanded steps may be the rig, not the game: the rim
+sweep's deep outliers above (runs dipping to about 34, and C2's 21.65) are IN DOUBT on that ground; the medians stand.
+Nothing is to be built to a dip of 34. The CUSTOM legs, measured on the original running: the front end's CONTROLLER
+OPTIONS offer RECRUIT / SAILOR / SEAL / CUSTOM with LOOK SPEED, ACCELERATION and DEAD ZONE sliders, and RECRUIT is now
+read on the screen; **observed, n not given, not proven**: a CUSTOM setting holds through the online login, and
+with DEAD ZONE at its left stop there is no dead zone (a raw 0.05 reads 0.047) where RECRUIT reads a raw 0.259 as 0;
+**measured, median only, not proven**: the quick reversal (leg A2, 20 runs) at CUSTOM reaches full speed
+63.5 ms after the last edge against RECRUIT's 285.5 ms, with a minimum speed of 49.69 against 0.00, and is under 95
+percent of full for 66.5 ms against 300 ms; the rim sweep at CUSTOM (10 runs) has SEVEN distinct rim positions (five at
+RECRUIT), and a step every 33 ms dips to a median 62.60 (RECRUIT 54.19), 8 of 10 runs never under 95 percent. The
+CUSTOM sweep bears on the two limits above: seven positions at CUSTOM against five at RECRUIT put the five-not-seven
+limit on the preset's setting, not on the rig; and the same stepping dips far less at CUSTOM, so RECRUIT's median dip
+goes with the preset rather than with the rig's stepping (whose neutral frames, 2 of 60, were counted in this same
+CUSTOM control). Much of the "sluggish reversal" the RECRUIT legs measured is the preset's setting (its dead zone at
+least), not a fixed property of the game; where the ACCELERATION slider sat at CUSTOM is not recorded, so these legs do
+not separate the ramp from the dead zone. (The rig's two calibrations from rest, 2 runs each, read the same rise of a
+sixth a frame at RECRUIT and at CUSTOM with the dead zone at its minimum, only the end value differing; no leg was aimed
+at the ramp itself, no other CUSTOM slider position was tried and no release-to-rest ramp was scored:
+`agent-mail/evidence/weekend-mega-2026-11-14/rig/`, the relay's answer on push-apart, 2026-11-15.) The port: the presets
+and the sliders are ui `src/stickTuners.ts` (`STICK_PRESETS` from `FUN_002da6c0` D:L179394-179419;
+`STICK_PRESET_CUSTOM`; the DEAD ZONE slider `stickDeadZoneOfSlider`, D:L281942-281957, D:L179433-179438), and the move
+stick takes the options' dead zone (viewer `src/camera.ts` `groundWish`,
+`moveStick(..., this.law.options().stick.deadZone)`); whether the move stick's throttle ramp takes the preset's ramp
+word (ACCELERATION) or stays this section's fixed 1/6 a game frame is NOT established, and no test holds either reading
+against A2: the case owed is a `throttleFrame.test.ts` reversal at CUSTOM with DEAD ZONE at 0 reaching full
+speed about 63.5 ms after the last edge, beside RECRUIT's 285.5 ms.

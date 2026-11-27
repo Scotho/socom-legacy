@@ -16,6 +16,7 @@ import { Animator, blendWeight, quatOfMatrix, slerp, type PoseLayer } from '../s
 import type { MotionEntry } from '../src/motionTable';
 import { moverSnapshot, TICK, Walker, type ActionEnd, type HoldClip, type WalkInput } from '../src/walk';
 import { ThrowPose } from '../src/throwPose';
+import { climbOffered } from '../src/traversal';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { KitRounds } from '../src/firearms';
 import { launcherKitRounds } from '../src/net/pickupRules';
@@ -38,6 +39,7 @@ function rig(extra: Partial<MatchThrowDeps> = {}) {
   const scene = new Scene();
   const thrown: string[] = [];
   const stick: ((from: 0 | 1) => void)[] = [];
+  const hand: { refuses: (() => boolean) | null } = { refuses: null };   // R4P-243: the walk's hand gate, as set
   const net = { throwEvent: (kind: string) => { thrown.push(kind); }, client: { bodies: () => [] } };
   const firearm = {
     shotRumble: () => {},                              // CTL-2: the hands' fire step's motors
@@ -57,6 +59,7 @@ function rig(extra: Partial<MatchThrowDeps> = {}) {
       launcherRaised: () => { calls.push('launcherRaised'); }, launcherLowered: (from: number) => { calls.push(`launcherLowered(${from})`); },
       launcherCleared: () => { calls.push('launcherCleared'); },
       onLauncherStickLower: (f: (from: 0 | 1) => void) => { stick.push(f); return () => {}; },   // PAR-83
+      setHandRefusesClimb: (f: (() => boolean) | null) => { hand.refuses = f; },             // R4P-243 (L367)
     } as never,
     fly: { shakeScreen: () => {} },
     play: {
@@ -71,7 +74,7 @@ function rig(extra: Partial<MatchThrowDeps> = {}) {
     ...extra,
   };
   const t = mountThrowables(deps);
-  return { t, scene, calls, thrown, deps, stick };
+  return { t, scene, calls, thrown, deps, stick, hand };
 }
 
 describe('the throwables part (./matchThrow): the grenades, the launcher and the R2 inventory, one wiring', () => {
@@ -159,7 +162,7 @@ describe('the throwables part (./matchThrow): the grenades, the launcher and the
   it('the throwables\' NetPage hooks: every one PART_DEPS lists, each onto the grenade page', () => {
     const { t } = rig();
     const d = t.netDeps();
-    expect(Object.keys(d).sort()).toEqual([...PART_DEPS.throwables, 'roundEndEffects', 'handItem'].sort());   // ROUND_END_EFFECTS_READING, ROOM-HAND's re-tell: optional, handed with them
+    expect(Object.keys(d).sort()).toEqual([...PART_DEPS.throwables, 'roundEndEffects', 'roundEndZoom', 'handItem', 'removeProjectile'].sort());   // ROUND_END_EFFECTS_READING, ROUND_END_CAMERA_FOV_READING, ROOM-HAND's re-tell, R4P-224's chargeGone: optional, handed with them
     const giveBack = vi.spyOn(t.grenade, 'giveBack'), launch = vi.spyOn(t.grenade, 'launchRemote');
     d.staleThrow?.('M67');
     expect(giveBack).toHaveBeenCalledWith('M67');                                          // LOW-2: the item back
@@ -171,6 +174,22 @@ describe('the throwables part (./matchThrow): the grenades, the launcher and the
     d.remoteGrenade('M67', [0, 0, 0], [0, 1, 0], 3, 10, undefined, 30);                    // LATER 643: the room's age
     expect(launch).toHaveBeenLastCalledWith('M67', [0, 0, 0], [0, 1, 0], 3, { pid: 10 }, 30);
     expect(d.ownProjectiles?.()).toBe(false);
+  });
+
+  // R4P-224 (research 235 s10.3; the review's F3): the room's `chargeGone` reaches the page's copy through the mount's real
+  // wiring -- `netDeps().removeProjectile` onto `GrenadeThrower.removeRemote` -- so a netDeps() without it fails here.
+  it('R4P-224: netDeps().removeProjectile is the mount wiring onto GrenadeThrower.removeRemote: the copy with that pid is taken away', () => {
+    const { t } = rig();
+    const d = t.netDeps();
+    expect(typeof d.removeProjectile).toBe('function');
+    const remove = vi.spyOn(t.grenade, 'removeRemote');
+    const live = (t.grenade as unknown as { live: { pid?: number; remote: boolean; g: { state: string }; trail: unknown[]; rest: null }[] }).live;
+    live.push({ pid: 9, remote: true, g: { state: 'rest' }, trail: [], rest: null }, { pid: 10, remote: true, g: { state: 'rest' }, trail: [], rest: null });
+    d.removeProjectile(9);
+    expect(remove).toHaveBeenCalledWith(9);
+    expect(live.map((l) => l.pid)).toEqual([10]);
+    d.removeProjectile(99);                                                                // an unknown pid: nothing
+    expect(live.map((l) => l.pid)).toEqual([10]);
   });
 
   it("RED: LATER 503 -- a stale throw of a rocket's round gives it back on the launcher by its shot; a throwable still to the pouch", () => {
@@ -218,6 +237,22 @@ describe('the throwables part (./matchThrow): the grenades, the launcher and the
     const { t, thrown } = rig();
     (t.grenade as unknown as { emit(k: string, i: unknown): void }).emit('throw', { item: 'M67', from: [0, 0, 0], velocity: [0, 0, 1], fireAnim: 'frag_start', sound: '.THROW_OBJECT ' });
     expect(thrown).toEqual(['M67']);
+  });
+
+  // LATER 1400 (the v0.4.30 close review R2 F1; reading, pending review): the launch's round step reads the stance IN
+  // USE -- the row SWAP-FIRE P1 names, `FUN_0058a720(body, 1)`, as the firearm's round takes it (matchFirearm's
+  // `walk.stanceInUse()`) -- not the walker's posture; the two differ while a crouched stop stands (SWAPFIRE-CROUCH).
+  it('RED: LATER 1400 -- the launch steps the reticle by the stance in use, not the posture', () => {
+    const base = rig();
+    const launches: unknown[][] = [];
+    const firearm = { ...(base.deps.firearm() as unknown as Record<string, unknown>), accuracy: { launch: (...a: unknown[]) => { launches.push(a); } } };
+    const walk = { ...(base.deps.walk as unknown as Record<string, unknown>), posture: () => 'stand', stanceInUse: () => 'crouch' };
+    const loadouts = new PlayerLoadout();
+    const stances = { stand: {}, crouch: {}, prone: {} };
+    (loadouts as unknown as { tables: () => unknown }).tables = () => ({ itemReticles: new Map([[0x79, stances]]), arsenal: { byName: new Map() } });
+    const { t } = rig({ firearm: () => firearm as never, walk: walk as never, loadouts });
+    (t.grenade as unknown as { emit(k: string, i: unknown): void }).emit('throw', { item: 'M67', from: [0, 0, 0], velocity: [0, 0, 1], fireAnim: 'frag_start', sound: '.THROW_OBJECT ' });
+    expect(launches).toEqual([[1, 'crouch', { id: 0x79, stances }]]);
   });
 
   it("CTL-2 (the review's N2): the own throw hands its record's Rumble_Modifiers to the firearm's fire step; another's release does not", () => {
@@ -329,6 +364,28 @@ describe('the throwables part (./matchThrow): the grenades, the launcher and the
     expect(t.grenade.held()).toBe('AN-M8');
   });
 
+  it('R4P-111: the hands tell the firearm a throw clip plays (GrenadeCore.throwClipActive) -- not in the wind-up, through the clip, off after it', () => {
+    const { t, deps } = rig();
+    (deps.walk as unknown as { gridOfGround: () => null }).gridOfGround = () => null;
+    (deps.walk as unknown as { snapshot: () => unknown }).snapshot = () => ({
+      feet: [0, 0, 0], yaw: 0, pitch: 0, vx: 0, vz: 0, vy: 0, airborne: false, crouched: false, stance: 'stand', landing: null, jumps: 0,
+    });
+    t.grenade.setKit(['M67', 'AN-M8', null]);
+    const hands = t.hands();
+    expect(t.takeSlot(2)).toBe(true);
+    expect(hands.throwClip?.()).toBe(false);
+    hands.trigger(true);
+    t.grenade.update(0.25);
+    expect(t.grenade.phase()).toBe('holding');
+    expect(hands.throwClip?.()).toBe(false);                                              // the wind-up: no throw type on top
+    hands.trigger(false);
+    t.grenade.update(1 / 60);
+    expect(t.grenade.phase()).toBe('throwing');
+    expect(hands.throwClip?.()).toBe(true);
+    for (let k = 0; k < 180; k++) t.grenade.update(1 / 60);
+    expect(hands.throwClip?.()).toBe(false);
+  });
+
   it('roundStart: the air and the scorches gone, the wash neutral (the room cleared its own)', () => {
     const { t } = rig();
     const air = vi.spyOn(t.grenade, 'clearAir'), scorches = vi.spyOn(t.grenade, 'clearScorches'), wash = vi.spyOn(t.whiteOut, 'stop');
@@ -355,6 +412,11 @@ describe('the throwables part (./matchThrow): the grenades, the launcher and the
     const smokes = vi.spyOn(t.grenade, 'clearRoundEffects'), air = vi.spyOn(t.grenade, 'clearAir'), scorches = vi.spyOn(t.grenade, 'clearScorches');
     t.netDeps().roundEndEffects();
     expect(smokes).toHaveBeenCalled();
+    let unzoomed = 0;
+    (deps.firearm() as unknown as { roundEndView: () => void }).roundEndView = () => { unzoomed++; };
+    expect(unzoomed).toBe(0);                                   // R4P-234b: the effects' hook does not unzoom
+    t.netDeps().roundEndZoom();                                 // ROUND_END_CAMERA_FOV_READING: the firearm's view held at 1.0
+    expect(unzoomed).toBe(1);
     expect(cleared).toBe(1);
     expect(air).not.toHaveBeenCalled();
     expect(scorches).not.toHaveBeenCalled();
@@ -457,7 +519,8 @@ describe('PAR-36 (c): both pages post the claymore\'s refusal on the HUD\'s mess
 
   it('main.ts and matchMount.ts hand the part refusalLine(hud), imported from ./matchMessages; no toast, no placeholder left', () => {
     for (const f of ['main.ts', 'matchMount.ts']) {
-      // FC2-4: his import names postScriptMessage beside it (main.ts:142, matchMount.ts:85): refusalLine among the names.
+      // FC2-4 (postScriptMessage) and ROUND-CHAT (V21.R15a: roundChatPost, setRoundChatIcons) import beside it
+      // (main.ts:142, matchMount.ts:87): refusalLine among the names.
       expect(src(f), f).toMatch(/import \{ [^}]*\brefusalLine\b[^}]*\} from '\.\/matchMessages';/);
       expect(src(f), f).toMatch(/refuse: refusalLine\(hud\),/);
       expect(src(f), f).not.toMatch(/refuse: \(text\) => \{ ui\.toast\(text\); \}/);
@@ -664,7 +727,7 @@ describe('PAR-46a: the part flies a room\'s throw over the map\'s hull off the w
   /** A floor at y 50 and a wall across z = -300, x -2000..2000 (grenade.test.ts's PAR-46 ground). */
   const mapGrid = (): Grid => {
     const poly = (points: number[], i: number): WorldPoly => ({ modelName: 'worldmodel', path: `worldmodel/p${i}`, region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0, points: Float32Array.from(points) });
-    const polys = [poly([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000], 0), poly([-2000, 0, -300, 2000, 0, -300, 2000, 400, -300, -2000, 400, -300], 1)];
+    const polys = [poly([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000], 0), poly([-2000, 0, -300, 2000, 0, -300, 2000, 400, -300, -2000, 400, -300], 1)];
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
     return buildGrid(params, [], [], polys, polys.map((p, i) => ({ modelName: 'worldmodel', path: `${p.path}${i}`, first: i, count: 1 })));
   };
@@ -742,7 +805,7 @@ describe("PAR-85 F1: the slot's last throw on the own page stays on top to its h
     const anim = new Animator(sk, clips, table);
     const poly: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]),
+      points: Float32Array.from([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400]),
     };
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
     const w = new Walker(buildGrid(params, [], [], [poly], [{ modelName: poly.modelName, path: poly.path, first: 0, count: 1 }]));
@@ -1032,6 +1095,42 @@ describe('NU-2: the hands give the reticle the hand\'s item and the throw\'s pow
     vi.spyOn(t.grenade, 'held').mockReturnValue('Detonator');
     expect(t.hands().handItem?.()).toBe(193);
   });
+
+  // R4P-243 (ATLAS L367; research 313 s8.24; reading, pending review; capture IQ-179 queued): the page's wiring of the
+  // hand gate -- the part hands the walk `setHandRefusesClimb`, answered by `slotSelectable` (r0004's isSelectableItem
+  // 0x5c47e0) of the item in hand: the Detonator with no claymore down refuses the climb's offer (r0004 `FUN_00598d30`
+  // D4:L493145-493148, D4:L493164-493168); a claymore down, it stands; the firearm refuses nothing.
+  it('R4P-243: the Detonator up with no claymore down refuses the climb offer; with a claymore down it stands', () => {
+    const { t, hand } = rig();
+    expect(hand.refuses, 'the walk is handed the gate').not.toBeNull();
+    const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
+    const floor: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/f', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0, appflags: 0, points: Float32Array.from([-100, 0, 100, 100, 0, 100, 100, 0, -100, -100, 0, -100]) };
+    const w = new Walker(buildGrid(params, [], [], [floor], [{ modelName: 'worldmodel', path: 'worldmodel/f0', first: 0, count: 1 }]));
+    w.place(0, 10, 0);
+    expect(climbOffered(w, hand.refuses), 'the firearm in hand').toBe(true);
+    vi.spyOn(t.grenade, 'held').mockReturnValue('Detonator');
+    const down = vi.spyOn(t.grenade, 'claymoresDown').mockReturnValue(0);
+    expect(climbOffered(w, hand.refuses), 'the Detonator, no claymore down').toBe(false);
+    down.mockReturnValue(1);
+    expect(climbOffered(w, hand.refuses), 'the Detonator, a claymore down').toBe(true);
+  });
+
+  // Seat-walls' check (page against room): the twin of match `roomEquipment.test.ts`'s "page and room alike" -- with a
+  // claymore placed, the launcher's answer is its round alone and the Detonator's the placed count: [false, true, false].
+  it('R4P-243: page and room alike -- a claymore placed, then the launcher with a round, emptied, and the Detonator in hand', () => {
+    const { t, hand } = rig();
+    vi.spyOn(t.grenade, 'claymoresDown').mockReturnValue(1);             // one claymore set down
+    const answers: boolean[] = [];
+    const held = vi.spyOn(t.rocket, 'held').mockReturnValue(145);       // the LAW up
+    const rounds = vi.spyOn(t.rocket, 'roundsFor').mockReturnValue(1);
+    answers.push(hand.refuses!());                                        // the launcher up, a round
+    rounds.mockReturnValue(0);
+    answers.push(hand.refuses!());                                        // the launcher up, emptied
+    held.mockReturnValue(null);
+    vi.spyOn(t.grenade, 'held').mockReturnValue('Detonator');
+    answers.push(hand.refuses!());                                        // the Detonator, a claymore down
+    expect(answers).toEqual([false, true, false]);
+  });
 });
 
 /**
@@ -1042,7 +1141,7 @@ describe('NU-2: the hands give the reticle the hand\'s item and the throw\'s pow
  * the LAW's slot raises it (the `throw` to the room, the walk told) with its one round -- with no refill of a pouch.
  */
 describe('NU-5 L1: a claimed LAW comes up on the page (FirearmHands.kitTaken)', () => {
-  it("after the room's kit gives the LAW in slot 3 and its round in 4, the LAW's slot raises it with its one round; the M67s' count is untouched", () => {
+  it("after the room's kit gives the LAW in slot 3 and its round appended at index 5 (R4P-103), the LAW's slot raises it with its one round; the M67s' count is untouched", () => {
     const HEAT: ThrowableRecord = { ...M67, name: 'LAW HEAT', id: 185, muzzleVelocity: 200, acceleration: 980, armingDistance: 100, impact: true, hasBackblast: true, fuse: 20, removal: 20.1, capacity: 1, icon: 'firemode_at4.tif' };
     const round: KitRound = { record: HEAT, piercing: 0, fireWait: 3, reloadAfterShot: true, reloadDelayAfterShot: 1, icon: HEAT.icon };
     const items = new Map([
@@ -1062,7 +1161,8 @@ describe('NU-5 L1: a claimed LAW comes up on the page (FirearmHands.kitTaken)', 
     t.hands().spawned(new KitRounds(table, loadouts.loadout()));
     const m67 = t.grenade.stats().leftByItem;
     // The room's kit after the claim (`takeKit` -> `PlayerLoadout.take`), the round slots as the firearm part rebuilds them.
-    loadouts.take([54, 15, 121, 145, 185]);
+    loadouts.take([54, 15, 121, 145, 255, 185]);
+    expect([...loadouts.loadout()]).toEqual([54, 15, 121, 145, 255, 185]);
     const rounds = launcherKitRounds(new KitRounds(table, [54, 15, 121, 255, 255] as unknown as Loadout), table, loadouts.loadout(), 185, 1);
     t.hands().kitTaken?.(rounds);
     expect(t.takeSlot(3)).toBe(true);                                      // slot 3: the claimed LAW
@@ -1237,7 +1337,7 @@ describe('NU-8b: the placings and the take-up through mountThrowables, on a real
     const anim = new Animator(sk, clips, table);
     const poly: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400]),
+      points: Float32Array.from([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400]),
     };
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
     const w = new Walker(buildGrid(params, [], [], [poly], [{ modelName: poly.modelName, path: poly.path, first: 0, count: 1 }]));
@@ -1712,6 +1812,19 @@ describe('TRIGGER-SWAP fold: the hands and the slot changes', () => {
     mounted = false;
     expect(hands.heldPulls?.()).toBe(3);
   });
+  it("LATER 1427 review F1: placingClip asks the core and the page's other owner (`PageHands.placingClip`, the bomb's own plant or drop)", () => {
+    const { t } = rig();
+    let core = false, page = false;
+    vi.spyOn(t.grenade, 'placingClipActive').mockImplementation(() => core);
+    const hands = t.hands({ placingClip: () => page });
+    expect(hands.placingClip?.()).toBe(false);
+    page = true;
+    expect(hands.placingClip?.(), "the bomb page's clip").toBe(true);
+    page = false; core = true;
+    expect(hands.placingClip?.(), "the core's placing").toBe(true);
+    core = false;
+    expect(t.hands().placingClip?.(), 'no page owner: the core alone').toBe(false);
+  });
   it('a rocket that left: its FireWait handed to the firearm at the lower (`Fire.holdWait`); a lower with none, nothing', () => {
     const { t, deps } = rig();
     const holdWait = vi.fn();
@@ -1729,6 +1842,21 @@ describe('TRIGGER-SWAP fold: the hands and the slot changes', () => {
     expect(holdWait).toHaveBeenCalledTimes(1);
     expect(holdWait.mock.calls[0]![0]).toBeGreaterThan(2.5);
     expect(holdWait.mock.calls[0]![0]).toBeLessThanOrEqual(3);
+  });
+  it("LATER 1365: the RPG launch's scaled wait (138 game frames) is what the lower hands the firearm (`Fire.holdWait`)", () => {
+    const { t, deps } = rig();
+    const holdWait = vi.fn();
+    (deps.firearm() as unknown as { fire: { holdWait: (s: number) => void } }).fire.holdWait = holdWait;
+    const emit = (on: boolean, id: number | null): void => (t.rocket as unknown as { emit(k: 'equip', on: boolean, id: number | null): void }).emit('equip', on, id);
+    emit(true, 146);
+    vi.spyOn(t.rocket, 'up').mockReturnValue(true);
+    vi.spyOn(t.rocket, 'pull').mockReturnValue({ fireWait: 138 * GAME_FRAME_DT } as never);   // `rocketWaitFrames`' 4.605 s
+    t.hands().trigger(true);
+    vi.mocked(t.rocket.up).mockReturnValue(false);
+    emit(false, null);
+    expect(holdWait).toHaveBeenCalledTimes(1);
+    expect(holdWait.mock.calls[0]![0]).toBeGreaterThan(4.1);                // past r0001's 3 s and the 4 s of 120 frames
+    expect(holdWait.mock.calls[0]![0]).toBeLessThanOrEqual(138 * GAME_FRAME_DT);
   });
 });
 

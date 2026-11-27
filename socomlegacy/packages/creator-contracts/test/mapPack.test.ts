@@ -264,6 +264,40 @@ describe("FX-3 refusals at read, by name", () => {
     expect(codes(v)).toContain(MAP_PACK_CODES.layoutInvalid);
   });
 
+  // FN-4 (the Forge lane's FN.R5; a browser adaptation): the record's version 4 keeps a piece's angles on a hundredth of
+  // a degree. Written, NOT RUN (the host rule).
+  it("FN-4, RED: builds and reads a layout of record version 4 (a piece's yaw 12.34); refuses a member of version 5 as a newer build's", async () => {
+    // Expected RED at the RED commit: `buildMapPack`'s record check refuses version 4 ("not a forge record of version 2
+    // or 3"), and the reader takes version 3 alone (`mapPack.ts`). GREEN from the readers' commit.
+    const fine = discLayout({ version: 4, pieces: [[0, 1, 0, 2, 12.34], [1, -3.5, 0, 4, 90]] } as unknown as Partial<CreatorLayoutRecord>);
+    const b = await built(buildMapPack({ id: "craig.fine-yard", version: "1.0.0", name: "Fine Yard", layout: fine }));
+    const r = await read(readMapPack(entriesOf(b.files)));
+    expect(r.pack.layouts[0]!.record).toEqual(fine);
+    expect(r.pack.layouts[0]!.record.version).toBe(4);
+    const five = JSON.stringify({ ...discLayout(), version: 5 });
+    const v = await readMapPack(handPack("hand.pack", "1.0.0", [{ path: "layouts/yard.json", text: five, role: "gameplay", intent: "gameplay-value" }]));
+    expect(v.ok).toBe(false);
+    // FN-4, fix round 2: version 5 is refused as a newer build's, the code unchanged (round 1 pinned the text "A layout
+    // member is a forge-layout record version 3 or 4." here). RED at 6270731b3c, GREEN from fix round 2's fix.
+    expect(v.diagnostics.filter((d) => d.code === MAP_PACK_CODES.layoutInvalid).map((d) => d.text))
+      .toEqual(["this layout was saved by a newer build (record version 5): update the game to open it"]);
+  });
+
+  it("FN-4 fix round 2, CONTROL: a layout member of any other version, or another schema, keeps the member's words", async () => {
+    // Written, NOT RUN (the host rule). Expected GREEN at 6270731b3c and after: only a whole version above 4 under the
+    // record's own schema takes the newer build's words; the rest keep "... record version 3 or 4.".
+    const members: Record<string, unknown>[] = [
+      { ...discLayout(), version: 2 }, { ...discLayout(), version: 4.5 }, { ...discLayout(), version: "5" },
+      { ...discLayout(), schema: "forge-layout-2", version: 5 },
+    ];
+    for (const member of members) {
+      const v = await readMapPack(handPack("hand.pack", "1.0.0", [{ path: "layouts/yard.json", text: JSON.stringify(member), role: "gameplay", intent: "gameplay-value" }]));
+      expect(v.ok).toBe(false);
+      expect(v.diagnostics.filter((d) => d.code === MAP_PACK_CODES.layoutInvalid).map((d) => d.text), JSON.stringify(member["version"]))
+        .toEqual(["A layout member is a forge-layout record version 3 or 4."]);
+    }
+  });
+
   it("refuses a layout naming its own pack in requires", async () => {
     const self: PackRef = { id: "hand.pack", version: "1.0.0", hash: "e".repeat(64) };
     const text = JSON.stringify(discLayout({ requires: [self] }));

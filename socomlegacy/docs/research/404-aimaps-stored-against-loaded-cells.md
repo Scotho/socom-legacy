@@ -504,7 +504,11 @@ port, and s4 says where it matters. It does not matter at the landing.
 - **Again, after the whole file.** `FUN_00510d10` (D:L382430-382448) runs `FUN_00517850` once more over every loaded
   sub-map. It is called:
   - at D:L395413, inside the link-graph build `FUN_0052a8c0` (D:L395318), which the AIMAPS load calls at its end
-    (D:L395634). So the full rewrite runs again after all the sub-maps and their tables are in;
+    (D:L395634). So the full rewrite runs again after all the sub-maps and their tables are in -- not once but once per
+    earlier link for each link, n(n-1)/2 times for a sub-map of n links, summed over the sub-maps (the call sits in the
+    per-link inner loop over one sub-map's link list, D:L395411-395413), and
+    the whole build runs only when it is forced or the file holds no usable stored graph (D:L395345, D:L395628-395634)
+    *(corrected 2026-11-23, NC-3 r4)*;
   - at D:L397474, in `FUN_0052e780` (D:L397469), which a load calls at its start (D:L395601) and which is also called at
     D:L151629;
   - at D:L151959.
@@ -1022,7 +1026,8 @@ in `extend` (`hostagePath.ts:609-615`).
 > - **the distance-0 pop**: when `FUN_0052c320` returns 0, D:L429568's `if (iVar8 != 0)` is false and D:L429907-429913
 >   pop the point; r1 0x568434 `beqz v0,0x5684c0` (0x10400022).
 >
-> Research 200 s3.1 and research 334 (about line 148) already had them. The sentences are kept as written.
+> Research 200 s3.1 and research 334 (about line 148) already had them. The sentences were kept as written until
+> 2026-11-23, when the NC-3 r54 correction rewrote them in place.
 
 - `FUN_00517050` (D:L385312-385413), read in full:
   - with the same sub-map, it returns the cell as it is (D:L385337-385340);
@@ -1036,11 +1041,15 @@ in `extend` (`hostagePath.ts:609-615`).
 - Correction from the review (s13.6): the passing test is not the only advance. D:L429692-429702 holds a second one,
   gated on the point's width byte and a 5.0 lateral limit. The port models it (`hostageFollow.ts:539`). It cannot fire
   for spliced points, whose width is 0.
-- In the lines read (D:L429513-429719), the route head is advanced only on the passing test. That test needs a
+- In the lines read (D:L429513-429719), the route head is advanced on the passing test (the dot flip, below), and
+  also popped by a converted distance of 0, raw-cell equality, the width corridor, a planar distance under 5.0 (the
+  else of D:L429705, popping at D:L429897-429903) and a final-point tolerance (D:L429568-429581, D:L429697-429713;
+  s28.2 lists all but the last) *(corrected 2026-11-23, NC-3 r54)*. The passing test needs a
   previous positive facing dot and a negative current one, plus a cell distance below 2 or a travelable next point
   (D:L429706-429709). With the original's distance of 1, the second condition holds where the port's 269 fails it. The
-  facing flip is still required, and a body held at z 661.8 short of a head at z 651.81 never flips. No arrival radius
-  on the distance alone was found. The `iVar8 == 0` counterpart of D:L429568, and D:L429640-429962, remain unread.
+  facing flip is still required, and a body held at z 661.8 short of a head at z 651.81 never flips. *(The earlier "no
+  arrival radius on the distance alone was found" and "D:L429640-429962 remain unread" are withdrawn by the NC-3 r54
+  re-read above: the planar 5.0 pop is one.)*
 
 ### 11.4 The held body's gate bits -- `+0x172` bit 0 SAME; `+0x171` bit 7 and `+0x32c` bit 0 UNREAD
 
@@ -1219,7 +1228,9 @@ Nothing in this section is measured on the original running.
   - `FUN_005fdf80`, the follow goal's signal handler:
     - D:L510064 and D:L510111 (signals 0 and 3, entering or re-entering follow, which sets state 6): 0;
     - D:L510089 and D:L510099 (signals 1 and 2, leaving follow): 1;
-  - **`FUN_005fae70` D:L508484, at the end of every state-6 follow tick**, with the value `uVar10`:
+  - **`FUN_005fae70` D:L508484, at the end of a state-6 follow tick with a type-9 goal on top** (with none the tick
+    calls `FUN_0056d090` and returns before the setter, D:L508399-508405; *corrected 2026-11-23, NC-3 r68*), with the
+    value `uVar10`:
     - `uVar10` starts at 0 (D:L508408);
     - it becomes 1 only on the branch where `FUN_005fd150` says the follower need not move and `FUN_005fdad0`
       returns true, that is, standing in position (D:L508443-508451);
@@ -2258,7 +2269,8 @@ library) [machine code].
 - **The slot.** An individual follow gets slot 0 (`FUN_005fd050` D:L450399; research 334 s1). Slot 0 is depth 2,
   side 2 (`FUN_005eb910` D:L500124-500125, D:L500161-500163). Depth is clamped to 1-100 (`FUN_00519290` with
   0x650c90 = 1 and 0x650c98 = 100, D:L508687).
-- **The target point** is that cell's point (`FUN_0052d480`, D:L508689). Only when `FUN_005fd790` fails is a point
+- **The target point** is that cell's point (`FUN_0052d480`, D:L508689). Only when `FUN_005fd790` fails, or the cell-centre lookup
+  `FUN_0052d480` itself fails (D:L508688-508692; nearly unreachable; *corrected 2026-11-23, NC-3 r38*), is a point
   built from the leader's position, velocity x 0.65 (`DAT_00650c30`) and the rotated slot offset, and then located
   (D:L508699-508719). **The original does not re-locate the trail cell.**
 - **Near the target** (`lVar17`): the 3-D distance from the follower to the target point (`+0x114`, D:L508721-508732)
@@ -2283,10 +2295,10 @@ Its target is a trail cell two entries behind the leader, so 130 units or more f
 | branch | lines | what it does | can it hold the follower at the foot, leader standing? |
 |---|---|---|---|
 | A. no leader, or the leader's `+0xe1` bit 4 clear | `FUN_005fdd40` D:L509991-510036; return D:L508579-508583 | drops the leader (`FUN_005fcf10` D:L509486-509514) | no: it ends the follow, so the follower would not then climb behind the same leader |
-| B. the body's controller `+0x10c` object, byte `+9` non-zero | D:L508586-508605 | queued action calls (`FUN_005e7580`, `FUN_00600f70`, `FUN_005e7390`); returns with `+0x7c` = `+0x7d` = 0 (M2) | **not determined**: what that byte is was not read |
+| B. the body's controller `+0x10c` object, byte `+9` non-zero | D:L508586-508605 | queued action calls (`FUN_005e7580`, `FUN_00600f70`, `FUN_005e7390`); returns with `+0x7c` = `+0x7d` = 0 (M2) | **not determined** whether it is set there; what the byte is, is read: it gates pending point-outs -- with it non-zero `FUN_005e7390` takes the slot of the controller's first member (`+0x20`, when `(*(+0x6c))+8` is the body) or second (`+0xc`), and tests it for range (squared distance against `DAT_00650b10`) and facing (against `DAT_00650b18`) before the latch clears (D:L497869-497907) |
 | C. the start hold `+0x76` | D:L508645-508660; set only at follow start, signal 0, D:L510077 | stands until the leader's trail length is at least 8 (`DAT_00650c88`; `FUN_00527e70` sums same-sub-map segments, D:L393837-393857) | only if the follow (re)started at the foot. The relayed record does not say. A leader walking on tophost lengthens the trail, which would fit "climbed when the leader walked" |
 | D. far leader | D:L508752-508775 | needs the leader's slot `+0x2c` to answer non-zero, the follower body's `+0xc8` mask 0x20000, and a target farther than 100. It returns (stands) only when the leader is farther than 600 | no: 168 < 600 |
-| E. arrived: state 0 -> 4 -> 7, or 3 -> 4 | D:L508818-508822, D:L508934-508937, D:L508959-508962 | stands in state 7. `FUN_005fc7d0` (D:L509239-509258) keeps it standing, while it is not near its target, until the leader's cell moves more than `+0xc4` (1) raw cells from the cell saved on arrival (D:L508960-508961). Then state 0 | **not at the foot**: arrival needs 18.75 units from the target, and the foot is 130 or more. Its shape, standing while the leader stands and going when he moves, is the trace's |
+| E. arrived: state 0 -> 4 -> 7, or 3 -> 4 | D:L508818-508822, D:L508934-508937, D:L508954-508957 (3 -> 4 near the target with no usable route, NC-3 r109), D:L508959-508962 | stands in state 7. `FUN_005fc7d0` (D:L509239-509258) keeps it standing, while it is not near its target, until the leader's cell moves more than `+0xc4` (1) raw cells from the cell saved on arrival (D:L508960-508961). Then state 0 | **not at the foot**: arrival needs 18.75 units from the target, and the foot is 130 or more. Its shape, standing while the leader stands and going when he moves, is the trace's |
 | F. failed route: state 2 -> 8 | D:L508825-508830; wait D:L509076-509081 | when the request ends without a route, stands 2.5 s (`+0x80` = 0x40200000), then state 0 and a new request | only if every request from (219,84) to the target fails. Then it stands wherever the failure found it, and goes once a request succeeds |
 | G. the tick's hold M4/M5 | D:L508418-508451, `FUN_005fd150` D:L509566-509657, `FUN_005fe1f0` D:L510118-510256 | stands when the line from the follower to its next route point meets a triangle in front of the leader: 20 behind to 100 ahead, half-width 100 x tan 40 degrees (`DAT_0066ba50` = `FUN_001b3808(0x3f32b8c2)`, a tanf by its shape, D:L33075-33092). It applies within 125 units (100 x 1.25), or at any distance once it has held before (goal `+0x6c` bit 2, D:L508431-508440) | behind G3, the network flag (D:L508425). Online it cannot run, if the third reading's prediction holds (s14 banner; s15.6 read 4). Offline, its distance gate is 125 and not 168 (s18: the node model stops at about 125) |
 
@@ -2361,7 +2373,8 @@ emptied, and `FUN_005107b0` leaves a finished route alone.
   - at the start of a follow;
   - from 4-7, when the leader's cell moves (`FUN_005fc7d0` D:L509255-509257; the states passed in, D:L508789-508791);
   - from 8, after 2.5 s (D:L509076-509081);
-  - from 3, when the route is empty and the follower is not near its target (D:L508951-508952);
+  - from 3, when there is no usable route (empty, or its byte not 4, D:L508838-508842) and the follower is not near
+    its target (D:L508951-508952; NC-3 r109);
   - from 3, on the shortcut: the same sub-map, a travel line, and x + z + 3 below the route's length
     (D:L508898-508921);
   - from 3, when the extension fails within 7 raw cells of the route's end (D:L508929-508933).
@@ -2639,12 +2652,14 @@ or un-plannable target from the foot, and a walking leader's a reachable one?
   - any stop is not traversable (D:L396403-396416);
   - on a same-sub-map leg, that sub-map's search object is missing (D:L396429-396440);
   - on a cross-sub-map leg, there is no link graph (D:L396446-396448), or `FUN_002d14a0` finds no graph path, first
-    with the cost limit read from `param_5` `+0x24` and then with 0 (D:L396500-396506).
+    with the mask read from `param_5` `+0x24` (stored at `+0x18` of a temporary edge, D:L396475-396496; `FUN_002d1790`, reached from `FUN_002d14a0` at
+    D:L173693, takes an edge only when the mask is 0 or shares a bit with it, D:L173904-173906) and then with 0, unmasked
+    (D:L396500-396506) *(corrected 2026-11-23, NC-3 r105)*.
 
   The graph's costs from the endpoints are written only for link nodes on the endpoint's own sub-map, as raw x + z
   (D:L396454-396497). A same-sub-map leg is only queued (`FUN_00510c80`, D:L396442). Its search runs later, and can
-  fail later, through the route's state byte. `FUN_002d14a0`, `FUN_00510c80` and the leg search's own limits were not
-  read for this section.
+  fail later, through the route's state byte. `FUN_00510c80` and the leg search's own limits were not read for this
+  section; of `FUN_002d14a0`, only its passing the mask to `FUN_002d1790` (D:L173693) is read (NC-3 r105, above).
 - **State 2 -> 8.** State 2 waits while the route's state byte (controller `+0x4ec`, the route's `+0x80`) is 1-3
   (pending). Otherwise, with no points or a state other than 4, it goes to state 8 (D:L508824-508830). State 8 stands
   2.5 s, then returns to 0 and a new request (D:L509069-509081). State 0 is entered again only from there, so the
@@ -2697,7 +2712,9 @@ That read is offered, and is not among redotcom-19's.
   - at the release: `+0x104` changing to another tophost cell, and the cycle ending in 3.
 
 **K3. No request is made: the target cell is not traversable.**
-- **It rests on:** `FUN_005623b0` skipping the request (D:L426851-426858), then 2 -> 8 at once (D:L508824-508830).
+- **It rests on:** `FUN_005623b0` skipping the request (D:L426851-426858), then 2 -> 8 at once (D:L508824-508830) -- but
+  only with no route or a route byte other than 4: a finished old route is walked at once (2 -> 3, D:L508831-508834;
+  s23.2(a)) *(corrected 2026-11-23, NC-3 r108)*.
   The target could be untraversable only through the fallback: `FUN_005fd790` fails when the trail holds fewer than
   three entries or has no capacity (D:L509826-509833). The point is then built from the leader's position, velocity
   and slot offset, and located (D:L508699-508719). That locate keeps a first-sub-map cell with bit 21 clear whatever
@@ -3011,7 +3028,7 @@ States are the goal's own names with their numbers (the head). The fourth reader
 | 4 | INIT (0), one tick; the request's result ignored | AGREE | D:L508804-508817 |
 | 5 | WAIT (2) while a search is pending | AGREE on the branch; ONLY BL gives the 33 counts per service call (r1 0x64f8d8 = 33) | the compare is unsigned (research 419 s22.9) |
 | 6 | WAIT (2) -> COVERING (8), 2.5 s, then INIT (0) | AGREE | D:L509076-509081 |
-| 7 | FOLLOW (3) with the route not ready -> INIT (0) | AGREE | D:L508951-508957 |
+| 7 | FOLLOW (3) with no usable route (empty, or its byte not 4, D:L508838-508842) -> HIDE PLAN (4) with the timer cleared when near its target (`lVar17`, s26), else INIT (0) *(corrected 2026-11-23, NC-3 r109)* | AGREE | D:L508838-508842, D:L508951-508957 |
 | 8 | the walker's type-7 hold | ONLY OA and BL | research 418 s22.4 |
 | 9 | the walker's type-1 request refused | ONLY OA and BL; they agree | research 418 s22.4, research 418 s22.11 |
 | 10 | the walker's type 4, movement state 7 | ONLY OA and BL; neither read state 7 | `FUN_0056af50` unread by all |
@@ -3050,9 +3067,10 @@ the old-route case below.
   its address is the data word at r1 0x6690ec (0x00668680). review9 found the same construction in r0004 (research 417 s20.10).
   That the table holding r1 0x6690ec is walked at start-up was not read.
 - **(c) Route `+0x24` is the body's flags word, not a cost limit.** AU wrote "cost limit" and was wrong. [D, the
-  fourth reader's]: D:L434931-434932 writes the body's `+200` flags word there; D:L396476 stores it in the graph
-  node's `+0x18`, the field `FUN_005b7ba0` ORs flags into (D:L471351-471353). What `FUN_002d14a0` and `FUN_002d1790`
-  do with it is unread by all four.
+  fourth reader's]: D:L434931-434932 writes the body's `+200` flags word there; D:L396476 stores it in a temporary
+  edge's `+0x18` (not a graph node's; *corrected 2026-11-23, NC-3 r105*), the field `FUN_005b7ba0` ORs flags into (D:L471351-471353). What `FUN_002d14a0` and `FUN_002d1790`
+  do with it: `FUN_002d1790` takes an edge only when the mask is 0 or shares a bit (D:L173904-173906), s19.1
+  *(the earlier "unread by all four" is withdrawn, NC-3 r105)*.
 
 ### 23.3 Not settled
 
@@ -3153,8 +3171,10 @@ the fourth reader's.
   type 9, that goal is REUSED: no event 0, and the gate is not re-armed. Otherwise `FUN_005f5c00(ctl, 9, 0)` ->
   `FUN_005f7ee0` -> event 0 -> `+0x76` = 1. `FUN_005f5f20` clears the stack first when the body's `+0xe1` bit 4 is
   clear, or controller `+0x264` bit 1 is set, or the body's `+200` has 0x40000 (D:L505670-505675); which holds for a
-  hostage is not determined. **So `+0x76` cannot be set again without a new goal**, and an interrupted-and-resumed
-  follow (event 3) restarts at INIT (0) with the gate open.
+  hostage is not determined. **So `+0x76` cannot be set again without a new goal**: only event 0 sets it (D:L510077);
+  events 2 and 3 leave it (D:L510097-510112), so an interrupted-and-resumed follow (event 3) restarts at INIT (0) with
+  the gate as it was -- a follower released before the suspend stays released after it (the port re-arms the gate on
+  suspend: a departure, a lead) *(corrected 2026-11-23, NC-3 r152)*.
 
 ### 24.2 How the 8.0 is counted
 
@@ -3606,8 +3626,9 @@ D:L429694-429713, D:L429896-429913, D:L431290-431306 and D:L508927-508931, opene
   - planar d < 5.0 (D:L429705 -> D:L429897-429903; r1 0x6501b8 = 5.0; r1 0x568b90-0x568bd4);
   - the dot flip with a cell distance below 2 or `FUN_0052cc80` (D:L429706-429712);
   - the body's recorded cell `+0xe8` becoming the node's (D:L429908).
-- **The throttle** (D:L429556-429567): 0 for the final node or flag bit 0, 0.35 for flag bit 1, otherwise the
-  controller's `+0x1c4`.
+- **The throttle** (D:L429556-429567): 0 for the final node outside movement mode 6 (`+0x3f4` != 6) or flag bit 0,
+  0.35 for flag bit 1, otherwise the controller's `+0x1c4` -- so in mode 6 an unflagged final point keeps `+0x1c4`
+  *(corrected 2026-11-23, NC-3 r58; the port's `hostageSteering.ts` uses 0 for every final node: routed to its owner)*.
 - **For a body on #0 (218,71) with next node #1 (13,7):** #0 (218,71)'s centre is (2144.579, 661.809) and #1 (13,7)'s
   is (2144.579, 651.809): dx 0, dz -10.0. #1 (13,7) converts to #0 (218,70), cell distance 1. The walker steers due
   north and pops when the planar d falls below 5.0 (z below 656.81), when `+0xe8` becomes #1 (13,7), or on a dot flip.
@@ -4307,6 +4328,44 @@ displacement of the follower by more than 0.5 u, after the gate has opened, the 
 answered (research 333 s4, a game frame's slice) and the body has started from rest. The original's first move was not
 timed by the rig, so the 0.733 s is the port's own, reported, not scored.
 
+## 36. LATER 933 closed: the pin was the ungated correction (2026-11-19) [port runs, dev-disc and unit tiers; the original's hold from s31]
+
+**What closed it.** The 434 gate (`83eb5f1ea0`, research 434 s8): the follower's AI-map correction runs only while the
+controller's +0x171 bit 7 is set (`FUN_005483d0` D:L413920-413922), where the port had run it on every move. That is the
+standing account of s15.7 and the row, confirmed by an A/B in the port:
+- On agent/next (87f4a984dc), draft PR #798's RED (carried in as `match/test/hostageLandingPin.test.ts`, by Scotho) passes:
+  the MP71 east column and the synthetic seam alike, the follower on tophost within the run and at its end.
+- With `match/src/hostageFollow.ts` alone set back to `83eb5f1ea0^`, both fail as the row recorded: held on #0 (218,71)
+  for 138 ticks and never on tophost (the synthetic seam: 142 ticks).
+
+**The original's own hold stays.** A third case holds s31's run B (r0004, n = 1): a leader standing on tophost (1,13,6)
+keeps the follower on the flight at (2145.0, 210.9, 676.2). The port stops at (2144.58, 210.49, 676.85), #0 (218,73),
+0.87 units off by 3-D distance (0.77 flat), and never crosses; the test's tolerance is 1.5 units, a bound on one
+measurement. It stands in the port's follow state 7, which s31.5 records as not measured on the original.
+
+**Not measured here:** the reference's timing (s33: about 1.5 s behind a walking leader); the guard asserts the crossing,
+not its lag.
+
+## 37. LATER 1054 read: MP6's cell (0,103,6) is cdoor1's bars (2026-11-19) [the disc through the repository's reader; source; port runs, dev-disc]
+
+- **The cells.** Columns x 102-103 for z 4-9 of MP6's first sub-map hold soil 9 (z 3 is soil 0): cdoor1's bars. A cell
+  whose soil is 0, 8, 9 or 10 is not traversable (`FUN_0052a090` D:L394982, mask 0x701; `hostagePath.ts`).
+- **The refusal is the original's.** RegisterPathPlan refuses a plan with a non-traversable endpoint (`FUN_0052c5c0`
+  D:L396392-396419), so a plan FROM (103,6) is refused. LATER 1054's probe asked for exactly that.
+- **The follower never plans from it.** `FUN_005b7ba0` (D:L471288-471318): +0xe4 takes every located cell, +0xe8 only a
+  traversable one; the follower plans from its +0xe8 (`hostageFollow.ts` `location`). A body put on the bars cell keeps
+  its last traversable cell and plans from it to Safety (`extractionWalkway.test.ts`); a leader standing on it is
+  followed out to Safety and the hostage rescued (the same file).
+- **The target.** When no trail cell gives a formation goal, `FUN_005fb1c0` locates a fallback point raw (`FUN_0052dc70`,
+  D:L508719), requests a plan to it (D:L508815), and on a failed request waits in state 8 for 2.5 s (D:L508828) only with no route or a
+  route byte other than 4, else walks the finished old route at once (D:L508824-508835); the old route survives only
+  when the target is untraversable (a traversable target's route is emptied first, D:L426859-426867, and waits too;
+  K3). The port empties the route before every request, so it waits in that case as well (a departure, routed to
+  `hostageFollow.ts`'s owner) *(corrected 2026-11-23, NC-3 r108)*. Not read for the bars case beyond that; with a long trail the goal comes from traversable trail cells.
+- **Every map's hostage start** (23, the escortees) is on a traversable cell (a census, 2026-11-19).
+
+LATER 1054 closes as a probe artefact.
+
 ## Review on the hub (2026-11-12)
 
 Two fresh reviewers on the hub, neither of whom wrote this note or saw the sessions behind it, re-read it at the
@@ -4370,7 +4429,7 @@ section carries one.
 - E8, LOW: s2a's "they matter only for bit-21 cells: row 70 and the link cell" is true of the landing; s21.8 shows bit
   21 on rows 77 to 88 of both columns as well.
 - E9, LOW: s1's "the full rewrite runs again after all the sub-maps": the call (D:L395413) is inside the per-link loop
-  and runs once a link record; harmless, the rewrite being idempotent.
+  and runs once per pair of a sub-map's links, n(n-1)/2 per sub-map summed over the sub-maps, NC-3 r161; harmless, the rewrite being idempotent.
 - E10, LOW: s3's table caption ("every count is on sub-map 0 unless noted") contradicts the paragraph under it.
 - E11, LOW, folded (the head's bullet): the STATUS was stale on the path-by-path comparison.
 - E12, for whoever works from s15.6 and s14.6: read 5's `[I1]` on r4 0x66a980 can be `[V4]` (the r0004 correction gate

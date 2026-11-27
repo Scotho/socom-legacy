@@ -105,7 +105,13 @@ describe('FORGE lobby: the chat\'s typing reaches no forge shortcut (FG.R23)', (
     // a dock's resize handle, Escape on a popover).
     const at = page.findIndex((l) => /globalThis\.addEventListener\('keydown', \(e\) => \{/.test(l));
     expect(at).toBeGreaterThan(0);
-    expect(page.slice(at, at + 3).join('\n')).toMatch(/if \(typingTarget\(e\.target\)\) return;/);
+    // PR #5: the import put the number field's drag guard (`scrubbing(doc)`) above it, so the guard moved from the
+    // listener's third line to its fourth; held now as: among the listener's opening returns, before any key acts.
+    const head = page.slice(at, at + 5).join('\n');
+    expect(head).toMatch(/if \(typingTarget\(e\.target\)\) return;/);
+    const body = page.slice(at).join('\n');
+    expect(body.indexOf('if (typingTarget(e.target)) return;')).toBeLessThan(body.indexOf('forgeKeyAction(e, keyState())'));
+    expect(body.indexOf('if (typingTarget(e.target)) return;')).toBeLessThan(body.indexOf('endMatch();'));
   });
 });
 

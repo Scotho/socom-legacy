@@ -5,9 +5,10 @@ import type { DoorWire } from './net/protocol';
 /**
  * The lever gates on the page (`./gates`, MAP-07). The action button is the switch's (`./actionPage`); this only
  * follows the room. The snapshot's `doors` array is the doors and then the gates, so `doorCount` is where the gates
- * start. A page does not run the program: `set_accessN` lives on the room's world, and a replay would open a destroyed
- * gate. The lever handle is not drawn. P8: a player's own pull is predicted as a pose (`press`,
- * `GATE_PREDICT_ADAPTATION`) and settled by the room's word.
+ * start. A page does not run the program's slide: `set_accessN` lives on the room's world, and a replay would open a
+ * destroyed gate. LATER 307: the room's `action` event on a lever is presented (`present`,
+ * `GATE_LEVER_PRESENT_ADAPTATION`): the handles' turns here, the sounds in the world's run, never the leaf's translation.
+ * P8: a player's own pull is predicted as a pose (`press`, `GATE_PREDICT_ADAPTATION`) and settled by the room's word.
  */
 
 /** What the page lends the gates. */
@@ -33,7 +34,18 @@ export class GatePage {
     this.doorCount = doorCount;
     this.set = gates?.length ? new GateSet(gates, ground ?? null, {
       moved: (gate, delta) => this.deps.move(gate.path, delta),
+      turned: (path, delta) => this.deps.move(path, delta),   // LATER 307: a lever's handle
     }) : null;
+  }
+
+  /**
+   * LATER 307 (`GATE_LEVER_PRESENT_ADAPTATION`): the room's `action` event on switch `action` (from `ActionPage.event`):
+   * true when it is one of the gates' levers, its program then presented here -- the handles' 0.5 s turns -- with its
+   * valves read through `read` (the page world's copy before this pull's writes); the leaf is not moved (it follows the
+   * room's pose, `frame`). False when it is no lever.
+   */
+  present(action: number, read: (name: string) => number): boolean {
+    return this.set?.present(action, read) ?? false;
   }
 
   /**

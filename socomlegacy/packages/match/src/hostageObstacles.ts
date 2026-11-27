@@ -2,8 +2,17 @@ import type { AiLoc } from '@s2u/scene';
 
 /** FUN_00515750 D:L384503-384528: bounding rectangle and half-open row spans (research 335 §1). */
 export interface HostageFootprint { origin: AiLoc; width: number; rows: readonly (readonly [number, number])[] }
-/** Research 335 §5: type4 object's quad-to-row raster and runtime object binding remain unported. */
-export const HOSTAGE_DYNAMIC_FOOTPRINT_PLACEHOLDER = 'registered scene-object footprint producer not bound';
+/**
+ * Research 335 §5 (reading, pending review; SCOPED to the disc's own maps with hostages but the campaign's M71): the
+ * footprints' one producer is `CVehicle::Init`'s `AddOverlay` (`FUN_003adab0` D:L303286; r0004 `FUN_003cfc00` D4:L328877), and
+ * no map with hostages but the campaign's M71 has a vehicle by either of its paths -- a definition-named node or a `vehicle`
+ * record; on M71 (its `tank1`) the original's list holds the tank's footprint and this value does not hold, a KNOWN DEPARTURE
+ * (LATER 1445) (`hostageOverlayScope.devdisc.test.ts`): none there. The vehicle producer itself (its quad-to-row raster and
+ * live binding) stays unported -- a disc map with hostages and a vehicle fails that test first. Outside the scope: a forge
+ * layout placing hostages on a base with a vehicle -- MP2 (its `tank1`) is reachable today; the campaign's bases are not (no
+ * multiplayer mission entry, so no extraction room; their AIMAPS refused, so no planner), so neither is M71's departure.
+ */
+export const HOSTAGE_DYNAMIC_FOOTPRINT_READING = 'none on a hostage map but M71' as const;
 const key = (p: AiLoc): string => `${p.map}:${p.x}:${p.z}`;
 /** Per-room copy-on-write bit32 overlay. No shared map cell is mutated; source has no self exclusion. */
 export class HostageObstacles {

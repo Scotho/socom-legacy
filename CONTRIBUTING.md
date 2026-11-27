@@ -36,11 +36,25 @@ The Forge's interface belongs to its contributor-owner (the maintainers' ruling 
 tabs, gizmos and looks are theirs to shape, and a change there is reviewed as an adaptation. What a placed object
 does in Play -- a door, a spawn, an objective, a rule -- is game behaviour under the parity rule, with its source.
 
+## Quick checks while you work
+
+From `socomlegacy/`, cheapest first; none of them needs a disc (a test that needs one skips and says so):
+
+```sh
+npx vitest run packages/scene/test/weapons.test.ts       # one test file
+npx vitest run --project @s2u/gs                         # one package's tests (its package.json name)
+npx tsc --noEmit -p tools                                # one part's typecheck
+```
+
+The whole of it is `npm run typecheck`, `npm test` and `npm run build` from the root. With no disc the
+disc-backed tests skip and say so; a skip is never a pass.
+
 ## What review checks
 
-- `npm run typecheck` clean, and `npm test`, `npm run build` and the browser specs (`npm run e2e -w @s2u/socomlegacy`)
-  green **on the final commit** of the pull request, not an earlier one -- paste the runs; a skipped test is said,
-  never a pass.
+- `npm run typecheck` clean, and `npm test` and `npm run build` green **on the final commit** of the pull request,
+  not an earlier one -- paste the runs; a skipped test is said, never a pass. The browser specs cannot be run from
+  this repository (it carries the specs but not their Playwright configuration): the maintainers run them when your
+  pull request is imported.
 - A failing test first: the red run and the green run in the description.
 - No `any`. Forge tests that mount the real page take a 90 s timeout (their cold import is slow).
 - A test that pins source text sits beside the code it pins, and moves with it.

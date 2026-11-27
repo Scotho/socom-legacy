@@ -1,4 +1,7 @@
 import { BACKDROP_URL } from './backdrop';
+import { installStreamerHotkey, onStreamerChange } from '../streamerMode';
+import { mountDonations, type DonationsFeature } from './donations';
+import './donations.css';
 import { openMobileLayoutEditor, type MobileLayoutEditor } from '../mobileLayoutEditor';
 import { UNSAVED_EDIT_MARK } from '../pwa/matchSignals';
 import { fit, NARROW_PX } from './fit';
@@ -42,6 +45,8 @@ export interface ConsoleOptions {
    * the console's pad on its toggle's frame, while open and only then.
    */
   frame?: InputFrame;
+  /** WM.R7: the controls held at the first frame that reads a pad are no press until let go (`./input` `settle`); the overlay's. */
+  settle?: boolean;
 }
 
 export function bootConsole(doc: Document, win: Window, adapters: Adapters, opts: ConsoleOptions): ConsolePage {
@@ -71,6 +76,7 @@ export function bootConsole(doc: Document, win: Window, adapters: Adapters, opts
   let frozen = false;
   let editor: MobileLayoutEditor | null = null;
   let stopped = false;
+  let donations: DonationsFeature | null = null;
   // INVITE-START (FI.R8, `./adapters/invite`): an invite address's auto-START is checked after each draw.
   let invite: { check(): void; detach(): void } | null = null;
   // CX.R18: the loadout editor's unsaved change marks `<html>`, so the installed app's update shows its notice instead of reloading.
@@ -78,6 +84,7 @@ export function bootConsole(doc: Document, win: Window, adapters: Adapters, opts
   const draw = () => {
     if (!ctl || frozen) return;
     renderFrame(doc, ctl.S, ctl.A);
+    donations?.render();
     anchorSourceMenu(doc);                                           // LR-27: one anchor for the disc menu, whichever way it opened
     const ed = ctl.S.screen === 'loadout' ? ctl.A.loadouts?.editor() : undefined;
     markUnsaved((ed?.kind === 'ok' && ed.dirty) || ctl.S.overlay === 'field');   // the joint review's F2: an open field too
@@ -136,18 +143,30 @@ export function bootConsole(doc: Document, win: Window, adapters: Adapters, opts
     doc.documentElement.dataset['consoleMode'] = 'overlay';
   } else if (img && !img.getAttribute('src')) img.src = BACKDROP_URL;
   let detach: (() => void) | null = attachInput(doc, win, c, opts);
+  if (mode !== 'overlay') donations = mountDonations(doc, win, { onDialogChange: (open) => {
+    if (open) { detach?.(); detach = null; frozen = true; }
+    else if (!stopped) { frozen = false; detach ??= attachInput(doc, win, c, { ...opts, settle: true }); c.render(); }
+  } });
   win.addEventListener('resize', onResize);
   const unsubscribe = adapters.onChange?.(() => { c.render(); });
+  // STREAMER-P1 (OT.R152, a browser adaptation): Ctrl+Shift+S while the launcher has the window, said by its own toast,
+  // and the header's tag and own name redrawn on any change of the mode (the Options row, the hotkey, another page's).
+  const streamerToast = (words: string, ms: number): void => { c.toast(words, ms); c.render(); };
+  let streamerKey: (() => void) | null = installStreamerHotkey(win, streamerToast);
+  const streamerOff = onStreamerChange(() => { if (!stopped && !frozen) c.render(); });
   // REPLAY-STILLS (a browser adaptation): a replay drawer's map still that fails to load is drawn as the text from then on.
   const stillsOff = attachMapStillFallback(doc, () => { if (!stopped && !frozen) c.render(); });
   const stop = (): void => {
     stopped = true;
+    donations?.dispose(); donations = null;
     editor?.dispose(); editor = null;
     invite?.detach();
     detach?.();
     detach = null;
     win.removeEventListener('resize', onResize);
     unsubscribe?.();
+    streamerKey?.(); streamerKey = null;
+    streamerOff();
     stillsOff();
     c.dispose();
     retireRail(doc);                                                  // LR-45's fold: the rail's release held by the document no longer
@@ -159,8 +178,8 @@ export function bootConsole(doc: Document, win: Window, adapters: Adapters, opts
   // ground under the front end's 640 x 448 frame is the game page's `ps2-look` (`./adapters/launch` `gamePage`).
   // Suspended, the page answers no resize either: `fit` would write its root font-size onto the game page.
   let nav: LauncherNav | null = null;
-  host.suspend = () => { detach?.(); detach = null; frozen = true; win.removeEventListener('resize', onResize); };
-  host.resume = () => { frozen = false; nav?.release(); detach ??= attachInput(doc, win, c, opts); win.addEventListener('resize', onResize); refit(); c.render(); };
+  host.suspend = () => { donations?.setActive(false); streamerKey?.(); streamerKey = null; detach?.(); detach = null; frozen = true; win.removeEventListener('resize', onResize); };
+  host.resume = () => { frozen = false; donations?.setActive(true); streamerKey ??= installStreamerHotkey(win, streamerToast); nav?.release(); detach ??= attachInput(doc, win, c, opts); win.addEventListener('resize', onResize); refit(); c.render(); };
   host.takeDown = () => {
     stop();
     adapters.dispose?.();

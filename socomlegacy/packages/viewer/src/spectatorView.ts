@@ -583,6 +583,8 @@ export class SpectatorView {
   /** PV-6a: Cross's hold and its seconds (POV_HOLD_S_ADAPTATION). */
   private holdNow: PovHold = 'idle';
   private holdS = 0;
+  /** WM-PV-HINT: the frames' seconds since the view was last swapped (Infinity before any): the HUD's dim. */
+  private povSinceS = Infinity;
   constructor(private readonly host: SpectatorHost) {}
 
   /** The spectator camera's mode. */
@@ -618,12 +620,26 @@ export class SpectatorView {
   }
   /** PV-6a: true only on a frame the host drew the player's view (`SpectatorHost.pov` returned true): the HUD's and the strip's. */
   get povShown(): boolean { return this.povShownNow; }
+  /**
+   * WM-PV-HINT (a browser adaptation, no original): Cross's hold toward the swap, 0..1 of POV_HOLD_S_ADAPTATION while it
+   * runs, 1 once it swapped (consumed) until the release; null with none (idle) or a void one -- an early release ends it.
+   * The HUD's ring (`./hud` POV_HINT_RING_ADAPTATION).
+   */
+  get povHold(): number | null {
+    if (this.holdNow === 'running') return Math.min(1, this.holdS / POV_HOLD_S_ADAPTATION);
+    return this.holdNow === 'consumed' ? 1 : null;
+  }
+  /** WM-PV-HINT: the frames' seconds since the view was last swapped (the hold's or `setPov`'s), Infinity before any. */
+  get povSince(): number { return this.povSinceS; }
+  /** WM-PV-HINT (the review's F1): the page offers the player's view at all (`SpectatorHost.povCarried` not false). */
+  get povOffered(): boolean { return this.offered(); }
 
   /**
    * PV-6a (POV_VIEW_ADAPTATION): choose the player's view or leave it -- the replay strip's and the developers' key's.
    * On only while a body is followed (`povAvailable`); off always.
    */
   setPov(on: boolean): void {
+    if (on !== this.povNow && (!on || this.povAvailable())) this.povSinceS = 0;   // WM-PV-HINT: a swap starts the dim
     if (!on) { this.povNow = false; this.povShownNow = false; }   // the review's F3: not shown from the moment it ends
     else if (this.povAvailable()) this.povNow = true;
   }
@@ -645,7 +661,7 @@ export class SpectatorView {
    * PV-6a: the body the view is bound to -- a spectator's followed target in follow, or a benched watcher's watched
    * teammate (a ghost's too: benched) -- or null (free, scenic, the own body).
    */
-  private boundId(): number | null {
+  boundId(): number | null {
     if (this.host.seat().role === 'spectator' && this.modeNow === 'follow' && this.targetNow !== null) return this.targetNow;
     return this.benchedNow ? this.watchingNow : null;
   }
@@ -677,9 +693,11 @@ export class SpectatorView {
     if (this.povNow && this.boundId() !== null) {
       this.povNow = false;
       this.povShownNow = false;                          // the review's F3: not shown from the moment it ends
+      this.povSinceS = 0;                                // WM-PV-HINT: a swap starts the dim
       return true;
     }
     if (!this.povAvailable()) return false;
+    this.povSinceS = 0;
     this.povNow = !this.povNow;
     if (!this.povNow) this.povShownNow = false;          // the review's F3: not shown from the moment it ends
     return true;
@@ -811,6 +829,7 @@ export class SpectatorView {
    */
   private holdStep(dt: number): void {   // not `holdFrame`: that is the dev hook's name, which the built viewer must not contain (`test/holdFrame.test.ts`)
     if (this.holdNow === 'running' && dt > 0) this.holdS += dt;
+    if (dt > 0) this.povSinceS += dt;                    // WM-PV-HINT: the dim's seconds
   }
 
   /**

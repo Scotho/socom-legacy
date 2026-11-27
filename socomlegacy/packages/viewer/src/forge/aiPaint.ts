@@ -6,7 +6,7 @@ import { brushCursor, hexOf, sampleCursor } from './paintCursor';
 import { PaintToolBar, type PaintTool } from './paintTools';
 
 /**
- * The AI Navigation mode's cell tools (the owner, 2026-11-16: "a similar workflow to the collision paint but for ai
+ * The AI Navigation mode's cell tools (the Forge's owner (crispy, OT.R112), 2026-11-16: "a similar workflow to the collision paint but for ai
  * navigation tiles", then "Select(default), Paint, Sample ... the apply button ... follow this same pattern for the ai nav
  * mode"; a browser adaptation, FG.R2), as Geometry mode's paintable layers have them (`./paintTools`):
  *
@@ -280,7 +280,7 @@ export class AiPaintTool {
       this.paintAt(ndc);
       return;
     }
-    // Select (the owner, 2026-11-16: "shift + click should be additive not toggle selection. ctrl + click should be
+    // Select (the Forge's owner (crispy, OT.R112), 2026-11-16: "shift + click should be additive not toggle selection. ctrl + click should be
     // toggleable"): Shift adds; Ctrl toggles -- the cell under the press taken out when it is selected, else added (a drag
     // goes on as it began); a plain press starts afresh.
     let op: 'add' | 'remove' = 'add';
@@ -302,8 +302,10 @@ export class AiPaintTool {
   }
 
   private onUp(e: PointerEvent): void {
-    const mine = (this.stroke?.pointerId ?? this.picking?.pointerId) === e.pointerId;
-    if (!mine) return;
+    // Only a release of a stroke or a pick in progress is the tool's: with neither, an event with no pointer id (a
+    // synthetic one) is not taken for "none" matching "none" and goes on to the camera and the page.
+    const own = this.stroke ?? this.picking;
+    if (!own || own.pointerId !== e.pointerId) return;
     e.stopImmediatePropagation();
     try { this.deps.input.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
     if (this.picking) {

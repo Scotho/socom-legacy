@@ -57,7 +57,28 @@ export interface WalkSignals {
   sceneGrid?(): Grid | null;
   /** `TESTROOM_FLY_AMBIENCE_ADAPTATION`: the test room's free-fly viewer, outside a match, holds the beds off. */
   ambienceOff?(): boolean;
+  /**
+   * B-86: the page's own body's view state (`body+0x200`, `./zoom` `Zoom.state()`: 0 third person, 1-2 first person,
+   * 3 night vision, 4 binoculars, 5 and up the weapon's zoom). At 1 or more the own step plays unplaced
+   * (`OWN_STEP_UNPLACED_READING`). Absent, 0: the step at the foot.
+   */
+  viewState?(): number;
 }
+
+/**
+ * OWN_STEP_UNPLACED_READING (B-86, tier 1 row 6; research 81 s4): `FUN_005a39b0` (r0004 0x5a9520: the r0001 body word
+ * for word but relocations) plays a step -- and the prone crawl, the same function -- placed at the stepping foot's bone
+ * (the sound's vtable +0x14, volume 1.0, D:L460425), except when the body's controller (+0xc0) answers its local-player
+ * virtual (+0x2c, D:L460419-460423) AND the body's signed view state (+0x200) is not under 1 (D:L460424): then it plays
+ * unplaced (vtable +0xc with no position, D:L460428) -- volume 1.0 and the sound's own `Pan` (research 122 R122.4). So
+ * in first person and every zoom the page's own step has no place and takes the sound's own pan (989snd's pan -1, R122.4);
+ * in third person it is at the foot, heard from the camera. The others' steps (`MatchSound.remoteStep`) are never local:
+ * always placed. The landing (`FUN_005ac1f0`) has no such branch, always placed: r0001's reading (D:L464909-464929); at
+ * r0004 (0x5b1e80) the review found no +0x200 read, the function otherwise changed (73 of 250 words, unclassified).
+ * Was: every own step at the foot, so in first person the eye-level listener over feet landing left and right swung
+ * each step's pan to one side. [reading; fresh review 2026-11-22: PASS WITH FINDINGS, folded]
+ */
+export const OWN_STEP_UNPLACED_READING = 1;
 
 /**
  * TESTROOM_FLY_AMBIENCE_ADAPTATION (AMB-1; a browser adaptation, the test room's map viewer only): the test room's
@@ -97,6 +118,21 @@ export class WalkSounds {
   }
 
   /**
+   * The material under another body's step or the ladder's landing, probed on the scene's grid (`sceneGrid`: the
+   * walker's while it walks, else the map's) whoever listens: the step's sound is the stepping actor's own floor
+   * (`FUN_005a39b0` D:L460385-460434, the actor's +0x20c; research 81 §4 "Which"; reading -- reviewed late, at the
+   * weekend batch's close, 2026-11-15). Where the probe finds no floor it answers byte 0, the map's DefaultMaterial; the
+   * original keeps the actor's last floor (`FUN_005af930` D:L466978-466980): LATER 1099, not built. Was
+   * `material`, the page walker's grid alone, so a dead or spectating page (fly mode) heard byte 0 -- the map's
+   * DefaultMaterial (§7) -- under every teammate (the owner's report on v0.4.22, 2026-11-14). The page's own steps
+   * (`playEvent`) keep `material`.
+   */
+  materialAt(at: Vec3): number {
+    const grid = this.walk.sceneGrid?.() ?? this.walk.grid();
+    return (grid && probeFloor(grid, at[0], at[1], at[2])?.poly.material) ?? 0;
+  }
+
+  /**
    * Once a frame: the ambience on, and the camera's place for the reverb's depth and the beds
    * (`GameAudio.setEnvironment`). `FUN_00295b00`'s one probe under the camera (D:L140037-140038) writes the camera's
    * `+0x2b8` (`m_inside`, D:L140054-140055) and `+0x2bc` (the reverb zone, D:L140056-140057), which the reverb reads
@@ -131,7 +167,9 @@ export class WalkSounds {
     if (e.kind === 'footfall') {
       const stance = STANCE_CODE[this.walk.stance()];
       if (stance === 2 && e.foot === 'left') return;   // prone: the left foot's call is skipped, the crawl is the right's
-      const at = e.position ?? feet, wish = this.walk.wish();
+      // B-86 (OWN_STEP_UNPLACED_READING): in first person or any zoom the own step is unplaced (FUN_005a39b0)
+      const unplaced = (this.walk.viewState?.() ?? 0) >= OWN_STEP_UNPLACED_READING;
+      const at = unplaced ? null : e.position ?? feet, wish = this.walk.wish();
       this.counts.footfalls++;
       this.audio.onFootstep(this.material(feet), at, { stance, stick: Math.max(Math.abs(wish.forward), Math.abs(wish.right)) });
     } else if (e.kind === 'callback') {

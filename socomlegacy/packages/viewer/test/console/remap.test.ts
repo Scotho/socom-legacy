@@ -192,16 +192,14 @@ describe('Cross listens, and the pad walker stands down', () => {
     expect(ctl.S.confirmKind).toBe('conflict');
     expect(ctl.capturing()).toBe(false);
     tick();                                              // still held: no press
-    expect(ctl.S.confirmRow).toBe(2);                    // Cancel first (the console's confirms: the safe answer)
+    // WM-9: D-pad down is a button the menus need, so the Confirm opens on Swap (Replace unavailable, its reason said);
+    // a conflict onto any other action still opens on Cancel (OT.R60).
+    expect(ctl.S.confirmRow).toBe(0);
     hold(p); tick();
-    hold(p, 12); tick();                                 // Up: Replace
-    expect(ctl.S.confirmRow).toBe(1);
+    hold(p, 13); tick();                                 // Down: past the unavailable Replace, to Cancel
+    expect(ctl.S.confirmRow).toBe(2);
     hold(p); tick();
-    hold(p, 0); tick();                                  // Cross: Replace refused (task W2ibPC6c: the menus need the d-pad)
-    expect(ctl.S.overlay).toBe('confirm');
-    expect(document.querySelector('#overlay .cx-field__error')!.textContent).toBe('D-pad down must stay bound: the menus need it. Swap instead, or cancel.');
-    hold(p); tick();
-    hold(p, 12); tick();                                 // Up: Swap
+    hold(p, 12); tick();                                 // Up: Swap again
     expect(ctl.S.confirmRow).toBe(0);
     hold(p); tick();
     hold(p, 0); tick();                                  // Cross: answered
@@ -294,15 +292,25 @@ describe('a conflict reaches the Confirm, each answer stored', () => {
     expect(ctl.S.toast).toBe('Binding cancelled.');
     expect(stored()).toEqual(before);
 
-    ask(ctl, p, 3, 0);                                   // and Replace: refused
-    ctl.press('up');                                     // from Cancel
-    ctl.press('cross');
-    expect(ctl.S.overlay).toBe('confirm');
-    expect(document.querySelector('#overlay .cx-field__error')!.textContent).toBe('Cross must stay bound: the menus need it. Swap instead, or cancel.');
-    expect(stored()).toEqual(before);
-    ctl.press('down');                                   // Cancel
-    ctl.press('cross');
+    // WM-9: Replace onto Cross is never chosen and refused -- it is unavailable, and the pad passes over it.
+    ask(ctl, p, 3, 0);
+    expect(ctl.S.confirmRow).toBe(0);                    // Swap first
+    ctl.press('down');                                   // past Replace
+    expect(ctl.S.confirmRow).toBe(2);
+    ctl.press('cross');                                  // Cancel
     expect(ctl.S.overlay).toBeNull();
+    expect(stored()).toEqual(before);
+  });
+
+  it("the machine's backstop stands: a Replace that would unbind a menu button is still refused in resolveConflict's words", () => {
+    const { ctl, p, remap } = boot();
+    openScreen(ctl);
+    ctl.remapFrame(t += 16);
+    const before = stored();
+    ask(ctl, p, 3, 0);
+    remap.current()!.answer('replace');                  // the dialog never offers it; the machine refuses it all the same
+    ctl.render();
+    expect(document.querySelector('#overlay .cx-field__error')!.textContent).toBe('Cross must stay bound: the menus need it. Swap instead, or cancel.');
     expect(stored()).toEqual(before);
   });
 
@@ -323,7 +331,7 @@ describe('Triangle restores the defaults, behind a Confirm', () => {
     ctl.remapFrame(t += 16);
     ctl.S.rm.row = remapDeadRow();
     ctl.press('right');
-    expect(stored()!.deadZone).toBe(0.16);
+    expect(stored()!.deadZone).toBe(0.06);                      // WM-PAD-DEADZONE: one step up from the default, 5 percent
     ctl.press('triangle');
     expect(ctl.S.overlay).toBe('confirm');
     expect(ctl.S.confirmKind).toBe('restore');
@@ -331,7 +339,7 @@ describe('Triangle restores the defaults, behind a Confirm', () => {
     expect(document.querySelector('#overlay .cx-dialog__title')!.textContent).toBe('Restore the defaults?');
     ctl.press('cross');                                  // No
     expect(ctl.S.overlay).toBeNull();
-    expect(stored()!.deadZone).toBe(0.16);
+    expect(stored()!.deadZone).toBe(0.06);
     ctl.press('triangle');
     ctl.press('down');
     ctl.press('cross');                                  // Yes
@@ -425,7 +433,7 @@ describe('the render: the rows and their glyphs', () => {
     expect(glyph(A(7)).querySelector('.cx-shoulder.is-trigger')!.textContent).toBe('R2');
     expect(glyph(A(9)).textContent).toBe('Options');                // OBF-10: the PlayStation pad's own print (the action stays Start)
     expect(rows()[A(0)]!.classList.contains('is-focused')).toBe(true);   // STANCE-TOP: it opens on Cross
-    expect([rowTitle(remapDeadRow()), rowValue(remapDeadRow())]).toEqual(['Pad dead zone (this browser)', '15%']);
+    expect([rowTitle(remapDeadRow()), rowValue(remapDeadRow())]).toEqual(['Pad dead zone (this browser)', '5%']);   // WM-PAD-DEADZONE: the default
     expect([rowTitle(REMAP_CROUCH_ROW), glyph(REMAP_CROUCH_ROW).textContent]).toEqual(['Crouch', 'Unbound']);
     // The review's F1 (a): a SEPARATE reached through storage (saved, not stepped on the row) clones nothing -- Prone shows
     // Unbound, and Triangle keeps its stance until Prone is bound (`ControllerInput.poll`; `../stanceModes.test.ts`).
@@ -454,10 +462,10 @@ describe('the render: the rows and their glyphs', () => {
     ctl.remapFrame(t += 16);
     ctl.S.rm.row = remapDeadRow();
     ctl.press('right'); ctl.press('right');
-    expect(rowValue(remapDeadRow())).toBe('17%');
-    expect(stored()!.deadZone).toBe(0.17);
+    expect(rowValue(remapDeadRow())).toBe('7%');
+    expect(stored()!.deadZone).toBe(0.07);
     ctl.press('square');
-    expect(stored()!.deadZone).toBe(0.15);
+    expect(stored()!.deadZone).toBe(0.05);                      // WM-PAD-DEADZONE: Square writes the default, 5 percent
     ctl.press('down');
     expect(ctl.S.rm.row).toBe(A(0));                            // DEAD-UP: Cross under the dead zone
     ctl.S.rm.row = REMAP_STANCE_ROW;                            // SEP-ROWS: Crouch directly under the Stance mode
@@ -574,25 +582,25 @@ describe('the render: the rows and their glyphs', () => {
     hold(p); tick();
     hold(p, 12); tick();                                 // d-pad Up, Up's own: the question
     const lead = document.querySelector('#overlay .cx-dialog__lead')!.textContent;
-    expect(lead).toBe('D-pad Up is already used for UP. Swap them, replace it, or cancel.');
+    expect(lead).toBe('D-pad Up is already used for UP. D-pad up must stay bound: the menus need it, so swap them (D-pad up moves to Square) or cancel.');
   });
 
-  it('review F2: the conflicting button held through the question never walks the Confirm off Cancel', () => {
+  it('review F2: the conflicting button held through the question never walks the Confirm off its first answer', () => {
     const { ctl, p } = boot();
     openScreen(ctl);
     tick();
     ctl.S.rm.row = A(2);                                 // Square's row
     hold(p!, 0); tick();                                 // Cross: listen
     hold(p!); tick();
-    hold(p!, 12); tick();                                // d-pad Up, Up's own: the question
+    hold(p!, 13); tick();                                // d-pad Down, Down's own: the question (WM-9: Swap first)
     expect(ctl.S.overlay).toBe('confirm');
     expect(ctl.S.confirmKind).toBe('conflict');
-    expect(ctl.S.confirmRow).toBe(2);
+    expect(ctl.S.confirmRow).toBe(0);
     for (let k = 0; k < 60; k++) tick();                 // ~1 s held: past the walker's repeat delay
+    expect(ctl.S.confirmRow).toBe(0);
+    hold(p!); tick();                                    // let go, then a fresh Down: the walker moves it (past Replace)
+    hold(p!, 13); tick();
     expect(ctl.S.confirmRow).toBe(2);
-    hold(p!); tick();                                    // let go, then a fresh Up: the walker moves it
-    hold(p!, 12); tick();
-    expect(ctl.S.confirmRow).toBe(1);
   });
 
 });
@@ -867,4 +875,164 @@ describe('LATER 380: the screen drawn round the controller', () => {
     expect(key(1).classList.contains('is-todo')).toBe(true);
     expect(document.querySelector('#stage .cx-pad__glyph:not(.is-tick)')).toBeNull();   // no action glyphs in the pass
   });
+});
+
+/**
+ * WM-9 (the weekend sprint's UI lane; a browser adaptation, the product track): the owner's report "START is not mappable"
+ * on a PlayStation 4 pad. (a) A rebind onto a button the menus need (START, Cross, Circle, the d-pad): the Confirm opens
+ * on Swap, its lead says why, Replace is drawn unavailable (never chosen and then refused); a conflict onto any other action
+ * opens on Cancel as before (OT.R60). (b) A pad of another layout not yet taught: every way of asking for a binding says
+ * so in words and begins the teach pass, never nothing.
+ */
+describe('WM-9: a rebind onto a menu button, and a listen asked of an untaught pad', () => {
+  function ask(ctl: ConsolePage['ctl'], p: Pad, i: number, physical: number): void {
+    ctl.S.rm.row = A(i);
+    ctl.press('cross');
+    hold(p); ctl.remapFrame(t += 16);
+    hold(p, physical); ctl.remapFrame(t += 16);
+    hold(p);
+  }
+  const toggles = (): HTMLElement[] => [...document.querySelectorAll<HTMLElement>('#overlay .cx-toggle')];
+  const lead = (): string => document.querySelector('#overlay .cx-dialog__lead')!.textContent!;
+  const click = (el: Element): void => { el.dispatchEvent(new MouseEvent('click', { bubbles: true })); };
+
+  it('Square onto Options (START): Swap focused, the lead says why, Replace unavailable; Swap moves START to Square', () => {
+    const { ctl, p } = boot();
+    openScreen(ctl);
+    ctl.remapFrame(t += 16);
+    ask(ctl, p, 2, 9);
+    expect(ctl.S.confirmKind).toBe('conflict');
+    expect(ctl.S.confirmRow).toBe(0);
+    expect(document.querySelector('#overlay .cx-toggle.is-focused')!.textContent).toBe('Swap');
+    expect(lead()).toBe('Options is already used for START. START must stay bound: the menus need it, so swap them (START moves to Square) or cancel.');
+    const replace = toggles()[1]!;
+    expect(replace.getAttribute('aria-disabled')).toBe('true');
+    expect(replace.textContent).toBe('Replace (unavailable)');
+    expect(replace.getAttribute('title')).toBe('START must stay bound: the menus need it.');
+    expect(toggles()[0]!.getAttribute('aria-disabled')).toBeNull();
+    expect(toggles()[2]!.getAttribute('aria-disabled')).toBeNull();
+    ctl.press('cross');                                  // Swap
+    expect(ctl.S.overlay).toBeNull();
+    expect(stored()!.bindings[2]).toBe(9);
+    expect(stored()!.bindings[9]).toBe(2);
+  });
+
+  it('Cross held to bind Square onto Cross never answers the Swap it now opens on; a fresh Cross does', () => {
+    const { ctl, p } = boot();
+    openScreen(ctl);
+    tick();
+    ctl.S.rm.row = A(2);                                 // Square's row
+    hold(p, 0); tick();                                  // Cross: listen
+    hold(p); tick();
+    hold(p, 0); tick();                                  // Cross held for Square: the question, Swap first
+    expect(ctl.S.confirmKind).toBe('conflict');
+    expect(ctl.S.confirmRow).toBe(0);
+    const before = stored();
+    for (let k = 0; k < 60; k++) tick();                 // still held: no press reaches the Confirm
+    expect(ctl.S.overlay).toBe('confirm');
+    expect(stored()).toEqual(before);
+    hold(p); tick();
+    hold(p, 0); tick();                                  // a fresh Cross: Swap
+    expect(ctl.S.overlay).toBeNull();
+    expect(stored()!.bindings.slice(0, 3)).toEqual([2, 1, 0]);
+  });
+
+  it('the unavailable Replace clicked does nothing: no answer, no refusal, the question kept', () => {
+    const { ctl, p } = boot();
+    openScreen(ctl);
+    ctl.remapFrame(t += 16);
+    ask(ctl, p, 2, 9);
+    const before = stored();
+    click(toggles()[1]!);
+    expect(ctl.S.overlay).toBe('confirm');
+    expect(ctl.S.confirmKind).toBe('conflict');
+    expect(document.querySelector('#overlay .cx-field__error')).toBeNull();
+    expect(stored()).toEqual(before);
+    expect(ctl.S.confirmRow).not.toBe(1);
+  });
+
+  it('a conflict onto an action the menus do not need keeps Cancel focused and every answer available (OT.R60)', () => {
+    const { ctl, p } = boot();
+    openScreen(ctl);
+    ctl.remapFrame(t += 16);
+    ask(ctl, p, 4, 7);                                   // L1 to R2's button
+    expect(ctl.S.confirmRow).toBe(2);
+    expect(lead()).toBe('R2 is already used for R2. Swap them, replace it, or cancel.');
+    expect(toggles().map((b) => b.textContent)).toEqual(['Swap', 'Replace', 'Cancel']);
+    expect(toggles().every((b) => b.getAttribute('aria-disabled') === null)).toBe(true);
+  });
+
+  it('an action with no button to give onto START: Cancel focused, the reason in the lead, Swap and Replace unavailable', () => {
+    const { ctl, p } = boot();
+    openScreen(ctl);
+    ctl.remapFrame(t += 16);
+    ask(ctl, p, 5, 6);                                   // R1 to L2's button: Replace leaves L2 unbound
+    ctl.press('up');
+    ctl.press('cross');
+    expect(stored()!.bindings[6]).toBe(-1);
+    ask(ctl, p, 6, 9);                                   // L2 (unbound) onto Options
+    expect(ctl.S.confirmKind).toBe('conflict');
+    expect(ctl.S.confirmRow).toBe(2);
+    expect(lead()).toBe('Options is already used for START. START must stay bound: the menus need it, and L2 has no button to give it, so they cannot be swapped. Cancel, then choose another button.');
+    expect(toggles()[0]!.getAttribute('aria-disabled')).toBe('true');
+    expect(toggles()[1]!.getAttribute('aria-disabled')).toBe('true');
+    ctl.press('up');                                     // nothing above Cancel to reach
+    expect(ctl.S.confirmRow).toBe(2);
+    ctl.press('cross');
+    expect(ctl.S.overlay).toBeNull();
+    expect(stored()!.bindings[9]).toBe(9);
+  });
+
+  it('an untaught pad of another layout, Not now chosen: a button clicked on the drawing says to teach it, and begins the pass', () => {
+    const { ctl } = boot({ withPad: null });
+    const odd = pad('Twin USB Joystick (Vendor: 0810 Product: 0001)', '');
+    pads = [odd];
+    window.dispatchEvent(Object.assign(new Event('gamepadconnected'), { gamepad: odd }));
+    ctl.remapFrame(t += 16);
+    click(document.querySelector('#stage [data-act="teachstart"]')!);
+    click(document.querySelector('#stage [data-act="teachcancel"]')!);  // Not now
+    expect(document.querySelector('#stage .cx-teach__count')!.textContent).toBe('Another layout');
+    click(document.querySelector('#stage [data-pad-key="9"]')!);       // START on the drawing
+    expect(ctl.S.toast).toBe('This controller uses another layout: teach it its buttons first.');
+    expect(remapTeaching(ctl)).toBe(true);
+    expect(document.querySelector('#stage .cx-teach__count')!.textContent).toBe('Step 1 of 20');
+  });
+
+  it('a binding row asked of a pad that turned out untaught says to teach it and begins the pass (no silent lock)', () => {
+    const { ctl, remap } = boot();
+    openScreen(ctl);
+    ctl.remapFrame(t += 16);
+    const row = rows()[A(9)]!;                           // START's row, drawn for the standard pad
+    const odd = pad('Twin USB Joystick (Vendor: 0810 Product: 0001)', '');
+    pads = [odd];
+    remap.current()!.poll();                             // the pad changed under the drawn row
+    click(row);
+    expect(ctl.S.toast).toBe('This controller uses another layout: teach it its buttons first.');
+    expect(remap.current()!.teachState()).not.toBeNull();
+  });
+
+  it('the review F-WM9-3: a pass that does not begin is not said to have begun', () => {
+    const { ctl, remap } = boot();
+    openScreen(ctl);
+    ctl.remapFrame(t += 16);
+    const row = rows()[A(9)]!;
+    pads = [pad('Twin USB Joystick (Vendor: 0810 Product: 0001)', '')];
+    remap.current()!.poll();
+    remap.current()!.teach = () => false;               // the machine refuses the pass
+    const before = ctl.S.toast;
+    click(row);
+    expect(ctl.S.toast).toBe(before);
+  });
+
+  it('a listen the machine refuses is said in words, never dropped', () => {
+    const { ctl, remap } = boot();
+    openScreen(ctl);
+    ctl.remapFrame(t += 16);
+    vi.spyOn(remap.current()!, 'listen').mockReturnValue(false);
+    ctl.S.rm.row = A(9);
+    ctl.press('cross');
+    expect(ctl.S.legendError).toBe('Finish teaching this controller first, or choose Not now.');
+  });
+
+  const remapTeaching = (ctl: ConsolePage['ctl']): boolean => ctl.A.remap!.current()!.teachState() !== null;
 });

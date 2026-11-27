@@ -1,6 +1,6 @@
-import { flattenScene, worldDi, type PlacedModel } from './buildScene';
+import { flattenScene, worldDi, type PlacedModel, type SceneInstance } from './buildScene';
 import type { WorldPoly } from './collision';
-import { transformPoint, type SceneNode } from './sceneGraph';
+import { multiply, transformPoint, type SceneNode } from './sceneGraph';
 import type { GridParams } from './worldRoot';
 
 /**
@@ -79,6 +79,81 @@ export interface CollisionOwner {
    * climb (`groundPolygons` copies `frame` alone).
    */
   restFrame?: Float32Array;
+  /**
+   * LATER 1094 (research 430 s8; reading, pending review): the nodes the original's per-object walk `FUN_002d3030` passes
+   * through to reach this owner's polygons, from the node the grid FILES (a world child or a top-level instance, research
+   * 23 section 2.1; a clutter instance's master model root, research 422 s3) down to the owner's own node, in that order.
+   * At each the walk puts the line into the node's own frame (D:L175103-175108, D:L175248) and refuses it, with the node's
+   * whole subtree, when both ends lie beyond one face of the node's `nparams` box (`FUN_003124f0` D:L213172-213241, called
+   * at D:L175249; the refusal marks the record done until that node's walk ends, D:L175396-175402). The blast modes read
+   * it (`segment.ts` `blastHits`). Absent where the owners were made without the graph (`collisionRuns`, a test's): no box
+   * is then asked. A Forge copy carries its template's chain moved by its own matrix (`movedWalk`). An instance node and
+   * the prototype root realised under it (`flattenScene`'s `X=model`) are ONE node in the engine and one entry here, the
+   * instance node's (`walkChain`; `INSTANCE_NODE_BOX_READING`). Shared by reference, never written.
+   */
+  nodes?: readonly NodeBox[];
+  /**
+   * LATER 1094 (research 430 s8): the ground-plane box the original files this owner's walk by -- the filed node's
+   * `nparams` box carried into the world by two corners (`worldFootprint`, the placements' reading), or a clutter
+   * instance's master box scaled and moved but not turned (`FUN_002d55c0` D:L176288-176344, research 422 s3). The blast
+   * modes find the owner in the cells it covers; absent, they use the object's own footprint.
+   */
+  filed?: Footprint;
+  /**
+   * LATER 1094 (the review of fc0cb0622b, N2): `filed` is turned into cells by `FUN_002d6c40`'s rule (`(p - origin + 0.0001)`
+   * x invCellDim; `FUN_002d55c0` -> `FUN_002d6ab0`, D:L176344) -- a clutter instance's -- not by the grid insert's
+   * (`cellRange`, a world node's).
+   */
+  filedByCover?: true;
+  /**
+   * LATER 1094 (the second review's F1; the main controller's yes of 2026-11-18): a Forge copy (`movedWalk`) is found in
+   * its own polygons' cells as well as its filed node's (`FORGE_COPY_POLY_CELLS_ADAPTATION`, `segment.ts` `blastFiling`).
+   */
+  filedWithPolys?: true;
+}
+
+/**
+ * LATER 1094: one node of `CollisionOwner.nodes` -- its `nparams` box in its own frame (min xyz, max xyz: the node's
+ * `+0x40..+0x54`, the reader's `bbox`), its frame (row-major, row-vector, as `flattenScene`'s `world`: the node's own matrix
+ * times its parents'), and `free` when its flag word's bit 30 is set (`+0x5f` bit 6), for which `FUN_003124f0` refuses
+ * nothing (D:L213184).
+ */
+export interface NodeBox { bbox: Float32Array; world: Float32Array; free?: true }
+
+/** LATER 1094: the flag word's bit 30, for which the node box refuses nothing (`FUN_003124f0` D:L213184). */
+export const NODE_BOX_FREE = 1 << 30;
+
+/**
+ * LATER 1094 (the review of fc0cb0622b, S2) [reading]: the engine reads a world instance node by copying its model into
+ * it (`CNode::CreateInstance`, then the node's own `ReadDataBegin`: reCOM `zNode/node_io.cpp:46-51`,
+ * `node_saveload.cpp:49-74`; `buildScene.ts` `worldDi`), so the instance node and its model's root are ONE node, with the
+ * instance node's own `nparams` box and frame. `flattenScene` realises them as two (`X` and `X=model`); the chain keeps
+ * `X` and drops `X=model`. That the engine's copy keeps the instance node's box, not the model root's, is read from
+ * reCOM's order, not from the decompilation.
+ */
+export const INSTANCE_NODE_BOX_READING = 'the instance node\'s own box and frame; the realised model root not a node of its own' as const;
+
+/** Whether `child`'s path lies under `parent`'s: below it (`/`) or its realised model (`=`, the same engine node). */
+export function walksUnder(child: string, parent: string): boolean {
+  return child.startsWith(`${parent}/`) || child.startsWith(`${parent}=`);
+}
+/** A realised model root under an instance node (`X=model`, no `/` after the `=`): not a node of its own on the walk. */
+const realisedRoot = (path: string): boolean => /=[^/]*$/.test(path);
+/** The node boxes of a pre-order stack of flattened nodes (`INSTANCE_NODE_BOX_READING`). */
+export function walkChain(above: readonly { node: SceneNode; world: Float32Array; path: string }[]): NodeBox[] {
+  return above.filter((f) => !realisedRoot(f.path)).map(nodeBox);
+}
+
+/**
+ * LATER 1094 (the review of fc0cb0622b, B1): a Forge copy's walk -- its template's chain with every frame moved by the copy's
+ * matrix `m` (row-major, row-vector: a three.js `Matrix4`'s `elements` as they are), and filed by its first node's box
+ * carried into the world (`worldFootprint`, a world node's rule: a placed copy stands as a world node). Nothing when the
+ * template has no chain.
+ */
+export function movedWalk(owner: CollisionOwner, m: Float32Array): Pick<CollisionOwner, 'nodes' | 'filed' | 'filedWithPolys'> {
+  if (!owner.nodes || owner.nodes.length === 0) return {};
+  const nodes = owner.nodes.map((n): NodeBox => ({ ...n, world: multiply(n.world, m) }));
+  return { nodes, filed: worldFootprint(nodes[0]!.bbox, nodes[0]!.world), filedWithPolys: true };
 }
 
 /** LATER 142: whether a row-major node matrix is upright -- its column and cut the same in its frame as in the world's. */
@@ -127,6 +202,12 @@ export interface GridCell {
 
 export interface Grid {
   params: GridParams;
+  /**
+   * The map's default soil (`READERM.ZAR/<map>.rdr` `world_params` `DefaultMaterial`, as a hull material byte): the soil
+   * a floor of material byte 0 takes (`FUN_002ddc30` D:L181208; research 151 s9.1). Absent: byte 0 is soil 0, no offset.
+   * Set by the map loaders (`simMap.ts`, `loadMap.ts`); FLE-2.
+   */
+  defaultMaterial?: number;
   /**
    * `m_InvCellDim`, `1 / m_CellDim` as the f32 `Create` stores (`grid_main.cpp:69`), the quotient rounded to
    * nearest: chopped instead, Frostfire's type-1 world nodes other than the three oceans spend 393 atoms, not
@@ -213,6 +294,11 @@ export function worldFootprint(bbox: Float32Array, rowMajor: Float32Array): Foot
   return { minX: Math.min(a[0], b[0]), minZ: Math.min(a[2], b[2]), maxX: Math.max(a[0], b[0]), maxZ: Math.max(a[2], b[2]) };
 }
 
+/** LATER 1094: a flattened node as `CollisionOwner.nodes` holds it (its bbox and frame by reference). */
+export function nodeBox(f: { node: SceneNode; world: Float32Array }): NodeBox {
+  return { bbox: f.node.bbox, world: f.world, ...((f.node.flags & NODE_BOX_FREE) !== 0 ? { free: true as const } : {}) };
+}
+
 /** A placement's footprint: its node's bbox, or the point it is translated to when it has none. */
 function placedFootprint(p: PlacedModel): Footprint {
   if (p.bbox) return worldFootprint(p.bbox, p.rowMajor);
@@ -247,10 +333,21 @@ function polysFootprint(polys: readonly WorldPoly[]): Footprint {
 export function collisionOwners(models: SceneNode[], rootName = 'worldmodel'): CollisionOwner[] {
   const out: CollisionOwner[] = [];
   let first = 0;
+  // LATER 1094: the nodes above each owner, by `flattenScene`'s pre-order (a node's descendants follow it, their paths
+  // below its own). The world's own children are the filed nodes (research 23 section 2.1; `flattenScene`'s `atoms`), so
+  // the worldmodel root is not on the walk; any other root (a model walked whole) is.
+  const above: SceneInstance[] = [];
+  const skipRoot = rootName === 'worldmodel';
   for (const f of flattenScene(models, rootName)) {
+    while (above.length > 0 && !walksUnder(f.path, above[above.length - 1]!.path)) above.pop();
+    above.push(f);
     const count = worldDi(f).length;
     if (count === 0) continue;
-    out.push({ modelName: f.modelName, path: f.path, first, count, flags: f.flags, ...((f.flags & 1) === 0 ? { switchedOff: true as const } : {}), ...(uprightFrame(f.world) ? {} : { frame: f.world }) });
+    const nodes = walkChain(skipRoot && above.length > 1 ? above.slice(1) : above);
+    out.push({
+      modelName: f.modelName, path: f.path, first, count, flags: f.flags, ...((f.flags & 1) === 0 ? { switchedOff: true as const } : {}), ...(uprightFrame(f.world) ? {} : { frame: f.world }),
+      ...(nodes.length > 0 ? { nodes, filed: worldFootprint(nodes[0]!.bbox, nodes[0]!.world) } : {}),
+    });
     first += count;
   }
   return out;

@@ -2,9 +2,10 @@ import { controllerLabelFamily, isSteamFamily } from '../../controllerLabels';
 import { CROUCH_BIND, EXTRA_COMBO_LISTEN, EXTRA_DOUBLE_LISTEN, PRONE_BIND, TEACH_IDLE_MS_ADAPTATION, type ExtraRow, type PadBinding } from '../../padBinding';
 import type { ExtraAction } from '../../padExtras';
 import { TEACH_STEPS } from '../../padLayout';
-import { STANCE_MODE_ABOUT, STANCE_MODE_WORDS, controllerStanceMode, defaultController } from '../../startupSettings';
+import { MENU_REQUIRED, STANCE_MODE_ABOUT, STANCE_MODE_WORDS, controllerStanceMode, defaultController } from '../../startupSettings';
 import { GLYPH, P, btn, dpad, esc, ico, shoulder, type FaceButton } from '../icons';
 import { REMAP_CROUCH_ROW, REMAP_PRONE_ROW, REMAP_STANCE_ROW, remapActionOfRow, remapActionRow, remapDeadRow, remapExtraAt, remapExtras, remapOwnRows, type Adapters, type ConsoleState, type RemapExtra } from '../state';
+import type { PressureDiagnostics, PressureLinkStatus } from '../../pressurePad';
 import { screenHead } from './head';
 import { PAD_ART } from './padArt';
 
@@ -15,7 +16,7 @@ import { PAD_ART } from './padArt';
  */
 export const PAD_DEAD_ZONE_LABEL = 'Pad dead zone (this browser)';
 /** PZG (finding 14): what the browser's zone does -- a pure drift guard (`../../controllerInput` `calibrateStick`). */
-export const PAD_DEAD_ZONE_ABOUT = 'Ignores stick drift; does not change the game’s response. A push inside it reads as nothing; past it the game gets the push as it is. Raise it if you move or aim on your own.';
+export const PAD_DEAD_ZONE_ABOUT = 'Ignores stick drift; does not change the game’s response. It is a drift guard only: stick feel is the Stick preset (Recruit / Sailor / Seal / Custom) under Options > Controller > Layout and aiming.';
 
 /**
  * The button mapping screen (CX-14 of the console launcher plan; CX.R13, OT.R60: the overlay is this console, and its
@@ -70,6 +71,53 @@ const EXTRA_WORDS: Readonly<Record<FixedExtra, { title: string; sub: string; abo
 };
 
 /**
+ * PAD-DS3 (a browser adaptation, OT.R28): the Connect row's line by `PressureLinkStatus` (`../../pressurePad`), the next
+ * steps shown when nothing arrives, and the help line for players. No cause is claimed that the code does not know.
+ */
+export const PRESSURE_STATUS_SUB: Readonly<Record<PressureLinkStatus, string>> = {
+  none: 'PlayStation USB through WebHID',
+  connecting: 'Connecting... allow the controller in the browser',
+  starting: 'Connected: waking the controller...',
+  waiting: 'Connected: waiting for the controller...',
+  silent: 'Connected, but no input yet',
+  reports: 'Connected: press Triangle lightly',
+  pressure: 'Pressure seen (Triangle: light = crouch, firm = prone)',
+  unreadable: 'Connected, but its reports cannot be read',
+};
+/**
+ * DS3-PRESSURE (b) (product track; a browser adaptation, OT.R28): the 'unreadable' state's next steps -- the reports are
+ * not the wired DualShock 3's (report 1 of 48 bytes), or Triangle's presses never settled a button order
+ * (`../../pressurePad` `PRESSURE_UNREADABLE_PRESSES_ADAPTATION`). The likely cause is named as likely: a driver that changes
+ * the report (LATER 1429, DsHidMini); not verified on a physical DS3.
+ */
+export const PRESSURE_UNREADABLE_STEPS = 'Reports arrive, but not as a DualShock 3 sends them over USB (report 1 of 48 bytes, with Triangle\'s pressure where it belongs). Most likely a driver changes them: DsHidMini (its SDF or GPJ mode), ScpToolkit or Steam Input. Close or remove it, plug the pad straight in by USB, then choose Connect again.';
+export const PRESSURE_SILENT_STEPS = 'Nothing has arrived from the controller. Try: plug it straight into the PC with a USB cable; close DS4Windows, DsHidMini, SCP Toolkit or Steam Input, or any driver that holds the pad (they turn its buttons on/off); use Chrome or Edge; then choose Connect again.';
+/** PAD-DS3 (the approved mock's section 3): the Stance mode row's hint for a controller that gives no pressure. */
+export const NO_PRESSURE_HINT = 'No pressure on this controller: COMBINED taps or holds Triangle; SEPARATE gives Crouch and Prone their own buttons.';
+/**
+ * DS3-PRESSURE (c) (product track; a browser adaptation, OT.R28): the Stance mode row's line when the Connect row is absent
+ * though a pad is present (`../../pressureDetect` `pressureConnectAbsent`): no WebHID in this browser, or a pad that may be
+ * a DualShock 3 behind a driver that shows it as another pad.
+ */
+export const PRESSURE_ABSENT_NO_WEBHID = 'Pressure needs Chrome or Edge on USB with no driver wrapper: this browser cannot read it.';
+export const PRESSURE_ABSENT_WRAPPED = 'If this is a DualShock 3: pressure needs Chrome or Edge on USB with no driver wrapper. DsHidMini, ScpToolkit, DS4Windows or Steam Input can show it as another pad.';
+export const PRESSURE_HELP = 'Pressure needs a USB DualShock 3 in Chrome or Edge with no driver wrapper. Bluetooth, Firefox, Safari, DS4 and DualSense give no pressure. Only Triangle\'s light (crouch) and firm (prone) press uses it; everyone else uses SEPARATE or COMBINED.';
+/**
+ * DS3-PRESSURE (d) (product track; a browser adaptation, OT.R28): pressure is seen but the Stance mode is not SEPARATE, the
+ * one mode that reads it (`../../controllerInput` `StancePress`; COMBINED reads Triangle on or off) -- the row says so in
+ * place of "Pressure seen (light = crouch ...)", which would be false there. The mode is never switched for the player:
+ * a saved choice stands (the auto default sets SEPARATE only where none is saved, `applyPressureDefault`).
+ */
+export const PRESSURE_SEPARATE_NEEDED = 'Pressure seen. Set Stance mode to SEPARATE for light/firm Triangle';
+const PRESSURE_SEPARATE_NEEDED_ABOUT = `${PRESSURE_SEPARATE_NEEDED}. COMBINED reads Triangle as on or off; your saved Stance mode is kept until you change it on the Stance mode row.`;
+/** The Connect row's sub line, its aside's about, and its note (the help line, always). */
+export function pressureConnectWords(status: PressureLinkStatus, mode: string = controllerStanceMode()): { sub: string; about: string; note: string } {
+  const w = EXTRA_WORDS.pressureConnect;
+  if (status === 'pressure' && mode !== 'separate') return { sub: PRESSURE_SEPARATE_NEEDED, about: PRESSURE_SEPARATE_NEEDED_ABOUT, note: PRESSURE_HELP };
+  return { sub: PRESSURE_STATUS_SUB[status], about: status === 'silent' ? PRESSURE_SILENT_STEPS : status === 'unreadable' ? PRESSURE_UNREADABLE_STEPS : w.about, note: PRESSURE_HELP };
+}
+
+/**
  * h59U9CLb (a browser adaptation, off by default): the extra binds' words -- each action an extra can add (`../../padExtras`
  * `PAD_EXTRA_ACTIONS`, in its order), the one-line warning a same-thumb combo carries (Q3: allowed), and each row's.
  */
@@ -103,6 +151,32 @@ function addValue(b: PadBinding, kind: 'addDouble' | 'addCombo'): string {
 /** LATER 380: the lock of a pad of another layout not yet taught, and the teach panel's words. */
 export const TEACH_LOCK_WORD = 'Teach this controller';
 export const TEACH_LOCK_LINE = 'This controller uses another layout. Teach it its buttons first: press any button on it to begin.';
+
+/**
+ * WM-9 (a browser adaptation, the product track): a binding asked of a pad of another layout not yet taught -- the pass
+ * begins, said in these words -- and a listen the machine refused while the pass runs. Never a silent no-op.
+ */
+export const TEACH_FIRST_WORDS = 'This controller uses another layout: teach it its buttons first.';
+export const TEACH_BUSY_WORDS = 'Finish teaching this controller first, or choose Not now.';
+
+/**
+ * WM-9 (a browser adaptation, the product track): what the conflict's Confirm offers. On a rebind that conflicts with a
+ * button the menus need (START, Cross, Circle, the d-pad: `MENU_REQUIRED`), Replace is unavailable and Swap is first --
+ * or, where the listening action has no button to give, Swap is unavailable too and Cancel is first; `resolveConflict`'s
+ * two refusals (`../../controllerInput`) are read here, not changed, and stay the machine's backstop. Any other conflict
+ * offers every answer, Cancel first (OT.R60). `menu` is the occupied menu button's name, `old` the listening action's
+ * button (-1 none). Answers null without a question.
+ */
+export interface ConflictOffer { menu: string | null; old: number; available: readonly [boolean, boolean, boolean]; first: number }
+export function conflictOffer(b: PadBinding): ConflictOffer | null {
+  const q = b.question();
+  if (!q) return null;
+  const menu = MENU_REQUIRED[q.occupied] ?? null;
+  const old = b.input.config.bindings[q.action] ?? -1;
+  if (!menu) return { menu, old, available: [true, true, true], first: 2 };
+  const swap = old >= 0;
+  return { menu, old, available: [swap, false, true], first: swap ? 0 : 2 };
+}
 
 /** Why the rows cannot change: no pad chosen, or one of another layout not yet taught (LATER 380). */
 export function remapLock(b: PadBinding): { word: string; line: string } | null {
@@ -239,10 +313,26 @@ function extraRow(s: ConsoleState, b: PadBinding, i: number, kind: RemapExtra): 
   const n = b.extraList().length;
   const w = kind === 'extras' ? { title: 'Extra binds', sub: `Browser adaptation · ${n ? `${n} set` : 'none set'}` }
     : x ? { title: extraName(b, x), sub: x.warning === 'same-thumb' ? REMAP_SAME_THUMB_WARNING : x.kind === 'double' ? 'Double bind · Cross removes it' : 'Combo bind · Cross removes it' }
-      : EXTRA_WORDS[kind as FixedExtra];
+      : kind === 'pressureConnect' ? { ...EXTRA_WORDS.pressureConnect, ...pressureConnectWords(b.pressureStatus()) }
+        : EXTRA_WORDS[kind as FixedExtra];
   return `<li><button type="button" class="cx-item ${s.rm.row === i ? 'is-focused' : ''}" data-act="remaprow" data-i="${i}" data-fk="remap-${i}" data-extra="${kind}" aria-label="${esc(w.title)}">
           <span class="cx-item__text"><span class="cx-item__title">${esc(w.title)}</span><span class="cx-item__sub">${esc(w.sub)}</span></span>
         </button></li>`;
+}
+
+/**
+ * DS3-PRESSURE (f) (product track; a browser adaptation, OT.R28): the Connect row's copyable readout -- the last input
+ * report's ID, length and first eight bytes in hex, and the row's state -- for a player to paste into a report. Drawn as
+ * plain selectable text on the row's aside, as of its last redraw (a status change, a press).
+ */
+export function pressureDiagLine(status: PressureLinkStatus, d: PressureDiagnostics | null): string {
+  return d ? `Diagnostics: report ID ${d.reportId} · ${d.length} bytes · ${d.head} · state ${status}` : `Diagnostics: no report yet · state ${status}`;
+}
+
+/** DS3-PRESSURE (c): the Connect row absent while a pad is present -- why, after the no-pressure hint ('' when nothing to say). */
+function absentLine(b: PadBinding): string {
+  const why = b.pressureAbsent();
+  return why === 'no-webhid' ? ` ${PRESSURE_ABSENT_NO_WEBHID}` : why === 'wrapped' ? ` ${PRESSURE_ABSENT_WRAPPED}` : '';
 }
 
 /** The aside: what the focused row does, and where it is saved (or why it is locked). */
@@ -262,11 +352,13 @@ function asideHtml(s: ConsoleState, b: PadBinding, lock: { line: string } | null
         ? ['Add combo bind', 'Choose the action, press Cross, then hold the first button and, still holding it, the second until its ring fills. Both keep their own actions.', EXTRAS_NOTE]
         : x
           ? [extraName(b, x), x.warning === 'same-thumb' ? `${REMAP_SAME_THUMB_WARNING} Cross removes it.` : 'Cross removes it.', EXTRAS_NOTE]
+          : extra === 'pressureConnect' ? [EXTRA_WORDS.pressureConnect.title, pressureConnectWords(b.pressureStatus()).about, PRESSURE_HELP]
           : extra ? [EXTRA_WORDS[extra as FixedExtra].title, EXTRA_WORDS[extra as FixedExtra].about, EXTRA_WORDS[extra as FixedExtra].note]
     : r === remapDeadRow()
     ? [PAD_DEAD_ZONE_LABEL, PAD_DEAD_ZONE_ABOUT, 'Saved to this browser, for this controller.']
     : r === REMAP_STANCE_ROW
-      ? ['Stance mode', STANCE_MODE_ABOUT, 'Saved to this browser, for every controller.']
+      // the review's finding 5: no "No pressure" hint while the Connect row is offered for this pad (a DS3 not yet connected)
+      ? ['Stance mode', STANCE_MODE_ABOUT, b.pressureCapable() || b.pressureConnectable() ? 'Saved to this browser, for every controller.' : `Saved to this browser, for every controller. ${NO_PRESSURE_HINT}${absentLine(b)}`]
       : bind === CROUCH_BIND
         ? ['Crouch', 'A button of its own for crouch, as emulator players bind it.', bindNote(b, CROUCH_BIND)]
         : bind === PRONE_BIND
@@ -275,7 +367,8 @@ function asideHtml(s: ConsoleState, b: PadBinding, lock: { line: string } | null
   return `<aside class="cx-aside" aria-label="About this binding">
         <div class="cx-readout__head">${esc(head)}</div>
         <p>${esc(about)}</p>
-        <p class="cx-aside__note">${esc(lock ? lock.line : note)}</p>
+        <p class="cx-aside__note">${esc(lock ? lock.line : note)}</p>${extra === 'pressureConnect' ? `
+        <p class="cx-aside__diag"><code>${esc(pressureDiagLine(b.pressureStatus(), b.pressureDiagnostics()))}</code></p>` : ''}
       </aside>`;
 }
 

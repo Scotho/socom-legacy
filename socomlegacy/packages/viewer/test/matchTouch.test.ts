@@ -240,6 +240,41 @@ describe("PAR-5: WEAPON EXCHANGE's touch half (research 253 §4) in the part", (
     expect(x.log).toEqual(['refresh', 'inv']);
   });
 
+  it("SEAT_CLAIM: a spectator's claim line names R1, so the layer shows the walk pad's R1 while it is offered ('is-claim-shown' on the root), and its press is the pad's R1 the claim reads", () => {
+    // Watching, the walk pad is hidden (not walking) and the fly camera's layer has no R1: the line said "R1 HOLD: JOIN"
+    // over a screen with no R1 on it. The class shows R1 alone of the pad (`styles.css`); its press is the pad's R1.
+    const a = rootWithLayer();
+    const x = deps();
+    const ta = mountTouch(a, x.d);
+    const r1 = q(a, 'tw-r1');
+    expect(a.classList.contains('is-claim-shown')).toBe(false);
+    ta.claimShown(true);
+    expect(a.classList.contains('is-claim-shown')).toBe(true);
+    ptr(r1, 'pointerdown', 4);
+    expect(padButtonsDown(ta.pad).has('R1')).toBe(true);                    // held: the page's held buttons, which the claim reads (`r1`)
+    ptr(r1, 'pointerup', 4);
+    ta.endFrame();
+    expect(padButtonsDown(ta.pad).has('R1')).toBe(false);
+    ta.claimShown(false);
+    expect(a.classList.contains('is-claim-shown')).toBe(false);
+    ta.claimShown(true);
+    ta.dispose();
+    expect(a.classList.contains('is-claim-shown')).toBe(false);              // the root's classes go with the layer
+  });
+
+  it("LATER 1604: touchShown -- the layer shown (a coarse pointer, or a fine-pointer page's first touch) and no pad hiding it; the claim line keeps R1 then", () => {
+    const a = rootWithLayer();
+    const ta = mountTouch(a, deps().d);
+    expect(ta.touchShown()).toBe(false);                                     // jsdom: a fine pointer, no touch yet
+    globalThis.dispatchEvent(new Event('touchstart'));                       // a touch laptop's first touch
+    expect(ta.touchShown()).toBe(true);
+    ta.padConnected(true);                                                   // FI.R4: a read pad hides the layer
+    expect(ta.touchShown()).toBe(false);
+    ta.padConnected(false);
+    expect(ta.touchShown()).toBe(true);
+    ta.dispose();
+  });
+
   it("OT.R120 (the review's F1): dead and watching a teammate, INV shows with no prompt (the fly camera's layer), 'is-inv-shown' on the root; a press is Inventory", () => {
     // Watching, `prompt()` is null (the page is not walking), so INV followed only R2's gate's other half: a touch player
     // had no way in but going back to his own body. INV now shows wherever `canOpen` lets the camera on a teammate open it.
@@ -330,6 +365,42 @@ describe("PAR-5: WEAPON EXCHANGE's touch half (research 253 §4) in the part", (
     ptr(canvas, 'pointerdown', 4, 100, 100, 'touch');
     expect(taps).toHaveLength(3);
     touchOnly.abort();
+  });
+
+  it("the open menu's taps are read on the canvas's drawing buffer, not its box: the PS2 picture, 4:3 and 4:3 stretched (`frameOfClientPoint`)", () => {
+    const tapAt = (box: [number, number], buffer: [number, number], at: [number, number]): [number, number] => {
+      const canvas = document.createElement('canvas');
+      canvas.width = buffer[0]; canvas.height = buffer[1];
+      document.body.append(canvas);
+      vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 10, top: 20, width: box[0], height: box[1], right: 10 + box[0], bottom: 20 + box[1], x: 10, y: 20, toJSON: () => ({}) });
+      const taps: [number, number][] = [];
+      const stop = new AbortController();
+      exchangeTaps(canvas, { isOpen: () => true, gate: () => ({ inMatch: true, alive: false, cameraOnSelf: true, spectator: false }),
+        menu: { tap: (fx: number, fy: number) => { taps.push([fx, fy]); return true; } } as never }, { signal: stop.signal });
+      ptr(canvas, 'pointerdown', 1, 10 + at[0], 20 + at[1], 'touch');
+      stop.abort();
+      canvas.remove();
+      expect(taps).toHaveLength(1);
+      return taps[0]!;
+    };
+    // The PS2 picture: the 640 x 448 buffer stretched onto a 4:3 box -- the right category arrow's middle (321, 121) is
+    // drawn at 321 / 640 of the box across and 121 / 448 down.
+    const ps2 = tapAt([1440, 1080], [640, 448], [(321 / 640) * 1440, (121 / 448) * 1080]);
+    expect(ps2[0]).toBeCloseTo(321, 9);
+    expect(ps2[1]).toBeCloseTo(121, 9);
+    // 4:3: the buffer the box's own shape, under 640 units wide -- the menu on the left edge, the second row at 60 s.
+    const s = 1080 / 448;
+    const shape = tapAt([1440, 1080], [1440, 1080], [60 * s, 175 * s]);
+    expect(shape[0]).toBeCloseTo(60, 9);
+    expect(shape[1]).toBeCloseTo(175, 9);
+    // 4:3 stretched: that same buffer shown over a 16:9 window, the picture wider by 1920 / 1440.
+    const stretched = tapAt([1920, 1080], [1440, 1080], [(60 * s * 1920) / 1440, 175 * s]);
+    expect(stretched[0]).toBeCloseTo(60, 9);
+    expect(stretched[1]).toBeCloseTo(175, 9);
+    // Fill: a 16:9 window, its buffer twice the box -- about the centre line, as it was.
+    const fill = tapAt([1920, 1080], [3840, 2160], [960 + (60 - 320) * s, 175 * s]);
+    expect(fill[0]).toBeCloseTo(60, 9);
+    expect(fill[1]).toBeCloseTo(175, 9);
   });
 
   it("the prompt's %c: a pad when one is connected, the touch label on a touch screen, else the page's own", () => {

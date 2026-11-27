@@ -181,9 +181,9 @@ export class FrontEndMachine {
     return {
       open: (name) => o.dialog(name),
       build: (design, name) => {
-        const screen = buildDialogScreen(design, o.build);
+        const screen = buildDialogScreen(design, { ...o.build, dialog: name });   // STREAMER-P1: the name to the display rule
         const scripts = screenScripts({ design, screen, sets, valves: this.valves, host: this.host, dialog: name, random: o.random, trace: o.trace });
-        o.built?.({ design, screen, scripts, valves: this.valves });
+        o.built?.({ design, screen, scripts, valves: this.valves, name });
         return { screen, scripts };
       },
       states: {

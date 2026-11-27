@@ -273,6 +273,27 @@ describe('PARTICLE_SOURCE\'s keys and fades', () => {
     expect(particleFade(src, 900 ** 2)).toBe(0);
     expect(particleFade(src, 500 ** 2)).toBeCloseTo((800 ** 2 - 500 ** 2) / (800 ** 2 - 200 ** 2), 9);
   });
+  // LATER 1249 (reading, pending review): `FUN_00266830` squares the near pair as the disc writes it (D:L113213-113226),
+  // and `FUN_003286d0` (D:L225901-225919) is 0 at or inside the near start whatever the end -- a pair [100, 0] culls
+  // within 100 u with no ramp (FRAG_sparks' spark_streak: the M67's white discs at ~100 u, PC 3's isolation renders).
+  it("a near pair whose end is below its start culls at the start, no ramp (FUN_003286d0, D:L225901-225919)", () => {
+    for (const near of [100, 50, 30]) {
+      const s = { nearFade: [near, 0] as [number, number], farFade: [1100, 1200] as [number, number] };
+      expect(particleFade(s, (near - 1) ** 2)).toBe(0);
+      expect(particleFade(s, near ** 2)).toBe(0);                       // d² <= near0²: 0
+      expect(particleFade(s, (near + 1) ** 2)).toBe(1);                 // no ramp: the end (0) is never above d²
+    }
+    expect(particleFade({ nearFade: [0, 0], farFade: null }, 1)).toBe(1);   // [0, 0]: nothing culled but d² = 0
+    expect(particleFade({ nearFade: [0, 0], farFade: null }, 0)).toBe(0);
+    // No near pair: the constructor's [0, 0] (`FUN_00328e90`, D:L226252-226275) -- 0 at d² = 0 (the review's F3).
+    expect(particleFade({ nearFade: null, farFade: null }, 0)).toBe(0);
+    expect(particleFade({ nearFade: null, farFade: null }, 1)).toBe(1);
+  });
+  it("the far ramp alone where both ramps hold, as FUN_003286d0's order (D:L225906-225913)", () => {
+    const s = { nearFade: [0, 400] as [number, number], farFade: [200, 800] as [number, number] };
+    expect(particleFade(s, 300 ** 2)).toBeCloseTo((800 ** 2 - 300 ** 2) / (800 ** 2 - 200 ** 2), 9);
+    expect(particleFade({ nearFade: [100, 300] as [number, number], farFade: null }, 200 ** 2)).toBeCloseTo((200 ** 2 - 100 ** 2) / (300 ** 2 - 100 ** 2), 9);
+  });
   it('the friction factor is FUN_003282b0\'s 1/P(k dt), about exp(-k dt / 2) when small', () => {
     expect(frictionFactor(0, 1)).toBe(1);
     expect(frictionFactor(0.1, 0.1)).toBeCloseTo(Math.exp(-0.005), 4);

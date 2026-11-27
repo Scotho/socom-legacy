@@ -55,6 +55,24 @@ describe('in-match Settings browser adaptation', () => {
     settings.close();
   });
 
+  // WM-6A (a browser adaptation; `../src/settingsAdvanced`): Settings' ADVANCED closed Settings into the launcher -- START
+  // closes with it, so the overlay's close lands in PLAY; a plain close still returns to START's row (below).
+  it('WM-6A: Settings closed into the launcher closes START too; asked once', () => {
+    let active = false, launched = false;
+    const closedIntoLauncher = vi.fn(() => { const was = launched; launched = false; return was; });
+    const r = rig({ open: () => { active = true; }, isOpen: () => active, closedIntoLauncher });
+    r.step([], START_MENU_REPEAT_SECONDS + 0.01); r.tap('Down'); r.tap('Cross');
+    expect(active).toBe(true);
+    r.step();                                                        // a frame under Settings (it owns the input)
+    expect(r.menu.isOpen()).toBe(true);
+    active = false; launched = true;                                 // closed into the launcher
+    r.step();
+    expect(r.menu.isOpen()).toBe(false);
+    expect(closedIntoLauncher).toHaveBeenCalledTimes(1);
+    r.step(); r.step();
+    expect(closedIntoLauncher).toHaveBeenCalledTimes(1);
+  });
+
   it('opens Settings once and returns to its row without taking held input or closing on a round reset', () => {
     const r = rig();
     r.step([], START_MENU_REPEAT_SECONDS + 0.01); r.tap('Down'); r.tap('Cross');

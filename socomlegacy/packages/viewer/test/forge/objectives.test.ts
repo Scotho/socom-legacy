@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ESCORT_UNREAD_MAP_PLACEHOLDER, escortScriptOf } from '../../../match/src/extraction';
 import type { MapAction } from '../../src/mapActions';
 import { plantSite } from '../../src/net/objective';
-import { applyForgeObjectives, bombMarkerPlaysIn, bombReady, breachReady, forgeTypePlayable, forgeTypeUnplayable, blankFloorOf, withoutBaseBomb, type ObjectiveMap } from '../../src/forge/objectives';
+import { applyForgeObjectives, bombMarkerPlaysIn, bombReady, breachReady, forgeTypePlayable, forgeTypeUnplayable, blankFloorOf, usesBaseBomb, withoutBaseBomb, type ObjectiveMap } from '../../src/forge/objectives';
 import type { ForgeObjectives } from '../../src/forge/layout';
 
 /**
@@ -185,6 +185,36 @@ describe('FG-51: a layout plays the type it names only when the map can', () => 
     expect(map.gameType).toBe(5);
     expect(map.bombStart).toEqual([9, 8, 7]);
     expect(plantSite('terrorist', map.meta!.actions)?.node).toBe('seal_tent');
+  });
+});
+
+// FN-5 (a browser adaptation, FG.R2; FG-51 as kept, FN.R4): the page's map check says when the layout plays the base's
+// bomb, from the same rule `applyForgeObjectives` keeps the base's by -- so the words and the rule cannot drift.
+describe('usesBaseBomb', () => {
+  const sites: ForgeObjectives = {
+    gameType: 2,
+    bomb: {
+      sites: [
+        { team: 0, at: [4, 0, 0], yaw: 0, range: 15, elevation: 15 },
+        { team: 1, at: [5, 0, 0], yaw: 0, range: 15, elevation: 15 },
+      ],
+    },
+  };
+  it("true for a Demolition layout with no start of its own on a base with its own StartBomb and both sites", () => {
+    expect(usesBaseBomb(sites, discMap())).toBe(true);
+    expect(usesBaseBomb({ gameType: 2 }, discMap())).toBe(true);                  // no bomb placed at all
+    // the predicate and the rule agree: the base's StartBomb kept
+    expect(applyForgeObjectives(discMap(), sites).bombStart).toEqual([9, 8, 7]);
+  });
+  it('false with a start of its own, on a base with no StartBomb, or under another type', () => {
+    expect(usesBaseBomb(READY, discMap())).toBe(false);
+    expect(usesBaseBomb({ gameType: 2, bomb: { start: [1, 0, 1], sites: [] } }, discMap())).toBe(false);
+    const bare = (({ bombStart: _b, ...rest }) => rest)(discMap());
+    expect(usesBaseBomb(sites, bare)).toBe(false);
+    expect(usesBaseBomb(sites, withoutBaseBomb(discMap()))).toBe(false);
+    expect(usesBaseBomb({ ...sites, gameType: 1 }, discMap())).toBe(false);
+    expect(usesBaseBomb({ ...sites, gameType: 5 }, discMap())).toBe(false);
+    expect(usesBaseBomb(undefined, discMap())).toBe(false);
   });
 });
 

@@ -379,3 +379,21 @@ D:L162973-162982, `FUN_002bada0` D:L160255-160259, `FUN_0027d540` FINISH D:L1259
   (`storedLoadouts`), so every seat is armed for its new side (`CLAN_SWAP_CLIENT_KIT_READING`).
 - **The lock** (`CLAN_SWAP_LOCK_PLACEHOLDER`): no join refused; a join in the window placed under the flag as it stands.
   Its value as built says "no lock reported" where §8's proposal said "the lock reported": the port reports no status 3.
+
+**OT.R129: the lobby after a match without its waits (2026-11-14).** The owner's ruling OT.R129 (2026-11-14, seat
+redotcom-8f; WM-2 of the weekend sprint) departs from the original on his word: from a match's return to the same game's
+lobby until its next launch, no restriction on READY, SWITCH TEAMS or the ARMORY -- the launch countdown's lock and the
+clan games' team lock stay. What §2.2-§2.3 read stands as the original's, every value still a reading: the host's 45 s
+gate (`READY_GATE_AFTER_MATCH_MS_READING`, R309.1, §2.2), the joiner's 10 s `ClientDAReadyButton` and the 10 s
+`ArmButtonClock` under `ComeFromBriefing` 0 (R309.2, `COME_FROM_BRIEFING_AFTER_MATCH_READING`), READY's and SWITCH
+TEAMS' 5 s, and the 5 s after a switch (`CountButtonFiveST`). The port lays them aside after a return by the constant `LOBBY_AFTER_MATCH_FREE_OWNER` (match
+`src/gameLobby.ts`: `matchReturned` and the abandon's `matchAbandoned` until `markLaunched`; ui
+`src/screens/gameLobbyCommands.ts` with `src/screens/lobbyRecovery.ts`: the disc's waits stopped as they start, the
+controls opened; `switch_teams_anim` is not stopped -- its WAIT is passed once the room answers, so its own end re-arms the
+kit for the new side; a lobby seat that hears the room's abandon is freed the same way), and keeps them in a lobby no
+match has come back to. `ComeFromBriefing` is kept 0, so `Enable_SM_Launch` still takes `SwapClanSides` (§4.1). A guard the
+change needs, the port's own: with the joiners' waits gone every seat could READY before the host's swap (START, WAIT 5,
+FINISH), and `askSwap` refuses once launched, so in an "Alternate teams" game the room launches nothing after a return
+(every seat READY, or the host's START) until the swap due is asked, or is no longer due (the host at the return gone or
+handed on), and at most the original's own 45 s from the return; the host's page keeps its waits through `SwapClanSides`' window. The lapse re-decides by itself: the room's step (match `src/game.ts` and central `src/bridge.ts`, `beforeStep` -> `PreMatch.swapLapse`) takes the host's decision once at the 45 s, so a lobby READY before it launches then with nothing more pressed, and a clockless decision (the bots' list) holds no longer after it. This changes no reading above; it is a
+departure on the owner's word, recorded here beside what the original does.

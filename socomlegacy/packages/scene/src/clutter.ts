@@ -197,7 +197,8 @@ export interface PlacedClutter {
  * carry instance contexts (`N000_I000_V00`) or none (`N000_000`), and the naming rule already knows
  * which from the graph.
  *
- * A model the graph does not hold costs one entry in `missing`, however many instances name it. `keep`: an instance it
+ * A placement's path is `clutter/<model>#<record>`, the record its instance's index in `instances` (LATER 999: the hull's
+ * owners' own, CLT.R3). A model the graph does not hold costs one entry in `missing`, however many instances name it. `keep`: an instance it
  * refuses is not placed -- r0004's Sujo barrel (`r0004DropsClutter`; r0004 r4 0x2f2108-0x2f2304, research 422 s4).
  */
 export function placeClutter(models: SceneNode[], instances: ClutterInstance[], keep: (instance: ClutterInstance) => boolean = () => true): PlacedClutter {
@@ -205,7 +206,7 @@ export function placeClutter(models: SceneNode[], instances: ClutterInstance[], 
   const placed: PlacedModel[] = [];
   const missing: string[] = [];
   const badByModel = new Map<string, number>();
-  for (const instance of instances) {
+  for (const [record, instance] of instances.entries()) {
     if (!keep(instance)) continue;
     if (!isAffineRowVector(instance.matrix)) {
       badByModel.set(instance.modelName, (badByModel.get(instance.modelName) ?? 0) + 1);
@@ -226,7 +227,9 @@ export function placeClutter(models: SceneNode[], instances: ClutterInstance[], 
       const rowMajor = multiply(part.rowMajor, instance.matrix);
       placed.push({
         ...part,
-        path: `clutter/${instance.modelName}`,
+        // LATER 999: the instance's record in CLUTTER.ZAR, as the hull's owners name it (`clutterCollision`, CLT.R3), so a
+        // placement finds its own collision by its path (the Forge's hide, the creator catalogue).
+        path: `clutter/${instance.modelName}#${record}`,
         world: Float32Array.from(rowMajor),            // the stored floats are three.js's elements (24 section 1.1)
         rowMajor,
       });

@@ -1,7 +1,8 @@
 import {
-  actorToWorldPoint, ALL_LAYERS, isToss, segmentHits, SURFACE_SIDE, SURFACE_SKIP, surfaceWord, THROW_PARAMS, throwAnim,
-  type Grid, type ThrowStance, type V3, type WorldPoly,
+  actorToWorldDir, actorToWorldPoint, ALL_LAYERS, segmentHits, SURFACE_SIDE, SURFACE_SKIP, surfaceMaterial, surfaceWord,
+  THROW_PARAMS, throwAnim, type Grid, type SurfaceMaterial, type ThrowStance, type V3, type WorldPoly,
 } from '@s2u/scene';
+import { aimHitKept } from './net/aimQuery';
 import type { PlaySnapshot } from './walk';
 
 /**
@@ -29,11 +30,10 @@ export const THROW_ABORT_POWER = Math.fround(THROW_PARAMS.abortThreshold);
 export const releasePowerClears = (power: number): boolean => !(Math.fround(power) < THROW_ABORT_POWER);
 
 /**
- * D11 (research 256 s2): the aim's sine the hand-open reads -- the actor's `+0x1450`, loaded at the moment the hand
- * opens (`FUN_005c1970` D:L477106) and taken through `asinf` (`FUN_001b38c8` -> `FUN_001af178`), clamped and raised by
- * the power's elevation in `throwVelocity` (D:L477107-477109). The port's `+0x1450` is the snapshot's pitch's sine, as
- * the arc and `GetThrowAnim`'s toss test already take it (research 85 s3; the field's writer is not traced, research
- * 214 s6's `DROP_AIM_READING`).
+ * The view pitch's sine. Was the port's stand-in for the aim's `+0x1450` (D11, research 256 s2); since LANE-KILL B-06
+ * (research 256 s5.3) the page and the room read the body's aim vector instead (`./throwAim` `throwAimVector`, r0004
+ * `0x5e6690`), which differs from the pitch's sine by tens of degrees near a wall. Kept for the tests that pose a
+ * release by its pitch alone.
  */
 export const releaseAimSin = (snap: Pick<PlaySnapshot, 'pitch'>): number => Math.sin((snap.pitch * Math.PI) / 180);
 
@@ -80,39 +80,30 @@ export const C4_FALLBACK_PLACEHOLDER = 'kitTimer' as const;
  */
 export const C4_PLANT_LEAVE_CANCEL_ADAPTATION = 'cancel' as const;
 
-/** A float32 by its bits, as the decompilation writes the clearance's words. */
-function f32(bits: number): number {
-  const d = new DataView(new ArrayBuffer(4));
-  d.setUint32(0, bits);
-  return d.getFloat32(0);
-}
-
 /**
- * D12 (research 256 s5): the clearance segment's far end by the body's state, in the actor frame (x right, y up, z
- * behind), `FUN_005499e0`'s words: standing a toss's (D:L414025-414026) or a throw's (the stack's defaults,
- * D:L414004-414006, taken at D:L414029-414030), crouched one (D:L414034-414035), prone a toss's (D:L414042-414043) or a
- * throw's (D:L414046-414047). The toss is `GetThrowAnim`'s test: power under `toss_power_threshold` and the aim's sine
- * under `toss_aim_threshold` (D:L414014-414019).
+ * D12, r0004 (OT.R97; research 256 s5, "the r0004 clearance"): the clearance ray's length -- r0004's release clearance
+ * (`0x54e6f0`, its one caller the release request at 0x5c5d6c) scales the aim vector by 25.0, an immediate in the
+ * instruction stream (`lui 0x41c8` at r0004 0x54e798, to the FPU at 0x54e7a4; the scale `0x326520`). Reading, two
+ * readers (agent-mail pilot/kill/item-1-query-vs-capture.md s0, item-1-r0004-second-read.md s6); the capture's legs bound
+ * it to at least 19.7 (D-T10). r0001's five end points (`FUN_005499e0` D:L414004-414047) are superseded by it (OT.R97)
+ * and are no longer in the port; research 256 s5 keeps their words.
  */
-export const THROW_CLEARANCE_ENDS = {
-  standToss: [f32(0x405d4092), f32(0x414744f2), f32(0xc1200000)],
-  standThrow: [f32(0x3f93dffc), f32(0x4155abbf), f32(0xc17c0000)],
-  crouch: [f32(0x3f6ca633), f32(0x412a1a13), f32(0xc141999a)],
-  proneToss: [f32(0x3fe8e697), f32(0x40b290cf), f32(0xc129999a)],
-  proneThrow: [f32(0x3f18110a), f32(0x411150d9), f32(0xc0d80000)],
-} as const satisfies Record<string, V3>;
+export const THROW_CLEARANCE_LENGTH_READING = 25;
 
 /**
- * PLACEHOLDER (named): which surfaces and owners the clearance's world query counts. `FUN_0031e250(world, a, b, 1)`
- * (D:L220150-220175) runs the grid's segment record through `FUN_002d4780` (D:L175734-175794) and `FUN_002d2890`: a
- * surface needs bit 1 and passes the global `DAT_0044d758`'s filter (0: bit 18 clear, the movement's; 1: bit 19 clear
- * and the material's flag), and with the call's 1 an owner whose `+0xa1` mask 4 (bit 2) is set is skipped, the record's
- * `+0x3c` node excluded (D:L174789-174792, D:L174845-174864). `DAT_0044d758` reads 0 when the release request runs (a
- * bss byte whose every setter of 1, `FUN_002d4fd0` D:L176018-176021, restores 0 after its own query; research 256 §5,
- * LATER 247's review), so the movement's filter is the one asked. Which owners carry `+0xa1` mask 4 (bit 2) and what
- * `+0x3c` names then are not read (LATER 256); the hull's test is one-sided (front entries), the port's two-sided
- * (LATER 250). The port asks the movement's surfaces (bit 1 set, bit 18 clear) of every owner the model gate passes --
- * the hull's polygons; bodies are not in the port's grid.
+ * PLACEHOLDER (named): which surfaces and owners the clearance's world query counts, and its sidedness. r0004 asks
+ * `0x33b860(*(0x45f750), start, end, 1)` (0x54e854-0x54e888), the same structure as r0001's `FUN_0031e250(world, a, b, 1)`
+ * (D:L220150-220175; the second reader compared r0004's bytes with the decompilation, not r0001's bytes): the shared
+ * record at `world+0x14c`, bit 0 of its `+2` = (arg == 0), the walk `0x2f1690(world+0x684, record)`, the pick
+ * `0x2f1bd0` (the one hit nearest the start). r0004's walk `0x2f1690` -- its polygon test's sidedness and the class byte
+ * (r0001's `DAT_0044d758`) at the call -- is NOT read; the port keeps r0001's reading of them: through `FUN_002d4780`
+ * (D:L175734-175794) and `FUN_002d2890` a surface needs bit 1 and, the class byte 0 (every setter of 1, `FUN_002d4fd0`
+ * D:L176018-176021, restores 0; research 256 s5, LATER 247's review), bit 18 clear; with the call's 1 an owner whose
+ * `+0xa1` mask 4 (bit 2) is set is skipped, the record's `+0x3c` node excluded (D:L174789-174792, D:L174845-174864;
+ * which owners carry it is not read, LATER 256); the hull's test one-sided, front entries only (side mode 0x20; LATER
+ * 250) -- the sidedness the capture's fit used (r0004's ray scored 13/13 one-sided, 9/13 two-sided; item-1 s1). The
+ * port asks the movement's surfaces (bit 1 set, bit 18 clear) of every owner the model gate passes -- the hull's
+ * polygons; bodies are not in the port's grid.
  */
 export const THROW_CLEARANCE_QUERY_PLACEHOLDER = 'movement surfaces, every gated owner' as const;
 
@@ -120,40 +111,128 @@ export const THROW_CLEARANCE_QUERY_PLACEHOLDER = 'movement surfaces, every gated
 const clearanceSurface = (p: WorldPoly): boolean => (surfaceWord(p) & (SURFACE_SIDE | SURFACE_SKIP)) === SURFACE_SIDE;
 
 /**
- * D12: the release request's clearance segment in the world, or null when `FUN_005499e0` asks no query -- the lean
- * (state 3: any state but 0, 1 and 2 returns 1, D:L414037-414039) and a state with no throw (`GetThrowAnim` 0 returns 0
- * before it, D:L414009-414012; the caller refuses that on its own, `GrenadeThrower.stance`). From `GetThrowAnim`'s hand
- * point (`throwAnim`'s table point for this power, aim, state and speed) with a z forward of the feet taken to 0
- * (D:L414020-414021, D:L414050-414052), to the state's end point (`THROW_CLEARANCE_ENDS`), both through the actor's
- * matrix (D:L414053-414054: the port's feet and yaw, `actorToWorldPoint`).
+ * D12, r0004 (OT.R97; research 256 s5): the release clearance's ray in the world (r0004 `0x54e6f0`). The start is
+ * `GetThrowAnim`'s hand point (r0004 `0x585280`, r0001's `FUN_0057fce0`: `throwAnim`'s table point for this power, aim,
+ * state and speed -- a lean, state 3, its own lean hand point) through the actor matrix, row 3 included (`0x3259e0` at
+ * 0x54e768-0x54e788; the port's feet and yaw, `actorToWorldPoint`), with NO clamp of a forward z (r0001's clamp,
+ * D:L414050-414052, has no counterpart). The end is the start plus the aim vector `actor+0x144c..0x1454` scaled by
+ * `THROW_CLEARANCE_LENGTH_READING` and turned by the matrix's rows 0-2 alone (0x54e78c-0x54e840; `actorToWorldDir`).
+ * `aim`: the body's aim vector in the actor frame (`./throwAim` `throwAimVector`, r0004 `0x5e6690`; research 256 s5.3), all
+ * three floats; a bare sine s is taken as (0, s, -sqrt(1 - s^2)), a vector with no sideways term (the tests' and the
+ * room's sampled launches). Its y is also `GetThrowAnim`'s toss test's (`0x585280` at 0x5852b8). A lean is cast like any state: r0004's clearance
+ * never reads the state (r0001's early "return 1" for state 3, D:L414037-414039, is gone). A state with no throw clip
+ * (`0x585280` 0, the clearance 0: a refusal) is the caller's to refuse, as `GrenadeThrower.stance` does. r0004 also
+ * computes the toss test at 0x54e740-0x54e764 and discards it: no branch reads it.
  */
 export function throwClearanceSegment(
-  snap: Pick<PlaySnapshot, 'feet' | 'yaw' | 'stance' | 'stanceState' | 'peek' | 'vx' | 'vz'>, power: number, aimSin: number,
-): { from: V3; to: V3 } | null {
+  snap: Pick<PlaySnapshot, 'feet' | 'yaw' | 'stance' | 'stanceState' | 'peek' | 'vx' | 'vz'>, power: number, aim: ThrowAimArg,
+): { from: V3; to: V3 } {
   const state = releaseStance(snap);
-  if (state !== 'stand' && state !== 'crouch' && state !== 'prone') return null;
-  const toss = isToss(power, aimSin);
-  const hand = throwAnim(power, aimSin, state, snap.vx * snap.vx + snap.vz * snap.vz).offset;
-  const end = state === 'stand' ? (toss ? THROW_CLEARANCE_ENDS.standToss : THROW_CLEARANCE_ENDS.standThrow)
-    : state === 'crouch' ? THROW_CLEARANCE_ENDS.crouch
-      : toss ? THROW_CLEARANCE_ENDS.proneToss : THROW_CLEARANCE_ENDS.proneThrow;
-  const start: V3 = [hand[0], hand[1], hand[2] < 0 ? 0 : hand[2]];
-  return { from: actorToWorldPoint(snap.feet, snap.yaw, start), to: actorToWorldPoint(snap.feet, snap.yaw, end) };
+  const v = aimVectorOf(aim);
+  const hand = throwAnim(power, v[1], state, snap.vx * snap.vx + snap.vz * snap.vz).offset;
+  const from = actorToWorldPoint(snap.feet, snap.yaw, hand);
+  const L = THROW_CLEARANCE_LENGTH_READING;
+  const dir = actorToWorldDir(snap.yaw, [L * v[0], L * v[1], L * v[2]]);
+  return { from, to: [from[0] + dir[0], from[1] + dir[1], from[2] + dir[2]] };
 }
 
 /**
- * D12: whether the release request's clearance passes (`FUN_005499e0` answers 1): no segment to ask (the lean), no hull
- * loaded (the port's own case: nothing to hit), or the segment meets nothing (`FUN_0031e250` 0, D:L414055-414061).
- * LATER 250: the hull's test is one-sided -- a face counts only entered from its front (`FUN_002d2890`'s side mode 0x20
- * for a hull collider; research 281 §4.3), so the query asks `segmentHits`' `frontOnly`. The port takes every polygon of
- * its grid as the hull's: a collider whose `+0x80` bit 1 is set is two-sided in the original (`FUN_0032ad20`'s,
- * D:L227611 -- what it makes is not read), and none is told apart here.
+ * D12, r0004 (OT.R97; research 256 s5): whether the release clearance passes (r0004 `0x54e6f0` answers 1). No hull
+ * loaded is the port's own case (nothing to hit). Else the ray's hits under `THROW_CLEARANCE_QUERY_PLACEHOLDER` (front
+ * entries only, LATER 250; a reading pending review of r0004's walk), and the ONE nearest the start (`0x2f1bd0`: the
+ * smallest squared distance from the record's start, 0x2f1bd0-0x2f1d1c; `segmentHits` sorts by t, so its first) -- never
+ * filtered before it is taken: a see-through nearest hit clears the throw whatever lies behind it. That hit refuses only
+ * when `0x5bc8d0(actor, hit)` calls it a blocker (0x5bc8d0-0x5bc9e4), field for field the port's `aimHitKept`: an empty
+ * material slot clears, `m_cameratype` exactly 1 clears, else `aimPickBlocks`. `materialOf` is the map's material lookup
+ * (`surfaceMaterial` with the map's default material); by default the built-in table with no default name.
  */
 export function throwClear(
   grid: Grid | null, snap: Pick<PlaySnapshot, 'feet' | 'yaw' | 'stance' | 'stanceState' | 'peek' | 'vx' | 'vz'>,
-  power: number, aimSin: number,
+  power: number, aim: ThrowAimArg, materialOf: (material: number) => SurfaceMaterial | null | undefined = (m) => surfaceMaterial(m),
 ): boolean {
-  const seg = throwClearanceSegment(snap, power, aimSin);
-  if (!seg || !grid) return true;
-  return segmentHits(grid, seg.from, seg.to, clearanceSurface, ALL_LAYERS, true).length === 0;   // LATER 250: front entries only
+  if (!grid) return true;
+  const seg = throwClearanceSegment(snap, power, aim);
+  const nearest = segmentHits(grid, seg.from, seg.to, clearanceSurface, ALL_LAYERS, true)[0];   // LATER 250: front entries only
+  return !nearest || !aimHitKept(nearest.poly, materialOf);
+}
+
+/**
+ * READING (named; research 256 s5.3, s7; reading of r0004, the second reader of agent-mail pilot/kill/
+ * item-1-aim-second-read.md s4, pending review): the hand-open's own cast. r0004's hand-open (`0x5c8860`, the kit's; the
+ * actor `kit+0x830`) takes the stance's TABLE point for the state and the toss test at that moment (0x5c8e5c-0x5c9054,
+ * `GetThrowAnim`'s points) through the body matrix, the aim vector's three floats x 25.0 through its 3x3, and asks the
+ * same `0x33b860(world, start, end, 1)` as the release clearance (0x5c9290-0x5c93a8). ANY hit returned skips the launch
+ * AND the count's decrement (0x5c93ac to 0x5c98a0): the hit is not passed to `0x5bc8d0`, so there is no material or owner
+ * filter. r0001's hand-open has no such query (D:L476960-477112). The value is the ray's length, 25 (the same
+ * immediate's role as `THROW_CLEARANCE_LENGTH_READING`). Not read: what a skipped hand-open leaves behind (the grenade
+ * in the hand, the kit's state) -- the port leaves the item up, unspent, and ends the throw as a hand-open with nothing
+ * thrown. Settles it: a capture of a release cleared at the request and walled at the hand-open (the aim moved between).
+ */
+export const HAND_OPEN_CAST_READING = 25;
+
+/**
+ * READING (named, LOW confidence; research 256 s7; the review of c5629fb494): which table point the hand-open's cast
+ * starts from for a crouched state. r0004's hand-open (0x5c9158) always takes the point set at 0x66b080, whatever the
+ * speed (one reader, the review; the set's points not yet compared with `THROW_ANIMS`); the port's `handOpenClear` takes `throwAnim`'s point for the state and speed, which for a crouch
+ * above 15 u/s (OBF-23's crouch-run, `GetThrowAnim`'s D:L441827-441843) is the STANDING throw's. The port's choice is
+ * kept (no behaviour change here): `'throwAnim'`. Settles it: 0x5c9158's branch re-read with the 0x66b080 set's points
+ * against `THROW_ANIMS`, then a capture of a crouch-run throw at a wall the two points straddle.
+ */
+export const HAND_OPEN_CROUCH_POINT_READING = 'throwAnim' as const;
+
+/**
+ * Whether r0004's hand-open cast (`HAND_OPEN_CAST_READING`) lets the launch go: no hull loaded, or no hit of the release
+ * clearance's query (`THROW_CLEARANCE_QUERY_PLACEHOLDER`'s surfaces, front entries) on the ray from the stance's table
+ * point along `HAND_OPEN_CAST_READING` x the aim. Any hit refuses, whatever its material.
+ */
+export function handOpenClear(
+  grid: Grid | null, snap: Pick<PlaySnapshot, 'feet' | 'yaw' | 'stance' | 'stanceState' | 'peek' | 'vx' | 'vz'>,
+  power: number, aim: ThrowAimArg,
+): boolean {
+  return handOpenCast(grid, snap, power, aim).clear;
+}
+
+/**
+ * THROW_DIAG_ADAPTATION (issue #858; a browser instrument with no original): one hit of `handOpenCast`, as plain data --
+ * the crossing point and its place along the cast, the face's unit normal, and the face itself (its path, material and
+ * `ditype`, which `clearanceSurface` reads).
+ */
+export interface HandOpenHit {
+  point: [number, number, number]; t: number; normal: [number, number, number]; path: string; material: number; ditype: number;
+}
+
+/**
+ * `handOpenClear`'s cast, the same query in the same order, with what it asked and met: `clear` is `handOpenClear`'s
+ * answer (it is nothing but this function's `clear`), `from`/`to` the segment cast (null with no hull loaded) and `hit`
+ * the nearest hit (null when clear). THROW_DIAG_ADAPTATION (issue #858): the segment and the hit are returned for the
+ * thrower's `diag` to record; nothing of the game reads them.
+ */
+export function handOpenCast(
+  grid: Grid | null, snap: Pick<PlaySnapshot, 'feet' | 'yaw' | 'stance' | 'stanceState' | 'peek' | 'vx' | 'vz'>,
+  power: number, aim: ThrowAimArg,
+): { clear: boolean; from: V3 | null; to: V3 | null; hit: HandOpenHit | null } {
+  if (!grid) return { clear: true, from: null, to: null, hit: null };
+  const state = releaseStance(snap);
+  const v = aimVectorOf(aim);
+  // HAND_OPEN_CROUCH_POINT_READING: `throwAnim`'s point for the state and speed (r0004 0x5c9158 always takes 0x66b080's set).
+  const hand = throwAnim(power, v[1], state, snap.vx * snap.vx + snap.vz * snap.vz).offset;
+  const from = actorToWorldPoint(snap.feet, snap.yaw, hand);
+  const L = HAND_OPEN_CAST_READING;
+  const dir = actorToWorldDir(snap.yaw, [L * v[0], L * v[1], L * v[2]]);
+  const to: V3 = [from[0] + dir[0], from[1] + dir[1], from[2] + dir[2]];
+  const hits = segmentHits(grid, from, to, clearanceSurface, ALL_LAYERS, true);
+  const h = hits[0];
+  return {
+    clear: hits.length === 0, from: [from[0], from[1], from[2]], to,
+    hit: h ? { point: [...h.point], t: h.t, normal: [...h.normal], path: h.poly.path, material: h.poly.material, ditype: h.poly.ditype } : null,
+  };
+}
+
+/** An aim as the clearances take it: the body's aim vector (actor frame), or a bare sine (no sideways term). */
+export type ThrowAimArg = number | readonly number[];
+
+/** The aim vector of a `ThrowAimArg`: a sine s as (0, s, -sqrt(1 - s^2)). */
+export function aimVectorOf(aim: ThrowAimArg): V3 {
+  if (typeof aim === 'number') return [0, aim, -Math.sqrt(Math.max(0, 1 - aim * aim))];
+  return [aim[0]!, aim[1]!, aim[2]!];
 }

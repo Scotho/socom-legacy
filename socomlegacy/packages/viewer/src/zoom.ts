@@ -158,6 +158,22 @@ export const BINOCULARS = 4;
 /** The zoom's speed: 3 x the target (or the old target, zooming out) a second. */
 export const ZOOM_RATE = 3;
 /**
+ * R4P-234b (research 84 §7.3; reading, held by FORCED captures of r0004, pending review): the magnification the view is
+ * drawn at from the round's (the mission's) end to the next set-up. r0004's `_OnMissionComplete` 0x2ac270 writes the
+ * camera's field of view at zoom 1.0 (`FUN_0029c7f0(1.0, cam)`, D4:L159788; Q234B) -- a call research 397 §3-§4 traced
+ * running (proven for its conditions: a joiner, a clock-ended classic round, about 3 s after the clock's zero as ROUND
+ * COMPLETE comes up; the host's path, a won round and the last round not measured; the FOV write itself, after the
+ * traced calls in the same body, is the bytes' reading); Q234C (IQ-126, 4/4) read the
+ * camera's `+0x470/+0x474` 1.01 or 3.0 -> 1 and `+0x2c8` -> 1 at the return and on the frames after, while the body's
+ * `+0x200` (3, 5) and `+0x204` (1.01, 3.0) are kept; Q234D: the zoom step 0x1f0490 still runs each frame but eases from
+ * the camera's own `S+0x470` (now 1.0) at the rate `DAT_00435608`, 0 once a zoom has settled (D4:L57750-57753), so it
+ * carries 1.0 (a zoom still running at the call eases on from 1.0 to its kept target: the rate is not written; reading,
+ * unmeasured); d-pad presses after the call change nothing. Not shown: the game's own next-round path ending it -- the
+ * captures ended the hold by a fresh state load (all 1.0, `+0x200` 0xff00), so the page ends it at its next set-up
+ * (`Zoom.reset`, `Zoom.respawn`). `Zoom.endRoundView`.
+ */
+export const ROUND_END_CAMERA_FOV_READING = 1.0;
+/**
  * `DAT_00650638` (`FUN_005966a0` 453813-453817; 0.2 in the ELF's bytes): the look's extra factor under `FUN_005b90f0`
  * (state 4). The move stick's own factor in the binoculars or a scope is the literal 0.2 (453818-453821); the value is
  * the same, so one constant.
@@ -205,6 +221,87 @@ export function reloadRefused(state: number): boolean {
 }
 
 /**
+ * R4P-111 (research 84 §7.2, "The d-pad under a throw's clip"; reading, pending review): the zoom's steps under a
+ * throw's clip. r0004 (the specification): the controller's zoom block at 0x59b278 runs the d-pad's Down (0x548e10,
+ * called at 0x59b2a4) and Up (0x548fc0, at 0x59b368) only when the gate 0x5aeac0 answers, and the gate answers no while
+ * the top play's type (its `+0x2c`) is in the list 0x5ad9f0(actor, 0) asks at 0x5aeb8c -- the eleven
+ * `ZOOM_GATE_THROW_TYPES`. r0001: `FUN_00594cf0` D:L453313 -> `FUN_005a8da0`, nine compared inline (D:L463214-463227:
+ * the eleven less the two pistol peek tosses). The type on top is the hand's variant (`FUN_00588bc0` D:L446087-446088,
+ * push D:L446292; r0004 0x58e27c / 0x58e28c / 0x58ea9c), which with the sidearm drawn is the pistol type only for the
+ * two peek tosses (LATER 1442, `@s2u/scene` `PISTOL_HAND_SWAP_CLIPS`): the standing throw's type on top is the RIFLE's
+ * `Throw grenade` and the zoom is refused (ZOOMF1-PC2, ZOOMF1B-PC2). The capture WFEEL-C7-PC2 (r0004,
+ * Shadow PC 2, memory reads per frame; record sha256 5fe029d35a7781162225f1629c2fadb6376fcc0e1ae9ba19f3ba95f5cfa3a5f6;
+ * capture, unscored) agrees on every case it ran: 44 of 44 Ups at +200 and +600 ms after the release leave `+0x200` and
+ * `+0x204` unchanged (the standing throw with the rifle up, the crouched throw, the rifle and pistol peek tosses), 20
+ * of 20 at +2400 ms step at once. ZOOMF1-PC2 (IQ-116; r0004, M51, Shadow PC 2; MARK 23SD drawn then MARK141, a primary
+ * in the kit, standing, third person; capture, unscored): 4 of 4 sidearm-drawn throws (3 hard, 1 light) played clip 49
+ * on top of the pistol-drawn stance 83, Up at +200 / +600 ms refused in all 4, the control after the clip stepped. The
+ * page refuses every step (`./matchFirearm` `stepZoom`: in, out and the cycle) while the throwables say such a clip
+ * plays (`GrenadeCore.throwClipActive`). The gate's other terms are not built here (research 84 §7.2).
+ */
+export const ZOOM_THROW_CLIP_REFUSED_READING = 'every step refused while a throw or toss type is the top action' as const;
+
+/**
+ * The gate's throw and toss types (`ZOOM_THROW_CLIP_REFUSED_READING`), by `animset.rdr` type name: r0004's list
+ * 0x5ad9f0 with a second argument of 0 (the zoom gate's, 0x5aeb8c) -- seven always (0x5ada08-0x5ada70; `Crouch throw
+ * grenade` compared twice) and four more for 0 (0x5ada78-0x5adab0), the words named by their start-up stores (0x5e9884 ..
+ * 0x5e9a8c). Not in it: `Pistol throw grenade` (0x409da0), `Pistol crouch throw grenade`, `Pistol prone throw grenade`,
+ * `Place claymore`, `Put on wall` and their pistol types. r0001's nine (D:L463214-463220) lack the two pistol peek tosses.
+ */
+export const ZOOM_GATE_THROW_TYPES: ReadonlySet<string> = new Set([
+  'Throw grenade', 'Crouch throw grenade', 'Prone throw grenade', 'Toss grenade', 'Pistol toss grenade',
+  'Prone toss grenade', 'Pistol prone toss grenade', 'Peek right toss', 'Peek left toss',
+  'Pistol peek right toss', 'Pistol peek left toss',
+]);
+
+/**
+ * LATER 1427 (research 84 §7.2, "Up under a placing"; reading, pending review): r0004 only. After the zoom gate (0x59b278
+ * -> 0x5aeac0) and Up's own press byte (0x59b2f0) and `+0x221` (0x59b300), the Up branch reads the view byte `+0x200`
+ * signed (`lb` 0x59b30c, `blez` 0x59b310): at 0 (third person) Up (0x548fc0, 0x59b368) runs; above 0 -- first person, its
+ * THERMAL twin, the night vision, the binoculars, every scope -- it runs only when the action test 0x57d220 answers no for
+ * each of the three placing types (`ZOOM_UP_PLACING_TYPES`). Down (0x548e10, 0x59b2a4) has no such term. r0001 has none:
+ * `FUN_00594cf0` calls Up straight (D:L453322-453324). The page refuses Up -- and the cycle, its binding over Up, wrap
+ * and all (review F4) -- in a view above 0 while the throwables say a placing type plays (`./matchFirearm` `stepZoom`,
+ * `GrenadeCore.placingClipActive`) or the bomb's own plant or manual drop is the own body's top (`./bombPage`
+ * `BombPage.ownPlacingClip`, review F1: r0004 pushes `Place claymore` for both, 0x5c5d08 and 0x5a3960).
+ */
+export const ZOOM_UP_PLACING_REFUSED_READING = 'Up refused above third person while a placing type is the body action' as const;
+
+/**
+ * The three types r0004's Up term asks 0x57d220 about, by `animset.rdr` type name: `Place claymore` (the word 0x409d18,
+ * loaded at 0x59b318; filled at start-up, store 0x5e98e8), 0x3d `Put on ground` and 0x3e `Put on wall` (the literals at
+ * 0x59b338 and 0x59b34c; named by the action-name table at 0x6610c0, entries 0x3d -> 0x660928, 0x3e -> 0x660938).
+ */
+export const ZOOM_UP_PLACING_TYPES: ReadonlySet<string> = new Set(['Place claymore', 'Put on ground', 'Put on wall']);
+
+/**
+ * The pistol placing types and the rifle type each is paired with: r0004's pairing 0x5e94c0 (r0001 `FUN_005e1cf0`)
+ * writes the rifle type into the pistol type's record `+2` (0x5e95b0), called with 0x3d / 0x82 (0x5e82b8), 0x3e / 0x83
+ * (0x5e82c8) and `Place claymore` / `Pistol place claymore` (0x409d18 / 0x409d20, 0x5e857c-0x5e858c; r0001 D:L494740,
+ * D:L494741, D:L494772).
+ */
+const ZOOM_UP_PLACING_PISTOL_PAIR: Readonly<Record<string, string>> = {
+  'Pistol place claymore': 'Place claymore', 'Pistol put on ground': 'Put on ground', 'Pistol put on wall': 'Put on wall',
+};
+
+/**
+ * Whether a played type is one r0004's Up term refuses under. 0x57d220(actor, T) answers when the body's action word
+ * `+0x534` equals T or T's back-link (0x5e9260, the record's `+2`); `+0x534` is the back-link of the TOP play's type
+ * (written at the push, 0x58eadc-0x58eae8, and when the top changes, 0x58f120-0x58f128; -1 with no play, 0x58f104; and
+ * by the hand's re-typing of the stack, 0x5827c0 at 0x582880-0x5828a8 -- the new top's `+0x22`, then its back-link
+ * 0x5e9260 -- review F2), so a pistol placing's word is its rifle type and refuses too. That a rifle type's own `+2` is
+ * itself is the capture's (ZOOMF1-PC2: clip 49 on top, action word 49; capture, unscored), not read off the loader.
+ */
+export function zoomUpPlacingType(played: string): boolean {
+  return ZOOM_UP_PLACING_TYPES.has(ZOOM_UP_PLACING_PISTOL_PAIR[played] ?? played);
+}
+
+/** Whether d-pad Up is refused (`ZOOM_UP_PLACING_REFUSED_READING`): a view above 0 (0x59b30c) under a placing type. */
+export function zoomUpPlacingRefused(state: number, placing: boolean): boolean {
+  return placing && state > 0;
+}
+
+/**
  * The HUD's zoom readout for a view state (`FUN_001f6ce0` 56029-56048): 9.0 in the binoculars, `FUN_005be660` (the
  * record's `ZoomMode[state - 4]`, 1 past its count) in a scope, 0 otherwise; the HUD writes `ZOOM: %2.1fx` only over 1.01.
  */
@@ -231,6 +328,8 @@ export class Zoom {
   private hold_: ZoomHold = 'firearm';
   /** LATER 97: the turret held (`setMount`), or null. */
   private mount_: ZoomMount | null = null;
+  /** R4P-234b (`ROUND_END_CAMERA_FOV_READING`): the round's end held the view at 1.0 (`endRoundView`); `reset` clears it. */
+  private roundEnded_ = false;
 
   constructor(private weapon: WeaponRecord, private night = false, private override: NightOverride = NIGHT_OVERRIDE) {}
 
@@ -412,7 +511,9 @@ export class Zoom {
   /**
    * The mouse's one button (the viewer's convenience, not the game's): zoom in, and from the last step back to the
    * third-person view -- third, first, the binoculars or the scope's levels, third. The pad keeps the game's two
-   * directions.
+   * directions. LATER 1427 (review F4): an adaptation over Up, so `./matchFirearm` `stepZoom` refuses it whole where it
+   * refuses Up (`zoomUpPlacingRefused`: a placing type on top, a view above 0) -- its wrap from the last step back to 0
+   * included, which Down still makes; the original has no cycle, and its Up does not run there.
    */
   cycle(): number {
     const before = this.s;
@@ -484,7 +585,20 @@ export class Zoom {
    * Third person at once, no run: a new map, leaving the walk, and death (`FUN_00547af0` D:L413083-413095 sets 0, and
    * `FUN_0029b2f0(1.0)` at D:L413084 puts the camera's projection at 1.0 straight away).
    */
-  reset(): void { this.tickState = null; this.tickSteps = []; this.s = 0; this.mag = ZOOM_THIRD; this.applied = ZOOM_THIRD; this.rate = 0; }
+  reset(): void { this.tickState = null; this.tickSteps = []; this.s = 0; this.mag = ZOOM_THIRD; this.applied = ZOOM_THIRD; this.rate = 0; this.roundEnded_ = false; }
+
+  /**
+   * R4P-234b (`ROUND_END_CAMERA_FOV_READING`): the round's end -- the view on screen to 1.0, the state and its target
+   * (`+0x200`, `+0x204`) kept, and the run's rate LEFT as it is: r0004's 0x2ac270 and 0x29c7f0 do not write
+   * `DAT_00435608`; only the step 0x1f0490 zeroes it, on arrival (0x1f05b0, 0x1f05e0; D4:L57750-57753). A settled zoom
+   * (rate 0) so carries 1.0 (Q234D); a zoom still running at the call eases on from 1.0 to the kept target (the review's
+   * F1; a reading from the bytes, unmeasured). Till `reset` (the next set-up: a spawn, a new map). `roundEnded` tells the
+   * input it is refused.
+   */
+  endRoundView(): void { this.applied = ROUND_END_CAMERA_FOV_READING; this.roundEnded_ = true; }
+
+  /** R4P-234b: the round's end holds the view (`endRoundView`), not yet cleared by a set-up (`reset`). */
+  roundEnded(): boolean { return this.roundEnded_; }
 
   /**
    * A spawn with `weapon` in the hand -- a respawn, and every living body at a classic round's start

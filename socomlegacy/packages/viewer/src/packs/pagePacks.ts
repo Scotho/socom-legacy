@@ -110,6 +110,8 @@ export function pageTextureChoice():TextureChoiceKeeper{
 
 /** What the applier switches: `HdServedPack` (store-only, ML.R4) and `LocalTexturePacks`, or a test's fakes. */
 export interface HdSwitch {setEnabled(on:boolean):Promise<void>;
+  /** B-48 (`../packRevealHold`): still applying (its manifest loading or an apply in flight); absent, never busy. */
+  busy?():boolean;
   /** PR #729's Codex P2: off and its decoders' worker ended (`HdServedPack.dispose`); `dispose` below calls it when present. */
   dispose?():Promise<void>}
 export interface GxSwitch<T> {setTarget(target:T|null):void;choose(id:string|null):void;setEnabled(on:boolean):void}
@@ -140,6 +142,8 @@ export class PackApplier<T extends PackTargetLike=PackTargetLike> {
     this.ready=deps.choice.ready.then(()=>this.apply());
   }
   get choice():TextureChoice{return parseTextureChoice(this.deps.choice.get());}
+  /** B-48: an HD choice whose switch is still applying (`HdSwitch.busy`); the GX path is not asked. */
+  busy():boolean{return this.choice?.kind==='hd'&&(this.hd?.busy?.()??false);}
   /** A new world (a map loaded, a base changed) or none: its pack target and its decodes (ML.R9's late registration). */
   setWorld(world:{texturePack?:T|undefined}|null,decodes:Readonly<Record<string,Rgba|undefined>>|null):void{
     this.target=world?.texturePack??null;this.decodes=decodes;

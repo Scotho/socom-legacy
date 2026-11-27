@@ -11,7 +11,8 @@ import { detectDeviceClass, pageDeviceClass, resetPageRendererProbeForTest, type
 import { GRAPHICS_BACKEND_KEY } from '../src/graphicsBackend';
 import { ADAPTIVE_V2_ADAPTATION } from '../src/matchViewport';
 import { PAGE_SETTING_KEYS } from '../src/pageStore';
-import { PRESET_VALUES, videoRowsKeeperV2, videoSettingsKeeperV2, type Rows } from '../src/videoSettings';
+import { pagePicture } from '../src/picture';
+import { PRESET_VALUES, readVideoSettingsV2, VIDEO_SETTINGS_KEY_V2, videoRowsKeeperV2, videoSettingsKeeperV2, type Rows } from '../src/videoSettings';
 
 /**
  * VS-7 (the video settings plan, product track; VS.R7 and the spec §4.4 items 2 and 3): Automatic's start per device
@@ -36,9 +37,9 @@ const feed = (p: FirstMatchProbe, ms: number, seconds: number, fullScale = true)
 
 describe('VS-7: the class\'s start (the spec §4.4 item 2)', () => {
   it('each class\'s start equals the table', () => {
-    expect(CLASS_START_ADAPTATION.xbox).toEqual({ ...PRESET_VALUES.performance, graphics: 'webgl2', antialias: false, ceiling: 720, renderScalePct: 75, shadows: 'off', frameCap: 60 });
+    expect(CLASS_START_ADAPTATION.xbox).toEqual({ ...PRESET_VALUES.performance, graphics: 'webgl2', antialias: false, ceiling: 720, renderScalePct: 75, shadows: 'off', frameCap: 30 });
     expect(CLASS_START_ADAPTATION.software).toEqual({ ...PRESET_VALUES.performance, shadows: 'off', ceiling: 720 });
-    expect(CLASS_START_ADAPTATION.touch).toEqual({ ...PRESET_VALUES.balanced, shadows: 'medium' });
+    expect(CLASS_START_ADAPTATION.touch).toEqual({ ...PRESET_VALUES.balanced, shadows: 'off' });
     expect(CLASS_START_ADAPTATION.lowMemory).toEqual(PRESET_VALUES.performance);
     expect(CLASS_START_ADAPTATION.standard).toEqual(PRESET_VALUES.balanced);
     expect(CLASS_START_ADAPTATION.high).toEqual(PRESET_VALUES.quality);
@@ -369,3 +370,91 @@ describe('VS-7: the keeper\'s Automatic (VS.R7)', () => {
     expect(keeper.get().graphics).toBe('webgl2');                                         // the Xbox start never asks for WebGPU
   });
 });
+
+/**
+ * WM-5a (the weekend mega sprint; product track, a browser adaptation -- the second developer's physical report from his
+ * console, not measured by us: the live page stable at 30 fps in the PS2 picture with the 30 fps cap): the Xbox class
+ * starts at the 30 cap (its picture's start is `./picture`'s, `test/picture.test.ts`), the touch class with shadows off;
+ * a choice the player saved is never moved by a class's start; the other classes unchanged.
+ */
+describe("WM-5a: the Xbox and touch classes' starts; a saved choice kept", () => {
+  const xboxPick = (): void => { localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox'); };
+  /** A saved Custom, every row the v2 JSON holds, over the Xbox start's own. */
+  const savedCustom = (rows: Partial<Rows>): void => {
+    const { detailDistance: _d, graphics: _g, overlay: _o, ...json } = { ...CLASS_START_ADAPTATION.xbox, ...rows };
+    localStorage.setItem(VIDEO_SETTINGS_KEY_V2, JSON.stringify({ preset: 'custom', ...json, overlay: 'fps' }));
+  };
+
+  it('the Xbox class starts at the 30 cap, and Automatic draws it with nothing saved', () => {
+    expect(CLASS_START_ADAPTATION.xbox.frameCap).toBe(30);
+    expect(autoResolved('xbox', () => null, null).frameCap).toBe(30);
+    xboxPick();
+    expect(pageDeviceClass()).toBe('xbox');
+    expect(readVideoSettingsV2()).toMatchObject({ preset: 'auto', frameCap: 30, shadows: 'off' });
+  });
+
+  it("the touch class starts with shadows off (the Xbox row's lever); its other rows Balanced's", () => {
+    expect(CLASS_START_ADAPTATION.touch.shadows).toBe('off');
+    const { shadows: _s, ...rest } = CLASS_START_ADAPTATION.touch;
+    const { shadows: _b, ...balanced } = PRESET_VALUES.balanced;
+    expect(rest).toEqual(balanced);
+    expect(autoResolved('touch', () => null, null).shadows).toBe('off');
+  });
+
+  it("a saved frame cap is kept on the Xbox class: the class's start never overrides it", () => {
+    xboxPick();
+    savedCustom({ frameCap: 60 });
+    expect(readVideoSettingsV2()).toMatchObject({ preset: 'custom', frameCap: 60 });
+    expect(videoSettingsKeeperV2().resolved().frameCap).toBe(60);
+  });
+
+  it("a saved shadow tier is kept on the Xbox class: the class's start never overrides it", () => {
+    xboxPick();
+    savedCustom({ shadows: 'medium' });
+    expect(readVideoSettingsV2()).toMatchObject({ preset: 'custom', shadows: 'medium' });
+    expect(videoSettingsKeeperV2().resolved().shadows).toBe('medium');
+  });
+
+  it("a saved named preset is the player's: Balanced on the Xbox class draws Balanced's cap (Off), not the start's 30", () => {
+    xboxPick();
+    localStorage.setItem(VIDEO_SETTINGS_KEY_V2, JSON.stringify({ preset: 'balanced', overlay: 'fps' }));
+    expect(readVideoSettingsV2()).toMatchObject({ preset: 'balanced', frameCap: PRESET_VALUES.balanced.frameCap, shadows: PRESET_VALUES.balanced.shadows });
+  });
+
+  it('the other classes are unchanged: standard Balanced, high Quality, lowMemory Performance, software Performance at 720 with no shadows', () => {
+    expect(CLASS_START_ADAPTATION.standard).toEqual(PRESET_VALUES.balanced);
+    expect(CLASS_START_ADAPTATION.high).toEqual(PRESET_VALUES.quality);
+    expect(CLASS_START_ADAPTATION.lowMemory).toEqual(PRESET_VALUES.performance);
+    expect(CLASS_START_ADAPTATION.software).toEqual({ ...PRESET_VALUES.performance, shadows: 'off', ceiling: 720 });
+    for (const c of ['standard', 'high', 'lowMemory', 'software'] as const) expect(CLASS_START_ADAPTATION[c].frameCap, c).toBe(0);
+  });
+});
+
+/** WM-5a (the second reviewer's pin): an Xbox class's start is laid, never written -- no key at all on a first load. */
+describe('WM-5a: the Xbox class start writes nothing', () => {
+  it('a first load on an Xbox-class page with nothing saved writes no key: not the picture, not the renderer, not the video settings', () => {
+    localStorage.clear();
+    const agent = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(navigator), 'userAgent')!;
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, get: () => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; Xbox; Xbox One) Edg/130.0.2849.56' });
+    const gl = { getExtension: () => null, getParameter: () => 'ANGLE (AMD, AMD Custom GPU 0405 Direct3D11 vs_5_0 ps_5_0, D3D11)', RENDERER: 0x1f01 };
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((() => gl) as never);
+    resetPageRendererProbeForTest();
+    const keys = (): (string | null)[] => Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i));
+    try {
+      expect(pageDeviceClass()).toBe('xbox');
+      expect(readVideoSettingsV2()).toMatchObject({ preset: 'auto', frameCap: 30, shadows: 'off', graphics: 'webgl2' });
+      const keeper = videoSettingsKeeperV2();
+      expect(keeper.resolved()).toMatchObject({ preset: 'auto', frameCap: 30 });
+      expect(videoRowsKeeperV2(keeper).get().renderScale).toBe('performance');
+      expect(pagePicture().get()).toBe('ps2');
+      expect(keys()).toEqual([]);
+    } finally {
+      Object.defineProperty(navigator, 'userAgent', agent);
+      delete (navigator as unknown as Record<string, unknown>).userAgent;
+      vi.restoreAllMocks();
+      resetPageRendererProbeForTest();
+      localStorage.clear();
+    }
+  });
+});
+

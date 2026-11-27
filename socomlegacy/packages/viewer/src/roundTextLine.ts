@@ -1,10 +1,13 @@
 import type { UsbKey } from '@s2u/ui';
-import { MESSAGE_SCALE, TEXT_LINE_LAYOUT, type Hud } from './hud';
+import { MESSAGE_SCALE, TEXT_LINE_LAYOUT } from './hudLayout';
+import type { Hud } from './hud';
 import { textWidth } from './hudFont';
 import { messageLine } from './matchMessages';
 import { devKeysHeld } from './devKeyHolds';
 import { holdRoundLineKeys } from './roundLineKeys';
 import { HID_BY_CODE } from './softKeyboardKeys';
+import { detectDeviceClass, pageDeviceSignals, type DeviceClass, type DeviceSignals } from './deviceClass';
+import { wantsTouchControls } from './touch';
 
 /**
  * KEYBOARD-WHISPER (OT.R48, the owner 2026-10-12: "keyboard in round is acceptable"; web research 266 §3.9, its spec §7):
@@ -114,6 +117,109 @@ export function parseRoundWhisper(line: string): { name: string; message: string
   return { name, message: s.slice(j) };
 }
 
+/**
+ * ROUND_CHAT_SEND_ADAPTATION (a browser adaptation beside OT.R48; V21.R15a, the owner's words in HUMAN_TASKS H452; the
+ * round-chat plan's RC-2, RC.R1-R2): the original's ENTER sends only the `/w` whisper and clears any other line unsent
+ * (`FUN_002c9b80`; research 266 §3.1, §3.9). The owner's open round chat sends the rest on the game socket as the page's
+ * `chat` request (`net/protocol.ts`: `{ type: 'chat'; text; team? }`): a plain line as it is ("no prefix at all
+ * required"), `/team <text>` with `team` set; the server decides who hears it (RC.R1) and cuts it. `/w name msg` stays
+ * the original's whisper, untouched, and a line that is the whisper's command word but no whole whisper (`/w`, `/w kilo`)
+ * is still cleared unsent -- never broadcast. Not the original's; the whisper path is.
+ */
+export const ROUND_CHAT_SEND_ADAPTATION = 'a non-whisper line sent on the game socket as chat, /team with team set; /w the original whisper' as const;
+
+/**
+ * ROUND_CHAT_TEAM_PREFIX_ADAPTATION (V21.R15a; H452: "when prefixing /team, you ONLY message team"): the team line's
+ * prefix, matched case-blind and followed by a space; the text after the space and any run of spaces is the line. Held
+ * in this one constant (H452's item (c): how a team line is typed stays the owner's to change).
+ */
+export const ROUND_CHAT_TEAM_PREFIX_ADAPTATION = '/team';
+
+/** The whisper's command word alone, `/w` then a space or the end, case-blind (`parseRoundWhisper`'s word, `WHISPER_WORD`). */
+function whisperCommand(line: string): boolean {
+  if (line[0] !== '/' || line.slice(1, 1 + WHISPER_WORD.length).toLowerCase() !== WHISPER_WORD) return false;
+  const after = line[1 + WHISPER_WORD.length];
+  return after === undefined || after === ' ';
+}
+
+/**
+ * What ENTER sends on the game socket for a line that is no whole whisper (`ROUND_CHAT_SEND_ADAPTATION`): the plain line,
+ * or the `/team` line's text with `team`; null for an empty or spaces-only line, a `/team` with no text, or the whisper's
+ * command word (`/w`, `/w kilo`: the original's clear).
+ */
+export function roundChatLine(line: string): { text: string; team: boolean } | null {
+  if (line.trim().length === 0 || whisperCommand(line)) return null;
+  const p = ROUND_CHAT_TEAM_PREFIX_ADAPTATION;
+  if (line.slice(0, p.length).toLowerCase() === p && (line.length === p.length || line[p.length] === ' ')) {
+    const text = line.slice(p.length).replace(/^ +/, '');
+    return text.trim().length === 0 ? null : { text, team: true };
+  }
+  return { text: line, team: false };
+}
+
+/**
+ * ROUND_CHAT_KBM_CONTROLS_ADAPTATION (a browser adaptation; V21.R15a, H452: "If kb/m controls are detected, require tilde
+ * to bring up the chat. but for just normal games any press of a lettered key should bring up the window"): where
+ * keyboard-and-mouse controls are in use the line is closed until tilde (Backquote, `~` with Shift; `ROUND_CHAT_TILDE_HID`)
+ * or ENTER (`ROUND_CHAT_ENTER_OPENS_ADAPTATION`, which since 2026-11-23 restores the development build's earlier ENTER-opens
+ * rule beside tilde, `ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION`) opens it, neither ever typed into the line. Where the pad is the controls the line has no open state: a letter (any key
+ * the line types) brings it up at once, the original's own line. "Keyboard-and-mouse controls are in use" is settled by
+ * the build: an online round's keyboard controls are the keyboard testing layer (`./keyboardTesting`, every site under
+ * a literal `import.meta.env.DEV`; OT.R29), so a development build; a release build's online round is controller-only
+ * (OT.R29, OT.R48; OT.R114's keyboard-and-mouse pages, `./kbmScope` `kbmAllowed`, are never an online room).
+ */
+export const ROUND_CHAT_KBM_CONTROLS_ADAPTATION = 'keyboard-and-mouse controls (a development build): the line opens on tilde or ENTER, untyped; the pad\'s controls: a letter types at once' as const;
+
+/**
+ * ROUND_CHAT_ENTER_OPENS_ADAPTATION (a browser adaptation, product track; no original -- the console's line has no open
+ * state; the owner's words, relayed by the controller on 2026-11-23: "also make enter open chat" / "while in a match even
+ * with keyboard on"): with keyboard-and-mouse controls a closed line is opened by ENTER as well as tilde, untyped, the same
+ * keydown sending nothing; open, ENTER keeps `FUN_002c9b80` (send, clear, close). It partly reverses V21.R15a's
+ * "tilde replaced ENTER" on the owner's word; tilde is unchanged. Numpad ENTER (HID 0x58, `HID_BY_CODE`) opens too and is
+ * no line command once open (`roundKey` is null for it). Like tilde it yields to a repeat, a chord, a page control, a held
+ * dev editor and an open menu (`attachRoundTextKeys`); no game action in a match uses ENTER (`./controlsList`), and the
+ * menus that do (ARMORY, R2 inventory, WEAPON EXCHANGE, START, TAUNTS) hold it through `menu()`.
+ */
+export const ROUND_CHAT_ENTER_OPENS_ADAPTATION = 'a closed line on keyboard-and-mouse controls also opens on ENTER, untyped (the owner, 2026-11-23: "also make enter open chat" / "while in a match even with keyboard on")' as const;
+
+/** ENTER's key: HID 0x28 (`./softKeyboardKeys` `HID_BY_CODE`), `ROUND_CHAT_ENTER_OPENS_ADAPTATION`. */
+export const ROUND_CHAT_ENTER_HID = 0x28;
+
+/** Numpad ENTER's key: HID 0x58 (`HID_BY_CODE` `NumpadEnter`); an opener only (`ROUND_CHAT_ENTER_OPENS_ADAPTATION`). */
+const ROUND_CHAT_NUMPAD_ENTER_HID = 0x58;
+
+/** Tilde's key, Backquote: HID 0x35 (`./softKeyboardKeys` `HID_BY_CODE`), `~` with Shift (`ROUND_CHAT_KBM_CONTROLS_ADAPTATION`). */
+export const ROUND_CHAT_TILDE_HID = 0x35;
+
+/** ENTER or numpad ENTER: the closed line's second open key (`ROUND_CHAT_ENTER_OPENS_ADAPTATION`). */
+const isEnterOpener = (hid: number): boolean => hid === ROUND_CHAT_ENTER_HID || hid === ROUND_CHAT_NUMPAD_ENTER_HID;
+
+/** Whether keyboard-and-mouse controls are in use (`ROUND_CHAT_KBM_CONTROLS_ADAPTATION`): the keyboard testing layer's build. */
+export function roundChatKbmControls(): boolean { return import.meta.env.DEV; }
+
+/**
+ * ROUND_CHAT_READ_ONLY_ADAPTATION (a browser adaptation; V21.R15a, H452: pad, touch and Xbox players "read and do not
+ * type" at first): on a touch device (`./touch` `wantsTouchControls`, or the `touch` device class) or the Xbox device
+ * class (`roundChatDeviceClass`: the device's own, review F2) the line stays the original's -- a `/w` whisper sends, any
+ * other line is cleared unsent (review F2: the whisper kept, as before V21.R15a) -- the lines are still drawn for them
+ * (RC-3). A desktop with a pad beside its keyboard is still a keyboard. The original has no soft keyboard in a round.
+ */
+export const ROUND_CHAT_READ_ONLY_ADAPTATION = 'on a touch device or a real Xbox the round line stays the original\'s: a /w whisper sends, any other line is cleared unsent' as const;
+
+/** `ROUND_CHAT_READ_ONLY_ADAPTATION` for a device class and the touch layer's flag. */
+export function roundChatReadOnly(cls: DeviceClass, touch: boolean): boolean {
+  return touch || cls === 'touch' || cls === 'xbox';
+}
+
+/**
+ * The review's F2: the device's own class for `ROUND_CHAT_READ_ONLY_ADAPTATION` -- the page's signals with the saved Xbox
+ * graphics preset left out (`DeviceSignals.xboxPick`), so a desktop keyboard player who picked that preset still types,
+ * while a real Xbox (its agent token or its driver) still reads only.
+ */
+export function roundChatDeviceClass(s: DeviceSignals): DeviceClass {
+  return detectDeviceClass({ ...s, xboxPick: false });
+}
+
 /** One actor of the round as the page holds it (`ROUND_ACTOR_NAMES_READING`, `./roundChat`): a score row. */
 export interface RoundActor { readonly id: number; readonly name: string; readonly team: string; readonly alive: boolean }
 /** The sending seat: its id, and whether it watches as a spectator (no actor of the round: no score row). */
@@ -180,30 +286,42 @@ export interface RoundTextLineDeps {
   hud: Pick<Hud, 'postMessage' | 'setTextLine' | 'textLineText' | 'roundStarts'>;
   /** `FUN_002f4860(0x44f370, message, name)`: the lobby server's whisper (the front end's `BriefingRoomChat.mediusChat`). */
   whisper(message: string, name: string): void;
+  /**
+   * RC-2 (`ROUND_CHAT_SEND_ADAPTATION`): the page's `chat` request on the game socket, `{ type: 'chat', text }` with
+   * `team: true` for a `/team` line; absent, a non-whisper line is cleared unsent (the original's).
+   */
+  sendChat?(text: string, team: boolean): void;
   /** The round's actors (`ROUND_ACTOR_NAMES_READING`). */
   actors(): readonly RoundActor[];
   /** The sending seat, null before the room has seated it. */
   sender(): RoundSender | null;
   /** The line's drawn width (`ROUND_TEXT_LINE_DRAW_READING`); absent, `hudFont`'s at the line's scale. */
   width?(text: string): number;
-  /** Whether `ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION` applies; absent, `import.meta.env.DEV` (a development build's only). */
-  devOpen?: boolean;
+  /**
+   * Whether keyboard-and-mouse controls are in use (`ROUND_CHAT_KBM_CONTROLS_ADAPTATION`: the line closed until tilde or ENTER,
+   * `ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION`); absent, `roundChatKbmControls()` (a development build's).
+   */
+  kbmControls?: boolean;
+  /** Whether the page only reads (`ROUND_CHAT_READ_ONLY_ADAPTATION`); absent, the page's device class and touch flag. */
+  readOnly?: boolean;
 }
 
 /**
  * ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION (a browser adaptation, a development build's only; research 266 §3.9, §6; the
  * Online seat's ruling at KEYBOARD-WHISPER's second review, for the owner's local playtests on the DEV keyboard layer,
  * OT.R29): with the keyboard testing layer (`./keyboardTesting`, every site under `import.meta.env.DEV`) the line is
- * closed until ENTER opens it, so WASD and the layer's other keys keep working through an online round. Open, it takes
- * every key `FUN_002c6c70` acts on, the voice's talk key V included (`./roundLineKeys`); ENTER runs `FUN_002c9b80` and
- * closes it, ESC runs `FUN_002c9cc0` and closes it, and every round's start (`Hud.startRound`, `FUN_002ca0b0`) closes
- * it, empty or not. Closed, every key but ENTER goes on to the testing layer -- and ENTER too when it is the browser's
- * repeat of a held ENTER (a menu's ENTER held past its close stays the menu's; ROUND-LINE-YIELDS, issue #260), or while
- * a menu holds the pad's keys (`ROUND_LINE_MENU_YIELD_ADAPTATION`). A release build -- no keyboard controls -- keeps the
- * original's line exactly: no open state, the keys taken whenever the round is online, a menu open or not. Not the
- * original's (the console's line has no open state; it needs none, its keyboard being no game control).
+ * closed until tilde or ENTER opens it (V21.R15a, RC-2: the owner's tilde where keyboard-and-mouse controls are in use,
+ * `ROUND_CHAT_KBM_CONTROLS_ADAPTATION`, replaced the ENTER that opened it before; the owner restored ENTER beside it on
+ * 2026-11-23, `ROUND_CHAT_ENTER_OPENS_ADAPTATION`), so WASD and the layer's other keys keep working through an online
+ * round; neither opener is ever typed. Open, it takes every key `FUN_002c6c70` acts on,
+ * the voice's talk key V included (`./roundLineKeys`); ENTER runs `FUN_002c9b80` and closes it, ESC runs `FUN_002c9cc0`
+ * and closes it, and every round's start (`Hud.startRound`, `FUN_002ca0b0`) closes it, empty or not. Closed, every key
+ * but tilde and ENTER goes on to the testing layer -- and those two too when each is the browser's repeat of a held one (ROUND-LINE-YIELDS,
+ * issue #260), or while a menu holds the pad's keys (`ROUND_LINE_MENU_YIELD_ADAPTATION`). A release build -- no keyboard
+ * controls -- keeps the original's line exactly: no open state, the keys taken whenever the round is online, a menu open
+ * or not. Not the original's (the console's line has no open state; it needs none, its keyboard being no game control).
  */
-export const ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION = 'a development build: the line closed until a fresh ENTER, ENTER or ESC closing it; a release build the original' as const;
+export const ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION = 'a development build: the line closed until a fresh tilde or ENTER (untyped), ENTER or ESC closing it; a release build the original' as const;
 
 /**
  * ROUND_LINE_MENU_YIELD_ADAPTATION (a browser adaptation, a development build's only; ROUND-LINE-YIELDS, issue #260;
@@ -211,7 +329,8 @@ export const ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION = 'a development build: the lin
  * menus, on its own device (`ROUND_LINE_UNDER_MENU_READING`: the USB keyboard the line's, the pad the menu's); the
  * page's development keyboard is both the line's and the pad's stand-in (the testing layer gives the ARMORY, WEAPON
  * EXCHANGE and the R2 inventory the keyboard's keys, ENTER among them), so while a menu holds the pad's keys a closed
- * DEV line takes no key and does not open -- ENTER goes on to the menu, and `./roundLineKeys` answers false. An open
+ * DEV line takes no key and does not open -- tilde (its open key since V21.R15a) and ENTER (an open key too since 2026-11-23) go on to the menu, and
+ * `./roundLineKeys` answers false. An open
  * line keeps its keys under a menu (the original's), and a release build -- no open state, no keyboard control -- is the
  * original's under every menu. Nothing of the original's line is changed by it.
  */
@@ -233,24 +352,42 @@ export const ROUND_LINE_UNDER_MENU_READING = 'the line live under WEAPON EXCHANG
 
 /** The HUD's text line 0x437540 and what its keys do. */
 export class RoundTextLine {
-  /** `ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION` applies (fixed at the line's making). */
+  /** Keyboard-and-mouse controls: `ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION` applies (fixed at the line's making). */
   private readonly gated: boolean;
+  /** `ROUND_CHAT_READ_ONLY_ADAPTATION`, the deps' or read once at the first key (`readOnly`). */
+  private readOnlyKnown: boolean | null;
   private opened = false;
   /** The HUD's round starts when the line was opened: a later round's start closes it (`Hud.roundStarts`). */
   private openedAt = 0;
-  constructor(private readonly d: RoundTextLineDeps) { this.gated = d.devOpen ?? import.meta.env.DEV; }
+  constructor(private readonly d: RoundTextLineDeps) {
+    this.gated = d.kbmControls ?? roundChatKbmControls();
+    this.readOnlyKnown = d.readOnly ?? null;
+  }
 
-  /** Whether the line takes its keys now: always in a release build; in a development build once ENTER opened it. */
+  /**
+   * `ROUND_CHAT_READ_ONLY_ADAPTATION`: a touch device or the Xbox class -- the line never opens. Read at the first key, not
+   * at the line's making: by then the page has made its one renderer probe (`./softwareRenderer` `pageSoftwareProbe`,
+   * memoised), so this never makes a throwaway WebGL context beside the match's live one (GM-XBOX1).
+   */
+  private get readOnly(): boolean {
+    return (this.readOnlyKnown ??= roundChatReadOnly(roundChatDeviceClass(pageDeviceSignals()), wantsTouchControls()));
+  }
+
+  /**
+   * Whether the line takes its keys now: on the pad's controls (a release build) always; with keyboard-and-mouse controls
+   * (a development build) once tilde opened it; on a touch device or the Xbox class never.
+   */
   get open(): boolean {
     if (!this.gated) return true;
     if (this.opened && this.d.hud.roundStarts() !== this.openedAt) this.opened = false;   // a round's start closes it
     return this.opened;
   }
 
-  /** Whether the line takes this key now (`roundKey`'s keys; a closed line ENTER alone, to open). */
+  /** Whether the line takes this key now (`roundKey`'s keys; a closed line tilde, ENTER and numpad ENTER, to open; open, tilde taken untyped). */
   takes(k: UsbKey): boolean {
-    const a = roundKey(k);
-    return a !== null && (this.open || a.kind === 'enter');
+    if (this.gated && k.hid === ROUND_CHAT_TILDE_HID) return true;          // ROUND_CHAT_KBM_CONTROLS_ADAPTATION
+    if (this.gated && !this.open && isEnterOpener(k.hid)) return true;      // ROUND_CHAT_ENTER_OPENS_ADAPTATION
+    return this.open && roundKey(k) !== null;
   }
 
   /** The line's text: the HUD's (cleared by a round's start, `FUN_001fb420` D:L57631 -> `FUN_002ca0b0`). */
@@ -259,11 +396,18 @@ export class RoundTextLine {
 
   private set(text: string): void { this.d.hud.setTextLine(text); }
 
-  /** One key popped (`FUN_002c6c70`'s loop body); a closed line opens on ENTER and takes nothing else. */
+  /** One key popped (`FUN_002c6c70`'s loop body); a closed line opens on tilde or ENTER and takes nothing else; neither is typed. */
   key(k: UsbKey): void {
+    if (this.gated && k.hid === ROUND_CHAT_TILDE_HID) {                      // ROUND_CHAT_KBM_CONTROLS_ADAPTATION: the open key, untyped
+      if (!this.open) { this.opened = true; this.openedAt = this.d.hud.roundStarts(); }
+      return;
+    }
+    if (this.gated && !this.open && isEnterOpener(k.hid)) {                  // ROUND_CHAT_ENTER_OPENS_ADAPTATION: opens untyped; this keydown sends nothing
+      this.opened = true; this.openedAt = this.d.hud.roundStarts();
+      return;
+    }
     const a = roundKey(k);
-    if (a === null) return;
-    if (!this.open) { if (a.kind === 'enter') { this.opened = true; this.openedAt = this.d.hud.roundStarts(); } return; }   // ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION
+    if (a === null || !this.open) return;                                     // ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION: closed, nothing else
     if (a.kind === 'char') this.append(a.char);
     else if (a.kind === 'escape') { this.set(''); this.opened = false; }      // FUN_002c9cc0: the text set to none
     else if (a.kind === 'backspace') { if (this.value.length > 0) this.set(this.value.slice(0, -1)); }   // FUN_002c9d00
@@ -276,7 +420,10 @@ export class RoundTextLine {
     if (width < TEXT_LINE_LAYOUT.widthLimit && this.value.length < ROUND_TEXT_LINE_CAP - 2) this.set(this.value + c);
   }
 
-  /** `FUN_002c9b80`: a `/w` sent by `FUN_002c9810`'s rule; the line cleared, sent or not (D:L169128-169129). */
+  /**
+   * `FUN_002c9b80`: a `/w` sent by `FUN_002c9810`'s rule; the line cleared, sent or not (D:L169128-169129). Any other line
+   * goes on the game socket (`ROUND_CHAT_SEND_ADAPTATION`, `roundChatLine`), a browser adaptation beside OT.R48.
+   */
   private enter(): void {
     const w = parseRoundWhisper(this.value);
     if (w) {
@@ -286,6 +433,9 @@ export class RoundTextLine {
       } else {
         this.d.hud.postMessage([messageLine(unavailableLine(w.name), UNAVAILABLE_COLOUR, MESSAGE_SCALE)]);
       }
+    } else {
+      const c = roundChatLine(this.value);                                    // ROUND_CHAT_SEND_ADAPTATION (V21.R15a)
+      if (c && !this.readOnly) this.d.sendChat?.(c.text, c.team);           // ROUND_CHAT_READ_ONLY_ADAPTATION: cleared unsent
     }
     this.set('');
   }
@@ -318,8 +468,8 @@ export interface RoundKeyTarget {
  * (`./softKeyboardKeys`, research 301 §6) -- `test/keyboardGate.test.ts` lists it. `menu()`, whether a menu holds the
  * pad's keys (the page's ARMORY, WEAPON EXCHANGE, R2 inventory; absent, none ever does): a browser adaptation, a
  * dev-keyboard one over OT.R29's shared keys (`ROUND_LINE_MENU_YIELD_ADAPTATION`; the original's line is live under the
- * menus, on its own device) -- a closed development line then leaves ENTER to the menu, as it leaves a repeated ENTER
- * (`ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION`). Answers the detach.
+ * menus, on its own device) -- a closed development line then leaves its open keys, tilde and ENTER, to the menu, as it leaves a
+ * repeated one (`ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION`, V21.R15a). Answers the detach.
  */
 export function attachRoundTextKeys(target: RoundKeyTarget, line: RoundTextLine, online: () => boolean, menu: () => boolean = () => false): () => void {
   /** The key as the line's USB key when the line takes it now, else null. */

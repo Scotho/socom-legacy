@@ -29,7 +29,7 @@ const poly = (path: string, ditype: number, points: number[]): WorldPoly => ({
 });
 function world(): Grid {
   const polys = [
-    poly('floor', 3, [-190, 0, -190, 100, 0, -190, 100, 0, 190, -190, 0, 190]),
+    poly('floor', 3, [-190, 0, 190, 100, 0, 190, 100, 0, -190, -190, 0, -190]),
     poly('ramp', 3, [100, 0, -190, 190, 30, -190, 190, 30, 190, 100, 0, 190]),   // rising 1 in 3 toward +x
     poly('wall', 2, [-190, 0, 40, 190, 0, 40, 190, 60, 40, -190, 60, 40]),
   ];
@@ -478,6 +478,26 @@ describe("PV-5b review: the follow after the view (F1, F2, F3)", () => {
       expect(stood.pitch).toBeCloseTo(pose!.pitch, 9);
     }
   });
+
+  it('PV-SPAWN-FACING (the owner\'s report, 2026-11-14): the view given back at the watcher\'s own spawn writes no pose -- the walk\'s respawn has set the spawn\'s facing', () => {
+    const net = scripted(subject(() => ({ view: 6, swayX: 3, swayY: -2 })));
+    net.history = Infinity;
+    const g = page(net);
+    const firearm = g.p.firearm as unknown as { setSubjectView?: (v: unknown) => void };
+    firearm.setSubjectView = (...args: unknown[]): void => { g.writes.push({ name: 'setSubjectView', args }); };
+    for (let cmd = 5.5; cmd <= 9.5; cmd++) {                         // dead and benched: the view drawn under the round screen
+      net.clock = { cmd, epoch: 1 };
+      expect(g.pov(drawnBody(net))).toBe(true);
+    }
+    g.writes.length = 0;
+    g.setMode('walk');                                                 // `client.spawned` -> `walk.respawn`: walking again
+    g.d.spectateFollowReset!();                                        // the page's `spawn` -> `unbench` -> `SpectatorView.reset`
+    expect(g.writes.some((w) => w.name === 'setPose')).toBe(false);    // the spawn's facing stands
+    expect(undrawn(g.writes)).toEqual(['setViewNear()', 'setSubjectOffset(0,0)', 'setPovHidden()', 'setSubjectView()']);
+    g.writes.length = 0;
+    g.d.spectateFollowReset!();
+    expect(g.writes).toEqual([]);                                      // given back once
+  });
 });
 
 describe('PV-10a (finding 6, the exit side): `spectatePovIdle` -- the body given back to today\'s clock before the frame\'s bodies', () => {
@@ -509,5 +529,26 @@ describe('PV-10a (finding 6, the exit side): `spectatePovIdle` -- the body given
     g.d.spectatePovIdle!();
     expect(net.calls).toEqual([]);
     expect(g.writes).toEqual([]);
+  });
+});
+
+/**
+ * R4P-220 (POV_SHAKE_ADAPTATION, the owner's criterion: the Player View receives every event a living player does): a
+ * drawn frame hands the camera the watched body's feet (`FlyCamera.setSubjectFeet`), which a blast's distance is taken
+ * from (`./matchThrow`); the first frame not drawn -- the body dead, the follow -- takes them back (null), once.
+ */
+describe("R4P-220: the drawn body's feet handed to the camera for the view's own shake", () => {
+  it('drawn on a living body: its feet each drawn frame; not drawn (dead): null, once', () => {
+    const net = scripted(subject());
+    const g = page(net);
+    const feet: unknown[] = [];
+    (g.p.fly as { setSubjectFeet?: (f: unknown) => void }).setSubjectFeet = (f) => { feet.push(f); };
+    const b = drawnBody(net);
+    expect(g.pov(b)).toBe(true);
+    expect(feet).toEqual([b.feet]);
+    expect(g.pov(drawnBody(net, { flags: 0 }))).toBe(false);
+    expect(feet).toEqual([b.feet, null]);
+    expect(g.pov(drawnBody(net, { flags: 0 }))).toBe(false);
+    expect(feet).toEqual([b.feet, null]);
   });
 });

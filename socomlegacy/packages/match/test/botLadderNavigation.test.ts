@@ -19,8 +19,8 @@ function ladderMap(blockedFoot = false): SimMap {
   const quad = (points: number[], ditype = 3, appflags = 0): WorldPoly => ({ modelName: 'worldmodel', path: 'test/ladder',
     region: 0, material: 25, ptcount: 4, cameratype: 0, ditype, appflags, points: Float32Array.from(points) });
   const polys = [
-    quad([-100,0,0, 100,0,0, 100,0,100, -100,0,100]),
-    quad([-100,40,-100, 100,40,-100, 100,40,0, -100,40,0]),
+    quad([-100, 0, 100, 100, 0, 100, 100, 0, 0, -100, 0, 0]),
+    quad([-100, 40, 0, 100, 40, 0, 100, 40, -100, -100, 40, -100]),
     quad([-100,0,0, 100,0,0, 100,40,0, -100,40,0], 2),
     quad([-3,0,0.2, 3,0,0.2, 3,40,0.2, -3,40,0.2], 2, 2),
     quad([3,40,0.2, -3,40,0.2, -3,50,0.2, 3,50,0.2], 2, 2),
@@ -131,6 +131,9 @@ describe('native ladders connect bot walking layers', () => {
       const tick = () => { now += 1000 / TICK_HZ; bots.step(); room.step(); };
       for (let i = 0; i < 5 * TICK_HZ; i++) tick();
       expect(room.roundRunning).toBe(true);
+      // LATER 711: the host stood where no slot placed him, the origin -- the ladder's foot, where the bot's body now meets
+      // his (research 426). He is put at the map's spawn b, clear of the ladder.
+      expect(room.player(1)!.sim.walker.place(80, 0, 80)).toBe(true);
       const id = bots.botIds()[0]!, player = room.player(id)!;
       const nav = new WalkingNavigation(room.map, graph, false, LADDERS), link = nav.ladderLinks.find(l => l.up === up)!;
       player.sim.walker.place(...link.entry); player.sim.walker.state.yaw = 90;

@@ -295,19 +295,43 @@
   },
   {
    "id": "weapons.fire.interval",
-   "claim": "The wait after a round is FireWait in single, FireWait x 0.8 in burst and automatic, 1 s in mode 0: the SD 0.14 / 0.112 s (536 a minute), the M4A1 0.12 / 0.096 (625).",
+   "claim": "r0004 (OT.R97): the wait after a round is FireWait x 1.2 in single (mode 1) and modes 4 and up, FireWait x 0.8 in burst and automatic, 1 s in mode 0: the SD 0.168 / 0.112 s (536 a minute), the M4A1 0.144 / 0.096 (625). Single's x 1.2 is proven by ATLAS's capture (M4A1 5 frames, Mark 23 8; research 84 s6); modes 4 and up and the burst's and automatic's x 0.8 at r0004 are readings.",
    "level": "reading",
-   "source": "FUN_005c09f0 D:L476313-476340",
+   "source": "r0004 0x5c76f0 (0x5c7760-0x5c7770 the x 1.2, 0x5c7780-0x5c7790 and 0x5c77a4-0x5c77b4 the x 0.8); research 84 s6; r0001 FUN_005c09f0 D:L476313-476340 superseded (1.0 in single)",
    "note": "docs/research/84-accuracy-and-recoil.md",
    "tests": [
     {
      "file": "packages/viewer/test/weapons.parity.test.ts",
-     "name": "the wait: FireWait single, x 0.8 burst and automatic -- the SD 0.14 / 0.112 s (536 a minute), the M4A1 0.12 / 0.096 (625)",
+     "name": "the wait: FireWait x 1.2 single (r0004), x 0.8 burst and automatic -- the SD 0.168 / 0.112 s (536 a minute), the M4A1 0.144 / 0.096 (625)",
      "data": "none"
     },
     {
      "file": "packages/viewer/test/accuracy.test.ts",
-     "name": "single 1 round a pull at FireWait, burst 3 and automatic at 0.8 x FireWait",
+     "name": "single 1 round a pull at FireWait x 1.2 (SWAP-FIRE, r0004 0x5c76f0), burst 3 and automatic at 0.8 x FireWait",
+     "data": "none"
+    }
+   ]
+  },
+  {
+   "id": "weapons.launcher.rocket-wait",
+   "claim": "LATER 1365: a rocket's next launch waits its round's FireWait x 1.2 in its round mode (the round's id, 185 / 186) and, for the RPG round alone, its 1 s ReloadDelayAfterShot lock on top, the lock's frames added: the LAW HEAT 108 game frames (3.604 s), the RPG at least 108 + 30 = 138 (4.605 s) -- a floor until RPG_AFTER_SHOT_CLIP_READING is read (the lock's expiry starts the after-shot clip, r0001 FUN_005c3000 D:L477643; r0004 0x5ca4d0 unread); the room's rocketWaitUntil 215 / 275 ticks, which the match bots read too. Frame counts projected (no capture). Reading, pending review: the x 1.2 arm, the lock's arming, the lock block and the launchers (research 84 s6 items 2, 5, 6, 9) re-read at the source by the review of f58f511695; the mode word's origin (r0004 0x5d0510) not yet.",
+   "level": "reading",
+   "source": "r0004 0x5c76f0 (0x5c7760-0x5c7770); r0004 0x5cc9d0's after-shot arm, the 0xba test 0x5cd330-0x5cd338 (r0001 FUN_005c5340 D:L479339-479342); r0004 the lock block 0x5c7d94-0x5c7e20 (r0001 FUN_005c0fd0 D:L476550-476563); research 84 s6 items 5, 6, 9",
+   "note": "docs/research/84-accuracy-and-recoil.md",
+   "tests": [
+    {
+     "file": "packages/viewer/test/fireWaitSingleScale.test.ts",
+     "name": "the frames: the LAW HEAT 108, the RPG 108 + 30 = 138 (at least: its after-shot clip unread)",
+     "data": "none"
+    },
+    {
+     "file": "packages/match/test/roomEquipment.test.ts",
+     "name": "the RPG-7 is fed one round at a time: FireWait x 1.2 and its 1 s lock between rockets (two RPG slots, two rockets)",
+     "data": "none"
+    },
+    {
+     "file": "packages/match/test/roomEquipment.test.ts",
+     "name": "the LAW: FireWait x 1.2 between rockets, no lock on top (two LAW slots, two rockets)",
      "data": "none"
     }
    ]
@@ -328,7 +352,7 @@
   },
   {
    "id": "weapons.fire.defaultmode",
-   "claim": "The original's kit set-up steps the selected slot's mode once from 0 (the first mode the weapon enables) and puts it on burst when the weapon enables mode 2: burst where it has it, else its first mode (a sidearm with no primary, stepped at its selection too, a second step); a weapon picked up comes up on its highest mode. The page's spawn default departs by OT.R100 (DEFAULT_FIRE_MODE_FULL_AUTO_ADAPTATION).",
+   "claim": "The original's kit set-up steps the selected slot's mode once from 0 (the first mode the weapon enables) and puts it on burst when the weapon enables mode 2: burst where it has it, else its first mode (a sidearm with no primary, stepped at its selection too, a second step); a weapon picked up comes up on its highest mode in the hand, its first mode at the swap to it. The page's spawn default departs by OT.R100 (DEFAULT_FIRE_MODE_FULL_AUTO_ADAPTATION); its pickup default by OT.R100 as extended 2026-11-22 (PICKUP_FASTEST_FIRE_MODE_ADAPTATION: the fastest mode, in the hand or not).",
    "level": "reading",
    "source": "FUN_005c0250 D:L476181-476192; FUN_005c4b10 D:L478930-478931; FUN_005c0fd0 D:L476658-476668",
    "note": "docs/research/84-accuracy-and-recoil.md",
@@ -566,19 +590,19 @@
   },
   {
    "id": "weapons.kick.scopedonly",
-   "claim": "The kick starts only scoped (view state over 4) on the first round of a pull; a second round drops the scope to first person; unscoped the camera never kicks.",
+   "claim": "The kick starts only scoped (view state over 4) on the first round of a pull, which adds no knock and no bloom; a second round drops the scope to first person and then takes the knock and the bloom, capped by the camera scale (AS-34 L77); unscoped the camera never kicks.",
    "level": "reading",
-   "source": "FUN_005c5340 D:L479398-479406; FUN_00550ef0 D:L418390-418393",
+   "source": "FUN_005c5340 D:L479398-479406; FUN_005448a0 D:L410938-410941; FUN_005c3360 D:L477752-477807; FUN_00550ef0 D:L418390-418393",
    "note": "docs/research/84-accuracy-and-recoil.md",
    "tests": [
     {
      "file": "packages/viewer/test/weapons.parity.test.ts",
-     "name": "scoped (state 5): no knock, no bloom; the first round kicks, the second drops the scope (FUN_005c5340)",
+     "name": "scoped (state 5): the first round kicks and adds nothing; the second drops the scope, then knocks and blooms (FUN_005c5340, AS-34 L77)",
      "data": "none"
     },
     {
      "file": "packages/viewer/test/accuracy.test.ts",
-     "name": "scoped (5+): no knock, no bloom; the first round kicks, the second drops the scope",
+     "name": "scoped (5+): the first round kicks and adds nothing; the second drops the scope, then takes the knock and the bloom",
      "data": "none"
     }
    ]
@@ -1715,9 +1739,9 @@
   },
   {
    "id": "weapons.c4.wire",
-   "claim": "The page names C4's target and the node and point its aim struck on the throw; the room plants only when that destructible takes the charge there, the point lies within 32 u of the feet along the ground, the line from the head meets the named node at the point, and a malformed target or surface is ignored; the 0.2 s settle is the page's.",
+   "claim": "The page names C4's target and the node and point its aim struck on the throw; the room plants only when that destructible takes the charge there, the point lies within the hip gate (|point - hip|^2 < 396, from hipPoint, the placing start's when the plant is its own; LATER 1139), the line from the head meets the named node at the point, and a malformed target or surface is ignored; the 0.2 s settle is the page's.",
    "level": "reading",
-   "source": "FUN_002739b0 0x2739b0-0x2739ec; FUN_005aa240 D:L463895 (the ground reach); C4_REACH_READING; C4_SURFACE_SLACK_PLACEHOLDER; ruling PF.R18",
+   "source": "FUN_002739b0 0x2739b0-0x2739ec; FUN_005be9a0 D:L475400-475405 (body+0x208 < 396; C4_HIP_REACH_SQ, proven on r0004 by the capture agent-mail/evidence/later1139-c4reach, research 440 s8); C4_HIP_POINT_READING; C4_SURFACE_SLACK_PLACEHOLDER; ruling PF.R18",
    "note": "docs/research/210-modes-panes-barriers-and-the-c4-gates.md",
    "tests": [
     {
@@ -1737,11 +1761,11 @@
     },
     {
      "file": "packages/viewer/test/accessBarriers.test.ts",
-     "name": "the C4 target is the bound destructible under the reticle (aimPick -> c4TargetOf) within C4_REACH_READING of the feet, settled 0.2 s, not on INVISIBLE_DI; the room checks the page's named node along the head's line (c4Line)",
+     "name": "the C4 target is the bound destructible under the reticle (aimPick -> c4TargetOf) within the hip's reach (|point - hip|^2 < 396), settled 0.2 s, not on INVISIBLE_DI; the room checks the page's named node along the head's line (c4Line)",
      "data": "none"
     }
    ],
-   "owed": "C4_REACH_READING's own value (research 202 s2.1: 19.9 u from skel_root to the aimed point) owes a capture (research 206 A30); the room poses no skel_root, so 32 u stands."
+   "owed": "C4_HIP_POINT_READING: the hip stands over the feet at the stance's root; the original's second crouch idle (4.7070), its moving heights, the posed x/z, the peek and the tilt are unmodelled (research 440 s8.3)."
   },
   {
    "id": "weapons.fire.nofire-phase",

@@ -118,9 +118,12 @@ function actOf(t: EventTarget | null, sel: string): HTMLElement | null {
   return t && typeof (t as Element).closest === 'function' ? (t as Element).closest<HTMLElement>(sel) : null;
 }
 
-/** A key that types a character into the sign-in field: one printable character, no modifier; Space once typing has begun. */
-function printable(e: KeyboardEvent, typing: boolean): boolean {
-  if (e.metaKey || e.ctrlKey || e.altKey || e.key.length !== 1) return false;
+/**
+ * A key that types a character into the sign-in field: one printable character, no modifier; Space once typing has begun.
+ * LATER 1268 (a browser adaptation): a keydown with no `key` (Chromium's autofill fills send one) is no character.
+ */
+export function printable(e: KeyboardEvent, typing: boolean): boolean {
+  if (e.metaKey || e.ctrlKey || e.altKey || typeof e.key !== 'string' || e.key.length !== 1) return false;
   return e.key !== ' ' || typing;
 }
 
@@ -147,7 +150,7 @@ export function attachInput(doc: Document, win: Window, ctl: ConsoleController, 
   /* ---------- the keyboard map (development builds only) ---------- */
   const onKey = (ev: Event): void => keyPress(ev as KeyboardEvent, KEYMAP);
   const keyPress = (e: KeyboardEvent, map: Readonly<Record<string, Button>>): void => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.metaKey || e.ctrlKey || e.altKey || typeof e.key !== 'string') return;   // LATER 1268: a keydown with no key is no key
     if (S.accountOpen || ((e.key === 'Enter' || e.key === ' ') && actOf(e.target, '[data-act="accountmenu"], .cx-cat'))) return;
     if (ctl.A.report?.isOpen()) return;                            // OVERLAY-CONSOLE: the Report's own keys
     const id = (e.target as Element | null)?.id;
@@ -255,7 +258,7 @@ export function attachInput(doc: Document, win: Window, ctl: ConsoleController, 
   };
   const onAccountKeys = (ev: Event): void => {
     const e = ev as KeyboardEvent;
-    if (!S.accountOpen || e.key === 'Escape' || e.key === 'Tab') return;
+    if (!S.accountOpen || typeof e.key !== 'string' || e.key === 'Escape' || e.key === 'Tab') return;   // LATER 1268: no key, nothing to hold
     const inside = actOf(e.target, '.cx-account-menu');
     if (inside && (e.key === 'Enter' || e.key === ' ')) return; // native summary/button activation
     if (KEYMAP[e.key] || KEYMAP[e.key.toLowerCase()] || e.key.toLowerCase() === 'p') {
@@ -556,7 +559,7 @@ export function attachInput(doc: Document, win: Window, ctl: ConsoleController, 
       const presses = padFrame(pads, held, now, sources, repeater ? ['cross'] : undefined);
       // B61 F3: attached again after a page dialog that read the pad itself (the touch layout editor's Circle), the
       // buttons held at the first frame are no press until let go (`settle`), as a stand-down's are.
-      if (settling) { settling = false; for (const h of Object.values(held)) h.spent = true; }
+      if (settling && pads.length > 0) { settling = false; for (const h of Object.values(held)) h.spent = true; }   // WM.R7's overlay open and B61 F3's re-attach: settled at the first frame that reads a pad
       else for (const b of presses) {
         if (standDown || report || ctl.capturing()) break;       // a press that began a listen ends this frame's
         rumble.pulse(sources[b]?.index, now);

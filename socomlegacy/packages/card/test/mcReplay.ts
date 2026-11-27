@@ -85,6 +85,9 @@ export function replayMcOps(mc: Libmc, steps: readonly McStep[]): McReplay {
 export const SAVE_DIR = 'BASCUS-97275SOCOMII';
 
 const { Succeed, NoEntry } = MC_RESULT;
+/** r0004's two names (`r0004:0x0041a270` / `0x00427ca8` PATCHFILE.DAT; `r0004:0x0041a280` / `0x00427cc8` APACHE00.ZDB). */
+const PATCH = 'PATCHFILE.DAT';
+const ARCHIVE = 'APACHE00.ZDB';
 /** 0x202: `CMemCardIO`'s mode 0x1a (2 -> O_WRONLY, 8 -> O_CREAT), D:L295395-295404; the fillers' Open (D:L296063). */
 const W = FIO.O_WRONLY | FIO.O_CREAT;
 
@@ -116,11 +119,13 @@ export function filler(name: string, fd: number, kb: number, at: string): McStep
 }
 
 /**
- * The options save on a fresh card in slot 1, as the decompilation reads it (research 228 §3, 114 steps): the card
+ * The options save on a fresh card in slot 1, as the decompilation reads it (research 228 §3, 115 steps): the card
  * probe `IsMemcardSaveOK`, then `Ensure_MC_Dirs` on a card without the folder (its script: the `..` climb, the folder
  * looked for, Mkdir, ChDir), the icons (`MC_CreateIconFiles`, `FUN_003a0a10`) and `SaveConfig` (`FUN_0027b000`,
  * D:L124762-124786). The sizes are the f0 card's (research 139, research 143 R143.5); the results are the stub's as
- * `Libmc` ports it, never the pre-fix trace's.
+ * `Libmc` ports it, never the pre-fix trace's. R4P-249 (r0004; reading, pending review): SaveConfig's first step asks
+ * GetDir `PATCHFILE.DAT` after the scratch delete (`r0004:0x003c2318`; none on a fresh card, so nothing more), and the
+ * filler's glob is `*.ZDB` (`r0004:0x00427ca0`).
  */
 export function optionsSaveOnAFreshCard(): McStep[] {
   const steps: McStep[] = [
@@ -142,14 +147,15 @@ export function optionsSaveOnAFreshCard(): McStep[] {
   steps.push({ cmd: 'Write', args: [2, 58], expect: 58, at: 'D:L295618' });
   steps.push({ cmd: 'Close', args: [2], expect: Succeed, at: 'D:L295634' });
   // SaveConfig (FUN_0027b000)
-  steps.push({ cmd: 'Delete', args: [0, 0, 'SCRATCHPAD.DAT'], expect: NoEntry, at: 'D:L124772 -> FUN_003a1c60 D:L296116' });
+  steps.push({ cmd: 'Delete', args: [0, 0, 'SCRATCHPAD.DAT'], expect: NoEntry, at: 'D:L124772 -> FUN_003a1c60 D:L296116 (r0004:0x003c22b4)' });
+  steps.push({ cmd: 'GetDir', args: [0, 0, PATCH, 1], expect: 0, at: 'r0004:0x003c2318 (none: r0004:0x003c23a0 returns)' });
   steps.push(...savedFile(SAVE_DIR, 3, 4_784, 'D:L124773 -> FUN_003a17e0 -> FUN_0033dff0'));
   for (let i = 0; i < 7; i++) {
     steps.push({ cmd: 'GetDir', args: [0, 0, `SaveGame${i}`, 1], expect: 0, at: 'D:L124777 -> FUN_003a0950 D:L295511' });
     steps.push(...savedFile(`SaveGame${i}`, 4 + i, 1_952, 'D:L124780 -> FUN_003a1ea0 D:L296202'));
   }
   // FUN_003a1880 (D:L124784; D:L295995-296026)
-  steps.push({ cmd: 'GetDir', args: [0, 0, '*.zdb', 1], expect: 0, at: 'D:L296008' });
+  steps.push({ cmd: 'GetDir', args: [0, 0, '*.ZDB', 1], expect: 0, at: 'D:L296008 (r0004:0x00427ca0: *.ZDB)' });
   steps.push(...filler('PATCHFILE.DAT', 11, 2000, 'D:L296019'));
   // FUN_003a1060 (D:L296021; D:L295714-295774): '..' for one entry, then './*' for 0x14
   steps.push({ cmd: 'GetDir', args: [0, 0, '..', 1], expect: 1, at: 'D:L295732' });
@@ -194,8 +200,32 @@ function climbAndLook(found: boolean, at: string): McStep[] {
   return steps;
 }
 
-/** `IsSpaceForSaveGameFile` on a card with 3001 KB or more free: GetInfo alone (`FUN_0027b3d0` D:L124930-124944 -> `FUN_003a1210` D:L295777-295807). */
-const SPACE: McStep = { cmd: 'GetInfo', args: [0, 0], expect: Succeed, at: `${SL}: IsSpaceForSaveGameFile -> FUN_003a1210 (3001 KB or more free: no folder count)` };
+/**
+ * `IsSpaceForSaveGameFile` on a card with 3001 KB or more free, as r0004 reads it (`r0004:0x0027c520`; R4P-249, reading,
+ * pending review): its Exists pairs (`r0004:0x003c0f60`, a GetDir for one entry each) and then GetInfo alone
+ * (`FUN_0027b3d0` D:L124930-124944 -> `FUN_003a1210` D:L295777-295807). `patch`: the current folder holds
+ * `PATCHFILE.DAT` (and never `APACHE00.ZDB`: the page writes none) -- GetDir P (1), GetDir A (0), GetDir P (1); else
+ * GetDir P (0), GetDir P (0), GetDir A (0) and the 1 KB, which at 3001 KB free changes no command. Where the script asks
+ * it is r0001's `save_and_leave` (`R0004_SPACE_SCRIPT_READING`, research 143 §4: the r0004 `.rdr` is not read).
+ */
+function space(patch: boolean): McStep[] {
+  const at = `${SL}: IsSpaceForSaveGameFile`;
+  const info: McStep = { cmd: 'GetInfo', args: [0, 0], expect: Succeed, at: `${at} -> FUN_003a1210 (3001 KB or more free: no folder count)` };
+  if (patch) {
+    return [
+      { cmd: 'GetDir', args: [0, 0, PATCH, 1], expect: 1, at: `${at}: Exists PATCHFILE.DAT, r0004:0x0027c524-0x0027c544` },
+      { cmd: 'GetDir', args: [0, 0, ARCHIVE, 1], expect: 0, at: `${at}: Exists APACHE00.ZDB, r0004:0x0027c548-0x0027c55c (absent: no delete)` },
+      { cmd: 'GetDir', args: [0, 0, PATCH, 1], expect: 1, at: `${at}: Exists PATCHFILE.DAT again, r0004:0x0027c578-0x0027c58c (present: no 1 KB)` },
+      info,
+    ];
+  }
+  return [
+    { cmd: 'GetDir', args: [0, 0, PATCH, 1], expect: 0, at: `${at}: Exists PATCHFILE.DAT, r0004:0x0027c524-0x0027c544` },
+    { cmd: 'GetDir', args: [0, 0, PATCH, 1], expect: 0, at: `${at}: Exists PATCHFILE.DAT again, r0004:0x0027c578-0x0027c58c` },
+    { cmd: 'GetDir', args: [0, 0, ARCHIVE, 1], expect: 0, at: `${at}: Exists APACHE00.ZDB, r0004:0x0027c590-0x0027c5ac (absent: SAVE_SPACE_NO_PATCH_KB)` },
+    info,
+  ];
+}
 
 /**
  * The page's flow (OPT-01): "change an option, RETURN, YES", slot 1, on a fresh card -- RETURN's
@@ -203,8 +233,9 @@ const SPACE: McStep = { cmd: 'GetInfo', args: [0, 0], expect: Succeed, at: `${SL
  * the slot's choice to the end of the save: the checks, `Ensure_MC_Dirs_Fast`, `IsMemcardSaveOK`,
  * `IsSpaceForSaveGameFile`, `Ensure_MC_Dirs_Fast` again and
  * `Ensure_MC_Dirs` -- which on a card without the folder makes it and runs the icons and `SaveConfig`; the valve
- * `MemcardAlreadyHasData` stays 0, so the script's own `SaveConfig` after it does not run. 124 steps:
- * `optionsSaveOnAFreshCard`'s 114 with ten before and between them (research 228 §3, the page's flow). The change poll
+ * `MemcardAlreadyHasData` stays 0, so the script's own `SaveConfig` after it does not run. 128 steps:
+ * `optionsSaveOnAFreshCard`'s 115 with thirteen before and between them (research 228 §3, the page's flow; the space
+ * test's four on a card without `PATCHFILE.DAT`, at the root). The change poll
  * (`has_memcard_changed`, stopped at the start and called at the end) is left out: its GetInfo is the clock's.
  */
 export function optionsSaveAndLeaveOnAFreshCard(): McStep[] {
@@ -213,7 +244,7 @@ export function optionsSaveAndLeaveOnAFreshCard(): McStep[] {
     ...cardChecks(),
     ...climbAndLook(false, `${SL}: Ensure_MC_Dirs_Fast`),
     ...read.slice(0, OPTIONS_SAVE_PROBE_STEPS),
-    SPACE,
+    ...space(false),
     ...climbAndLook(false, `${SL}: Ensure_MC_Dirs_Fast`),
     ...read.slice(OPTIONS_SAVE_PROBE_STEPS),
   ];
@@ -225,16 +256,18 @@ export function optionsSaveAndLeaveOnAFreshCard(): McStep[] {
  * session, research 134 §2). The folder is found, so both `Ensure_MC_Dirs_Fast` and `Ensure_MC_Dirs` climb and enter
  * it; `AskToOverwrite` (#857) waits for the player while its loop asks `IsMemCardInserted` every 0.1 s -- `polls`
  * times, the player's time (one: YES within the first wait); then `MemcardAlreadyHasData` 1 runs the script's
- * `SaveConfig(BASCUS-97275SOCOMII)`: the scratch deleted (Succeed now), the save file deleted (Succeed) and written,
- * the seven dummies found by GetDir and kept (D:L124777-124778), `*.zdb` none, `PATCHFILE.DAT` found and kept
- * (D:L296050-296060), the folder counted again (2,070 KB over 13 entries) and the scratch made again at 922 KB.
+ * `SaveConfig(BASCUS-97275SOCOMII)`: the scratch deleted (Succeed now), `PATCHFILE.DAT` found and `APACHE00.ZDB` not
+ * (r0004:0x003c2318-0x003c2430: nothing deleted), the save file deleted (Succeed) and written, the seven dummies found
+ * by GetDir and kept (D:L124777-124778), `*.ZDB` none, `PATCHFILE.DAT` found and kept (D:L296050-296060), the folder
+ * counted again (2,070 KB over 13 entries) and the scratch made again at 922 KB. 44 steps (R4P-249: the space test's
+ * four with `PATCHFILE.DAT` in the folder, and the two GetDir after the scratch delete).
  */
 export function optionsSaveAndLeaveOnASavedCard(firstFd = 13, polls = 1): McStep[] {
   const steps: McStep[] = [
     ...cardChecks(),
     ...climbAndLook(true, `${SL}: Ensure_MC_Dirs_Fast`),
     ...optionsSaveOnAFreshCard().slice(0, OPTIONS_SAVE_PROBE_STEPS),
-    SPACE,
+    ...space(true),
     ...climbAndLook(true, `${SL}: Ensure_MC_Dirs_Fast`),
   ];
   for (let i = 0; i < polls; i++) {
@@ -242,11 +275,13 @@ export function optionsSaveAndLeaveOnASavedCard(firstFd = 13, polls = 1): McStep
   }
   steps.push(...climbAndLook(true, `${SL}: Ensure_MC_Dirs`));
   steps.push({ cmd: 'Delete', args: [0, 0, 'SCRATCHPAD.DAT'], expect: Succeed, at: `${SL}: SaveConfig D:L124772 -> FUN_003a1c60 D:L296116` });
+  steps.push({ cmd: 'GetDir', args: [0, 0, PATCH, 1], expect: 1, at: 'r0004:0x003c2318 (found)' });
+  steps.push({ cmd: 'GetDir', args: [0, 0, ARCHIVE, 1], expect: 0, at: 'r0004:0x003c23a4 (absent: nothing deleted, r0004:0x003c24b0)' });
   steps.push(...savedFile(SAVE_DIR, firstFd, 4_784, 'D:L124773 -> FUN_003a17e0 -> FUN_0033dff0', Succeed));
   for (let i = 0; i < 7; i++) {
     steps.push({ cmd: 'GetDir', args: [0, 0, `SaveGame${i}`, 1], expect: 1, at: 'D:L124777 -> FUN_003a0950 D:L295511 (found: not saved, D:L124778)' });
   }
-  steps.push({ cmd: 'GetDir', args: [0, 0, '*.zdb', 1], expect: 0, at: 'D:L296008' });
+  steps.push({ cmd: 'GetDir', args: [0, 0, '*.ZDB', 1], expect: 0, at: 'D:L296008 (r0004:0x00427ca0: *.ZDB)' });
   steps.push({ cmd: 'GetDir', args: [0, 0, 'PATCHFILE.DAT', 1], expect: 1, at: 'D:L296019; FUN_003a1980 D:L296050 (found: nothing written, D:L296060)' });
   steps.push({ cmd: 'GetDir', args: [0, 0, '..', 1], expect: 1, at: 'D:L295732' });
   steps.push({ cmd: 'GetDir', args: [0, 0, './*', 0x14], expect: 13, at: "D:L295745 ('.', '..' and the eleven files: the scratch deleted)" });

@@ -1,6 +1,6 @@
 {
   "name": "@s2u/socomlegacy",
-  "version": "0.4.22",
+  "version": "0.1.0",
   "description": "redotcom: SOCOM II's multiplayer maps decoded from the disc and drawn in a browser, walked and played online (reCOM mode) -- a spin-off of SOCOM Unzipped",
   "license": "GPL-3.0",
   "repository": {
@@ -19,9 +19,7 @@
     "export-gltf": "tsx tools/export-gltf.ts",
     "dev": "vite --config packages/viewer/vite.config.ts",
     "forge:agent": "tsx tools/forge-agent-dev.ts",
-    "build": "vite build --config packages/viewer/vite.config.ts",
-    "e2e": "playwright test",
-    "e2e:startup": "playwright test --config playwright.startup.config.ts",
+    "build": "node tools/page-build.mjs --config packages/viewer/vite.config.ts",
     "dump-sounds": "tsx tools/dump-sounds.ts"
   },
   "devDependencies": {

@@ -47,7 +47,7 @@ describe('Fire.replenishMagazine: the panel\'s infinite ammo, never the game\'s'
       .map((f) => f.path)
       .sort();
     expect(callers).toEqual(['devPanel.ts']);
-    expect(src('fire.ts')).toMatch(/\breplenishMagazine\(\): void \{/);   // the one definition
+    expect(src('fireCore.ts')).toMatch(/\breplenishMagazine\(\): void \{/);   // the one definition (#835: moved to fireCore.ts)
   });
 
   it('(b) devPanel.ts runs only under the release-folded gate: one dynamic import, no static value import', () => {

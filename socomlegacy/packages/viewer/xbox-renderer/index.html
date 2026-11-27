@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Xbox renderer experiment</title>
+<style>body{margin:24px;background:#111821;color:#edf2f7;font:16px system-ui;max-width:1000px}a{color:#9edcff}button,input,select{font:inherit;margin:8px;padding:8px}canvas{display:block;width:min(100%,640px);height:auto;background:black}pre,#build{white-space:pre-wrap;overflow-wrap:anywhere}textarea{box-sizing:border-box;width:100%;min-height:180px}li{margin:6px 0}</style></head>
+<body><h1>Xbox renderer experiment</h1>
+<p id="build"></p>
+<p>An experimental renderer with a walking and multiplayer test. Combat and full match presentation are incomplete. Xbox compatibility is not established.</p>
+<p><a href="?mode=walk">Walk and test multiplayer</a> · <a href="?capture=120">Fixed comparison</a></p>
+<p><a href="?backend=raw">Lightweight WebGL2</a> · <a href="?backend=current">Current renderer on WebGL2</a></p>
+<p>Choose the same map and source for each run. Use a fresh browser process for desktop memory comparisons.</p>
+<label>Disc image <input id="disc" type="file" accept=".iso"></label>
+<label>Map <select id="map"><option value="MP2">Frostfire (MP2)</option><option value="MP6">Crossroads (MP6)</option><option value="MP71">Fish Hook (MP71)</option></select></label>
+<label>Test server (walking mode only; blank for offline) <input id="server" type="url" placeholder="ws://test-host:port/ws"></label>
+<fieldset id="lobby-controls"><legend>Join an existing game on this site</legend>
+<p>Walking mode only. Use a separate test player if another game is open. This experiment can walk and draw players; combat remains incomplete.</p>
+<label>Player name <input id="player-name" autocomplete="off"></label>
+<label>Password <input id="player-password" type="password" autocomplete="off"></label>
+<label><input id="register-player" type="checkbox">Create this test player</label>
+<label>Briefing room number <input id="channel" type="number" min="1" value="1"></label>
+<button id="find-games">Sign in and find games</button>
+<label>Game <select id="games" disabled></select></label><button id="join-game" disabled>Load selected game</button>
+<p id="lobby-status" role="status">Not signed in</p>
+</fieldset>
+<button id="start">Start with image or stored disc</button><button id="stop" disabled>Stop</button>
+<button id="sound" disabled>Enable / resume sound</button>
+<button id="ready" disabled>Ready</button><button id="switch-team" disabled>Switch teams</button>
+<p>Focus the game to play with the controller or WASD and mouse. Space jumps; C changes stance; left mouse fires; R reloads; 1 and 2 select firearms; right mouse cycles zoom; B changes fire mode where supported. X uses the current action, including doors, supported switches and bomb controls. Press Escape to release the mouse before using the page controls. Sound loads separately after the map.</p>
+<p id="status" role="status">Ready</p><canvas id="view" width="640" height="448"></canvas>
+<h2>Limitations</h2><ul id="omissions"></ul>
+<p>The payload limit counts requested GPU buffers and texture pixels only. It excludes driver overhead, JavaScript, decoded assets and browser memory. It is not a total memory limit.</p>
+<h2>Test diagnostics</h2>
+<label>Test hardware (your selection) <select id="tester-hardware"><option value="unreported">Not reported</option><option value="desktop">Desktop</option><option value="series-x">Xbox Series X</option><option value="series-s">Xbox Series S</option></select></label>
+<button id="copy-diagnostics">Copy test diagnostics</button>
+<p>Copying diagnostics sends nothing automatically. This export omits names, server addresses, credentials, disc paths and detailed error text. It includes the build, loading stage, graphics identity and measured counters.</p>
+<p id="diagnostics-status" role="status"></p><textarea id="diagnostics-text" aria-label="Test diagnostic text" readonly hidden></textarea>
+<details><summary>Local developer report (may contain player names)</summary><pre id="report"></pre></details>
+<script type="module" src="../src/xboxPrototype/main.ts"></script></body></html>

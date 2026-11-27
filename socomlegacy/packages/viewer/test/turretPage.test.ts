@@ -428,7 +428,7 @@ describe('PB-2: a seated body on either match (the shared TurretPage and Play)',
 describe("PAR-44: the own body's predicted place in the hold (no game data)", () => {
   const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const FLOOR: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) };
   const OWNERS: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const DEG = Math.PI / 180;
   /** A gun 13.69 over the floor facing -z (Crossroads' turret 1's height), yaw -70..70, pitch -45..45. */
@@ -737,7 +737,7 @@ describe.skipIf(PACK === null || READERC === null)(`T81-4: the page's own mount 
     const DEG = Math.PI / 180;
     const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
     const FLOOR: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
+      points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) };
     const OWNERS: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
     const t = {
       id: 0, root: 'worldmodel/syn_turret', name: 'syn_turret', origin: [10, 13.69, 20], facing: 0,
@@ -1250,7 +1250,7 @@ describe('TURRET-CONE P2: the page rolls the turret round on the turret record\'
 describe("LATER 104: the own release predicted at the press (no game data)", () => {
   const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const FLOOR: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) };
   const OWNERS: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const AFTER = 40;
 
@@ -1372,7 +1372,7 @@ describe("LATER 104: the own release predicted at the press (no game data)", () 
 describe("LATER 109: the own release's reversed clip on the page's own mover (no game data)", () => {
   const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const FLOOR: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) };
   const OWNERS: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const AFTER = 40, KEYS = 26, P = 0.3, E = 25 / 26;
   const SHAPE: MountShape = (() => {
@@ -1568,7 +1568,7 @@ describe("LATER 137: the online mount's repeat window (TURRET_MOUNT_ASK_WINDOW_R
 describe('LATER 151: the release offered 1.25 s after the mount (FUN_005a8850 D:L462975-462993; no game data)', () => {
   const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const FLOOR: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) };
   const OWNERS: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const AFTER = 40;
 
@@ -1753,7 +1753,7 @@ describe('LATER 151: the release offered 1.25 s after the mount (FUN_005a8850 D:
 describe('LATER 191: the own mount clip refuses the page\'s turret rounds while it plays (no game data)', () => {
   const PARAMS: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const FLOOR: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) };
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) };
   const OWNERS: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const AFTER = 40;
   const page = (o: { noFire?: number | null; clock: { now: number }; seq?: { n: number } }) => new TurretPage({
@@ -1855,7 +1855,7 @@ describe("P37: no mount offered while the walk's traversal move holds the mover 
   const quad = (pts: number[], ditype: number, appflags = 0, path = 'worldmodel/q'): WorldPoly => ({
     modelName: 'worldmodel', path, region: 0, ditype, material: 25, ptcount: 4, cameratype: 0, appflags, points: Float32Array.from(pts),
   });
-  const floor = (x0: number, z0: number, x1: number, z1: number, y: number): WorldPoly => quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], 3);
+  const floor = (x0: number, z0: number, x1: number, z1: number, y: number): WorldPoly => quad([x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z0], 3);
   /** traversal.test.ts's `ladderWorld`: a 40-high wall across x at z 0, a deck behind it, a ladder (appflags 2) on its face. */
   const ladderWorld = (): { grid: ReturnType<typeof buildGrid>; polys: WorldPoly[] } => {
     const polys = [

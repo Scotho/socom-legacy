@@ -143,8 +143,9 @@ reload, traversal. The last three act only as **gates** before the swap starts (
 reading):
 - refused at zoom >= 4 (`FUN_005c4fd0`);
 - refused during any reload or swap (`FUN_005a7ab0` / `FUN_005a7980`);
-- refused on a ladder, a hang, a peek, a carry, in the air, on the slide, in a knock-down, landing, get-up, `180` or
-  dive (`FUN_005b4340(actor, 4)`); refused in a vehicle;
+- refused on a ladder, a hang, a peek, a carry, in the air (the original's rule; the port takes a swap in the air,
+  overridden by the owner -- B-65, §11), on the slide, in a knock-down, landing, get-up, `180` or dive
+  (`FUN_005b4340(actor, 4)`); refused in a vehicle;
 - **allowed during a stance transition and a throw**. The throw half is corrected in 206 §1.2: `FUN_005a7de0(actor,1,1)`
   may add refusals.
 
@@ -554,7 +555,7 @@ the outcomes measured (upload pending).
   pending review): the raise keeps the controller's bit 0x80 from a release (D:L453520-453537) and runs its branch at
   the pop for a gated throw -- every rifle-hand throw, the pistol's crouched and prone; the update `FUN_0059d830`
   passes and `FUN_005a7d10(actor, 0)` finds no throw, the two reading one list (D:L457352-457355, D:L462579-462582) --
-  and on the next update for the pistol's standing throw, as before (in neither list, so at its pop a held edge is
+  and on the next update for the pistol's standing throw, as before (*was*: since LATER 1442 that throw plays the rifle's `Throw grenade`, inside the list, so it takes the rifle's remap at its pop, `test/throwAgain.test.ts`; the text kept as built: in neither list, so at its pop a held edge is
   1 and L1 is refused). The kit's pop reaches the raise as `ItemRaise.pop` (`./matchThrow`: the phase off
   `throwing`, not at a death). L1 under a held R1 is taken on the two updates after a gated pop, refused from the
   third; `throwAgain.test.ts` "LATER 792 item 1". The branch's lower comes with it (one update down at the last
@@ -562,3 +563,43 @@ the outcomes measured (upload pending).
   clause, so it takes the swaps the page now sends.
   (2) The port counts the edge's updates on game frames, as its raise does (`RAISE_ENVELOPE_STEP_READING`). (3) Route B
   (the Action quick-use of the charges, `+0x828`) and the M67's own pass are not in the capture's rows.
+
+## 11. Adaptations: the swap in the air (B-65, the owner's intentional divergence)
+
+**The owner's ruling** (Craig, 2026-11-24, confirmed in the main controller's window: "B65: allow swapping equipment mid
+air. intentional divergence."; on his batch board: "allow swapping equipment while in the air everywhere. this includes
+nade swapping."; OWNER-DECISIONS C2, SCOPE-B B-65). Filed as MISSION OT.R151 (pending seat-merge), the OT.R140 kind: a
+labelled divergence from the original, never a reading of it.
+
+**What the original does** (reading; §2's gates, research 201 §1): a shoulder press or the Inventory's confirm in the air
+is refused. `FUN_00594cf0` calls `FUN_005c4b10` only when `FUN_005a8cb0` passes (D:L453288-453312), and
+`FUN_005a8cb0` (D:L463148-463190) refuses on the body's airborne bit (`+0x105e` bit 5) and posture 6, and through
+`FUN_005b4340(actor, 4)` (D:L469305-469520) on posture 6 and on the jump's types 8-9 (`Jump launch`, `Jump fall`); the
+Inventory opens behind the same test (`FUN_0021bda0`, D:L72829-72845). That rule is kept in the code's comments as the
+original's, overridden by the owner.
+
+**What the port does under it.** One gate for the page and the room (`packages/viewer/src/mover.ts`
+`Walker.swapRefused`, which the page's `WalkMode.swapGate` -- and so the shoulder press, the grenade and launcher takes
+and the R2 Inventory -- and the room's `MoverSim` both ask): the air no longer refuses, and the jump's own air actions
+(`launch`, `fall`) on top of an airborne body do not either. A swap taken in the air plays the moving swap's overlay on
+the second channel (`SWAP_OVERLAY`), never a full-body swap action, so the flight keeps its fall action and its carried
+velocity and the landing does not cut the swap; the hand-off and the length are the moving swap's (§1). Unchanged:
+the scope (`FUN_005c4fd0`), a swap playing (`FUN_005a7980`), the slide, a knock-down or its landing, the landings
+(`Jump land`, `Jump land hard`), the victory dance, the moving lower, a reload playing, and a **reload asked in the air
+(still refused, `FUN_005c2a90` D:L477395; `room.ts` `reload`)**. A launcher raise or lower taken in the air passes the
+gate now, and its body clip stays refused there (`LAUNCHER_RAISE_AIR_READING` 'refused', on both movers alike).
+
+**Extended to the standing jump** (the owner, 2026-11-25 ~02:17Z, playtesting, B-65 Q1: "add it to the standing jump as
+well"). The standing jump's `Jump` action (`seal_jump`, the feet on the floor; research 80) is an action playing, which
+the original refuses through `FUN_005b4340(actor, 4)` (D:L469305-469520; a reading of the decompilation -- IQ-215's rendered run showed only that the PORT refused it);
+under the same constant it refuses no swap now. The swap is taken as the moving overlay, never a full-body swap action,
+so the jump's clip, its root's rise (`STANDING_JUMP_RISE_READING`, AS-34) and its 0.99 s run on unchanged, on the page
+and in the room (`Walker.swapRefused`, `Walker.swapWeapon`; `test/airSwap.test.ts`, match `test/roomAirSwap.test.ts`).
+The grenade menu's confirm and the launcher take go through the same gate (`WalkMode.swapGate`), so they pass under
+`jump` too; a launcher raise or lower asked under `jump` starts no body clip (`Walker.launcherClip`), as in the air, so
+the jump is not cut (the pick-up's `Swap rifle` clips keep their path). *Was:* "The standing jump's `Jump` action, on the
+floor, still refuses (the body has not left the floor)."
+
+| name | value | status |
+|---|---|---|
+| `AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION` (`packages/viewer/src/mover.ts`; MISSION OT.R151 pending seat-merge, an intentional divergence, the owner's) | true: a swap pressed in the air is taken (the overlay); false restores the original's refusal | no original: the original refuses it (`FUN_005a8cb0` D:L463148-463190, `FUN_005b4340(actor, 4)` D:L469305-469520); the owner's B-65 ruling |

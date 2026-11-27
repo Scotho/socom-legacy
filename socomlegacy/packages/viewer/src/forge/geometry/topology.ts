@@ -5,7 +5,7 @@ import {
 import { floorOrWall } from './collision';
 
 /**
- * The geometry tools' edit structure (a browser adaptation, after Blender's BMesh; the owner, 2026-11-19: "rebuild it as
+ * The geometry tools' edit structure (a browser adaptation, after Blender's BMesh; the Forge's owner (crispy, OT.R112), 2026-11-19: "rebuild it as
  * half edge ... do it all"). The mesh stays what it is stored, drawn and compiled as (`./editMesh`: points, corners,
  * faces as rings) -- Blender keeps its meshes so too and builds its BMesh only while editing -- and a `Topo` over it
  * gives the tools three things they each worked out on their own before:
@@ -298,7 +298,7 @@ export class Topo {
 
   /**
    * A new face like `src`: its draw style, object (group), texture mapping, and on a hull its collision words made a
-   * floor's or a wall's by the new face's own facing (`floorOrWall`; the owner, 2026-11-18: "make sure to add the
+   * floor's or a wall's by the new face's own facing (`floorOrWall`; the Forge's owner (crispy, OT.R112), 2026-11-18: "make sure to add the
    * collision flags properly"); each corner given the face's normal.
    */
   faceLike(corners: number[], src: number, opts: { mapping?: boolean } = {}): number {

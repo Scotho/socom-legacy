@@ -6,6 +6,7 @@ import { FileRecorder, type RoomRecorder } from '../../match/src/replay/recorder
 import { setLoopbackDefaults } from './net/loopback';
 import { offeredRules, PROTOCOL_VERSION, SNAPSHOT_HZ, TICK_HZ } from './net/protocol';
 import { makeCanvasRecorder, VideoRing, type RecorderLike } from './playtestVideo';
+import { wireKit } from './loadout';
 
 /**
  * The playtest room's instruments (web sprint 33 PT-05; spec 2026-10-06-playtest-and-replay-design 4.3; research 241).
@@ -27,7 +28,7 @@ import { makeCanvasRecorder, VideoRing, type RecorderLike } from './playtestVide
  *
  * PT-22 (web sprint 35; spec 4.8, W35.R7; research 243 §7), the focused retest, PLAYTEST_INSTRUMENT_ADAPTATION: a mark's
  * telemetry also carries `kit` -- the loadout on the body (`hook.loadout().loadout`, five item ids, the form the page's
- * own `&kit=` takes, `./loadout` `kitParam`) or null -- and `feet` -- `{ at: hook.feet(), yaw: hook.pose().yaw }` (the
+ * own `&kit=` takes, `./loadout` `kitParam`; six or more after a launcher claim, R4P-103) or null -- and `feet` -- `{ at: hook.feet(), yaw: hook.pose().yaw }` (the
  * walk's feet and the look's yaw in degrees, the yaw the devmode teleport takes when given none) or null in fly mode.
  * With `&retest-at=<x,y,z[,yaw]>` in the address, on the offline path (no `server`, `mp` or `online` other than `off`)
  * and with `?devmode` on a development build, the existing devmode teleport (`hook.teleport`, `main.ts`; present with
@@ -460,11 +461,16 @@ export function mountPlaytestSession(host: {
     }
   });
 
-  /** PT-22: the kit on the body, as `&kit=` takes it (five item ids 0-255), or null. */
+  /**
+   * PT-22: the kit on the body (item ids 0-255), or null. Five records, or more after a launcher claim (R4P-103 fresh
+   * review F4, product track: an instrument's reading of the live kit, `wireKit`'s 5-30 -- its round appended, so six);
+   * a five-record kit is the form `&kit=` takes.
+   */
   const readKit = (): number[] | null => {
     try {
       const ids = (host.hook() as unknown as { loadout?: () => { loadout?: unknown } }).loadout?.()?.loadout;
-      return Array.isArray(ids) && ids.length === 5 && ids.every((v) => Number.isInteger(v) && v >= 0 && v <= 255) ? [...ids] as number[] : null;
+      const kit = Array.isArray(ids) ? wireKit(ids) : null;
+      return kit ? [...kit] : null;
     } catch { return null; }
   };
   /** PT-22: the walk's feet and the look's yaw (degrees), or null in fly mode (or a hook without them). */

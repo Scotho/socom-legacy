@@ -15,7 +15,7 @@ const back = (p: Float32Array): Float32Array => Float32Array.from([p[9]!, p[10]!
 function arena(wall = false): SimMap {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
   const floor: WorldPoly = { modelName: 'worldmodel', path: 'floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-190, 0, -190, 190, 0, -190, 190, 0, 190, -190, 0, 190]) };
+    points: Float32Array.from([-190, 0, 190, 190, 0, 190, 190, 0, -190, -190, 0, -190]) };
   const polys = [floor];
   if (wall) {
     const face = Float32Array.from([0, 0, -200, 0, 50, -200, 0, 50, 200, 0, 0, 200]);
@@ -111,7 +111,7 @@ it('BOP-S review: a door across a gap in the wall -- shut it refuses the far sid
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
   const quad = (path: string, ditype: number, p: number[]): WorldPoly => ({ modelName: 'worldmodel', path, region: 0, ditype,
     material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from(p) });
-  const polys = [quad('floor', 3, [-190, 0, -190, 190, 0, -190, 190, 0, 190, -190, 0, 190]),
+  const polys = [quad('floor', 3, [-190, 0, 190, 190, 0, 190, 190, 0, -190, -190, 0, -190]),
     quad('wall', 2, [0, 0, -200, 0, 50, -200, 0, 50, -30, 0, 0, -30]),
     quad('wall', 2, [0, 0, 30, 0, 50, 30, 0, 50, 200, 0, 0, 200]),
     quad('leaf', 2, [0, 0, -30, 0, 50, -30, 0, 50, 30, 0, 0, 30])];

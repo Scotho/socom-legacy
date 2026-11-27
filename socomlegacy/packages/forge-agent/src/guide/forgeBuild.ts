@@ -17,7 +17,9 @@ export function forgeBuildTopic(): string {
       "section and revision (after any edit: REVISION_CONFLICT; read from the start).",
     // forgeTarget.ts "forge.catalogue": default "operations" (FORGE_AGENT_OPERATIONS), "saves", or a catalogue array (api.ts ForgeAgentCatalogue)
     "- `forge.catalogue` {section?, cursor?}: section defaults to \"operations\" (the page's Forge operations with their " +
-      "input schemas); \"saves\"; or a catalogue list: archives, palette, characters, absent, basePlacements, hidden, favourites.",
+      "input schemas); \"saves\"; or a catalogue list: archives, palette, characters, absent, basePlacements, hidden, favourites, " +
+      "objectivePoints (the base map's bomb start, bomb sites, spawns `spawn <side>:<index>`, hostages and extractions, each " +
+      "{name, kind, team, at}: `camera.objective` {name} frames one).",
     // viewer/src/forge/agent/api.ts assets.query: query, archive, role (visual | ground-surface | wall-surface), limit 1..100, cursor
     "- `forge.assets` {query?, archive?, role?, limit?, cursor?}: the loaded palette's prototypes with their actual visual " +
       "bounds and collision roles (visual, ground-surface, wall-surface); limit 1..100. Never judge solidity by a name.",

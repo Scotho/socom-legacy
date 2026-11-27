@@ -31,7 +31,10 @@ tree; the numbers below are counts, offsets and names.
   polygon's `material` byte, counting from 2 (the engine appends `UNKNOWN` and `PARTICLE_SYSTEM` first). A step fires
   on the locomotion clip's phase -- the left foot entering (0, 0.5), the right entering (0.5, 1) -- not on a clip
   callback (`FUN_005a3570`); the sound is the crawl prone, else the step when the stick is past half, else the stealth
-  step (`FUN_005a39b0`).
+  step (`FUN_005a39b0`). It plays the step at the foot, except the local player's own while its view state (`+0x200`)
+  is 1 or more -- first person and every zoom -- which plays unplaced, with the sound's own pan (989snd's pan -1, research
+  122 R122.4) (`OWN_STEP_UNPLACED_READING`, B-86; the r0004 body, compared word for word; reading, reviewed
+  2026-11-22). The landing has no such branch (r0001's reading; at r0004 no +0x200 read was found).
 - **The M4A1 SD** (§5): `zweapon.rdr`'s record names `FireSoundClose .M4A1_SIL` and `ReloadSound .M4A1_SIL_RLD`, and
   no medium or far report (the unsuppressed M4A1 has `.M4A1`, `.M4A1_M`, `.M4A1_F`, `.M4A1_RLD`). A remote round's
   report is picked by its distance from the camera against `WEAPON_GLOBAL`'s 9 and 50 metres (§5).
@@ -168,6 +171,12 @@ foot's call is skipped, so a crawl sounds once a cycle. There are no footfall `z
 `CRAWLSOUND`; otherwise `STEPSOUND` when any of the controller's three stick floats is past +-0.5, else
 `STEALTH_STEPSOUND` (so a walk at a light stick is the stealth step, standing or crouched); played at the foot with
 volume 1.0 (`vtable+0x14`), or without a place (`vtable+0xc`) for the local player when `+0x200` is set.
+Each body's step follows its own floor whoever listens, so the port probes another body's step on the scene's grid -- the walker's while it walks, else the map's (`WalkSounds.materialAt`) -- whatever the
+page's own body is doing; until 2026-11-14 it probed the page walker's grid only, so a dead or spectating listener
+(fly mode, no walker grid) heard byte 0, the map's `DefaultMaterial` (§7), under every teammate (the owner's report on
+v0.4.22, 2026-11-14; reading, reviewed late, at the close, 2026-11-15: `FUN_005a39b0` D:L460385-460434 and
+`FUN_005af930` D:L466978-466980 re-read at the source, PASS WITH FINDINGS; where no floor is found, LATER 1099). The ladder's landing takes the same probe; it runs only on the page's own walking body,
+so nothing changes there in practice. Who the three-step cap hears from off the body is LATER 1051.
 
 ## 5. The rifle
 
@@ -349,7 +358,7 @@ perspective, map and approximate distance to reproduce through the full multipla
 (surface word bits 10-17) -- or, for 0, `DAT_0044f310`: the map's `DefaultMaterial`, the SOILS name on its world root
 (`<map>.ZED`; `mp8.rdr` repeats it: `DefaultMaterial (DIRT)`). Byte 0 is common: Crossroads' streets (810 of its floor
 polygons), Frostfire's rig (197). Two maps name a default no SOILS entry is spelt as: MP11 `none`, MP64
-`stone` (read as `STONE`). The map's load (decomp 152109) sets the default to `FUN_002de9e0` of the name, a lookup in
+`stone` -- the lookup is case-sensitive (`FUN_002de9e0` D:L181709-181726; its r0004 twin `FUN_002fb9d0`, at `0x2fb9d0`, ends in `std::string::compare` -> `memcmp` at `0x195768`; nothing folds case), so MP64's default is `UNKNOWN` too and its 9 walkable byte-0 faces are silent on the console (MP64-SILENT, 2026-11-22; a reading, reviewed: pilot/kill/keyjob-mp64-soil-case-read.md; was "read as `STONE`"). The map's load (decomp 152109) sets the default to `FUN_002de9e0` of the name, a lookup in
 the SOILS names' table that answers **0** -- `UNKNOWN`, no sounds -- for a name it lacks, so Death Trap's default is
 `UNKNOWN`; no floor of Death Trap has byte 0 (0 of 2,252), so nothing is silenced by it. The viewer does the same
 (`defaultMaterialIndex`) and no longer lists it as missing (research 90 item 26).
@@ -422,6 +431,17 @@ against the map's own blocks and groups only (`soundData.ts` `characterVoicesOf`
   round impact on a surface the map has, an explosion or a casing, that the map's banks lack, lent by the same name from
   the bank of another map that has it (found through `sounds.rdr`: a set is a bank's block) -- 1 or 2 borrowed banks a
   map, every floor of the 22 now sounding. The footprint decals are not traced; the remote fire variants' chooser is (§5).
+  **Clutter-only surfaces stay unborrowed** (LATER 1000, 2026-11-19; reading, pending review): the wanted impact
+  surfaces are the worldmodel's (`worldCollision`), not CLUTTER.ZAR's appended polygons (CLT-2, `mapCollision`), and
+  that is parity -- the console borrows nothing. The census, every MP map off the disc through the repository's readers
+  (the r0004 patch and `hullModels` as the room builds its hull; the materials from `materials.rdr`, the callbacks from the
+  map's zAnims, a name's bank by `scriptFiles`): 19 of the 22 have no material that only clutter carries (17 have no
+  clutter collision; MP5's and MP10's clutter is `wood_thick`, which their worldmodels carry). The three that do --
+  MP1 `snowy_tree` (753 polygons) and MP82 `snowy_tree` (60): no `bullet_hit_snowy_tree` nor `grenade_hit_snowy_tree`
+  callback, silent on the console and the page; MP61 `barrel` (54) and MP82 `barrel` (152): `.BUL_BARREL`, in each map's
+  own banks, heard; MP61 `snow` (75): its callbacks name `.BUL_SNOW` / `.GREN_SNOW`, which MP61's mission banks do not
+  hold, so silent on the console (nothing lends) and on the page. Building the set from `mapCollision` would only have had
+  the PLACEHOLDER borrowing lend MP61 a snow it never plays (and research 304 refuses a grenade's).
   A bank that will not parse is named in `missing` and the rest of the map's sound still comes (`soundFromDisc` and
   `renderAmbienceLoops` read bank by bank; soundData.test.ts).
 - **The unlock costs nothing** (measured on the dev server, headless Chromium): the first key press used to spend 949 ms
@@ -609,7 +629,7 @@ Glory `.STEP_SAND` and `.SAND_JUMP`; nothing dropped.
 
 ## 13. Placeholders, by name
 
-The values no source gives, and the one reading, named in the code (each is described where it is used: §6, §8, §10).
+The values no source gives, and the readings, named in the code (each is described where it is used: §6, §8, §10).
 
 | name | value | stands for |
 |---|---|---|
@@ -623,10 +643,25 @@ The values no source gives, and the one reading, named in the code (each is desc
 | `LONG_LOOP_SECONDS_PLACEHOLDER` (`loopLength.ts`) | 40 s | a loop with no voice in 12 s (the crickets' conductor waits up to 16.7 s, §10) |
 | `BED_CAMERA_ABOVE_FEET_PLACEHOLDER` (`viewer/src/soundData.ts`) | 25 | the camera's height over spawn A's floor that sets global register 2 for the beds' loops, rendered once in the worker, not per frame (§10). Narrowed 2026-10-04 (PF-09): the game sends register 2 every frame from the listener's live world y (`FUN_00341a60`, floored; research 186 §3.2), and every sound `GameAudio.play` renders now takes it from the listener's height; only the loops, rendered once, still stand at spawn A + 25 -- re-rendering them as the register changes is owed |
 | `SOUND_PRIORITY_SLOT_READING` (`scene/src/effects.ts`) | flags 0x400 / 0x800 dropped | the game's one-voice priority slot (`FUN_00348dc0`, decomp 245376-245446), read in research 124 §7 and modelled for the round's streamed cues only (`GameAudio.playMusic`: the objectives scripts' 0x880 plays): the effects and doors still start no voice for those commands; the mask is the source's (112480-112486), the drop the reading -- the slot's MP cues (MUS_*) are streamed music the banks do not hold, played from VAGSTORE by research 124's path (§6; research 91's data table) |
-| `ROUND_SCREENS_SILENCE_WALK_READING` (`viewer/src/matchSound.ts`) | `'screens'`: none of the page's own footfalls, clip callbacks, landings or ladder slide (its loop let go, its landing), nor the others' footfalls, while a round screen is up (`NetPage.screenUp`) | OBF-7, 2026-10-30; reading, pending review. Online, on the host's +0x113 at 4 or 6 -- after its 3.0 s wait, the page's `ENGINE_READ_S` -- a client's mission tick `FUN_002aa490` calls the mission's end `FUN_002aa910` (D:L151127-151131), whose `FUN_00346b30` (D:L151220) sends `SL_STOPALLSOUNDS` (`FUN_00340270`, D:L244182; research 122), and pushes `MPExitState` over CoreState (`FUN_002cf380` D:L151134; research 115 §8.2); `FUN_002ce9e0` ticks only the stack's top (D:L171877-171888), so the round -- the local SEAL's walk, the others' bodies and their footfalls (§4) -- is not ticked under ROUND COMPLETE, FINAL ROUND and GAME COMPLETE -- `MPExitState`'s Tick is `FUN_00223680` (D:L75899-75958; its vtable 0x405780, stored by `FUN_00224110` D:L76192, holds 0x223680 at +0x14, read off the ELF), which ticks its menu, not the world -- until the next round's restart pops it (D:L75935-75936). A live (re)join's welcome clears the page's screens unless its join envelope carries a standing result (OBF-7's review). During the engine's 3 s every footfall is heard. Open beside it, LATER 580: the original stops the walk itself, which the page does not, and stops what sounds at the screens' start. Settled by a capture of a round's end with the local SEAL and another moving; `viewer/test/roundScreenFootsteps.test.ts` |
+| `ROUND_SCREENS_SILENCE_WALK_READING` (`viewer/src/matchSound.ts`) | `'screens'`: none of the page's own footfalls, clip callbacks, landings or ladder slide (its loop let go, its landing), nor the others' footfalls, while a round screen is up (`NetPage.screenUp`) | OBF-7, 2026-10-30; reading, pending review. Online, on the host's +0x113 at 4 or 6 -- after its 3.0 s wait, the page's `ENGINE_READ_S` -- a client's mission tick `FUN_002aa490` calls the mission's end `FUN_002aa910` (D:L151127-151131), whose `FUN_00346b30` (D:L151220) sends `SL_STOPALLSOUNDS` (`FUN_00340270`, D:L244182; research 122), and pushes `MPExitState` over CoreState (`FUN_002cf380` D:L151134; research 115 §8.2); `FUN_002ce9e0` ticks only the stack's top (D:L171877-171888), so the round -- the local SEAL's walk, the others' bodies and their footfalls (§4) -- is not ticked under ROUND COMPLETE, FINAL ROUND and GAME COMPLETE -- `MPExitState`'s Tick is `FUN_00223680` (D:L75899-75958; its vtable 0x405780, stored by `FUN_00224110` D:L76192, holds 0x223680 at +0x14, read off the ELF), which ticks its menu, not the world -- until the next round's restart pops it (D:L75935-75936). A live (re)join's welcome clears the page's screens unless its join envelope carries a standing result (OBF-7's review). During the engine's 3 s every footfall is heard. Open beside it, LATER 580: the original stops the walk itself, which the page does not, and stops what sounds at the screens' start. The walk itself held since 2026-11-22 (LATER 580's walk half, `agent/shots-580`; reading, pending review): the room steps no mover, living or dead, under the screens (`room.ts` `roundScreensUp`) and the page's walk is held from the first screen frame to `roundStart` (`walk.ts` `setRoundHold`), so this silence now meets a walk that does not move. Settled by a capture of a round's end with the local SEAL and another moving; `viewer/test/roundScreenFootsteps.test.ts` |
 | `PASSING_REMOTE_BODIES_READING` (*note only*) | the page tests another's round against its own player's feet only, and only while it walks (`walk.feet()`) | LATER 644, 2026-11-02; reading, pending review. `FUN_00598000` is also `CRemoteCtrl`'s slot +0x44 (§5, "Re-read and wired"), so the original plays `.BUL_PASSING` at a round's nearest point to every other human player's body on the console too, heard from the camera by the sound's `RANGE`; and whether the shooter's own body on another console hears its round (its muzzle within 20 of its feet) turns on the caller that hands each controller the projectile, not found (no direct slot +0x44 call with a projectile in the decompilation). A dead player's controller (the page asks nothing out of the walk) is unread too. Settled by the caller's read, then a two-console capture of a round past a third player |
 | `PASSING_SEGMENT_END_READING` (*note only*) | the page tests another's bullet on `from` -> `tracerTo ?? to`: to the end of its walk past the first body (the room's `shot.end`, P12b), else `to` | LATER 644's review F3, 2026-11-02; reading, pending review. A bullet's `+0x54` is set once, at the full ray, `+0x48` + the direction x `Maximum_Range` x 1.1 (`FUN_003ca5a0` D:L320383-320398); whether it is cut back to the first surface or body the round stops at before `FUN_00598000` runs is unread. Cut: today's path (a round stopped by a wall passes no one behind it). Not cut: the whole ray of `Maximum_Range` x 1.1, so a round stopped by a wall still passes a player behind the wall. Settled by reading where the walk (`FUN_003c9b70`, `FUN_003c8920`) writes `+0x54`, or a capture of a round into a wall with a player close behind it. (Was `PASSING_TICK_SEGMENTS_READING`, "the original tests each tick's segment": a bullet has one segment, and the rocket plays once.) |
 | `DEAD_VIEW_BED_SIDE_READING` (`viewer/src/walkSounds.ts`) | `'camera'`: off the own living body (dead watching a teammate, a ghost, a spectator) the bed's side is the active camera's (`CAMERA_INDOORS`'s pick, §9) | AMB-1, 2026-11-07 (the review's F1); reading, pending review. The common `check_camera_inside_state1` swaps on `PLAYER_INDOORS` (bit 2 of the local player's `+0x1060`, §10); what it answers for a dead player, a ghost or a spectator is unread. Candidates: `'camera'` (the view's camera; the port's choice, alive too) and `'body'` (the dead body's side kept while a teammate's camera is the view). Settled by a capture of the original (die with the body outdoors, watch a teammate indoors, listen for the bed's swap) or by reading `PLAYER_INDOORS`' tick (0x2b3880) and the writer of `+0x1060` bit 2 for a dead actor |
+| `OWN_STEP_UNPLACED_READING` (`viewer/src/walkSounds.ts`) | `1`: the page's own step and crawl unplaced (no position; volume 1.0, the sound's own pan: 989snd's pan -1, research 122 R122.4) while its view state (`+0x200`, `Zoom.state()`) is 1 or more -- first person and every zoom; at 0 placed at the foot (§4; B-86) | `FUN_005a39b0` (r0004 0x5a9520, the r0001 body but relocations, compared word for word) D:L460419-460428; reading (fresh review PASS WITH FINDINGS, 2026-11-22); owed for proven: a capture of the original in first person, a step beside a wall, heard with the sound's own pan |
+| `VOICE_COUNT_READING` (`viewer/src/voiceBudget.ts`) | 48 | the SPU2's voices the driver allocates, `FUN_00017170` (IRX D:L13800-13812); LATER 1218, §15; reading, pending review |
+| `VOICE_GROUP_RANGE_READING` (`voiceBudget.ts`) | groups 1, 2, 4, 6, 14 on 24-47; the rest 0-47 | each group's voice range: the driver's default (IRX D:L13827-13836) narrowed by the game (`FUN_00345230` EE D:L243341-243345); §15 |
+| `VOICE_UNSTEALABLE_READING` (`voiceBudget.ts`) | 0x7e | a voice at this priority or above is never stolen (`FUN_000178b8` D:L14135); §15 |
+| `VOICE_PLAY_ADAPTATION` (`voiceBudget.ts`) | `'whole play'` | a browser adaptation of the granularity: a play's tones are one buffer, so it holds its voices together at its highest tone's priority and a steal stops it whole; §15 |
+| `VOICE_STOP_RAMP_ADAPTATION` (`voiceBudget.ts`, `audio.ts` `WebAudioOut.play`) | 0.008 s | a browser adaptation (the main controller's word, LATER 1218): a stopped or stolen one-shot ramps to 0 rather than cutting at once as the original does (`FUN_00017604` D:L13994-13995); §15 |
+| `VOICE_LOOPS_STREAMS_PLACEHOLDER` (`voiceBudget.ts`) | `'not counted'` | the looped emitters, the beds and the streams hold no voice of the budget; owed: when the original keys an emitter's loop on and off, so the page's loops hold voices as its do; §15 |
+| `CALLBACK_WAIT_RANGE_READING` (`sound/src/catalog.ts`) | `'base'` | a timed `WAIT` with a random range (flag 0x20) counts its base alone in a callback sound's delay; the census (§16) finds no ranged `WAIT` ahead of a callback's own sound -- the ranged ones are `random_bombs`' starts (act 2) and the wind gusts' loops; LATER 1209 |
+| `CALLBACK_WAIT_BRANCH_READING` (`sound/src/catalog.ts`) | `'longest'` | a `WAIT` inside an IF / ELSEIF / ELSE branch counts in that branch alone, each branch from the IF's time; after ENDIF the longest branch's end goes on (which branch the original takes is decided at run time); LATER 1209, its review's F1 |
+| `CALLBACK_ONE_PER_NAME_READING` (`sound/src/catalog.ts`) | `'first of a name'` | a callback plays each sound name once, the first command's (older than LATER 1209, named at its review's F5): the satchel's three `.MK138_SAT_CHRG` 0.05 s apart sound once; the original plays each |
+| `CALLBACK_DELAY_PLACE_READING` (`viewer/src/audio.ts`) | `'asked'` | a delayed callback sound plays where the callback was asked from, not where its node stands when the delay ends (`.THROW_OBJECT`, flags 0x82, up to 0.2 s of the thrower's movement); LATER 1209, its review's F4 |
+| `VOICE_LOOPS_STREAMS_PLACEHOLDER` (`voiceBudget.ts`) (retired) | was `'not counted'` | the loops and streams held no voice of the budget; retired 2026-11-19 by LATER 1220 (b), §17 -- retired |
+| `STREAM_VOICE_PRIORITY_READING` (`voiceBudget.ts`) | `0x7f` | a stream's voices, one a channel, asked at 0x7f (`FUN_0000f5e4` -> `FUN_000178b8`, IRX D:L9730-9745), unstealable; §17; LATER 1220 |
+| `LOOP_VOICE_HOLD_ADAPTATION` (`voiceBudget.ts`, `audio.ts`) | `'busiest instant'` | a browser adaptation of the granularity: a loop holds its render's busiest instant's voices from its start until it stops (the page replays one render; the original keys tones as its grains run); a bed side keyed off keeps them through its tone's release; §17; LATER 1220 |
+| `LOOP_VOICE_STEAL_PLACEHOLDER` (`voiceBudget.ts`, `audio.ts`) | `'keeps sounding'` | what a loop does when a voice of it is stolen is unread (the owner callback `LAB_00006778`, not decompiled); the page's loop keeps sounding; §17; LATER 1220 |
 
 ## 14. Body sounds heard from another player's body
 
@@ -673,4 +708,190 @@ victim's page and a third player's one each; a second round inside `VOICE_GATE_S
 | throw | the release (`.THROW_OBJECT`) and the standing throw's `throw_whoosh` grunt, on the copy's own clip (research 325 R325.6) | research 325 §1.4 | `viewer/src/remotePlayers.ts`: `REMOTE_THROW_GRUNT_READING`, `RemotePlayers.takeThrowCallbacks` -> `viewer/src/matchSound.ts` | faithful at the reading |
 | jump whoosh, landings | **UNREAD**: whether another console sounds a copy's `jump_whoosh` and its landings (LATER 650) | -- | none (`tools/test/presentationAudit.test.ts`, the P31 rows) | UNREAD (LATER 650) |
 | bullet whiz (`.BUL_PASSING`, `.ROCKET_BY`) | another shooter's round within 20 units of the actor; the console's own rounds skipped (§5). `FUN_00598000` is `+0x44` of `CSealCtrl`, `CRemoteCtrl` and `CSealCtrlSquirm` (`CSealCtrlAi`'s `+0x44` is `FUN_005729f0`) | `FUN_00598000` D:L454611-454651 | at this note's base (`adb4e58fb`) `viewer/src/audio.ts` `GameAudio.onRoundPast` has no caller (LATER 644); `9f9d9d8927` on `agent/land-b200` (B200) calls it from `viewer/src/matchFirearm.ts` (`roundPast`) | owed at this base; LATER 644's fix in B200 |
-| a hit on `CSealCtrlSquirm` | its `+0x54` is `FUN_005fef30` (`+0x58` `FUN_005fef10`), neither with a block in the decompilation | -- | -- | **UNREAD** (LATER 649) |
+| a hit on `CSealCtrlSquirm` | **no sound** through this slot: its `+0x54` `CSealCtrlSquirm::OnSetHealth` `FUN_005fef30` and its `+0x58` `CSealCtrlSquirm::ResetToInitialState` `FUN_005fef10` are each `jr ra` with a `nop` (no block in the decompilation), so the hit plays nothing there and the reset changes no state | the r0001 image's bytes `0800e003 00000000` at 0x5fef30 and 0x5fef10 (r0004 0x606730 / 0x606710, identical) | -- | reading (LATER 649's question answered) |
+
+## 15. The voice budget (LATER 1218, 2026-11-18; reading, pending review)
+
+**The reading** (source inspection: a read-only agent's survey of `989SND.IRX.decomp.c`, the allocator and the priority
+re-read at the source by the weather seat; the fresh review re-reads them). A tone keys on a voice through
+`FUN_0000465c` (IRX D:L3249-3253): its priority (`FUN_000069a4`) and its sound's group to `FUN_000178b8`
+(D:L14077-14157), which
+- clamps the group to 15 (D:L14090-14092) and takes the group's range `[min, max]` (`DAT_0001cd9c`);
+- takes the lowest free voice of the range (state 0, D:L14097-14117);
+- none free, picks the victim: the lowest priority byte, of equals the oldest key-on tick, reserved voices (state 3)
+  passed (D:L14118-14130);
+- steals it when its priority byte is at most the newcomer's priority and under 0x7e and it is not reserved: its
+  owner's callback with reason 1, the record freed, the voice's volume zeroed at once (`FUN_00017604`
+  D:L13994-13995) and re-keyed (D:L14134-14152); else returns -1 and the tone is not keyed on (D:L14154-14156).
+- The priority (`FUN_000069a4`, D:L4283-4313): the tone's signed byte +0; with its flags (+0xe) bits 1-2 a cut of a
+  fifth (1), a half (2) or the whole (3), C's division toward zero, taken off in proportion as the play's volume
+  falls below 950 (0x3b6), none above it.
+- 48 voices (`FUN_00017170` D:L13800-13812); every group 0-47 by default (D:L13827-13836); the game narrows groups 1,
+  4, 14, 6 and 2 to 24-47 (`FUN_00345230` EE D:L243341-243345 through `FUN_00340430`, SL_SETGROUPVOICERANGE; its other calls, EE D:L55185 and
+  D:L243381-243385, set the same values).
+
+**Not read or not modelled.** The steal callback for a tone (`LAB_00006778`, its code not decompiled); the per-sound
+instance limit (`FUN_0000d274` D:L8234-8276: flag 0x8 and `InstanceLimit`, the quietest or the oldest stolen with flags
+0x10 / 0x20) -- a follow-on; the noise tones' one voice a core (`FUN_00017710`); the loops and streams
+(`VOICE_LOOPS_STREAMS_PLACEHOLDER`: the streams key on at 0x7f, IRX D:L6562-6563; LATER 1220); a sounding voice's priority re-scaled when its handler's volume changes
+(`blocksnd.c:1274`: the page fixes it at the play). Inside `VOICE_PLAY_ADAPTATION` (the review's F1-F3): a child sound's
+tones count at the parent's group; a steal stops the whole play (one tone in the original); a play holds all the
+voices it keyed over its render from its start (the original, the ones sounding); equal priorities ordered by the
+take, not the driver's tick counter (`DAT_0001cc10`, D:L9402).
+
+**As built** (`viewer/src/voiceBudget.ts`; `audio.ts` `Audio.play`, `restart`, `stopTransient`, `WebAudioOut.play`;
+`sound/src/render.ts` `RenderedSound.tones`). A bank one-shot asks the budget before it sounds, voice by voice: each voice
+the render keyed (`RenderedSound.tones`: its tone's priority byte and flags, its handler's volume, its sound's group, its
+start and end) at its own `tonePriority`, in its own group (`bankGroupOf`), held until its own end. Granted none it does
+not sound (`stats().dropped.voices`); a voice stolen frees that voice, and the play is stopped -- ramping out over
+`VOICE_STOP_RAMP_ADAPTATION` -- once it holds none. The granularity is `VOICE_PLAY_ADAPTATION`'s. No occlusion and no
+HRTF (the controller's word: they would change what is heard). *Was (57d2ed9db5-ccdc32b43f):* every voice of a play at its
+highest tone's priority, held to the buffer's end, a steal stopping the whole play -- the controller's busy-moment test
+caught it: an M4A1's two priority-0 tones held at 99 for 1.1 s starved the steps.
+
+**Heavy gunfire drops footsteps, as on the PS2 (a reading: the allocator and the disc's data; not yet captured).** The
+disc's priorities on MP2 (one render's lengths; others vary by about 0.1 s): a step (`.STEP_STONE`) is one voice at 44 for
+about 0.6 s (`.STEP_METAL` about 0.45 s); an M4A1 shot keys 55 (0.06 s), 99 (about 1.1 s) and two at 0; its medium
+`.M4A1_M` two at 99 (about 1.1 and 1.4 s) and two at 0; its far `.M4A1_F` 95 (about 1.6 s), 66 (about 1.1 s) and three at
+0; the M60E3's close, medium and far each one at 99 (about 0.95 s), the far also 55, the rest 0. `FUN_000178b8` lets a
+step steal only a voice at or below 44 (D:L14134), so once a group's range holds only voices at 99 the driver refuses the
+step -- and the count that takes depends on range: within 90 u (the close sound, one 99 a shot) about four others firing
+full auto; at medium range (two 99s a shot for the M4A1) two or three. The sweep the main controller ruled on
+(2026-11-18; `audio.test.ts` "a busy moment, as a sweep", four seconds; the review of 416bd9d94b's F1 added the rows at
+one range): at mixed ranges (four within 90 u, the rest 100-300 u) every step sounds with up to 4 full auto or 8 firing
+three-round bursts; 5 full auto, own steps 3 of 12 and the nearest others' 7 of 35; 15, 1 of 12 and 2 of 35; 10
+bursting, 3 of 12 and 9 of 35. At 60 u: 4 full auto, every step; 5, 3 of 12. At 150 u: 2 full auto, 7 of 12; 3, 3 of 12.
+Every shot sounds. Settles by a capture: PC 1's three-console run of 2026-11-18 (two M60E3s full auto at 40 and 80 u,
+metal floor; predicted every step heard) checks the side below the threshold; the side above needs more consoles. For
+the patch notes: "in heavy gunfire, footsteps can drop out, as on the PS2".
+
+**The group ranges, proven for all 16 groups (2026-11-18).** PC 1's savestate of the original running (the title screen),
+its IOP RAM read at the loaded 989SND.IRX (base 0x99330, found by a signature scan of the disc's `RUN/IRX/SOUND/989SND.IRX`):
+the group table (`DAT_0001cd9c`, IOP 0xb60cc) holds (0,47), (24,47), (24,47), (0,47), (24,47), (0,47), (24,47), (0,47)
+for groups 0-7, and (0,47) for groups 8-15 but group 14 at (24,47) (read from the same snapshot by the review of
+8e1a946d91, its F7) -- `VOICE_GROUP_RANGE_READING` value for value (`voiceBudget.test.ts` "PROVEN for all 16 groups"). The same read found the 48 voice records at IOP 0xbcc3c (all free on the title screen)
+and the driver's tick (`DAT_0001cc10`) at 0xb5f40, the layout §15 reads. Evidence: `agent-mail/evidence/later1218-capture/l1218-iop/`
+(sha256 671284056064185ef176205a11509b4bce3dc371a0d0917e0af3edefa3229908). The footsteps-under-fire capture of the same
+night (`l1218-steps/`, sha256 cff2586e...) was INCONCLUSIVE: the console's mixed output cannot tell a refused step voice
+from one buried under the gunfire; the per-call grant count (a breakpoint on `FUN_000178b8`, or a PINE build that reads
+IOP memory) stays owed.
+
+**Tests.** `packages/viewer/test/voiceBudget.test.ts` (the ranges, the free voice, the victim, the steal's bounds and
+the signed byte, each voice at its own priority and end and a play stopped only with its last voice, the release, the
+scaled priority, a child sound priced, the page's wiring and ramp in the source's text); `packages/sound/test/sound.test.ts`
+"LATER 1218" (a render's voice list, the disc); `packages/viewer/test/audio.test.ts` "LATER 1218" (the disc: sixty plays at
+once, no more voices held than the range, the teardown; the busy moment's sweep) and "every map steps on every floor"
+(its plays spaced a minute apart on the page's clock, `dropped.voices` 0: a coverage test, not a concurrency one).
+
+## 16. A callback's WAIT (LATER 1209, 2026-11-18; reading, pending review)
+
+**The gap** (FINDING-X13, `agent-mail/evidence/bugs-2026-11-18/`). `frag_start` is `[WAIT 0.2, SOUND .THROW_OBJECT]` on all
+22 MP maps; `HE_start` plays the sound at once. The page flattened a callback zAnim into its sounds and ignored the `WAIT`s
+(`callbackPlays`), so the M67's throw sound came 0.2 s early. A `WAIT` (command 15) blocks its sequence for its seconds
+(`FUN_0025ed50` begins it, D:L108436-108448; `waitOf` reads flag 8's f32 at +8, or flag 0x20's base and range).
+
+**As built.** `zanimSounds` keeps, per reached sequence (research 448's filter), the timed `WAIT`s' seconds ahead of
+each play-sound command (`ZAnimSoundCommand.at`) and each start (`ZAnimSoundInfo.callsAt`); `callbackPlays` adds them
+down the chain of starts (`ZAnimPlay.delay`: a start's own time plus its animation's); `soundData` carries them beside
+the volumes (`callbackDelays`); `Audio.callback` plays a sound with a delay on the first frame at or past it
+(`playOwedCallbacks`, from `setListener`, the page's clock), at the place it was asked from, and a teardown
+(`stopTransient`) drops what is still owed. A ranged `WAIT` counts its base (`CALLBACK_WAIT_RANGE_READING`).
+
+**The census** (the disc, all 22 MP maps' CZANIM + MZANIM, through the repository's readers; the weather seat's session
+script and its review's own, 2026-11-18; the times as the data carries them, with branches as `CALLBACK_WAIT_BRANCH_READING`
+reads them). The page plays a callback zAnim's sounds through `callbackPlays` for the throws' release (`matchThrow`), a
+remote's release and the bounce and blast fallbacks when the effects' runner did not run; the effects' runner
+(`effects.ts`, `onRound`) plays the bullet impacts and runs their WAITs already, and the gates play no sound on the page
+(LATER 307). Sounds behind a WAIT in the data:
+- the throws: `frag_start` `.THROW_OBJECT` at 0.2 (the M67; `HE_start`, the flashbang's, the satchel's and the smoke's
+  start zAnims play at once); `frag_grenade_stone`, `_wood_thin`, `_wood_thick`, `_metal_thin`, `_metal_thick` and
+  `_asphalt` start `frag_grenade` (its `.GREN_MED`) at 0.05; `smoke_grenade`'s `!SMK_CANISTER` at 3 sits in an activation-2
+  sequence a start reaches;
+- the blasts: `law_impact`, `RPG_impact` `.GREN_FAR` 0.15 after `.EXP_1` (reached through `callbackPlays` only by the
+  fallback, `matchThrow`); `claymore` `.M18_CLAYMORE` at 0.15 (22 maps); `destroy_terrorist_base` / `destroy_seal_base`
+  `.EXP_1` at 0.3 and 0.45, `.EXP_DISTANT` at 0.95 and on (10 maps; their repeats one per name,
+  `CALLBACK_ONE_PER_NAME_READING`);
+- the effects' runner's, not the page's callbacks: `bullet_hit_gravel` / `_dirt` / `_mud` their sound at 0.1;
+  `shotgun_hit_dirt` `.LEAVES_JUMP`, `.BUL_SAND` at 0.25;
+- the maps' scripts: `gate_openclose1` / `2` `.SWITCH_SMALL` at 0.24 (the second, in an ELSE, also at 0.24, one per name);
+  `lightning_flashes` `.LIGHTNING` at 0.1 and `.DIST_THUNDER` in its branches; `on_lablights` 0.17; `*_demo_site1` 0.65;
+  the air strikes (`airstrike`, `f18`, `destroy_strike`, `destroy_ladderhit`, 14-20 s; `airstrike_1` / `2` loops at 3);
+  the round's `objectives` cues (the round's own runner, research 124).
+- Ranged `WAIT`s (flag 0x20) stand ahead of starts in `random_bombs` (act 2), after sounds in the wind gusts' loops and
+  `bullet_hit_pipe_steam`, and in `mp6_battlesounds` / `mp6_parent`'s unreached sequences -- none ahead of a callback's own
+  sound (`CALLBACK_WAIT_RANGE_READING`). Frames `WAIT`s (flag 0x10 without 8) are count 0, ahead of particle starts only;
+  the absolute clocks (flags 2 and 4) and START's flag 0x200 do not stand ahead of a sound on the disc (not modelled).
+
+**Tests.** `packages/sound/test/sound.test.ts` "LATER 1209" (the RED: frag_start at 0.2, HE_start at once, a start's
+time down the chain); `packages/viewer/test/audio.test.ts` "LATER 1209" (the disc: the data carries frag_start's 0.2; the
+page sounds it on the first frame past 0.2 s, HE_start's at once, a teardown drops the owed; never seen red -- red by
+reasoning at its review: the base has no `callbackDelays` and plays every callback sound at once); "LATER 1209 (the
+review's F1)" (the branches).
+
+## 17. A sound's instance limit (LATER 1220 (a), 2026-11-18; reading, pending review)
+
+**The reading** (source inspection, the weather seat). A block sound's play makes its handler through `FUN_0000d3b0`
+(IRX D:L8280-8296): when the sound's flags (`SFX2` +6) carry 0x8, `FUN_0000d274` (D:L8234-8276) decides first. A limit
+(`InstanceLimit`, +5) of 0 refuses the play (D:L8242-8244). Otherwise the live handlers of this sound are counted (the
+list `DAT_0001cc00`, a block sound's handler) and a candidate picked: the first, or with 0x10 a quieter one (the
+handler's volume `+0x32`), or with 0x20 an older one (`+0x114`). At the limit the play is refused unless 0x10 and the new
+volume is above the candidate's, or 0x20; then the candidate is stopped (`FUN_0000dc14(h, 1, 0)`) and the play goes on.
+
+**The disc** (every MP map's banks through the repository's readers; a session census): 24 sounds carry 0x8, all with
+0x10 (the quietest stolen): `.MOVING_THRU_FO` (limit 1; in most maps' own `_AM` bank -- MP5, MP7-MP10, MP12, MP51-MP53,
+MP62, MP64, MP73, MP82 -- not MP1, MP2, MP6, MP71, MP72), `~ELECTRICAL_HUM` (MP2 limit 2, MP73 3), `~FAN_ROTATE` (MP2,
+MP81: 3), `~ELEC_HUM` / `_LG` / `_SM` (M63_AM: 3) and `~FIRE_SM` (M53_AM: 3). The loops' limits are part (b)'s
+(part (b), below): the MP maps' emitters never reach those limits (MP2 one `~FAN_ROTATE`; MP73 one `~ELECTRICAL_HUM`;
+MP81 two `~ELECTRICAL_HUM`, one `~FAN_ROTATE`), so the page checks no instance limit at a loop's start. *Known gap (the
+review of 8e1a946d91, F5):* campaign map M73 runs ten `~FIRE_SM` emitters with limit 3 (flags 0x19) -- the original keeps
+three, the page would sound ten; the campaign is out of scope (MISSION), so the limit is unbuilt for loops, recorded
+here so that loading a campaign map does not skip it silently.
+
+**As built** (`viewer/src/voiceBudget.ts` `instanceCheck`; `audio.ts` `Audio.play`). A bank one-shot with flag 0x8 is
+checked before its voices are asked (the original's order: the handler first, then its tones): its live instances (its
+plays not yet over nor stopped, each with its volume and start, on the page's clock); refused, it does not sound
+(`stats().dropped.instances`); a stolen instance is stopped and its voices freed. The volume compared is the play's own
+(`vol`: 0x400 x volume x `rangeGain`), what 989snd's handler holds as App_Vol.
+
+**Tests.** `packages/viewer/test/voiceBudget.test.ts` "LATER 1220" (the rule, the disc's cases); `packages/viewer/test/audio.test.ts`
+"LATER 1220" (MP7's `.MOVING_THRU_FO`: a second at the same volume refused, a louder one stopping the first; RED seen at
+the base 515615b1e1, 2026-11-19T00:03:32Z: the second played).
+
+### 17 (b). The loops' and streams' voices (LATER 1220 (b), 2026-11-19; reading, pending review)
+
+**The reading** (source inspection: a read-only agent's survey, the citations as it gave them, re-read by the fresh review).
+- *Emitters*: the play-sound command's tick (`FUN_002659c0`, flag 0x80) calls the sound object's placed play (vtable +0x14,
+  D:L112460; `FUN_00342b20`), which refuses a volume-0 start only for a `ONESHOT` entry (+0x1c bit 2, D:L242105): a loop
+  gets its instance (`FUN_00347960`, D:L242120) and its 989snd handle (`SL_PLAYSOUND`, D:L242133) at any distance, with
+  the mission (activation 1, §10). Each frame `FUN_00346ea0` recomputes its volume and pan (`FUN_00342670`, D:L244359;
+  0 past `RANGE`, D:L241928-241936) and sends `SL_SETSOUNDPARAMS` (D:L244369) -- no stop at 0; `snd_SetSFXVolPan`
+  (`blocksnd.c` 1178-1250) writes the volume into the voices without a key-off. So an emitter holds its voices from the
+  mission's start, out of range at volume 0, until a re-play, flag 0x100, its fade timer, or `SL_STOPALLSOUNDS` at the
+  mission's end (`FUN_00346b30`, D:L244182).
+- *Beds*: `check_camera_inside_state1` starts one side and stops the other (command 46), a key-off (§10; research 186
+  §3.2): only the side up holds voices.
+- *The ladder slide*: one placed handle while the top action is Ladderslide, stopped and released when it ends (research
+  305 §3.2, D:L418407-418422): voices while sliding and through its release.
+- *Streams*: `FUN_0000f7e0` -> `FUN_0000f5e4` (I:L9889) asks one voice for a mono stream and a second for stereo, each
+  `FUN_000178b8(group, 0x7f)` (I:L9730-9745): a round line (mono VAG, group 2) one, the music (stereo VPK, group 1) two;
+  keyed off and released at the stream's end (`FUN_0001107c`, I:L10577-10592). The doubling voice (I:L9922, stream flag
+  0x20) and the queued path (I:L10038, I:L11940) are not this game's (its flags 0, 4, 2; queue 0); I:L6562-6563 is the
+  movie's PCM mode 3 (the game uses mode 2, no voice).
+- *Unread*: what a loop's handler does when a voice of it is stolen (`LOOP_VOICE_STEAL_PLACEHOLDER`).
+
+**As built** (`audio.ts` `startLoop`, `holdLoop`, `unholdLoop`, `crossBeds`, `stopTransient`, `playStream`, `playMusic`,
+`stopMusic`; `voiceBudget.ts` `busiestTones`, `streamAsks`). A loop's handle frees its voices when stopped; an emitter and
+the slide take theirs at their start, a bed side when it comes up (freed when it goes down); each loop's voices are its
+render's busiest instant (`LOOP_VOICE_HOLD_ADAPTATION`); a teardown (`stopTransient`) frees the one-shots' voices and the
+loops and the music still playing take theirs again; a loop keyed off (a bed side down) keeps its voices through its
+tone's release (the review of 8e1a946d91, F4: the driver holds a voice until its envelope reads 0, IRX D:L9377-9393). A stream takes a channel a voice at 0x7f until it ends -- asked before it
+plays; refused, it does not sound (`'no-voice'`, IRX D:L9733-9740; F2); a music cue's are held to its end, a fading cue
+keeping its own through the handover (F3), all freed at a stop. A one-shot's instance limit is asked before its render
+(F1). The effect on the busy moment: the bed's and the emitters' voices
+(a few, at their tones' priorities) stand in the budget beside the gunfire, so the footsteps' threshold (§15) is a little
+lower in a match than the sweep (which plays no ambience) shows.
+
+**Tests.** `packages/viewer/test/voiceBudget.test.ts` "LATER 1220 (b)" (the busiest instant, the stream's asks and that two
+dozen streams cannot be stolen by a one-shot, the placeholder); `packages/viewer/test/audio.test.ts` "LATER 1220 (b)" (MP2:
+the fan and the bed side up hold voices at any distance, the side down freed, a teardown keeps them, ambience off frees all;
+RED seen against 42b728abaf's sources, 2026-11-19T00:20:35Z: none held).

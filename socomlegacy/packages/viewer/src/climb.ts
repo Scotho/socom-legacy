@@ -134,8 +134,26 @@ export function climbClass(h: number, app: number): { kind: ClimbClass; clip: st
  * 0 by default, `FUN_002deb30`): -0.8 on GRASS, BROKEN GLASS, LEAVES, ICE, SNOW and GRAVEL -- the hull's 4, 14, 15, 16,
  * 17, 18 (the SOILS order + 2, research 86 section 5.1) -- added to the climb's height.
  */
-export function footStepOffset(material: number): number {
-  return material >= 14 && material <= 18 || material === 4 ? -0.8 : 0;
+export function footStepOffset(material: number, defaultMaterial = 0): number {
+  const m = material === 0 ? defaultMaterial : material;   // byte 0 takes the map's default soil (FUN_002ddc30 D:L181208; FLE-2)
+  return m >= 14 && m <= 18 || m === 4 ? -0.8 : 0;
+}
+
+/**
+ * A map's `DefaultMaterial` (`world_params`, a soil NAME) as the hull material byte `footStepOffset` reads: the SOILS
+ * order + 2 (research 86 section 5.1) -- the six named soils with an offset map to 4 and 14-18 (`floorSoilsCensus.devdisc
+ * .test.ts` reads every map's default through `materialsFromArchive`). A name not among them gives 0 (no offset); FLE-2.
+ */
+export function defaultMaterialByte(name: string | undefined): number {
+  switch (name) {
+    case 'GRASS': return 4;
+    case 'BROKEN GLASS': return 14;
+    case 'LEAVES': return 15;
+    case 'ICE': return 16;
+    case 'SNOW': return 17;
+    case 'GRAVEL': return 18;
+    default: return 0;
+  }
 }
 
 /**
@@ -529,7 +547,7 @@ export function planClimb(grid: Grid, c: ClimbContact, x: number, y: number, z: 
   if (-(fx * c.nx + fz * c.nz) < CLIMB_FACING) return null;
   const dx = x - c.x, dz = z - c.z, dl = Math.hypot(dx, dz);
   if (dl > 1e-6 && (dx * c.nx + dz * c.nz) / dl < CLIMB_FACING) return null;
-  const h = c.top + footStepOffset(c.poly.material) - y;
+  const h = c.top + footStepOffset(c.poly.material, grid.defaultMaterial ?? 0) - y;   // FLE-2 (F3): byte 0 by the map's default
   const cls = climbClass(h, c.app);
   if (!cls) return null;
   // The target (`FUN_005b3a60`, D:L469016-469080) on the cut's two crossings (`FUN_002dc090`, LATER 111): the hit

@@ -1,3 +1,5 @@
+import { uiVarMasked } from '../text/displayMask';
+import { uiVarShownText } from '../text/displayText';
 import type { DialogDesign, DialogRecord, DialogSubordinate, DialogWidget, TextSpec } from '../dialog';
 import { captionBytes, captionCodes, secureCodes, type CaptionSource } from '../text/captions';
 import type { TextFace } from '../text/face';
@@ -40,6 +42,8 @@ import { UI_FRAME } from './frame';
  */
 
 export interface BuildOptions {
+  /** The dialog's name (`dlgCreateClan.rdr`), told to the page's display rule (STREAMER-P1, `../text/displayText`); absent: null. */
+  dialog?: string | null;
   /** The face a widget names, or the dialog's `FONT` (`CAPTION_FACE_DEFAULT_READING`, research 111 §7.1). */
   face?: (name: string) => TextFace | null;
   /** The caption service (PLAT-04's `LocService` fits); without one a caption is drawn as it stands. */
@@ -65,14 +69,25 @@ function textOf(spec: TextSpec, codes: number[], face: TextFace | null): UiText 
   return t;
 }
 
+/**
+ * The UIVAR whose CWrappedText draws with bright text enabled (R4P-237 / LEADS L355; a reading of r0004, pending
+ * review): `FUN_003979e0` (CWrappedText's draw) takes the bound variable (widget +0x9c), its name (+0x14), and
+ * `strcmp`s it -- whole and case-sensitive -- with the literal at 0x00425238, `UsagePolicy`, setting `DAT_004a1d70`
+ * on a match (0x397a78-0x397aa8) and clearing it before it returns (0x397eac). The widget's own name is not compared.
+ */
+export const BRIGHT_TEXT_UIVAR = 'UsagePolicy';
+
 /** What an object or control draws, from its widget (the factories' types; the rest are PLAT-15's). */
 function contentOf(w: DialogWidget, record: DialogRecord, design: DialogDesign, o: BuildOptions): UiContent {
   const face = (name: string | null): TextFace | null => {
     const n = name ?? design.font;
     return n === null ? null : o.face?.(n) ?? null;
   };
-  const caption = (c: string | null, uivar: string | null): string | null =>
-    (uivar !== null ? o.uiVarString?.(uivar) ?? null : c);
+  const caption = (c: string | null, uivar: string | null): string | null => {
+    if (uivar === null) return c;
+    const v = o.uiVarString?.(uivar) ?? null;
+    return v === null || w.type === 'IMAGE' ? v : uiVarShownText(uivar, record.name, v, o.dialog ?? null);   // STREAMER-P1: or the page's words
+  };
   switch (w.type) {
     case 'IMAGE': {
       // `FUN_00382ff0` (D:L278129-278185): the bitmap named by FILENAME, or by the UIVAR's string when it has one.
@@ -86,7 +101,7 @@ function contentOf(w: DialogWidget, record: DialogRecord, design: DialogDesign, 
     case 'TEXT': case 'CLOCK': case 'SECURETEXT': {
       const c = caption(w.text.caption, w.uivar?.name ?? null);
       let codes = c === null ? [] : captionCodes(c, o.captions ?? null).codes;
-      if (w.type === 'SECURETEXT') codes = secureCodes(codes);
+      if (w.type === 'SECURETEXT' || uiVarMasked(w.uivar?.name)) codes = secureCodes(codes);   // STREAMER-P1: or the page's mask
       return { kind: 'text', text: textOf(w.text, codes, face(w.text.font)) };
     }
     case 'WRAPPEDTEXT': {
@@ -96,6 +111,7 @@ function contentOf(w: DialogWidget, record: DialogRecord, design: DialogDesign, 
       return {
         kind: 'wrapped', text: textOf(w.text, [], f), lines, scroll: 0, prevRows: 0,
         spec: { width: w.width, spacing: w.spacing, height: w.height, autoScroll: w.autoScroll, displayOneLine: w.displayOneLine, scale: w.text.scale, color: w.text.color },
+        ...(w.uivar?.name === BRIGHT_TEXT_UIVAR ? { brightEnabled: true as const } : {}),
       };
     }
     case 'TELETYPE': {
@@ -125,6 +141,7 @@ function add2dNode(screen: UiScreen, record: DialogRecord, content: UiContent): 
   node.x = record.x; node.y = record.y; node.opacity = record.opacity;
   const parent = record.childOf ? findNode(screen.root, record.childOf) : null;
   addChild(parent ?? screen.backplane, node);
+  (screen.nodeOf ??= new Map()).set(record.widget, node);       // LATER 1546: the record's own node, whatever its name
   return node;
 }
 

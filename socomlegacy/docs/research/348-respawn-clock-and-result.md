@@ -50,16 +50,31 @@ room does. `PlacementOptions.roundDefaults`, when given, applies to every game; 
 `central/test/placement.test.ts`'s four P32 cases. An original client never sends the 0: CREATE GAME writes the
 valves (20 / 1 with respawn on); the FF lobby writes its own (FF.R13, 1 x 10 min).
 
-**The original's zero-valve fallback, a reading not taken.** `FUN_001f5e70`, D:L55622-55631, at the map's load,
-after `FUN_002a7560` has set the rules: a round-time valve of 0 is set to 300 (and the round's clock taken from it,
+*Superseded for the 0 by LATER 660 (2026-11-18), below: a 0 is now the original's 9 x 300 s on both paths, whatever the
+rules; the two constants above stay the room's own default lengths (OPL `opDefaultLength`).*
+
+**The original's zero-valve fallback -- taken (LATER 660, 2026-11-18; reading, pending review).** `FUN_001f5e70`, D:L55622-55631, at the map's load,
+after `FUN_002a7560` has set the Respawn rule (the one valve it writes; research 91, 192): a round-time valve of 0 is set to 300 (and the round's clock taken from it,
 x 1000, D:L55626-55627), a round-count valve of 0 to 9 -- with no respawn condition (`viewer/src/net/rules.ts`
 `MAX_ROUNDS`'s comment names the 9). So the original's own answer to a 0 is 9 rounds of 300 s for either rule, not
-ruling 10's server default. It is not taken: ruling 10 makes a 0 the server's default on both paths (the bridge's
-room and placement alike), and the branch's guards (`DAT_0045a0c1`, `DAT_00408685`, `DAT_0045a0c0`; which console
-and which load runs it) are not read. Ruling 10 is the seat's, not the owner's, so under the parity rule the
-original decides once those guards are read: [LATER 660](../LATER.md) holds it, with ruling 10 the default meanwhile.
-The evidence that would settle it: the guards read, or a capture of an original console joining a game whose
-GameStats bytes 1 and 2 are 0. No constant is named for it, so no ledger entry.
+ruling 10's server default. **The guards, read** (D:L55599-55616): the branch runs when the game state's +0x1a is clear
+or the load has begun and is running (`DAT_00408685` and `DAT_00408684`); then online (`DAT_0045a0c1`, research 107
+`IsNetwork`); then with the load not yet begun (`DAT_00408685` clear; research 166's "the load begun" flag, set with
+`DAT_00408684` by `FUN_001ebba0`, D:L50642-50643); then on the session master (`DAT_0045a0c0`, research 107
+`IsSessionMaster`, research 115 "host"). So the session master's console, as an online map's load starts, sets the
+Respawn rule (`FUN_002a7560`, D:L55620; the round valves hold what CREATE GAME, or a joiner's join, `FUN_002f83b0`, wrote)
+and then turns a 0 into 300 s and 9 rounds, each on its own -- the two checks never read the Respawn rule set the line
+before. The port's session master is central, so both its paths take it: placement's record (`central/src/placement.ts` `record`,
+`ORIGINAL_ZERO_VALVE_ROUNDS`) and the bridge's room (`central/src/bridge.ts` `roomOptions`, and `liveReport`'s count),
+superseding the seat's ruling 10 (classic 11 x 360 s) and P32 (respawn 1 x 1200 s) for the 0. Nothing on the wire
+changes: no byte an original client sends or is sent is read or written differently -- only what central plays for a
+0 it already accepted, which an original client never sends (CREATE GAME writes the valves); a forged or system game
+meets it (the FF lobby writes its own, FF.R13). **Not read** (the review of 5d0716b0c7, F2): whether the joiners' consoles take the master's 9 / 300 -- through the valve's
+change notice (`FUN_003519f0`) or the sync after it (`FUN_002c00f0`); the port's mapping (central the session master, every
+page taking its rounds from the room's welcome) holds if they do. The capture row 660 names still settles it: an original
+joiner in a game whose GameStats bytes 1 and 2 are 0. Held by `central/test/placement.test.ts`'s four LATER 660 cases and
+`central/test/bridge.test.ts`'s two. `ORIGINAL_ZERO_VALVE_ROUNDS` is a reading cited here, not a `*_READING` /
+`*_PLACEHOLDER` unknown, so no ledger entry.
 
 The welcome's `rounds` and each `roundStart`'s `rounds` come from that same room setting. The page already formats the
 received number through `roundBanner`; its old 11-round respawn fixture was corrected to 1. Tests also receive

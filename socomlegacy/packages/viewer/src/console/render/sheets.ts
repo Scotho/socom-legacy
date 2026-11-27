@@ -136,7 +136,25 @@ export interface SheetInput {
   picture: boolean;
 }
 
+/**
+ * LATER 1271 (a browser adaptation, product track; the main controller's ruling, 2026-11-20): a frame whose draw the
+ * browser refuses (v0.4.27's field: Firefox's "Canvas could not create basic draw target" at `setTransform`) is skipped
+ * and the next asked for; this many failures in a row retire the backdrop for the session -- its canvas gone, the page
+ * carrying on without it -- told once as a `uigpufallback` diagnostic headed `SHEETS_RETIRED_PREFIX`.
+ */
+export const SHEET_DRAW_FAILURE_LIMIT_ADAPTATION = 3;
+/** The retirement's diagnostic head, so it is told apart from a GPU surface's own fallback. */
+export const SHEETS_RETIRED_PREFIX = 'sheet retired: ';
+/** Retired for the page's session: a backdrop made later mounts nothing. */
+let sheetsRetired = false;
+/** Tests only. */
+export function resetSheetsRetiredForTest(): void { sheetsRetired = false; }
+/** Tests only: the session's sheets retired, as three refused draws leave them. */
+export function retireSheetsForTest(): void { sheetsRetired = true; }
+
 export interface SheetDeps {
+  /** LATER 1271: told once when the backdrop is retired; absent, the page's error beacon (`uigpufallback`). */
+  retired?: (why: string) => void;
   /** The canvas's 2D context; absent, the canvas's own. */
   context?: (canvas: HTMLCanvasElement) => Ctx2D | null;
   /** The frame scheduler and its cancel; absent, the window's. */
@@ -164,6 +182,8 @@ export class SheetBackdrop {
   private t0: number | null = null;
   private pending: number | null = null;
   private disposed = false;
+  /** LATER 1271: draws refused in a row. */
+  private failures = 0;
   private readonly win: Window;
   /** Takes down the resize watch (dispose). */
   private unwatch: () => void = () => {};
@@ -176,6 +196,7 @@ export class SheetBackdrop {
     this.canvas = doc.createElement('canvas');
     this.canvas.className = 'cx-sheets';
     this.canvas.setAttribute('aria-hidden', 'true');
+    if (sheetsRetired) { this.disposed = true; return; }             // LATER 1271: retired for the session, nothing mounted
     host.prepend(this.canvas);
     host.classList.add('has-sheets');
     // A still backdrop draws only on a change: a resized canvas would stretch its bitmap, so a resize asks for a frame.
@@ -237,8 +258,28 @@ export class SheetBackdrop {
     if (Math.abs(target - this.phase) < 0.001) this.phase = target;
     this.t0 ??= ts;
     const t = still ? STILL_T : (ts - this.t0) / 1000;
-    this.draw(t);
+    try {
+      this.draw(t);
+      this.failures = 0;
+    } catch (e) {
+      // LATER 1271: the frame is skipped and the next asked for (still or not); too many in a row retire the backdrop.
+      if (++this.failures >= SHEET_DRAW_FAILURE_LIMIT_ADAPTATION) { this.retire(e); return; }
+      this.schedule();
+      return;
+    }
     if (!still || this.phase !== target) this.schedule();
+  }
+
+  /** LATER 1271: taken down for the session, and told once. */
+  private retire(e: unknown): void {
+    sheetsRetired = true;
+    this.dispose();
+    const why = `${SHEETS_RETIRED_PREFIX}${(e instanceof Error || e instanceof DOMException ? e.message : String(e)).slice(0, 200)}`;
+    try {
+      if (this.deps.retired) this.deps.retired(why);
+      // On demand, never statically (as `../../uiGpuPresenter`): the beacon's chain stays out of this module's.
+      else void import('../../clientErrorBeacon').then((b) => { b.pageClientErrorBeacon().reportDiag('uigpufallback', why); }).catch(() => undefined);
+    } catch { /* the telling's own failure: nothing more */ }
   }
 
   /** The current phase (for the test). */
@@ -271,6 +312,9 @@ export class SheetBackdrop {
   }
 }
 
-/** Whether this window can draw a 2D canvas (a test's DOM has no canvas: no backdrop is mounted there). */
-export const canDrawSheets = (win: Window): boolean => typeof (win as unknown as { CanvasRenderingContext2D?: unknown }).CanvasRenderingContext2D === 'function'
+/**
+ * Whether this window can draw a 2D canvas (a test's DOM has no canvas: no backdrop is mounted there). LATER 1271's review
+ * F1: not once the sheets are retired for the session, so the page's draw neither rebuilds them nor marks `has-sheets`.
+ */
+export const canDrawSheets = (win: Window): boolean => !sheetsRetired && typeof (win as unknown as { CanvasRenderingContext2D?: unknown }).CanvasRenderingContext2D === 'function'
   && typeof win.requestAnimationFrame === 'function';

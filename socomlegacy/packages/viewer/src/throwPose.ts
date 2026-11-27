@@ -31,7 +31,8 @@ import type { ActionEnd } from './mover';
  *   outside `TOP_CLIPS`, which no throw or placing is since.
  * - **The callbacks**: `motion.rdr`'s `zanim_callback`s on the clip (`throw_whoosh` at 0.45 on the standing throw: the
  *   grunt `.MALE_GRUNT`) as the phase crosses them, for the page's audio.
- * - **The pistol's versions** (`@s2u/scene` `handAnim`, research 85 s8.1): most are upper-body clips (`seal_p_throwgrenade`
+ * - **The pistol's versions** (`@s2u/scene` `handAnim`, research 85 s8.1; played for the peek tosses alone, LATER 1442;
+ *   the others are records): most are upper-body clips (`seal_p_throwgrenade`
  *   16 parts, `seal_p_tossgrenade` 15, `seal_p_put_onwall` 16): the layer lays only the parts the clip carries
  *   [reading: PISTOL_ONESHOT_PARTS_READING].
  * - **The others' bodies** (`follow`, `./remotePlayers`): the mover's hold rides the body on the wire (`./net/body`, the

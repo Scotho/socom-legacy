@@ -43,7 +43,7 @@ const lobbyView = (seats: { id: number; name: string; team: 'seal' | 'terrorist'
 function matchPage(client: NetClient, events: readonly ServerEvent[]) {
   const posted: string[] = [];
   const hud = new Hud();
-  hud.postMessage = ((m: unknown) => { posted.push(plainBotText(String(m))); }) as typeof hud.postMessage;
+  hud.postMessage = ((m: unknown) => { posted.push(plainBotText(Array.isArray(m) ? m.map((l: { text: string }) => l.text).join('/') : String(m))); }) as typeof hud.postMessage;   // WM-DATA-FEED: a kill posts a BannerLine
   const walk = {
     setNetTap: () => undefined, setLocked: () => undefined, respawn: () => true, nudge: () => undefined, setDead: () => undefined,
     setTrigger: () => undefined, setDeathPose: () => undefined, setDeathKiller: () => undefined, setMode: () => true, mode: () => 'walk',

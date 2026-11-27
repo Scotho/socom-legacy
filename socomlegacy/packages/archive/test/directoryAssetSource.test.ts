@@ -33,6 +33,20 @@ const join2 = (parts: Uint8Array[]): Uint8Array => {
   return out;
 };
 
+/**
+ * LATER 964: two reads of BIG (2 MiB) were compared with `toEqual`, which walks a typed array element by element (9.1 to
+ * 9.9 s on a slower host, past vitest's 5 s). The same check with less work: the length, then the bytes compared whole,
+ * and on a difference the first index that differs and both bytes there -- what `toEqual`'s report would point at.
+ */
+const expectSameBytes = (got: Uint8Array, want: Uint8Array): void => {
+  expect(got.constructor).toBe(want.constructor);                  // as toEqual: a Buffer is not a Uint8Array (review F2)
+  expect(got.length).toBe(want.length);
+  if (Buffer.from(got.buffer, got.byteOffset, got.byteLength).equals(Buffer.from(want.buffer, want.byteOffset, want.byteLength))) return;
+  let at = 0;
+  while (got[at] === want[at]) at++;
+  expect({ at, got: got[at] }).toEqual({ at, got: want[at] });
+};
+
 const BIG = pattern(ISO_READ_CHUNK * 2 + 1234, 9);
 
 /** A drive-root pick: the disc's own top level, as a drive letter's `File`s name it (`webkitRelativePath` aside). */
@@ -149,7 +163,7 @@ describe('DirectoryAssetSource: reads', () => {
   it('reads with progress by ISO_READ_CHUNK, as IsoAssetSource.read reports it', async () => {
     const source = driveRoot();
     const calls: [number, number][] = [];
-    expect(await source.read('RUN/BIG.BIN', (loaded, total) => calls.push([loaded, total]))).toEqual(BIG);
+    expectSameBytes(await source.read('RUN/BIG.BIN', (loaded, total) => calls.push([loaded, total])), BIG);
     expect(calls).toEqual([[ISO_READ_CHUNK, BIG.length], [ISO_READ_CHUNK * 2, BIG.length], [BIG.length, BIG.length]]);
     const empty: [number, number][] = [];
     await source.read('RUN/EMPTY.TXT', (loaded, total) => empty.push([loaded, total]));
@@ -168,7 +182,7 @@ describe('DirectoryAssetSource: reads', () => {
   it('streams the whole file by ISO_READ_CHUNK by default', async () => {
     const chunks = await collect(driveRoot().stream('RUN/BIG.BIN'));
     expect(chunks.map((c) => c.length)).toEqual([ISO_READ_CHUNK, ISO_READ_CHUNK, 1234]);
-    expect(join2(chunks)).toEqual(BIG);
+    expectSameBytes(join2(chunks), BIG);
   });
 
   it('streams an extent by offset, length and chunk size, and through streamFile', async () => {

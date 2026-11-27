@@ -102,9 +102,9 @@ describe('NET-CAP on the page: C4 is never capped (the plant of the Action butto
   const grid = (): Grid => {
     const f: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/f', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000]),
+      points: Float32Array.from([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000]),
     };
-    const wall: WorldPoly = { ...f, path: DI, ditype: 2, points: Float32Array.from([130, 50, 150, 130, 50, 250, 130, 110, 250, 130, 110, 150]) };
+    const wall: WorldPoly = { ...f, path: DI, ditype: 2, points: Float32Array.from([115, 50, 150, 115, 50, 250, 115, 110, 250, 115, 110, 150]) };   // LATER 1139: x 115 (was 130): 15 u, inside the hip gate
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
     return buildGrid(params, [], [], [f, wall], [
       { modelName: 'worldmodel', path: 'worldmodel/f0', first: 0, count: 1 }, { modelName: 'worldmodel', path: DI, first: 1, count: 1 },

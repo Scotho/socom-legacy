@@ -207,7 +207,10 @@ export type EffectOp =
    * 111263): the node (+6) takes the reference node's (+7) world rotation / position when there is one; then flag 1
    * sets the euler angles / offset at +8, flag 2 adds them, flag 4 keeps the node's own.
    */
-  | { op: 'rotate' | 'translate'; node: number; ref: number; flags: number; xyz: Vec3 }
+  // Two members, not one with `op: 'rotate' | 'translate'`: a reader's `Extract<EffectOp, { op: 'translate' }>` would be
+  // `never` (LATER 951's typecheck red at 6c298b0c9b). Same fields; types only.
+  | { op: 'rotate'; node: number; ref: number; flags: number; xyz: Vec3 }
+  | { op: 'translate'; node: number; ref: number; flags: number; xyz: Vec3 }
   /**
    * `OBJECT_MOTION_FROM_TO` (22) as the flashes use it: a node's scale from `from` to `to` over `seconds` (research 89
    * §4). DOORS (socomlegacy/docs/research/92-doors.md): with flag 0x40 the node's rotation, the quaternions (x, y, z, w) at +0x10
@@ -391,6 +394,20 @@ export type EffectOp =
    * keyword land at +0x22 instead (D:L487519-487530; research 214 section 9, research 92 section 2). Not decoded.
    */
   | { op: 'aiAnimate'; type: number; prewait: number; postwait: number; blocking: boolean; select: number }
+  /**
+   * LATER 1206 (research 428 s8.4-s8.5; reading, pending review): `ai::MOVE` (set 2 command 16; 44 bytes; parser
+   * `FUN_005d64b0` D:L488996-489058, begin `FUN_005d5d00` D:L488725-488994, tick `FUN_005d5b40` D:L488660-488722;
+   * research 92 section 2, research 214 section 9): a goal given to the controller of the actor that started the program
+   * (the `select`-th tag-1 context, +4). `mode` is the low nibble of +0x28 (the parser: 1 `node`, 3 and 4 by a third
+   * keyword, 2 another; the begin reads 1, 2, 3 and 4); `node` the reference at +0x24 (mode 1: resolved by
+   * `FUN_0026f4e0`, the door programs' 0xfa the first tag-3 context, the door's node); `dist` the f32 at +0x20; `pos` the
+   * three f32 at +8 (mode 1: a point in the node's frame, `FUN_003085c0`); `dir` the three f32 at +0x14 (read by mode 4
+   * only, D:L488797). Mode 1's goal: P = the node's world matrix on `pos`, d = the flat unit vector from P to the actor,
+   * the point P + `dist` x d, the facing -d (D:L488938-488961). `blocking` is bit 5 (0x20) of +0x28, the parser's
+   * `blocking` keyword; the begin overwrites it with whether the actor's controller answers its vtable +0x38
+   * (D:L488983-488989): an AI's does, a player's does not.
+   */
+  | { op: 'aiMove'; mode: number; node: number; dist: number; pos: Vec3; dir: Vec3; blocking: boolean; select: number }
   | { op: 'other'; cmd: number; name: string };
 
 export interface EffectSequence {
@@ -416,6 +433,13 @@ export interface EffectProgram {
    * D:L118599), never with the others at its start. Absent with none (the bases' pulses carry one: their outline off).
    */
   cleanup?: number;
+  /**
+   * Research 448: the indices of the sequences `Anim_Params`' first three offsets start at -- damage (+0x10), activation
+   * (+0x12) and execution (+0x14) (research 106 §1, §2) -- which the runtime runs by those offsets, not by their
+   * activation word. The effect runner keeps running these from the start as it did (their own timing is not this
+   * field's); every other activation-2 sequence waits for a start by name (`FUN_00269b00`). Absent with none.
+   */
+  guards?: number[];
 }
 
 const NAME = (names: readonly string[], i: number): string => names[i] ?? `#${i}`;
@@ -547,6 +571,11 @@ export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>,
   if (cmd.set === 2 && cmd.cmd === AI_CMD.ANIMATE) {
     return { op: 'aiAnimate', type: c.i32(0x30), prewait: c.f32(8), postwait: c.f32(0x10), blocking: (c.u8(0x23) & 2) !== 0, select: c.i32(4) };
   }
+  if (cmd.set === 2 && cmd.cmd === AI_CMD.MOVE) {
+    // LATER 1206: `FUN_005d64b0`'s fields (D:L488996-489058): +4 select, +8 pos, +0x14 dir, +0x20 dist, +0x24 node, +0x28 mode | blocking.
+    const flags = c.u8(0x28);
+    return { op: 'aiMove', mode: flags & 0xf, node: c.i32(0x24), dist: c.f32(0x20), pos: c.vec3(8), dir: c.vec3(0x14), blocking: (flags & 0x20) !== 0, select: c.i32(4) };
+  }
   const n = cmd.set === 0 ? cmd.cmd : -1;
   switch (n) {
     case ZCMD.IF: return { op: 'if', conditions: conditions(c, names) };
@@ -648,6 +677,12 @@ export function decodeEffectOp(cmd: Pick<ZAnimCommand, 'set' | 'cmd' | 'bytes'>,
 export function decodeEffectProgram(anim: ZAnimAnimation): EffectProgram {
   const offset = anim.params.seqOffsets?.[3] ?? 0;   // a hand-built animation (a test's) may carry none
   const cleanup = offset > 0 ? anim.sequences.findIndex((s) => s.offset === offset) : -1;
+  const guards: number[] = [];
+  for (const o of (anim.params.seqOffsets ?? []).slice(0, 3)) {
+    const i = o > 0 ? anim.sequences.findIndex((s) => s.offset === o) : -1;
+    if (i >= 0 && !guards.includes(i)) guards.push(i);
+  }
+  guards.sort((a, b) => a - b);
   return {
     name: anim.name, root: anim.params.rootNodeIndex, flags: anim.params.flags,
     nodes: anim.nodeRefs.map((r) => r.name),
@@ -656,7 +691,34 @@ export function decodeEffectProgram(anim: ZAnimAnimation): EffectProgram {
       ops: s.commands.filter((c) => !(c.set === 0 && c.cmd === ZCMD.QUAD_ALIGN)).map((c) => decodeEffectOp(c, anim.names)),
     })),
     ...(cleanup >= 0 ? { cleanup } : {}),
+    ...(guards.length > 0 ? { guards } : {}),
   };
+}
+
+/**
+ * Research 448: which of a program's sequences the original can start, by index -- what a static reader of a program
+ * (the forge's ambients, a sound's emitter) may take as played. The start runs the activation-1 sequences
+ * (`FUN_0026ae20` D:L115457-115509); the runtime runs the `Anim_Params` guards and the cleanup by their offsets; any other
+ * runs only when a start by name reaches it (`FUN_00269b00` D:L114701-114760) -- here, a `CALL_SEQUENCE` or an
+ * `OBJECT_MOTION` material in a sequence itself reached (taken to its fixed point). A start by the host or the game (a
+ * door's, a gate's, the AI's) is not a program's own and is not seen here.
+ */
+export function sequencesReached(program: EffectProgram): boolean[] {
+  const guards = new Set(program.guards ?? []);
+  const reached = program.sequences.map((s, i) => s.activation === 1 || guards.has(i) || i === program.cleanup);
+  for (let grew = true; grew;) {
+    grew = false;
+    const named = new Set<string>();
+    program.sequences.forEach((s, i) => {
+      if (!reached[i]) return;
+      for (const o of s.ops) {
+        if (o.op === 'callSequence') named.add(o.sequence);
+        if (o.op === 'motion') for (const m of o.motion.materials) if (m.sequence) named.add(m.sequence);
+      }
+    });
+    program.sequences.forEach((s, i) => { if (!reached[i] && named.has(s.name)) { reached[i] = true; grew = true; } });
+  }
+  return reached;
 }
 
 /** The animations a program calls, directly and through what those call (for loading what a muzzle effect needs). */

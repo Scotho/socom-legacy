@@ -59,7 +59,7 @@ Counts (59 ledger rows): **RESOLVED 19, PARTIAL 5, UNRESOLVED 23, NOT-A-GAP 12**
 | U10 the crouch/prone scope eye 11.1 / 1.7 (`cameraRig.ts:110`) | RESOLVED | STRONG | 9.90 crouched; prone by the formula above. |
 | U11 the class compare's body (`physics.ts:251`) | RESOLVED (elsewhere) | -- | `FUN_005ac1f0`, already read by research 151 §2.2. |
 | U12 the grid ×10 / landing rates as readings (`physics.ts:24,39,41`) | NOT-A-GAP | STRONG | The PCSX2 dump holds `DAT_0044c26c` = 6.5 and `DAT_0044c260` = 115, the scaled numbers the port uses. |
-| U13 `KNOCK_LANDING_GATE_READING` (R151) | PARTIAL | BELIEVED | The only setter found is `FUN_005594b0` (vtable at 0x669268), on event 0 in a network game (D:L422309-422314). |
+| U13 `KNOCK_LANDING_GATE_READING` (R151; retired 2026-11-24 by R4P-104 for `DIVE_LANDING_BIT3_READING`) | PARTIAL | BELIEVED | The setter first found is `FUN_005594b0` (vtable at 0x669268), on event 0 in a network game (D:L422309-422314). **Not the only one** (R4P-104's second read, patches-contrib, 2026-11-24; reading, pending review): r0001 `CMission::LoadVehicle` (the store at 0x2b2ca4, the mask loaded at 0x2b2c94; D:L155873-155876) sets `+0x105c` bit 3 on a non-AI body (vtable +0x38 == 0) loaded as the first `vehicles.rdr` entry (and that entry's extra copies, param_3 = 1 at D:L156084 / D:L156117) when the mission flags `+0x140` include 0x1000; r0004 keeps it (0x2b46b4) and adds `CRemoteCtrl::SetAiNetState` (0x5749e4), a once-only latch when a remote AI copy is rescued. Whether a player's body loads through that path (so a player's dive could carry the bit) is not traced (research 151). |
 | others (`segment.ts`, `tuning.ts` camera_roll, `cameraParams` fog, `clipPath` fallback, `reloadClip` family gate, `GroundWish` boost, R149) | NOT-A-GAP | -- | Fallbacks, ruled items, the page's own, or no gap in C2's area. |
 | the rest (R77 flags and pad lane, the head f32s, playback, R78 colour lane, matrix_id, lids, R80 switch blend, swap gates, head look, rotator clamp, eyes, the zoom readings A31-A34, the crouch diagonal A5, the slope slide A6, min_jump_height, ladder 7.59, `+0x45` camera blend, peek "180", weaponPose / weaponRaise / throwPose / animator readings, posture 6, the bob sign A29, the console runs research 88 §5 owes) | UNRESOLVED | -- | Not settled this wave. Search record and leads are in each ledger row and in "Leads" below. |
 
@@ -209,12 +209,15 @@ tick.
   the view the scope and first person use, which research 84/86 name and research 17 found off the third-person path.
   - Standing (`seal_stand` root 11.4844): **15.884**.
   - Crouched (`seal_crouch` 5.5039): **9.904**.
-  - Prone on flat ground, level or downward look: **5.768**, and 4.9 ahead of the root (−z is forward).
+  - Prone on flat ground, level or UPWARD look: **5.768**, and 4.9 ahead of the root (−z is forward); looking down the eye
+    rises (PRONE_EYE_LOOK, 2026-11-23: 9.872 at the prone limit of −20°). *Was* "level or downward look" (the sign backwards).
   - In the `seal_fp_*` clips the standing root is 10.797, which gives 15.197. The eye follows the posed root.
 - **Implementation:**
   - `scopeEyeHeight(stance)` → `posedRoot + 4.4` (stand, crouch), with z −2.5 ahead.
   - Prone: `posedRoot + (max(6·q.x, 0) + 1.8) · 2 / max(n_y, 0.5)`, z `−4.9 · max(n_y, .5)`. `q.x` is the look's
-    pitch term (`cam+0xb4 +0x24`; its exact meaning is owed).
+    pitch term (`cam+0xb4 +0x24`): READ since (PRONE_EYE_LOOK, seat-kill's non-author re-read; research 217 s7.7) -- the
+    camera's row 2 y, sin(look DOWN), so `max(6q, 0)` raises the eye looking down and is 0 level or up; the port's
+    `PRONE_EYE_LOOK_READING`. *Was* "its exact meaning is owed".
   - The port already has the posed root (`WalkMode.setPosedRoot`). `shotCone.ts:308` and `walk.ts:761` move with it:
     **this changes where a scoped round starts** (2.4 lower standing, 4 higher prone). Remote players see it, and it
     changes gameplay.

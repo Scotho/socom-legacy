@@ -79,6 +79,15 @@ The launcher pickup rule already reads each candidate slot's ring (`FUN_005bae60
 same per-slot state into its existing shared predicate lets a spent duplicate qualify independently; it does not
 change the existing five-slot launcher/round accommodation rule or any pickup reach, motion or equipment-limit gate.
 
+A walk-over's equipment take (R142, LATER 1129, 2026-11-18; reading, pending review) reaches the taker's page in the
+room's `kit`: each slot the take wrote, as `KitEquipmentWire` -- an installed slot (`FUN_005bc410` D:L473823-473829)
+whole, which the page sets as it stands (`EquipmentSlots.setSlot`, validated as a resume's slot is); a topped-up slot
+(`FUN_005ba3d0`) with `added`, the amount each magazine changed by, which the page adds to its own count, capped by the
+record (`EquipmentSlots.add`) -- the firearm transfer's `added` rule, so a throw the page spent ahead of the room is
+not given back. The kit's names are laid first (`GrenadeThrower.takeKit`: matching rings kept, a new slot empty), then
+these slots (`GrenadeThrower.takeRoomEquipment`). The kit and a resume also carry the kept Detonator (`detonator`,
+research 85 §9.7.1). A wire change: it shares the protocol bump of its patch (the controller's rule, 2026-11-18).
+
 ## 4. Verification and remaining evidence
 
 `viewer/test/equipmentSlots.test.ts` covers independent duplicate counts, selected-slot exhaustion, wind-up

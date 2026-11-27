@@ -1,5 +1,6 @@
 import type { MatchWorker } from './matchMount';
 import type { ViewerRequest, ViewerResponse } from './worker';
+import { noteXboxMemory } from './xboxMemoryTrace';
 
 /**
  * Browser adaptation: on Xbox, only one decoder runs at a time. Each request gets a fresh isolate, terminated before
@@ -31,6 +32,7 @@ export function serialMatchWorker(make: () => MatchWorker): MatchWorker {
       doing: `decoding ${request.kind}`, message: error instanceof Error ? error.message : String(error) });
     try {
       own = make(); current = own;
+      noteXboxMemory(`worker-start:${request.kind}`, { requestId: 'id' in request ? request.id : 0 });
       own.addEventListener('message', (e) => reply(e.data));
       own.addEventListener('error', () => failed(new Error('The map asset decoder stopped before completing its request.')));
       own.postMessage(request);

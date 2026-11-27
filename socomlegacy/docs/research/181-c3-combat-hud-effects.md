@@ -479,8 +479,10 @@ addresses, the ELF and the dumps all share one address space: r0001.
 ### 9.3 Claim 10: C3: spin, flash, backblast
 
 - **Spin.**
-  - `FUN_003cabe0` (D:L320444-320561) calls `FUN_00315820` (set rotation) only for categories 0xab / 0xb9 / 0xe6 or a
-    bullet, and in the bullet-tracer branch.
+  - `FUN_003cabe0` (D:L320444-320561) calls `FUN_00315820` (which copies the whole 16-word matrix, translation
+    included, through `FUN_001bfec0`, then calls its own virtual slot +0x10 (vtable at +0x60) and sets +0xa1 bit 2 --
+    the caller's matrix replaces the local one; D:L215080-215089, D:L40770-40824) only for categories 0xab / 0xb9 /
+    0xe6 or a bullet, and in the bullet-tracer branch.
   - My caller scan (`callers_rotation.out`) finds one other projectile-side rotation writer, `FUN_003c5310`
     D:L316854. It runs only when the projectile is attached to a node (`+200` != 0) and copies the node's matrix. That
     is a stuck object, not a flight tumble.

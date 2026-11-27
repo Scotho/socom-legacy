@@ -176,7 +176,7 @@ export interface ForgeEditor {
   dragPlace?: { enter(asset: string): boolean; over(clientX: number, clientY: number): boolean; drop(clientX: number, clientY: number): boolean; leave(): void };
   /**
    * The real piece of `asset`, staged off the scene; null when it does not build here or a placement is not admitted now.
-   * `background` (a drag's ghost; the owner, 2026-11-14: "make the placement responsive ... load the asset in the
+   * `background` (a drag's ghost; the Forge's owner (crispy, OT.R112), 2026-11-14: "make the placement responsive ... load the asset in the
    * background"): staged at once, its model joining it once read -- the drop never waits on it.
    */
   stagePiece(asset: string, options?: { background?: boolean }): Promise<StagedPiece | null>;
@@ -191,7 +191,7 @@ export interface ForgeEditor {
   /** R3-B: a drop at the client point, projected through the page's camera (`ForgeDropProjection`). */
   projectDrop(clientX: number, clientY: number): ForgeDropProjection;
   /**
-   * A drop at the centre of the view, as the camera sees it (a browser adaptation: the Outliner's asset drop, the owner
+   * A drop at the centre of the view, as the camera sees it (a browser adaptation: the Outliner's asset drop, the Forge's owner (crispy, OT.R112),
    * 2026-11-12: "creates the asset at the center point in the viewport from the camera's view").
    */
   projectCentre?(): ForgeDropProjection;

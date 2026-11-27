@@ -406,13 +406,17 @@ scale 1 every quad takes the programmable path anyway (GM.R6, `exact`); the coun
 | UiParams.rdr | 60 | 0 | 0 .. 0 | 0 | 0 | 0 / 0 / 0 | 0 | 0 | -- | 0 |
 | uisounds.rdr | 60 | 0 | 0 .. 0 | 0 | 0 | 0 / 0 / 0 | 0 | 0 | -- | 0 |
 | dlgMenu + MENULOOP (300 frames) | 300 | 250 | 0 .. 254 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 12 | 0 | 128 | 0 |
-| CREATE GAME (PLAY LIST, four maps) | 121 | 1142 | 0 .. 128 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
+| CREATE GAME (PLAY LIST, four maps) | 121 | 1134 | 0 .. 128 | 0 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
 | ARMORY (MP51, seal) | 270 | 703 | 12.800000190734863 .. 128 | 172260 | 0 | 0 / 0 / 0 | 228 | 0 | 128 | 0 |
 | ARMORY (MP51, terrorist) | 270 | 657 | 12.800000190734863 .. 128 | 166793 | 0 | 0 / 0 / 0 | 198 | 0 | 128 | 0 |
 | Settings overlay (in match) | 184 | 568 | 25 .. 128 | 0 | 0 | 0 / 0 / 0 | 0 | 0 | -- | 0 |
 | Loader screens (the sequence) | 96 | 2 | 0.5019607843137255 .. 128 | 19 | fade 1 | 286720 / 1146880 / 4587520 | 0 | 0 | -- | 0 |
 
 <!-- GM-04 tally: end -->
+
+*Re-filed 2026-11-21 (dev disc, `GM04_TALLY_WRITE=1`; MAPS-MP5-MP64, the owner's B5/S9): CREATE GAME's quads 1142 -> 1134,
+the only cell that moved -- `FIRST_RELEASE_MAPS` gained MP5 and MP64, so the PLAY LIST's first window holds other rows
+(the row's "four maps" label is the corpus scene's name, kept). Every other row unchanged.*
 
 Re-filed 2026-11-07 (V13-2, OT.R58 as amended by #723): CREATE GAME's "Quads (most in a frame)" 1084 -> 1102 (+18).
 The PLAY LIST holds five rows (The Ruins the fifth); the corpus still focuses its first four, and the most-quads frame

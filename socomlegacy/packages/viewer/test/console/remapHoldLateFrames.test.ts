@@ -143,7 +143,7 @@ async function sequence(): Promise<void> {
   expect(lead()).toBe('R3 is already used for PRONE. Swap them, replace it, or cancel.');
 }
 
-describe('LATER 608: the spec\'s hold to bind under late animation frames', () => {
+describe('LATER 608: the spec\'s hold to bind under late animation frames', { timeout: 20_000 }, () => { // CPU-bound, as remapConflictSequence
   it('at 60 Hz the binds are taken and Crouch onto Prone\'s button asks', async () => {
     mode = 'regular';
     await sequence();

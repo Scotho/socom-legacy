@@ -1,4 +1,5 @@
 import { connectedPads } from '../../controllerInput';
+import { padsOfferNoActuator } from '../../rumble';
 import { CONTROLLER_LAYOUTS, controllerLayoutDescription } from '../../controllerSettings';
 import { codModernChosen, COD_MODERN_VALUE } from '../../controllerModern';
 import { CONTROLLER_LABEL_CHOICES, readControllerLabels, saveControllerLabels, STEAM_CONTROLLER_HELP } from '../../controllerLabels';
@@ -11,13 +12,20 @@ import { cardOptionStore, TUNER_SAVE_SETTLE_MS_ADAPTATION, type OptionStore } fr
 import { pageSettings } from '../../pageStore';
 import { PAD_SELECTION_KEY } from '../../setupPad';
 import { TOUCHPAD_CROUCH_TOAST } from '../../controllerInput';
-import { STANCE_MODE_ABOUT, STANCE_MODE_WORDS, STANCE_SEPARATE_BINDS_TIP, controllerStanceMode, readPreference, savePreference, setControllerStanceMode } from '../../startupSettings';
-import { pagePicture } from '../../picture';
+import { STANCE_MODE_ABOUT, STANCE_MODE_WORDS, STANCE_SEPARATE_BINDS_TIP, controllerStanceMode, defaultController, readPreference, savePreference, setControllerStanceMode } from '../../startupSettings';
+import { pagePicture, pictureDefault, ps2ProfileApplies } from '../../picture';
+import { ceilingWords, effectiveShape, pageShape, VIDEO_SHAPES, type VideoShape } from '../../shape';
+import { CHAT_IN_CHOICES, FROM_OTHERS_WORDS, MY_VOICE_CHOICES, MY_VOICE_WORDS, VOICE_IN_CHOICES, DETAILS_CHOICES, DETAILS_WORDS, onStreamerChange, readStreamer, saveStreamerRow, setStreamerMode, STREAMER_DEFAULTS_ADAPTATION } from '../../streamerMode';
+import { CLAN_TAGS_CHOICES, CLAN_TAGS_DEFAULT_ADAPTATION, CLAN_TAGS_WORDS, readClanTags, saveClanTags } from '../../clanTagOption';
 import { NAME_TAGS_DEFAULT_ADAPTATION, NAME_TAGS_LOOKS, NAME_TAGS_WORDS, readNameTags, saveNameTags } from '../../nameTags';
+import { AMBIENCE_VOLUME_DEFAULT_ADAPTATION, AMBIENCE_VOLUME_VALUES, readAmbienceVolume, saveAmbienceVolume } from '../../ambienceVolume';
 import { RANGE_READOUT_DEFAULT_ADAPTATION, RANGE_READOUT_VALUES, RANGE_READOUT_WORDS, readRangeReadout, saveRangeReadout } from '../../rangeReadout';
-import { isCustom, PRESET_VALUES, resolveAutomatic, VIDEO_SCHEMA, videoSettingsKeeperV2, type Preset, type Rows, type VideoRow, type VideoSettingsV2 } from '../../videoSettings';
-import { asksForWebGPU, GRAPHICS_BACKEND_APPLY_NOTE, GRAPHICS_BACKEND_KEY, graphicsBackendOverride, type GraphicsBackendPreference } from '../../graphicsBackend';
-import { pageDeviceClass, type DeviceClass } from '../../deviceClass';
+import { JOIN_LEAVE_LINE_DEFAULT_ADAPTATION, JOIN_LEAVE_LINE_VALUES, JOIN_LEAVE_LINE_WORDS, readJoinLeaveLine, saveJoinLeaveLine } from '../../joinLeaveLine';
+import { CEILING_DEVICE, isCustom, PRESET_VALUES, resolveAutomatic, VIDEO_SCHEMA, videoSettingsKeeperV2, type Preset, type Rows, type VideoRow, type VideoSettingsV2 } from '../../videoSettings';
+import { asksForWebGPU, GRAPHICS_BACKEND_APPLY_NOTE, GRAPHICS_BACKEND_KEY, graphicsBackendOverride, readGraphicsBackend, type GraphicsBackendPreference } from '../../graphicsBackend';
+import { LIGHTWEIGHT_MATCH_DEFAULT_ADAPTATION, LIGHTWEIGHT_MATCH_KEY, lightweightMatchEligible, lightweightMatchSavedChoice } from '../../lightweightMatchOptIn';
+import { appleGraphics, pageAppleGpu, pageDeviceClass, type DeviceClass } from '../../deviceClass';
+import { wantsTouchControls } from '../../touch';
 import { presetOfRows } from '../../autoQuality';
 import { clearGraphicsDemoted, readGraphicsDemoted } from '../../graphicsDemotion';
 import type { IconName } from '../icons';
@@ -33,6 +41,7 @@ import { INSTALL_APP_ROW, KEPT_DISC_ROW, REMAP_ROW, SHARE_SEND_ROW, THEME_PANEL_
 import { SHARE_SEND_ROW_ABOUT, SHARE_SEND_ROW_ACTION, SHARE_SEND_ROW_LABEL, SHARE_SEND_ROW_NOTE } from '../../discShareWords';
 import type { LivePad } from './pad';
 import { SKIP_MENU_HINT, SKIP_MENU_LABEL, SKIP_MENU_ROW, setSkipMenu, skipMenuOn } from '../skipMenu';
+import { texturePackSpecs } from '../texturePackSetting';
 
 /**
  * The console launcher's Options (slice 2, part i; CX-5): the options that really exist, and none of the prototype's
@@ -117,12 +126,37 @@ export const DETAIL_DISTANCE_ROW = 'detail-distance';
  * to `../../matchMount`): the two agree both ways, and a running match hears a change. Never the card's `video_mode`.
  */
 export const VIDEO_PICTURE_ROW = 'video-picture';
+/**
+ * VIDEO-SHAPE phase A (player report Q-01; the owner's accepted model, 2026-11-21; a browser adaptation, no original): the
+ * picture's row is worded "Sharpness" (Modern / PS2 pixels; the same key and keeper), and this row, right after it, is
+ * the match canvas's Shape -- Fill the window / 4:3 / 4:3 stretched -- through the page's one shape keeper
+ * (`../../shape` `pageShape`, which the match follows live). Under PS2 pixels it is shown at 4:3 and locked.
+ */
+export const VIDEO_SHAPE_ROW = 'video-shape';
+/** The Shape row's words, in `VIDEO_SHAPES`' order (a browser adaptation). */
+export const VIDEO_SHAPE_WORDS: Record<VideoShape, string> = { fill: 'Fill the window', '4:3': '4:3', '4:3-stretched': '4:3 stretched' };
+
+/**
+ * LW-DEFAULT (a browser adaptation, no original; product track): Options > Display's "Match engine", after Video -- the
+ * lightweight match (`../../xboxPrototype/matchLoader`) or the standard engine, the player's choice under
+ * `../../lightweightMatchOptIn` `LIGHTWEIGHT_MATCH_KEY` ('1' / '0'; the reset empties it, so the class's default
+ * `LIGHTWEIGHT_MATCH_DEFAULT_ADAPTATION`, off today, reads again and is never written). Built only on the Xbox class or with
+ * the Xbox pick -- the front end's mount's own test (`lightweightMatchEligible`) -- and absent on every other device. The
+ * row shows the saved choice; an address flag (`?lightweightmatch=1` / `=0`, an instrument) is never written into it. The
+ * words are proposals for the owner's review.
+ */
+export const LIGHTWEIGHT_MATCH_ROW = 'lightweight-match';
+export const MATCH_ENGINE_LABEL = 'Match engine';
+/** Index 0 the lightweight match, 1 the standard engine. */
+export const MATCH_ENGINE_VALUES: readonly string[] = ['Lightweight (Xbox)', 'Standard'];
+export const MATCH_ENGINE_ABOUT = 'Lightweight is a simpler match engine made for the Xbox\u2019s browser: it uses less memory, and leaves some things out (hostages, turrets, pickups, reconnecting after a network drop). Standard is the full game.';
+export const MATCH_ENGINE_NOTE = 'Saved to this browser. Applies from the next match.';
 
 /**
  * CPS-4a (CPS.R7, a browser adaptation with no original; the owner, Craig, 2026-11-02: "Start building out new video
  * settings with sensible defaults in the client itself"): Options > Display's Render scale, Shadows and Show FPS -- since
- * VS-2 three of the video schema's rows (`VIDEO_ROW_IDS`; Show FPS is the performance overlay, the START menu's SHOW FPS
- * key, `../../matchFps` `FPS_SHOWN_KEY`), their ids kept.
+ * VS-2 three of the video schema's rows (`VIDEO_ROW_IDS`; Show FPS is the performance overlay, the native VIDEO OPTIONS'
+ * SHOW FPS key, `../../matchFps` `FPS_SHOWN_KEY`), their ids kept.
  */
 export const RENDER_SCALE_ROW = 'render-scale';
 export const SHADOWS_ROW = 'shadows';
@@ -151,11 +185,15 @@ export const VIDEO_ROW_IDS: Readonly<Record<VideoRow['key'], string>> = {
   shadows: SHADOWS_ROW, detailDistance: DETAIL_DISTANCE_ROW, antialias: 'video-antialias', filtering: 'video-filtering',
   graphics: 'graphics-backend', power: 'video-power', colourFilter: 'video-colour-filter',
 };
-/** The rows' labels (the spec §4.2's words). */
+/**
+ * The rows' labels (the spec §4.2's words). VIDEO-SHAPE (the controller's taste call C1 on the product track,
+ * VIDEO-SETTINGS.md "Plain names"; a browser adaptation): Max resolution, Resolution scale, Renderer and Graphics chip --
+ * words only, the row ids and the storage keys and values unchanged.
+ */
 export const VIDEO_ROW_LABELS: Readonly<Record<VideoRow['key'], string>> = {
-  preset: 'Preset', renderScalePct: 'Render scale', ceiling: 'Resolution ceiling', frameCap: 'Frame cap', overlay: 'Performance overlay',
+  preset: 'Preset', renderScalePct: 'Resolution scale', ceiling: 'Max resolution', frameCap: 'Frame cap', overlay: 'Performance overlay',
   shadows: 'Shadows', detailDistance: 'Detail distance', antialias: 'Antialias', filtering: 'Texture filtering',
-  graphics: 'Graphics', power: 'Power preference', colourFilter: 'Colour filter',
+  graphics: 'Renderer', power: 'Graphics chip', colourFilter: 'Colour filter',
 };
 /** The groups' headings; the first group's row carries the tab's "This browser" heading instead. */
 export const VIDEO_GROUP_HEADINGS: Readonly<Record<VideoRow['group'], string>> = { quality: 'Quality', display: 'Display', detail: 'Detail', renderer: 'Renderer', picture: 'Picture' };
@@ -195,12 +233,40 @@ export const PERF_LINE_ROW = 'perf-line';
 export const NAME_TAGS_ROW = 'name-tags';
 
 /**
+ * PSR-5 (R4P.R11, the owner, 2026-11-23; product track, a browser adaptation with no original): Display's "Clan tags in names"
+ * under "This browser", Shown / Hidden (Shown by default, r0004's "[TAG] name"; `../../clanTagOption`). The labels read it live.
+ */
+export const CLAN_TAGS_ROW = 'clan-tags';
+
+/**
+ * STREAMER-P1 (OT.R152, the owner, 2026-11-24: "Streamer mode thursday release"; product track, a browser adaptation with no
+ * original; `../../streamerMode`): Communication's "Streamer mode" under "This browser", Off / On (Off by default), and
+ * its sub-rows, shown only while it is On. Turning it On writes the preset into the sub-rows; Off restores them.
+ */
+export const STREAMER_MODE_ROW = 'streamer-mode';
+export const STREAMER_DETAILS_ROW = 'streamer-details';
+export const STREAMER_VOICE_IN_ROW = 'streamer-voice-in';
+export const STREAMER_MY_VOICE_ROW = 'streamer-my-voice';
+export const STREAMER_CHAT_IN_ROW = 'streamer-chat-in';
+/** The master row's help (the scope's s2: what each row hides; this browser only; no OBS detection; names still seen). */
+export const STREAMER_MODE_ABOUT = 'A browser option, not part of the game, for playing on a stream. On, strangers’ voices and messages go quiet in the game lobby and briefing rooms while your friends and clan mates are still heard (not yet in the Forge’s custom match lobby), everyone in a match is heard as before, and your microphone is not opened outside a match (each of these is a row below). It also hides your room and account details: game and clan passwords show as asterisks, invite links are not drawn (Copy still copies them), your account name reads YOU and your clan’s name reads Hidden, and GAME DETAILS’ room (or server) and game lines read Hidden. The pages where you type your name or a new clan’s name show it as you type it. Your name can still show in a match’s kill and chat lines, the clan roster and the MVP line. It applies in this browser only and cannot tell whether OBS or another capture is running, so turn it on yourself (Ctrl+Shift+S; in a match, Ctrl also crouches). An invite link you open is taken out of the address bar, so a reload there no longer joins. Other players still see your name. Turning it off puts your earlier choices back.';
+
+/**
  * HUD-ALIVE C (OT.R117, the owner, Craig, 2026-11-09; product track, a browser adaptation with no original): Options >
  * Display's "Range readout" under "This browser", Off / On (Off by default, `../../rangeReadout`
  * `RANGE_READOUT_DEFAULT_ADAPTATION`): the range finder's metres in the info box's spot, in the consoles' count's place
  * (`RANGE_READOUT_ADAPTATION`). Read at a match's mount, as Name tags is.
  */
 export const RANGE_READOUT_ROW = 'range-readout';
+/**
+ * PRS-888 (JOIN-LEAVE-LINE; product track, a browser adaptation with no original): Options > Display's "Join/leave lines"
+ * under "This browser", Off / On (On by default, the owner's ruling D7 2026-11-24, `../../joinLeaveLine`
+ * `JOIN_LEAVE_LINE_DEFAULT_ADAPTATION`; the original posts no such line, so Off is the game's own). On, a human player's join into a running game and a leave are named on the message window. Read
+ * at a match's mount, as the Range readout is.
+ */
+export const JOIN_LEAVE_LINE_ROW = 'join-leave-line';
+/** LATER 1177(b): Audio's "Ambience volume" under "This browser" (`../../ambienceVolume`, a browser adaptation). */
+export const AMBIENCE_VOLUME_ROW = 'ambience-volume';
 
 /** SS-1's D2: Controller's browser dead zone row, named apart from the card's Dead zone (`../render/remap`'s, one name). */
 export { PAD_DEAD_ZONE_LABEL };
@@ -220,6 +286,9 @@ export interface OverlayButtonBinding {
 /** The row's choices: Home first, the standard mapping's sixteen, then the touchpad's click (17). */
 export const overlayButtonChoices = (home: number): number[] => [home, ...Array.from({ length: 16 }, (_, i) => i), 17].filter((b, i, all) => all.indexOf(b) === i);
 
+/** B-73 (a browser adaptation): what the Vibration row adds when the connected pad offers the browser no motor. */
+export const NO_VIBRATION_MOTOR_NOTE = 'This browser cannot drive your controller’s vibration.';
+
 export type LiveOptions = Adapters['options'] & { dispose(): void };
 
 export interface OptionsDeps {
@@ -232,6 +301,8 @@ export interface OptionsDeps {
   kept?: { info(): KeptDisc | null; forget(): Promise<void> };
   /** OVERLAY-CONSOLE: the overlay's opening button, for Options > Controller's "Overlay button" row; absent, no row. */
   overlayButton?: OverlayButtonBinding;
+  /** B-73 (a browser adaptation): whether the connected pad offers no vibration motor (`../../rumble` `padsOfferNoActuator`); absent, the real pads are read. */
+  noVibrationMotor?: () => boolean;
   /** The connected pads as `index:id` keys and names; absent, `navigator`'s. */
   pads?: () => { key: string; name: string }[];
   media?: MediaDevices;
@@ -385,8 +456,12 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
   // settles (`../../modern/settings/store` `stageTuner`); a reset writes at once. A store without staging writes each step.
   const stage = (tuner: string, value: number): boolean => (store.stageTuner ? store.stageTuner(tuner, value) : store.setTuner(tuner, value));
 
+  const noMotor = (): boolean => {
+    try { return deps.noVibrationMotor ? deps.noVibrationMotor() : padsOfferNoActuator(connectedPads(globalThis.navigator ?? {})); } catch { return false; }
+  };
   const cardSpec = (c: Control): Spec | null => {
-    const row = { id: c.id, label: c.label, about: ABOUT[c.id] ?? '', note: cardNote() };
+    const row = { id: c.id, label: c.label, about: ABOUT[c.id] ?? '',
+      get note() { return c.id === 'VIBRATION_CONTROLLER' && noMotor() ? `${cardNote()} ${NO_VIBRATION_MOTOR_NOTE}` : cardNote(); } };
     if (c.kind === 'slider') {
       const raw = (): number | undefined => store.tuner(c.tuner) ?? tunerDefault(c.tuner) ?? undefined;
       const idx = (v: number | undefined): number | undefined => (v === undefined ? undefined : percentOf(v));
@@ -498,9 +573,9 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
   const padDead: Spec = {
     // SS-1's D2 (a browser adaptation): named for what it is -- this browser's pad calibration, before the game's own curve
     // -- so it cannot be read as the card's Dead zone under "In the game" (CONTROLLER OPTIONS' DEAD ZONE). Id and key kept.
-    row: { id: 'pad-dead', label: PAD_DEAD_ZONE_LABEL, about: `${PAD_DEAD_ZONE_ABOUT} The game’s own Dead zone, with the Custom preset, is under Layout and aiming.`, note: 'Saved to this browser, for this controller.' },
+    row: { id: 'pad-dead', label: PAD_DEAD_ZONE_LABEL, about: PAD_DEAD_ZONE_ABOUT, note: 'Saved to this browser, for this controller.' },
     values: () => Array.from({ length: 41 }, (_, i) => `${i}%`),
-    get: () => (deps.pad ? Math.round(deps.pad.deadZone() * 100) : undefined), def: () => 15,
+    get: () => (deps.pad ? Math.round(deps.pad.deadZone() * 100) : undefined), def: () => Math.round(defaultController().deadZone * 100),   // WM-PAD-DEADZONE: 5
     lock: () => (deps.pad?.connected() ? undefined : 'Connect a controller'),
     set: (i) => { deps.pad?.setDeadZone(i / 100); return true; },
   };
@@ -562,18 +637,90 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     def: () => 0, lock: () => undefined,
     set: (i) => { savePreference(MIC_DEVICE_KEY, i === 0 ? '' : mics[i - 1]?.id ?? ''); return true; },
   };
+  // STREAMER-P1 (a browser adaptation): the master row, and its sub-rows while it is On (`../../streamerMode`).
+  const streamerMode: Spec = {
+    row: { id: STREAMER_MODE_ROW, label: 'Streamer mode', about: STREAMER_MODE_ABOUT, note: 'Saved to this browser. Applies now.' },
+    values: () => OFF_ON, get: () => (readStreamer().on ? 1 : 0), def: () => 0, lock: () => undefined,
+    set: (i) => { setStreamerMode(i === 1); return true; },
+  };
+  const streamerDetails: Spec = {
+    row: {
+      id: STREAMER_DETAILS_ROW, label: 'Room and account details',
+      about: 'Hidden: game and clan passwords show as asterisks, invite links are not drawn (Copy still copies them), your account name reads YOU, your clan’s name reads Hidden, and GAME DETAILS’ room (or server) and game lines read Hidden; the pages where you type your name or a new clan’s name show it as typed. Your name can still show in a match’s kill and chat lines, the clan roster and the MVP line. An invite link you open is taken out of the address bar. Other players still see your name.',
+      note: 'Saved to this browser. Applies now.',
+    },
+    values: () => DETAILS_CHOICES.map((c) => DETAILS_WORDS[c]),
+    get: () => DETAILS_CHOICES.indexOf(readStreamer().rows.details), def: () => DETAILS_CHOICES.indexOf(STREAMER_DEFAULTS_ADAPTATION.details), lock: () => undefined,
+    set: (i) => { const c = DETAILS_CHOICES[i]; if (!c) return false; saveStreamerRow('details', c); return true; },
+  };
+  const offStreamer = onStreamerChange(notify);   // the hotkey's toggle redraws an open Options screen
+  // STREAMER-P1 slice 2: the voice and chat rows, each this browser's, at the preset when the mode is turned on.
+  const streamerRow = <K extends 'voiceIn' | 'myVoice' | 'chatIn'>(key: K, id: string, label: string, choices: readonly string[], words: Readonly<Record<string, string>>, about: string): Spec => ({
+    row: { id, label, about, note: 'Saved to this browser. Applies now.' },
+    values: () => choices.map((c) => words[c]!),
+    get: () => choices.indexOf(readStreamer().rows[key]), def: () => 0, lock: () => undefined,
+    set: (i) => { const c = choices[i]; if (c === undefined) return false; saveStreamerRow(key, c as never); return true; },
+  });
+  const streamerVoiceIn = streamerRow('voiceIn', STREAMER_VOICE_IN_ROW, 'Voice from others', VOICE_IN_CHOICES, FROM_OTHERS_WORDS,
+    'Whose voices this browser plays. Matches + friends & clan: everyone in a match (team radio stays), only your friends and clan mates in the game lobby and briefing rooms. Friends & clan only: that everywhere. Off: none. Use microphone in game still has to be on to hear anyone. Someone whose voice is not played is not shown as talking. In the Forge’s custom match lobby, friends and clan mates count as strangers.');
+  const streamerMyVoice = streamerRow('myVoice', STREAMER_MY_VOICE_ROW, 'My voice', MY_VOICE_CHOICES, MY_VOICE_WORDS,
+    'Where this browser sends your voice. Matches only: your talk button does nothing outside a match and the microphone is not opened there. Your voice goes to the whole room, so it cannot be limited to friends.');
+  const streamerChatIn = streamerRow('chatIn', STREAMER_CHAT_IN_ROW, 'Chat from others', CHAT_IN_CHOICES, FROM_OTHERS_WORDS,
+    'Whose typed messages this browser shows, by the same choices as Voice from others. Hidden messages are counted on one line in the lobby’s chat, and in a match they are simply not shown (the game’s recorded orders still are); your own messages always show, and what you type is still sent. Switching back to Everyone does not bring back messages already hidden. In the Forge’s custom match lobby, friends and clan mates count as strangers.');
+  const streamerSpecs = (): Spec[] => (readStreamer().on ? [streamerMode, streamerVoiceIn, streamerMyVoice, streamerChatIn, streamerDetails] : [streamerMode]);
   const picture = pagePicture();
   const offPicture = picture.observe(() => { notify(); });   // HD-4: VIDEO's strip (over a match) moves this row and the lock below
   const videoPicture: Spec = {
     row: {
-      id: VIDEO_PICTURE_ROW, label: 'Video',
-      about: 'The picture a match draws: Modern at your screen\u2019s size or PS2\u2019s 640 x 448 frame. The same choice as VIDEO MODE in the game\u2019s own Options.',
+      id: VIDEO_PICTURE_ROW, label: 'Sharpness',
+      // XBOX-INTEGRATE: #810's PS2 shortcut is the Xbox class's only (`../../picture` `applyPs2Profile`); elsewhere the row
+      // says what it always said. VIDEO-SHAPE: worded Sharpness, Modern / PS2 pixels (the same key and keeper).
+      ...(ps2ProfileApplies() ? {
+        about: 'Modern draws at your screen\u2019s resolution. PS2 pixels selects 640 x 448, 30 FPS, WebGL2, shadows off and anti-aliasing off; Modern gives your own settings back. You can still change the individual graphics settings.',
+        note: 'Saved to this browser. Sharpness, FPS and shadows apply now; graphics and anti-aliasing apply from the next match.',
+      } : {
+        about: 'How sharp a match is drawn: Modern at your screen\u2019s resolution, or PS2 pixels, PS2\u2019s 640 x 448 frame on a 4:3 box. The same choice as VIDEO MODE in the game\u2019s own Options.',
+        note: 'Saved to this browser. Applies now, in a match too.',
+      }),
+    },
+    values: () => ['Modern', 'PS2 pixels'],
+    // WM-5a (a browser adaptation): the default is the class's (`../../picture` `pictureDefault`); a press is a choice,
+    // saved even when it is the picture shown (ruling C); the reset empties the key, never writes the default (ruling D).
+    get: () => Math.max(0, VIDEO_PICTURES.indexOf(picture.get())), def: () => Math.max(0, VIDEO_PICTURES.indexOf(pictureDefault())), lock: () => undefined,
+    set: (i) => { const p = VIDEO_PICTURES[i]; if (!p) return false; picture.choose(p); return true; },
+    reset: () => { picture.clear(); return true; },
+  };
+  // VIDEO-SHAPE (a browser adaptation): the Shape row -- a press is a choice (saved even when shown), the reset empties the
+  // key (Fill read again, never written); under PS2 pixels shown at 4:3 and locked, as the render scale and ceiling are.
+  const shape = pageShape();
+  const offShape = shape.observe(() => { notify(); });                                   // a change elsewhere moves this row and the ceiling's words
+  const videoShape: Spec = {
+    row: {
+      id: VIDEO_SHAPE_ROW, label: 'Shape',
+      about: '4:3 frames the world as PS2 pixels does, with bars at the sides; 4:3 stretched fills a widescreen, as a 4:3 console on a widescreen television. Both show the same amount of the world.',
       note: 'Saved to this browser. Applies now, in a match too.',
     },
-    values: () => ['Modern', 'PS2'],
-    get: () => Math.max(0, VIDEO_PICTURES.indexOf(picture.get())), def: () => 0, lock: () => undefined,
-    set: (i) => { const p = VIDEO_PICTURES[i]; if (!p) return false; picture.set(p); return true; },
+    values: () => VIDEO_SHAPES.map((x) => VIDEO_SHAPE_WORDS[x]),
+    get: () => Math.max(0, VIDEO_SHAPES.indexOf(effectiveShape(shape.get(), picture.get()))),
+    def: () => 0,
+    lock: () => (picture.get() === 'ps2' ? 'PS2 pixels draws the 4:3 frame' : undefined),
+    set: (i) => { const x = VIDEO_SHAPES[i]; if (!x) return false; shape.choose(x); return true; },
+    reset: () => { shape.clear(); return true; },
   };
+  /** VIDEO-SHAPE: the window the ceiling row's sizes are said for (the match's canvas fills it). */
+  const windowArea = (): { width: number; height: number } => ({ width: globalThis.innerWidth || 0, height: globalThis.innerHeight || 0 });
+  // LW-DEFAULT (`LIGHTWEIGHT_MATCH_ROW`, a browser adaptation): built only where the front end could mount the lightweight
+  // match (the Xbox class or pick, read at each build); a press writes the engine's key alone, the reset empties it.
+  const xboxEngine = (): boolean => { try { return readGraphicsBackend() === 'xbox'; } catch { return false; } };
+  const matchEngineSpecs = (): Spec[] => (lightweightMatchEligible(pageDeviceClass(), xboxEngine()) ? [{
+    row: { id: LIGHTWEIGHT_MATCH_ROW, label: MATCH_ENGINE_LABEL, about: MATCH_ENGINE_ABOUT, note: MATCH_ENGINE_NOTE },
+    values: () => MATCH_ENGINE_VALUES,
+    get: () => (lightweightMatchSavedChoice({ deviceClass: pageDeviceClass, pick: xboxEngine() }) ? 0 : 1),
+    def: () => (LIGHTWEIGHT_MATCH_DEFAULT_ADAPTATION[xboxEngine() ? 'xbox' : pageDeviceClass()] ? 0 : 1),
+    lock: () => undefined,
+    set: (i) => { if (i !== 0 && i !== 1) return false; savePreference(LIGHTWEIGHT_MATCH_KEY, i === 0 ? '1' : '0'); return true; },
+    reset: () => { savePreference(LIGHTWEIGHT_MATCH_KEY, ''); return true; },
+  }] : []);
   // CPS-5 (a browser adaptation): Copy performance line -- "Copied" for two seconds, or the line in the aside if refused.
   let perfCopied = false;
   let perfRefused: string | null = null;
@@ -606,6 +753,17 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     return 'Performance line copied';
   };
   // SS-2 (H422 (a)): the tags' look, this browser's key; the card's Teammate names keeps on / off.
+  // PSR-5 (R4P.R11, a browser adaptation): the in-play name labels' clan tag, this browser's key; the scoreboard's column stays.
+  const clanTags: Spec = {
+    row: {
+      id: CLAN_TAGS_ROW, label: 'Clan tags in names',
+      about: 'A browser option, not part of the game: Hidden drops the clan tag from the names drawn in play -- the info box, teammates’ names, the reticle, the spectator title, the speaker line and the MVP caption -- leaving just the name. The scoreboard’s tag column stays as it is.',
+      note: 'Saved to this browser. Applies from the next match.',
+    },
+    values: () => CLAN_TAGS_CHOICES.map((c) => CLAN_TAGS_WORDS[c]),
+    get: () => CLAN_TAGS_CHOICES.indexOf(readClanTags()), def: () => CLAN_TAGS_CHOICES.indexOf(CLAN_TAGS_DEFAULT_ADAPTATION), lock: () => undefined,
+    set: (i) => { const c = CLAN_TAGS_CHOICES[i]; if (!c) return false; saveClanTags(c); return true; },
+  };
   const nameTags: Spec = {
     row: {
       id: NAME_TAGS_ROW, label: 'Name tags',
@@ -615,6 +773,18 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     values: () => NAME_TAGS_LOOKS.map((l) => NAME_TAGS_WORDS[l]),
     get: () => NAME_TAGS_LOOKS.indexOf(readNameTags()), def: () => NAME_TAGS_LOOKS.indexOf(NAME_TAGS_DEFAULT_ADAPTATION), lock: () => undefined,
     set: (i) => { const l = NAME_TAGS_LOOKS[i]; if (!l) return false; saveNameTags(l); return true; },
+  };
+  // LATER 1177(b) (a browser adaptation, `../../ambienceVolume`): the ambience's own volume, this browser's key, every map;
+  // 100% (the default) is the original's mix. The in-game settings portion is LATER 1182 (the owner: not that UI now).
+  const ambienceVolume: Spec = {
+    row: {
+      id: AMBIENCE_VOLUME_ROW, label: 'Ambience volume',
+      about: 'How loud each map’s background ambience is (its wind, beds and distant sounds), leaving weapons, footsteps and voices as they are. 100% is the original game’s mix. Not in the original: a browser addition.',
+      note: 'Saved to this browser. Applies from the next match.',
+    },
+    values: () => AMBIENCE_VOLUME_VALUES.map((v) => `${v}%`),
+    get: () => AMBIENCE_VOLUME_VALUES.indexOf(readAmbienceVolume()), def: () => AMBIENCE_VOLUME_VALUES.indexOf(AMBIENCE_VOLUME_DEFAULT_ADAPTATION), lock: () => undefined,
+    set: (i) => { const v = AMBIENCE_VOLUME_VALUES[i]; if (v === undefined) return false; saveAmbienceVolume(v); return true; },
   };
   // HUD-ALIVE C (OT.R117): the range readout, this browser's key; off draws the original's consoles' count.
   const rangeReadout: Spec = {
@@ -626,6 +796,17 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     values: () => RANGE_READOUT_VALUES.map((v) => RANGE_READOUT_WORDS[v]),
     get: () => RANGE_READOUT_VALUES.indexOf(readRangeReadout()), def: () => RANGE_READOUT_VALUES.indexOf(RANGE_READOUT_DEFAULT_ADAPTATION), lock: () => undefined,
     set: (i) => { const v = RANGE_READOUT_VALUES[i]; if (!v) return false; saveRangeReadout(v); return true; },
+  };
+  // PRS-888 (JOIN-LEAVE-LINE): the join and leave lines, this browser's key; off posts none, the game's own behaviour.
+  const joinLeaveLine: Spec = {
+    row: {
+      id: JOIN_LEAVE_LINE_ROW, label: 'Join/leave lines',
+      about: 'Names a player who joins a game already under way, or who leaves it, on the message window. The game itself shows no such line.',
+      note: 'Saved to this browser. Applies from the next match.',
+    },
+    values: () => JOIN_LEAVE_LINE_VALUES.map((v) => JOIN_LEAVE_LINE_WORDS[v]),
+    get: () => JOIN_LEAVE_LINE_VALUES.indexOf(readJoinLeaveLine()), def: () => JOIN_LEAVE_LINE_VALUES.indexOf(JOIN_LEAVE_LINE_DEFAULT_ADAPTATION), lock: () => undefined,
+    set: (i) => { const v = JOIN_LEAVE_LINE_VALUES[i]; if (!v) return false; saveJoinLeaveLine(v); return true; },
   };
   // VS-2: the video rows from the schema, through the page's v2 keeper (a running match and a prepared one hear it).
   const v2 = videoSettingsKeeperV2();
@@ -656,7 +837,7 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
   /** The values the shown preset stands for: a named preset's, else Automatic's resolved ones (a row's default). */
   const baseRows = (v: VideoSettingsV2): Rows => (v.preset === 'auto' || v.preset === 'custom' ? resolveAutomatic() : PRESET_VALUES[v.preset]);
   const videoLock = (key: VideoRow['key']): string | undefined => {
-    if ((key === 'renderScalePct' || key === 'ceiling') && picture.get() === 'ps2') return 'PS2 picture: 640 x 448';
+    if ((key === 'renderScalePct' || key === 'ceiling') && picture.get() === 'ps2') return 'PS2 pixels: 640 x 448';
     if (key === 'detailDistance' && picture.get() === 'ps2') return 'PS2 picture: original';
     const address = key === 'graphics' ? graphicsBackendOverride() : null;
     return address === null ? undefined : `Selected by address: ${ADDRESS_WORDS[address]}`;
@@ -701,7 +882,10 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
       return true;
     };
     return {
-      row, values: () => values.map((x) => (key === 'graphics' && x.value === 'webgl2' && readGraphicsDemoted() !== null ? `${x.word} ${DEMOTED_WORDS}` : x.word)),
+      row, values: () => values.map((x) => (key === 'graphics' && x.value === 'webgl2' && readGraphicsDemoted() !== null ? `${x.word} ${DEMOTED_WORDS}`
+        // VIDEO-SHAPE: each ceiling with the size it draws for the shape and this window, e.g. "1440p (1920 x 1440)"
+        : key === 'ceiling' ? (picture.get() === 'ps2' ? x.word : ceilingWords(x.value as number, effectiveShape(shape.get(), picture.get()), windowArea(), globalThis.devicePixelRatio, wantsTouchControls()))
+        : x.word)),
       get: () => indexOf(current()), def, lock: () => videoLock(key),
       // WG-7, W5 (WEBGPU-DEFAULT, MEGA.R8; a browser adaptation): a Graphics value chosen here, even the one held, forgets a
       // WebGPU error's demotion (`../../graphicsDemotion`), so the WebGL2 value stops saying it was set after one.
@@ -738,10 +922,11 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
   const detectedWords = (): string => {
     const rows = resolveAutomatic();
     const named = presetOfRows(rows);
-    const chose = named ? PRESET_WORDS_OF[named] : `${rows.renderScalePct}% at ${rows.ceiling === 0 ? 'Native' : `${rows.ceiling}p`}`;
+    const chose = named ? PRESET_WORDS_OF[named] : `${rows.renderScalePct}% at ${rows.ceiling === 0 ? 'Native' : rows.ceiling === CEILING_DEVICE ? 'Device' : `${rows.ceiling}p`}`;
     // VS-10 F9a (the spec §4): and the backend Automatic asks for (`./graphicsBackend` `asksForWebGPU`; WebGPU still falls
-    // back to WebGL2 past the adapter's wait), in the Graphics row's own words.
-    const backend = VIDEO_SCHEMA.find((r) => r.key === 'graphics')?.values?.find((w) => w.value === (asksForWebGPU(rows.graphics) ? 'webgpu' : 'webgl2'))?.word;
+    // back to WebGL2 past the adapter's wait), in the Graphics row's own words; MAC-FLOOR: WebGL2 on an Apple GPU
+    // (`../../deviceClass` `appleGraphics`).
+    const backend = VIDEO_SCHEMA.find((r) => r.key === 'graphics')?.values?.find((w) => w.value === (asksForWebGPU(appleGraphics(rows.graphics, rows.graphics === 'auto' && pageAppleGpu())) ? 'webgpu' : 'webgl2'))?.word;
     return `${DEVICE_CLASS_WORDS[pageDeviceClass()]} \u00b7 Automatic chose: ${chose}${backend ? ` \u00b7 ${backend}` : ''}`;
   };
   const xboxPicked = (): boolean => readPreference(GRAPHICS_BACKEND_KEY) === 'xbox';
@@ -753,14 +938,14 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     const group = (g: VideoRow['group']): Spec[] => shown.filter((r) => r.group === g).map(videoSpec);
     const groups: [VideoRow['group'], Spec[]][] = [
       ['quality', group('quality')], ['display', group('display')], ['detail', group('detail')], ['renderer', group('renderer')],
-      ['picture', [...(deps.videoPicture === false ? [] : [videoPicture]), nameTags, rangeReadout, ...group('picture')]],   // the spec §4.2: Video, Name tags, (HUD-ALIVE C) Range readout, then the colour filter
+      ['picture', [...(deps.videoPicture === false ? [] : [videoPicture, videoShape, ...matchEngineSpecs()]), clanTags, nameTags, rangeReadout, joinLeaveLine, ...group('picture')]],   // the spec §4.2: Sharpness, (VIDEO-SHAPE) Shape, (LW-DEFAULT) Match engine on the Xbox class, Name tags, (HUD-ALIVE C) Range readout, (PRS-888) Join/leave lines, then the colour filter
     ];
     const none = { values: () => [], get: () => undefined, def: () => undefined, lock: () => undefined, set: () => false };
     const restore: Spec = {
       row: {
         id: VIDEO_RESTORE_ROW, label: 'Restore defaults', action: 'Restore', hint: 'Every row above back to Automatic', launcherOnly: true,
         about: 'Every video row above back to Automatic -- what this device was found to suit -- and the performance overlay off. The next match tries this device again.',
-        note: `Saved to this browser. Applies now; Antialias, Graphics and Power preference: ${GRAPHICS_BACKEND_APPLY_NOTE.toLowerCase()}`,
+        note: `Saved to this browser. Applies now; Antialias, Renderer and Graphics chip: ${GRAPHICS_BACKEND_APPLY_NOTE.toLowerCase()}`,
       },
       ...none,
     };
@@ -897,7 +1082,8 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
   const headed = (before: Spec[], section: string, specs: Spec[]): Spec[] =>
     [...before, ...(before.length === 0 ? specs : specs.map((s, i) => (i === 0 ? { ...s, row: { ...s.row, section } } : s)))];
   const groups: { id: string; label: string; icon: IconName; family: 'game' | 'launcher'; specs: () => Spec[] }[] = [
-    { id: 'display', label: 'Display', icon: 'display', family: 'game', specs: () => headed([...cards('display'), ...cards('console')], 'This browser', videoRows()) },   // VS-2: the video schema's rows (HD-4, PF.R60, CPS-4a, SS-2, CPS-5 among them)
+    // WM-PACKS-SETTING (the owner's ruling, 2026-11-15; a browser adaptation, `../texturePackSetting`): the TEXTURES rows last.
+    { id: 'display', label: 'Display', icon: 'display', family: 'game', specs: () => [...headed([...cards('display'), ...cards('console')], 'This browser', videoRows()), ...texturePackSpecs()] },   // VS-2: the video schema's rows (HD-4, PF.R60, CPS-4a, SS-2, CPS-5 among them)
     { id: 'app', label: 'App', icon: 'install', family: 'launcher', specs: () => [
       { row: { id: INSTALL_APP_ROW, label: 'Install app', action: installAction(surface()), ...(surface() === 'chromium' ? { tone: 'primary' as const } : {}), ...(installAction(surface()) === 'Install' ? { hint: INSTALL_HINT } : {}), about: 'Add SOCOM II Legacy to this device with its own icon and window.', note: 'On iPhone and iPad, installed apps keep storage separate from Safari.' }, values: () => [], get: () => undefined, def: () => undefined, lock: () => undefined, set: () => false },
       // DSH-4 (DSH.R12 leaves the sender's entry without the QR to us): beside Install app, where the launcher's own
@@ -909,7 +1095,7 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
       versionSpec] },
     // LR-5: Backdrop motion (from App) and the launcher's sounds (from Audio) moved to Appearance, their keys kept.
     { id: 'appearance', label: 'Appearance', icon: 'palette', family: 'launcher', specs: appearance },
-    { id: 'audio', label: 'Audio', icon: 'volume', family: 'game', specs: () => cards('audio') },
+    { id: 'audio', label: 'Audio', icon: 'volume', family: 'game', specs: () => headed(cards('audio'), 'This browser', [ambienceVolume]) },   // LATER 1177(b): the ambience volume
     // LATER 294 slice 1: the browser's controller rows first (Stance, device, dead zone, Button mapping), then Overlay button, then the card's rows.
     // STANCE-TOP (the owner, 2026-11-02: "move stance mode to the top"; a browser adaptation): the Stance mode the tab's first row.
     { id: 'controller', label: 'Controller', icon: 'pad', family: 'launcher', specs: () => headed([stanceMode, padDevice, padDead, remap, controllerLabels, ...overlayButton], 'Layout and aiming', [layout, ...cards('controls')]) },
@@ -917,7 +1103,7 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
       row: { id: MOBILE_LAYOUT_ROW, label: 'Touch layout', action: 'Edit layout', about: 'Drag each button and stick to where your thumbs reach. Portrait and landscape have separate layouts.', note: 'Saved to this browser on this device.' },
       values: () => [], get: () => undefined, def: () => undefined, lock: () => undefined, set: () => false,
     }] },
-    { id: 'communication', label: 'Communication', icon: 'mic', family: 'game', specs: () => { askMics(); return headed(cards('communication'), 'This browser', [micOn, micDevice]); } },
+    { id: 'communication', label: 'Communication', icon: 'mic', family: 'game', specs: () => { askMics(); return headed(cards('communication'), 'This browser', [micOn, micDevice, ...streamerSpecs()]); } },
     { id: 'account', label: 'Account', icon: 'user', family: 'launcher', specs: () => [remember, signOut] },
   ];
   // B61 F3, part 2 (the merge controller's ruling): Options > Mobile only where touch exists, read at each build of the
@@ -983,6 +1169,6 @@ export function liveOptions(notify: () => void, deps: OptionsDeps): LiveOptions 
     },
     // review F1: the keeper's observer is let go before the staged step is written, so nothing is drawn into a console torn down;
     // PR #765: the card store's save observer likewise, first.
-    dispose(): void { offSave?.(); store.flush?.(); offV2(); flushPct(); if (perfTimer !== null) { clearTimeout(perfTimer); perfTimer = null; } noticeObs?.disconnect(); offDisc(); offPicture(); offerWin?.removeEventListener('s2u-install-offer', onOffer); },
+    dispose(): void { offStreamer(); offSave?.(); store.flush?.(); offV2(); flushPct(); if (perfTimer !== null) { clearTimeout(perfTimer); perfTimer = null; } noticeObs?.disconnect(); offDisc(); offPicture(); offShape(); offerWin?.removeEventListener('s2u-install-offer', onOffer); },
   };
 }

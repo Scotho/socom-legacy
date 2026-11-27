@@ -11,7 +11,7 @@ import { seatAtSlots } from './helpers/slotPoses';
 function setup(wall: boolean | 'low' = false, prepared = true, magazines = 8, magazine = 3) {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 300, cellsX: 4, cellsZ: 4, originX: -600, originZ: -600 };
   const floor: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25,
-    ptcount: 4, cameratype: 0, points: Float32Array.from([-600, 0, -600, 600, 0, -600, 600, 0, 600, -600, 0, 600]) };
+    ptcount: 4, cameratype: 0, points: Float32Array.from([-600, 0, 600, 600, 0, 600, 600, 0, -600, -600, 0, -600]) };
   const polys = [floor];
   if (wall) polys.push({ ...floor, path: 'worldmodel/wall', ditype: 2,
     points: Float32Array.from([0, 0, -600, 0, wall === 'low' ? 12 : 60, -600, 0, wall === 'low' ? 12 : 60, 600, 0, 0, 600]) });

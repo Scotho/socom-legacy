@@ -33,11 +33,12 @@ function walkPast(z0: number) {
   const w = new Walker(slabWorld());
   expect(w.place(-10, 10, z0)).toBe(true);
   w.state.yaw = -90;                                               // facing +x
-  let worst = 0;
+  let worst = 0, z2 = w.state.z;
   for (let i = 0; i < 60; i++) {
     const z = w.state.z;
     w.tick({ forward: 1, right: 0, boost: false });
-    worst = Math.max(worst, Math.abs(w.state.z - z));
+    worst = Math.max(worst, Math.abs(w.state.z - z2));             // over two ticks: a game frame's push
+    z2 = z;
   }
   return { w, worst };
 }
@@ -47,7 +48,9 @@ function walkPast(z0: number) {
  * the side line on its side, from 0.3 r to 1.2 r across the travel (1.05 to 4.2, D:L415171-415220, D:L415549-415577),
  * crosses the slab's near face from in front once the body is within 4.2 of it; the hit takes nothing from a move along
  * the face (its normal is across it) and, more than 1 deep, puts the body out by the depth less 1 (D:L413612-413614):
- * it walks on 4.2 - 1 = 3.2 off (was `BODY_RADIUS`). From z 3 that is 0.2 out; from 2, 1.2 in one tick.
+ * it walks on 4.2 - 1 = 3.2 off (was `BODY_RADIUS`). From z 3 that is 0.2 out; from 2, 1.2 in one game frame -- shown over
+ * the frame's two ticks (LATER 1194, H404 (b): the walls met once a frame, the tick between showing its share; was 1.2 in
+ * one tick, the walls met every tick), so `worst` is measured over two ticks.
  */
 const SIDE_HOLD = 1.2 * BODY_RADIUS - 1;
 describe("MV-PARITY (b2) F1: walking past a face's end with less than the radius to spare", () => {

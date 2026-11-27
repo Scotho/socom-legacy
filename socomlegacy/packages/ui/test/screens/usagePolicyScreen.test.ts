@@ -127,6 +127,15 @@ describe.skipIf(!HAVE)(`USER AGREEMENT over the machine${HAVE ? '' : ' (no disc 
     expect(r.text('playername')).toEqual(['socome']);
   });
 
+  it('usage_policy is bound to the UIVAR named exactly UsagePolicy, so its WRAPPEDTEXT draws with bright text enabled (R4P-237, r0004)', async () => {
+    // Disc-backed: the layout is `dlgUsagePolicy.rdr` from RUN/UI/READERC.ZAR (skips with the describe when it is absent).
+    const r = rig({ name: 'socome' });
+    await r.run(3);
+    const c = findNode(r.m.shell()!.screen.root, 'usage_policy')?.content;
+    expect(c?.kind).toBe('wrapped');
+    expect(c?.kind === 'wrapped' ? c.brightEnabled : undefined).toBe(true);
+  });
+
   it('while the server has not answered: "Retrieving Usage Policy....." (GetUsagePolicy\'s own text over the caption #762)', async () => {
     const r = rig({ service: { policy: () => new Promise(() => {}) } });
     await r.run(3);

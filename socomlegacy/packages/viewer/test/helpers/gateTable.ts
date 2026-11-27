@@ -92,14 +92,14 @@ const flagged = (path: string, ditype: number, appflags: number, points: number[
  * span 0..40 and its cap on the wall's face at z 0.2, 6 wide -- climbed from z > 0 facing -z.
  */
 export const gateLadder = (): WorldPoly[] => [
-  poly('worldmodel/deck', 3, [-100, 40, -100, 100, 40, -100, 100, 40, 0, -100, 40, 0]),
+  poly('worldmodel/deck', 3, [-100, 40, 0, 100, 40, 0, 100, 40, -100, -100, 40, -100]),
   poly('worldmodel/wall', 2, [-100, 0, 0, 100, 0, 0, 100, 40, 0, -100, 40, 0]),
   flagged('worldmodel/lad/ladder', 2, 2, [-3, 0, 0.2, 3, 0, 0.2, 3, 40, 0.2, -3, 40, 0.2]),
   flagged('worldmodel/lad/ladder', 2, 2, [3, 40, 0.2, -3, 40, 0.2, -3, 50, 0.2, 3, 50, 0.2]),
 ];
 
 /** The floor under every row (`m_ditype` 3, ground and side). */
-export const GATE_FLOOR: WorldPoly = poly('worldmodel/floor', 3, [-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]);
+export const GATE_FLOOR: WorldPoly = poly('worldmodel/floor', 3, [-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]);
 /** A vertical wall across x at `x` (z -150..150) from `y0` to `y1` (`m_ditype` 2: a wall for the mover and the gates). */
 export const gateWallX = (x: number, y0: number, y1: number): WorldPoly =>
   poly('worldmodel/wall', 2, [x, y0, -150, x, y0, 150, x, y1, 150, x, y1, -150]);

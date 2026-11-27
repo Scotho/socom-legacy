@@ -46,7 +46,8 @@ import { roomOn, surfacesOver } from './sceneRoundsDisc';
  *    judged by the line to the head (the port's `HEAD_OVER`; and the posed eye, research 180) under
  *    four rules -- v0.4.18's (one-sided, see-through: `blastExposed`), one-sided only (v0.4.15-17), see-through only, and
  *    neither (LATER 416, v0.4.14) -- and by line 1 (`reachGate` on the line to `ROOT_HEIGHT`, a stand-in for the unread
- *    end point, C1), one-sided (the reading) and two-sided (the port's `BLAST_REACH_LINE_SIDES_READING`). Every line the
+ *    end point, C1), one-sided (the reading; the port's `BLAST_REACH_LINE_SIDES_READING` since LATER 1087 (b)) and two-sided (the port's
+ *    line until 1087, kept here as the census's second column). Every line the
  *    port leaves open is checked against the drawn triangles: on a line with no admitted face, drawn geometry is (d) on
  *    the line; on a line a rule opened, it says the face let through is drawn solid there (not a gap between bars).
  * 3. The ranking: of the cases the port hurts (v0.4.18's line open), the share opened by each rule change, the share

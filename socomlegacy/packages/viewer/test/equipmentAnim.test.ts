@@ -11,6 +11,7 @@ import {
 } from '@s2u/scene';
 import { C4_PLANT_SECONDS } from '../src/equipment';
 import { GrenadeThrower, holdClipOf, type GrenadeSource } from '../src/grenade';
+import { THROW_AIM_ORIGIN_LATCH_READING } from '../src/throwAim';
 import { ITEM_NODE } from '../src/heldItem';
 import { mountThrowables, type MatchThrowDeps } from '../src/matchThrow';
 import { HOLD_CLIPS, isHoldClip, type PlaySnapshot } from '../src/mover';
@@ -105,11 +106,14 @@ describe.skipIf(noDisc)(`the throw and placing clips are the disc's${noDisc ? ' 
     expect(held).toBe(4);                                           // the standing throw, both lean tosses, the claymore
   });
 
+  // LATER 1442: the sidearm's standing throw keeps the rifle's clip (`handAnim`), so `seal_p_throwgrenade` is started here
+  // from its record (`PISTOL_HAND_ANIMS`), as the pose machinery's case of a pistol one-shot, not as a played throw.
   it('a pistol one-shot lays only the parts it carries (PISTOL_ONESHOT_PARTS_READING): the upper body of seal_p_throwgrenade', () => {
     const clips = new Map(clipsFromPack(new Uint8Array(readFileSync(PACK)), THROW_CLIPS).map((c) => [c.name, c]));
     const table = motionTableFromArchive(new Uint8Array(readFileSync(READERC)));
     const pose = new ThrowPose(() => ({ clips, table }));
-    expect(pose.start(handAnim(THROW_ANIMS.standThrow, true))).toBe(true);
+    expect(handAnim(THROW_ANIMS.standThrow, true)).toBe(THROW_ANIMS.standThrow);
+    expect(pose.start(PISTOL_HAND_ANIMS.seal_throwgrenade!)).toBe(true);
     pose.step(0.3);
     const parts = pose.layer.sample({ clip: clips.get('seal_p_throwgrenade')!, frame: 0, phase: 0 })!.parts.map((p) => p.name);
     expect(parts).toContain('pistol');
@@ -147,7 +151,7 @@ describe.skipIf(noDisc)(`the throw and placing clips are the disc's${noDisc ? ' 
     for (let i = 0; i < 60; i++) { pose.step(TICK); anim.step(TICK, run); }
     expect(anim.stats().clip).toBe('seal_run');
     const thigh = sk.indexOf('lthigh'), atPush = quatOfMatrix(sk.local[thigh]!);
-    expect(pose.start(handAnim(THROW_ANIMS.standThrow, true), true)).toBe(true);
+    expect(pose.start(PISTOL_HAND_ANIMS.seal_throwgrenade!, true)).toBe(true);     // the record (LATER 1442: not played)
     expect(pose.stats().clip).toBe('seal_p_throwgrenade');
     for (let i = 0; i < 47; i++) {                                   // to the stick's cut on the 48th command (PAR-70)
       pose.step(TICK);
@@ -157,7 +161,7 @@ describe.skipIf(noDisc)(`the throw and placing clips are the disc's${noDisc ? ' 
     }
   });
 
-  it('the others: a throw\'s hold starts its clip once, the pistol\'s version in a pistol hand; a reload\'s hold none', () => {
+  it('the others: a throw\'s hold starts its clip once, the rifle\'s placing in a pistol hand (LATER 1442); a reload\'s hold none', () => {
     const clips = new Map(clipsFromPack(new Uint8Array(readFileSync(PACK)), THROW_CLIPS).map((c) => [c.name, c]));
     const table = motionTableFromArchive(new Uint8Array(readFileSync(READERC)));
     const pose = new ThrowPose(() => ({ clips, table }));
@@ -171,7 +175,7 @@ describe.skipIf(noDisc)(`the throw and placing clips are the disc's${noDisc ? ' 
     pose.follow(null, false);
     expect(pose.playing()).toBe(false);
     pose.follow('seal_put_onwall', true);
-    expect(pose.stats().clip).toBe('seal_p_put_onwall');
+    expect(pose.stats().clip).toBe('seal_put_onwall');             // LATER 1442: the sidearm keeps the rifle's plant
     pose.follow(null, false);
     // NU-8b B3 (research 326 section 3): a placing is the stack's top too and pops with its hold. *Was*: playing, "a
     // placing's runs out on its own clock (not PAR-85's)".
@@ -192,31 +196,31 @@ describe.skipIf(noDisc)(`the throw and placing clips are the disc's${noDisc ? ' 
 });
 
 describe('the clip a throw and a placing play (FUN_00588bc0 -> FUN_0058c820; FUN_005be9a0)', () => {
-  it('the pistol in the hand: the standing throw and toss, the lean tosses, the claymore and C4 take the pistol\'s; the crouched and prone throws keep the rifle\'s', () => {
+  it('the pistol in the hand (LATER 1442: byte +5 bit 1, FUN_005e3ac0): only the lean tosses take the pistol\'s; the standing throw and toss, the crouched and prone throws, the claymore and C4 keep the rifle\'s', () => {
     const p = (a: ThrowAnim): string => handAnim(a, true).clip;
-    expect(p(THROW_ANIMS.standThrow)).toBe('seal_p_throwgrenade');
-    expect(p(THROW_ANIMS.standToss)).toBe('seal_p_tossgrenade');
     expect(p(THROW_ANIMS.peekRightToss)).toBe('seal_p_toss_rlean');
     expect(p(THROW_ANIMS.peekLeftToss)).toBe('seal_p_toss_llean');
-    expect(p(PLACE_CLAYMORE_ANIM)).toBe('seal_p_place_claymore');
-    expect(p(PUT_ON_WALL_ANIM)).toBe('seal_p_put_onwall');
-    for (const a of [THROW_ANIMS.crouchThrow, THROW_ANIMS.proneThrow, THROW_ANIMS.proneToss]) expect(p(a)).toBe(a.clip);
+    for (const a of [THROW_ANIMS.standThrow, THROW_ANIMS.standToss, THROW_ANIMS.crouchThrow, THROW_ANIMS.proneThrow,
+      THROW_ANIMS.proneToss, PLACE_CLAYMORE_ANIM, PUT_ON_WALL_ANIM]) expect(p(a), a.type).toBe(a.clip);
     for (const a of HAND_ANIMS) expect(handAnim(a, false)).toBe(a);   // the rifle's hand: the rifle's types
   });
 
-  it("GetThrowAnim's fraction and hand point stand; the release is timed on the pushed motion (FUN_005802b0): the pistol's toss at 1.334 s", () => {
-    const toss = handAnim(THROW_ANIMS.standToss, true);
+  it("GetThrowAnim's fraction and hand point stand; the release is timed on the pushed motion (FUN_005802b0): the pistol toss's record at 1.334 s, the sidearm's played toss the rifle's", () => {
+    expect(handAnim(THROW_ANIMS.standToss, true)).toBe(THROW_ANIMS.standToss);      // LATER 1442
+    const toss = PISTOL_HAND_ANIMS.seal_tossgrenade!;
     expect(toss.release).toBe(THROW_ANIMS.standToss.release);
     expect(toss.offset).toEqual(THROW_ANIMS.standToss.offset);
     expect(releaseSeconds(toss)).toBeCloseTo(0.69 * 2.0 * (29 / 30), 12);
     expect(releaseSeconds(THROW_ANIMS.standToss)).toBeCloseTo(0.69 * 1.6 * (29 / 30), 12);
   });
 
-  it('the hold codes: the pistol\'s toss and plant are holds of their own; the rest hold on their rifle type', () => {
-    expect(holdClipOf(handAnim(THROW_ANIMS.standToss, true), THROW_ANIMS.standToss)).toBe('seal_p_tossgrenade');
-    expect(holdClipOf(handAnim(PUT_ON_WALL_ANIM, true), PUT_ON_WALL_ANIM)).toBe('seal_p_put_onwall');
-    expect(holdClipOf(handAnim(THROW_ANIMS.standThrow, true), THROW_ANIMS.standThrow)).toBe('seal_throwgrenade');
-    expect(holdClipOf(handAnim(PLACE_CLAYMORE_ANIM, true), PLACE_CLAYMORE_ANIM)).toBe('seal_place_claymore');
+  it('the hold codes: the pistol\'s toss and plant records are holds of their own; the rest hold on their rifle type', () => {
+    expect(holdClipOf(PISTOL_HAND_ANIMS.seal_tossgrenade!, THROW_ANIMS.standToss)).toBe('seal_p_tossgrenade');
+    expect(holdClipOf(PISTOL_HAND_ANIMS.seal_put_onwall!, PUT_ON_WALL_ANIM)).toBe('seal_p_put_onwall');
+    expect(holdClipOf(PISTOL_HAND_ANIMS.seal_throwgrenade!, THROW_ANIMS.standThrow)).toBe('seal_throwgrenade');
+    expect(holdClipOf(PISTOL_HAND_ANIMS.seal_place_claymore!, PLACE_CLAYMORE_ANIM)).toBe('seal_place_claymore');
+    expect(holdClipOf(handAnim(THROW_ANIMS.standToss, true), THROW_ANIMS.standToss)).toBe('seal_tossgrenade');   // LATER 1442: played
+    expect(holdClipOf(handAnim(PUT_ON_WALL_ANIM, true), PUT_ON_WALL_ANIM)).toBe('seal_put_onwall');
     for (const a of HAND_ANIMS) expect(isHoldClip(holdClipOf(a, a)) || !isHoldClip(a.clip)).toBe(true);
     for (const a of [...Object.values(THROW_ANIMS), PLACE_CLAYMORE_ANIM, PUT_ON_WALL_ANIM]) expect(isHoldClip(a.clip), a.clip).toBe(true);
     expect(holdAnim('seal_p_tossgrenade', false)?.clip).toBe('seal_p_tossgrenade');
@@ -229,14 +233,14 @@ const snap = (over: Partial<PlaySnapshot> = {}): PlaySnapshot => ({
   landing: null, jumps: 0, ...over,
 } as PlaySnapshot);
 
-/** A floor and a wall across x 130, a scene destructible (`DI`), as `equipmentPage.test.ts`'s C4 barrier. */
+/** A floor and a wall across x 115 (LATER 1139: was x 130, 30 u off; 15 u, inside the hip gate), a scene destructible (`DI`), as `equipmentPage.test.ts`'s C4 barrier. */
 const DI = 'worldmodel/access1=access1/good_parts/di_good';
 function c4Grid(): Grid {
   const f: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/f', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000]),
+    points: Float32Array.from([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000]),
   };
-  const wall: WorldPoly = { ...f, path: DI, ditype: 2, points: Float32Array.from([130, 50, 150, 130, 50, 250, 130, 110, 250, 130, 110, 150]) };
+  const wall: WorldPoly = { ...f, path: DI, ditype: 2, points: Float32Array.from([115, 50, 150, 115, 50, 250, 115, 110, 250, 115, 110, 150]) };
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
   return buildGrid(params, [], [], [f, wall], [
     { modelName: 'worldmodel', path: 'worldmodel/f0', first: 0, count: 1 }, { modelName: 'worldmodel', path: DI, first: 1, count: 1 },
@@ -257,7 +261,7 @@ describe('the page\'s thrower plays the type\'s clip for its hand (GrenadeThrowe
     return { g, seen };
   };
 
-  it('C4 is planted with Put on wall (the rifle\'s or the pistol\'s), not the claymore\'s clip', () => {
+  it('C4 is planted with Put on wall (the rifle\'s, the sidearm in the hand too: LATER 1442), not the claymore\'s clip', () => {
     for (const pistol of [false, true]) {
       const { g, seen } = starts({ pistol: () => pistol });
       g.setRecords([C4]);
@@ -265,20 +269,26 @@ describe('the page\'s thrower plays the type\'s clip for its hand (GrenadeThrowe
       g.setKit(['M67', 'AN-M8', 'C4']);
       run(g, 0.3);                                                  // the reticle settles on the target (0.2 s)
       expect(g.plantC4(), `pistol ${pistol}`).toBe(true);
-      expect(seen).toEqual([pistol ? `seal_p_put_onwall seal_p_put_onwall ${C4_PLANT_SECONDS.toFixed(3)}` : `seal_put_onwall seal_put_onwall ${C4_PLANT_SECONDS.toFixed(3)}`]);
+      expect(seen).toEqual([`seal_put_onwall seal_put_onwall ${C4_PLANT_SECONDS.toFixed(3)}`]);
     }
   });
 
-  it('the claymore with the pistol in the hand plays seal_p_place_claymore and holds the mover on the claymore\'s code', () => {
+  it('the claymore with the pistol in the hand plays the rifle\'s seal_place_claymore (LATER 1442; the reading, placings uncaptured)', () => {
     const { g, seen } = starts({ pistol: () => true });
     g.select('Claymore');
     g.pull();
-    expect(seen).toEqual(['seal_p_place_claymore seal_place_claymore 1.300']);
+    expect(seen).toEqual(['seal_place_claymore seal_place_claymore 1.300']);
   });
 
-  it('a throw with the pistol in the hand: seal_p_throwgrenade; a light one, the pistol\'s toss, let go at 1.334 s', () => {
-    for (const [frames, want] of [[40, 'seal_p_throwgrenade seal_throwgrenade 0.710'], [6, 'seal_p_tossgrenade seal_p_tossgrenade 1.334']] as const) {
-      const { g, seen } = starts({ pistol: () => true });
+  it('a throw with the pistol in the hand: the rifle\'s seal_throwgrenade; a light one, the rifle\'s toss, let go at 1.067 s (LATER 1442)', () => {
+    for (const [frames, want] of [[40, 'seal_throwgrenade seal_throwgrenade 0.710'], [6, 'seal_tossgrenade seal_tossgrenade 1.067']] as const) {
+      // LANE-KILL B-06: the aim is the body's vector toward the camera's aim point (r0004 `0x5e6690`) and the release
+      // clearance casts 25 u along it (r0004 `0x54e6f0`): `starts`' camera east onto the wall 15 u off (C4's reticle)
+      // walls the throw, as the original refuses one at 20 u at the default look (KILL-LATCH-PC2 s2). The clip under test
+      // needs a throw that clears: the camera along the facing (-z), level, from the standing latch's height
+      // (THROW_AIM_ORIGIN_LATCH_READING.stand), the aim's sine 0 -- the light one still the toss.
+      const eye: [number, number, number] = [100, 50 + THROW_AIM_ORIGIN_LATCH_READING.stand.up, 200];
+      const { g, seen } = starts({ pistol: () => true, aim: () => ({ eye, far: [100, eye[1], -100] }) });
       g.select('M67');
       g.pull();
       for (let i = 0; i < frames; i++) g.update(1 / 60);

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { isSoftwareRenderer, noticeSuppressed, probeSoftwareRenderer, softwareRendererOf } from '../src/softwareRenderer';
 
 /** A WebGL context's reads, faked: the debug extension present or withheld, the plain RENDERER string. */
-function fakeGl(opts: { unmasked?: string | null; plain?: string | null; debug?: boolean; lose?: () => void }): WebGLRenderingContext {
+function fakeGl(opts: { unmasked?: string | null; plain?: string | null; debug?: boolean; lose?: () => void; parallel?: boolean }): WebGLRenderingContext {
   const UNMASKED = 0x9246;
   const RENDERER = 0x1f01;
   return {
@@ -10,6 +10,7 @@ function fakeGl(opts: { unmasked?: string | null; plain?: string | null; debug?:
     getExtension(name: string) {
       if (name === 'WEBGL_debug_renderer_info') return opts.debug === false ? null : { UNMASKED_RENDERER_WEBGL: UNMASKED };
       if (name === 'WEBGL_lose_context') return opts.lose ? { loseContext: opts.lose } : null;
+      if (name === 'KHR_parallel_shader_compile') return opts.parallel ? { COMPLETION_STATUS_KHR: 0x91b1 } : null;
       return null;
     },
     getParameter(p: number) {
@@ -85,29 +86,54 @@ describe('softwareRendererOf', () => {
 });
 
 describe('probeSoftwareRenderer', () => {
+  it('LATER 1265: says whether a WebGL2 context was made -- WebGL1 only is no WebGL2, though not software', () => {
+    const only1 = probeSoftwareRenderer(fakeDoc({ webgl: fakeGl({ unmasked: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M1 Max, Unspecified Version)' }) }));
+    expect(only1.webgl2).toBe(false);
+    expect(only1.software).toBe(false);
+    expect(probeSoftwareRenderer(fakeDoc({ webgl2: fakeGl({ unmasked: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11)' }) })).webgl2).toBe(true);
+    expect(probeSoftwareRenderer(fakeDoc({})).webgl2).toBe(false);
+  });
+
+  it('XBOX-WARM: reads whether KHR_parallel_shader_compile is offered, on the same throwaway context (no second one)', () => {
+    const made: string[] = [];
+    let lost = 0;
+    const on = probeSoftwareRenderer(fakeDoc({ webgl2: fakeGl({ unmasked: 'ANGLE (Microsoft, SraKmd_arden (0x0000D000) Direct3D11 vs_5_0 ps_5_0)', parallel: true, lose: () => { lost += 1; } }) }, made));
+    expect(on.parallelCompile).toBe(true);
+    expect(made).toEqual(['webgl2']);
+    expect(lost).toBe(1);
+    expect(probeSoftwareRenderer(fakeDoc({ webgl2: fakeGl({ unmasked: 'X', parallel: false }) })).parallelCompile).toBe(false);
+    expect(probeSoftwareRenderer(fakeDoc({})).parallelCompile).toBeNull();
+  });
+  it('XBOX-WARM: an extension read that throws reads no verdict (null), the renderer still read', () => {
+    const gl = fakeGl({ unmasked: 'ANGLE (X)' }) as unknown as { getExtension(n: string): unknown };
+    const plain = gl.getExtension.bind(gl);
+    gl.getExtension = (n: string) => { if (n === 'KHR_parallel_shader_compile') throw new Error('lost'); return plain(n); };
+    const out = probeSoftwareRenderer(fakeDoc({ webgl2: gl }));
+    expect(out).toEqual({ renderer: 'ANGLE (X)', software: false, parallelCompile: null, webgl2: true });
+  });
   it('reads a throwaway WebGL2 context, then loses it', () => {
     let lost = 0;
     const made: string[] = [];
     const out = probeSoftwareRenderer(fakeDoc({ webgl2: fakeGl({ unmasked: 'Google SwiftShader', lose: () => { lost += 1; } }) }, made));
-    expect(out).toEqual({ renderer: 'Google SwiftShader', software: true });
+    expect(out).toEqual({ renderer: 'Google SwiftShader', software: true, parallelCompile: false, webgl2: true });
     expect(made).toEqual(['webgl2']);
     expect(lost).toBe(1);
   });
   it('falls back to WebGL1 when WebGL2 is not offered', () => {
     const made: string[] = [];
     const out = probeSoftwareRenderer(fakeDoc({ webgl: fakeGl({ unmasked: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11)' }) }, made));
-    expect(out).toEqual({ renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11)', software: false });
+    expect(out).toEqual({ renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 SUPER Direct3D11 vs_5_0 ps_5_0, D3D11)', software: false, parallelCompile: false, webgl2: false });
     expect(made).toEqual(['webgl2', 'webgl']);
   });
   it('a browser that makes no context at all is software', () => {
-    expect(probeSoftwareRenderer(fakeDoc({}))).toEqual({ renderer: null, software: true });
+    expect(probeSoftwareRenderer(fakeDoc({}))).toEqual({ renderer: null, software: true, parallelCompile: null, webgl2: false });
   });
   it('a getContext that throws is no context', () => {
     const doc = { createElement: () => ({ getContext() { throw new Error('blocked'); } }) } as unknown as Document;
-    expect(probeSoftwareRenderer(doc)).toEqual({ renderer: null, software: true });
+    expect(probeSoftwareRenderer(doc)).toEqual({ renderer: null, software: true, parallelCompile: null, webgl2: false });
   });
   it('a hardware context whose string is withheld is not software', () => {
-    expect(probeSoftwareRenderer(fakeDoc({ webgl2: fakeGl({ debug: false, plain: null }) }))).toEqual({ renderer: null, software: false });
+    expect(probeSoftwareRenderer(fakeDoc({ webgl2: fakeGl({ debug: false, plain: null }) }))).toEqual({ renderer: null, software: false, parallelCompile: false, webgl2: true });
   });
 });
 

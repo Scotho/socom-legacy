@@ -39,8 +39,10 @@ export type ParamGroup = 'where' | 'net' | 'playtest' | 'instruments' | 'pages';
  * `../modern/launcher.ts`, and the setup page, `../startup.ts`'s `Startup`) and kept it as the plain game page; none of
  * the removed modules read a key of the address, so no row went with them (the agreement test's scan holds that).
  * FORGE (OT.R52): `forge` is `<base>/forge`, the forge's page.
+ * XBOX-INTEGRATE (#835): `xbox renderer` is `<base>/xbox-renderer/`, the Xbox renderer experiment's page
+ * (`../xboxPrototype/main.ts`, an instrument, outside `index.html`); its keys are its measurements' switches.
  */
-export type ParamPage = 'testroom' | 'front end' | 'project site' | 'console' | 'forge';
+export type ParamPage = 'testroom' | 'front end' | 'project site' | 'console' | 'forge' | 'xbox renderer';
 
 export interface LaunchParam {
   readonly key: string;
@@ -85,10 +87,10 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
     readIn: ['source.ts'],
   },
   {
-    key: 'served', group: 'where', kind: 'flag', sheet: true, pages: ['testroom', 'front end'],
-    meaning: 'The served, extracted tree (socomlegacy/public/maps) instead of the visitor\'s disc image. A development build only (devmode works in every build).',
+    key: 'served', group: 'where', kind: 'flag', sheet: true, pages: ['testroom', 'front end', 'xbox renderer'],
+    meaning: 'The served, extracted tree (socomlegacy/public/maps) instead of the visitor\'s disc image. A development build only (devmode works in every build) -- but the Xbox renderer experiment reads served=1 in any build (its tree under /maps beside it).',
     absent: 'the page reads only the visitor\'s own disc image',
-    readIn: ['source.ts'],
+    readIn: ['source.ts', 'xboxPrototype/main.ts'],   // XBOX-INTEGRATE (#835): the Xbox renderer experiment's tree under /maps too
   },
   {
     key: 'flyok', group: 'where', kind: 'flag', sheet: true, pages: ['testroom'],
@@ -115,6 +117,18 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
     readIn: ['graphicsBackend.ts'],
   },
   {
+    key: 'antialias', group: 'where', kind: 'enum', values: ['off', 'on', '0', '1'], sheet: false, pages: ['testroom'],
+    meaning: "The test room's edge smoothing (multisampling) for this load only (MAC-FLOOR, INTAKE I-3; a test-room instrument, a browser adaptation): off or 0 draws with none, on or 1 with it; the video settings' Antialias row is not changed. For checking a renderer fault with multisampling off (the Mac floor's tiles on WebGPU).",
+    absent: "the renderer's default: on (off under the Xbox preset)",
+    readIn: ['testroomAntialias.ts'],
+  },
+  {
+    key: 'coplanaroffset', group: 'where', kind: 'enum', values: ['on', '1'], sheet: false, pages: ['testroom'],
+    meaning: "The test room's detail and environment passes drawn with the drop shadows' polygon offset (MAC-FLOOR, INTAKE I-3; a test-room instrument, a browser adaptation): on or 1. The fallback to try beside the invariant position for the Mac floor's tiles; a match never reads it.",
+    absent: 'no offset: the passes as a match draws them',
+    readIn: ['testroomAntialias.ts'],
+  },
+  {
     key: 'glowscale', group: 'where', kind: 'enum', values: ['half', 'full', 'auto'], sheet: false, pages: ['testroom', 'front end', 'console', 'forge'],
     meaning: 'The flashbang glow target scale for this load only, over the saved glow setting (GLOW-STEPDOWN, GLOW_TARGET_SCALE_ADAPTATION; a browser adaptation): half or full forces that scale on any page, auto is the policy (half on a software adapter or slow frames)',
     absent: 'the saved glow setting, Automatic when none is saved',
@@ -127,16 +141,22 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
     readIn: ['lobbyPrepare.ts'],
   },
   {
+    key: 'graphicsrecovery', group: 'where', kind: 'enum', values: ['notice', 'reload'], sheet: false, pages: ['front end', 'console'],
+    meaning: "What a match does when the browser takes its graphics away (GRAPHICS-RECOVERY, a browser adaptation): notice shows the lost notice with its Reload and rejoin and Leave match buttons and waits for a press; reload runs the match's Reload and rejoin by itself on a lost device or on a flood of graphics out-of-memory errors (3 within 2 s), at most once in 10 minutes per tab and never without session storage. Off a match (the menus, the forge's editor) nothing runs by itself; the Forge's own Play and its custom matches show the notice whatever this says (the owner's word, 2026-11-25: \"Leave the Forge out\").",
+    absent: 'reload (GRAPHICS_RECOVERY_DEFAULT_ADAPTATION; the owner\'s word, 2026-11-25: "the setting to reload on 3d graphic loss should be on by default."): in a match the Reload and rejoin runs by itself; set notice for the notice and its buttons alone',
+    readIn: ['console/adapters/lobbies.ts', 'graphicsLost.ts'],
+  },
+  {
     key: 'map', group: 'where', kind: 'string', sheet: true, cli: 'session', pages: ['testroom'],
     meaning: 'The map, by its archive stem (MP2, MP71), case aside.',
     absent: 'the map remembered from the last visit, else the first',
     readIn: ['main.ts', 'playtestSession.ts', 'replay/mount.ts', 'shareUrl.ts'],
   },
   {
-    key: 'mode', group: 'where', kind: 'enum', values: ['explore', 'play'], sheet: true, cli: 'session', pages: ['testroom'],
-    meaning: 'Explore (the free camera) or Play (on foot, the offline match).',
+    key: 'mode', group: 'where', kind: 'enum', values: ['explore', 'play'], sheet: true, cli: 'session', pages: ['testroom', 'xbox renderer'],
+    meaning: 'Explore (the free camera) or Play (on foot, the offline match). On the Xbox renderer experiment its own value, walk (not one of these values; the CLI never sets it there): the walking match instead of its fixed comparison.',
     absent: 'the remembered choice, else explore',
-    readIn: ['playtestSession.ts', 'shareUrl.ts'],
+    readIn: ['playtestSession.ts', 'shareUrl.ts', 'xboxPrototype/main.ts'],   // XBOX-INTEGRATE (#835): the Xbox renderer experiment's walk (`mode=walk`)
   },
   {
     key: 'view', group: 'where', kind: 'enum', values: ['modern', 'ps2'], sheet: true, cli: 'option', pages: ['testroom'],
@@ -160,6 +180,12 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
     key: 'noarmory', group: 'where', kind: 'flag', sheet: true, cli: 'option', needsDevmode: true, pages: ['testroom'],
     meaning: 'The pre-round ARMORY stays shut.',
     absent: 'the ARMORY opens where the room opens it',
+    readIn: ['main.ts'],
+  },
+  {
+    key: 'spectate', group: 'where', kind: 'flag', sheet: true, cli: 'option', needsDevmode: true, pages: ['testroom'],
+    meaning: 'Online play joins the room as a watcher (as WATCH GAME does), to try the spectator\'s seat claim (hold R1 or J).',
+    absent: 'the room hello plays',
     readIn: ['main.ts'],
   },
   {
@@ -249,12 +275,24 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
     readIn: ['gpuStats.ts'],
   },
   {
+    key: 'hitboxtrace', group: 'playtest', kind: 'flag', sheet: false, needsDevmode: true, pages: ['testroom'],
+    meaning: 'HITBOX-TRACE (a development instrument): the page records each hostage body\'s aim volumes and its offers, read with the room\'s trace (S2U_HITBOX_TRACE) by tools/hitboxTrace.ts; it changes nothing the game does.',
+    absent: 'no page trace: nothing is recorded',
+    readIn: ['hitboxTrace.ts'],
+  },
+  {
     key: 'embedder', group: 'playtest', kind: 'string', sheet: true, pages: ['testroom'],
     meaning: 'The report\'s origin (http://127.0.0.1:5303) whose seek messages the embedded replay takes; localhost or 127.0.0.1 only.',
     absent: 'no seek message is taken',
     readIn: ['replay/embed.ts'],
   },
   // ---- instruments
+  {
+    key: 'pressframe', group: 'instruments', kind: 'enum', values: ['frame-start', 'at-once'], sheet: false, needsDevmode: true, pages: ['testroom'],
+    meaning: 'LATER 1219\'s playtest instrument (a browser adaptation): the press timing the page\'s movers follow -- frame-start, a move press read at the next game frame\'s start (the original\'s, the owner\'s ruling), or at-once, read on its own 60 Hz tick (the port before). Online the server takes its own from S2U_PLAYTEST_PRESS_FRAME; the two must agree.',
+    absent: 'frame-start; in the offline room Select + L1 + R1 held (or F10) flips it',
+    readIn: ['pressFrameSwitch.ts'],
+  },
   {
     key: 'disc', group: 'pages', kind: 'flag', sheet: false, pages: ['forge'],
     meaning: 'On a development build, the forge reads the visitor’s own disc, as a release does, instead of the served tree: the launcher’s stored copy, the remembered disc or a chooser (FG.R12). A release always reads the disc and ignores it.',
@@ -290,6 +328,12 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
     meaning: 'This sheet, before the test room, on a development build: present (bare) shows it; launch=off goes past it.',
     absent: 'the sheet only when the address has no parameter at all',
     readIn: ['pageEntry.ts'],
+  },
+  {
+    key: 'variant', group: 'instruments', kind: 'enum', values: ['day', 'night'], sheet: false, pages: ['testroom', 'xbox renderer'],
+    meaning: 'DAY-3\'s development instrument (a browser adaptation; the original has no time-of-day variants): the map drawn as one of the table\'s labelled variants (MP5 day, MP64 day, MP6 night; `@s2u/archive` MAP_VARIANTS) when its profile is built; refused, the map drawn as decoded, when the page joins a real room.',
+    absent: 'the map as decoded',
+    readIn: ['main.ts', 'variants/testroomSwitch.ts'],   // main.ts: DAY-PICK's picker shows the drawn variant selected
   },
   {
     key: 'expMenu', group: 'instruments', kind: 'enum', values: ['nearest', 'bilinear', 'integer', 'sharpen'], sheet: false, needsDevmode: true, pages: ['front end'],
@@ -411,6 +455,98 @@ export const LAUNCH_PARAMS: readonly LaunchParam[] = [
     meaning: "A host's disc share link token (RB-26, over RB-25's hosted shares): the page asks that host for the game files at once, opening Play's \"Request Game Files (XBOX)\" area with its code for the host to match, and says the host's answer (queued, No, Yes; a browser adaptation).",
     absent: "no host's link; a request from Play's \"Request Game Files (XBOX)\" row makes its own code",
     readIn: ['discShareView.ts'],
+  },
+  // XBOX-INTEGRATE (#835, a browser adaptation): the lightweight match's opt-in, the Xbox diagnostic panel, and the Xbox
+  // renderer experiment's switches (`<base>/xbox-renderer/`, an instrument: each one a measurement's before-and-after).
+  {
+    key: 'lightweightmatch', group: 'instruments', kind: 'enum', values: ['0', '1'], sheet: false, pages: ['front end'],
+    meaning: 'On the Xbox class or the Xbox pick, the match engine for this page, over the saved choice (an instrument to compare the two on one device; a browser adaptation): 1 the lightweight match, 0 the standard engine. Off the Xbox class and pick, neither does anything.',
+    absent: "the saved choice (Options > Display \"Match engine\", s2u.viewer.lightweightMatch '1' or '0'), else the device class's default (the standard engine on every class today)",
+    readIn: ['lightweightMatchOptIn.ts'],
+  },
+  {
+    key: 'xboxdiag', group: 'instruments', kind: 'flag', sheet: false, pages: ['console', 'front end'],
+    meaning: "The Xbox diagnostic report: a corner panel recording the page's stages, memory readings and graphics losses, to copy into a report (1 only; a browser adaptation).",
+    absent: 'no diagnostic panel or recording',
+    readIn: ['console/main.ts', 'entry.ts', 'xboxDiagnostics.ts'],
+  },
+  {
+    key: 'backend', group: 'pages', kind: 'enum', values: ['current'], sheet: false, pages: ['xbox renderer'],
+    meaning: "The experiment's renderer: current (the page's three.js renderer) instead of the raw WebGL2 path.",
+    absent: 'the raw WebGL2 path',
+    readIn: ['xboxPrototype/main.ts'],
+  },
+  {
+    key: 'soundprofile', group: 'pages', kind: 'flag', sheet: false, pages: ['xbox renderer'],
+    meaning: "Records the sound loads' timing and memory (1 only).",
+    absent: 'no sound load profile',
+    readIn: ['xboxPrototype/main.ts'],
+  },
+  {
+    key: 'capture', group: 'pages', kind: 'enum', values: ['120'], sheet: false, pages: ['xbox renderer'],
+    meaning: 'Stops after 120 frames drawn, for a counted capture.',
+    absent: 'frames until stopped',
+    readIn: ['xboxPrototype/main.ts'],
+  },
+  {
+    key: 'types', group: 'pages', kind: 'flag', sheet: false, pages: ['xbox renderer'],
+    meaning: '0: the walking match without its typed (bone-limited) models.',
+    absent: 'the typed models',
+    readIn: ['xboxPrototype/main.ts'],
+  },
+  {
+    key: 'effects', group: 'pages', kind: 'flag', sheet: false, pages: ['xbox renderer'],
+    meaning: '0: the walking match without its effects, for a before-and-after measure.',
+    absent: 'the effects loaded',
+    readIn: ['xboxPrototype/main.ts'],
+  },
+  {
+    key: 'menus', group: 'pages', kind: 'flag', sheet: false, pages: ['xbox renderer'],
+    meaning: '0: the walking match without its menus.',
+    absent: 'the menus',
+    readIn: ['xboxPrototype/main.ts'],
+  },
+  {
+    key: 'talk', group: 'pages', kind: 'flag', sheet: false, pages: ['xbox renderer'],
+    meaning: '0: the walking match without its text talk.',
+    absent: 'talk',
+    readIn: ['xboxPrototype/main.ts'],
+  },
+  {
+    key: 'voice', group: 'pages', kind: 'flag', sheet: false, pages: ['xbox renderer'],
+    meaning: '0: the walking match without voice.',
+    absent: 'voice',
+    readIn: ['xboxPrototype/main.ts'],
+  },
+  {
+    key: 'voicehud', group: 'pages', kind: 'flag', sheet: false, pages: ['xbox renderer'],
+    meaning: '0: the walking match without the voice HUD.',
+    absent: 'the voice HUD',
+    readIn: ['xboxPrototype/main.ts'],
+  },
+  {
+    key: 'voiceperm', group: 'pages', kind: 'flag', sheet: false, pages: ['xbox renderer'],
+    meaning: '0: the walking match without the voice permission prompt.',
+    absent: 'the permission prompt',
+    readIn: ['xboxPrototype/main.ts'],
+  },
+  {
+    key: 'fps', group: 'pages', kind: 'number', sheet: false, pages: ['xbox renderer'],
+    meaning: 'Frames drawn no faster than this many a second.',
+    absent: 'every animation frame',
+    readIn: ['xboxPrototype/main.ts'],
+  },
+  {
+    key: 'dropvoice', group: 'pages', kind: 'number', sheet: false, pages: ['xbox renderer'],
+    meaning: 'Drops voice this many seconds into the walk (a release measure).',
+    absent: 'voice kept',
+    readIn: ['xboxPrototype/main.ts'],
+  },
+  {
+    key: 'droptalk', group: 'pages', kind: 'number', sheet: false, pages: ['xbox renderer'],
+    meaning: 'Drops talk this many seconds into the walk (a release measure).',
+    absent: 'talk kept',
+    readIn: ['xboxPrototype/main.ts'],
   },
 ];
 

@@ -1,5 +1,5 @@
 {
- "_source": "disc RUN/ZWEAPON.ZAR zweapon.rdr ZWEAPON + ZAMMO; reader @s2u/scene readKitTable(...).records (weaponRecord, kitTableOf; each record's Rumble_Modifiers as rumble, CTL-2; the M60E3 as r0004's parser reads it, R4B-01, OT.R97: stand dilateMove 15, targetMin 10, targetMax 55, fireWait 0.16 over the disc's r0001 6/8/35, 0.14); THREAT-MARKS + R4B-10a: each record's Sound_Radius x 10 as soundRadius (+0x30, FUN_003cda30), with r0004's post-parse 552SD override 50 (research 384); 2026-11-09",
+ "_source": "disc RUN/ZWEAPON.ZAR zweapon.rdr ZWEAPON + ZAMMO; reader @s2u/scene readKitTable(...).records (weaponRecord, kitTableOf; each record's Rumble_Modifiers as rumble, CTL-2; the M60E3 as r0004's parser reads it, R4B-01, OT.R97: stand dilateMove 15, targetMin 10, targetMax 55, fireWait 0.16 over the disc's r0001 6/8/35, 0.14); THREAT-MARKS + R4B-10a: each record's Sound_Radius x 10 as soundRadius (+0x30, FUN_003cda30), with r0004's post-parse 552SD override 50 (research 384), 2026-11-09; BUG-L250: each stance's ScreenShake as screenShake (FUN_003cda30 D:L322327-322370, null when absent); 2026-11-24",
  "records": {
   "4": {
    "name": "F57",
@@ -19,9 +19,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":20,"knockReturn":52,"knockMax":42},
    "stances": {
-    "stand": {"knock":20,"knockReturn":52,"knockMax":42,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":1,"constrict":75,"targetMin":10,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":20,"knockReturn":52,"knockMax":42,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":13,"constrict":75,"targetMin":4,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":20,"knockReturn":52,"knockMax":42,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":63,"constrict":75,"targetMin":6,"targetMax":34,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":20,"knockReturn":52,"knockMax":42,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":1,"constrict":75,"targetMin":10,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":20,"knockReturn":52,"knockMax":42,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":13,"constrict":75,"targetMin":4,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":20,"knockReturn":52,"knockMax":42,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":63,"constrict":75,"targetMin":6,"targetMax":34,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -51,9 +51,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":20,"knockReturn":75,"knockMax":110},
    "stances": {
-    "stand": {"knock":20,"knockReturn":75,"knockMax":110,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":1,"constrict":60,"targetMin":12,"targetMax":26,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":20,"knockReturn":75,"knockMax":110,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":13,"constrict":60,"targetMin":12,"targetMax":26,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":20,"knockReturn":75,"knockMax":110,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":63,"constrict":60,"targetMin":16,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":20,"knockReturn":75,"knockMax":110,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":1,"constrict":60,"targetMin":12,"targetMax":26,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":20,"knockReturn":75,"knockMax":110,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":13,"constrict":60,"targetMin":12,"targetMax":26,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":20,"knockReturn":75,"knockMax":110,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":63,"constrict":60,"targetMin":16,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -83,9 +83,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":20,"knockReturn":80,"knockMax":30},
    "stances": {
-    "stand": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":1,"constrict":40,"targetMin":8,"targetMax":22,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":13,"constrict":40,"targetMin":8,"targetMax":22,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":63,"constrict":40,"targetMin":12,"targetMax":26,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":1,"constrict":40,"targetMin":8,"targetMax":22,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":13,"constrict":40,"targetMin":8,"targetMax":22,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":63,"constrict":40,"targetMin":12,"targetMax":26,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -115,9 +115,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":45,"knockReturn":60,"knockMax":60},
    "stances": {
-    "stand": {"knock":45,"knockReturn":60,"knockMax":60,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":40,"dilateMove":2,"dilateMoveMult":1,"constrict":35,"targetMin":32,"targetMax":70,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":45,"knockReturn":60,"knockMax":60,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":40,"dilateMove":2,"dilateMoveMult":13,"constrict":35,"targetMin":29,"targetMax":70,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":45,"knockReturn":60,"knockMax":60,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":40,"dilateMove":2,"dilateMoveMult":63,"constrict":35,"targetMin":26,"targetMax":70,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":45,"knockReturn":60,"knockMax":60,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":40,"dilateMove":2,"dilateMoveMult":1,"constrict":35,"targetMin":32,"targetMax":70,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":45,"knockReturn":60,"knockMax":60,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":40,"dilateMove":2,"dilateMoveMult":13,"constrict":35,"targetMin":29,"targetMax":70,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":45,"knockReturn":60,"knockMax":60,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":40,"dilateMove":2,"dilateMoveMult":63,"constrict":35,"targetMin":26,"targetMax":70,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -147,9 +147,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":10,"knockReturn":40,"knockMax":20},
    "stances": {
-    "stand": {"knock":10,"knockReturn":40,"knockMax":20,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":10,"dilateMove":0.75,"dilateMoveMult":1,"constrict":40,"targetMin":8,"targetMax":20,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":10,"knockReturn":40,"knockMax":20,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":10,"dilateMove":0.75,"dilateMoveMult":13,"constrict":40,"targetMin":8,"targetMax":20,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":10,"knockReturn":40,"knockMax":20,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":10,"dilateMove":0.75,"dilateMoveMult":63,"constrict":40,"targetMin":10,"targetMax":24,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":10,"knockReturn":40,"knockMax":20,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":10,"dilateMove":0.75,"dilateMoveMult":1,"constrict":40,"targetMin":8,"targetMax":20,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":10,"knockReturn":40,"knockMax":20,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":10,"dilateMove":0.75,"dilateMoveMult":13,"constrict":40,"targetMin":8,"targetMax":20,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":10,"knockReturn":40,"knockMax":20,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":10,"dilateMove":0.75,"dilateMoveMult":63,"constrict":40,"targetMin":10,"targetMax":24,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -179,9 +179,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":20,"knockReturn":80,"knockMax":30},
    "stances": {
-    "stand": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":1,"constrict":40,"targetMin":8,"targetMax":22,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":13,"constrict":40,"targetMin":8,"targetMax":22,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":63,"constrict":40,"targetMin":12,"targetMax":26,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":1,"constrict":40,"targetMin":8,"targetMax":22,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":13,"constrict":40,"targetMin":8,"targetMax":22,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":63,"constrict":40,"targetMin":12,"targetMax":26,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -211,9 +211,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":20,"knockReturn":80,"knockMax":30},
    "stances": {
-    "stand": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":1,"constrict":40,"targetMin":8,"targetMax":22,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":13,"constrict":40,"targetMin":8,"targetMax":22,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":63,"constrict":40,"targetMin":12,"targetMax":26,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":1,"constrict":40,"targetMin":8,"targetMax":22,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":13,"constrict":40,"targetMin":8,"targetMax":22,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":20,"knockReturn":80,"knockMax":30,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.55,"dilateMoveMult":63,"constrict":40,"targetMin":12,"targetMax":26,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -243,9 +243,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":20,"knockReturn":40,"knockMax":60},
    "stances": {
-    "stand": {"knock":20,"knockReturn":40,"knockMax":60,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":10,"dilateMove":0.5,"dilateMoveMult":1,"constrict":70,"targetMin":15,"targetMax":65,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":20,"knockReturn":40,"knockMax":60,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":10,"dilateMove":0.5,"dilateMoveMult":13,"constrict":70,"targetMin":17,"targetMax":65,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":20,"knockReturn":40,"knockMax":60,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":10,"dilateMove":0.5,"dilateMoveMult":63,"constrict":70,"targetMin":15,"targetMax":70,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":20,"knockReturn":40,"knockMax":60,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":10,"dilateMove":0.5,"dilateMoveMult":1,"constrict":70,"targetMin":15,"targetMax":65,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":20,"knockReturn":40,"knockMax":60,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":10,"dilateMove":0.5,"dilateMoveMult":13,"constrict":70,"targetMin":17,"targetMax":65,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":20,"knockReturn":40,"knockMax":60,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":10,"dilateMove":0.5,"dilateMoveMult":63,"constrict":70,"targetMin":15,"targetMax":70,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":4,"countMax":10,"scalarMin":0,"scalarMax":0},
@@ -275,9 +275,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":20,"knockReturn":60,"knockMax":40},
    "stances": {
-    "stand": {"knock":20,"knockReturn":60,"knockMax":40,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.75,"dilateMoveMult":1,"constrict":75,"targetMin":10,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":20,"knockReturn":60,"knockMax":40,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.75,"dilateMoveMult":10,"constrict":75,"targetMin":10,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":20,"knockReturn":60,"knockMax":40,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.75,"dilateMoveMult":60,"constrict":75,"targetMin":14,"targetMax":34,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":20,"knockReturn":60,"knockMax":40,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.75,"dilateMoveMult":1,"constrict":75,"targetMin":10,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":20,"knockReturn":60,"knockMax":40,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.75,"dilateMoveMult":10,"constrict":75,"targetMin":10,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":20,"knockReturn":60,"knockMax":40,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":20,"dilateMove":0.75,"dilateMoveMult":60,"constrict":75,"targetMin":14,"targetMax":34,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -307,9 +307,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":20,"knockReturn":60,"knockMax":40},
    "stances": {
-    "stand": {"knock":20,"knockReturn":60,"knockMax":40,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":-0.15,"dilateFire":20,"dilateMove":0.75,"dilateMoveMult":1,"constrict":75,"targetMin":10,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":20,"knockReturn":60,"knockMax":40,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":-0.15,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":13,"constrict":75,"targetMin":10,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":20,"knockReturn":60,"knockMax":40,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":-0.15,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":63,"constrict":75,"targetMin":14,"targetMax":34,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":20,"knockReturn":60,"knockMax":40,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":-0.15,"dilateFire":20,"dilateMove":0.75,"dilateMoveMult":1,"constrict":75,"targetMin":10,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":20,"knockReturn":60,"knockMax":40,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":-0.15,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":13,"constrict":75,"targetMin":10,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":20,"knockReturn":60,"knockMax":40,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":-0.15,"dilateFire":20,"dilateMove":0.5,"dilateMoveMult":63,"constrict":75,"targetMin":14,"targetMax":34,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -339,9 +339,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":11,"knockReturn":50,"knockMax":20},
    "stances": {
-    "stand": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":1,"constrict":30,"targetMin":5,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":13,"constrict":30,"targetMin":4,"targetMax":18,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":63,"constrict":30,"targetMin":5,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":1,"constrict":30,"targetMin":5,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":13,"constrict":30,"targetMin":4,"targetMax":18,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":63,"constrict":30,"targetMin":5,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":5,"countMax":20,"scalarMin":0,"scalarMax":0.05},
@@ -371,9 +371,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":11,"knockReturn":50,"knockMax":20},
    "stances": {
-    "stand": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":1,"constrict":30,"targetMin":5,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":13,"constrict":30,"targetMin":4,"targetMax":18,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":63,"constrict":30,"targetMin":5,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":1,"constrict":30,"targetMin":5,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":13,"constrict":30,"targetMin":4,"targetMax":18,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":63,"constrict":30,"targetMin":5,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":5,"countMax":20,"scalarMin":0,"scalarMax":0.05},
@@ -403,9 +403,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":12,"knockReturn":40,"knockMax":32},
    "stances": {
-    "stand": {"knock":12,"knockReturn":40,"knockMax":32,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":8,"dilateMove":0.25,"dilateMoveMult":1,"constrict":60,"targetMin":6,"targetMax":40,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4},
-    "crouch": {"knock":12,"knockReturn":42,"knockMax":30,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":7,"dilateMove":0.25,"dilateMoveMult":13,"constrict":60,"targetMin":6,"targetMax":40,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4},
-    "prone": {"knock":12,"knockReturn":44,"knockMax":34,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":9,"dilateMove":0.25,"dilateMoveMult":63,"constrict":60,"targetMin":6,"targetMax":40,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4}
+    "stand": {"knock":12,"knockReturn":40,"knockMax":32,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":8,"dilateMove":0.25,"dilateMoveMult":1,"constrict":60,"targetMin":6,"targetMax":40,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4,"screenShake":null},
+    "crouch": {"knock":12,"knockReturn":42,"knockMax":30,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":7,"dilateMove":0.25,"dilateMoveMult":13,"constrict":60,"targetMin":6,"targetMax":40,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":12,"knockReturn":44,"knockMax":34,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":9,"dilateMove":0.25,"dilateMoveMult":63,"constrict":60,"targetMin":6,"targetMax":40,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":1,"countMax":3,"scalarMin":0,"scalarMax":1},
@@ -435,9 +435,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":12,"knockReturn":80,"knockMax":42},
    "stances": {
-    "stand": {"knock":12,"knockReturn":80,"knockMax":42,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":1,"constrict":100,"targetMin":8,"targetMax":71,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":3,"knockEntry":1},
-    "crouch": {"knock":12,"knockReturn":80,"knockMax":42,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":6,"dilateMove":0.25,"dilateMoveMult":13,"constrict":100,"targetMin":8,"targetMax":55,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":3,"knockEntry":1},
-    "prone": {"knock":12,"knockReturn":80,"knockMax":42,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":6,"dilateMove":0.25,"dilateMoveMult":63,"constrict":100,"targetMin":8,"targetMax":71,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":3,"knockEntry":1}
+    "stand": {"knock":12,"knockReturn":80,"knockMax":42,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":4,"dilateMove":0.25,"dilateMoveMult":1,"constrict":100,"targetMin":8,"targetMax":71,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":3,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":12,"knockReturn":80,"knockMax":42,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":6,"dilateMove":0.25,"dilateMoveMult":13,"constrict":100,"targetMin":8,"targetMax":55,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":3,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":12,"knockReturn":80,"knockMax":42,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":6,"dilateMove":0.25,"dilateMoveMult":63,"constrict":100,"targetMin":8,"targetMax":71,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":3,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":3,"countMax":8,"scalarMin":0.2,"scalarMax":2.8},
@@ -467,9 +467,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":11,"knockReturn":60,"knockMax":17},
    "stances": {
-    "stand": {"knock":11,"knockReturn":60,"knockMax":17,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":8,"dilateMove":1,"dilateMoveMult":1,"constrict":36,"targetMin":6,"targetMax":44,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":8,"dilateMove":1,"dilateMoveMult":63,"constrict":36,"targetMin":5,"targetMax":42,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":4,"dilateMove":1,"dilateMoveMult":13,"constrict":36,"targetMin":4,"targetMax":40,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":11,"knockReturn":60,"knockMax":17,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":8,"dilateMove":1,"dilateMoveMult":1,"constrict":36,"targetMin":6,"targetMax":44,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":8,"dilateMove":1,"dilateMoveMult":63,"constrict":36,"targetMin":5,"targetMax":42,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":11,"knockReturn":50,"knockMax":20,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":4,"dilateMove":1,"dilateMoveMult":13,"constrict":36,"targetMin":4,"targetMax":40,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":1,"countMax":8,"scalarMin":0.2,"scalarMax":2.8},
@@ -499,9 +499,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":11,"knockReturn":20,"knockMax":25},
    "stances": {
-    "stand": {"knock":11,"knockReturn":20,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":1,"constrict":37,"targetMin":0.5,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "crouch": {"knock":11,"knockReturn":20,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":13,"constrict":37,"targetMin":0.25,"targetMax":15,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "prone": {"knock":11,"knockReturn":20,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":63,"constrict":37,"targetMin":0,"targetMax":12,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4}
+    "stand": {"knock":11,"knockReturn":20,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":1,"constrict":37,"targetMin":0.5,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "crouch": {"knock":11,"knockReturn":20,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":13,"constrict":37,"targetMin":0.25,"targetMax":15,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":11,"knockReturn":20,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":63,"constrict":37,"targetMin":0,"targetMax":12,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":1,"countMax":3,"scalarMin":0,"scalarMax":0.05},
@@ -531,9 +531,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":9,"knockReturn":20,"knockMax":25},
    "stances": {
-    "stand": {"knock":9,"knockReturn":20,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":1,"constrict":32,"targetMin":1.5,"targetMax":23,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "crouch": {"knock":8,"knockReturn":20,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":13,"constrict":34,"targetMin":1.25,"targetMax":21,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "prone": {"knock":7,"knockReturn":20,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":63,"constrict":37,"targetMin":1,"targetMax":19,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4}
+    "stand": {"knock":9,"knockReturn":20,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":1,"constrict":32,"targetMin":1.5,"targetMax":23,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "crouch": {"knock":8,"knockReturn":20,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":13,"constrict":34,"targetMin":1.25,"targetMax":21,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":7,"knockReturn":20,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":63,"constrict":37,"targetMin":1,"targetMax":19,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -563,9 +563,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":12,"knockReturn":70,"knockMax":45},
    "stances": {
-    "stand": {"knock":12,"knockReturn":70,"knockMax":45,"swayRateX":5,"swayRateY":4,"swayLimitX":20,"swayLimitY":24,"sniperDecay":-0.06,"dilateFire":7,"dilateMove":1,"dilateMoveMult":1,"constrict":50,"targetMin":1,"targetMax":26,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.09,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4},
-    "crouch": {"knock":9,"knockReturn":75,"knockMax":45,"swayRateX":4,"swayRateY":4,"swayLimitX":16,"swayLimitY":19,"sniperDecay":-0.06,"dilateFire":7,"dilateMove":1,"dilateMoveMult":13,"constrict":55,"targetMin":1,"targetMax":25,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.08,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4},
-    "prone": {"knock":8,"knockReturn":75,"knockMax":20,"swayRateX":4,"swayRateY":4,"swayLimitX":12,"swayLimitY":15,"sniperDecay":-0.2,"dilateFire":7,"dilateMove":1,"dilateMoveMult":63,"constrict":50,"targetMin":1,"targetMax":24,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.06,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4}
+    "stand": {"knock":12,"knockReturn":70,"knockMax":45,"swayRateX":5,"swayRateY":4,"swayLimitX":20,"swayLimitY":24,"sniperDecay":-0.06,"dilateFire":7,"dilateMove":1,"dilateMoveMult":1,"constrict":50,"targetMin":1,"targetMax":26,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.09,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4,"screenShake":null},
+    "crouch": {"knock":9,"knockReturn":75,"knockMax":45,"swayRateX":4,"swayRateY":4,"swayLimitX":16,"swayLimitY":19,"sniperDecay":-0.06,"dilateFire":7,"dilateMove":1,"dilateMoveMult":13,"constrict":55,"targetMin":1,"targetMax":25,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.08,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":8,"knockReturn":75,"knockMax":20,"swayRateX":4,"swayRateY":4,"swayLimitX":12,"swayLimitY":15,"sniperDecay":-0.2,"dilateFire":7,"dilateMove":1,"dilateMoveMult":63,"constrict":50,"targetMin":1,"targetMax":24,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.06,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5,2.5],
    "accuracyBurst": {"countMin":4,"countMax":7,"scalarMin":0,"scalarMax":0.03},
@@ -595,9 +595,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":11,"knockReturn":50,"knockMax":60},
    "stances": {
-    "stand": {"knock":11,"knockReturn":50,"knockMax":60,"swayRateX":8,"swayRateY":8,"swayLimitX":20,"swayLimitY":24,"sniperDecay":-0.07,"dilateFire":9,"dilateMove":1,"dilateMoveMult":1,"constrict":50,"targetMin":1.5,"targetMax":27,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.09,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "crouch": {"knock":10,"knockReturn":55,"knockMax":60,"swayRateX":6,"swayRateY":6,"swayLimitX":18,"swayLimitY":22,"sniperDecay":-0.1,"dilateFire":8,"dilateMove":1,"dilateMoveMult":13,"constrict":50,"targetMin":1.25,"targetMax":25,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.08,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "prone": {"knock":9,"knockReturn":55,"knockMax":60,"swayRateX":4,"swayRateY":4,"swayLimitX":15,"swayLimitY":18,"sniperDecay":-0.09,"dilateFire":7,"dilateMove":1,"dilateMoveMult":63,"constrict":50,"targetMin":1,"targetMax":23,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.07,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4}
+    "stand": {"knock":11,"knockReturn":50,"knockMax":60,"swayRateX":8,"swayRateY":8,"swayLimitX":20,"swayLimitY":24,"sniperDecay":-0.07,"dilateFire":9,"dilateMove":1,"dilateMoveMult":1,"constrict":50,"targetMin":1.5,"targetMax":27,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.09,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "crouch": {"knock":10,"knockReturn":55,"knockMax":60,"swayRateX":6,"swayRateY":6,"swayLimitX":18,"swayLimitY":22,"sniperDecay":-0.1,"dilateFire":8,"dilateMove":1,"dilateMoveMult":13,"constrict":50,"targetMin":1.25,"targetMax":25,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.08,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":9,"knockReturn":55,"knockMax":60,"swayRateX":4,"swayRateY":4,"swayLimitX":15,"swayLimitY":18,"sniperDecay":-0.09,"dilateFire":7,"dilateMove":1,"dilateMoveMult":63,"constrict":50,"targetMin":1,"targetMax":23,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.07,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5,3],
    "accuracyBurst": {"countMin":3,"countMax":10,"scalarMin":0,"scalarMax":0.01},
@@ -627,9 +627,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":10,"knockReturn":26,"knockMax":31},
    "stances": {
-    "stand": {"knock":10,"knockReturn":26,"knockMax":31,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.25,"dilateFire":9,"dilateMove":1,"dilateMoveMult":1,"constrict":40,"targetMin":1.5,"targetMax":31,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":2,"knockEntry":0.4},
-    "crouch": {"knock":9,"knockReturn":26,"knockMax":31,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.25,"dilateFire":9,"dilateMove":0.5,"dilateMoveMult":6,"constrict":40,"targetMin":1,"targetMax":27,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":2,"knockEntry":0.4},
-    "prone": {"knock":6,"knockReturn":26,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.25,"dilateFire":8,"dilateMove":0.5,"dilateMoveMult":63,"constrict":40,"targetMin":1,"targetMax":25,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":2,"knockEntry":0.4}
+    "stand": {"knock":10,"knockReturn":26,"knockMax":31,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.25,"dilateFire":9,"dilateMove":1,"dilateMoveMult":1,"constrict":40,"targetMin":1.5,"targetMax":31,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":2,"knockEntry":0.4,"screenShake":null},
+    "crouch": {"knock":9,"knockReturn":26,"knockMax":31,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.25,"dilateFire":9,"dilateMove":0.5,"dilateMoveMult":6,"constrict":40,"targetMin":1,"targetMax":27,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":2,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":6,"knockReturn":26,"knockMax":25,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.25,"dilateFire":8,"dilateMove":0.5,"dilateMoveMult":63,"constrict":40,"targetMin":1,"targetMax":25,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":2,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":1,"countMax":15,"scalarMin":0,"scalarMax":0.003},
@@ -659,9 +659,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":10,"knockReturn":26,"knockMax":14},
    "stances": {
-    "stand": {"knock":10,"knockReturn":26,"knockMax":14,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.25,"dilateFire":8,"dilateMove":2,"dilateMoveMult":1,"constrict":45,"targetMin":0.5,"targetMax":55,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "crouch": {"knock":10,"knockReturn":26,"knockMax":14,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.25,"dilateFire":8,"dilateMove":2,"dilateMoveMult":13,"constrict":45,"targetMin":0.5,"targetMax":51,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "prone": {"knock":8,"knockReturn":26,"knockMax":12,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.25,"dilateFire":8,"dilateMove":2,"dilateMoveMult":63,"constrict":45,"targetMin":0.5,"targetMax":47,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4}
+    "stand": {"knock":10,"knockReturn":26,"knockMax":14,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.25,"dilateFire":8,"dilateMove":2,"dilateMoveMult":1,"constrict":45,"targetMin":0.5,"targetMax":55,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "crouch": {"knock":10,"knockReturn":26,"knockMax":14,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.25,"dilateFire":8,"dilateMove":2,"dilateMoveMult":13,"constrict":45,"targetMin":0.5,"targetMax":51,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":8,"knockReturn":26,"knockMax":12,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.25,"dilateFire":8,"dilateMove":2,"dilateMoveMult":63,"constrict":45,"targetMin":0.5,"targetMax":47,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":1,"countMax":8,"scalarMin":0,"scalarMax":0.005},
@@ -691,9 +691,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":12,"knockReturn":42,"knockMax":60},
    "stances": {
-    "stand": {"knock":12,"knockReturn":42,"knockMax":60,"swayRateX":1,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.05,"dilateFire":8,"dilateMove":1.5,"dilateMoveMult":1,"constrict":37,"targetMin":0,"targetMax":34,"kickRate":2.4,"kickReturnRate":1.8,"kickBase":0.08,"kickRandom":0.015,"knockCount":3,"knockEntry":1},
-    "crouch": {"knock":10,"knockReturn":42,"knockMax":50,"swayRateX":1,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.05,"dilateFire":7,"dilateMove":1.5,"dilateMoveMult":13,"constrict":37,"targetMin":0,"targetMax":31,"kickRate":2.4,"kickReturnRate":1.8,"kickBase":0.08,"kickRandom":0.015,"knockCount":3,"knockEntry":1},
-    "prone": {"knock":9,"knockReturn":42,"knockMax":35,"swayRateX":1,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.05,"dilateFire":6,"dilateMove":1.5,"dilateMoveMult":63,"constrict":37,"targetMin":0,"targetMax":29,"kickRate":2.4,"kickReturnRate":1.8,"kickBase":0.08,"kickRandom":0.015,"knockCount":3,"knockEntry":1}
+    "stand": {"knock":12,"knockReturn":42,"knockMax":60,"swayRateX":1,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.05,"dilateFire":8,"dilateMove":1.5,"dilateMoveMult":1,"constrict":37,"targetMin":0,"targetMax":34,"kickRate":2.4,"kickReturnRate":1.8,"kickBase":0.08,"kickRandom":0.015,"knockCount":3,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":10,"knockReturn":42,"knockMax":50,"swayRateX":1,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.05,"dilateFire":7,"dilateMove":1.5,"dilateMoveMult":13,"constrict":37,"targetMin":0,"targetMax":31,"kickRate":2.4,"kickReturnRate":1.8,"kickBase":0.08,"kickRandom":0.015,"knockCount":3,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":9,"knockReturn":42,"knockMax":35,"swayRateX":1,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.05,"dilateFire":6,"dilateMove":1.5,"dilateMoveMult":63,"constrict":37,"targetMin":0,"targetMax":29,"kickRate":2.4,"kickReturnRate":1.8,"kickBase":0.08,"kickRandom":0.015,"knockCount":3,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":5,"countMax":10,"scalarMin":0,"scalarMax":0.002},
@@ -723,9 +723,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":11.5,"knockReturn":75,"knockMax":45},
    "stances": {
-    "stand": {"knock":11.5,"knockReturn":75,"knockMax":45,"swayRateX":6,"swayRateY":5,"swayLimitX":18,"swayLimitY":14,"sniperDecay":-0.04,"dilateFire":7,"dilateMove":1.15,"dilateMoveMult":1,"constrict":40,"targetMin":1.25,"targetMax":32,"kickRate":0.5,"kickReturnRate":0.11,"kickBase":0.11,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4},
-    "crouch": {"knock":7,"knockReturn":75,"knockMax":45,"swayRateX":5,"swayRateY":5,"swayLimitX":18,"swayLimitY":14,"sniperDecay":-0.05,"dilateFire":9,"dilateMove":1.15,"dilateMoveMult":13,"constrict":45,"targetMin":1.25,"targetMax":29,"kickRate":0.5,"kickReturnRate":0.11,"kickBase":0.11,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4},
-    "prone": {"knock":9.25,"knockReturn":75,"knockMax":45,"swayRateX":4,"swayRateY":5,"swayLimitX":16,"swayLimitY":12,"sniperDecay":-0.2,"dilateFire":7,"dilateMove":1.15,"dilateMoveMult":63,"constrict":50,"targetMin":1,"targetMax":26,"kickRate":0.5,"kickReturnRate":0.11,"kickBase":0.11,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4}
+    "stand": {"knock":11.5,"knockReturn":75,"knockMax":45,"swayRateX":6,"swayRateY":5,"swayLimitX":18,"swayLimitY":14,"sniperDecay":-0.04,"dilateFire":7,"dilateMove":1.15,"dilateMoveMult":1,"constrict":40,"targetMin":1.25,"targetMax":32,"kickRate":0.5,"kickReturnRate":0.11,"kickBase":0.11,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4,"screenShake":null},
+    "crouch": {"knock":7,"knockReturn":75,"knockMax":45,"swayRateX":5,"swayRateY":5,"swayLimitX":18,"swayLimitY":14,"sniperDecay":-0.05,"dilateFire":9,"dilateMove":1.15,"dilateMoveMult":13,"constrict":45,"targetMin":1.25,"targetMax":29,"kickRate":0.5,"kickReturnRate":0.11,"kickBase":0.11,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":9.25,"knockReturn":75,"knockMax":45,"swayRateX":4,"swayRateY":5,"swayLimitX":16,"swayLimitY":12,"sniperDecay":-0.2,"dilateFire":7,"dilateMove":1.15,"dilateMoveMult":63,"constrict":50,"targetMin":1,"targetMax":26,"kickRate":0.5,"kickReturnRate":0.11,"kickBase":0.11,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":5,"countMax":10,"scalarMin":0,"scalarMax":0.01},
@@ -755,9 +755,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":12,"knockReturn":70,"knockMax":45},
    "stances": {
-    "stand": {"knock":12,"knockReturn":70,"knockMax":45,"swayRateX":6,"swayRateY":6,"swayLimitX":20,"swayLimitY":24,"sniperDecay":-0.04,"dilateFire":7,"dilateMove":1,"dilateMoveMult":1,"constrict":50,"targetMin":1,"targetMax":26,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.09,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4},
-    "crouch": {"knock":11,"knockReturn":75,"knockMax":45,"swayRateX":5,"swayRateY":5,"swayLimitX":16,"swayLimitY":19,"sniperDecay":-0.05,"dilateFire":7,"dilateMove":1,"dilateMoveMult":13,"constrict":55,"targetMin":0.75,"targetMax":25,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.08,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4},
-    "prone": {"knock":10,"knockReturn":75,"knockMax":20,"swayRateX":4,"swayRateY":4,"swayLimitX":12,"swayLimitY":15,"sniperDecay":-0.2,"dilateFire":7,"dilateMove":1,"dilateMoveMult":63,"constrict":50,"targetMin":1,"targetMax":24,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.06,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4}
+    "stand": {"knock":12,"knockReturn":70,"knockMax":45,"swayRateX":6,"swayRateY":6,"swayLimitX":20,"swayLimitY":24,"sniperDecay":-0.04,"dilateFire":7,"dilateMove":1,"dilateMoveMult":1,"constrict":50,"targetMin":1,"targetMax":26,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.09,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4,"screenShake":null},
+    "crouch": {"knock":11,"knockReturn":75,"knockMax":45,"swayRateX":5,"swayRateY":5,"swayLimitX":16,"swayLimitY":19,"sniperDecay":-0.05,"dilateFire":7,"dilateMove":1,"dilateMoveMult":13,"constrict":55,"targetMin":0.75,"targetMax":25,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.08,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":10,"knockReturn":75,"knockMax":20,"swayRateX":4,"swayRateY":4,"swayLimitX":12,"swayLimitY":15,"sniperDecay":-0.2,"dilateFire":7,"dilateMove":1,"dilateMoveMult":63,"constrict":50,"targetMin":1,"targetMax":24,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.06,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5,3],
    "accuracyBurst": {"countMin":5,"countMax":10,"scalarMin":0,"scalarMax":0},
@@ -787,9 +787,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":9,"knockReturn":32,"knockMax":40},
    "stances": {
-    "stand": {"knock":9,"knockReturn":32,"knockMax":40,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":2,"constrict":32,"targetMin":1.5,"targetMax":23,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":0.6},
-    "crouch": {"knock":8,"knockReturn":32,"knockMax":40,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":2,"dilateMoveMult":13,"constrict":34,"targetMin":1.25,"targetMax":21,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "prone": {"knock":7,"knockReturn":34,"knockMax":35,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":63,"constrict":37,"targetMin":1,"targetMax":19,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4}
+    "stand": {"knock":9,"knockReturn":32,"knockMax":40,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":2,"constrict":32,"targetMin":1.5,"targetMax":23,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":0.6,"screenShake":null},
+    "crouch": {"knock":8,"knockReturn":32,"knockMax":40,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":2,"dilateMoveMult":13,"constrict":34,"targetMin":1.25,"targetMax":21,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":7,"knockReturn":34,"knockMax":35,"swayRateX":4,"swayRateY":5,"swayLimitX":13,"swayLimitY":11,"sniperDecay":-0.45,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":63,"constrict":37,"targetMin":1,"targetMax":19,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5,6],
    "accuracyBurst": {"countMin":5,"countMax":10,"scalarMin":0,"scalarMax":0.01},
@@ -819,9 +819,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":11,"knockReturn":20,"knockMax":25},
    "stances": {
-    "stand": {"knock":11,"knockReturn":20,"knockMax":25,"swayRateX":6,"swayRateY":7,"swayLimitX":22,"swayLimitY":20,"sniperDecay":-0.075,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":1,"constrict":37,"targetMin":0.5,"targetMax":20,"kickRate":0.39,"kickReturnRate":0.07,"kickBase":0.05,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "crouch": {"knock":11,"knockReturn":20,"knockMax":25,"swayRateX":6,"swayRateY":7,"swayLimitX":22,"swayLimitY":20,"sniperDecay":-0.075,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":13,"constrict":37,"targetMin":0.25,"targetMax":15,"kickRate":0.39,"kickReturnRate":0.07,"kickBase":0.05,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "prone": {"knock":11,"knockReturn":20,"knockMax":25,"swayRateX":3,"swayRateY":4,"swayLimitX":16,"swayLimitY":14,"sniperDecay":-0.15,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":63,"constrict":37,"targetMin":0,"targetMax":12,"kickRate":0.39,"kickReturnRate":0.07,"kickBase":0.05,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4}
+    "stand": {"knock":11,"knockReturn":20,"knockMax":25,"swayRateX":6,"swayRateY":7,"swayLimitX":22,"swayLimitY":20,"sniperDecay":-0.075,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":1,"constrict":37,"targetMin":0.5,"targetMax":20,"kickRate":0.39,"kickReturnRate":0.07,"kickBase":0.05,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "crouch": {"knock":11,"knockReturn":20,"knockMax":25,"swayRateX":6,"swayRateY":7,"swayLimitX":22,"swayLimitY":20,"sniperDecay":-0.075,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":13,"constrict":37,"targetMin":0.25,"targetMax":15,"kickRate":0.39,"kickReturnRate":0.07,"kickBase":0.05,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":11,"knockReturn":20,"knockMax":25,"swayRateX":3,"swayRateY":4,"swayLimitX":16,"swayLimitY":14,"sniperDecay":-0.15,"dilateFire":22,"dilateMove":1.5,"dilateMoveMult":63,"constrict":37,"targetMin":0,"targetMax":12,"kickRate":0.39,"kickReturnRate":0.07,"kickBase":0.05,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5,4],
    "accuracyBurst": {"countMin":1,"countMax":3,"scalarMin":0,"scalarMax":0.05},
@@ -851,9 +851,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":7,"knockReturn":26,"knockMax":14},
    "stances": {
-    "stand": {"knock":7,"knockReturn":26,"knockMax":14,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":8,"dilateMove":0.75,"dilateMoveMult":1,"constrict":45,"targetMin":2,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":3,"knockEntry":0.4},
-    "crouch": {"knock":7,"knockReturn":26,"knockMax":14,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":8,"dilateMove":0.75,"dilateMoveMult":13,"constrict":45,"targetMin":2,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":3,"knockEntry":0.4},
-    "prone": {"knock":5,"knockReturn":26,"knockMax":12,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":8,"dilateMove":0.75,"dilateMoveMult":13,"constrict":45,"targetMin":2,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":3,"knockEntry":0.4}
+    "stand": {"knock":7,"knockReturn":26,"knockMax":14,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":8,"dilateMove":0.75,"dilateMoveMult":1,"constrict":45,"targetMin":2,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "crouch": {"knock":7,"knockReturn":26,"knockMax":14,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":8,"dilateMove":0.75,"dilateMoveMult":13,"constrict":45,"targetMin":2,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":5,"knockReturn":26,"knockMax":12,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":8,"dilateMove":0.75,"dilateMoveMult":13,"constrict":45,"targetMin":2,"targetMax":30,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":3,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":1,"countMax":8,"scalarMin":0,"scalarMax":0.005},
@@ -883,9 +883,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":12,"knockReturn":26,"knockMax":22},
    "stances": {
-    "stand": {"knock":12,"knockReturn":26,"knockMax":22,"swayRateX":8,"swayRateY":7,"swayLimitX":24,"swayLimitY":20,"sniperDecay":-0.05,"dilateFire":8,"dilateMove":1,"dilateMoveMult":1,"constrict":45,"targetMin":10,"targetMax":35,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.04,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "crouch": {"knock":12,"knockReturn":26,"knockMax":22,"swayRateX":8,"swayRateY":7,"swayLimitX":24,"swayLimitY":20,"sniperDecay":-0.05,"dilateFire":8,"dilateMove":1,"dilateMoveMult":13,"constrict":45,"targetMin":10,"targetMax":35,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.04,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "prone": {"knock":12,"knockReturn":26,"knockMax":22,"swayRateX":8,"swayRateY":7,"swayLimitX":24,"swayLimitY":20,"sniperDecay":-0.2,"dilateFire":8,"dilateMove":1,"dilateMoveMult":63,"constrict":45,"targetMin":8,"targetMax":30,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.04,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4}
+    "stand": {"knock":12,"knockReturn":26,"knockMax":22,"swayRateX":8,"swayRateY":7,"swayLimitX":24,"swayLimitY":20,"sniperDecay":-0.05,"dilateFire":8,"dilateMove":1,"dilateMoveMult":1,"constrict":45,"targetMin":10,"targetMax":35,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.04,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "crouch": {"knock":12,"knockReturn":26,"knockMax":22,"swayRateX":8,"swayRateY":7,"swayLimitX":24,"swayLimitY":20,"sniperDecay":-0.05,"dilateFire":8,"dilateMove":1,"dilateMoveMult":13,"constrict":45,"targetMin":10,"targetMax":35,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.04,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":12,"knockReturn":26,"knockMax":22,"swayRateX":8,"swayRateY":7,"swayLimitX":24,"swayLimitY":20,"sniperDecay":-0.2,"dilateFire":8,"dilateMove":1,"dilateMoveMult":63,"constrict":45,"targetMin":8,"targetMax":30,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.04,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5,3],
    "accuracyBurst": {"countMin":1,"countMax":8,"scalarMin":0,"scalarMax":0.005},
@@ -915,9 +915,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":11,"knockReturn":47,"knockMax":57},
    "stances": {
-    "stand": {"knock":11,"knockReturn":47,"knockMax":57,"swayRateX":9,"swayRateY":9,"swayLimitX":21,"swayLimitY":26,"sniperDecay":-0.05,"dilateFire":9,"dilateMove":1,"dilateMoveMult":1,"constrict":45,"targetMin":2.5,"targetMax":27,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.07,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "crouch": {"knock":10,"knockReturn":44,"knockMax":54,"swayRateX":7,"swayRateY":7,"swayLimitX":19,"swayLimitY":24,"sniperDecay":-0.1,"dilateFire":8,"dilateMove":1,"dilateMoveMult":13,"constrict":45,"targetMin":2,"targetMax":25,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.06,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4},
-    "prone": {"knock":9,"knockReturn":55,"knockMax":60,"swayRateX":5,"swayRateY":5,"swayLimitX":16,"swayLimitY":20,"sniperDecay":-0.15,"dilateFire":7,"dilateMove":1,"dilateMoveMult":63,"constrict":45,"targetMin":1.5,"targetMax":23,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.05,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4}
+    "stand": {"knock":11,"knockReturn":47,"knockMax":57,"swayRateX":9,"swayRateY":9,"swayLimitX":21,"swayLimitY":26,"sniperDecay":-0.05,"dilateFire":9,"dilateMove":1,"dilateMoveMult":1,"constrict":45,"targetMin":2.5,"targetMax":27,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.07,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "crouch": {"knock":10,"knockReturn":44,"knockMax":54,"swayRateX":7,"swayRateY":7,"swayLimitX":19,"swayLimitY":24,"sniperDecay":-0.1,"dilateFire":8,"dilateMove":1,"dilateMoveMult":13,"constrict":45,"targetMin":2,"targetMax":25,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.06,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null},
+    "prone": {"knock":9,"knockReturn":55,"knockMax":60,"swayRateX":5,"swayRateY":5,"swayLimitX":16,"swayLimitY":20,"sniperDecay":-0.15,"dilateFire":7,"dilateMove":1,"dilateMoveMult":63,"constrict":45,"targetMin":1.5,"targetMax":23,"kickRate":0.5,"kickReturnRate":0.18,"kickBase":0.05,"kickRandom":0.015,"knockCount":3,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5,3],
    "accuracyBurst": {"countMin":3,"countMax":10,"scalarMin":0,"scalarMax":0.01},
@@ -947,9 +947,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":12,"knockReturn":40,"knockMax":32},
    "stances": {
-    "stand": {"knock":12,"knockReturn":40,"knockMax":32,"swayRateX":10,"swayRateY":9,"swayLimitX":22,"swayLimitY":14,"sniperDecay":-0.1,"dilateFire":8,"dilateMove":0.25,"dilateMoveMult":1,"constrict":60,"targetMin":10,"targetMax":45,"kickRate":0.4,"kickReturnRate":0.07,"kickBase":0.055,"kickRandom":0.03,"knockCount":1,"knockEntry":0.6},
-    "crouch": {"knock":12,"knockReturn":40,"knockMax":32,"swayRateX":10,"swayRateY":9,"swayLimitX":22,"swayLimitY":14,"sniperDecay":-0.1,"dilateFire":8,"dilateMove":0.25,"dilateMoveMult":13,"constrict":60,"targetMin":10,"targetMax":45,"kickRate":0.4,"kickReturnRate":0.07,"kickBase":0.055,"kickRandom":0.035,"knockCount":1,"knockEntry":0.6},
-    "prone": {"knock":12,"knockReturn":45,"knockMax":28,"swayRateX":10,"swayRateY":9,"swayLimitX":22,"swayLimitY":14,"sniperDecay":-0.1,"dilateFire":7,"dilateMove":0.25,"dilateMoveMult":63,"constrict":65,"targetMin":8,"targetMax":42,"kickRate":0.4,"kickReturnRate":0.07,"kickBase":0.04,"kickRandom":0.02,"knockCount":1,"knockEntry":0.4}
+    "stand": {"knock":12,"knockReturn":40,"knockMax":32,"swayRateX":10,"swayRateY":9,"swayLimitX":22,"swayLimitY":14,"sniperDecay":-0.1,"dilateFire":8,"dilateMove":0.25,"dilateMoveMult":1,"constrict":60,"targetMin":10,"targetMax":45,"kickRate":0.4,"kickReturnRate":0.07,"kickBase":0.055,"kickRandom":0.03,"knockCount":1,"knockEntry":0.6,"screenShake":null},
+    "crouch": {"knock":12,"knockReturn":40,"knockMax":32,"swayRateX":10,"swayRateY":9,"swayLimitX":22,"swayLimitY":14,"sniperDecay":-0.1,"dilateFire":8,"dilateMove":0.25,"dilateMoveMult":13,"constrict":60,"targetMin":10,"targetMax":45,"kickRate":0.4,"kickReturnRate":0.07,"kickBase":0.055,"kickRandom":0.035,"knockCount":1,"knockEntry":0.6,"screenShake":null},
+    "prone": {"knock":12,"knockReturn":45,"knockMax":28,"swayRateX":10,"swayRateY":9,"swayLimitX":22,"swayLimitY":14,"sniperDecay":-0.1,"dilateFire":7,"dilateMove":0.25,"dilateMoveMult":63,"constrict":65,"targetMin":8,"targetMax":42,"kickRate":0.4,"kickReturnRate":0.07,"kickBase":0.04,"kickRandom":0.02,"knockCount":1,"knockEntry":0.4,"screenShake":null}
    },
    "zoomModes": [1.5,2.5],
    "accuracyBurst": {"countMin":1,"countMax":3,"scalarMin":0,"scalarMax":1},
@@ -979,9 +979,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":8,"knockReturn":40,"knockMax":70},
    "stances": {
-    "stand": {"knock":8,"knockReturn":40,"knockMax":70,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":5,"dilateMove":12,"dilateMoveMult":2,"constrict":65,"targetMin":25,"targetMax":52,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":8,"knockReturn":40,"knockMax":50,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":5,"dilateMove":8,"dilateMoveMult":13,"constrict":65,"targetMin":25,"targetMax":50,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":8,"knockReturn":40,"knockMax":50,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":5,"dilateMove":4,"dilateMoveMult":63,"constrict":65,"targetMin":25,"targetMax":48,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":8,"knockReturn":40,"knockMax":70,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":5,"dilateMove":12,"dilateMoveMult":2,"constrict":65,"targetMin":25,"targetMax":52,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":8,"knockReturn":40,"knockMax":50,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":5,"dilateMove":8,"dilateMoveMult":13,"constrict":65,"targetMin":25,"targetMax":50,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":8,"knockReturn":40,"knockMax":50,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":5,"dilateMove":4,"dilateMoveMult":63,"constrict":65,"targetMin":25,"targetMax":48,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -1014,9 +1014,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":8,"knockReturn":40,"knockMax":50},
    "stances": {
-    "stand": {"knock":8,"knockReturn":40,"knockMax":50,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":7,"dilateMove":3,"dilateMoveMult":1,"constrict":65,"targetMin":30,"targetMax":75,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":8,"knockReturn":40,"knockMax":50,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":7,"dilateMove":3,"dilateMoveMult":13,"constrict":50,"targetMin":30,"targetMax":68,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":8,"knockReturn":40,"knockMax":50,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":7,"dilateMove":3,"dilateMoveMult":63,"constrict":65,"targetMin":30,"targetMax":60,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":8,"knockReturn":40,"knockMax":50,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":7,"dilateMove":3,"dilateMoveMult":1,"constrict":65,"targetMin":30,"targetMax":75,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":8,"knockReturn":40,"knockMax":50,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":7,"dilateMove":3,"dilateMoveMult":13,"constrict":50,"targetMin":30,"targetMax":68,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":8,"knockReturn":40,"knockMax":50,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":7,"dilateMove":3,"dilateMoveMult":63,"constrict":65,"targetMin":30,"targetMax":60,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -1049,9 +1049,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":8,"knockReturn":40,"knockMax":70},
    "stances": {
-    "stand": {"knock":8,"knockReturn":40,"knockMax":70,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":7,"dilateMove":3,"dilateMoveMult":2,"constrict":45,"targetMin":25,"targetMax":52,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":8,"knockReturn":40,"knockMax":70,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":7,"dilateMove":2.5,"dilateMoveMult":13,"constrict":45,"targetMin":21,"targetMax":52,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":8,"knockReturn":40,"knockMax":70,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":7,"dilateMove":2.5,"dilateMoveMult":63,"constrict":45,"targetMin":20,"targetMax":51,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":8,"knockReturn":40,"knockMax":70,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":7,"dilateMove":3,"dilateMoveMult":2,"constrict":45,"targetMin":25,"targetMax":52,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":8,"knockReturn":40,"knockMax":70,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":7,"dilateMove":2.5,"dilateMoveMult":13,"constrict":45,"targetMin":21,"targetMax":52,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":8,"knockReturn":40,"knockMax":70,"swayRateX":0,"swayRateY":0,"swayLimitX":0,"swayLimitY":0,"sniperDecay":0,"dilateFire":7,"dilateMove":2.5,"dilateMoveMult":63,"constrict":45,"targetMin":20,"targetMax":51,"kickRate":0,"kickReturnRate":0,"kickBase":0,"kickRandom":0,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -1085,9 +1085,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":10,"knockReturn":42,"knockMax":50},
    "stances": {
-    "stand": {"knock":10,"knockReturn":42,"knockMax":50,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":5.5,"dilateMove":15,"dilateMoveMult":1,"constrict":32,"targetMin":10,"targetMax":55,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":8,"knockReturn":42,"knockMax":40,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":5.5,"dilateMove":6,"dilateMoveMult":13,"constrict":32,"targetMin":6,"targetMax":30,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":6.5,"knockReturn":42,"knockMax":17,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":5.5,"dilateMove":6,"dilateMoveMult":63,"constrict":57,"targetMin":4,"targetMax":25,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":10,"knockReturn":42,"knockMax":50,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":5.5,"dilateMove":15,"dilateMoveMult":1,"constrict":32,"targetMin":10,"targetMax":55,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":{"x":{"base":1,"rand":1,"decr":1,"dps":1600},"y":{"base":1,"rand":1,"decr":1,"dps":2400}}},
+    "crouch": {"knock":8,"knockReturn":42,"knockMax":40,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":5.5,"dilateMove":6,"dilateMoveMult":13,"constrict":32,"targetMin":6,"targetMax":30,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":{"x":{"base":1,"rand":1,"decr":1,"dps":1600},"y":{"base":1,"rand":1,"decr":1,"dps":2400}}},
+    "prone": {"knock":6.5,"knockReturn":42,"knockMax":17,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":5.5,"dilateMove":6,"dilateMoveMult":63,"constrict":57,"targetMin":4,"targetMax":25,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":{"x":{"base":1,"rand":1,"decr":1,"dps":1600},"y":{"base":1,"rand":1,"decr":1,"dps":2400}}}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":3,"countMax":12,"scalarMin":0.01,"scalarMax":0.5},
@@ -1118,9 +1118,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":10,"knockReturn":42,"knockMax":50},
    "stances": {
-    "stand": {"knock":10,"knockReturn":42,"knockMax":50,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":6,"dilateMoveMult":1,"constrict":17,"targetMin":6,"targetMax":30,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":8,"knockReturn":42,"knockMax":42,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":7,"dilateMove":6,"dilateMoveMult":13,"constrict":17,"targetMin":4,"targetMax":25,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":7,"knockReturn":42,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":3.75,"dilateMove":6,"dilateMoveMult":63,"constrict":30,"targetMin":3,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":10,"knockReturn":42,"knockMax":50,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":6,"dilateMoveMult":1,"constrict":17,"targetMin":6,"targetMax":30,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":{"x":{"base":1,"rand":1,"decr":1,"dps":1600},"y":{"base":1,"rand":1,"decr":1,"dps":2400}}},
+    "crouch": {"knock":8,"knockReturn":42,"knockMax":42,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":7,"dilateMove":6,"dilateMoveMult":13,"constrict":17,"targetMin":4,"targetMax":25,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":{"x":{"base":1,"rand":1,"decr":1,"dps":1600},"y":{"base":1,"rand":1,"decr":1,"dps":2400}}},
+    "prone": {"knock":7,"knockReturn":42,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":3.75,"dilateMove":6,"dilateMoveMult":63,"constrict":30,"targetMin":3,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":{"x":{"base":1,"rand":1,"decr":1,"dps":1600},"y":{"base":1,"rand":1,"decr":1,"dps":2400}}}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":4,"countMax":16,"scalarMin":0,"scalarMax":0.001},
@@ -1151,9 +1151,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":10,"knockReturn":42,"knockMax":50},
    "stances": {
-    "stand": {"knock":10,"knockReturn":42,"knockMax":50,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":6,"dilateMoveMult":1,"constrict":17,"targetMin":6,"targetMax":30,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":8,"knockReturn":42,"knockMax":42,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":7,"dilateMove":6,"dilateMoveMult":1,"constrict":17,"targetMin":4,"targetMax":25,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":7,"knockReturn":42,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":3.75,"dilateMove":6,"dilateMoveMult":1,"constrict":30,"targetMin":3,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":10,"knockReturn":42,"knockMax":50,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":4,"dilateMove":6,"dilateMoveMult":1,"constrict":17,"targetMin":6,"targetMax":30,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":8,"knockReturn":42,"knockMax":42,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":7,"dilateMove":6,"dilateMoveMult":1,"constrict":17,"targetMin":4,"targetMax":25,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":7,"knockReturn":42,"knockMax":20,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":3.75,"dilateMove":6,"dilateMoveMult":1,"constrict":30,"targetMin":3,"targetMax":20,"kickRate":0.28,"kickReturnRate":0.16,"kickBase":0.035,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":4,"countMax":16,"scalarMin":0,"scalarMax":0.001},
@@ -1183,9 +1183,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":50,"knockReturn":40,"knockMax":50},
    "stances": {
-    "stand": {"knock":50,"knockReturn":40,"knockMax":50,"swayRateX":18,"swayRateY":18,"swayLimitX":60,"swayLimitY":50,"sniperDecay":0,"dilateFire":40,"dilateMove":2.5,"dilateMoveMult":13,"constrict":22,"targetMin":50,"targetMax":100,"kickRate":0.48,"kickReturnRate":0.0475,"kickBase":0.09,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":40,"knockReturn":40,"knockMax":50,"swayRateX":12,"swayRateY":11,"swayLimitX":40,"swayLimitY":35,"sniperDecay":0,"dilateFire":40,"dilateMove":2.5,"dilateMoveMult":13,"constrict":35,"targetMin":46,"targetMax":96,"kickRate":0.48,"kickReturnRate":0.0475,"kickBase":0.07,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":35,"knockReturn":40,"knockMax":50,"swayRateX":6,"swayRateY":6,"swayLimitX":30,"swayLimitY":25,"sniperDecay":-0.07,"dilateFire":30,"dilateMove":2.5,"dilateMoveMult":170,"constrict":60,"targetMin":41,"targetMax":92,"kickRate":0.48,"kickReturnRate":0.0475,"kickBase":0.05,"kickRandom":0.015,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":50,"knockReturn":40,"knockMax":50,"swayRateX":18,"swayRateY":18,"swayLimitX":60,"swayLimitY":50,"sniperDecay":0,"dilateFire":40,"dilateMove":2.5,"dilateMoveMult":13,"constrict":22,"targetMin":50,"targetMax":100,"kickRate":0.48,"kickReturnRate":0.0475,"kickBase":0.09,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":40,"knockReturn":40,"knockMax":50,"swayRateX":12,"swayRateY":11,"swayLimitX":40,"swayLimitY":35,"sniperDecay":0,"dilateFire":40,"dilateMove":2.5,"dilateMoveMult":13,"constrict":35,"targetMin":46,"targetMax":96,"kickRate":0.48,"kickReturnRate":0.0475,"kickBase":0.07,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":35,"knockReturn":40,"knockMax":50,"swayRateX":6,"swayRateY":6,"swayLimitX":30,"swayLimitY":25,"sniperDecay":-0.07,"dilateFire":30,"dilateMove":2.5,"dilateMoveMult":170,"constrict":60,"targetMin":41,"targetMax":92,"kickRate":0.48,"kickReturnRate":0.0475,"kickBase":0.05,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5,8,16],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -1215,9 +1215,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":35,"knockReturn":15,"knockMax":40},
    "stances": {
-    "stand": {"knock":35,"knockReturn":15,"knockMax":40,"swayRateX":8,"swayRateY":5,"swayLimitX":15,"swayLimitY":15,"sniperDecay":-0.07,"dilateFire":32,"dilateMove":3,"dilateMoveMult":1,"constrict":37,"targetMin":35,"targetMax":65,"kickRate":0.48,"kickReturnRate":0.035,"kickBase":0.04,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":31,"knockReturn":18,"knockMax":40,"swayRateX":6,"swayRateY":4,"swayLimitX":12,"swayLimitY":12,"sniperDecay":-0.1,"dilateFire":28,"dilateMove":3,"dilateMoveMult":13,"constrict":37,"targetMin":31,"targetMax":61,"kickRate":0.48,"kickReturnRate":0.035,"kickBase":0.03,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":27,"knockReturn":22,"knockMax":40,"swayRateX":3,"swayRateY":3,"swayLimitX":9,"swayLimitY":9,"sniperDecay":-0.25,"dilateFire":32,"dilateMove":3,"dilateMoveMult":63,"constrict":37,"targetMin":27,"targetMax":57,"kickRate":0.48,"kickReturnRate":0.035,"kickBase":0.025,"kickRandom":0.015,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":35,"knockReturn":15,"knockMax":40,"swayRateX":8,"swayRateY":5,"swayLimitX":15,"swayLimitY":15,"sniperDecay":-0.07,"dilateFire":32,"dilateMove":3,"dilateMoveMult":1,"constrict":37,"targetMin":35,"targetMax":65,"kickRate":0.48,"kickReturnRate":0.035,"kickBase":0.04,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":31,"knockReturn":18,"knockMax":40,"swayRateX":6,"swayRateY":4,"swayLimitX":12,"swayLimitY":12,"sniperDecay":-0.1,"dilateFire":28,"dilateMove":3,"dilateMoveMult":13,"constrict":37,"targetMin":31,"targetMax":61,"kickRate":0.48,"kickReturnRate":0.035,"kickBase":0.03,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":27,"knockReturn":22,"knockMax":40,"swayRateX":3,"swayRateY":3,"swayLimitX":9,"swayLimitY":9,"sniperDecay":-0.25,"dilateFire":32,"dilateMove":3,"dilateMoveMult":63,"constrict":37,"targetMin":27,"targetMax":57,"kickRate":0.48,"kickReturnRate":0.035,"kickBase":0.025,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5,6,12],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -1249,9 +1249,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":50,"knockReturn":25,"knockMax":60},
    "stances": {
-    "stand": {"knock":50,"knockReturn":25,"knockMax":60,"swayRateX":18,"swayRateY":18,"swayLimitX":60,"swayLimitY":50,"sniperDecay":0,"dilateFire":30,"dilateMove":2.3,"dilateMoveMult":2,"constrict":22,"targetMin":50,"targetMax":100,"kickRate":0.48,"kickReturnRate":0.0475,"kickBase":0.09,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":40,"knockReturn":25,"knockMax":60,"swayRateX":14,"swayRateY":14,"swayLimitX":40,"swayLimitY":35,"sniperDecay":0,"dilateFire":30,"dilateMove":2.3,"dilateMoveMult":13,"constrict":22,"targetMin":44,"targetMax":96,"kickRate":0.48,"kickReturnRate":0.0475,"kickBase":0.065,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":35,"knockReturn":25,"knockMax":60,"swayRateX":10,"swayRateY":10,"swayLimitX":30,"swayLimitY":25,"sniperDecay":-0.08,"dilateFire":25,"dilateMove":2.3,"dilateMoveMult":63,"constrict":22,"targetMin":40,"targetMax":92,"kickRate":0.48,"kickReturnRate":0.0475,"kickBase":0.045,"kickRandom":0.015,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":50,"knockReturn":25,"knockMax":60,"swayRateX":18,"swayRateY":18,"swayLimitX":60,"swayLimitY":50,"sniperDecay":0,"dilateFire":30,"dilateMove":2.3,"dilateMoveMult":2,"constrict":22,"targetMin":50,"targetMax":100,"kickRate":0.48,"kickReturnRate":0.0475,"kickBase":0.09,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":40,"knockReturn":25,"knockMax":60,"swayRateX":14,"swayRateY":14,"swayLimitX":40,"swayLimitY":35,"sniperDecay":0,"dilateFire":30,"dilateMove":2.3,"dilateMoveMult":13,"constrict":22,"targetMin":44,"targetMax":96,"kickRate":0.48,"kickReturnRate":0.0475,"kickBase":0.065,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":35,"knockReturn":25,"knockMax":60,"swayRateX":10,"swayRateY":10,"swayLimitX":30,"swayLimitY":25,"sniperDecay":-0.08,"dilateFire":25,"dilateMove":2.3,"dilateMoveMult":63,"constrict":22,"targetMin":40,"targetMax":92,"kickRate":0.48,"kickReturnRate":0.0475,"kickBase":0.045,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5,8,16],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -1283,9 +1283,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":30,"knockReturn":40,"knockMax":60},
    "stances": {
-    "stand": {"knock":30,"knockReturn":40,"knockMax":60,"swayRateX":15,"swayRateY":10,"swayLimitX":20,"swayLimitY":20,"sniperDecay":0,"dilateFire":30,"dilateMove":1.7,"dilateMoveMult":1,"constrict":43,"targetMin":45,"targetMax":65,"kickRate":0.45,"kickReturnRate":0.09,"kickBase":0.055,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":26,"knockReturn":45,"knockMax":60,"swayRateX":12,"swayRateY":8,"swayLimitX":16,"swayLimitY":16,"sniperDecay":0,"dilateFire":27,"dilateMove":1.7,"dilateMoveMult":13,"constrict":43,"targetMin":41,"targetMax":61,"kickRate":0.45,"kickReturnRate":0.09,"kickBase":0.053,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":20,"knockReturn":48,"knockMax":60,"swayRateX":9,"swayRateY":9,"swayLimitX":10,"swayLimitY":10,"sniperDecay":-0.2,"dilateFire":27,"dilateMove":1.7,"dilateMoveMult":63,"constrict":43,"targetMin":37,"targetMax":61,"kickRate":0.45,"kickReturnRate":0.11,"kickBase":0.045,"kickRandom":0.015,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":30,"knockReturn":40,"knockMax":60,"swayRateX":15,"swayRateY":10,"swayLimitX":20,"swayLimitY":20,"sniperDecay":0,"dilateFire":30,"dilateMove":1.7,"dilateMoveMult":1,"constrict":43,"targetMin":45,"targetMax":65,"kickRate":0.45,"kickReturnRate":0.09,"kickBase":0.055,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":26,"knockReturn":45,"knockMax":60,"swayRateX":12,"swayRateY":8,"swayLimitX":16,"swayLimitY":16,"sniperDecay":0,"dilateFire":27,"dilateMove":1.7,"dilateMoveMult":13,"constrict":43,"targetMin":41,"targetMax":61,"kickRate":0.45,"kickReturnRate":0.09,"kickBase":0.053,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":20,"knockReturn":48,"knockMax":60,"swayRateX":9,"swayRateY":9,"swayLimitX":10,"swayLimitY":10,"sniperDecay":-0.2,"dilateFire":27,"dilateMove":1.7,"dilateMoveMult":63,"constrict":43,"targetMin":37,"targetMax":61,"kickRate":0.45,"kickReturnRate":0.11,"kickBase":0.045,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5,8],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -1315,9 +1315,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":30,"knockReturn":40,"knockMax":60},
    "stances": {
-    "stand": {"knock":30,"knockReturn":40,"knockMax":60,"swayRateX":15,"swayRateY":10,"swayLimitX":20,"swayLimitY":20,"sniperDecay":0,"dilateFire":30,"dilateMove":1.7,"dilateMoveMult":1,"constrict":43,"targetMin":45,"targetMax":65,"kickRate":0.23,"kickReturnRate":0.07,"kickBase":0.03,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":26,"knockReturn":45,"knockMax":60,"swayRateX":12,"swayRateY":8,"swayLimitX":16,"swayLimitY":16,"sniperDecay":-0.1,"dilateFire":27,"dilateMove":1.7,"dilateMoveMult":13,"constrict":43,"targetMin":41,"targetMax":61,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.027,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":20,"knockReturn":48,"knockMax":60,"swayRateX":9,"swayRateY":9,"swayLimitX":10,"swayLimitY":10,"sniperDecay":-0.2,"dilateFire":27,"dilateMove":1.7,"dilateMoveMult":63,"constrict":43,"targetMin":37,"targetMax":61,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.023,"kickRandom":0.015,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":30,"knockReturn":40,"knockMax":60,"swayRateX":15,"swayRateY":10,"swayLimitX":20,"swayLimitY":20,"sniperDecay":0,"dilateFire":30,"dilateMove":1.7,"dilateMoveMult":1,"constrict":43,"targetMin":45,"targetMax":65,"kickRate":0.23,"kickReturnRate":0.07,"kickBase":0.03,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":26,"knockReturn":45,"knockMax":60,"swayRateX":12,"swayRateY":8,"swayLimitX":16,"swayLimitY":16,"sniperDecay":-0.1,"dilateFire":27,"dilateMove":1.7,"dilateMoveMult":13,"constrict":43,"targetMin":41,"targetMax":61,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.027,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":20,"knockReturn":48,"knockMax":60,"swayRateX":9,"swayRateY":9,"swayLimitX":10,"swayLimitY":10,"sniperDecay":-0.2,"dilateFire":27,"dilateMove":1.7,"dilateMoveMult":63,"constrict":43,"targetMin":37,"targetMax":61,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.023,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5,8],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -1347,9 +1347,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":30,"knockReturn":40,"knockMax":60},
    "stances": {
-    "stand": {"knock":30,"knockReturn":40,"knockMax":60,"swayRateX":15,"swayRateY":10,"swayLimitX":20,"swayLimitY":20,"sniperDecay":0,"dilateFire":30,"dilateMove":1.7,"dilateMoveMult":1,"constrict":43,"targetMin":45,"targetMax":65,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.03,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "crouch": {"knock":26,"knockReturn":45,"knockMax":60,"swayRateX":12,"swayRateY":8,"swayLimitX":16,"swayLimitY":16,"sniperDecay":-0.075,"dilateFire":27,"dilateMove":1.7,"dilateMoveMult":13,"constrict":43,"targetMin":41,"targetMax":61,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.027,"kickRandom":0.015,"knockCount":1,"knockEntry":1},
-    "prone": {"knock":20,"knockReturn":48,"knockMax":60,"swayRateX":9,"swayRateY":9,"swayLimitX":10,"swayLimitY":10,"sniperDecay":-0.2,"dilateFire":27,"dilateMove":1.7,"dilateMoveMult":63,"constrict":43,"targetMin":37,"targetMax":57,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.023,"kickRandom":0.015,"knockCount":1,"knockEntry":1}
+    "stand": {"knock":30,"knockReturn":40,"knockMax":60,"swayRateX":15,"swayRateY":10,"swayLimitX":20,"swayLimitY":20,"sniperDecay":0,"dilateFire":30,"dilateMove":1.7,"dilateMoveMult":1,"constrict":43,"targetMin":45,"targetMax":65,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.03,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":26,"knockReturn":45,"knockMax":60,"swayRateX":12,"swayRateY":8,"swayLimitX":16,"swayLimitY":16,"sniperDecay":-0.075,"dilateFire":27,"dilateMove":1.7,"dilateMoveMult":13,"constrict":43,"targetMin":41,"targetMax":61,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.027,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":20,"knockReturn":48,"knockMax":60,"swayRateX":9,"swayRateY":9,"swayLimitX":10,"swayLimitY":10,"sniperDecay":-0.2,"dilateFire":27,"dilateMove":1.7,"dilateMoveMult":63,"constrict":43,"targetMin":37,"targetMax":57,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.023,"kickRandom":0.015,"knockCount":1,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5,8],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -1379,9 +1379,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":13,"knockReturn":60,"knockMax":70},
    "stances": {
-    "stand": {"knock":13,"knockReturn":60,"knockMax":70,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":13,"dilateMove":6,"dilateMoveMult":1,"constrict":60,"targetMin":2,"targetMax":6,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":1},
-    "crouch": {"knock":9,"knockReturn":60,"knockMax":70,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":13,"dilateMove":6,"dilateMoveMult":1,"constrict":60,"targetMin":2,"targetMax":6,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":1},
-    "prone": {"knock":9,"knockReturn":60,"knockMax":70,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":13,"dilateMove":6,"dilateMoveMult":1,"constrict":60,"targetMin":2,"targetMax":6,"kickRate":0.28,"kickReturnRate":0.2,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":1}
+    "stand": {"knock":13,"knockReturn":60,"knockMax":70,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":13,"dilateMove":6,"dilateMoveMult":1,"constrict":60,"targetMin":2,"targetMax":6,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":9,"knockReturn":60,"knockMax":70,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":13,"dilateMove":6,"dilateMoveMult":1,"constrict":60,"targetMin":2,"targetMax":6,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":9,"knockReturn":60,"knockMax":70,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":13,"dilateMove":6,"dilateMoveMult":1,"constrict":60,"targetMin":2,"targetMax":6,"kickRate":0.28,"kickReturnRate":0.2,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},
@@ -1411,9 +1411,9 @@
    "decalSet": "BULLET_MARK_SMALL",
    "knock": {"knock":13,"knockReturn":60,"knockMax":70},
    "stances": {
-    "stand": {"knock":13,"knockReturn":60,"knockMax":70,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":13,"dilateMove":6,"dilateMoveMult":1,"constrict":60,"targetMin":2,"targetMax":6,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":1},
-    "crouch": {"knock":9,"knockReturn":60,"knockMax":70,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":13,"dilateMove":6,"dilateMoveMult":1,"constrict":60,"targetMin":2,"targetMax":6,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":1},
-    "prone": {"knock":9,"knockReturn":60,"knockMax":70,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":13,"dilateMove":6,"dilateMoveMult":1,"constrict":60,"targetMin":2,"targetMax":6,"kickRate":0.28,"kickReturnRate":0.2,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":1}
+    "stand": {"knock":13,"knockReturn":60,"knockMax":70,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":13,"dilateMove":6,"dilateMoveMult":1,"constrict":60,"targetMin":2,"targetMax":6,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":1,"screenShake":null},
+    "crouch": {"knock":9,"knockReturn":60,"knockMax":70,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":13,"dilateMove":6,"dilateMoveMult":1,"constrict":60,"targetMin":2,"targetMax":6,"kickRate":0.28,"kickReturnRate":0.07,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":1,"screenShake":null},
+    "prone": {"knock":9,"knockReturn":60,"knockMax":70,"swayRateX":10,"swayRateY":9,"swayLimitX":16,"swayLimitY":8,"sniperDecay":-0.15,"dilateFire":13,"dilateMove":6,"dilateMoveMult":1,"constrict":60,"targetMin":2,"targetMax":6,"kickRate":0.28,"kickReturnRate":0.2,"kickBase":0.035,"kickRandom":0.015,"knockCount":3,"knockEntry":1,"screenShake":null}
    },
    "zoomModes": [1.5],
    "accuracyBurst": {"countMin":0,"countMax":0,"scalarMin":0,"scalarMax":0},

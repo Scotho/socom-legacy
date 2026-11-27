@@ -49,13 +49,18 @@ function moreHtml(m: ReplaysMore | undefined): string {
  * (`shared/map-stills/`), at central's public, same-origin route `/api/maps/<STEM>/still.png` (LCM-9,
  * `MAP_STILLS_API_PATH`), the picture the match page, the player page, the leaderboard and the public replay page already
  * draw (`../../matchPage` `stillOf`) -- for a stem the route can answer (`MP<n>`) whose picture has not failed in this
- * page. Not the disc's: no screen of the launcher decodes a map picture from the disc (a live room's `art` is never set).
+ * page. Not the disc's: no screen of the launcher decodes a map picture from the disc (a live room's `art` is never set),
+ * so a map with no still says its name (REPLAY-STILL-STEM, the owner 2026-11-22: was "Map picture from your disc"; the
+ * disc's picture as the fallback is owed, the next release).
  */
 export const REPLAY_MAP_STILL_ADAPTATION = "the replay drawer shows LCM.R6's map still at /api/maps/<STEM>/still.png" as const;
 const STILL_STEM = /^MP\d{1,2}$/;
 /** The stems whose still failed to load in this page: drawn as the text from then on (no retry, no flicker). */
 const failedStills = new Set<string>();
-const stillOf = (map: string): string | null => (STILL_STEM.test(map) && !failedStills.has(map) ? `/api/maps/${map}/still.png` : null);
+/** DAY-STILLS (a browser adaptation): a variant's still at `/api/maps/<STEM>/<variant>/still.png` (central falls back to the night one). */
+const stillKey = (map: string, variant?: string): string => (variant ? `${map}/${variant}` : map);
+const stillOf = (map: string, variant?: string): string | null =>
+  (STILL_STEM.test(map) && !failedStills.has(stillKey(map, variant)) ? `/api/maps/${stillKey(map, variant)}/still.png` : null);
 
 /**
  * REPLAY-STILLS: a still that fails to load (an unknown stem's 404, the server down) is remembered and `onFail` asked to
@@ -78,11 +83,13 @@ export function attachMapStillFallback(doc: Document, onFail: (stem: string) => 
 function drawerHtml(r: ReplayRow, a: Adapters): string {
   const ready = a.disc.state() === 'ready';
   const map = mapLabel(r.map);                            // MN-1 (OT.R113): the map's name, never its stem
-  const still = stillOf(r.map);                           // REPLAY-STILLS: the map's still, else the text
+  // REPLAY-STILL-STEM (the owner, 2026-11-22: "use the same images that other leaderboard or match cards use"): the
+  // still asked by the row's stem -- the adapter's `map` is the display name since MN-1, which the stem test never matched.
+  const still = stillOf(r.stem ?? r.map, r.variant);      // REPLAY-STILLS: the map's still, else the text; DAY-STILLS: its variant's
   return `<aside class="cx-drawer" aria-label="Replay ${esc(map)}">
     <div class="cx-drawer__map ${still ? '' : 'is-guide'}">${still
-      ? `<img src="${esc(still)}" alt="${esc(map)}" loading="lazy" decoding="async" data-map-still="${esc(r.map)}">`
-      : `<span>${ready ? 'Map picture from your disc' : 'Needs disc'}</span>`}<span class="cx-drawer__name">${esc(map)}</span></div>
+      ? `<img src="${esc(still)}" alt="${esc(map)}" loading="lazy" decoding="async" data-map-still="${esc(stillKey(r.stem ?? r.map, r.variant))}">`
+      : `<span>${ready ? esc(map) : 'Needs disc'}</span>`}<span class="cx-drawer__name">${esc(map)}</span></div>
     <div class="cx-drawer__body">
       <dl class="cx-facts"><dt>Map</dt><dd>${esc(map)}</dd><dt>Rules</dt><dd>${esc(r.rules)}</dd><dt>Recorded</dt><dd>${esc(r.when)} UTC</dd><dt>Length</dt><dd>${esc(r.length)}</dd><dt>Players</dt><dd>${esc(r.names)}</dd>${resultHtml(r)}</dl>
       <div class="cx-drawer__cta">${ready ? `${btn('cross')}Watch` : 'Needs disc to watch'}</div>

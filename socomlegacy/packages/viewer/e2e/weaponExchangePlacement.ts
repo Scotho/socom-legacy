@@ -1,4 +1,4 @@
-import {BOUNCE_LIFT, segmentHit} from '@s2u/scene';
+import {BOUNCE_LIFT, probeGround, segmentHit, selectFloor} from '@s2u/scene';
 import type {Room} from '../../match/src/room';
 import type {SimMap} from '../src/simMap';
 import {probeLiftOf, Walker} from '../src/mover';
@@ -39,7 +39,11 @@ export function findExchangePlacement(map: Pick<SimMap, 'grid' | 'slots'> & Part
     // Room.blast's standing head line stood at this shared stature until NADE-BLAST retired HEAD_OVER (now the posed eye,
     // 15.884, and line 1 to the root, 11.48 -- both under it, so this stature still covers them); a resting grenade is
     // BOUNCE_LIFT above floor, and Room.sightFrom advances another BOUNCE_LIFT.
-    const from: [number, number, number] = [feet[0], feet[1] + 2 * BOUNCE_LIFT, feet[2]];
+    // FLE-2 (2026-11-19): the column starts from the FLOOR under the feet, where a grenade rests -- a body on GRASS, SNOW
+    // and the other -0.8 soils stands 0.8 under the floor's height (`Walker`'s `soilY`), so the feet + 2 BOUNCE_LIFT
+    // started under the ground polygon and met it (MP1's snow spawns, `land18`).
+    const floor = selectFloor(probeGround(map.grid, feet[0], feet[2]), feet[1] + probeLiftOf('stand'), feet[1]);
+    const from: [number, number, number] = [feet[0], Math.max(feet[1], floor?.y ?? feet[1]) + 2 * BOUNCE_LIFT, feet[2]];
     const head: [number, number, number] = [feet[0], feet[1] + HEAD_VOLUME_HEIGHT_READING, feet[2]];
     return segmentHit(map.grid, from, head) ? null : feet;
   };

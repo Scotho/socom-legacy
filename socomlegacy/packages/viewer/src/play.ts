@@ -1,6 +1,7 @@
+import { releaseRenderObjects } from './renderRelease';
 import type { Camera, Group, Object3D } from 'three';
 import { IDENTITY, multiply, partMatrix, sampleClip, Skeleton, transformPoint, type MotionClip, type Pnt3D, type WeaponPoint } from '@s2u/scene';
-import { Animator, type AnimEvent, type AnimStats, type MoverSnapshot, type PoseLayer } from './animator';
+import { Animator, type AnimEvent, type AnimStats, type MoverSnapshot, type PoseLayer, quatOfMatrix } from './animator';
 import { EYE_MODEL, type LoadedBody } from './body';
 import type { BodyView } from './bodyView';
 import type { Pose } from './camera';
@@ -17,7 +18,17 @@ import { SEAL_ANIMS, oneShotSeconds, type AnimSet } from './locomotion';
 import { reloadMoving, type ReloadItem, type ReloadStance } from './reloadClip';
 import { reloadCutOf, type ReloadCutNote } from './reloadLock';
 import { WeaponPose, type WeaponPoseStats } from './weaponPose';
+import { bendTable, RecoilBend, RECOIL_BEND_MUZZLE_READING, unlayBend } from './recoilBend';
+import { invertAffine } from './doorMath';
 import { RaiseFeed, WeaponRaise, type ItemRaise, type RaiseStats, type RaiseTimes, type TriggerEdge } from './weaponRaise';
+import { setTurnStepClips } from './footPlant';
+
+/** Rendering seam: Play only needs pose/prop placement, not the view's GPU resources or statistics. */
+export type PlayBodyView = Pick<BodyView, 'group' | 'setVisible' | 'setPose' | 'place' | 'addProp' | 'setGearVisible'>;
+/** Numeric body metadata retained after a lightweight renderer uploads and releases the decoded meshes. */
+export type PlayBody = Pick<LoadedBody, 'model' | 'parts' | 'carries'> & {
+  fittings: readonly Pick<LoadedBody['fittings'][number], 'model' | 'part' | 'offset'>[];
+};
 
 /**
  * The play mode (web sprint 2, W2.2b; ruling W2.R1): the walk mode with the body. Entering walk (`G`, the panel's
@@ -61,7 +72,7 @@ export { StanceButton, STANCE_HOLD_S_PLACEHOLDER, stanceOnHold, stanceOnTap } fr
  * are (`./teamBody` `hitBodiesOfPage`, `./net/hitVolumes`; the S2 review: without them every capsule's radius was 0);
  * the nodes' types and flags are not sent, and are left empty -- nothing here reads them.
  */
-export function bodySkeleton(body: LoadedBody): Skeleton {
+export function bodySkeleton(body: Pick<LoadedBody, 'model' | 'parts'>): Skeleton {
   return new Skeleton(body.model, IDENTITY, body.parts.map((p, index) => ({
     index, name: p.name, parent: p.parent, bindLocal: Float32Array.from(p.bindLocal),
     bbox: p.bbox && p.bbox.length === 6 ? Float32Array.from(p.bbox) : new Float32Array(6), type: 0, flags: 0,
@@ -73,7 +84,7 @@ export function bodySkeleton(body: LoadedBody): Skeleton {
  * head, 78 §5) carried through the posed palette -- 18.16 over the feet in the bind pose (78 §6.3, `LoadedBody.eye`).
  * Null for a body with no eye gear (a bare body: no `character.rdr`).
  */
-export function eyePoint(body: LoadedBody, palette: readonly Float32Array[]): [number, number, number] | null {
+export function eyePoint(body: Pick<PlayBody, 'fittings'>, palette: readonly Float32Array[]): [number, number, number] | null {
   const eyes = body.fittings.filter((f) => EYE_MODEL.test(f.model) && palette[f.part]);
   if (!eyes.length) return null;
   let x = 0, y = 0, z = 0;
@@ -103,6 +114,12 @@ export interface WeaponStats {
   raise: RaiseStats;
   pose: WeaponPoseStats | null;
   muzzle: [number, number, number] | null;
+  /**
+   * Research 442, the main controller's ruling (B): the firepoint of the gun AS DRAWN -- with the recoil bend -- where
+   * `muzzle` is the unbent arm chain's (the round's leg, the tracer, the pip). The muzzle flash is a model on the drawn gun,
+   * so it rides this one. A read for the hook and the specs only: nothing in the game reads it.
+   */
+  drawnMuzzle: [number, number, number] | null;
 }
 
 /**
@@ -208,14 +225,17 @@ export class Play {
   /** A new match or map: none playing, and any serial new again. */
   resetVictory(): void { this.stopVictory(); this.victorySeen = -1; }
 
-  private body: BodyView | null = null;
-  private loaded: LoadedBody | null = null;
+  private body: PlayBodyView | null = null;
+  private loaded: PlayBody | null = null;
   private skeleton: Skeleton | null = null;
   private clips: PlayClips | null = null;
   private animator: Animator | null = null;
   private flyToggle = false;
   /** The mover's last state in play, for the body left standing in fly mode; null until the first play. */
   private last: (MoverSnapshot & { feet: [number, number, number]; drawnFeet?: [number, number, number] }) | null = null;
+  /** `last` owns these coordinates; the walk snapshot is not retained or mutated, and these arrays are reused per tick. */
+  private readonly lastFeet: [number, number, number] = [0, 0, 0];
+  private readonly lastDrawnFeet: [number, number, number] = [0, 0, 0];
   private kind: ViewKind = 'fly';
   private drawn: Camera | null = null;
   /** WEAPON: the rifle's raise (`./weaponRaise`), its layers over the clips (`./weaponPose`), the hand's node. */
@@ -236,6 +256,13 @@ export class Play {
   private sidearm: Object3D | null = null;
   private sidearmMuzzle: Pnt3D | null = null;
   private item: Firearm = 'rifle';
+  /**
+   * Research 442 (LATER 1144): the page's own body's recoil value (`+0x378`): a round adds the weapon's `RecoilPct`
+   * (`recoilShot`, `FUN_0057d510`), each body frame decays it (`FUN_0057b550`) and hands it, with the firearm in use, to
+   * the animator's bend (`MoverSnapshot.recoilBend`). One object, rewritten each frame.
+   */
+  private readonly recoil = new RecoilBend();
+  private readonly recoilState: { value: number; hand: Firearm | null } = { value: 0, hand: null };
   private mounts: { rifle: Mount; pistol: Mount } = { rifle: 'hand', pistol: 'spawn' };
   /** PB-2b's rework: the mounts the traversal pose drawn last frame set over the kit's (the turret's stow), or none. */
   private poseMounts: { rifle?: Mount; pistol?: Mount } | null = null;
@@ -272,7 +299,7 @@ export class Play {
   private ownDead = false;
 
   /** A map's body, or none: the animator is rebuilt over its skeleton (the clips are the source's, kept). */
-  setBody(view: BodyView | null, body: LoadedBody | null): void {
+  setBody(view: PlayBodyView | null, body: PlayBody | null): void {
     this.body = view;
     this.loaded = view ? body : null;
     this.skeleton = view && body ? heldSkeleton(bodySkeleton(body)) : null;
@@ -333,7 +360,7 @@ export class Play {
    * its named points (`LoadedMap.weapon.points`) for the muzzle. Null takes it off.
    */
   setWeapon(object: Object3D | null, points: readonly WeaponPoint[]): void {
-    this.weapon?.removeFromParent();
+    if (this.weapon !== object) { this.weapon?.removeFromParent(); releaseRenderObjects(this.weapon); }   // LATER 922: the replaced copy's render objects
     this.weapon = object;
     this.muzzleAt = object ? muzzlePoint(points) : null;
     this.launchAt = object ? launchPoint(points) : null;
@@ -350,7 +377,7 @@ export class Play {
 
   /** WEAPON: the map's sidearm (`WorldView.sidearm`, the kit's Mark 23) and its points; it rides its mount (`./kit`). */
   setSidearm(object: Object3D | null, points: readonly WeaponPoint[]): void {
-    this.sidearm?.removeFromParent();
+    if (this.sidearm !== object) { this.sidearm?.removeFromParent(); releaseRenderObjects(this.sidearm); }   // LATER 922
     this.sidearm = object;
     this.sidearmMuzzle = object ? muzzlePoint(points) : null;
     this.hangHeld(object);
@@ -360,6 +387,11 @@ export class Play {
    * WEAPON: the firearm the anim set uses (`m_item`: `Animator.setWeapon`, the pistol's versions of the clips) and the
    * Fire set's and the reload's versions (`./weaponPose`).
    */
+  /** Research 442: a round of the page's own fired -- the body's recoil value takes the weapon's `RecoilPct` (`FUN_0057d510`). */
+  recoilShot(recoilPct: number): void {
+    this.recoil.add(recoilPct);
+  }
+
   setItem(item: Firearm): void {
     if (item !== this.item) this.raiseFeed.firearmChanged();   // NU-8a B1: a copy's hand is the new firearm's
     this.item = item;
@@ -456,10 +488,12 @@ export class Play {
    * (`RemotePlayers.reload`), starts its reload clip as `weaponEvent`'s `reloadStart` does the page's own -- the
    * `stance` the room's posture at the take (null: this play's own), `moving` the room's (`reloadMoving` at the take),
    * `family` the room's clip family (null: the item's), `seconds` the room's clip length. The copy's stick cuts a still
-   * one in `frame` (`reloadCut` on its replicated stick) and the clip runs out on its own clock.
+   * one in `frame` (`reloadCut` on its replicated stick) and the clip runs out on its own clock. `startAt` (RELOAD-HITPOSE
+   * F1): the seconds its clock starts run on by -- the drawn ticks past the tick it was heard under (`./remotePlayers`
+   * `frame`), so its phase is the drawn clock's, as the room's poser is judged at the drawn tick; 0 when none.
    */
-  remoteReload(stance: ReloadStance | null, seconds: number, family: ReloadItem | null, moving: boolean): void {
-    this.weaponPose?.startReload(stance ?? this.stance, seconds, family, moving);
+  remoteReload(stance: ReloadStance | null, seconds: number, family: ReloadItem | null, moving: boolean, startAt = 0): void {
+    this.weaponPose?.startReload(stance ?? this.stance, seconds, family, moving, startAt);
   }
 
   /**
@@ -492,7 +526,7 @@ export class Play {
     if (this.item === 'pistol' || !last || !skeleton || !at || !object || !this.animator || this.drawnMounts().rifle !== 'hand') return null;
     if (skeleton.indexOf('rifle') < 0 || !this.held.placed('rifle')) return null;
     const p = transformPoint(Float32Array.from(object.matrix.elements), at[0], at[1], at[2]);
-    return p ? actorToWorld(last.feet, last.yaw, p) : null;
+    return p ? actorToWorld(last.feet, last.yaw, this.unbent(p, 'rifle')) : null;
   }
 
   /**
@@ -506,7 +540,51 @@ export class Play {
     if (!last || !skeleton || !at || !object || !this.animator || this.drawnMounts()[this.item] !== 'hand') return null;
     if (skeleton.indexOf(this.item) < 0 || !this.held.placed(this.item)) return null;
     const p = transformPoint(Float32Array.from(object.matrix.elements), at[0], at[1], at[2]);
+    return p ? actorToWorld(last.feet, last.yaw, this.unbent(p, this.item)) : null;
+  }
+
+  /** Research 442 (B): `muzzle()`'s firepoint on the gun as DRAWN, the recoil bend kept (`WeaponStats.drawnMuzzle`). */
+  private drawnMuzzle(): [number, number, number] | null {
+    const last = this.last, skeleton = this.skeleton;
+    const pistol = this.item === 'pistol';
+    const at = pistol ? this.sidearmMuzzle : this.muzzleAt, object = pistol ? this.sidearm : this.weapon;
+    if (!last || !skeleton || !at || !object || !this.animator || this.drawnMounts()[this.item] !== 'hand') return null;
+    if (skeleton.indexOf(this.item) < 0 || !this.held.placed(this.item)) return null;
+    const p = transformPoint(Float32Array.from(object.matrix.elements), at[0], at[1], at[2]);
     return p ? actorToWorld(last.feet, last.yaw, p) : null;
+  }
+
+  /**
+   * Research 442, the main controller's ruling (B): the recoil bend changes the picture only, so the muzzle and the
+   * launch point keep the UNBENT arm chain's (`RECOIL_BEND_MUZZLE_READING`). `p`, a point of the held `item` in the body's
+   * frame, rides its hand (`./heldItem` `mountMatrix`: local x the hand's world); it is taken from the bent hand's frame
+   * into the unbent hand's, whose world is the chain's locals with each bend taken out (`layBend` undone: the rotation
+   * `pre conj(b) pre^-1 q`, `pre` the run's bank laid after the bend on `spinelo`; the translation less `v x offset`).
+   * Unchanged with no bend.
+   */
+  private unbent(p: [number, number, number], item: 'rifle' | 'pistol'): [number, number, number] {
+    const st = this.recoilState, last = this.last, sk = this.skeleton;
+    if (RECOIL_BEND_MUZZLE_READING || !sk || !last || !(st.value > 0)) return p;
+    const rows = bendTable(last.stance ?? (last.crouched ? 'crouch' : 'stand'), st.hand);
+    const node = sk.indexOf(item), hand = node >= 0 ? sk.parts[node]!.parent : -1;
+    if (!rows || hand < 0) return p;
+    const byBone = new Map(rows.map((r) => [r.bone, r] as const));
+    const chain: number[] = [];
+    for (let i = hand; i >= 0; i = sk.parts[i]!.parent) chain.unshift(i);
+    const bank = byBone.has('spinelo') ? (this.animator?.stats().bank ?? 0) : 0;
+    let world: Float32Array = sk.modelMatrix;
+    for (const i of chain) {
+      const local = sk.local[i]!, r = byBone.get(sk.parts[i]!.name);
+      let lu = local;
+      if (r) {
+        const pre = sk.parts[i]!.name === 'spinelo' && bank !== 0 ? [0, 0, Math.sin(bank / 2), Math.cos(bank / 2)] : [0, 0, 0, 1];
+        const u = unlayBend(quatOfMatrix(local), [local[12]!, local[13]!, local[14]!], r, st.value, pre);
+        lu = partMatrix(u.q, u.t);
+      }
+      world = multiply(lu, world);
+    }
+    const inBent = transformPoint(invertAffine(sk.palette()[hand]!), p[0], p[1], p[2]);
+    return transformPoint(world, inBent[0], inBent[1], inBent[2]);
   }
 
   /**
@@ -530,7 +608,7 @@ export class Play {
   weaponStats(): WeaponStats {
     return {
       held: this.weapon !== null && this.hand !== null, item: this.item, mounts: { ...this.drawnMounts() },
-      raise: this.raise.stats(), pose: this.weaponPose?.stats() ?? null, muzzle: this.muzzle(),
+      raise: this.raise.stats(), pose: this.weaponPose?.stats() ?? null, muzzle: this.muzzle(), drawnMuzzle: this.drawnMuzzle(),
     };
   }
 
@@ -611,6 +689,7 @@ export class Play {
     }
     if (!this.rootsSent && walk.setActionRoots) {
       walk.setActionRoots(this.roots);
+      setTurnStepClips(this.clips?.clips ?? null);           // R4P-301: the foot plant's leg, from the play's own clips
       walk.setMotionTable?.(this.clips?.table ? new Map(this.clips.table) : null);   // PF-17: `WalkMode.fireAllowed`'s NoFire
       this.rootsSent = true;
     }
@@ -641,9 +720,7 @@ export class Play {
     }
     const dance = this.victory;
     this.poseMounts = dance ? null : snap?.traversal?.mounts ?? null;      // PB-2b's rework: the turret's stow
-    this.bodyFrame(dt, snap && { ...snap, aimWeight: dance ? 0 : this.aimWeight,
-      ...(dance ? { traversal: { clip: dance.clip, frame: Math.min(dance.frames - 1, dance.elapsed / dance.seconds * (dance.frames - 1)), loop: false, rootY: null } } : {}),
-    });
+    this.bodyFrame(dt, snap, dance);
     // The rifle rides the clips' `rifle` node: in W2.1's bind pose, never played, the hand holds nothing.
     this.placeHeld();
     if (snap) this.moverEvents(snap, walk.mover?.() ?? null);
@@ -781,8 +858,8 @@ export class Play {
     // PAGE-AIM-ALLOC (a browser adaptation: no value of the game's changes): `placedVolumes(feet, yaw,
     // posedBoxes(skeleton))` kept -- one owned box set, its bounds and one body, refreshed in place on the first ask after
     // anything that writes the skeleton's pose or the placement (`hitStale`: `bodyFrame`, `rebuild`), so every ask between
-    // two such writes answers what the per-ask build answered. Shared: valid until the next refresh, never written by a
-    // caller.
+    // two such writes answers what the per-ask build answered. Shared: valid only until the next pose/placement update;
+    // callers read it synchronously and never write it.
     if (this.hitStale) {
       const body = this.hitBody;
       body.boxes = refreshBoxes(this.skeleton, this.hitBoxes);
@@ -810,17 +887,31 @@ export class Play {
     return m && last ? actorToWorld(last.feet, last.yaw, [m[12]!, m[13]!, m[14]!]) : null;
   }
 
-  private bodyFrame(dt: number, snap: (MoverSnapshot & { feet: [number, number, number]; drawnFeet?: [number, number, number] }) | null): void {
+  private bodyFrame(dt: number, snap: (MoverSnapshot & { feet: [number, number, number]; drawnFeet?: [number, number, number] }) | null,
+    dance: { clip: string; elapsed: number; seconds: number; frames: number } | null): void {
+    this.recoil.step(dt);                              // research 442: the body tick's decay (FUN_0057b550 D:L439621-439636), drawn or not
     this.hitStale = true;                              // PAGE-AIM-ALLOC: the placement and the pose may change below
     const view = this.body;
     if (!view) return;
     view.setVisible(bodyVisible(this.kind, this.flyToggle) && !this.corpseGone && !this.ghost);   // PAR-91: the own corpse past its rule; NU-11b H2: a ghost's
-    if (snap) this.last = { ...snap, feet: [...snap.feet], ...(snap.drawnFeet ? { drawnFeet: [...snap.drawnFeet] as [number, number, number] } : {}) };
-    const mover = snap ?? (this.last && at(this.last));
+    if (snap) {
+      this.lastFeet[0] = snap.feet[0]; this.lastFeet[1] = snap.feet[1]; this.lastFeet[2] = snap.feet[2];
+      if (snap.drawnFeet) {
+        this.lastDrawnFeet[0] = snap.drawnFeet[0]; this.lastDrawnFeet[1] = snap.drawnFeet[1]; this.lastDrawnFeet[2] = snap.drawnFeet[2];
+      }
+      this.last = { ...snap, aimWeight: dance ? 0 : this.aimWeight,
+      ...(dance ? { traversal: { clip: dance.clip, frame: Math.min(dance.frames - 1, dance.elapsed / dance.seconds * (dance.frames - 1)), loop: false, rootY: null } } : {}),
+      feet: this.lastFeet, ...(snap.drawnFeet ? { drawnFeet: this.lastDrawnFeet } : {}) };
+    }
+    const mover = snap ? this.last : (this.last && at(this.last));
     if (!mover || !this.last) return;                  // never played: W2.1's bind pose at slot A stays
     if (!snap && !view.group.visible) return;
     view.place(this.last.drawnFeet ?? this.last.feet, mover.yaw);   // MISSION R8: drawn there; start points read `feet`
     if (this.animator && this.skeleton) {
+      // Research 442: the bend's value (decayed at the frame's start, below) and hand for this frame.
+      this.recoilState.value = this.recoil.value;
+      this.recoilState.hand = this.item;
+      mover.recoilBend = this.recoilState;
       this.animator.step(dt, mover);
       this.hitStale = true;                            // PAGE-AIM-ALLOC: an ask from inside the step (a listener) is not kept
       view.setPose(this.skeleton.local);

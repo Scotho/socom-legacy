@@ -36,12 +36,12 @@ export interface AssetPreviewOptions {
    */
   progress?(asset: string): number | null;
   /**
-   * A sound's card in the picture's stead (the owner, 2026-11-13: "for sounds ... the same hover preview window ... with
+   * A sound's card in the picture's stead (the Forge's owner (crispy, OT.R112), 2026-11-13: "for sounds ... the same hover preview window ... with
    * the preview progress bar"): its name and its art (a speaker), or null -- the asset no sound, drawn as a model.
    */
   sound?(asset: string): { name: string; art: string } | null;
   /**
-   * A flat asset's picture in the stage's stead (a texture: the owner, 2026-11-17, "do that for each asset type preview
+   * A flat asset's picture in the stage's stead (a texture: the Forge's owner (crispy, OT.R112), 2026-11-17, "do that for each asset type preview
    * ... show any meta data"): its name and its picture's URL (null while it is read), or null -- the asset drawn as a model.
    */
   picture?(asset: string): { name: string; url: string | null } | null;
@@ -150,7 +150,7 @@ export function createAssetPreview(host: HTMLElement, options: AssetPreviewOptio
   const root = doc.createElement('div'); root.className = 'fx-asset-preview';
   const canvas = doc.createElement('canvas'); canvas.setAttribute('aria-hidden', 'true');
   const name = doc.createElement('p'); name.className = 'fx-preview-name';
-  // Its metadata under the picture (the owner, 2026-11-17: "do that for each asset type preview, in the preview window,
+  // Its metadata under the picture (the Forge's owner (crispy, OT.R112), 2026-11-17: "do that for each asset type preview, in the preview window,
   // under it show any meta data"): the tile's own words as tags, then what the preview reads of the asset itself.
   const detail = doc.createElement('div'); detail.className = 'fx-preview-detail fx-preview-meta';
   /** The metadata drawn: `info`'s parts (the tile's words, ` \u00b7 `-joined) as tags, then `rows` as label and value. */

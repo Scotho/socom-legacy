@@ -108,7 +108,7 @@ export const FORGE_OPERATIONS = [
   op('camera.pose', 'edit', 'Set editor camera pose: x, y, z in game units; yaw and pitch in degrees (pitch -35 looks down)', objectOf({ x: number, y: number, z: number, yaw: number, pitch: number })),
   op('camera.look', 'edit', 'Look from a world point at another', objectOf({ from: point, to: point })),
   op('camera.focus', 'edit', 'Focus a revision-scoped placement', objectOf({ ref: text })),
-  op('camera.objective', 'edit', 'Focus an actual named disc objective, optionally changing map; refuses absent or ambiguous names', objectOf({ archive: text, name: text }, ['name'])),
+  op('camera.objective', 'edit', 'Focus a named point of the base map (bomb start, bomb site, spawn <side>:<index>, hostage, extraction; forge.catalogue section objectivePoints lists them), optionally changing map; prefer an exact name: a fragment may match several points; refuses absent or ambiguous names', objectOf({ archive: text, name: text }, ['name'])),
   // R5-A (a browser adaptation): the cinematic camera -- view only, never the layout; `edit`, as the camera controls
   // above, so a test-only grant gains no Build camera mutation. A stop needs no revision: it is never refused as stale.
   op('camera.shot', 'edit', 'Play one smooth camera shot in Build, submitted once: points [{at, look}] (2..64, inside the map), seconds 1..120, optional hold 0..10 at the last point. The page drives it frame by frame; a second shot replaces it; manual input, Stop, a mode or map change end it', objectOf({

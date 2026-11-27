@@ -23,6 +23,12 @@
   obstacle ray's contact at its hit, with a census of the disc's 34 maps; no room hunk. LATER 115 (2026-10-19; section
   8.9; branch `agent/l115` from `9ec692439`): the column's frame read and measured on the disc's tilted climb faces,
   filed as a placeholder (a known difference from the reading), pinned by `climbFrame.disc.test.ts`; no build.
+- Added 2026-11-18: section 8.16, LATER 1223 -- why the stick does not cut `Climb over` (the driver's axes zeroed by
+  `FUN_005af930` under it), built as `CLIMB_OVER_AXES_READING` (branch `agent/later-1223` from `agent/later-278-climb`
+  `238fcdb95e`; the stick's half proven on r0004 by l278-climbover, the read reading, pending review).
+- Added 2026-11-18: section 8.13, LATER 278 ("stuck in a wall after a climb") -- the hand-off at a climb's end read
+  against the port, the design and its RED's shape; design only, no build, the owner's spot not yet shown (branch
+  `agent/later-278-design` from `agent/next` `827f5441e8`; reading, pending review).
 - Sources. `D:L<n>` is a line of `game/analysis/socom2_game.elf.decomp.c` (SHA256 `B9E863762F08D556...AAA42D4`, the
   bytes research 230 and 251 pin; re-hashed for this note); the desktop pin `desktop@be5578311ff2dd33a814d39e7d6d4f2255da4da3`
   (`ref/desktop`). The ELF `game/disc/socom2_game.elf` (read only) for names and tables: its program headers (the
@@ -269,7 +275,7 @@ the align is gone -- B10, section 8.7; the paragraph above is the port as read a
 
 | what | the original | the port |
 |---|---|---|
-| **the stick or the turn** | The driver's top-play block (D:L418172-418203): with the top the play it read before its work (D:L418176), `FUN_00587c20` past `NoInterrupt` (phase, research 230 section 3.3's review; D:L445549-445565) and the top not marked 8, a move axis or the turn past 0.1 (D:L418182-418185) cuts: `FUN_005870e0` pops one (D:L418203) and `FUN_00589aa0` runs the type's end handler (section 6). Cut times on the one-shot clock `t / (playback x (n - 1) / n) > NoInterrupt`, before the push's skip and the lag PAR-61/67 add (derived): step up 0.554 s of 0.639; crate 1.088 of 1.168; medium 1.308 of 1.408; over 0.758 of 0.898; stand-to-hang 1.142 of 1.290 (the cut reveals `Hang`); hang-to-climb 2.480 of 2.712 | NU-1a (2026-10-14, B2): cut on the first command past the clip's `NoInterrupt` with the stick or the turn past 0.1 (`Traversal.advance`, `CLIMB_CUT_READING`), settled on the floor pick, the walk taking the cut's tick; "Stand -> Hang" cut into the hang; room and page on the one `MoverSim`. Was: "never: `Traversal.step` runs `advance` to the path's end whatever the stick (`traversal.ts`), page and room" |
+| **the stick or the turn** | The driver's top-play block (D:L418172-418203): with the top the play it read before its work (D:L418176), `FUN_00587c20` past `NoInterrupt` (phase, research 230 section 3.3's review; D:L445549-445565) and the top not marked 8, a move axis or the turn past 0.1 (D:L418182-418185) cuts: `FUN_005870e0` pops one (D:L418203) and `FUN_00589aa0` runs the type's end handler (section 6). Cut times on the one-shot clock `t / (playback x (n - 1) / n) > NoInterrupt`, before the push's skip and the lag PAR-61/67 add (derived): step up 0.554 s of 0.639; crate 1.088 of 1.168; medium 1.308 of 1.408; over 0.758 of 0.898; stand-to-hang 1.142 of 1.290 (the cut reveals `Hang`); hang-to-climb 2.480 of 2.712 | LATER 1223 (2026-11-18, section 8.16): **the climb over is never cut by the stick or the turn** -- `FUN_005af930` zeroes the axes the test reads under it (`CLIMB_OVER_AXES_READING`); the rows below stand for the other climbs. NU-1a (2026-10-14, B2): cut on the first command past the clip's `NoInterrupt` with the stick or the turn past 0.1 (`Traversal.advance`, `CLIMB_CUT_READING`), settled on the floor pick, the walk taking the cut's tick; "Stand -> Hang" cut into the hang; room and page on the one `MoverSim`. Was: "never: `Traversal.step` runs `advance` to the path's end whatever the stick (`traversal.ts`), page and room" |
 | **a hit (non-lethal)** | `FUN_005a2690` (D:L460002-460016): under a one-shot top, alive, not marked 8, not on a turret, it pops to the base (`FUN_0058a4d0`, so the climb's end handler runs) and pushes the flinch in the current state. Not refused by the climb: research 217 section 4.6 | NU-1b (2026-10-17, B7): the flinch taken pops the climb -- `Traversal.flinchPop`: the crate, the medium, the step-up, the climb over and `Hang -> Climb` settled on the floor pick, `Stand -> Hang` handed to the fall -- and plays alone; `flinchRefused` no longer refuses `seal_stand2hang` and `seal_hang2climbup` (the hang's loop still refused, section 8.3; NU-1b's review F3: the jump down taken and popped, looped 0 (was: "the hang's loop and its jump down still refused")); the page's pop in `WalkMode.setFlinchPose`, the room's in `Room.flinch`. Was: "the flinch is allowed over a climb (`deaths.ts` `flinchRefused`: only clips naming `ladder` or `hang` refuse) but drawn over it; the climb goes on, the room's and the page's mover untouched" |
 | **a knock** | `FUN_0057e770` pops the stack (`FUN_0058a4d0`, D:L440997), each pop running `FUN_00589aa0`: the climb's settle (y to `+0x2e4`) before the fall is laid | NU-1a (2026-10-14, B8): `applyKnock` (`net/blast.ts`) asks `Traversal.popSettle` first -- a running climb clip but `Stand -> Hang` settles on the floor pick -- then `releaseMove` and the fall from there; room (`Room.layKnock`) and page (`WalkMode.knock`) alike. Was: "`releaseMove` (`net/blast.ts`): the move reset and the mover airborne from where it is, no settle; room and page alike" |
 | **a death** | the death's state 8 drops a hang or a ladder (`FUN_005af590` -> `FUN_005a5da0`, research 86 section 8); whether the death's push pops a climb's play (and so its settle) is not read | `WalkMode.setDead` / `Room.kill`: the move reset, the corpse falls (`KNOCK_LETHAL_IN_MOVE_READING`) |
@@ -414,7 +420,7 @@ note only below.)
 | `CLIMB_HIT_CANCELS_READING` | a non-lethal hit pops the climb (its settle) and plays the flinch | a capture of a hit mid-climb |
 | `CLIMB_KNOCK_SETTLE_READING` | the knock's pop runs the climb's settle before the fall | a recomp or PINE trace of a blast mid-climb (`+0x2e4`, the matrix y) |
 | `CLIMB_RESUME_STICK_READING` | the walk after a climb starts at the held stick, unramped | a capture: the first frames' speed after an uncut climb with forward held |
-| `CLIMB_OVER_FALL_READING` | `Climb over` neither suspended nor integrated; at its end the fall from `+0xfac` | a trace on MP6's `crate05/mp6_justbox1` (appflags 5): y per frame through the clip and after |
+| `CLIMB_OVER_FALL_READING` | `Climb over` neither suspended nor integrated; at its end a one-frame hold at the root's world height over the floor pick, then the pick (section 8.13 (a); filed in 8.14; was: "at its end the fall from `+0xfac`") | a trace on MP6's `crate05/mp6_justbox1` (appflags 5): y per frame through the clip and after |
 | `PISTOL_CLIMB_CLIPS_READING` | whether the pistol's sub-node (`FUN_0057a330` D:L438760-438850; the port's `animator.ts:764-773`) is among the nodes `FUN_00587c20` loops over for `NoInterrupt`, the last deciding (D:L445551-445565) -- so whether a pistol-holder's climb takes the `seal_p_*` value (`seal_p_climbcrate` 1: never cut) | first a source re-read of `FUN_00587c20`'s node walk (`FUN_005780e0`) against `FUN_0057a330`'s sub-node; then a capture of a crate climb with the pistol in hand and the stick held forward (the review, F3; was: "a reader run (owed to the build): `animset.rdr` ... for the pistol's set" -- `FUN_0058c820`, D:L448155-448195, picks on `+0xf79` / `+0xf78` and the stack base, not the weapon) |
 | `CLIMB_TOP_FLOOR_PLACEHOLDER` | the port's `topFloor` gate, no source | a census run (owed to the build): class-4 faces of the served maps whose top has no floor within 1.5; a capture at one |
 | `CLIMB_PEEK_READING` | the peek over a climb's last tenth (`FUN_0057d810` over the climb) | a capture: the d-pad held through a climb's end |
@@ -1046,6 +1052,1159 @@ set split two ways:
   instances, and in f32 the random sample finds their overrun where the cell test misses it. The snapshot's number is a pin of the current code's f64 behaviour; refiling it is the
   seat's call.
 
+### 8.13 LATER 278 -- stuck after a climb: the hand-off and the RED (design, 2026-11-18; reading, pending review)
+
+The report: LATER 278 (Fuse, 2026-10-21: "I find myself getting stuck in walls sometimes after climbing"). The owner
+will show the spot (Desert Glory, the SEAL spawn side, up the middle and to the right; the main controller's order,
+2026-11-18); this read was made **without it**: no spot was searched for or guessed, and nothing below assumes one.
+Source inspection only -- the decompilation at this note's pin (re-hashed, `B9E863762F08D556...`), the port at
+`agent/next` `827f5441e8`. No source or test changed; nothing run but the documents' tests. Design only, for the build
+that follows the owner's spot.
+
+**(a) The original's end of a climb.**
+
+- **Two paths in the end handler** `FUN_00589aa0` (D:L446477-446660), by the action current before the pop (D:L446501):
+  - *Crate, medium, `Hang -> Climb` (the climb up from the hang) and `Step up`* (D:L446582-446648, section 6): the
+    actor set at its own x and z and the y `+0x2e4` (`FUN_003157d0`), the root node's height written (11.4 / 11.5 /
+    10.73 / 10.45), its x and z kept. "Its own x and z" is the root's world point: each pose zeroes the root's x and z
+    into the actor (`FUN_0057a330` D:L439147-439148), and under the climb's `UseVelY` top the actor moves by the root's
+    velocity and the steer's (`FUN_0028c250` D:L438910, `FUN_0054d9a0` D:L416455; section 8.6). **No pre-climb x/z is
+    kept anywhere**: the body ends where the clip's travel and the steer carried it.
+  - *`Climb over`* (the case at D:L446538, its body D:L446539-446542): **no position is written**. `+0xfac` = the
+    actor's y plus the root's height (the `+4` of the actor vtable's `+0x88` object, the field `FUN_0059afd0` caps at
+    11.487 under a `UseVelY` top, D:L456455-456456, and sets to 11.487 under any other, D:L456460), `+0x1060` bit 1 set, and the physics y `+0x2e4` = the floor pick `+0x404`.
+    *Corrected by section 8.18 (a):* the cap (D:L456455-456456) is under a non-reversed `UseVelY` top; the set (D:L456460)
+    and the fold (D:L456426) are on a **reversed** `UseVelY` play only -- a top that is not `UseVelY` returns before them
+    (D:L456356-456388). The climb over (not reversed) is capped, never folded or set.
+- **The next state** is the revealed base (section 6): standing after a climb over, the crouch kind after a crouched
+  step-up, crate or medium. Its first frame runs the move solver `FUN_005483d0`, whose new y is `FUN_0059afd0`'s
+  (D:L413943-413946), after the frame's wall resolution (D:L413470-413614).
+- **The climb over's hand-off frame** (`FUN_0059afd0`, the top no longer `UseVelY`, D:L456356-456388): with bit 1 set
+  (D:L456359) it clears it (D:L456366) and takes `+0xfac` less the revealed pose's root height; at or above `+0x2e4`
+  that is the frame's y (D:L456368-456371); under it, the root is lowered to keep its world height and the actor set on
+  `+0x2e4` at its own x and z (D:L456372-456386). From the next frame, bit 1 clear and no jump, the y is `+0x2e4` again
+  (D:L456359-456363). So the climb over's body is held one frame at its root's world height and then stands on the floor
+  pick made at the pop. Section 6's "handed to the fall" reads, on this read, as that one-frame hold over the floor
+  pick; whether a pick under the body then falls or is stood on is still unread (`CLIMB_OVER_FALL_READING`, section
+  8.2's candidate; note only, no constant). **Both paths therefore end at the root's x and z and the floor pick's y.**
+- **The floor pick's height.** `+0x404` is copied into `+0x2e4` each climb tick for the gravity-suspended climbs
+  (D:L466784) and once at the pop for the over (D:L446542): the pick at the actor's x and z, from the actor's own
+  height (the port's model: `selectFloor` from the feet + the posture's lift, LATER 785; its origin during a climb is
+  not re-read here -- `CLIMB_END_PICK_ORIGIN_READING`, note only). **The actor's height through the clip is its own**:
+  under `UseVelY` the actor's y integrates the root's vertical velocity (D:L438910; the `UseVelY` branch's y,
+  D:L456435), the root's own height capped at 11.487 (D:L456455-456456 write the root field only, `0x4137cac0`, and do not touch the actor; that the actor keeps the rise above it is an inference from D:L438910 and D:L456435), and the steer's vertical is kept for every
+  climb (D:L468933-468941), its target's y the contact's top (D:L467887). Gravity is suspended for the crate, medium,
+  step-up and hang-climb (D:L466760-466787); under `Climb over` it is neither suspended nor integrated (D:L466808-466809).
+  Whether the climb over is `UseVelY` rests on research 86 section 1's word (`CLIMB_USEVELY_READING`, section 8.5).
+- **The walls at the hand-off.** During the climb the wall probes are skipped under a `UseVelY` top (`FUN_0054aa30`
+  D:L415085-415087): nothing keeps a climbing body out of a wall. On the first ground frame they run again under the
+  resolution of every frame (`FUN_005483d0`, research 217 s2.9): one-sided hits (a segment from in front of a face to
+  behind it), each taking the displacement's part along its normal; the deepest hit over 1 with at most two hits adds
+  (depth - 1) along its normal (D:L413612-413614); over 1 with more than two hits, or prone, the body goes back where
+  the tick began (D:L413602-413611). **No resolution special to the hand-off** exists, in `FUN_00589aa0` or in the bit-1
+  branch. A body a clip leaves inside a solid meets its faces from behind and is not held by them; a body left where
+  more than two segments meet faces over 1 deep is jammed every frame -- in the original too.
+
+**(b) The port, at the same moment** (source inspection at `827f5441e8`).
+
+- **`climbSettle`** (`viewer/src/traversal.ts:2020-2024`): x and z kept, y the floor pick from the feet + the posture's
+  lift (`selectFloor`, `probeLiftOf`), unchanged where there is none. Asked by the uncut end (`endUncut`, :1856, every
+  kind, `CLIMB_TOP_FLOOR_READING` `'dropped'`), the cut (`cutClimb`, :1991), the knock's pop (`popSettle`, :2009) and
+  the flinch's (`flinchPop`, :1880) -- the climb over among them; then `endClimb` -> `finish` (:2032): not airborne,
+  `settle()`.
+- **Where the root's travel goes: into the feet.** `climbClip` (:1535) lays a `ClipPath` from the aligned start
+  (`REF_AHEAD` back from the edge's target, :491) along the face's inward normal by the clip's root travel; each
+  `advance` (:1907) writes the track's x and z less the steer's open offset (`climbSteer`) and the track's y, the
+  velocities zeroed, no walls and no floors. The kept x and z are the track's end -- the counterpart of the original's
+  root, not the pre-climb point. That end lies `ahead` less `refPt` z past the edge's target: step-up 2.46, crate 2.42,
+  medium 2.52, **climb over 6.00** (research 86 section 1's table).
+- **The track's y** (`ClipPath.at`, `viewer/src/clipPath.ts:158-183`): the feet go from the start's y to the end
+  target's by the share of the rise made; the steer's vertical (`lift`, `traversal.ts:1255`) goes into the drawn root
+  only (`drawnRoot`, :1966). The end target: the crate, medium, step-up and hang-climb `topFloor(...) ?? c.top`; **the
+  climb over `floorUnder(x, start y, z, step_height) ?? start y`** (:1575-1577) -- the floor at most 6.5 over the
+  start's y, a port rule no line of the original gives (section 6's port paragraph named it; it has no D row).
+- **The next ticks.** `Walker.move` (`viewer/src/mover.ts:5430`) resolves the tick's move by the segment body
+  (`resolveSegments`, :5179; `WALL_BODY_READING` `'segments'` for every walker), with the original's depth push and jam
+  (`SEGMENT_BODY_READING` `depth` 1, `jamHits` 2, :567): the same law as the first ground frame of (a). A still body
+  casts along its facing.
+- **The push-out.** `unwedge` (`mover.ts:5273`; `WEDGE_PUSH_OUT_ADAPTATION`, an adaptation, research 217 s2.10) is
+  asked only on the `'disc'` arm -- from `pushOut` (:5254) and from `step`'s crossing refusals (:5715-5737) -- and only
+  within 30 ticks of a landing (`land` arms `wedgeArmed`, :5596; the bound kept so a healthy or placed body is never
+  moved). On the segment arm, every map's walkers, it is never asked; a climb's end is no landing (`finish` ->
+  `setAirborne(false)` arms nothing). So "the unwedge runs only on landing" holds for the disc arm; on the live arm it
+  does not run at all. Neither is a departure: (a) has no push at the hand-off beyond the every-frame depth push, which
+  the port runs.
+
+**The paths by which our body can end in a wall where the original's would not:**
+
+| # | path | the original | the port | a gap? |
+|---|---|---|---|---|
+| G1 | **the climb over's height** | the actor carries the root's vertical and the steer's lift (`lift` = the top - (start + 11.487 - 0.96)); the pick from there reaches the top: its origin + 1 lands about 0.99 over it whatever the top's height -- a **model value** under `CLIMB_OVER_RISE_READING` (derived from research 86 s1's root and `refPt` and the port's lift and pick; the climb over's own steer offset (0, -0.29, -2.42), D:L467909-467910, is not in it, its application unread; the first frame's fold, D:L456426, would narrow it to about 0.46 -- the review, F5; *corrected by section 8.18 (a): the offset, play `+0xa8`, is read by neither steer branch and does not apply; the fold is a reversed play's only and does not apply*) | the feet stay on the start-to-`floorUnder` line, the lift in the drawn root only; the pick from the start's y reaches 12.48 (11.48 + 1) | **yes**: a class-5 face whose top lies under the end point more than 12.48 over the start leaves ours on the floor inside the obstacle's footprint, the original's on its top |
+| G2 | the climb over cut, knocked or flinched | the same case (D:L446538) from the actor's own height mid-clip | `climbSettle` from the track's feet on the start's line | **yes**, with G1 |
+| G3 | a clip whose travel passes the top's depth (a thin top) | the end past the far edge; the pick there | the same: the track's end past the far edge; the pick there | no, by the reading |
+| G4 | a wall standing on the top within the end's reach (2.42-2.52 past the edge, plus the body's segments) | the body ends against or in it (walls off through the clip); the first frame's resolution as every frame's | the same, by the segment arm | no: a body the original also leaves wedged is a quirk of the original, for the owner, not fixed |
+| G5 | a floor over the top within the pick's reach (a low slab's upper face) | the pick by the same rule (LATER 785's model) | `climbSettle` lifts the body onto it | no, by the model (`CLIMB_END_PICK_ORIGIN_READING`) |
+| G6 | the end's x and z | the root's velocity along the turning body and the steer | the track along the contact's normal, the same steer law (NU-1c B10, `CLIMB_STEER_READING`) | no in kind; the numbers unmeasured |
+| G7 | no push-out | none at the hand-off | none (`unwedge` disc arm only) | no |
+
+So by this read the port's one departure at the hand-off is the **climb over's height** (G1, G2); a crate, medium,
+step-up or hang-climb that ends a body in a wall ends the original's there too, and a fix there would be an adaptation.
+
+**(c) The design** (simulation track; RED first; the smallest change).
+
+1. **The climb over's feet carry the vertical the original's actor carries** (`CLIMB_OVER_RISE_READING`, note only):
+   the end target's y = the start's y + the clip's root rise (-0.96, research 86 s1) + the steer's lift
+   (`Traversal.lift`, already computed for the drawn root), in place of `floorUnder(x, start y, z, step_height) ??
+   start y`; through the clip the feet take the steer's closed share of the lift as the root gives it up, so the drawn
+   root's world height is unchanged on screen. The share of the root's vertical the feet take mid-clip (the actor's
+   whole root velocity, D:L438910 and D:L456435) is the reading's; the trace in (e) settles it.
+   **Corrected at the build (2026-11-18; the review, F1): not built as written -- see (f).** As designed (A), the
+   sentence "the drawn root's world height is unchanged on screen" was false for `ClipPath` as built: its `rest`
+   (`clipPath.ts:180`) carries `-lift`, so with the end target moved the drawn root no longer sinks back, and the feet's
+   mid-clip share is `ClipPath`'s running share of the drop `u` (`clipPath.ts:174`), not the steer's closed share.
+2. **The hand-off reads the pick from there**: the uncut end, the cut, the knock's pop and the flinch's pop keep
+   `climbSettle` for the over (the floor pick at the root's x and z from the feet, D:L446542 with D:L456359-456386),
+   now from the lifted feet. The one-frame hold at the root's world height (D:L456368-456371) is a draw detail and is
+   not built (`CLIMB_OVER_FALL_READING`, note only).
+3. **Unchanged**: the crate, medium, step-up and hang-climb ends (D:L446582-446648); the cut's, knock's and flinch's
+   timing (B2, B7, B8); the steer (B10); the segment resolution; `unwedge` and its bound. **No push-out is added at a
+   climb's end** -- the original has none (a); one would be an adaptation, and only on the owner's word, as a
+   `HUMAN_TASKS` row (the parity rule: a preference the original does not support is recorded, not applied).
+4. **Room and page**: the room runs the same `Traversal` (`match/src/room.ts:4267-4271`, `newSim` -> `MoverSim`), and
+   the bots drive it (`match/src/bots/climbDrive.ts`); the change lands on page, room and bots together, no room hunk.
+   The existing pin "climbs over appflags 5 whatever its height" (`traversal.test.ts`, a 10 wall 2 deep with no top)
+   stays green by the arithmetic: the lifted end's pick (from -1.49) still finds only the floor at 0.
+
+**(d) The RED's shape.**
+
+- **The synthetic case** (`packages/viewer/test/traversal.test.ts`, beside the climb-over pin; its twin in the room's
+  `roomClimb.test.ts`): the floor at 0 (-100..100); a block x -10..10, z -20..0, **16 tall**, its four sides appflags 5
+  with outward normals (the climb faces are one-sided, research 281 s4.3) and its top a floor at 16; the walker at
+  (0, 0, 12) facing -z (`climber`). The over offered, Action pressed, the clip run to `climbEnd`, then 30 still ticks.
+  Asserts: **the feet are not inside the block** -- not (x and z within its footprint and y under 16): on its top, y 16;
+  then the stick forward 120 ticks carries the body at least 10 and never inside the footprint under the top.
+  **Today it reads red**: the end target is `floorUnder(...)` = 0 (the top 16 is over 6.5), the end 6.0 past the edge
+  (z about -6, inside the 20-deep block), and `climbSettle`'s pick from 0 reaches 12.48 < 16: y 0 inside. After (c)
+  the feet end at about 16 - 11.49 = 4.51 and the pick (reaching 16.99) takes the top. The walk-away half may read
+  green today -- a body inside meets the faces from behind and walks out through them (research 281 s4.3) -- so this
+  case shows the port's gap, not necessarily the reporter's stuck body.
+- **A guard beside it, green before and after** (not a RED): a crate (appflags 4, 12 tall, 20 deep) with a plain wall
+  (appflags 0) standing on its top 1.5 behind the near edge: the end's x, z the track's and y the top, as the original's
+  by (a) -- pinning that (c) leaves the non-over climbs alone (G4).
+- **The disc-backed case, once the owner shows the spot** (`packages/viewer/test/parity/later278Climb.parity.test.ts`,
+  the fixture tier, skipping by name without its files): `LATER_278_SPOT_PLACEHOLDER` (note only; no constant until
+  the spot is known), its fields: the map file `RUN/MP6.ZDB` (Desert Glory, MP6, the fixture `test-fixtures/RUN/MP6.ZDB`;
+  the map is the owner's word, the spot is not chosen here); the start (x, y, z) and yaw; the stance; the climb's
+  face (its polygon and appflags, the offer's kind); the press (Action, or none for the automatic step-up); the stick
+  through the clip and after (held or released, which heading); the ticks. Asserts as the synthetic case (after
+  `climbEnd` and 30 ticks not inside geometry; walks out in at least 6 of 8 headings, `bridgeWedge.test.ts`'s
+  measure), RED on today's code if the spot is G1's or G2's. If the spot is a crate, medium, step-up or hang-climb,
+  this read predicts the original ends there too (G3-G5): then the case pins the port as the original's and the
+  capture below decides.
+
+**(e) What a capture of the original would settle.** At the owner's spot, on r0004 (the spec, OT.R97; these lines are
+r0001's and are re-checked there, research 217 s2.9), a PINE or rig trace per frame from the press to 60 frames after
+the pop: the actor `+0x1c..+0x24`, `+0x2e4`, `+0x404`, `+0xfac`, `+0x1060` bit 1, the root (the `+0x88` object's `+4`
+and `+0x10..+0x18`), the top action's type and phase, the contact `+0x1090`, and on the first ground frames the hit
+count and the deepest depth of `FUN_005483d0`; then the stick in eight headings. It settles `CLIMB_OVER_RISE_READING`,
+`CLIMB_OVER_FALL_READING` and `CLIMB_END_PICK_ORIGIN_READING`, and whether the original's body is stuck there too --
+then the spot is the original's quirk, recorded for the owner and not fixed.
+
+Readings and placeholders this section names (**note only**; none is a constant): `CLIMB_OVER_RISE_READING`,
+`CLIMB_END_PICK_ORIGIN_READING`, `LATER_278_SPOT_PLACEHOLDER`; and `CLIMB_OVER_FALL_READING`, section 8.2's candidate.
+Filed in section 8.14 at the build.
+
+**(f) The build (2026-11-18, `agent/later-278-climb`; reading, pending review): the smaller change, B.** The
+controller chose B over (c)1 as designed (A), on the measure below.
+
+- **What A does to every climb over** (measured on the synthetic hull with the placeholder shape, then reverted, never
+  committed): moving the clip's end target to start - 0.96 + the steer's lift lowers the feet along the whole clip
+  wherever the lift is negative -- every face under about 10.5 -- and the drawn root with them, since `rest` no longer
+  takes the lift back. On a class-5 fence 7 tall and 2 deep the feet reach **-4.48** under the floor on the clip's last
+  tick (today 0) and the drawn root ends at **about 7.0** (today 11.475, the standing root), then jumps about 4.5 when
+  the end handler stands the body on the floor. The readers that see it: the page's camera (the first-person eye from
+  the feet and the posed root, `walk.ts` `noteTick` :2709-2711; the third person's target from the animator's root,
+  `play.ts` :651); the remote draw (`net/body.ts` :63 and :102 carry the feet and `travRootY`); the room's hit pose
+  (`HitPoser.stepBody` poses the boxes from the same body snapshot, `net/hitPose.ts` :218); and the ripple, which reads
+  the feet alone (`traversal.ts` :1373, `remotePlayers.ts` :853). Whether the original's actor dips so is
+  `CLIMB_OVER_RISE_READING`'s question, unread; so the build changes nothing a low fence shows.
+- **What B builds** (`viewer/src/traversal.ts`): the clip's track is left as it was (`floorUnder(x, start y, z, 6.5) ??
+  start y`), so the feet and the drawn root are what they were at every tick, and `clipPath.ts` is untouched. Only the
+  climb over's **end floor pick** changes: `climbClip` lays a second `ClipPath` (`overPick`) from the aligned start to
+  start + the root's drop (-0.96) + the steer's lift, on the same shape and law; `climbSettle` starts the pick from the
+  higher of the feet and `overPick`'s feet at the clip's clock -- the end where the clip ran out (`endUncut`), the clock
+  at the cut (`cutClimb`), at the knock's pop (`popSettle`) and at the flinch's (`flinchPop`). The higher of the two is
+  the port's choice (`CLIMB_END_PICK_ORIGIN_READING`): it keeps every climb over that ends on the floor it left, low
+  fences among them, frame for frame as before -- by construction (the clip's path is untouched and `climbSettle` runs only at the hand-off; source inspection), not by a test: the F3 guard pins the end, the lowest feet and the drawn root's end only. The pick's reject (`REJECT_ABOVE` 20, `scene/src/probe.ts`) is measured from the same carried height, not the start line (the build's review, finding 1: from the start a class-5 top over 20 was refused and the body stayed inside; test "LATER 278 G1b", a block 22 tall). The room and the bots run the same `Traversal`: no room hunk. No push-out.
+- **Under B the drawn root**: its world height is what it was before the build at every tick of every climb over
+  (the sentence of (c)1 is true under B, not under A). **A known divergence**, named: on a tall block the drawn root
+  sinks mid-clip back toward the standing height over the floor it left (`rest` takes the lift back), then **pops about
+  16** when the pick stands the body on a 16 top at the hand-off -- where the original's model (a) carries the actor up
+  with the steer. Before the build that body stayed inside the block; the pop is the price of B until the trace settles
+  `CLIMB_OVER_RISE_READING`.
+- **Tests**: viewer `test/traversal.test.ts` "LATER 278 G1" (a block 16 tall, 20 deep: on its top; the walk away never
+  enters it) and "LATER 278 G2" (the stick held: cut past 0.8, on the top), RED before the fix; "LATER 278 F3 guard"
+  (the 7 fence: the end on the floor, the feet never under it, the drawn root back at standing), green before and after;
+  the pin "climbs over appflags 5 whatever its height" unchanged; central `test/roomClimb.test.ts` "LATER 278 in the
+  room" G1 and G2, the room's rows the page's.
+- **G2 is open, not claimed.** The synthetic G2 runs `FALLBACK`'s placeholder shape (a smoothstep root, monotone): at
+  the cut its running share of the drop is about 0.94, so the pick from `overPick` reaches the top. It shows that the
+  cut, the knock and the flinch read the pick from `overPick` at their clock; it does not show the disc's clip does. The
+  pack's `seal_climb_over` (`MOTION_P.ZAR`, 19 keys) dips its root to 10.227 by key 5, rises to 15.59 at key 11 and ends
+  at 10.004, so `ClipPath`'s share stays about 0.767 from key 5 to key 17: a cut at 0.8 on the 16 block starts the pick
+  at about 3.46 and reaches about 15.94, just under the top -- inside, as before. The rise over 11.487, which the original's actor
+  keeps by inference (D:L438910, D:L456435; D:L456455-456456 cap only the root field), is in no share the port models; the trace settles it.
+
+### 8.14 Readings and placeholders (LATER 278's build)
+
+Filed 2026-11-18 by LATER 278's build (`packages/viewer/src/traversal.ts`); reading, pending review. **Note only**: no
+constant holds any of them, so research 101 and the ledger take no row; a build that adds one files it there (OC-M3).
+
+| name | stands for | value in the code | the evidence that settles it |
+|---|---|---|---|
+| `CLIMB_OVER_RISE_READING` (*note only*) | the original's actor motion through `Climb over`: under a `UseVelY` top its y integrates the play's vertical (the root's velocity, D:L438910; D:L456435) with the steer's vertical kept (D:L468933-468941); a root above 11.487 is capped in the root field (D:L456455-456456), the actor keeping the excess by inference (D:L438910, D:L456435); ~~off `UseVelY` the frame folds the root's height in and sets it to 11.487 (D:L456426, D:L456460); the climb over's own steer offset (0, -0.29, -2.42), D:L467909-467910, its application unread~~ *corrected by section 8.18 (a): the fold (D:L456426) and the set (D:L456460) are on a reversed `UseVelY` play only, not the climb over; the offset (play `+0xa8`, D:L467909-467910) is read by neither steer branch and does not apply*. The port's model: the end at start - 0.96 + the steer's lift (the pick's origin about 0.007 under the top, so origin + 1 reaches about 0.99 over it -- a model value; ~~about 0.46 with the first frame's fold~~ no fold applies, section 8.18), its share along the clip `ClipPath`'s running share of the drop. Unread: how much of this the actor carries mid-clip, so whether the original's body dips on a low fence (A) or not | note only; the end pick's origin (`overPick`), not the feet or the drawn root (B, section 8.13 (f)) | the per-frame r0004 trace section 8.13 (e) names (ordered of PC 3, 2026-11-18): a climb over a low fence and over a tall block, the actor `+0x1c..+0x24`, the root (`+0x88` object's `+4`), `+0x2e4`, `+0x404`, `+0xfac`, `+0x1060` bit 1 each frame **Measured 2026-11-18 (section 8.15, l278-climbover): the body carries the vertical; the build to it is LATER 1222.** **Fitted 2026-11-18 (section 8.17): the lift closes on the port's steer weight and the root's whole vertical is carried, but no simple model fits the three faces within 0.5 (0.59-0.79); no design yet.** **Read at its source and scored 2026-11-18 (section 8.18): the per-frame law fits every trial within 0.43 (MP81 0.49-0.58 by row, 0.21-0.30 at its rows' own clock), the node's blend pinned at 0.4 s by skel_root; the design and the RED are section 8.18 (f), (g).** |
+| `CLIMB_OVER_FALL_READING` (*note only*) | the climb over's hand-off: one frame held at its root's world height over the floor pick (`FUN_0059afd0` bit 1, D:L456359-456386), then the floor pick (`+0x2e4` from `+0x404`, D:L446542); whether a pick under the body then falls or is stood on is unread. ~~The one-frame hold is a draw detail, not built~~ *Built by LATER 1222 (section 8.19): the hand-off frame at the higher of the pick and `+0xfac` less the revealed root, held one game frame where over the pick, then the pick (r0004: stood on, action 10). Unread still, named here: the pick's origin in the original (the port's from that height + the posture's lift, so about `+0xfac`) and the revealed node (the port's the posture's standing root 11.4844; the original's on the fence action 9's first frame, 10.60 -- the fence's hand-off row 0.58 under the measured 52.71 under the built pairing)* | note only; `Traversal.overHandOff` | the same trace: y per frame through the pop and the frames after **On r0004 (section 8.15): `+0x1060` bit 1 is never set; `+0xfac` is written the frame after the clip; the one-frame hold is seen on the tall fence only.** |
+| `CLIMB_END_PICK_ORIGIN_READING` (*note only*) | the height the climb's end pick is taken from (the port's `selectFloor` from the origin + the posture's lift, LATER 785's model); ~~for the climb over the higher of the feet and `overPick` at the clip's clock -- the higher being the port's choice, keeping a climb over that ends on the floor it left as before~~ *for the climb over replaced by LATER 1222 (section 8.19): the hand-off's pick from `+0xfac` less the revealed root (`CLIMB_OVER_FALL_READING`); `overPick` removed* | note only; `climbSettle`'s `from` (the other climbs) | the same trace: `+0x404` against the actor's y at the pop, at a low fence and a tall block |
+| `LATER_278_SPOT_PLACEHOLDER` (*note only*) | the owner's spot on Desert Glory (MP6; the SEAL spawn side, up the middle and to the right) for the disc-backed case `viewer/test/parity/later278Climb.parity.test.ts`, its fields section 8.13 (d) | note only; no case until the spot is shown | the owner's spot (the start, yaw, stance, face, press, stick, ticks); then the capture of section 8.13 (e) there |
+
+### 8.15 Measured: the climb over on r0004 (l278-climbover, 2026-11-18)
+
+**Proven** -- a capture of the original running: shadow PC 3, r0004 under PCSX2, per-frame PINE reads of the body with
+PCSX2 video, the body placed by position writes; not harness-scored. `agent-mail` `evidence/later278-climbover/`
+(l278-climbover.zip, sha256 c0764f553b66b16aaec20b392df9804f959092fdd694a66b2c8eaa6e3cdf2e29; `unpacked/` rows.csv,
+SUMMARY.txt, RECORD.md). Eight trials on three faces the port's census reads as class 5:
+
+| face | trials | the feet's rise mid-clip | at clip frame | x/z travel | hand-off |
+|---|---|---|---|---|---|
+| MP1 `alaska4d_fence01`, 16.41 (1773.3, 47.86, 1944.5) | T1, T2; F1, F2 (stick held) | +11.42, +11.14; +11.42, +10.87 | 15-16 | 9.17-9.21 (F2 8.85) | one frame of action 9 at the clip's last y (52.7), then action 10 on the floor (48.4) |
+| MP81 `cell3_drydockcap1`, 10.15 (1487.6, 120.0, 2127.3) | L1, L2 | +3.96, +4.06 | 15 | 8.79-8.80 | action 1 on the floor that frame, then 10 |
+| MP1 `alaska4d_fence01` at (1615.65, 49.97, 1985.91) | L1x, L2x | +1.36, +1.35 | 15 | 9.77-9.78 | action 1 on the floor that frame, then 10 |
+
+- **The body carries the vertical** (LATER 1222): the position word rises with the clip while skel_root's local y stays
+  10.00-11.49 -- the lift is in the body, not the root. Section 8.13 (f)'s option B (the clip's path kept, the pick from
+  `overPick` at the end) does not carry it: its drawn body sinks mid-clip and pops at the hand-off. Option A's end formula
+  (start + rise + lift) dips low faces, where the original rises. Both are departures from the measured motion.
+- **The prompt and the action**: the original's prompt on all three is "CLIMB" with the ladder icon, not the words CLIMB
+  OVER; the press plays action 189 for its clip: 27 rows (0.851-0.868 s between the first and the last action-189 row),
+  0.901 s from the first action-189 row to the first other row (F1 48.3831 to 49.2840) -- the port's clip is 0.8975 s.
+- **No cut** (LATER 1223): with the stick held forward from the press (F1; F2 through a 0.17 s recorder gap) the clip runs to its end, then the run
+  (action 2). The port's `CLIMB_NO_INTERRUPT.seal_climb_over` 0.8 cut is a departure; 8.13's G2 moves to LATER 1223.
+- **The hand-off on r0004**: `+0xfac` is written on the frame after the clip, the clip's last feet y + skel_root's y (T1
+  63.3089 = 53.3050 + 10.0039), and kept. `+0x1060` bit 1 is **never** set on r0004 (the word gains 0x400 at the press:
+  0x..89 -> 0x..489, MP81 0x0d -> 0x40d), so section 8.13 (a)'s reading of D:L446538-446542 (r0001) does not hold on
+  r0004 as written; `CLIMB_OVER_FALL_READING`'s one-frame hold is seen on the tall fence (action 9) and not on the low faces.
+- **Mid-clip floors**: `+0x2e4` does not follow the body (43.0-48.5 on the fence, 115.9-121.3 on MP81's floor at 120);
+  `+0x404` stays at the floor pick but for one frame reading the fence top (64.27 = 47.86 + 16.41).
+
+### 8.16 Readings: LATER 1223, the climb over is not cut by the stick (2026-11-18)
+
+Filed 2026-11-18 by LATER 1223's build (`packages/viewer/src/traversal.ts`, `Traversal.climbCut`). The capture
+(section 8.15, F1/F2) is proven; the read that explains it is reading, pending review. The source does not contradict
+the capture.
+
+**Why section 4's cut does not reach `Climb over`.** The driver's cut (`FUN_00550ef0`, D:L418172-418203) asks four
+things: the top play one-shot (its `+0x28` bit 0x40 clear, D:L418174-418175), the same play as before the tick's work
+(D:L418176), `FUN_00587c20` -- the play's first node's `+0x28` bit 0x2 set (`FUN_0028dc90` sets it on every node it makes,
+D:L135174; only the prone push clears it, D:L442221), not the AI's refusals (the player's `IsAi` stub returns 0),
+the phase past the last node's `NoInterrupt` (D:L445549-445565) -- with the play's posture byte `+0x2b` not 8 (the climb
+over's push writes 0: `FUN_00580a80` pushes `Climb over` with posture 0, `FUN_00588bc0` -> `FUN_0028dc90` D:L135204); and
+then a move axis or the turn past 0.1 (D:L418182-418185). For `Climb over` all four hold. What fails is the axes: the
+driver reads them from the actor's `+0x240`, `+0x244` and `+0x23c` (`piVar14[0x90]`, `[0x91]`, `[0x8f]`, the actor itself,
+D:L418069), and one line before the block it hands those three to `FUN_005af930` (D:L418169). There:
+
+- the suspended list -- action 0x2e, 0x2a, `Climb medium`, 0x23, `Step up`, 0x2d, or state 4 (D:L466760-466782) -- copies the
+  floor pick and clears the actor's `+0x105e` bit 0x20 (D:L466784-466787); `Climb over` is not in it;
+- otherwise the bit is set (D:L466805-466806) and the floor routine `FUN_0059b440` is run for every action but `Climb over`
+  (D:L466808-466810); that routine is what clears the bit on a floor (D:L456508, D:L456528, D:L456558, D:L456602);
+- with the bit still set the three axes are written 0 (D:L466811-466815).
+
+So under `Climb over` the bit is never cleared, the axes reach the cut as zeros every frame, and the phase passing 0.8
+cuts nothing: the clip runs to its end, and the ground state after it takes the stick (section 8.15: action 2 next). The
+turn is zeroed with the move axes, so neither cuts. This matches the capture and is the rule built.
+
+| name | stands for | value in the code | the evidence that settles it |
+|---|---|---|---|
+| `CLIMB_OVER_AXES_READING` | the stick or the turn never cuts `Climb over`: `FUN_005af930` zeroes the driver's axes under it before the cut reads them (D:L418169, D:L466805-466815, D:L418182-418185; the bit's clear only through `FUN_0059b440`, skipped under `Climb over`, D:L466808-466810); the stick's half PROVEN on r0004 (l278-climbover F1/F2: the full clip, F1 0.901 s from its first 189 row to its first other row, F2 through a 0.17 s recorder gap, as the uncut T1/T2, then the run); the read reading, pending review | `'zeroed'` (`Traversal.climbCut` returns no cut for the climb over; `CLIMB_NO_INTERRUPT.seal_climb_over` 0.8 kept as the disc's value) | the review's re-read of D:L466729-466815 and D:L418160-418203; a capture with the turn alone held through a climb over (the turn's half is the read only) |
+
+**The build.** `Traversal.climbCut` returns no cut while the climb's plan is the climb over; the other climbs (the step-up,
+the crate, the medium and their blend, `Stand -> Hang`, `Hang -> Climb`) keep `CLIMB_CUT_READING` as it was -- each is in
+`FUN_005af930`'s suspended list or reached in state 4, so its axes are not zeroed there (whether `Stand -> Hang` runs in state 4
+from its push is not re-read here; the capture measured only the climb over). There is no pistol climb over in the Seal anim
+set (section 8.6), so the rifle's rule is the pistol-holder's too. The knock's and the flinch's pops do not read the axes and are
+unchanged. `Walker.stickCut` (mover.ts) is unchanged. The port's clip runs (18/19)^2 = 0.8975 s against the capture's 0.901 s (F1, its first
+action-189 row to its first other row; 0.851-0.868 s is first-to-last row, 26 intervals): the tests hold 0.02 s. *Corrected
+by the build's review: the push's skip, first named as the gap, would lengthen the original, not shorten it.* Owed: `Stand ->
+Hang` (0x21) is not in `FUN_005af930`'s suspended list either, so its stick cut may be a departure too (unread; LATER 1223).
+
+**The tests.** Viewer `test/traversal.test.ts` "LATER 1223 (was LATER 278 G2)": the stick held forward from the press runs the
+climb over to the same tick as the stick at rest (55 ticks from the press; RED before: 47, the cut past 0.8), past the clip's last
+key, on the block top, then walks on the held stick; "LATER 1223 guard": the crate still cut. Central `test/roomClimb.test.ts`
+"LATER 1223 (was G2)": the same at both ends (54 commands from the push; RED before: 46). `test/traversal.parity.test.ts` NU-1c B11:
+the climb over moved from the cut rows to "no cut, either hand". **G2 is rewritten, not retired**: it asserted the cut the original
+does not make; it now asserts the full clip and the same end on the top.
+
+### 8.17 LATER 1222 -- the climb over carries the body's vertical: the fit (no design: no simple model within 0.5)
+
+Written 2026-11-18 on `agent/later-1222` (base `26214106b8`, LATER 278 B and LATER 1223 stacked). **The answer first: no
+simple model reproduces the feet on all three faces within 0.5.** The best simple one -- the port's own quantities, one
+timing fitted -- misses by 0.59-0.79 on every trial; a richer reading reaches 0.48 only with three timings fitted to the
+same rows. By the brief's rule the work stops at this analysis: no port design and no RED are written here; what a design
+must hold is listed at the end so the next row starts from it. No source or test changed. *Superseded by section 8.18
+(the same day): the law read at its source, per game frame, fits within about 0.5 with no timing fitted; kept as the
+history of the fit.*
+
+**The evidence, apart.**
+
+- *A capture of the original running (proven):* section 8.15's l278-climbover rows (`rows.csv`, 8 trials), read by a
+  scratch script outside the repository (not committed). Per trial, every action-189 row: the feet's y less the row
+  before the first 189 row, skel_root's local y, the x/z travel along the trial's own start-to-end line. The stale row
+  of T2 and F2 (their recorder gap: one row repeating the last, its clock 0.15 s on) is dropped, so clip frame i (0 at the first action-189
+  row) is the i-th game frame read. The faces' tops: the fence's 64.27 (47.86 + 16.41; `+0x404` reads 64.27 on its one top frame), the
+  low fence's 56.49 (`+0x404` on its top frames), MP81's 130.15 (the stand 120.00 + 10.15, the spec's height; `+0x404`
+  never reads it). L1 and L2 each hold one row whose clock steps half a frame (L1's row 18, its clip frame 6; L2's row 21, clip frame 9): their reads
+  straddle a frame there, so a single row of theirs carries up to half a frame of the clip's motion (about 0.5 at the
+  clip's fastest) as reading noise.
+- *The disc's data (reading):* `seal_climb_over` read through the repository's readers (`clipsFromPack` over
+  `RUN/MOTION_P.ZAR`, `clipShape` with `motion.rdr`'s entry from `RUN/READERC.ZAR`; a scratch, not committed): 19 keys,
+  0.8975 s, playback 1, `refPt` (0, -0.96, -10.28), `verticalMotion` not set. Its root y per key: 10.961, 10.813,
+  10.621, 10.441, 10.305, 10.227, 10.516, 11.465, 12.680, 14.336, 15.285, 15.590, 15.418, 14.938, 14.152, 13.137,
+  11.988, 10.813, 10.004 -- under 11.487 at keys 0-6 and 17-18.
+- *Source inspection (reading, pending review):* the steer's weight is the port's `steerWeight` (`FUN_002874f0`'s ease,
+  its square root, D:L468929-468930), laid each frame on the offset still open; the steer's reference is taken through
+  the body's root node (`FUN_003085c0` of the actor's `+0x2e8`, D:L468927; the node whose local y the capture reads as
+  skel_root; the port's `STEER_ROOT` reads the same line as 11.487 over the feet) -- re-read for this note at the line,
+  its signs not decoded. No other line re-read.
+- *Model fits (a model, not a reading):* the scratch's per-frame simulations below, scored against the capture. No unit
+  test, no dev-disc test, no browser run, no playtest.
+
+**(a) What the rows show, before any model.** Per frame i, over three faces (T1, L1x, L2: three heights, clean timing
+but L2's one row), the feet's rise fits `a(i) + b(i) x (top - start)` -- a part proportional to the face's height over
+the start and a part every face shares:
+
+| clip frame | b (fitted) | the port's closure 1 - open | shared part, `a + 10.527 b` | the clip root's rise one frame on, R - R(key 0) | worst face off the line |
+|---|---|---|---|---|---|
+| 0 | 0.053 | 0.050 | -0.09 | -0.10 | 0.01 |
+| 2 | 0.286 | 0.272 | -0.29 | -0.34 | 0.04 |
+| 4 | 0.589 | 0.562 | -0.39 | -0.57 | 0.07 |
+| 6 | 0.833 | 0.800 | -0.24 | -0.71 | 0.08 |
+| 8 | 0.966 | 0.933 | +0.92 | -0.43 | 0.08 |
+| 10 | 1.015 | 0.985 | +2.04 | +0.93 | 0.16 |
+| 12 | 1.033 | 0.998 | +3.55 | +2.86 | 0.40 |
+| 14 | 1.019 | 1.000 | +4.40 | +4.33 | 0.14 |
+| 16 | 1.014 | 1.000 | +4.47 | +4.57 | 0.13 |
+| 18 | 1.003 | 1.000 | +3.91 | +4.12 | 0.00 |
+| 20 | 0.993 | 1.000 | +2.81 | +3.15 | 0.11 |
+| 22 | 0.984 | 1.000 | +1.42 | +1.74 | 0.14 |
+| 24 | 0.973 | 1.000 | -0.09 | +0.19 | 0.17 |
+| 25 | 0.978 | 1.000 | -0.39 | -0.46 | 0.04 |
+| 26 | 0.972 | 1.000 | -0.24 | -0.96 | 0.02 |
+
+("The port's closure" is `1 - open`, `open` the product of `1 - steerWeight(phase)` over the frames so far, the phase one
+frame on at each frame; "10.527" is the port's `STEER_ROOT` 11.487 less 0.96, `Traversal.lift`'s constant.)
+
+1. **The height-proportional part is the steer's lift, closed by the port's own weight.** `b` follows `1 - open` within
+   0.04 through the clip (3-6 % high to clip frame 12, up to 3 % low after): on the tall fence (lift about 6.7) that is under
+   0.3. The lift is the one `Traversal.lift` already computes -- the top less (start + 11.487 - 0.96). Its largest step,
+   about 0.97 a frame on the tall fence (clip frames 3-4), sits just under `FUN_005b2d20`'s 30 a second; the clamp does not
+   bind on these faces.
+2. **The shared part is the clip root's vertical, all of it, not its excess over 11.487.** It rises with the root from
+   clip frame 7 and falls with it after clip frame 16, about 5.0 up and 5.0 down (the root's own swing 5.4); the excess
+   over the cap (4.1 at most, none in the clip's first nine frames or its dip) misses by over 1 (below). So the actor carries the root's whole vertical velocity -- the reading of
+   D:L438910 and D:L456435 (section 8.13 (a)) -- while the root node's local y is held at 11.487 (skel_root reads
+   11.4870 from clip frame 10 or 11 to 23-25 on every trial): the capped root field and the body's rise are two separate things,
+   as section 8.15 found.
+3. **Where the shared part leaves the root, on every face alike.** It leads the root by one to three frames through the
+   rise (+1.35 over it at clip frame 8, +1.11 at 10) and stays 0.3 under it on the fall (frames 19-24); on the last
+   two frames it stops falling (-0.39, then -0.24) while the root goes on to -0.96 -- the frames where skel_root leaves the
+   cap (11.13, 10.49, 10.00). Neither the lead nor the end's flattening is in the root track or the closure.
+
+**(b) The models scored** (max |feet y error| over every action-189 row of the trial; the clip's clock offset from the
+first 189 row and, where named free, the lift's constant fitted to all eight trials together):
+
+| model | fitted | T1 | T2 | F1 | F2 | L1 | L2 | L1x | L2x |
+|---|---|---|---|---|---|---|---|---|---|
+| **(1) the clip root's whole vertical + the lift closed by `1 - open`** (the brief's (a), the root uncapped) | the clock 2 frames on; the constant 10.527 (the port's) | 0.76 | 0.75 | 0.79 | 0.59 | 0.75 | 0.75 | 0.79 | 0.79 |
+| (1), the constant free | 10.5, 2 frames | 0.73 | 0.72 | 0.76 | 0.61 | 0.78 | 0.72 | 0.76 | 0.76 |
+| (1), the clip's clock also scaled (0.95-1.10) | 0.95, 2.5 frames, 10.4 | 0.73 | 0.74 | 0.71 | 0.70 | 0.72 | 0.63 | 0.67 | 0.67 |
+| the root's excess over 11.487 only + the closed lift | 2 frames, 10.3 | 1.15 | 1.15 | 1.10 | 1.12 | 0.79 | 0.88 | 0.97 | 0.97 |
+| the closed lift alone (the brief's (b) without the root) | 2.5 frames, 8.6 | 2.81 | 2.80 | 2.81 | 2.72 | 2.44 | 2.51 | 2.70 | 2.70 |
+| (2) the steer's reference through the root node: each frame the actor takes the root's step, then the steer closes `steerWeight`'s share of what is left toward start + lift + (R - R(key 0)) + (11.487 - the root node's local y two frames before) | 1.5 frames, the node's y modelled as the clip root blended in from the stand's 11.484 over 9 frames and capped at 11.487; the constant 10.527 | 0.39 | 0.38 | 0.39 | 0.37 | 0.48 | 0.39 | 0.44 | 0.43 |
+| (2) with the node's y as measured (T1's skel_root), one frame before | 1.5 frames, 10.6 | 0.56 | 0.55 | 0.57 | 0.58 | 0.40 | 0.35 | 0.40 | 0.40 |
+
+- **(1) is the simple model**, and it is built from quantities the port already holds: `ClipPath`'s root track (uncapped),
+  the steer's `open` (`ClimbSteer`), `Traversal.lift`. Its misses are the same on every face (section (a) 3): +0.46 to
+  +0.74 at clip frames 7-9, +0.40 to +0.76 on the last two, -0.4 to -0.5 at frames 1-3 on the tall fence. Its two-frame
+  clock is itself a compromise: the lift's share alone fits a one-frame clock (section (a) 1), and the root's lead pulls
+  it to two; with the steer's clock at one frame and the root's at two, (1) misses by up to 1.00, and with both at one
+  by up to 1.63. **Its fit is 0.59-0.79: over the 0.5 asked.**
+- **(2) fits within 0.5**, and it is the more literal reading of the steer -- its reference the root node's point
+  (D:L468927) as it is, not the actor plus a constant 11.487 (`STEER_ROOT`, true only while the node is capped) -- so it carries what (1) misses: the node's dip under the cap
+  early raises the steer's target (the lead), and at the end, the steer closing fully, the node's fall under the cap
+  cancels the root's (the flattening). But it holds three timings fitted to these same rows (the clock 1.5 frames on,
+  the node read two frames late, a 9-frame blend no table gives: `seal_climb_over`'s `BlendTime` is unset), its signs are
+  not decoded at D:L468927-468951, and with the node's y as measured in place of the modelled one it misses by 0.58.
+  It is a lead for the reading's review and for a capture, **not a basis for a design**.
+
+**(c) The hand-off, measured (proven), for whichever design follows.** The clip's last row's feet, then the next: on the
+16.41 fence 53.31, then 52.71 for one frame (action 9) = `+0xfac` 63.31 less the revealed root's 10.60, then 48.41 on the
+floor (action 10, about 4.3 lower); on the low faces the next row is on the floor at once (L1x 49.46 = 55.80 less 6.34,
+the root node lowered to keep the root's world height, `+0x2e4` 49.46; MP81 120.00, the node 9.54). That is section 8.13
+(a)'s arithmetic for the hand-off frame (D:L456368-456386: at or over `+0x2e4` the frame's y is `+0xfac` less the
+revealed root; under it, the body on `+0x2e4` and the node lowered) -- though `+0x1060` bit 1, which that reading has
+gate it, is never set on r0004 (section 8.15): which word gates it there is unread.
+
+**(d) What a design will have to hold** (not a design; for the row that writes one):
+
+- the feet on the clip's whole root vertical plus the lift closed by the steer's weight (the part this fit proves the
+  shape of), whichever of (1) or (2) the review and the next capture settle;
+- LATER 278's G1 and G1b (the 16 and 22 blocks: the end on the top) and the F3 guard (the 7 fence: the end on the floor);
+  under (1) the 16 block's feet end at start + lift - 0.96 (about 4.5 over the start against the top's 16), so the
+  end's floor pick, not the clip, puts the body on the top -- as on the 16.41 fence, where the original's body ends 6.2
+  over the start (model (1): 5.7) and drops to the floor beyond it, the fence being thin;
+- the readers that see the feet mid-clip: the page's cameras (`walk.ts` `noteTick`, `play.ts`'s third-person target),
+  the remote draw (`net/body.ts`, the feet and `travRootY`), the room's `HitPoser.stepBody` (`net/hitPose.ts`) and the
+  ripple (`traversal.ts`, `remotePlayers.ts`) -- section 8.13 (f)'s list; the drawn root then over the carried feet, not
+  `ClipPath`'s `rest`;
+- the hand-off of (c): one frame held at `+0xfac` less the revealed root where that is over the floor pick, else the
+  floor at once.
+
+**Unread, and what would settle it.** The signs and the order of D:L468927-468951 (whether the steer's reference is the
+root node's point and the stored `refPt` is carried with the root's travel, model (2)); the root node's blend into the
+clip (its length; the capture shows it, clip frames 0-9); and, for the rows themselves, the clip's phase per row -- a capture
+that reads the play's phase (`+0x1c`) and the root node's world point beside the feet each frame would decide (1) against
+(2) without fitting a clock. `CLIMB_OVER_RISE_READING` (section 8.14, note only) stays as filed: its "measured" note now
+points here.
+
+### 8.18 LATER 1222 -- the law read at its source, scored against l278-climbover (2026-11-18; reading, pending review)
+
+Written 2026-11-18 on `agent/later-1222` (over `56e78aa2fd`). **The answer first: the law fits.** Read at the source
+and run per game frame, with the root node's blend pinned at **0.4 s** by the capture's own skel_root (matched within
+0.0001 on every clean trial, independently of the feet), it reproduces the feet within **0.41-0.43** on the four
+16.41-fence trials, **0.12** on the low fence and **0.49 / 0.58** on MP81 by row (**0.21 / 0.30** with MP81's
+half-frame rows placed at their own clock), and the hand-off within 0.22. No timing is fitted: the one alignment (capture
+frame i = tick i + 1) is the one the node matches at. So the port's design and the RED follow ((f), (g)). No source or
+test changed. *Folded from the design's fresh review (PASS WITH FINDINGS, confidence medium; F1-F4, 2026-11-18): the
+alignment above held a tick the source would also have stepped the blend on (F1); the pairing the source allows and
+the node matches -- no held tick seen, the blend stepped from the push -- is built, and scores **0.33 / 0.32 / 0.33 /
+0.53** on the four fence trials, **0.03** on the low fence and **0.40 / 0.30** on MP81 at its rows' own clock ((b), (c));
+one game-frame clock owns the climb over's phase, x/z, vertical, end and hand-off (F2, (f) 1); two citations corrected
+(F3, F4).*
+
+**The evidence, apart.**
+
+- *Source inspection (reading, pending review):* r0001's decompilation (`socom2_game.elf.decomp.c`, this note's pin);
+  every `D:L` in (a) re-read at the line for this section. r0004's frame order is **not** re-checked (OT.R97).
+- *The disc's data (reading):* `seal_climb_over` as section 8.17 read it (`clipsFromPack` over `RUN/MOTION_P.ZAR`, the
+  entry from `RUN/READERC.ZAR`; 19 keys, playback 1, `refPt` (0, -0.96, -10.28), `BlendTime` unset); a scratch, not
+  committed.
+- *A capture of the original running (proven):* section 8.15's `rows.csv`, 8 trials, per trial the row before the first
+  action-189 row as the start (its y the feet, its skelY the blend's snapshot: 11.4844 standing, F1 11.3587 running) and
+  every action-189 row; T2's and F2's stale recorder-gap row dropped (section 8.17).
+- *Model (a simulation of the reading, not a test):* a scratch script outside the repository (`law.py`, not committed)
+  steps (a) per game frame and scores it against the rows. No unit test, dev-disc test, browser run or playtest.
+
+**(a) The law, per game frame** (`dt` = 525/15734 s, the actor's `+0x2e0`). Section numbers in the port are (e)'s.
+
+1. **The phase advances** (`FUN_0028c4f0`, called at D:L438901): play `+0x1c` += dt x the node's weight x rate / (the
+   motion's `+0x10` x `FUN_0028ada0`'s (N-1)/N), clamped at the play's end (`+0xc`). A one-shot's **first tick after
+   the push does not advance**: the push sets bit 8 of play `+0x28` on a non-looped play (D:L135209-135212) and
+   `FUN_0028c4f0` clears it in place of the advance. For `seal_climb_over`: 0.035221 a frame, the end (18/19) reached at
+   frame 26.9. *Folded from the design's review (F1):* the blend timer is stepped by dt every frame `FUN_00576860` runs
+   (D:L436624-436629), whether or not that frame's tick advanced, so a held tick still steps the blend; which frame the
+   held tick falls on against the capture's rows is the frame order, (b) and `CLIMB_OVER_FRAME_ORDER_READING`.
+2. **The root's velocity for the whole frame** (D:L438909-438910): `FUN_0028c380` re-keys the play's node from the NEW
+   phase (`FUN_0028d670`: key = floor(phase x N), clamped to N-1 with fraction 0), and `FUN_0028c250` writes the actor's
+   `+0x2c..+0x34` from `FUN_00289bb0`: (key[i+1] - key[i]) x N / the motion's `+0x10` (the last interval's slope at the
+   end, D:L132713-132718). Over one key interval this integrates to (N-1)/N of the key's step, not all of it.
+3. **The steer** (`FUN_005b3340`, called at D:L439020; D:L468892-468951). The error is the target (play `+0x8c`, its y
+   the contact's top, D:L467887, stored D:L467933) less the stored `refPt` turned by the body (play `+0x6c`) less the
+   root node's world point (`FUN_003085c0` of the actor's `+0x2e8` through its matrix, D:L468927) -- in y, the last
+   frame's feet plus the last frame's node y, whose x and z the pose zeroes (D:L439147-439148). The weight is
+   k = sqrt(`FUN_002874f0`(phase)) (D:L468929-468930; the ease: 2p^2 to 0.5, then 1 - 2(p-1)^2, D:L131137-131149). The
+   vertical is kept for the climb over (it is zeroed only under action 0x2c or a reversed 0x2e, D:L468933-468941); the
+   error x k over dt goes to play `+0..+8` (D:L468943), and `FUN_0054d9a0` adds it to the actor's velocity
+   (D:L416455). No 30 a second clamp: that is the looped branch's (`FUN_005b2d20`, D:L439024-439040).
+4. **The `refPt` follows the root**: `refPt` -= the actor's `+0x2c` x dt (D:L468947-468951) -- the root's velocity alone,
+   the steer's being added later in the frame.
+5. **The node is posed** at the new phase (`FUN_00577ea0`, D:L439091), folded (D:L439110-439148: x and z into the actor,
+   y kept), **blended** from the pose snapshot taken at the push by ease(remaining / length) (`FUN_00576860`,
+   D:L436621-436634, called at D:L418455 right after the tick at D:L418454 -- *corrected by the review, F3: was
+   "D:L418456"*; the length from the motion's `+0x20`, D:L135218-135220; the timer stepped by dt before it is read,
+   D:L436624-436629), and
+   capped at 11.487 under a non-reversed `UseVelY` top (`FUN_0059afd0`, D:L456455-456456).
+6. **The feet integrate** (D:L456402 with D:L456435): y += the actor's `+0x30` x dt -- the root's vertical and the
+   steer's.
+
+So, with S(n) the root's vertical integrated so far and N(n) the node's y after the cap:
+**A(n) = A(n-1) + v(n) dt + k(n) [top + 0.96 + S(n-1) - A(n-1) - N(n-1)].**
+
+**Corrections the same pass found** (applied in place, marked "corrected by section 8.18"):
+
+- Section 8.13 (a) and 8.14 `CLIMB_OVER_RISE_READING` said "off `UseVelY` the frame folds and sets 11.487". A top that is
+  not `UseVelY` returns at D:L456356-456388, before both; under `UseVelY` the fold (D:L456426) and the set (D:L456460)
+  are reached only when the play is **reversed** (flag 0x20); otherwise the root is capped (D:L456455-456456). The climb
+  over is capped, never folded.
+- The climb over's steer offset (0, -0.29, -2.42) in play `+0xa8` (D:L467909-467910) is read by neither steer branch
+  (`FUN_005b2d20` D:L468521-468760, `FUN_005b3340` D:L468761-468951): it does not apply. G1's "about 0.46 with the
+  first frame's fold" falls with the fold.
+
+Not read: the default that fills the motion's `+0x20` when the motion table leaves `BlendTime` unset (*at the build: the
+port's `./locomotion` `BLEND_TIME_DEFAULT` already reads it as `FUN_00287620`'s 0.4, not re-read here*; the capture pins the
+value, (b)); r0004's frame order.
+
+**(b) The blend, pinned by skel_root; the clock.** Capture frames 0-9 show the node blending into the clip (skelY
+11.476 -> 10.585 -> 11.487 against the clip's root 10.86 -> 10.33). With the snapshot the start row's skelY and the
+weight ease(max(0, L - j dt) / L) at tick j, **L = 0.40 s reproduces skelY within 0.00006 over all 27 frames** of T1,
+F1 (its running snapshot), L1x and L2x; L = 0.39 or 0.41 miss by 0.03, 0.38 or 0.42 by 0.06. So the blend is 0.4 s on
+r0004 -- pinned by the capture, its source's default unread (`CLIMB_OVER_BLEND_READING`). The same match
+fixes the clock: capture frame i shows the phase (i + 1) x 0.035221 and the blend timer stepped i + 1 times; frame 26 is
+the end phase, skelY 10.0039 = key 18. The alignments that shift either by a frame miss the feet by 1.04-1.45 at every
+blend.
+
+*Folded from the design's review (F1, the held tick; PASS WITH FINDINGS, confidence medium).* As first written this
+paragraph read the match as "capture frame i is tick i + 1, tick 0 the push's held tick", and `law.py` integrated that
+tick's root velocity (v dt = -0.094) with no blend step on it. The source does not allow that pairing: the push sets the
+blend timer to its full length (D:L135218-135220) and `FUN_00576860` steps it by dt every frame it runs (D:L436624-436629),
+right after the tick (D:L418455) -- a held tick steps the blend too, and with it the node leaves skelY at every blend
+length. **Two pairings** remain, and they differ only in that one frame:
+
+- **(A) the held tick seen**: the push frame's tick is held (bit 8, D:L135209-135212) and its blend step is taken; the
+  first action-189 row is the frame after. Then the node is a frame ahead of skelY (the node does not fit at 0.4 s, nor at
+  any length with the phase it implies).
+- **(B) no held tick seen, built**: the push frame is the first action-189 row, its tick advances and its blend steps
+  (capture frame i = tick i, the phase (i + 1) x 0.035221, the timer stepped i + 1 times). The node matches skelY within
+  **0.00006** on T1, F1, L1x and L2x over all 27 frames, and no root velocity is integrated before frame 0 (the push
+  frame's v dt is its own advance's). How the source's bit 8 (D:L135209-135212) is not seen on r0004 -- the push made after
+  that frame's tick, or the bit cleared before it -- is not read: r0004's frame order is not re-checked (OT.R97).
+
+(B) is built: it is the one pairing the source allows that the capture's own node matches. The +0.1 residual that (c) 1
+named belongs to (A)'s integration of the held tick and does not appear under (B); what (B) leaves is (c) 2 and 3.
+
+**(c) The scores** (max |feet y error| over every action-189 row; the alignment of (b); "hand" the row after the clip,
+(d)):
+
+| the node N | T1 | T2 | F1 | F2 | L1 | L2 | L1x | L2x | hand (fence / low) |
+|---|---|---|---|---|---|---|---|---|---|
+| blend 0 (none) | 0.27 | 0.26 | 0.27 | 0.48 | 0.74 | 0.49 | 0.41 | 0.41 | -0.21..-0.17 / 0.00 |
+| blend 0.2 s | 0.27 | 0.26 | 0.28 | 0.45 | 0.71 | 0.49 | 0.30 | 0.30 | the same |
+| blend 0.3 s | 0.30 | 0.29 | 0.30 | 0.43 | 0.59 | 0.49 | 0.12 | 0.12 | the same |
+| **blend 0.4 s (pinned, (b))** | **0.42** | **0.41** | **0.42** | **0.43** | **0.58** | **0.49** | **0.12** | **0.12** | **-0.21, -0.22, -0.21, -0.17 / 0.00** |
+| blend 0.5 s | 0.61 | 0.61 | 0.59 | 0.45 | 0.57 | 0.48 | 0.33 | 0.33 | the same |
+| blend 0.6 s | 0.76 | 0.75 | 0.72 | 0.55 | 0.57 | 0.48 | 0.47 | 0.47 | the same |
+| the capture's own skelY as N(n-1) | 0.42 | 0.41 | 0.42 | 0.42 | 0.59 | 0.49 | 0.12 | 0.12 | -0.21, -0.22, -0.21, -0.12 / 0.00 |
+| 0.4 s, MP81's half-frame rows at their own clock | | | | | 0.30 | 0.21 | | | |
+| **(B), built: 0.4 s, no held tick, the blend stepped from the push** (by row) | **0.33** | **0.32** | **0.33** | **0.53** | **0.67** | **0.58** | **0.03** | **0.03** | +0.58 / 0.00 (the port's standing root, (d)) |
+| (B), MP81's rows at their own clock | | | | | **0.40** | **0.30** | | | |
+| (B), the port's standing snapshot 11.4844 in place of F1's running 11.3587 | | | 0.39 | | | | | | |
+
+*The rows above (B) are the first draft's pairing (A), kept as its history.* Under (B) the node matches skelY within
+0.00006 on T1, F1, L1x and L2x (all 27 frames; T2 0.00006 by row too); F2 and MP81 leave it by up to 0.36 at their
+half-frame rows. F2's rows after its recorder gap cannot be put at their own clock (the gap's shift is the recorder's:
+placed at it, F2 misses by 0.72), so F2 is scored by row; MP81's rows are scored at their own clock, as before.
+
+- **The feet alone do not pin the blend** (0.3-0.47 s all fit within 0.58; the best by the feet alone is 0.47 s at
+  0.575); skel_root does, and with it the capture's own skelY scores as the modelled node: the blend is no longer an
+  unknown for the feet.
+- **What is left, at 0.4 s**, in three parts:
+  1. *A constant +0.09 to +0.12 on every trial from frame 0* -- the size of the held tick's root velocity (its v dt,
+     -0.094). With that tick's velocity left out, the low fence fits within **0.03**; the other maxima do not fall (T1
+     0.33, F2 0.53, L1 0.67). *Folded (F1):* leaving it out is pairing (B) of (b), the one built; this residual is
+     (A)'s and does not appear under (B).
+  2. *A part proportional to the face's lift* -- on the 16.41 fence (lift 6.68) the original closes ahead of the law by
+     up to 0.30 at clip frames 5-9 and ends 0.21 under it (0.27 under, against the low fence's +0.06). The weight alone
+     cannot leave a closed offset short: some scale on the lift of about 3 % at the end is not in the reading. Under 0.5;
+     the next capture's `+0x8c` and `+0x6c` would name it.
+  3. *MP81's rows read mid-frame* -- L1's clock steps half a frame at its clip frame 6, L2's at 9 (section 8.17); at the
+     same rows their skelY leaves the model (and T1's) by up to 0.36, so those reads straddle a frame. By row index
+     L1 misses by 0.58 (its clip frames 11-13) and L2 by 0.49; with the law read at the rows' own clock (between its
+     frames) 0.30 and 0.21. T2's and F2's rows after their gap are half-frame too and fit by index (0.41, 0.43).
+
+**(d) The hand-off** (proven rows, the law's last frame): `+0xfac` = the last frame's feet + node -- T1 63.52 against
+the 63.31 measured under (A) (the feet's end error, -0.21; under (B) 63.61, -0.30); the next row = `+0xfac` less the
+revealed root where that is over `+0x2e4` (the fence: 52.92 against 52.71, action 9, with the capture's own revealed node
+10.60), else `+0x2e4`. *Corrected by the review (F4):* on the low faces the floor picks are **120.00** (MP81) and
+**49.46** (L1x); 129.40 and 55.74 are the modelled `+0xfac` (under (A)), not picks. What decides is `+0xfac` less the
+revealed root -- the modelled 129.40 and 55.74 less the hand-off rows' nodes 9.54 and 6.34: **119.86** and **49.40** --
+against `+0x2e4` (120.00, 49.46): under it on both, so the body is on `+0x2e4` at once, exact (under (B) with the port's
+standing root, 129.49 - 11.48 = 118.01 and 55.83 - 11.48 = 44.35, under it too). Section 8.17 (c)'s arithmetic stands.
+**The port's revealed root** (built): the revealed posture's own root (standing, 11.4844), where the original's node on
+the hand-off frame is the new play's first blended frame (action 9 on the fence, 10.60; its pose and blend unread). On
+the fence that puts the hand-off row 0.58 under the measured 52.71 under (B) (0.30 of it the feet's end error, the rest
+the node); on the low faces the floor wins either way. Named under `CLIMB_OVER_FALL_READING` (section 8.14).
+
+**Also measured, for the design:** on the low faces the original's feet go **under the start** mid-clip -- L1x/L2x
+-2.90 at clip frame 6 and -3.56 at 25, MP81 L1 -0.69 (row 5) and -0.90 (row 25), L2 -0.80 -- while the root's world height (feet + skel_root) stays
+at least 6.57 over the start (MP81 9.54). Section 8.13 (f)'s option A dipped too (-4.48 on a 7 fence 2 deep); a dip of the feet is the original's in
+kind, and section 8.15's "A dips low faces where the original rises" is to be read as "dips by its own law, not the
+original's".
+
+**(e) The port, against the law** (source inspection at this branch's head; design input, no code):
+
+- **The closure's clock.** `OneShotSteer.advance` (`viewer/src/net/emplacement.ts:387-410`), called by `climbSteer`
+  (`viewer/src/traversal.ts:1978`), lays the weight each 60 Hz tick; the original lays it once a game frame. The law
+  stepped per 60 Hz tick misses T1 by 1.20 and L1x by 0.71 (clip frame 4). It also advances on its first tick; the
+  original holds the push's (D:L135209-135212).
+- **The node.** `STEER_ROOT` and `lift()` (`traversal.ts:507`, `:1277-1282`, taken once at `climbClip`, `:1563`) use a
+  constant 11.487; the original uses the last frame's blended, capped node y (11.48 -> 10.58 -> 11.487 -> 10.00 over the
+  clip). The comment at `traversal.ts:502-506` is stale on this (the reference is the node's world point, 11.487 over
+  the feet only while capped).
+- **Where the lift goes.** It is closed on the drawn root only (`drawnRoot`, `st.open *= 1 - k`, `traversal.ts:1986`,
+  `:1995`), while the feet ride `ClipPath`'s line (`viewer/src/clipPath.ts:158-183`).
+- **The root's travel.** `ClipPath` interpolates the running share of the rise; the original integrates the key
+  intervals' slopes x N / playback -- the law the port already holds as `mountRootVelocity`
+  (`net/emplacement.ts:419`).
+
+**(f) The port change** (design; simulation track; RED first):
+
+1. The climb over's vertical runs (a) on the original's frame clock: a `GAME_FRAME_DT` accumulator in the climb's
+   running state steps it once a game frame, ~~the first frame after the push held~~ *folded (F1): the push's own frame
+   advances and steps the blend -- pairing (B) of (b), `CLIMB_OVER_FRAME_ORDER_READING`; the port steps game frame 0 on
+   the press's tick.*
+   *Folded (F2, two clocks):* **one game-frame clock owns the climb over** -- its phase, its x/z steer (`climbSteer`'s
+   closure through `OneShotSteer.advance`, laid once a game frame at dt `GAME_FRAME_DT`, the turn with it), its vertical,
+   its end and its hand-off. As first designed only the vertical moved and the x/z closure stayed per 60 Hz tick: the
+   same clock error, two phase clocks in one play. `ClipPath` is read at the game frame's clock (frame i at (i + 1) x
+   `GAME_FRAME_DT`), so `done` comes on the 27th game frame, not on a 60 Hz tick; the end test is the driver's
+   (`FUN_0028c6e0`, the phase before the frame's advance plus half a frame's step past (n-1)/n, `mountPlayedOut`) on the
+   frame after, the 28th, which is the hand-off's.
+2. Each frame: v from the clip's key slopes (`mountRootVelocity`'s law on the climb shape); e = the contact's top + 0.96 +
+   S - the feet - N(previous); the feet += v dt + k e; S += v dt.
+3. N: the clip's root y at the phase, blended from the push's root height over 0.4 s by the ease
+   (`CLIMB_OVER_BLEND_READING`), capped at 11.487; the drawn root over the feet is N, not `ClipPath`'s `rest`.
+4. `ClipPath` keeps the climb over's x and z; `lift()` / `STEER_ROOT` leave the climb over (the other climbs keep them
+   until their own capture); the stale comment is corrected.
+5. The hand-off: `+0xfac` = the last frame's feet + N; the next frame stands at the higher of the floor pick and
+   `+0xfac` less the revealed posture's root. LATER 278's `overPick` is replaced by the carried feet.
+   *As built:* the floor pick is taken from `+0xfac` (the carried root's world height; its origin in the original unread,
+   `CLIMB_OVER_FALL_READING`), so a deep top within the pick's reach (LATER 278's G1 16 and G1b 22 blocks) is stood on;
+   where `+0xfac` less the root is over the pick (the 17.21 fence) that height is held one game frame and the pick's taken
+   the next (section 8.13 (a), D:L456359-456386; on r0004 action 9 then 10), else the pick at once. A knock or a flinch
+   mid-clip settles on the pick from the actor's own `+0xfac` at that frame (no hold: the move is released).
+6. *Decided (the draw between game frames):* **the simulation holds the frame's values between game frames** -- the feet,
+   x/z, the node and the drawn root (`pose().rootY` = N) all change once a game frame -- so the room, the bots, the shot's
+   eye and the room's `HitPoser` (`net/hitPose.ts`, posed from the body snapshot) see the original's frame values, held
+   for the tick between. That is MISSION R8's shape for a trajectory (the step-by-step arithmetic is the result: the law
+   per 60 Hz tick misses by 1.20). R8 also draws its trajectories interpolated between game frames (the jump's
+   `Walker.drawnFeet` by `airClock.alpha()`, the grenade by `flight.alpha()`); **that draw-only interpolation is not built
+   here**: it lives in `Walker.drawnFeet` (`viewer/src/mover.ts`, a hot file outside this task's claim). So the page's
+   cameras (the first-person eye from `drawnFeet`/`tickFeet`, the third person's target from the posed root) see each
+   game frame's step spread over the 60 Hz tick it lands in and held over the next, as the jump was before R8; the remote
+   draw (`net/body.ts`, the feet and `travRootY` per snapshot) sees the held frame values under its own snapshot
+   interpolation. Owed (named for the controller): R8's interpolation for the climb over's drawn feet, a `mover.ts` hunk.
+   Room and bots run the same `Traversal`: no room hunk. The 0.4 s and the frame order go to research 101 and the ledger
+   at the build.
+
+**(g) The RED's shape.**
+
+- *Per measured trial, a synthetic class-5 face* (`viewer/test/traversal.test.ts`, "LATER 1222"; its twin in central
+  `test/roomClimb.test.ts`): a thin face whose top lies the capture's top - start over the feet (T1 and F1 17.21, the
+  latter from the running snapshot; L1 10.15 on MP81's cap; L1x 7.26), the floor beyond it at the start's level, the
+  walker at the start, Action pressed. Asserts, at each game frame of the clip, the feet's y less the start within the
+  capture's row (decoded values in the test, RS.R8) by **0.5** on the fence, **0.2** on the low fence and **0.4** on
+  MP81 (its half-frame rows at their own clock); the drawn root over the feet within 0.01 of the row's skelY on T1 and
+  L1x (the blend); the row after the clip within 0.3 (52.71 - 47.06 on the fence; the floor on the others).
+  *Folded (F1): the tolerances set against the built pairing (B), each its scored maximum ((c)) plus a stated margin of
+  0.07:* T1 **0.40** (scored 0.33), F1 **0.46** (0.39 from the port's standing snapshot), L1 **0.47** at its rows' own
+  clock (0.40), L1x **0.10** (0.03); the drawn root 0.01 (0.00006); the row after the clip on the fence **0.66** (0.58:
+  the port's standing revealed root, (d)), on the low faces the floor beyond exactly. L1x's floor beyond is put at the
+  capture's walk-away height (48.66, 0.57 under the start; its hand-off row's 49.46 is `+0x404`, 0.8 over it on these
+  rows, not modelled).
+- *Red today:* the feet stay on `ClipPath`'s line to `floorUnder(...) ?? start` -- by up to **11.4** on the fence, 4.1
+  on MP81 and 3.6 on the low fence.
+- *Kept green:* LATER 278's G1 and G1b (the 16 and 22 blocks end on the top) and LATER 1223's full clip. **F3's "the feet
+  never under the floor" is contradicted by the capture** (the low fence's -3.56, above) and is rewritten with the RED to
+  the measured dip; its end on the floor stays.
+
+**What the next capture would still settle** (not a gate on the design): play `+0x1c`, the actor's `+0x2c..+0x34` and
+skel_root's y per frame at the three spots, one trial each, read at the frame's end -- it settles (c) 1's frame order and
+names (c) 2's lift scale.
+
+| name | stands for | value in the code | the evidence that settles it |
+|---|---|---|---|
+| `CLIMB_OVER_BLEND_READING` (*note only*) | the root node's blend into `seal_climb_over` from the push's pose: ease(remaining / 0.4 s) (`FUN_00576860` D:L436621-436634; the length the motion's `+0x20`, D:L135218-135220, unset in the table); 0.4 s **pinned by the capture** (skel_root within 0.0001 on T1, F1, L1x, L2x), the default's source unread | none (no build yet) -- *built: section 8.19* | the read of the motion table's default for an unset `BlendTime`; the build files it in research 101 and the ledger |
+| `CLIMB_OVER_FRAME_ORDER_READING` (*note only*) | ~~whether the push frame's held tick moves the feet by its root velocity (-0.094) before the first action-189 row (section (c) 1)~~ *folded (F1):* which frame the first action-189 row is against the push. Two pairings the source allows ((b)): **(A)** the push frame's tick held (bit 8, D:L135209-135212) with its blend step taken (D:L436624-436629, `FUN_00576860` at D:L418455), the first row the frame after; **(B)** no held tick seen -- the push frame is the first row, its tick advances and its blend steps (capture frame i = tick i). **(B) is built**: the node matches skelY within 0.00006 under it and not under (A) at any blend length; the +0.1 residual of (c) 1 is (A)'s. How bit 8 goes unseen on r0004 is unread | none -- *built: section 8.19* | the capture of "the next capture" above, read at the frame's end (play `+0x1c` and `+0x28` bit 8 on the push frame) |
+
+### 8.19 Readings (LATER 1222's build, 2026-11-18; reading, pending review)
+
+Filed by LATER 1222's build (`agent/later-1222`; `packages/viewer/src/traversal.ts`), section 8.18 (f) as folded. Research
+101's "LATER 1222" group and the ledger carry the two constants.
+
+**As built.** One game-frame clock owns the climb over (`OverCarry`'s `GameFrameAccumulator`, fed each 60 Hz tick):
+`overFrame` steps, once a game frame, the end test (`mountPlayedOut` on the phase before the advance), the phase and the
+x/z steer (`climbSteer` through `OneShotSteer.advance` at dt `GAME_FRAME_DT`, `ClipPath` read at the frame's clock for
+x and z only), the root's vertical velocity (`mountRootVelocity`'s law), the steer's vertical on the last frame's feet
+and node, and the node (blended over `CLIMB_OVER_BLEND_READING`, capped at 11.487), which is the drawn root
+(`Traversal.drawnRoot`). Game frame 0 is stepped on the press's tick (`CLIMB_OVER_FRAME_ORDER_READING`); the clip's 27
+frames run 0-26 and the end test passes on frame 27, the hand-off's (`overHandOff`): the frame at the higher of the floor
+pick and `+0xfac` less the posture's root, held one frame where over the pick, then the pick; the climb ends there
+(`endClimb`), not through `endUncut`'s pick. A knock's or flinch's pop mid-clip settles on the same pick from the carried
+`+0xfac` (`climbSettle`). `lift()` and `STEER_ROOT` no longer reach the climb over (its node is its own); the other
+climbs keep them. LATER 278's `overPick` is removed. Between game frames every value holds (section 8.18 (f) 6: the draw
+interpolation of MISSION R8 is not built -- it lives in `Walker.drawnFeet`, `mover.ts`, outside this build's claim).
+
+**Measured against the build** (unit tests on synthetic faces, `seal_climb_over`'s disc keys decoded in the test):
+the port's per-frame feet equal the scratch law's within 0.005 on T1, F1, L1 and L1x; against the capture's rows T1
+0.33, F1 0.39 (the standing snapshot), L1 0.40 at its rows' own clock, L1x 0.03; the drawn root within 0.01 of
+skel_root on T1 and L1x (asserted; the snapshot the port's 11.484 against the rows' 11.4844); the fence's hand-off row 0.58 under the measured, then the floor beyond; the low faces' the
+floor beyond at once. The room's mover and the page's agree at every command (central `roomClimb.test.ts`). The climb's
+end now lands on the 60 Hz tick its 28th game frame falls on: 55 ticks from the press's (0.917 s against the capture's
+0.901 s first-row-to-first-other-row), where the 60 Hz clip ran 54.
+
+| name | stands for | value in the code | the evidence that settles it |
+|---|---|---|---|
+| `CLIMB_OVER_BLEND_READING` | the root node's blend into `Climb over` from the push's pose, its length (`FUN_00576860` D:L436621-436634, called at D:L418455; the timer from the motion's `+0x20`, D:L135218-135220, unset in the row; the 0.4 the port's `BLEND_TIME_DEFAULT` reads in `FUN_00287620`), pinned by the capture (skel_root within 0.00006 on T1, F1, L1x, L2x); the snapshot the posture's root | `0.4` (`Traversal.overFrame`) | the read of `FUN_00287620`'s default at its line; a capture of a climb over from a run with the run cycle's root read at the push |
+| `CLIMB_OVER_FRAME_ORDER_READING` | the frame order against the capture's rows: pairing (B), the push's own frame the first action-189 row (its tick advancing, its blend stepped) -- section 8.18 (b), the review's F1; (A), the held tick seen, leaves the node off skel_root | `'push-advances'` (`Traversal.climbClip` steps game frame 0 on the press's tick) | play `+0x1c` and `+0x28` bit 8 read on the push frame of a climb over (section 8.18, "the next capture") |
+
+**The build's review (2026-11-18, PASS WITH FINDINGS, high), folded.** (1) How the push frame's bit 8 goes unseen, read
+on r0001 (reading, pending review): the press's push runs early in the driver (`FUN_005b4b40`, D:L418132, D:L418155); the
+driver's phase preview `FUN_0028c4f0(.., 0)` on the top play (D:L418293) clears bit 8 without storing the phase
+(D:L134257), so the tick at D:L438901 advances on the push frame -- pairing (B) predicted by the source, not only fitted.
+The same preview would reach the other one-shot climbs pushed on this path, which keep their first advance on the next
+command in the port: possibly a frame late (owed, outside LATER 1222). (2) The dip figures: MP81 is L1 -0.69 (row 5) and
+-0.90 (row 25), L2 -0.80. (3) The T1/F1 synthetic face puts the floor beyond at the start's height, where the capture's
+is +1.35 (48.407): the test's second row after the clip checks the synthetic face, not the capture; the hand-off row's
+comparison is unaffected. (4) The 1223 timing test (55 ticks from the press's tick) is the original's frame of
+reference: the push frame is the first action-189 row (pairing B), the first other row is 0.901 s (27 game frames)
+later in T1, F1, L1x and L2x; the room's twin already measured from the push.
+
+### 8.20 LATER 1222 -- the built law against l1222-climbover2 (2026-11-19)
+
+Written 2026-11-19 on `agent/later-1222` (over `3fb47ecaae`); no source or test changed. **The answer first.** The law of
+section 8.18 (a) reproduces every field this capture read, value for value, once it is given two inputs the build does
+not carry: **each game frame's own dt** (the actor's `+0x2e0`) and **the steer record's turn of `refPt` onto the
+contact's normal, its vertical included** ((b)). With both, the feet agree within **0.0022 / 0.0007 / 0.0002** (S1b / S3b
+/ S2), the node within 0.0001, the phase within 0.00001, the blend timer within 0.00001, `refPt` within 0.00014 and
+`+0xfac` within 0.0016; nothing is fitted. **The built port** (a fixed `GAME_FRAME_DT`, no tilt) agrees at the CSV's
+resolution on S1b (no short frame in its clip) for the phase, the blend, `refPt` and the node, and misses the feet by
+**0.36** there (the tilt; T1's stated tolerance is 0.40). On S3b and S2 the original ran one **short game frame** inside
+the clip (dt 0.01672), which puts the port half a frame ahead from that row on: S3b misses by 0.37 by row and **0.15 at
+its rows' own clock, over L1x's tolerance of 0.10**; S2 misses by 0.58 by row and 0.30 at its own clock, within L1's
+0.47. Given the capture's dt, the built law is within 0.033 (S3b) and 0.019 (S2). So the end phase (0.947 on the tall
+fence, 0.933 on the low faces) is set by the short frame, not by the face ((c)). The blend's 0.4, the frame order
+`'push-advances'`, the `refPt` law, the root's velocity law and `+0xfac` = the feet + the node are now **measured** ((d)).
+Section 8.18's two sub-0.5 residuals are settled ((f)).
+
+**The evidence, apart.**
+
+- *A capture of the original running:* l1222-climbover2 (`agent-mail`
+  `evidence/weekend-mega-2026-11-14/later1222-climbover2/`, sha256 `017ea6d2...a5ce`). Shadow PC 3 ran r0004 under PCSX2
+  2.8.2 on 2026-11-19 at 03:24-03:33Z, with per-frame PINE memory reads (no breakpoints) beside PCSX2's video. It is not
+  harness-scored. There are five trials: S1 and S1b on MP1 `alaska4d_fence01` (16.37 tall), S3 and S3b on MP1's low
+  fence01 at section 8.17's spot, and S2 on MP81 `cell3_drydockcap1` (10.15). The gap-free trials S1b, S3b and S2 are
+  scored. S1 and S3 were checked the same way, and their 4 frames lost at the press fall before the clip. The CSVs
+  round positions to 0.0001 and the phase, blend and dt to 0.00001; the tolerances below are stated against that. One
+  stale read was found: S1b row 16 (clip frame 5) holds the previous frame's feet x, y and z, and row 24 (frame 13) the
+  previous frame's x. Both are replaced by the body matrix's translation (`+0x28` row 3), which the rows' own velocity
+  confirms; every other row reads the two equal.
+- *The disc's data (reading):* the contact faces' normals from the collision (`simMapFromBytes` -> `groundPolygons`,
+  `polygonNormal` and each polygon's first triangle) for MP1 `alaska4d_fence01` (both fences) and MP81
+  `cell3_drydockcap1`, and `seal_climb_over`'s keys as section 8.17 read them. This was a scratch run and is not
+  committed.
+- *Source inspection (reading, pending review):* the steer record `FUN_005b1a10` (D:L467927, D:L467932-467934), its
+  caller's contact record (D:L468353-468369, D:L468504) and `FUN_005b3340` (D:L468841-468844, D:L468892-468893,
+  D:L468898-468926), on this note's pin. The vector at `0x3f6500` that `+0x9c` copies is zero in the ELF's file image:
+  it is set at run time, and its value is unread.
+- *Model (a simulation of the reading, not a test):* scratch scripts outside the repository (not committed) step the
+  law per game frame against the rows, and also one frame at a time from the capture's own state. There is no unit
+  test, dev-disc test, browser run or playtest of this section.
+
+**(a) The table** (max |capture - law| over the 27 clip frames; "built" means the port's law: a fixed `GAME_FRAME_DT`,
+`refPt` flat, the capture's target y as the top, the snapshot 11.4844; the "source law" is the same with the frame's own
+dt and (b) 1's tilt):
+
+| quantity | built, by row (S1b / S3b / S2) | built, the capture's dt | source law | measured within |
+|---|---|---|---|---|
+| phase (play `+0x1c`) | 0.00001 / 0.0176 / 0.0176 | 0.00001 / 0.00000 / 0.00001 | the same | 0.00002 |
+| blend remaining (`+0x178`; length `+0x17c` 0.4 on every row) | 0.00000 / 0.00000 / 0.0167 | 0.00000 / 0.00000 / 0.00001 | the same | 0.00002 |
+| `refPt` x (play `+0x6c`) | 0.00005 / 0.027 / 0.053 | 0.00005 | 0.00005 | 0.0002 |
+| `refPt` y (`+0x70`) | 0.00005 / 0.381 / 0.580 | 0.00005 / 0.00014 / 0.00013 | the same | 0.0002 |
+| `refPt` z (`+0x74`) | 0.00005 / 0.456 / 0.325 | 0.00005 / 0.00014 / 0.00013 | the same | 0.0002 |
+| target (play `+0x8c..+0x94`) | constant on every frame of the five trials; y against the disc's top at the target's column 0.04 / 0.006 / 0.0001 | | | (see (d)) |
+| root velocity x / y / z (u/s; the capture's from `refPt`'s step over dt) | 0.0023 / 0.0020 / 0.0028 (S1b); 0.74 / 0.53 / 0.38 (S3b); 0.74 / 12.2 / 4.9 (S2) | 0.0023-0.0025 / 0.0020-0.0081 / 0.0028-0.0072 | the same | 0.01 |
+| the steer's step k e, y | 0.070 / 0.359 / 0.352 | 0.070 / 0.0064 / 0.0038 | 0.0004 / 0.0002 / 0.0001 | 0.001 |
+| the steer's velocity, y (u/s; the capture's `+0x30` less the root's) | 2.09 / 10.8 / 10.5 | 2.09 / 0.28 / 0.11 | 0.013 / 0.004 / 0.004 | 0.03 |
+| feet y (`+0x20`) | **0.358 / 0.369 / 0.579** (at the rows' own clock 0.360 / 0.152 / 0.303) | 0.358 / 0.033 / 0.019 | **0.0022 / 0.0007 / 0.0002** | 0.003 |
+| node (skel_root's local y) | 0.00006 / 0.357 / 0.357 | 0.00006 / 0.0001 / 0.0001 | the same | 0.0002 |
+| `+0xfac` on the hand-off row (capture - law) | -0.266 / +0.302 / +0.144 | -0.266 / -0.022 / +0.013 | +0.0016 / +0.0005 / -0.0002 | 0.003 |
+
+- *The steer, one frame at a time:* from the capture's own state each frame (the body matrix, the feet, the node and
+  `refPt` of the frame before), the steer's displacement (the velocity less the root's, times dt, turned to the world)
+  equals k x (target - the turned `refPt` - the root's world point) within 0.0008 / 0.0016 / 0.0016 in x / y / z on
+  S1b, 0.0004 on S3b and 0.0001 on S2. The steer's error and its step are therefore measured on all three axes, and the
+  steer's velocity (D:L416455) is separated from the root's in `+0x2c..+0x34`.
+- *The feet's x and z* are not scored against the port. The port's x and z ride `ClipPath` and its closure
+  (`climbSteer`), and no per-frame x/z of the port was computed for these spots. The source law's x and z are covered by
+  the one-frame check above and by `refPt` x/z.
+- *The node:* the recorder's skel_root world point is the feet + skel_root's local y on every row (the body matrix is a
+  pure yaw).
+
+**(b) The two inputs the build does not carry.**
+
+1. **`refPt` is turned onto the contact's normal, its vertical included.** The steer record `FUN_005b1a10` (called at
+   D:L468504 with the stored contact: its hit point and its normal, D:L468353-468369) stores three things: the normal
+   reversed at play `+0x7c` (D:L467927, D:L467932), whole, its y kept; the target at `+0x8c` (D:L467933); and a fixed
+   vector at `+0x9c` (D:L467934). Each frame `FUN_005b3340` turns `+0x7c` into the body's frame (D:L468841-468844),
+   builds the rotation that takes `+0x9c` onto it (`FUN_00306d40`, D:L468892), and turns the stored `refPt` by that
+   rotation (D:L468893) and then by the body matrix (D:L468898-468925), before taking it from the target (D:L468926). So
+   on a face whose normal leans by ny (its y component), the turned `refPt`'s y is refPt.y x sqrt(1 - ny^2) +
+   refPt.z x ny. As `refPt.z` walks from -10.28 to +5.4, the steer's aim moves by -ny x refPt.z: on `alaska4d_fence01`
+   (ny 0.05614) that is +0.58 at the clip's start and -0.27 at its end. The capture fits `+0x9c` = (0, 0, -1) (in y and z; x unread) in the
+   body's frame: the other sign misses by 9. The normal that fits is the polygon's first triangle's (0.05614 / 0.00521 /
+   -0.00301). Its Newell normal (0.0568 / 0.00277) misses S3b by 0.015. Which normal the collision stores is unread.
+   **The port** carries the contact's nx and nz only, with `refPt` flat (`REF_UP`), so on that fence its steer aims
+   0.58 low at the start. The same turn is `FUN_005b3340`'s for every one-shot climb and for the mount, so the other
+   climbs' `lift()` / `STEER_ROOT` miss it as well (outside LATER 1222).
+2. **The game frame's own dt.** Most rows read `+0x2e0` 0.03337, but one row in each trial reads **0.01672**: S1b row 10
+   (before the press), S3 clip frame 11, S3b clip frame 23, S2 clip frame 9. On that row the clock (`0x442fd0`) and the
+   phase step half a frame, and the blend timer, `refPt`'s step and the root's v dt take the short dt, while k e is not
+   scaled by dt. These are short frames of the original, not reads that straddle a frame. **The port** steps a fixed
+   `GAME_FRAME_DT`. How often the original runs a short frame on a PS2, against PCSX2 2.8.2's frame pacing, is unread.
+
+**(c) The end phase.** The original ends every trial after 27 action-189 rows. With 27 full frames the phase takes 27
+steps of 0.035221 and is clamped at 18/19 = 0.94737 on frame 26 (S1, S1b). With one short frame among the 27 it reaches 26.5
+steps = **0.93336** (S3, S3b, S2; read 0.93339), so it stops short of the clamp. The frame count stays 27 because the
+end test (`FUN_0028c6e0`, the phase before the frame plus half a frame's step past 18/19, section 8.18 (f) 1) passes
+on frame 27 either way: 0.93339 + 0.01761 = 0.95100 > 0.94737. Two short frames would leave 0.9157 + 0.0176 < 18/19 and
+take a 28th row. The node follows the phase: 10.0039 (key 18) at the clamp, and 10.2187 at 17.73 keys. The tall fence
+ended at 0.947 only because its short frame fell before the press. **The port** ends every face at 0.94737 on frame
+26 (fixed dt), as the original does without a short frame. Fed the capture's dt, the built law ends S3b and S2 at
+0.93339, with the node at 10.2187 within 0.0001.
+
+**(d) What is now measured** (proven: a memory trace of the original compared value for value within the stated
+tolerance; the comparison is this section's, pending its fresh review):
+
+- **`CLIMB_OVER_BLEND_READING` 0.4.** The original's blend length (`+0x17c`) reads **0.4** on every clip row of the five
+  trials. The time left (`+0x178`) equals 0.4 less the frames' dt, the push's own frame included (0.36663 on the first
+  row), within 0.00001, and it is zero from clip frame 11/12. Blended and capped at 11.487, the node is skel_root within
+  0.0001. The source line of the default (`FUN_00287620`) is still unread; the value no longer rests on it.
+- **`CLIMB_OVER_FRAME_ORDER_READING` `'push-advances'`.** The first action-189 row is the new play's first frame: the
+  stack's top goes from index 0 to 1, with end 18/19 and flags 0x1, so bit 8 (0x100) is clear. Its phase is one frame's
+  step (0.03522), each later full frame adds one more within 0.00001, and its blend has stepped once. Pairing (B) of
+  section 8.18 (b) is measured, and (A) is excluded.
+- **The `refPt` law** (section 8.18 (a) 4): from (0, -0.96, -10.28), less the root's velocity in the body's frame x dt
+  each frame, never turned in storage: x, y and z within 0.00014 on every frame.
+- **The root's velocity law** (section 8.18 (a) 2, `mountRootVelocity`'s): the key slope at the new phase x 19 / the
+  playback, within 0.01 u/s on x, y and z.
+- **`+0xfac`** = the last clip frame's feet + node, within 0.0001 of the capture's own rows (S1b, S3b, S2).
+- **The steer** (section 8.18 (a) 3, with (b) 1): k = sqrt(ease(phase)), and its vertical is kept. One frame at a time
+  it is within 0.0016 on x, y and z. This is the law; the port's build of it lacks (b) 1.
+- **The target** is constant through the clip on all five trials. Its y is the contact's top within 0.0001 on MP81's
+  level cap. On the two sloped fence tops it lies 0.006 and 0.04 off the disc's top at the target's column; the column
+  the original takes it at (LATER 111's top at the hit's column) is not reconstructed here. So "the target y = the top"
+  is measured within 0.0001 on the flat cap only, and within 0.05 on the sloped tops.
+- The built port as a whole is **not** proven: (e).
+
+**(e) What still differs** (the build against this capture):
+
+1. **The tilt (b) 1: a departure.** It costs 0.36 on the feet and +0.27 on `+0xfac` on S1b, about 0.03 on S3b and 0.02
+   on S2 (whose normals lean 0.005 and 0.003). That is within T1's tolerance, but the build omits a term of the source.
+   Owed: the contact's normal y on the climb over's steer record, with `refPt` turned by it in y, x and z
+   (`CLIMB_STEER_TILT_READING`, below).
+2. **The short frame (b) 2.** It is the port's fixed game-frame clock, not LATER 1222's law. S3b is **over L1x's 0.10 at
+   its rows' own clock (0.15)**. Named for the controller and not changed here. Whether the port's game clock should
+   ever take a short frame is a question about the whole simulation and the original's pacing, outside LATER 1222.
+3. **The fence's hand-off row.** The original stands it at `+0xfac` 63.2992 less the revealed node **10.5977**
+   (skel_root on action 9's first frame), which gives 52.7015 exactly. The port subtracts the standing root 11.4844
+   instead: 52.08 from the built `+0xfac`, 0.62 under (within its 0.66). With (b) 1 built, `+0xfac` would be right
+   (63.298) and the row would fall 0.89 under, so today the two errors partly cancel (`CLIMB_OVER_FALL_READING`). The low
+   faces go to the floor (`+0x2e4`) at once in both.
+
+**(f) Section 8.18's sub-0.5 residuals, settled.**
+
+- **(c) 2, "a part proportional to the face's lift"**, is (b) 1. l278-climbover's rows rerun under the law with the
+  fence's tilt: T1 0.327 -> **0.037**, F1 0.325 -> 0.038, T2 0.318 -> 0.047, and L1x 0.029 -> 0.006. It is not a scale on
+  the lift.
+- **(c) 3, "MP81's rows read mid-frame"**, is (b) 2. l278's L1 and L2 half-steps are short frames, and with the rows' dt
+  taken from their clock (and MP81's tilt) L1 goes 0.673 -> **0.001** and L2 0.580 -> 0.001, the node within 0.0005.
+  F2's recorder gap is the recorder's, as before.
+- (c) 1 already belonged to pairing (A); (d) measures (B).
+
+| name | stands for | value in the code | level (2026-11-19) | the evidence that settles the rest |
+|---|---|---|---|---|
+| `CLIMB_OVER_BLEND_READING` | the root node's blend into `Climb over` from the push's pose, its length | `0.4` (`Traversal.overFrame`) | **proven** (l1222-climbover2: `+0x17c` 0.4 on every row, `+0x178` within 0.00001, the node within 0.0001), pending review | none for the value; `FUN_00287620`'s default at its line for the record |
+| `CLIMB_OVER_FRAME_ORDER_READING` | the push's own frame is the first action-189 row, advancing and its blend stepped | `'push-advances'` (`Traversal.climbClip`) | **proven** (l1222-climbover2: the first row's phase one step, bit 8 clear, the blend stepped once; within 0.00001), pending review | none |
+| `CLIMB_STEER_TILT_READING` (*note only*) | `FUN_005b3340` turns the stored `refPt` by the rotation from `+0x9c` onto the contact's reversed normal (`+0x7c`, its y kept: D:L467927, D:L467932, D:L468841-468844, D:L468892-468893): on a leaning face the steer's aim moves by -ny x refPt.z | none: the port's climb over steers on a flat `refPt` (the contact's nx, nz only) | gap: the source read (pending review), and the capture measures it (one frame within 0.0016; the feet 0.36 -> 0.0022 on S1b) | the build: the contact's normal y on the steer record (which normal the collision stores -- first triangle or plane -- read at the source); `+0x9c`'s run-time value |
+
+**Ruled 2026-11-19 (the main controller, after s8.20).** (1) The port keeps its fixed game frame (`GAME_FRAME_DT`):
+the console's short frames (+0x2e0 0.01672, one inside S3, S3b and S2's clips) are a **named known departure**, the same
+family as LATER 1052's measured frame time; the tests stay on short-frame-free trials. (2) The steer's tilt
+(`CLIMB_STEER_TILT_READING`) and the hand-off from the revealed node are one follow-up, LATER 1244, built together so the
+hand-off row does not regress alone.
+
+### 8.21 LATER 1244 -- the steer's tilt and the hand-off's revealed node, read at the source (2026-11-19; reading, pending review)
+
+Written 2026-11-19 on `agent/later-1244` (over `16ffcaa405`), before the build. Source inspection on this note's pin; the
+disc through the repository's readers in a scratch (not committed); the capture is section 8.20's (proven).
+
+**(a) The tilt.** The push records the steer (`FUN_005b2620` -> `FUN_005b1a10`, D:L468504) with the stored contact's
+normal, words 4-6 of the hit slot (`pfVar13 + 4`; the slot's layout, research 281 s4.3). `FUN_005b1a10` negates the whole
+vector (D:L467927-467929) and stores it once at play `+0x7c` (D:L467932), with the target at `+0x8c` (D:L467933) and the
+vector at `0x3f6500` at `+0x9c` (D:L467934); nothing writes `+0x7c` again. The stored `refPt` (`+0x6c`) is **never turned
+in storage**: each frame `FUN_005b3340` turns `+0x7c` into the body's frame by the actor's conjugate rotation
+(D:L468840-468844), builds the rotation from `+0x9c` onto it (`FUN_00306d40`, D:L468892: the half-way vector
+h = normalize(a + b), the quaternion (a x h, a . h), D:L206032-206078 -- the shortest arc), turns a copy of `refPt` by it
+(D:L468893), then by the body matrix (D:L468898-468925), and takes it from the target (D:L468926); the stored `refPt` only
+loses the root's velocity x dt (D:L468947-468951). **Which normal**: the hit slot's is the plane of the polygon's first
+three points, `(p2 - p1) x (p0 - p1)`, its sign kept and renormalised (the hull's VU0 routine, micro 279-285 and 364-377,
+research 281 s4.3) -- the first triangle's normal, the one section 8.20 (b) 1 found to fit (Newell's misses S3b by
+0.015). `+0x9c` is set at run time (zero in the ELF's file image); the capture fits it as (0, 0, -1) in the body's frame (y and z only: the capture never reads `+0x9c`, and its rows constrain only y and z; one PINE read of play `+0x9c` would settle x),
+the body's forward (the other sign misses by 9). So on a face leaning by ny the steer's aim moves by about -ny x refPt.z in
+y (+0.58 at the start on `alaska4d_fence01`) and by about ny x refPt.y along the facing (up to 0.3 mid-clip, where the
+root has risen 4.6 over its start).
+
+**(b) The hand-off's node.** Action 9 on the hand-off row is `Jump fall` (the anim-type table at `0x661060`, entry 9;
+10 is `Jump land`, 1 `Stand`), pushed by `FUN_0057e050` (D:L440726) when the climb over's end leaves the body over its
+floor; its Seal clip is `seal_runningjump_in_air` (`motion.rdr`: playback 5, 14 keys, `BlendTime` 0.75), whose
+`skel_root` holds **one key, y 10.59765625** (`RUN/MOTION_P.ZAR` through `clipsFromPack`). The capture's action-9 row
+reads skel_root **10.5977**, its phase 0.00719 (one 5 s frame of 13/14) and its blend 0.71663 of 0.75 (stepped once):
+the node is the clip's own root, the 0.75 blend from the climb over's last node (10.0039) not seen in it (weighted by
+ease(0.9555) = 0.996 it would read 10.006); `Jump land`'s next row reads that clip's root at its phase the same way
+(10.7412 at key 1.0036). `FUN_0059afd0` then stands the feet at `+0xfac` less that node where that is over `+0x2e4`
+(D:L456368-456371): 63.2992 - 10.5977 = 52.7015, the row exactly. Why the blend is not in the node on these rows (the
+push against the blend's step, D:L418454-418455) is r0004's frame order, not read (OT.R97). On the low faces the end
+reveals `Stand` on the floor at once (the node then rewritten as `+0xfac` less the floor, D:L456372), as built.
+
+**(c) The design** (simulation track):
+1. The climb over's record keeps the contact polygon's first-triangle normal, reversed (world), and `refPt`'s x and z
+   besides its y; each game frame, before the turn, that normal is taken into the body's frame (the yaw), the shortest
+   arc from `CLIMB_STEER_TILT_READING` (0, 0, -1) onto it is built and the stored `refPt` is turned by it.
+2. The vertical error takes the turned `refPt`'s y in place of the flat one; the x/z closure takes the turned `refPt`'s
+   horizontal change (turned less flat, through the yaw) as a move of its aim, closed by the same weight k.
+3. The stored `refPt` loses the root's velocity x dt on all three axes (`mountRootVelocity`'s law), never turned.
+4. The hand-off over the pick stands on `+0xfac` less `CLIMB_OVER_FALL_READING` (`Jump fall`'s root, 10.59765625), the
+   held frame's drawn node that root; where that is not over the pick, the pick at once, as built.
+5. Tests: the fence and the low faces of l1222-climbover2 on synthetic faces with the disc's measured slope, the feet
+   per game frame within 0.01 on short-frame-free rows and the hand-off row within 0.05; LATER 1222's cases given their
+   faces' slopes and tightened (T1 0.06, F1 0.06, L1x 0.03; the hand-off 0.06); the room's twin.
+
+**(d) As built** (`agent/later-1244`, `packages/viewer/src/traversal.ts`; unit tests on synthetic faces, `seal_climb_over`'s
+disc keys decoded in the test). `climbClip` keeps on the climb over's `OverCarry` the contact polygon's first-triangle
+normal, reversed (`firstTriangleNormal`), and `refPt`'s x and z (0, -10.28); `overFrame` takes that normal into the body's
+frame by the yaw before the frame's turn, turns the stored `refPt` by the shortest arc from `CLIMB_STEER_TILT_READING`
+onto it (`turnByArc`, `FUN_00306d40`'s quaternion), uses the turned y in the vertical error and moves the x/z closure's
+open offset by k x (the turned less the flat, through the yaw); the stored `refPt` loses the root's velocity x dt on all
+three axes. `overHandOff` stands the held frame at `+0xfac` less `CLIMB_OVER_FALL_READING`, its drawn node that root, the
+pick taken as before. Every face keeps its flat steer where the polygon's first triangle is degenerate. Measured against
+the build: l1222-climbover2's S1b feet within **0.0024** of every row (built LATER 1222: 0.358), S3b **0.0009** and S2
+**0.0002** on the rows before their short frames (0.033, 0.020); S1b's hand-off row **5.6405** against 5.6421 (-0.0016;
+built LATER 1222: 0.62 under), its node 10.59765625 against skel_root's 10.5977; the low faces on their floor at once.
+l278-climbover's T1 **0.037** (0.33), F1 0.039 (0.39), L1 0.385 at its rows' own clock (0.40; its short frames), L1x
+0.0057 (0.029); the fence's hand-off row 0.034 / 0.035 over (T1, F1; was 0.58 under). The room's mover and the page's
+agree at every command (central `roomClimb.test.ts`: T1, L1x, S1b, S3b). LATER 278's G1 and G1b, LATER 1223's
+no-cut and timing, LATER 1222's flinch pop and low-fence dip unchanged and green.
+
+### 8.22 Readings (LATER 1244's build, 2026-11-19; reading, pending review)
+
+Filed by LATER 1244's build (section 8.21). Research 101's "LATER 1222" group carries both rows.
+
+| name | stands for | value in the code | level (2026-11-19) | the evidence that settles the rest |
+|---|---|---|---|---|
+| `CLIMB_STEER_TILT_READING` | play `+0x9c` in the body's frame: the vector `FUN_005b3340` turns the stored `refPt` from, by the shortest arc, onto the contact's reversed first-triangle normal in the body's frame (D:L467927-467934, D:L468840-468844, D:L468892-468893; research 281 s4.3 for the normal) | `[0, 0, -1]` (`Traversal.overFrame`) | **proven** for the value (l1222-climbover2: the port's feet within 0.0024 on S1b; the other sign misses by 9), pending review; the turn read at the source, pending review | the run-time writer of `0x3f6500` (zero in the ELF's file image) |
+| `CLIMB_OVER_FALL_READING` | the node the hand-off stands the feet under `+0xfac` by, over the pick: `Jump fall`'s (`seal_runningjump_in_air`) one `skel_root` key (`FUN_0057e050` D:L440726; `FUN_0059afd0` D:L456368-456371) | `10.59765625` (`Traversal.overHandOff`) | **proven** (l1222-climbover2: skel_root 10.5977 on the action-9 rows, the port's row within 0.0016), pending review; the disc's key a reading (`traversal.test.ts` pins it on the pack) | why the 0.75 blend is not in that row's node (the push against `FUN_00576860`'s step, D:L418454-418455; r0004's frame order, OT.R97) |
+
+### 8.23 LATER 1250 -- the other climbs' and the mount's steer tilt, read at the source (2026-11-19; reading, pending review)
+
+Written 2026-11-19 on `agent/later-1250` (over `a1664ed509`), before the build; (e) as built. Source inspection on this
+note's pin; no disc reader run, no capture. **The answer first:** every climb kind gets the tilt -- the step-up, the
+crate, the medium (and the crate/medium blend) and `Stand -> Hang` are recorded by the same push as the climb over, with
+the contact's whole normal -- and the mount does **not**: its record stores a level vector, so its arc is a turn about
+the vertical, which the port's `seatTarget` already lays. The other climbs also run once a game frame in the source; the
+port keeps them on its 60 Hz tick (not built here, (d) 6; LATER 1253).
+
+**(a) Which plays reach the tilt, and their `+0x7c`.**
+
+- *The branch.* `FUN_0057a330` steers any play that holds a steer record (`+0x78` set) through `FUN_005b3340` when the
+  play's flag 0x40 is clear -- every one-shot -- and through `FUN_005b2d20` when it is set (the looped motions)
+  (D:L439017-439020). `FUN_005b3340` has no branch on the action before its turn: it takes `+0x7c` into the body's frame by
+  the actor's conjugate rotation (D:L468840-468844), builds the arc from `+0x9c` onto it (D:L468892) and turns a copy of
+  `refPt` by it (D:L468893), for every play that reaches it.
+- *The climbs.* `FUN_005b2620` pushes class 1, 3 and 4 (the step-up, the crate, the medium or their blend, and `Stand ->
+  Hang`, by the height, `FUN_00580b70`) and class 5 (`Climb over`, `FUN_00580a80`), then records the steer for all of them
+  in one call, `FUN_005b1a10(actor, 0, target, ..., pfVar13 + 4)` (D:L468433-468504): `pfVar13 + 4` is the stored
+  contact's normal (words 4-6 of the hit slot, section 8.21 (a)). `FUN_005b1a10` keeps the record only when the top play is
+  one of `Stand -> Hang` (0x21, D:L467888), `Climb medium` (`DAT_003dec90`, its `refPt` y weighed with the crate's for the
+  blend, D:L467914-467919), `Climb over` (`DAT_003deca0`), `Step up` (`DAT_003dec80`, `refPt` y + 1, D:L467905) or `Climb
+  crate` (0x2a, D:L467899) -- the five kinds -- and stores the normal negated, **whole**, its y kept (D:L467927-467932),
+  the target at `+0x8c` and `0x3f6500` at `+0x9c` (D:L467933-467934), for each the same way. So the crate, the medium, the
+  hang and the step-up are tilted exactly as the climb over is (`CLIMB_STEER_TILT_READING`).
+- *The mount.* `FUN_005463c0`'s record (D:L412258-412313) is written by its own lines, not by `FUN_005b1a10`: `+0x7c` is
+  the vector at `0x3f6500` (the one `+0x9c` copies, D:L412269) through the gun's matrix (the turret's vfunc `+0xc`,
+  D:L412268-412295), its y cleared (`auStack_30[0] & 0xffffffff` on a `ulong[2]`, D:L412296: the low word x kept, the high
+  word y zeroed) and renormalised (`FUN_00309110`), stored at D:L412305 with `+0x9c` at D:L412307. There is no contact
+  polygon: `+0x7c` is the gun's forward made level. A level `+0x7c` in a yaw-only body frame makes the arc a turn about the
+  vertical by the gun's yaw less the body's, and the body matrix adds the body's back: `refPt` laid by the gun's yaw, which
+  is `seatTarget`'s `R(facing)` (PB-2c) -- **no tilt for the mount**. Not changed; pinned (viewer `emplacement.test.ts`
+  "LATER 1250"). The other writers of a one-shot record are outside this row: `FUN_005b1750` (its vector's y zeroed before
+  `FUN_00309110` too, D:L467791-467798; callers D:L437934, D:L438032, D:L438449 through `actor+0xeac`, the campaign's
+  restraint, which no multiplayer body sets) and `FUN_005b1890` (D:L467818-467853; callers D:L446651, D:L468255).
+- *The vertical keep* (D:L468933-468941) zeroes the steer's vertical only under action 0x2c (`Stand -> Ladder`) or a
+  reversed 0x2e (`Climb off ladder`): the five climb kinds and `Stand -> Turret` keep it (the mount's height is the floor's
+  in the port, D:L413943-413946, as PB-2c reads).
+
+**(b) The clock.** The advance and the steer run inside `FUN_0057a330` (the advance D:L438901, the steer D:L439020),
+called once from the actor's driver each game frame (D:L418454, `FUN_00576860` after it at D:L418455) -- the same path for
+every play, the climb over's included. So the step-up, the crate, the medium and the hang step once a game frame too,
+with the press's own frame advancing (the driver's preview clears bit 8, section 8.19's review (1), D:L418293). The port
+steps them on its 60 Hz tick with the first advance on the next command (`CLIMB_STEER_READING`).
+
+**(c) Also read, not built** (named for the controller):
+
+1. *The turn's lean.* `FUN_005b3340` spins the body by the angle between `+0x9c` and the body-frame `+0x7c` (acos of their
+   dot, D:L468847-468862, over dt, clamped to 2 pi) times the length of their cross product (D:L468878-468886), its side
+   the cross product's y (D:L468882). On a leaning face both include the lean: faced square to a face leaning by ny the
+   cross is (ny, -nx, 0), so the body still turns by about ny^2 a frame (0.0032 rad on MP1's fence), its side flipping as
+   nx crosses 0 -- a dither, where the port's `seatTurn` (flat) settles. Not built for any climb (the climb over neither);
+   unmeasured.
+2. *LATER 1244's x/z term with the body turned off the face.* The flat steer the port lays (the track and the target on
+   the contact's level normal, `climbSteer`) is the arc onto that normal **made level**; LATER 1244's `overFrame` moves the
+   x/z aim by the turned `refPt` less the **stored** one, which equals the turned less the level-turned only while the body
+   faces the normal. Faced off it (the climb over's tests are head on), its x/z aim takes the body's yaw lag twice. This
+   build lays the other climbs' term against the level-turned `refPt` ((d) 2). **Built 2026-11-19 (the fresh review's
+   F1, (e)):** the climb over's term now takes the same level-turned `refPt`; *was:* owed.
+
+**(d) The design** (simulation track):
+
+1. `climbClip`'s steer record keeps, for every kind but the over, the contact polygon's first-triangle normal negated
+   (`firstTriangleNormal`) and the stored `refPt` (x 0, y `REF_UP` -- the blend's weighed --, z `-REF_AHEAD`).
+2. Each command after `climbSteer` (its weight k): the normal into the body's frame by the yaw before the command's turn;
+   the stored `refPt` turned by `turnByArc` from `CLIMB_STEER_TILT_READING`, and turned again onto the normal made level.
+3. Their difference's y is the vertical the turn leaves open on the drawn root (`v' = (1 - k) v + k dy`, beside the flat
+   `lift`); its x and z, through the yaw, move the x/z offset still open, the feet by k of it.
+4. The stored `refPt` loses the clip root's velocity x dt at the phase (`mountRootVelocity`'s law).
+5. `Stand -> Hang`'s uncut end keeps the open vertical in the hang's root (`hangRoot`), so the hang draws the root the
+   clip's end drew; the cut already takes it (`drawnRoot`).
+6. The clock stays the 60 Hz tick. The game-frame clock for these climbs is LATER 1222's `advanceOver` in kind, but their
+   vertical is still `ClipPath`'s line plus the drawn root's lift, not the carried law, so moving them to the game frame is
+   the carried law's build for each kind, not a clock switch -- **owed, not half-built** (LATER 1253).
+7. (The fresh review's F1.) The climb over's x/z term in `overFrame` subtracts the level-turned `refPt` as 2 does
+   (`levelTurn`, one helper for both): `FUN_005b3340` makes one turn (D:L468840-468844, D:L468892-468893), and the
+   flat steer already lays its level part.
+
+**(e) As built** (`agent/later-1250`, `packages/viewer/src/traversal.ts`: `ClimbTilt`, `climbTilt`, `refUp`, the steer
+record in `climbClip`, `drawnRoot`, the hang's end). Unit tests on synthetic faces (no disc data): viewer
+`traversal.test.ts` "LATER 1250" climbs each kind head on at a box whose near face leans by MP1's fence slope (ny 0.05614)
+and at its upright twin standing where the offer's ray meets the leaning face (one target, one plan, one press), and holds
+the difference of the drawn root and the feet, every command, to the law computed in the test apart from the port
+(Rodrigues' rotation; the phase, `sqrt(ease)` and the key-slope velocity written out) within 5e-7; the offset reaches over
+0.1 on every kind; a crate turned 60 degrees off the face the same, in x and z through the yaw; the hang's reveal keeps the
+open vertical. Central `roomClimb.test.ts` "LATER 1250": the crate on the room's mover and the page's, every command the
+same, the room's feet off the upright twin's by the press's offset closed (NU-1c B10's reading) plus the tilt's law
+within 5e-6. LATER 278 / 1223 / 1222 / 1244's tests green and unchanged. RED before the build: the twins agreed (the
+drawn root 0.006-0.015 off the law at the first steered command, growing).
+
+The fresh review's fold (2026-11-19, same branch): (F1, (d) 7) viewer `traversal.test.ts` "LATER 1250 F1": a climb
+over on a class-5 fence 17.1652 tall leaning by ny 0.05614, pressed with the body 30 degrees off the face, against the
+same run with the carry's stored normal cleared after the push's frame (the flat `refPt`; a degenerate polygon cannot
+stand in, the hull's hit reading the same first triangle): each game frame's feet x, z and the carried y off it by the
+law above on the game-frame clock within 5e-7; RED before: 0.40 in x at the first parted frame (the stored `refPt`
+subtracted). Head on the level turn is the identity: l1222-climbover2's S1b, S3b and S2 feet and drawn node identical
+to the digit before and after. No central twin for this case: the room runs the same `Traversal.overFrame` (PTW.R3),
+and a turned press on the room's command script is the costlier harness. (F3) "LATER 1250 blend": h 20 (the crate's
+weight 0.448, `climbClass`), the stored `refPt` x 0, y weighed w 1.48 + (1 - w) 9.98 (D:L467914-467919), z the crate's
+-8.92, by the same law; the root's velocity the stored `refPt` loses is the play's root (`+0x2c`, D:L468947-468951),
+taken from the port's two-node model (`blendShapes`) as the data the law runs on -- that model's root is not measured.
+(F2) the describe's comment now names the upright twin this section's tests use.
+
+**(f) Evidence, apart.** Source inspection (reading, pending review): every `D:L` above, re-read at the line for this
+section. Unit tests (vitest, single files) on synthetic faces: the law transcribed, not measured. **No capture of the
+original measures these climbs or the mount** (l278-climbover and l1222-climbover2 are the climb over only), so the build
+is a reading, pending review. No browser run, no playtest, no dev-disc test.
+
+**(g) The capture that would settle it** (a spec; not run). r0004 under PCSX2 with per-frame PINE reads, as
+l1222-climbover2: (1) a crate climb (`Climb crate`, 5 < h <= 12 over the feet) on a leaning face -- an MP1
+`alaska4d_fence01` face that offers the crate (first-triangle ny 0.05614), else the leaning climbable face nearest a crate's
+height on MP1 -- head on and from about 45 degrees, two trials each; (2) a `Stand -> Hang` on a ledge 28-32 over the feet,
+one trial; (3) a turret mount from behind and from a side (capture B 13's spots). Each frame from the press to two frames
+after the clip: the feet (`actor+0x1c..+0x24`), the body matrix (`+0x28`, its rotation rows), the actor's `+0x2c..+0x34`
+and `+0x2e0`; the play's `+0x1c` (phase), `+0x28` (flags), `+0x6c..+0x74` (`refPt`), `+0x7c..+0x84`, `+0x8c..+0x94`
+(target), `+0x9c..+0xa4`, and `+0x0..+0x8` (the steer's velocity); skel_root's local translation (`*(actor+0x2e8)`); the
+blend timer `+0x178` / `+0x17c`. Scored as section 8.20 (a): the steer one frame at a time from the capture's own state
+(the tilt in y and z), `+0x7c` against the disc's first-triangle normal of the hit polygon (the climbs) and against the
+gun's level forward (the mount: y 0), and `+0x9c`'s x read at last.
+
+| name | stands for | value in the code | level (2026-11-19) | the evidence that settles the rest |
+|---|---|---|---|---|
+| `CLIMB_STEER_TILT_READING` (*widened; no new name*) | the arc's `+0x9c`, now for the step-up, the crate, the medium (and the blend) and `Stand -> Hang` too (`FUN_005b1a10` D:L467888-467934 for all five kinds; `FUN_005b3340` D:L468840-468844, D:L468892-468893); not the mount (its `+0x7c` level, D:L412296) | `[0, 0, -1]` (`Traversal.overFrame`, `Traversal.climbTilt`) | the climb over's as section 8.22; **the other climbs: reading, pending review** -- no capture | (g) |
+
+### 8.24 R4P-243 -- r0004's three offer gates (2026-11-24; reading, pending review; capture IQ-179 queued)
+
+ATLAS (atlas-maps) read these three as a non-author read of both exports (LEADS L367, L372, L373); the port took them
+on 2026-11-24 (R4P-243, `agent/move2-offers`). None rests on a capture; IQ-179 is the capture that settles them. The
+cites are the r0004 export's (`D4:L`) and the r0001 export's (`D:L`); the implementer re-read none of them at the source
+(no decompilation on the host it ran on), so each stays reading, pending review, until a reviewer re-reads it.
+
+- **L367: an unselectable item in hand.** r0004's CSealCtrl::SampleActionAvailable `FUN_00598d30`, in its air branch
+  (D4:L493145-493148) and its ground branch (D4:L493164-493168): when GetCurItem (0x5cac50) answers an item and
+  isSelectableItem (0x5c47e0, the twin of `FUN_005bdc30`, the port's `slotSelectable`) refuses its slot, it returns
+  before CanClimbWall (0x5a3400) and CanClimbLadder (0x5a34e0). An empty hand passes. CanClimbWall covers CanTraverse
+  kind 4, the automatic step-up, so the step-up is refused too. The r0001 twin `FUN_00593500` has no item test. Built as
+  `climbOffered(w, handRefuses)`, the refusal beside `Walker.climbLock`'s and above the air's early return, through
+  `Traversal.handRefusesClimb`, which the page's walk (from `./matchThrow`, the hand's slot and its selectability) and
+  the room (`watchMoves`: `held`, the launcher's rounds, the hand item, the claymores down) set. Under
+  `CLIMB_OFFER_GATE_READING` (no new name). Held by `offerGates.test.ts` (the hook), `matchThrow.test.ts` and match
+  `roomEquipment.test.ts` (the wiring: the Detonator with no claymore down refuses, one claymore down offers).
+  - **OPEN, two cases (capture Q-243a / IQ-179).** What GetCurItem (0x5cac50) answers is not read for (a) the firearm
+    in hand and (b) a throwable slot thrown empty (`grenadeCore.ts` reads that after the last claymore "the game selects
+    the empty slot"). Research 84 s6 item 2 reads 0x5cac50 -> 0x5cac10 -> 0x5cdd10 as the selected slot's own record for
+    the fire-wait (the firearm's included), which suggests (a) answers the firearm's record -- selectable, so nothing is
+    refused either way -- but GetCurItem's answer at `FUN_00598d30` is not read there. For (b) the empty slot's
+    `EMPTY_ITEM` would be refused by `slotSelectable` if GetCurItem answered it. The port's choice, a reading: the
+    firearm in hand refuses nothing, and a slot thrown empty is not in hand (the port puts the firearm up), so nothing
+    is refused. No constant: the code does not branch on either.
+  - **The launcher held: no wading term** (the review's F2). `FUN_005857e0` passes at any depth once the body's set is
+    the launcher's (research 236 s3, D:L444340), so the port asks `slotSelectable` of a held launcher with depth 0, as
+    `RocketLauncher.selectSlot` does; only its round decides. `Walker.climbLock`'s launcher-set refusal (D:L469470-469472)
+    already refuses the climb while the launcher's set holds the body, so the round term reaches the case only past it.
+- **L372: no ladder under `Place claymore`.** r0004's CanTraverse `FUN_005b9ff0` kind 2, after the one-SEAL-a-ladder
+  test (D4:L510524-510554): `IsCurrentBlend(DAT_00409d18 = "Place claymore")` returns 0 (D4:L510555-510557). Only the
+  ladder kind is refused. The r0001 twin `FUN_005b3ce0` (D:L469165-469197) has no blend test. Built in `offerLadder`:
+  the walker's hold `seal_place_claymore` refuses; C4's `put_onwall` (the same 'place' family, `holdFamily`) does not.
+  The PMN's placing and the bomb plant push the same blend and clip (`bombPage.ts` `PLANT_ANIM`: D:L475322, D:L475354,
+  D:L475480-475481), so they are refused too. After the clip the ladder is offered again (`offerGates.test.ts`).
+  Open: the pistol pair `Pistol place claymore` (0x409d20; `zoom.ts`'s pairing) -- the cite tests 0x409d18 alone, and
+  the port plays the rifle clip for both, so a sidearm placing is refused as the rifle's; whether r0004 refuses it is
+  unread. Open: whether CanFire(actor, 1, 0) (0x5adae0) already refuses the offer while placing. IQ-179 settles both.
+  Under `CLIMB_OFFER_GATE_READING` (no new name).
+- **L373: no step-up under `Jump launch` or `Jump fall`.** r0004's CanTraverse kind 4 (D4:L510624-510642): for
+  5 < h <= 10 the front impact and the contact release run only when `FUN_0058d580` answers 0 -- the top blend neither
+  `Jump launch` (8) nor `Jump fall` (9). A blend test, not an airborne one: refused in the launch or the fall airborne
+  or not, not in the landing. The r0001 twin (D:L469263-469276) runs it unconditionally. Built as
+  `AIR_STEP_UP_READING` `'not-in-jump-blend'` (was `'not-in-launch'`: the airborne launch only), the cause research 80
+  section 7 called unread; it agrees with the proven jump-near-wall capture (ac, 2026-11-04: 8 -> 10 -> 2, no climb).
+
+Held by `packages/viewer/test/offerGates.test.ts` (unit tests against the transcription); `weaponLine.test.ts`'s two
+JUMP-AIR cases keep the capture's no-climb.
+
+**IQ-179, the original measured (PC 3, r0004, 2026-11-24; HUD by screenshot, per-frame logs; record
+`Q243-OFFERS-PC3`; seat-move2's scoring).** Each result is n=1-4 by sight, so the gates stay **reading, pending
+review**, now with capture support; none is harness-scored.
+- **L372, MATCH.** MP2 ladder `lad2/ladderdown` (foot (491.9, 100, 599)), the claymore placed at its foot: CLIMB was
+  on before, OFF in every shot during the 83-frame place clip (act `+0x534` 15), and ON again 2 frames after the clip
+  ended, the Detonator then in hand. The port withholds the ladder over the hold and offers it again after.
+  CanFire's share is still unread; the capture cannot separate it from the blend test, and the port's behaviour is
+  the same either way.
+- **L367, the cases measured.** The claymore in hand (MP5, 4/4) and the Detonator in hand with a charge down (MP2):
+  CLIMB offered, as selectable items should be. The emptied M79 on MP8: offered, and the climb RAN. That M79 is the
+  Terrorist kit's PRIMARY (hand `+0x824` 0), for which GetCurItem answers 0, so the gate does not apply; the port's hand
+  gate looks only at an equipment-slot launcher raised (`p.held`, `rocket.held()`) and at the Detonator, so it offers
+  the climb too. A LOADED AT-4 raised (MP8, `+0xe04` 2) WITHHOLDS CLIMB; the crouched-rifle control is offered. The
+  port withholds it through the climb lock's launcher set (`Walker.climbLock`, D:L469470-469472, LATER 504), not
+  through this gate. So the gate's launcher branch is redundant while the launcher stays raised (the review's F2).
+  The EMPTIED AT-4 withholds CLIMB too: it stays in hand (`+0xe04` 2; IQ-179 a'', record `Q243-OFFERS-PC3`), which the
+  port matches through the same launcher set (`Walker.climbLock`).
+- **The Detonator cannot be held with no charge down.** Setting off the last charge puts the claymore back in hand
+  (`+0x824` 5 -> 2), and the selector stops listing the Detonator. The port does the same (`detonateCharges`,
+  `FUN_005c8a20(0x99)`; `slotSelectable`). So the gate's "Detonator, no charge down" case is a guard that ordinary play
+  does not reach. One path stays untested: the last charge set off by another player while the Detonator is held.
+- **No new refusal observed.** On the evidence so far, L367 adds no refusal the original shows over the port's
+  existing locks, and holds no wrong one (the primary M79, the claymore and the Detonator are all offered). Not run:
+  an equipment launcher fired EMPTY (whether it stays raised or swaps away). Either way both games agree: the set's
+  lock refuses it, or no item is in hand.
+- **Aside, the ladder offer's hysteresis** (stick only, facing the ladder): CLIMB on at ~11-13 u from the foot point,
+  off at ~19-22 u walking back. From the face that is ~16.6-18.6 on and ~24.8-27.8 off, against the port's keep of
+  `CONTACT_KEEP` 24 from the hit (`contactHolds`). It is passed to the ladder offer's owner (seat-movement) as a
+  candidate row. The 130 u latch seen on MP5 followed position writes only: a capture artefact.
+
 ## 9. Against earlier notes (history kept; those notes are not edited by this row)
 
 - **Research 86 section 2.3** ("The contact, no button. `FUN_005b4b40` (decomp 469562) runs each tick ... Walking into
@@ -1116,3 +2275,19 @@ set split two ways:
   M71 slide-test freeze is an unread **hardware** reading (what the BIOS default handler does, and the EE's mode); the
   class byte at a hit is not a prediction (the rounding models are not a bracket). No build, no browser, no capture, no
   playtest.
+- *LATER 278 (2026-11-18, section 8.13):* source inspection only -- D:L446477-446660 (`FUN_00589aa0`), D:L456328-456470
+  (`FUN_0059afd0`), D:L413470-413625 and D:L413900-413950 (`FUN_005483d0`), D:L415080-415090, D:L438905-438912,
+  D:L439144-439150, D:L416450-416458, D:L466800-466812; the port at `827f5441e8` (`traversal.ts`, `clipPath.ts`,
+  `mover.ts`, `match/src/room.ts`, `match/src/bots/climbDrive.ts`, `viewer/test/traversal.test.ts`). The fixture
+  heights in (d) are derived from research 86 section 1's table and the port's constants, not run. No unit test, no
+  dev-disc test, no browser, no capture, no playtest; the owner's spot not shown yet.
+- *LATER 1244 (2026-11-19, sections 8.21-8.22):* source inspection (D:L467924-467934, D:L468504, D:L468761-468951,
+  D:L206003-206092, D:L456330-456466, D:L440715-440735, D:L436606-436640); the ELF's anim-type table (`0x661060`) read in a
+  scratch; the disc's `seal_runningjump_in_air` and its `motion.rdr` row through the repository's readers in a scratch (not
+  committed) and pinned by a fixture-tier unit test; l1222-climbover2 and l278-climbover's rows (proven captures) scored
+  in scratch scripts (not committed); unit tests (vitest, single files: viewer `traversal.test.ts`, central
+  `roomClimb.test.ts`). No dev-disc test, browser run, capture or playtest.
+- *LATER 1222 (2026-11-18, section 8.17):* a capture of the original (section 8.15's l278-climbover rows, proven) analysed
+  in a scratch outside the repository; the disc's `seal_climb_over` through the repository's readers in a scratch (not
+  committed); source inspection of D:L468927-468930 only; model fits scored against the capture (a model). No unit test,
+  no dev-disc test, no browser run, no playtest; no source or test changed.

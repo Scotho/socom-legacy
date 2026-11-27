@@ -44,6 +44,12 @@ export interface PopupContext extends Omit<WidgetContext, 'valves'> {
   valves: ValveStore;
   /** The running zAnim context's input string (`FUN_00272480(ctx + 0x18, 0)`), which a text `INPUT_STRING` takes. */
   inputString?: () => string | null;
+  /**
+   * LATER 359b, NET-RES-3 (product track; **an intended divergence under OT.R77**, the second): a text-id-0 popup's text
+   * by its record's name, in place of the name, when this answers one; absent, or null, the name as the original draws
+   * it. The page answers only `dlgNetError.rdr`'s errno-32 popup ("You") while a seat's ending is set.
+   */
+  nameText?: (name: string) => string | null;
 }
 
 /** The line height the menu's load gives the text object (+0x16c = 20.0, `FUN_00370610` D:L268382): the pitch. */
@@ -203,7 +209,7 @@ export class Popup {
     this.textId = r.textId;
     const panel = this.nameOf(cmd, r.panel);
     let text: string | null;
-    if (r.textId === 0) text = this.nameOf(cmd, r.textName);
+    if (r.textId === 0) { text = this.nameOf(cmd, r.textName); const swap = text === null ? null : this.ctx.nameText?.(text) ?? null; if (swap !== null) text = locTextBytes(swap); }
     else { const s = this.ctx.locText(r.textId); text = s === null ? null : locTextBytes(s); }
     if (text === 'INPUT_STRING') text = this.ctx.inputString?.() ?? null;          // D:L266839-266843
     if (cmd.node === POPUP_NODE) { this.x = r.x; this.y = r.y; }                     // D:L266844-266848

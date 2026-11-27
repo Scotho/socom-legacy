@@ -83,6 +83,84 @@ export class EquipmentSlots {
 
   fill(): void { for (const e of this.entries.values()) e.ring.fill(); }
 
+  /**
+   * R142 (the body's bundle, `FUN_005ba040` D:L472600-472626; reading, pending review): the slot's ten entries summed and
+   * zeroed -- what a death passes to the bundle -- the magazine in the hand's index kept. 0 for a slot holding no ring.
+   */
+  take(slot: number): number {
+    const e = this.entries.get(slot);
+    if (!e) return 0;
+    const n = e.ring.total();
+    e.ring.restore({ slots: [], current: e.ring.state().current });
+    return n;
+  }
+
+  /**
+   * R142 (`FUN_005ba5b0` D:L472779-472837, the ask's room test; reading, pending review): whether any of the slot's first
+   * `cap` entries (at most ten) is below the record's `Ammo_Capacity`. The caller gives the cap -- the item's own
+   * `NumMags`; the doubling there is for the firearm classes only, never an equipment slot's. False for no ring.
+   * R4P-219 (reading; its r0004 cites re-read and CONFIRMED by atlas-parity, a non-author, 2026-11-24): r0004's ask `FUN_005c0e40` D4:L514401-514403 passes over the slot's magazine in
+   * the hand (`+0x684`) when the record's own `NumMags` is 2 or more -- the same test as its pour (`skipLoaded` below,
+   * `FUN_005c0c20` D4:L514322-514323); r0001's D:L472779-472837 counts it. `skipLoaded`, for the caller to decide, as
+   * `pour`'s.
+   */
+  room(slot: number, cap: number, skipLoaded = false): boolean {
+    const e = this.entries.get(slot);
+    if (!e) return false;
+    const { slots, current } = e.ring.state();
+    for (let i = 0; i < Math.min(RING_SLOTS, cap); i++) {
+      if (skipLoaded && i === current) continue;
+      if (e.ring.capacity - slots[i]! > 0) return true;
+    }
+    return false;
+  }
+
+  /**
+   * R142: `FUN_005ba3d0(kit, slot, rounds)` (D:L472718-472773; reading, pending review) on the slot's ring -- entries
+   * 0 to 9 in order, each below `cap` (the item's own `NumMags`, at most ten) topped up toward the record's
+   * `Ammo_Capacity` from `rounds`, each at or past it zeroed; the magazine in the hand skipped when `skipLoaded` (r0004's
+   * test, for the caller to decide). Returns what did not fit; null for a slot holding no ring (nothing poured).
+   */
+  pour(slot: number, rounds: number, cap: number, skipLoaded = false): number | null {
+    const e = this.entries.get(slot);
+    if (!e) return null;
+    const state = e.ring.state();
+    const top = Math.min(RING_SLOTS, Math.max(0, Math.floor(cap)));
+    let left = Math.max(0, Math.floor(rounds));
+    for (let i = 0; i < RING_SLOTS; i++) {
+      if (i < top) {
+        if (skipLoaded && i === state.current) continue;
+        const add = Math.min(Math.max(0, e.ring.capacity - state.slots[i]!), left);
+        state.slots[i]! += add;
+        left -= add;
+      } else state.slots[i] = 0;
+    }
+    e.ring.restore(state);
+    return left;
+  }
+
+  /**
+   * R142: `FUN_005bc410(kit, slot, record)` (D:L473823-473842; reading, pending review) for a throwable or a charge --
+   * the slot now holds `record`, its hand index 0. Of the slot, the original writes its record (`+0xe4`), `+0x6fc` and
+   * `+0x684` (zeroed, D:L473830-473839) and `+0x774` (D:L473842), and raises the kit's count `+0x82c` to slot + 1 for a
+   * slot at or past it (D:L473825-473826; the function runs on past D:L473842, unread) -- not the ring's entries;
+   * "with an empty ring" is the
+   * port's simplification, equal for every slot the five-slot kit can reach (a spent ring is all zeros, an EQUIP_NONE
+   * slot has no ring here) -- it would differ only for a slot past the count holding stale ring data (the build's fresh
+   * review, finding 2). What the slot held before is gone. The rings stay in kit order. False, nothing changed, for a
+   * slot outside 2-4.
+   */
+  install(slot: number, record: EquipmentSlotRecord): boolean {
+    if (!Number.isInteger(slot) || slot < 2 || slot > 4) return false;
+    const ring = new MagazineRing(record.capacity, Math.max(1, magazinesCarried(record.mags)));
+    ring.restore({ slots: [], current: 0 });
+    this.entries.set(slot, { record, ring });
+    const sorted = [...this.entries].sort((a, b) => a[0] - b[0]);
+    this.entries.clear();
+    for (const [s, e] of sorted) this.entries.set(s, e);
+    return true;
+  }
+
   state(): EquipmentSlotState[] {
     return [...this.entries].map(([slot, { record, ring }]) => {
       const state = ring.state();
@@ -112,6 +190,35 @@ export class EquipmentSlots {
       for (const [kind, total] of totals) if (!Object.hasOwn(pouch, kind) || pouch[kind] !== total) return false;
     }
     for (const s of state) this.entries.get(s.slot)!.ring.restore({ slots: s.rounds, current: s.current });
+    return true;
+  }
+
+  /**
+   * LATER 1129 (R142 head B; reading, pending review): one slot set to the room's state whole -- a slot a walk-over's take
+   * installed (`FUN_005bc410` D:L473823-473829; the room's `kit` `equipment`, no `added`). False, nothing changed, for a
+   * slot this kit does not hold, another kind, or a state beyond the record (as `restore` refuses one).
+   */
+  setSlot(s: EquipmentSlotState): boolean {
+    const e = this.entries.get(s.slot);
+    if (!e || s.kind !== e.record.name || !Number.isInteger(s.current) || s.current < 0 || s.current >= e.ring.carried ||
+        !Array.isArray(s.rounds) || s.rounds.length !== RING_SLOTS) return false;
+    if (s.rounds.some((n, i) => !Number.isInteger(n) || n < 0 || n > e.ring.capacity || (i >= e.ring.carried && n !== 0))) return false;
+    e.ring.restore({ slots: [...s.rounds], current: s.current });
+    return true;
+  }
+
+  /**
+   * LATER 1129: a take's pour on the page (`FUN_005ba3d0` D:L472718-472773 in the room; the `kit`'s `added`): each
+   * magazine's amount added to the page's own, never past the record's capacity, the magazine in the hand kept -- exact
+   * with a throw the page spent ahead of the room, as the firearm transfer's `added` (`Fire.setRing`). False, nothing
+   * changed, for a slot this kit does not hold, another kind, or a malformed list.
+   */
+  add(slot: number, kind: string, added: readonly number[]): boolean {
+    const e = this.entries.get(slot);
+    if (!e || e.record.name !== kind || !Array.isArray(added) || added.length !== RING_SLOTS || added.some((n) => !Number.isInteger(n))) return false;
+    const state = e.ring.state();
+    const slots = state.slots.map((n, i) => (i < e.ring.carried ? Math.max(0, Math.min(e.ring.capacity, n + added[i]!)) : 0));
+    e.ring.restore({ slots, current: state.current });
     return true;
   }
 

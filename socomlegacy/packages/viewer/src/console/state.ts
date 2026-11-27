@@ -1,4 +1,5 @@
 import type { UiCue } from './sounds';
+import { ownNameShown } from '../streamerMode';
 import { controllerStanceMode } from '../startupSettings';
 import type { StanceMode } from '../stanceButton';
 import type { PadBinding } from '../padBinding';
@@ -228,6 +229,13 @@ export interface ServerPage {
  */
 export interface ReplayRow {
   id: string; map: string; rules: string; when: string; length: string; players: number; names: string;
+  /**
+   * REPLAY-STILL-STEM (the owner, 2026-11-22): the record's map STEM (`MP<n>`), beside `map`, its display name (MN-1) --
+   * what the drawer's still route takes (`./render/replays` `stillOf`). Absent on a hand-built row: `map` is tried.
+   */
+  stem?: string;
+  /** DAY-STILLS (a browser adaptation): the record's map variant (`ReplayEntry.variant`); the drawer asks its still. */
+  variant?: 'day' | 'night';
   result?: string; end?: 'match-over' | 'cut-short';
 }
 /**
@@ -283,8 +291,9 @@ export type SignInResult = { ok: true; next?: 'agreement'; note?: string; accept
 /**
  * PERSONA-PERSIST (a) (OT.R61): the load's quick sign-in -- the card's remembered persona for this server tried once.
  * Refused: its words, and `askPassword` when the cookie is gone (-978: the password asked once, the persona chosen).
+ * `banned` (OPS-Q1, a browser adaptation): the account is banned (-972): no dialog, the words are the console's toast.
  */
-export type QuickSignIn = { ok: true; persona: string; next?: 'agreement'; accepted?: string } | { ok: false; persona: string; error: string; askPassword: boolean };
+export type QuickSignIn = { ok: true; persona: string; next?: 'agreement'; accepted?: string } | { ok: false; persona: string; error: string; askPassword: boolean; banned?: true };
 
 /** CX-LOADOUTS: the side a loadouts screen keeps records for (the ARMORY's records are per mission and side). */
 export type LoadoutSide = 'seal' | 'terrorist';
@@ -1448,7 +1457,7 @@ export function cardLine(a: Adapters): string {
   if (a.card.readable && !a.card.readable()) return 'No memory card can be read';
   const n = a.card.personas();
   if (n === 0) return `Slot ${a.card.slot()} · no personas yet`;
-  return `Slot ${a.card.slot()} · ${n} persona${n === 1 ? '' : 's'} · ${a.card.persona()}`;
+  return `Slot ${a.card.slot()} · ${n} persona${n === 1 ? '' : 's'} · ${ownNameShown(a.card.persona())}`;   // STREAMER-P1: YOU while details are Hidden
 }
 
 /** The active disc source (CX-16): the adapter's, else the image's. */
@@ -1587,7 +1596,7 @@ function rawItems(catId: string, s: ConsoleState, a: Adapters): HomeItem[] {
       { icon: 'server', title: 'Server Information', sub: t ? `${countOf(t.players, 'player')} · ${countOf(t.rooms, 'room')}` : a.server.status().line, verb: 'Open', act: 'server' },
       // OVERLAY-CONSOLE: the launch side of these rows is the launcher's; in overlay mode the rooms are read only.
       signedIn
-        ? { icon: 'user', title: 'Signed in as ' + a.session.persona(), sub: s.mode === 'overlay' ? 'Your account on this server' : 'Rooms you pick become your launch target', verb: 'Account', act: 'cat:profile' }
+        ? { icon: 'user', title: 'Signed in as ' + ownNameShown(a.session.persona()), sub: s.mode === 'overlay' ? 'Your account on this server' : 'Rooms you pick become your launch target', verb: 'Account', act: 'cat:profile' }
         : { icon: 'user', title: 'Sign In', sub: s.mode === 'overlay' ? 'Sign in to see your account and your replays' : 'Sign in to pick a room and launch into it', verb: 'Sign in', act: 'signin' },
     ];
     case 'replays': if (a.replays.view) return replaysItems(a.replays.view());

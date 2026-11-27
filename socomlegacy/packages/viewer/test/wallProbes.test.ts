@@ -50,22 +50,43 @@ function drive(grid: Grid, stance: Stance, x0 = 0, ticks = 600, z0 = 0): Walker 
   w.state.yaw = facing(x0, z0, x0 + 100, z0);
   // The crouch at full stick stands to run (FUN_00583030): half a push keeps it crouched.
   const push = stance === 'crouch' ? 0.5 : 1;
-  for (let i = 0; i < ticks; i++) w.tick({ forward: push, right: 0, boost: false });
+  const last: [number, number][] = [];
+  for (let i = 0; i < ticks; i++) tickAndKeep(w, { forward: push, right: 0, boost: false }, last);
   return w;
 }
 
 /**
  * SEGMENT-BODY (research 217 s2.9; reading, pending review): the heights stand, the stand-offs are the segments' -- where
- * the first segment crosses the face, plus at most a tick's move: standing, the centre 1.1 x 1.4 x 3.5 = 5.39 ahead; crouched
+ * the first segment crosses the face, plus at most a game frame's move (`stoppedAt`): standing, the centre 1.1 x 1.4 x 3.5 = 5.39 ahead; crouched
  * and moving, x 1.75 more (`DAT_0064fce8`, the body-frame z `+0x34` under 0 crouched, D:L415354-415371) = 9.43; prone the
  * head line along the facing by 1.1 x the muzzle's forward part (15.94, `HEAD_LINE_MUZZLE_READING`) and the centre
  * 1.1 x 1.4 x 8 = 12.32. Was the disc's `r` (3.5, prone 8.0).
  */
 const STAND_CENTRE = 1.1 * 1.4 * 3.5, CROUCH_CENTRE = STAND_CENTRE * 1.75, PRONE_HEAD = 1.1 * 14.49, PRONE_CENTRE = 1.1 * 1.4 * 8;
-/** Stopped between `reach` and `reach` plus `slack` short of the face at x 50. */
-const stoppedAt = (x: number, reach: number, slack = 1.2): void => {
+/**
+ * The body's largest move over two ticks (a game frame at 60 Hz) while it walked: its own frame's move at its stance
+ * and stick (`frameMoveOf`, kept by `drive` and `crawl`).
+ */
+const frameMoves = new WeakMap<Walker, number>();
+const tickAndKeep = (w: Walker, input: { forward: number; right: number; boost: boolean }, last: [number, number][]): void => {
+  w.tick(input);
+  last.push([w.state.x, w.state.z]);
+  if (last.length > 3) last.shift();
+  if (last.length === 3) frameMoves.set(w, Math.max(frameMoves.get(w) ?? 0, Math.hypot(last[2]![0] - last[0]![0], last[2]![1] - last[0]![1])));
+};
+/**
+ * Stopped between `reach` and `reach` plus one of its own frame's moves short of the face at x 50. The segments are cast
+ * once a game frame on its whole displacement, and a frame that would cross the face is cut whole (LATER 1194,
+ * `GROUND_WALLS_PER_TICK_READING` 'per-frame'; FUN_005483d0 D:L413557-413567 and D:L413602-413614, the ground cut and the
+ * outward-only depth push, re-read in r0001 and r0004 by a second reader, 2026-11-21): so the stop lies up to a frame's move
+ * past the reach, at the stance's own speed. Was: a tick's move (60 Hz walls): 1.2 standing, then a run frame's 2.17 for
+ * every stance; crouched 0.2 and prone 0.3, a 60 Hz tick's move at their speeds (the walls trial's reds, 2026-11-21).
+ */
+const stoppedAt = (w: Walker, reach: number): void => {
+  const x = w.state.x, slack = (frameMoves.get(w) ?? 0) + 0.01;
+  expect(slack, 'the walk moved').toBeGreaterThan(0.05);
   expect(50 - x).toBeGreaterThan(reach - 1e-6);
-  expect(50 - x).toBeLessThan(reach + slack);
+  expect(50 - x, `stopped ${(50 - x).toFixed(3)} off: reach ${reach.toFixed(3)} + its frame's move ${slack.toFixed(3)}`).toBeLessThan(reach + slack);
 };
 
 describe('the wall probes per stance (PF-16, FUN_0054aa30)', () => {
@@ -74,8 +95,8 @@ describe('the wall probes per stance (PF-16, FUN_0054aa30)', () => {
     expect(WALL_PROBE_READING.stand.h).toBe(SEAL_TUNING.stepHeight);            // DAT_0044c26c, not a copy
     // A bar from 6 to 7 over the floor: only the low probe (6.5) is in it.
     const bar = world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, 6, 7)]);
-    stoppedAt(drive(bar, 'stand').state.x, STAND_CENTRE);
-    stoppedAt(drive(bar, 'crouch').state.x, CROUCH_CENTRE, 0.2);
+    stoppedAt(drive(bar, 'stand'), STAND_CENTRE);
+    stoppedAt(drive(bar, 'crouch'), CROUCH_CENTRE);
     // A bar from 6.6 to 9 (over the low probe, under the head line) stops no one.
     expect(drive(world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, 6.6, 9)]), 'stand').state.x).toBeGreaterThan(60);
   });
@@ -89,14 +110,14 @@ describe('the wall probes per stance (PF-16, FUN_0054aa30)', () => {
 
   it('a bar from 5 to 7 stops a standing and a crouched SEAL 3.5 short of it; prone its low probe at 3.0 passes under and its head line at the crawl head 4.996 + 2 meets it (D:L415442-415443; WALL_HEAD_LINE_READING)', () => {
     const bar = world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, 5, 7)]);
-    stoppedAt(drive(bar, 'stand').state.x, STAND_CENTRE);
-    stoppedAt(drive(bar, 'crouch').state.x, CROUCH_CENTRE, 0.2);
+    stoppedAt(drive(bar, 'stand'), STAND_CENTRE);
+    stoppedAt(drive(bar, 'crouch'), CROUCH_CENTRE);
     // The crouch-run head line (2026-11-06): the line at the posed head + 2 of the clip the ground state plays. At rest
     // the idle heads + 2 (19.394, 12.138, 5.637); crawling the crawl's greatest posed head 4.996 + 2.
     expect(WALL_HEAD_LINE_READING).toBe('posed');
     expect(wallProbeHeights('prone')).toEqual([3, 3.637 + 2]);
     expect(wallHeadLine('prone', { state: 'prone', forward: 1, right: 0, cls: 1 })).toBeCloseTo(POSED_HEAD_READING.prone + 2, 9);
-    stoppedAt(drive(bar, 'prone').state.x, PRONE_HEAD, 0.3);
+    stoppedAt(drive(bar, 'prone'), PRONE_HEAD);
     // A bar from 3.2 to 5.5 lies between the prone lines (3.0 under it, the crawl's 6.996 over it): it crawls through.
     expect(drive(world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, 3.2, 5.5)]), 'prone').state.x).toBeGreaterThan(60);
     // The head line lowers with the stance: at rest 19.394 standing, 12.138 crouched (the idle heads + 2); moving the
@@ -105,7 +126,9 @@ describe('the wall probes per stance (PF-16, FUN_0054aa30)', () => {
     expect(wallProbeHeights('crouch')).toEqual([6.5, 10.138 + 2]);
     expect(wallHeadLine('stand', { state: 'idle', forward: 0, right: 0, cls: -1 })).toBeCloseTo(19.394, 9);
     expect(wallHeadLine('stand', { state: 'stand', forward: 1, right: 0, cls: 1 })).toBeCloseTo(17.761, 9);
-    expect(wallHeadLine('stand', { state: 'stand', forward: 0.85, right: 0, cls: 1 })).toBeCloseTo(16.530 + 2, 9);   // the greater of 0.8 and 0.9
+    // LATER 1169 (B) (the main controller's ruling, 2026-11-18): between two stick samples the table is interpolated -- at
+    // 0.85 midway 16.530 -> 16.006 = 16.268 (was: the greater of 0.8 and 0.9, 16.530; research 217 s2.3a).
+    expect(wallHeadLine('stand', { state: 'stand', forward: 0.85, right: 0, cls: 1 })).toBeCloseTo((16.530 + 16.006) / 2 + 2, 9);
     expect(wallHeadLine('crouch', { state: 'crouch', forward: 0.8, right: 0, cls: 1 })).toBeCloseTo(15.122, 9);
     expect(wallHeadLine('crouch', { state: 'crouch', forward: 0, right: -0.8, cls: 2 })).toBeCloseTo(15.274, 9);
     expect(wallHeadLine('stand', { state: 'stand', forward: 1, right: 0, cls: 1 }, true)).toBeCloseTo(19.394, 9);   // in the air, an action: idle
@@ -115,7 +138,7 @@ describe('the wall probes per stance (PF-16, FUN_0054aa30)', () => {
     expect(PRONE_FAN_READING).toEqual({ count: 3, ahead: 1.4, centre: 1.1, across: 0.39 });
     // Head on: where the head line along the facing first crosses it (SEGMENT-BODY; was 8.0, the disc's).
     const wall = world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, 0, 30)]);
-    stoppedAt(drive(wall, 'prone').state.x, PRONE_HEAD, 0.3);
+    stoppedAt(drive(wall, 'prone'), PRONE_HEAD);
     // Across the travel the fan's side lines stand 0.39 r = 3.12 off the axis: a wall beside it 3.5 off is passed.
     const beside = world([floor(-200, -200, 200, 200, 0), wallX(3.5, -150, 150, 0, 30)]);
     const b = new Walker(beside);
@@ -216,16 +239,17 @@ describe('the wall probes per stance (PF-16, FUN_0054aa30)', () => {
       w.stance = 'prone';
       w.state.yaw = facing(0, 0, 100, 0);
       for (let i = 0; i < 60; i++) w.tick({ forward: 0, right: 0, boost: false });   // laid on the slope first
-      for (let i = 0; i < 900; i++) w.tick({ forward: 1, right: 0, boost: false });
+      const last: [number, number][] = [];
+      for (let i = 0; i < 900; i++) tickAndKeep(w, { forward: 1, right: 0, boost: false }, last);
       return w;
     };
     // SEGMENT-BODY (re-judged; was 8 short, the disc's line ahead): stopped where a segment first crosses the fin -- level,
     // the head line along the facing (15.94); tilted, the centre (12.32).
     expect(crawl(fin(1.5)).state.x).toBeGreaterThan(60);                           // tilted: over it
-    stoppedAt(crawl(fin(1.5), true).state.x, PRONE_HEAD, 0.3);                    // level: met
-    stoppedAt(crawl(fin(2.9)).state.x, PRONE_CENTRE, 0.3);                        // met by the centre
+    stoppedAt(crawl(fin(1.5), true), PRONE_HEAD);                    // level: met
+    stoppedAt(crawl(fin(2.9)), PRONE_CENTRE);                        // met by the centre
     // On flat ground the tilt is none and the probe as before (the stairs above).
     expect(crawl(world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, -1, 2.9)])).state.x).toBeGreaterThan(60);
-    stoppedAt(crawl(world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, -1, 3.1)])).state.x, PRONE_CENTRE, 0.3);
+    stoppedAt(crawl(world([floor(-200, -200, 200, 200, 0), wallX(50, -150, 150, -1, 3.1)])), PRONE_CENTRE);
   });
 });

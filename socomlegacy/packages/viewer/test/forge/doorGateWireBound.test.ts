@@ -87,3 +87,13 @@ describe("placed doors and gates: the snapshot's one u8-counted tail", () => {
     expect(at(0, 3, 2)).toEqual([]);
   });
 });
+
+describe('FLE-2 (the re-review\'s N3): a placed door\'s repack keeps the map\'s default soil', () => {
+  it('withPlacedDoors carries the base ground\'s defaultMaterial (GRASS, 4) through its packGround', () => {
+    const own = base(0, 0);
+    own.ground = packGround(grid, [], [], 4);
+    const out = withPlacedDoors(own, doors(1), () => door);
+    expect(out.map.ground).not.toBe(own.ground);                   // repacked
+    expect(out.map.ground!.defaultMaterial).toBe(4);
+  });
+});

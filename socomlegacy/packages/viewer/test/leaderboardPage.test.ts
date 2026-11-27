@@ -719,3 +719,25 @@ describe('LCM-LB: the leaderboard polish pass (the design review\'s work list; p
     expect(css).not.toMatch(/\.lb-table[^{]*\{[^}]*outline-offset/);
   });
 });
+
+/** DAY-STILLS (product track, a browser adaptation): a card's map still keyed on (topMap, topMapVariant). */
+describe('DAY-STILLS: the leaderboard card\'s still by (stem, variant)', () => {
+  it('a Day top map: the Day still; a plain one unchanged', async () => {
+    const c = central(60);
+    const fetchJson: LeaderboardFetch = async (url) => {
+      const a = await c.fetchJson(url);
+      if (url.includes('/leaders')) {
+        const body = a.body as ReturnType<typeof LEADERS>;
+        return { ...a, body: { ...body, top3: [{ ...body.top3[0]!, topMap: 'MP5', topMapName: 'Abandoned (Day)', topMapVariant: 'day' }, body.top3[1], { ...body.top3[2]!, topMap: 'MP5' }] } };
+      }
+      return a;
+    };
+    window.history.replaceState(null, '', '/leaderboard');
+    const root = leaderboardPage({ fetchJson, base: '/' });
+    document.body.append(root);
+    await vi.waitFor(() => expect(root.querySelector('[data-lb-state="ready"]')).not.toBeNull());
+    const imgs = [...root.querySelectorAll<HTMLElement>('.lb-card .lb-card-img')].map((e) => e.style.backgroundImage);
+    expect(imgs[0]).toContain('/api/maps/MP5/day/still.png');
+    expect(imgs[1]).toContain('/api/maps/MP5/still.png');
+  });
+});

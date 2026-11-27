@@ -4,7 +4,7 @@ import { extrudeEdges, orientPulled } from '../../src/forge/geometry/ops';
 import { box, plane, type PrimitiveOptions } from '../../src/forge/geometry/primitives';
 
 /**
- * Shift-drag on edges (`src/forge/geometry/ops` `extrudeEdges`, `orientPulled`; a browser adaptation, the owner
+ * Shift-drag on edges (`src/forge/geometry/ops` `extrudeEdges`, `orientPulled`; a browser adaptation, the Forge's owner (crispy, OT.R112),
  * 2026-11-18): each edge pulled out into a new face, which carries on the face of its edge that lies along the pull.
  */
 

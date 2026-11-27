@@ -1,0 +1,4 @@
+# DAY-P1b: the variant data are binaries committed as the builder wrote them; never normalised (the root rule makes
+# socomlegacy/** text eol=lf, which would rewrite CR LF byte pairs inside them).
+*.rgb8 binary
+*.rgba binary

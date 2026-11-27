@@ -8,6 +8,7 @@ import { decodeCommands, decodeSnapshot } from '../src/net/codec';
 import { Button, Frame } from '../src/net/protocol';
 import { holdPad, installPadStub, PAD_BUTTON } from './padStub';
 import { workerPort } from './ports';
+import { crouchedRoomSelfKill } from './roomOwnFrag';
 import { TEST_ROOM } from './urls';
 
 /**
@@ -179,11 +180,11 @@ test('respawn help follows the rendered corpse, persists past ordinary help, and
   await expect.poll(async () => (await read()).alive).toBe(true);
   expect(connections, 'one native connection reaches the loaded match').toBe(1);
   // Existing grenade test instrument: the weakest release lob, at the player's feet; no synthetic kill event.
-  for (let i = 0; i < 6 && (await read()).alive; i++) {
-    await page.evaluate(() => window.__viewer.throwGrenade(4 / 60, true));
-    await expect.poll(async () => (await read()).help?.[0] ?? '', { timeout: 8_000 })
-      .toContain('You have died.').catch(() => undefined);
-  }
+  // B-06 (merge 7967d16bee) refuses a weak STANDING lob at some MP2 start slots and latches the aim origin at the select
+  // (LATER 1357): the self-kill is WXO-OWNFRAG's crouched toss (`./roomOwnFrag`, from SELFKILL-CROUCH's crouch-and-settle):
+  // crouched and settled before the frag is taken up, at OWN_FRAG_PITCH, each frag asserted to have left the hand (a
+  // ThrowInfo; a refusal faces 90 deg on), and a frag thrown that does not kill named "thrown, no death within N s".
+  await crouchedRoomSelfKill(page, 'respawnHud', { alive: async () => (await read()).alive, frags: 6, deathMs: 8_000 });
   expect((await read()).network).toBe('open');
   await expect.poll(async () => (await read()).help?.[0] ?? '').toContain('You have died.');
   const dead = await read();

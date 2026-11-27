@@ -10,8 +10,9 @@ import { MESSAGE_COLOURS } from '../src/matchMessages';
 import { roundLineTakes } from '../src/roundLineKeys';
 import { devKeysHeld, holdDevKeys } from '../src/devKeyHolds';
 import {
-  attachRoundTextKeys, mountRoundTextLine, parseRoundWhisper, roundKey, RoundTextLine, ROUND_TEXT_LINE_CAP, unavailableLine,
-  whisperPasses, type RoundActor, type RoundSender,
+  attachRoundTextKeys, mountRoundTextLine, parseRoundWhisper, roundChatDeviceClass, roundChatLine, roundChatReadOnly, roundKey, RoundTextLine,
+  ROUND_CHAT_ENTER_HID, ROUND_CHAT_ENTER_OPENS_ADAPTATION, ROUND_CHAT_TEAM_PREFIX_ADAPTATION, ROUND_CHAT_TILDE_HID, ROUND_TEXT_LINE_CAP, unavailableLine, whisperPasses,
+  type RoundActor, type RoundSender,
 } from '../src/roundTextLine';
 
 /**
@@ -101,10 +102,11 @@ describe('the target rule (FUN_002c9810 D:L168944-168982)', () => {
 });
 
 /** A line on a fake HUD: what is shown and what is posted. */
-function rig(o: { actors?: RoundActor[]; sender?: RoundSender | null; width?: (t: string) => number } = {}) {
+function rig(o: { actors?: RoundActor[]; sender?: RoundSender | null; width?: (t: string) => number; kbmControls?: boolean; readOnly?: boolean } = {}) {
   const shown: string[] = [];
   const posted: BannerLine[] = [];
   const sent: [string, string][] = [];
+  const chat: [string, boolean][] = [];
   let held = '';
   const line = new RoundTextLine({
     hud: {
@@ -112,10 +114,12 @@ function rig(o: { actors?: RoundActor[]; sender?: RoundSender | null; width?: (t
       setTextLine: (t: string) => { held = t; shown.push(t); }, textLineText: () => held, roundStarts: () => 0,
     },
     whisper: (message, name) => { sent.push([message, name]); },
+    sendChat: (text, team) => { chat.push([text, team]); },             // RC-2 (V21.R15a): the game socket's `chat`
     actors: () => o.actors ?? [{ id: 1, name: 'Me', team: 'seal', alive: true }, { id: 2, name: 'Mate', team: 'seal', alive: true }, { id: 3, name: 'Kilo', team: 'terrorist', alive: true }],
     sender: () => (o.sender === undefined ? { id: 1, spectator: false } : o.sender),
     ...(o.width ? { width: o.width } : {}),
-    devOpen: false,                                                      // the original's line (no DEV open state)
+    kbmControls: o.kbmControls ?? false,                                 // the pad's controls: the original's line (no open state)
+    readOnly: o.readOnly ?? false,                                       // a keyboard's page (not touch, not the Xbox class)
   });
   const type = (s: string): void => {
     for (const c of s) {
@@ -126,10 +130,11 @@ function rig(o: { actors?: RoundActor[]; sender?: RoundSender | null; width?: (t
       else if (lower >= 'a' && lower <= 'z') line.key(key(0x04 + lower.charCodeAt(0) - 97, c !== lower));
       else if (c >= '1' && c <= '9') line.key(key(0x1e + c.charCodeAt(0) - 49));
       else if (c === '0') line.key(key(0x27));
+      else if (c === '`') line.key(key(0x35));
       else throw new Error(`no key for ${c}`);
     }
   };
-  return { line, shown, posted, sent, type, enter: () => line.key(key(0x28)) };
+  return { line, shown, posted, sent, chat, type, enter: () => line.key(key(0x28)) };
 }
 const colour = (n: number): [number, number, number] => MESSAGE_COLOURS[n]!.map((v) => v / 128) as [number, number, number];
 
@@ -198,14 +203,153 @@ describe('the line: typing, ESC, BACKSPACE, ENTER', () => {
     expect(r.sent).toEqual([['hello there', 'Mate']]);
     expect(r.posted.map((p) => p.text)).toEqual(['hello there']);
   });
-  it('ENTER on `hello`: cleared unsent, nothing posted; ENTER on an empty line the same', () => {
+  // V21.R15a (RC-2; a browser adaptation beside OT.R48): this pin read "ENTER on `hello`: cleared unsent" -- the original's
+  // rule (research 266 §3.1, §3.9), which the owner's open round chat replaces for a non-whisper line: it is now sent on
+  // the game socket (`ROUND_CHAT_SEND_ADAPTATION`). An empty line still sends nothing; the whisper path is unchanged.
+  it('ENTER on `hello`: sent as the round\'s chat (V21.R15a), not whispered, nothing posted, cleared; ENTER on an empty line sends nothing', () => {
     const r = rig();
     r.type('hello');
     r.enter();
     r.enter();
+    expect(r.chat).toEqual([['hello', false]]);
     expect(r.sent).toEqual([]);
     expect(r.posted).toEqual([]);
     expect(r.line.text).toBe('');
+  });
+});
+
+/**
+ * RC-2 (V21.R15a; H452, the owner's words; a browser adaptation beside OT.R48, `ROUND_CHAT_SEND_ADAPTATION`): ENTER on a
+ * line that is not the original's `/w` whisper sends it on the game socket -- a plain line as `{ type: 'chat', text }`,
+ * `/team <text>` as `{ type: 'chat', text, team: true }`; the server decides who hears it (RC.R1). `/w name msg` stays the
+ * original's whisper (`FUN_002c9b80`), untouched.
+ */
+describe('RC-2: the send (V21.R15a) -- plain, `/team`, `/w` unchanged', () => {
+  it('a plain line: sendChat(text, false)', () => {
+    const r = rig();
+    r.type('go left');
+    r.enter();
+    expect(r.chat).toEqual([['go left', false]]);
+    expect([r.sent, r.posted, r.line.text]).toEqual([[], [], '']);
+  });
+  it('`/team hi`: sendChat(\'hi\', true); `/TEAM hi` the same (the prefix case-blind)', () => {
+    expect(ROUND_CHAT_TEAM_PREFIX_ADAPTATION).toBe('/team');
+    const r = rig();
+    r.type('/team hi');
+    r.enter();
+    r.type('/TEAM hi');
+    r.enter();
+    r.type('/Team  two words');
+    r.enter();
+    expect(r.chat).toEqual([['hi', true], ['hi', true], ['two words', true]]);
+    expect(r.sent).toEqual([]);
+  });
+  it('`/w name msg`: the whisper path, unchanged -- no sendChat', () => {
+    const r = rig();
+    r.type('/w outsider hi');
+    r.enter();
+    r.type('/w kilo hi');                                                // an enemy: refused, as before
+    r.enter();
+    expect(r.sent).toEqual([['hi', 'outsider']]);
+    expect(r.chat).toEqual([]);
+  });
+  it('a malformed whisper (`/w`, `/w kilo`) is not broadcast: nothing sent, the original\'s clear', () => {
+    const r = rig();
+    for (const s of ['/w', '/w kilo', '/W kilo ']) { r.type(s); r.enter(); }
+    expect([r.chat, r.sent]).toEqual([[], []]);
+  });
+  it('empty or spaces only, and `/team` with no text: nothing sent', () => {
+    const r = rig();
+    r.enter();
+    r.type('   ');
+    r.enter();
+    r.type('/team');
+    r.enter();
+    r.type('/team   ');
+    r.enter();
+    expect(r.chat).toEqual([]);
+    expect(r.line.text).toBe('');
+  });
+  it('roundChatLine, pure: the prefix followed by a space only; any other slash line is plain', () => {
+    expect(roundChatLine('hello')).toEqual({ text: 'hello', team: false });
+    expect(roundChatLine('/team hi')).toEqual({ text: 'hi', team: true });
+    expect(roundChatLine('/tEaM hi')).toEqual({ text: 'hi', team: true });
+    expect(roundChatLine('/teamhi')).toEqual({ text: '/teamhi', team: false });
+    expect(roundChatLine('/x hi')).toEqual({ text: '/x hi', team: false });
+    for (const s of ['', '   ', '/team', '/team  ', '/w', '/w kilo', '/w kilo hi']) expect(roundChatLine(s), JSON.stringify(s)).toBeNull();
+  });
+  it('no sendChat given (a mount before RC-2\'s wiring): a plain line is cleared, nothing thrown', () => {
+    const line = new RoundTextLine({
+      hud: { postMessage: () => undefined, setTextLine: () => undefined, textLineText: () => 'hello', roundStarts: () => 0 },
+      whisper: () => { throw new Error('whispered'); }, actors: () => [], sender: () => null, kbmControls: false, readOnly: false,
+    });
+    expect(() => { line.key(key(0x28)); }).not.toThrow();
+  });
+});
+
+/**
+ * RC-2 (V21.R15a; H452: "If kb/m controls are detected, require tilde to bring up the chat. but for just normal games any
+ * press of a lettered key should bring up the window"; "pad, touch and Xbox players read and do not type at first").
+ * `ROUND_CHAT_KBM_CONTROLS_ADAPTATION`: keyboard-and-mouse controls are in use where the build has the keyboard testing
+ * layer (a development build, OT.R29); there the line opens on tilde (Backquote) or, since 2026-11-23, ENTER again
+ * (`ROUND_CHAT_ENTER_OPENS_ADAPTATION`), and neither is ever typed. Where the pad is the controls (a release build) a letter types at once.
+ * `ROUND_CHAT_READ_ONLY_ADAPTATION`: a touch device or the Xbox device class never opens the line.
+ */
+describe('RC-2: the keys (V21.R15a) -- a letter on the pad\'s controls, tilde on keyboard-and-mouse; touch and Xbox read only', () => {
+  it('the pad\'s controls: a letter brings the line up at once (no open state)', () => {
+    const r = rig({ kbmControls: false });
+    expect(r.line.open).toBe(true);
+    expect(r.line.takes(key(0x0b))).toBe(true);
+    r.type('hi');
+    expect(r.line.text).toBe('hi');
+  });
+  it('keyboard-and-mouse controls: closed; a letter does not open it; ENTER and tilde open it untyped', () => {
+    expect(ROUND_CHAT_TILDE_HID).toBe(0x35);
+    expect(ROUND_CHAT_ENTER_HID).toBe(0x28);
+    expect(ROUND_CHAT_ENTER_OPENS_ADAPTATION).toContain('also make enter open chat');
+    const r = rig({ kbmControls: true });
+    expect(r.line.open).toBe(false);
+    r.type('hi');
+    expect([r.line.open, r.line.text]).toEqual([false, '']);             // a letter opens nothing
+    expect(r.line.takes(key(0x28))).toBe(true);                          // ENTER is the open key again (the owner, 2026-11-23)
+    r.enter();
+    expect([r.line.open, r.line.text]).toEqual([true, '']);              // opened, untyped, nothing sent by the same key
+    expect(r.chat).toEqual([]);
+    r.type('hi');
+    expect(r.line.text).toBe('hi');
+    r.enter();
+    expect([r.chat, r.line.open]).toEqual([[['hi', false]], false]);     // open: ENTER sends and closes
+    expect(r.line.takes(key(0x35))).toBe(true);
+    expect(r.line.takes(key(0x35, true))).toBe(true);                    // `~` (Shift) the same key
+    r.line.key(key(0x35, true));
+    expect([r.line.open, r.line.text]).toEqual([true, '']);              // tilde: opened, not typed
+    r.type('hi`');
+    expect(r.line.text).toBe('hi');                                      // open: a tilde is still never typed
+    r.enter();
+    expect([r.chat, r.line.open]).toEqual([[['hi', false], ['hi', false]], false]);
+  });
+  it('review F2: touch and a real Xbox read only -- the line is the original\'s there (the whisper kept), a plain or /team line cleared unsent', () => {
+    const r = rig({ kbmControls: false, readOnly: true });
+    expect(r.line.open).toBe(true);                                      // the original's release line, as before V21.R15a
+    expect(r.line.takes(key(0x04))).toBe(true);
+    r.type('hi');
+    r.enter();
+    expect([r.line.text, r.chat]).toEqual(['', []]);                     // FUN_002c9b80: not a whisper, cleared unsent
+    r.type('/team hi');
+    r.enter();
+    expect([r.line.text, r.chat]).toEqual(['', []]);
+  });
+
+  it('review F2: the read-only class is the device\'s own, never the saved Xbox graphics preset', () => {
+    const desktop = { userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/153', renderer: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4070 Direct3D11)', software: false, touch: false };
+    expect(roundChatDeviceClass({ ...desktop, xboxPick: true })).not.toBe('xbox');
+    expect(roundChatDeviceClass({ ...desktop, renderer: 'ANGLE (Microsoft, SraKmd_arden (0x0000D000) Direct3D11 vs_5_0 ps_5_0, D3D11)', xboxPick: false })).toBe('xbox');
+  });
+  it('roundChatReadOnly: touch or the Xbox class read only; a desktop (a pad beside its keyboard included) types', () => {
+    expect(roundChatReadOnly('xbox', false)).toBe(true);
+    expect(roundChatReadOnly('touch', false)).toBe(true);
+    expect(roundChatReadOnly('software', true)).toBe(true);              // the touch layer's flag, whatever the class
+    for (const c of ['standard', 'high', 'lowMemory', 'software'] as const) expect(roundChatReadOnly(c, false), c).toBe(false);
   });
 });
 
@@ -298,7 +442,7 @@ describe('mountRoundTextLine: the line, its keys and its HUD', () => {
       hud, win: w.target, online: () => true, whisper: (msg, name) => { sent.push([msg, name]); },
       actors: () => [], sender: () => ({ id: 1, spectator: false }),
     });
-    press(w.target, 'Enter');                                             // a development build: ENTER opens the line (ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION)
+    press(w.target, 'Backquote');                                         // a development build: tilde opens the line (ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION; V21.R15a replaced ENTER)
     for (const c of ['Slash', 'KeyW', 'Space', 'KeyK', 'KeyI', 'KeyL', 'KeyO', 'Space', 'KeyH', 'KeyI']) press(w.target, c);
     hud.step(0.1);
     expect(hud.state().model.textLine?.text).toBe('/w kilo hi');
@@ -314,11 +458,11 @@ describe('mountRoundTextLine: the line, its keys and its HUD', () => {
 
 /**
  * ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION (a development build's only; research 266 §3.9, §6): with the keyboard testing
- * layer (OT.R29) the line is closed until ENTER opens it, so the testing keys keep working through an online round; open,
- * it takes every key `FUN_002c6c70` acts on, the talk key's V among them; ENTER sends and closes it, ESC clears and closes
- * it. A release build has no open state: the original's line, taking its keys whenever the round is online.
+ * layer (OT.R29) the line is closed until tilde (V21.R15a, RC-2) or ENTER (the owner, 2026-11-23, `ROUND_CHAT_ENTER_OPENS_ADAPTATION`) opens it, so the testing keys keep working through an online
+ * round; open, it takes every key `FUN_002c6c70` acts on, the talk key's V among them; ENTER sends and closes it, ESC
+ * clears and closes it. A release build has no open state: the original's line, taking its keys whenever the round is online.
  */
-describe('ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION: closed until ENTER in a development build; the original always in a release', () => {
+describe('ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION: closed until ENTER or tilde in a development build; the original always in a release', () => {
   afterEach(() => { vi.unstubAllEnvs(); });
   const mount = (sent: [string, string][]) => {
     const hud = new Hud();
@@ -330,21 +474,29 @@ describe('ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION: closed until ENTER in a developme
     offs.push(() => { m.dispose(); });
     return { m, w };
   };
-  it('a development build: closed, every key goes on to the testing layer; ENTER opens it and is not passed on', () => {
+  it('a development build: closed, every key but ENTER and tilde goes on to the testing layer; ENTER opens it, untyped and not passed on', () => {
     vi.stubEnv('DEV', true);
     const sent: [string, string][] = [];
     const { m, w } = mount(sent);
-    for (const c of ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyR', 'KeyV', 'Backspace', 'Escape']) press(w.target, c);
+    const keys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyR', 'KeyV', 'Backspace', 'Escape'];
+    for (const c of keys) press(w.target, c);
     expect(m.line.text).toBe('');
     expect(m.line.open).toBe(false);
-    expect(w.later).toEqual(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyR', 'KeyV', 'Backspace', 'Escape']);
-    const opened = press(w.target, 'Enter');
-    expect(m.line.open).toBe(true);
+    expect(w.later).toEqual(keys);
+    const opened = press(w.target, 'Enter');                              // ENTER_OPENS (the owner, 2026-11-23): taken, never reaches the testing layer
     expect(opened.defaultPrevented).toBe(true);
-    expect(w.later.at(-1)).toBe('Escape');                                // ENTER taken
+    expect([m.line.open, m.line.text, sent]).toEqual([true, '', []]);     // opened untyped; the same keydown sent nothing
+    expect(w.later).toEqual(keys);
+    press(w.target, 'Enter');                                             // open, empty: ENTER sends nothing and closes
+    expect([m.line.open, sent]).toEqual([false, []]);
+    const tilde = press(w.target, 'Backquote', { shiftKey: true });       // tilde still opens
+    expect(m.line.open).toBe(true);
+    expect(m.line.text).toBe('');                                         // the tilde is not typed
+    expect(tilde.defaultPrevented).toBe(true);
+    expect(w.later).toEqual(keys);
     for (const c of ['Slash', 'KeyW', 'Space', 'KeyK', 'KeyI', 'KeyL', 'KeyO', 'Space', 'KeyH', 'KeyI']) press(w.target, c);
     expect(m.line.text).toBe('/w kilo hi');
-    expect(w.later).toHaveLength(9);                                      // open: every printing key the line's
+    expect(w.later).toEqual(keys);                                        // open: every printing key the line's
     press(w.target, 'Enter');
     expect(sent).toEqual([['hi', 'kilo']]);
     expect(m.line.open).toBe(false);                                      // ENTER sends and closes
@@ -352,11 +504,28 @@ describe('ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION: closed until ENTER in a developme
     expect(m.line.text).toBe('');
     expect(w.later.at(-1)).toBe('KeyW');
   });
+  it('a development build: a closed line\'s ENTER repeat or Ctrl+ENTER does not open it; a fresh ENTER does; NumpadEnter opens as well', () => {
+    vi.stubEnv('DEV', true);
+    const { m, w } = mount([]);
+    expect(press(w.target, 'Enter', { repeat: true }).defaultPrevented).toBe(false);
+    expect(press(w.target, 'Enter', { ctrlKey: true }).defaultPrevented).toBe(false);
+    expect(m.line.open).toBe(false);
+    expect(w.later).toEqual(['Enter', 'Enter']);
+    expect(press(w.target, 'Enter').defaultPrevented).toBe(true);
+    expect(m.line.open).toBe(true);
+    press(w.target, 'Escape');                                            // ESC clears and closes
+    expect(m.line.open).toBe(false);
+    expect(press(w.target, 'NumpadEnter').defaultPrevented).toBe(true);   // HID 0x58 (`HID_BY_CODE`), an opener only; never typed, never sends
+    expect([m.line.open, m.line.text]).toEqual([true, '']);
+    press(w.target, 'KeyH');
+    press(w.target, 'NumpadEnter');                                       // open: keypad ENTER is no line command (`roundKey` null), the line yields
+    expect([m.line.open, m.line.text]).toEqual([true, 'h']);
+  });
   it('a development build: ESC clears the open line and closes it, nothing sent', () => {
     vi.stubEnv('DEV', true);
     const sent: [string, string][] = [];
     const { m, w } = mount(sent);
-    press(w.target, 'Enter');
+    press(w.target, 'Backquote');
     for (const c of ['KeyH', 'KeyE', 'KeyY']) press(w.target, c);
     expect(m.line.text).toBe('hey');
     press(w.target, 'Escape');
@@ -390,10 +559,10 @@ describe('the second review: a round start closes an open DEV line; a key aimed 
     offs.push(() => { m.dispose(); });
     return { hud, m, w };
   };
-  it('a development build: open with ENTER, nothing typed, a new round -- closed, and G goes on to the testing layer', () => {
+  it('a development build: open with tilde (V21.R15a; ENTER before it), nothing typed, a new round -- closed, and G goes on to the testing layer', () => {
     vi.stubEnv('DEV', true);
     const { hud, m, w } = mount();
-    press(w.target, 'Enter');
+    press(w.target, 'Backquote');
     expect(m.line.open).toBe(true);
     hud.startRound(DEFAULT_ROUND);
     expect(m.line.open).toBe(false);
@@ -430,10 +599,11 @@ describe('the second review: a round start closes an open DEV line; a key aimed 
     press(w.target, 'KeyA');                                              // aimed at the page itself: the line's
     expect(m.line.text).toBe('a');
   });
-  it('a development build: ENTER aimed at a select does not open the line', () => {
+  it('a development build: tilde (the open key since V21.R15a) or ENTER aimed at a select does not open the line', () => {
     vi.stubEnv('DEV', true);
     const { m } = mount();
     const [select] = controls();
+    expect(at(select!, 'Backquote').defaultPrevented).toBe(false);
     expect(at(select!, 'Enter').defaultPrevented).toBe(false);
     expect(m.line.open).toBe(false);
   });
@@ -446,7 +616,7 @@ describe('a new round clears the line (FUN_001fb420 D:L57631 -> FUN_002ca0b0 D:L
     const sent: [string, string][] = [];
     const m = mountRoundTextLine({
       hud, win: w.target, online: () => true, whisper: (msg, name) => { sent.push([msg, name]); },
-      actors: () => [], sender: () => ({ id: 1, spectator: false }), devOpen: false,
+      actors: () => [], sender: () => ({ id: 1, spectator: false }), kbmControls: false, readOnly: false,
     });
     offs.push(() => { m.dispose(); });
     for (const c of ['Slash', 'KeyW', 'Space', 'KeyK', 'KeyI', 'KeyL', 'KeyO', 'Space', 'KeyH', 'KeyI']) press(w.target, c);
@@ -524,6 +694,26 @@ describe('/testroom mounts the line (main.ts; OT.R43)', () => {
 });
 
 /**
+ * RC-2 (V21.R15a; `ROUND_CHAT_SEND_ADAPTATION`): both mounts hand the line `sendChat`, the page's `chat` request on the
+ * game socket (`net/protocol.ts`: `{ type: 'chat'; text; team? }`), sent only while the match's client is open. Held on
+ * the sources: main.ts runs no unit test of its own.
+ */
+describe('RC-2: both mounts wire sendChat to the game socket (main.ts, matchMount.ts)', () => {
+  const src = (f: string): string => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src', f), 'utf-8');
+  const SEND = /sendChat: \(text, team\) => \{ if \(net\?\.client\.state === 'open'\) net\.client\.send\(\{ type: 'chat', text, \.\.\.\(team \? \{ team: true \} : \{\}\) \}\); \}/;
+  it('main.ts: the mount line after the HUD', () => {
+    const main = src('main.ts');
+    const line = main.split('\n').find((l) => l.startsWith('mountRoundTextLine({'))!;
+    expect(line).toMatch(SEND);
+  });
+  it('matchMount.ts: the text line\'s mount', () => {
+    const mm = src('matchMount.ts');
+    const at = mm.indexOf('const typed = line ? mountRoundTextLine({');
+    expect(mm.slice(at, mm.indexOf('}) : null;', at))).toMatch(SEND);
+  });
+});
+
+/**
  * ROUND-LINE-YIELDS (issue #260; research 266 §3.9, §6; `ROUND_LINE_UNDER_MENU_READING`): the original's line is live
  * under WEAPON EXCHANGE and the R2 inventory -- the round's frame ticks both menus from the pad (`FUN_001f7ff0`
  * D:L56657 `FUN_00219c80`, D:L56660 `FUN_00240600`) and then drains the USB keys into the line with no menu test
@@ -545,29 +735,34 @@ describe('ROUND-LINE-YIELDS: a closed DEV line leaves ENTER to a menu that holds
     return { m, w };
   };
   const event = (code: string, init: KeyboardEventInit = {}): KeyboardEvent => new KeyboardEvent('keydown', { code, cancelable: true, bubbles: true, ...init });
-  it('a development build, the line closed and a menu holding: ENTER passes on, the line stays closed, the registry answers false', () => {
+  // ENTER and tilde are the closed DEV line's open keys (tilde V21.R15a; ENTER again 2026-11-23, `ROUND_CHAT_ENTER_OPENS_ADAPTATION`):
+  // while a menu holds the pad's keys the line yields both, and the menu has them.
+  it('a development build, the line closed and a menu holding: tilde and ENTER pass on, the line stays closed, the registry answers false', () => {
     vi.stubEnv('DEV', true);
     const menu = { open: true };
     const { m, w } = mount(menu);
+    expect(roundLineTakes(event('Backquote'))).toBe(false);
     expect(roundLineTakes(event('Enter'))).toBe(false);
-    const enter = press(w.target, 'Enter');
-    expect(enter.defaultPrevented).toBe(false);
-    expect(w.later).toEqual(['Enter']);                                   // the menu's listener hears it
+    const tilde = press(w.target, 'Backquote');
+    expect(tilde.defaultPrevented).toBe(false);
+    press(w.target, 'Enter');
+    expect(w.later).toEqual(['Backquote', 'Enter']);                      // the menu's listener hears them
     expect(m.line.open).toBe(false);
     press(w.target, 'KeyA');
-    expect([m.line.text, w.later]).toEqual(['', ['Enter', 'KeyA']]);
-    menu.open = false;                                                    // the menu closed: ENTER opens the line as before
+    expect([m.line.text, w.later]).toEqual(['', ['Backquote', 'Enter', 'KeyA']]);
+    menu.open = false;                                                    // the menu closed: tilde and ENTER open the line (ENTER since 2026-11-23)
     expect(roundLineTakes(event('Enter'))).toBe(true);
+    expect(roundLineTakes(event('Backquote'))).toBe(true);
     expect(press(w.target, 'Enter').defaultPrevented).toBe(true);
     expect(m.line.open).toBe(true);
-    expect(w.later).toEqual(['Enter', 'KeyA']);
+    expect(w.later).toEqual(['Backquote', 'Enter', 'KeyA']);              // ENTER, taken, did not reach the menu's listener
   });
   it('a development build, the line open when a menu opens: the line keeps its keys (the original\'s, live under the menus) until ENTER closes it', () => {
     vi.stubEnv('DEV', true);
     const menu = { open: false };
     const sent: [string, string][] = [];
     const { m, w } = mount(menu, sent);
-    press(w.target, 'Enter');
+    press(w.target, 'Backquote');
     expect(m.line.open).toBe(true);
     menu.open = true;
     expect(roundLineTakes(event('KeyH'))).toBe(true);
@@ -578,13 +773,13 @@ describe('ROUND-LINE-YIELDS: a closed DEV line leaves ENTER to a menu that holds
     press(w.target, 'Enter');                                             // closed now, the menu still holding: the menu's
     expect([m.line.open, w.later]).toEqual([false, ['Enter']]);
   });
-  it('a development build, no menu: a closed line opens on a fresh ENTER only, never on the browser\'s repeat of a held one', () => {
+  it('a development build, no menu: a closed line opens on a fresh tilde only, never on the browser\'s repeat of a held one', () => {
     vi.stubEnv('DEV', true);
     const { m, w } = mount({ open: false });
-    expect(roundLineTakes(event('Enter', { repeat: true }))).toBe(false);
-    expect(press(w.target, 'Enter', { repeat: true }).defaultPrevented).toBe(false);
-    expect([m.line.open, w.later]).toEqual([false, ['Enter']]);
-    press(w.target, 'Enter');
+    expect(roundLineTakes(event('Backquote', { repeat: true }))).toBe(false);
+    expect(press(w.target, 'Backquote', { repeat: true }).defaultPrevented).toBe(false);
+    expect([m.line.open, w.later]).toEqual([false, ['Backquote']]);
+    press(w.target, 'Backquote');
     expect(m.line.open).toBe(true);
     press(w.target, 'KeyA', { repeat: true });                            // open, the repeat types (ROUND_TEXT_KEYS_READING)
     expect(m.line.text).toBe('a');
@@ -603,13 +798,13 @@ describe('ROUND-LINE-YIELDS: a closed DEV line leaves ENTER to a menu that holds
     const w = keyWindow();
     const line = new RoundTextLine({ hud, whisper: () => undefined, actors: () => [], sender: () => null });
     const off = attachRoundTextKeys(w.target, line, () => true);         // three arguments: today's line
-    press(w.target, 'Enter');
+    press(w.target, 'Backquote');                                         // tilde opens (V21.R15a; ENTER before it)
     expect(line.open).toBe(true);
     press(w.target, 'Escape');
     off();
     attach(w.target, line, () => true, () => true);                      // a menu holding
-    press(w.target, 'Enter');
-    expect([line.open, w.later]).toEqual([false, ['Enter']]);
+    press(w.target, 'Backquote');
+    expect([line.open, w.later]).toEqual([false, ['Backquote']]);
   });
 });
 
@@ -628,11 +823,17 @@ describe('ROUND-LINE-YIELDS: both mounts pass the page\'s menus as the line\'s m
     // LATER 76: the ARMORY by the DEV key path's own test (`armoryTakesKeys`: Play mode, past the hold, the ARMORY open).
     expect(mount).toMatch(/menu: \(\) => armoryTakesKeys\(\) \|\| exchange\.isOpen\(\) \|\| inventory\.isOpen\(\)/);
   });
-  it('matchMount.ts: the text line\'s mount passes the ARMORY, WEAPON EXCHANGE and the R2 inventory', () => {
+  it('matchMount.ts: the text line\'s mount passes the ARMORY, WEAPON EXCHANGE, the R2 inventory, START and TAUNTS (`menuHolds`)', () => {
     const mm = src('matchMount.ts');
     const at = mm.indexOf('const typed = line ? mountRoundTextLine({');
     expect(at).toBeGreaterThan(0);
     const mount = mm.slice(at, mm.indexOf('}) : null;', at));
-    expect(mount).toMatch(/menu: \(\) => armory\.isOpen\(\) \|\| exchange\.isOpen\(\) \|\| throws\.inventory\.isOpen\(\)/);
+    // ENTER-CHAT (ROUND_CHAT_ENTER_OPENS_ADAPTATION): ENTER opens the closed line, so the menus that take ENTER -- START and
+    // TAUNTS beside the ARMORY, the WEAPON EXCHANGE and the R2 inventory -- are the line's menu: matchMount's own `menuHolds`.
+    expect(mount).toMatch(/menu: menuHolds,/);
+    const holds = mm.match(/const menuHolds = \(\): boolean => ([^;]+);/)?.[1] ?? '';
+    for (const open of ['armory.isOpen()', 'exchange.isOpen()', 'throws.inventory.isOpen()', 'startMenu.isOpen()', 'taunts.isOpen()']) {
+      expect(holds, open).toContain(open);
+    }
   });
 });

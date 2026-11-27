@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fileDiscMounted, noteDiscSource, resetFileDiscForTest } from '../../src/pwa/fileDisc';
 import { UNSAVED_EDIT_MARK, readHoldSignals, reloadHeld } from '../../src/pwa/matchSignals';
 import {
-  RELEASE_POLL_MS, UPDATE_NOTICE, controllerChangeAction, createUpdateClient, updateNoticeHidden, type RegistrationHandle, type WorkerHandle,
+  RELEASE_POLL_MS, UPDATE_NOTICE, controllerChangeAction, createUpdateClient, updateNoticeHidden, watchInstalledRelease, type RegistrationHandle, type WorkerHandle,
 } from '../../src/pwa/update';
 
 /**
@@ -355,5 +355,30 @@ describe('PT195-5: a broken page', () => {
     client.restart({ waiting: null, installing: null, active: worker('activated'), update: () => Promise.resolve(), addEventListener() {} });
     expect(events).toEqual(['reload']);
     expect(events).not.toContain('notice');
+  });
+});
+
+/**
+ * LATER 1269 (v0.4.27's field, one page: "Cannot read properties of undefined (reading 'active')" at `noteRegistration`):
+ * a `register()` that resolves with no registration -- a stubbed service worker (an embedded browser, a privacy
+ * extension) -- leaves the page a tab, as a refused one does, with no unhandled rejection. A browser adaptation.
+ */
+describe('LATER 1269: a register() that resolves with nothing', () => {
+  it('wires nothing and rejects nothing', async () => {
+    const rejected: unknown[] = [];
+    const onRejection = (r: unknown): void => { rejected.push(r); };
+    process.on('unhandledRejection', onRejection);
+    let seen = 0;
+    try {
+      watchInstalledRelease({
+        hadController: false, inMatch: () => false, fileDisc: () => false, reload: () => {}, showNotice: () => {},
+        scriptURL: '/sw.js',
+        serviceWorker: { register: async () => undefined as unknown as RegistrationHandle, addEventListener: () => {} },
+        onRegistration: () => { seen++; },
+      });
+      for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+    } finally { process.off('unhandledRejection', onRejection); }
+    expect(rejected).toEqual([]);
+    expect(seen).toBe(0);
   });
 });

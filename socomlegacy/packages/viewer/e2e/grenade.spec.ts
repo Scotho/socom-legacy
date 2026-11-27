@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { GAME_FRAME_DT } from '@s2u/scene';
 // `src/hook.ts` is types only; its `declare global` is what makes `window.__viewer` exist inside `page.evaluate`.
 import type {} from '../src/hook';
 import { BLIND_GLOW, blindGlow } from '../src/flash';
@@ -89,7 +90,9 @@ test('walk mode on Frostfire: a held throw arcs, bounces, rests and explodes at 
   const thrown = (await page.evaluate(() => window.__viewer.grenade())).lastThrow;
   expect(thrown).not.toBeNull();
   expect(thrown!.clip).toBe('seal_throwgrenade');
-  expect(thrown!.power).toBeCloseTo(1 - 0.95 ** 60, 6);
+  // LATER 1027 re-pin: a second's hold is the chase's exact per-second law, 1 - (1 - 3G)^(1 / G) = 0.9576
+  // (was the 60 Hz Euler step's 1 - 0.95^60 = 0.9539).
+  expect(thrown!.power).toBeCloseTo(1 - (1 - 3 * GAME_FRAME_DT) ** (1 / GAME_FRAME_DT), 6);
   // It leaves the posed right hand (CZKit_TickExplosives' (2, 0, 0) in `rhand`), ComputeMaxVel's speed for that height.
   expect(thrown!.fromHand).toBe(true);
   const feet = (await page.evaluate(() => window.__viewer.feet()))!;

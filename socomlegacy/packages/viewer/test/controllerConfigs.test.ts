@@ -3,7 +3,10 @@ import {
   CONTROLLER_CONFIG_NAMES, CONTROLLER_CONFIGS_READING, CONTROLLER_RESULTS, ControllerConfigs, controllerConfigRecord, controllerConfigs,
   PRESET_PAGE_CONFIG, STRAFE_DIGITAL_SIGN_READING, storedControllerConfig,
 } from '../src/controllerConfigs';
-import { noInput, PAD_BUTTON, PAD_LAYOUT, padButtonLanes, padInput, padMapInput, padMapOf, type GamepadLike, type PadButton } from '../src/gamepad';
+import { noInput, PAD_BUTTON, PAD_LAYOUT, padButtonLanes, padInput, padMapInput, padMapOf, type GamepadLike, type PadButton, type PadFlag } from '../src/gamepad';
+import {
+  INVENTORY_REFUSAL_CLEAR_BUTTONS, INVENTORY_REFUSAL_CLEAR_SEEN, INVENTORY_REFUSAL_CLEAR_UPDATES_READING, refusalClearLanes,
+} from '../src/inventoryMenu';
 
 /**
  * OPT-14 (issue #87; web research 344): CONTROLLER PRESETS' page -> config table, `controller.rdr`'s four configs as the
@@ -151,6 +154,30 @@ describe('the active config is the pad\'s map (padInput with no layout)', () => 
     expect(padInput(pad({ axes: [0, 0, 1, 0] }))).toEqual(REST);   // the right stick's x: unmapped
     expect(padInput(pad({ axes: [1, 0, 0, 0] }))).toEqual({ ...REST, lookX: 1 });
     expect(padInput(pad({ axes: [0, -0.8, 0, -0.8], press: ['L1'] })).lookY).toBe(1);   // the two sticks summed, clamped to 1
+  });
+
+  it('research 451: a refused inventory open clears the BUTTONS X, Circle, Triangle (slots 9, 7, 6), their lanes by the active config', () => {
+    expect(INVENTORY_REFUSAL_CLEAR_BUTTONS).toEqual(['Cross', 'Circle', 'Triangle']);
+    // At one update (INVENTORY_REFUSAL_CLEAR_UPDATES_READING) Triangle's clear reaches no reader: the stance block reads its
+    // byte, which the sampler sets to 1 before the block runs (D:L453331-453334), so its `stance` lane is not masked.
+    expect(INVENTORY_REFUSAL_CLEAR_UPDATES_READING).toBe(1);
+    expect(INVENTORY_REFUSAL_CLEAR_SEEN).toEqual(['Cross', 'Circle']);
+    // Circle's `boost` is the fly camera's row (assumed), on Circle in every config; the inventory runs in the walk only.
+    const expected: Record<string, PadFlag[]> = {
+      Default: ['action', 'boost'], Reverse: ['action', 'boost'], Config4: ['action', 'boost'],
+      Goldeneye: ['action', 'boost', 'fire', 'jump'],
+    };
+    for (const name of CONTROLLER_CONFIG_NAMES) {
+      controllerConfigs.select(name);
+      expect([...refusalClearLanes()].sort(), name).toEqual(expected[name]);
+      // The port's lanes are merged: in no original config is a cleared lane held by another button too, so masking the
+      // lane is the buttons' clear exactly.
+      const map = padMapOf(controllerConfigs.record());
+      const others = map.lanes.filter(([b]) => !INVENTORY_REFUSAL_CLEAR_SEEN.includes(b)).map(([, lane]) => lane);
+      expect(refusalClearLanes().filter((lane) => others.includes(lane)), name).toEqual([]);
+    }
+    // Only Goldeneye has Fire among them (its X); the clear is the active config's, read anew at each call.
+    expect(CONTROLLER_CONFIG_NAMES.filter((name) => { controllerConfigs.select(name); return refusalClearLanes().includes('fire'); })).toEqual(['Goldeneye']);
   });
 
   it('the rows no config holds stay in every config: Triangle, the d-pad, Start', () => {

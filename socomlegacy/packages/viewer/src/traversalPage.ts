@@ -1,5 +1,5 @@
 import { Matrix4 } from 'three';
-import { GAME_FRAME_DT, GameFrameAccumulator, type MotionClip } from '@s2u/scene';
+import type { MotionClip } from '@s2u/scene';
 import type { ActionPrompt, ClimbPrompt as HudClimbPrompt } from './hud';
 import type { Input } from './gamepad';
 import type { MotionEntry } from './motionTable';
@@ -7,7 +7,7 @@ import { rippleAnimation, Traversal, TRAVERSAL_CLIP, type ClimbPrompt, type Ripp
 import type { EffectPlace } from './effects';
 import { groundPolygons, type WalkMode } from './walk';
 import { keyboardSite } from './keyboardTesting';
-import { chaseActionPress } from './doors';
+import { ActionPressure } from './actionPressure';
 
 /**
  * The traversal on the page (web research 86): the moves made for each mover (`WalkMode.useTraversal`), the clips
@@ -152,10 +152,7 @@ export class TraversalPage {
   private keyHeld = false;
   private padHeld = false;
   /** LATER 362: the action button's chased pressure (`chaseActionPress`), stepped each game frame (`chaseAction`). */
-  private press = 0;
-  /** LATER 362b's review F2: the button down at the last chase, and the game frames since its press. */
-  private pressDown = false;
-  private pressFrames = new GameFrameAccumulator();
+  private readonly pressure = new ActionPressure();
 
   /**
    * LATER 362 (research 92 section 6): one frame of the action button's pressure chase (`FUN_00594cf0` D:L453194-453203,
@@ -166,19 +163,12 @@ export class TraversalPage {
    * release's own frame its one falling step, as the original's release frame chases before it fires.
    */
   chaseAction(held: boolean, dt: number): void {
-    const down = held || this.keyHeld;
-    if (down !== this.pressDown) {
-      this.pressDown = down;
-      this.pressFrames = new GameFrameAccumulator();           // the frames count from the edge
-      if (!down) { this.press = chaseActionPress(this.press, false, GAME_FRAME_DT); return; }   // the release's frame
-    }
-    const n = this.pressFrames.advance(dt);
-    for (let k = 0; k < n; k++) this.press = chaseActionPress(this.press, down, GAME_FRAME_DT);
+    this.pressure.step(held || this.keyHeld, dt);
   }
 
   /** LATER 362: the action button's chased pressure now (the door's `press`). */
   actionPress(): number {
-    return this.press;
+    return this.pressure.value();
   }
   /** Browser keyboard safeguard: a development key taken by the dead route stays its own until keyup. */
   private keyRespawnOwned = false;

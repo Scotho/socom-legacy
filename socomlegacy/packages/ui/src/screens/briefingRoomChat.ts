@@ -1,4 +1,6 @@
 import { DIALOG_EVENTS } from '../dialog';
+import { chatHiddenCount, chatHiddenWords, chatShows, isChatHiddenWords } from '../text/chatFilter';
+import { ownNameDrawn } from '../text/ownNameDisplay';
 import type { UiCommandHandler, UiCommandHost } from '../uiCommands';
 import type { UiVarManager, UiVarValue } from '../uiVars';
 import type { ZAnimUiCommand } from '../zanimRuntime';
@@ -281,6 +283,21 @@ export function appendGameLobbyChat(uiVars: UiVarManager, line: string): void {
   uiVars.set(v, { type: 'array', value: [...kept, { type: 'string', value: line }] });
 }
 
+/**
+ * STREAMER-P1 (a browser adaptation, `../text/chatFilter`): a line the page's chat filter refused, counted on BCHATLISTVAR's
+ * one count line -- rewritten in place where it still stands, else added as a line of its own (the count from 1).
+ */
+export function noteHiddenGameLobbyChat(uiVars: UiVarManager): void {
+  const v = uiVars.find(GAME_LOBBY_CHAT_VAR) ?? uiVars.add(GAME_LOBBY_CHAT_VAR, null, 2);
+  const held = v.value.type === 'array' ? v.value.value : [];
+  const words = (e: UiVarValue): string => (e.type === 'string' && e.value.startsWith(CHAT_COLOUR.room) ? e.value.slice(CHAT_COLOUR.room.length).replace(/\n$/, '') : '');
+  const at = held.findIndex((e) => isChatHiddenWords(words(e)));
+  if (at < 0) { appendGameLobbyChat(uiVars, `${CHAT_COLOUR.room}${chatHiddenWords(1)}\n`); return; }
+  const next = held.slice();
+  next[at] = { type: 'string', value: `${CHAT_COLOUR.room}${chatHiddenWords(chatHiddenCount(words(held[at]!)) + 1)}\n` };
+  uiVars.set(v, { type: 'array', value: next });
+}
+
 /** `FUN_001f4df0`'s line (D:L54985-55004): the kind's colour, the name and ": " when one is passed, the text, "\n". */
 export function lobbyPanelLine(uiVars: UiVarManager, text: string, name: string | null, kind: number): void {
   const colour = kind === CHAT_KIND.universe ? CHAT_COLOUR.universe : kind === CHAT_KIND.whisper ? CHAT_COLOUR.whisper : CHAT_COLOUR.room;
@@ -288,7 +305,7 @@ export function lobbyPanelLine(uiVars: UiVarManager, text: string, name: string 
 }
 
 /** One record of a room's history (0x80 bytes: the name +0x1c, the type +0x3c, the text +0x40). */
-export interface ChatRoomLine { name: string; type: number; text: string }
+export interface ChatRoomLine { name: string; type: number; text: string; /** STREAMER-P1: the count line's count (`../text/chatFilter`). */ hidden?: number }
 
 export interface BriefingRoomChatOptions {
   /** The game's one `CUIVarManager` (0x437e80). */
@@ -315,6 +332,34 @@ export interface BriefingRoomChatOptions {
    * round not yet up -- when a system message is dropped. Absent, never.
    */
   loading?: () => boolean;
+}
+
+/**
+ * CENSOR_HASH_C_READING (R4P-324; web research 263 §3a): r0004's `Censor` (0x00311fc0, body 0x311fc0-0x3120ac) copies
+ * the text into its TextFilter request and, unless the copy is empty (`strlen` 0x00199288), searches it with `strstr`
+ * (0x00199a10) for the literal at 0x004211f8 -- the two bytes `#` `C` -- writes 0xb2 over the `C` of each hit
+ * (0x312050/0x312058) and searches again from the start until none is left (0x312060/0x312068). So only `#` followed
+ * by a capital `C` is touched, every occurrence; `#c`, `#B` and every other `#x` stay. Its callers: the room line
+ * (0x311c1c in SendChat 0x00311af0), the whisper (0x311d28 in the FindPlayer reply 0x00311c50), the game session's
+ * line (0x2bc474, a tail jump in 0x002bc460), `UINetCensorText` (0x27871c in 0x00278660) and the description
+ * (0x317b08, a tail jump in 0x00317b00). New in r0004: r0001's `FUN_002f4df0` (D:L194740-194762) copies the text
+ * unchanged. Sony's server filter on the reply stays `CHAT_FILTER_PLACEHOLDER` / `NET_CENSOR_TEXT_PLACEHOLDER`.
+ * Read from the recompiler's r0004 lift and the image's bytes, re-read by a non-author; nothing measured. [reading]
+ */
+export const CENSOR_HASH_C_READING = 'every literal #C (0x23 0x43) becomes # and 0xb2, case-sensitive; the line\'s other bytes as typed' as const;
+
+/**
+ * CHAT_OWN_LINE_AT_SEND_ADAPTATION (R4P-324; web research 263 §3a): r0004 queues the sender's own room line or whisper
+ * as typed (0x311b54, 0x311c04) and draws it, from that typed record (0x311ee4), only when the TextFilter's reply comes
+ * back (the send callback 0x00311d70). The page has no filter reply (`CHAT_FILTER_PLACEHOLDER`), so the own line is
+ * drawn at send, still the typed text, while the wire takes `censorHashC`'s. A browser adaptation of the timing; what
+ * is drawn is the original's.
+ */
+export const CHAT_OWN_LINE_AT_SEND_ADAPTATION = 'the room line\'s and the whisper\'s own line drawn at send, the page having no filter reply' as const;
+
+/** `Censor`'s rewrite (`CENSOR_HASH_C_READING`): every `#C` as `#` and 0xb2 (U+00B2, the byte as the page carries it). */
+export function censorHashC(text: string): string {
+  return text.replace(/#C/g, '#\u00b2');
 }
 
 export class BriefingRoomChat {
@@ -349,15 +394,19 @@ export class BriefingRoomChat {
 
   /**
    * `FUN_002f4860` (D:L194526-194590) with its replies: 0 with the lobby down; the text cut to 63; a room's line sent
-   * at once, a whisper after FindPlayer; the own line drawn after the send (`FUN_002f4ba0`).
+   * at once, a whisper after FindPlayer; the own line drawn after the send (`FUN_002f4ba0`). R4P-324: r0004's SendChat
+   * (0x00311af0) cuts, then hands the line to `Censor` (0x311c1c; the whisper's at 0x311d28), so the wire takes
+   * `censorHashC` of the cut text (`CENSOR_HASH_C_READING`) and the own line the typed text, drawn at send
+   * (`CHAT_OWN_LINE_AT_SEND_ADAPTATION`).
    */
   mediusChat(text: string, recipient: string | null): boolean {
     const svc = this.o.service;
     if (!this.up()) return false;
     const message = text.slice(0, CHAT_MESSAGE_CHARS);
+    const wire = censorHashC(message);                                                             // CENSOR_HASH_C_READING
     if (recipient === null) {
-      this.send(MESSAGE_TYPE.room, -1, message);
-      this.ownLine(message, CHAT_KIND.room);
+      this.send(MESSAGE_TYPE.room, -1, wire);
+      this.ownLine(message, CHAT_KIND.room);                                                       // CHAT_OWN_LINE_AT_SEND_ADAPTATION
       return true;
     }
     svc?.findPlayer({ name: recipient.slice(0, FIND_PLAYER_NAME_CHARS) }).then((r) => {
@@ -367,7 +416,7 @@ export class BriefingRoomChat {
         else this.o.event?.(DIALOG_EVENTS['MP_PLAYER_NOT_FOUND']!, null);
         return;
       }
-      this.send(MESSAGE_TYPE.whisper, r.accountId, message);
+      this.send(MESSAGE_TYPE.whisper, r.accountId, wire);
       const own = this.o.lobby?.account?.() ?? null;
       if (own === null || own.toLowerCase() !== r.accountName.toLowerCase()) {                   // OWN_WHISPER_BY_NAME_ADAPTATION
         const round = this.o.round?.() ?? null;
@@ -384,7 +433,8 @@ export class BriefingRoomChat {
 
   /** `FUN_002f4ba0`'s own line (D:L194700-194707; `CHAT_LINE_ARGS_READING`): the session's name, the flag 1, kind 5 or 0. */
   private ownLine(text: string, kind: number): void {
-    this.screenLine(text, this.o.lobby?.account?.() ?? '', 1, kind);
+    // IQ-183 (a browser adaptation, `../text/ownNameDisplay`): the own line's name as the page draws it; nothing sent changes.
+    this.screenLine(text, ownNameDrawn(this.o.lobby?.account?.() ?? ''), 1, kind);
   }
 
   /**
@@ -400,8 +450,37 @@ export class BriefingRoomChat {
     if (this.state() !== LOBBY_STATE_LOGGED_IN && kind === CHAT_KIND.room) return;
     const text = `${line.originatorAccountName}: ${line.message}`;
     const round = this.o.round?.() ?? null;
-    if (round) round({ text, name: line.originatorAccountName, kind });
+    if (round) round({ text, name: line.originatorAccountName, kind });   // a round's line: its drain's filter (`match`)
+    else if (this.ownAccount(line.originatorAccountName)) this.screenLine(`${ownNameDrawn(line.originatorAccountName)}: ${line.message}`, null, 1, kind);   // IQ-183: a whisper to oneself, the own line's name
+    else if (!chatShows('lobby', { accountId: line.originatorAccountId, name: line.originatorAccountName })) this.hiddenLine(kind);
     else this.screenLine(text, null, 1, kind);
+  }
+
+  /** STREAMER-P1: whether `name` is this session's own account (its lines are never filtered). */
+  private ownAccount(name: string): boolean {
+    const own = this.o.lobby?.account?.() ?? null;
+    return own !== null && own.toLowerCase() === name.toLowerCase();
+  }
+
+  /**
+   * STREAMER-P1 (a browser adaptation, `../text/chatFilter`): a refused line counted where `screenLine` would have drawn
+   * it -- the room's history (its one count record, rewritten in place, else added as a line) or the game lobby's panel.
+   */
+  private hiddenLine(kind: number): void {
+    if (this.state() !== LOBBY_STATE_LOGGED_IN) { if (kind !== CHAT_KIND.room) noteHiddenGameLobbyChat(this.o.uiVars); return; }
+    const bump = (room: ChannelListEntry): void => {
+      const list = this.history.get(room) ?? [];
+      const rec = list.find((r) => r.hidden !== undefined);
+      if (rec) { rec.hidden = (rec.hidden ?? 0) + 1; rec.text = chatHiddenWords(rec.hidden); }
+      else {
+        if (list.length > ROOM_CHAT_LINES - 1) list.shift();
+        list.push({ name: '', type: MESSAGE_TYPE.room, text: chatHiddenWords(1), hidden: 1 });
+      }
+      this.history.set(room, list);
+    };
+    if (kind === CHAT_KIND.whisper || kind === CHAT_KIND.universe) for (const r of this.o.rooms()) bump(r);
+    else { const r = this.room(); if (r) bump(r); }
+    this.drawRoom();
   }
 
   /**

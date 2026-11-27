@@ -6,7 +6,7 @@ import { emptyLayout } from '../../src/forge/layout';
 import { packGround } from '../../src/mover';
 
 /**
- * A placed prop on the AI grid, as the original has it (the owner, 2026-11-16: "I don't want any editor colors/flags/
+ * A placed prop on the AI grid, as the original has it (the Forge's owner (crispy, OT.R112), 2026-11-16: "I don't want any editor colors/flags/
  * special cases, when we place a prop make it whatever the engine puts"): the game adds nothing to `AIMAPS.MPS` for a
  * scene object but a configured vehicle's footprint (research 335 section 5: `ai_vehicles.rdr`'s two), so a prop's
  * cells keep the grid's own soils; a hostage meets it at run time, the collision soil marked where it touches

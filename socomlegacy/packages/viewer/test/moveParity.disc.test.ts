@@ -754,7 +754,7 @@ function disc(): DiscCtx {
 function flatGrid(): ReturnType<typeof buildGrid> {
   const poly: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-2000, 0, -2000, 2000, 0, -2000, 2000, 0, 2000, -2000, 0, 2000]),
+    points: Float32Array.from([-2000, 0, 2000, 2000, 0, 2000, 2000, 0, -2000, -2000, 0, -2000]),
   };
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 400, cellsX: 10, cellsZ: 10, originX: -2000, originZ: -2000 };
   const owners: CollisionOwner[] = [{ modelName: poly.modelName, path: poly.path, first: 0, count: 1 }];

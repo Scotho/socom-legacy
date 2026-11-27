@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Layout } from '../../src/forge/layout';
-import { layoutOfRecord, readSaved, recordOfLayout } from '../../src/forge/record';
+import { layoutOfRecord, readSaved, recordOfLayout, type LayoutRecord } from '../../src/forge/record';
 import { codeFromLocation, decodeShare, encodeShare, SHARE_CODE_MAX, SHARE_GUNZIP_MAX, SHARE_URL_MAX, shareLink, shareOffer } from '../../src/forge/share';
 
 /**
@@ -76,6 +76,34 @@ describe('FORGE: a share code', () => {
     // past the limit the offer is the file, never a cut link
     const huge: Layout = { ...big, pieces: Array.from({ length: 2000 }, (_, i) => ({ asset: `MP2:p${i % 200}`, m: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, i * 7.3, i % 11, i * 3.1, 1] })) };
     expect((await shareOffer(page, recordOfLayout(huge, 'Huge'))).kind).toBe('too-big');
+  });
+
+  it('FN-4, RED: a share code of a version-4 record (a piece turned 58.67 / 38.93 / 27.03) decodes to the same text', async () => {
+    // FN-4 (the Forge lane's FN.R5; a browser adaptation): the record's version 4 keeps a piece's angles on a hundredth of a
+    // degree. Expected RED at the RED commit: `encodeShare`'s check refuses it ("not a forge record of version 2 or 3").
+    // GREEN from the readers' commit. Written, NOT RUN (the host rule).
+    const fine = {
+      schema: 'forge-layout', version: 4, name: 'Fine', base: 'MP2', assets: ['MP2:crate'],
+      pieces: [[0, 1, 0, 2, 58.67]], poses: [[0, 38.93, 27.03, 1, 1, 1]], spawns: [['A', 1, 0, 2, 0]], ids: { pieces: ['p0'], spawns: ['s0'] },
+    };
+    const code = await encodeShare(fine as unknown as LayoutRecord);
+    const back = await decodeShare(code);
+    expect(JSON.stringify(back)).toBe(JSON.stringify(fine));
+  });
+
+  it('FN-4 fix round 2, RED: a share code of a record saved by a newer build (version 5) is refused in words naming the cause', async () => {
+    // FN-4, fix round 2 (a browser adaptation): the page shows this reason after "The share link could not be opened".
+    // Written, NOT RUN (the host rule). Expected RED at 6270731b3c (the reason is "not a forge layout: not a forge record
+    // of version 2, 3 or 4"), GREEN from the fix. The code is gzipped by hand: `encodeShare` checks what it encodes.
+    const later = {
+      schema: 'forge-layout', version: 5, name: 'Later', base: 'MP2', assets: ['MP2:crate'],
+      pieces: [[0, 1, 0, 2, 0]], spawns: [['A', 1, 0, 2, 0]], ids: { pieces: ['p0'], spawns: ['s0'] },
+    };
+    const bytes = new Uint8Array(await new Response(new Response(new TextEncoder().encode(JSON.stringify(later))).body!.pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+    const code = btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    await expect(decodeShare(code)).rejects.toThrow('not a forge layout: this layout was saved by a newer build (record version 5): update the game to open it');
   });
 
   it('refuses a code that is not a layout, and a link that does not fit', async () => {

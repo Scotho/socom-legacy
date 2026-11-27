@@ -87,7 +87,7 @@ describe("PAR-17: the viewer's chrome is /testroom's shell, never the front end'
     // `./mapOrder` is reached for `rankOf` alone -- the HUD's game-mode caption off the map's name (matchMount.ts's
     // `hud.setGame`) -- never for the picker's popularity order. FG-51: a forge layout may name its own mode
     // (`o.gameMode`); unset, the caption is still `rankOf`.
-    expect(mount).toMatch(/hud\.setGame\(m\.name, o\.gameMode \?\? rankOf\(m\.name\)\?\.mode \?\? ''\);/);
+    expect(mount).toMatch(/hud\.setGame\(variantGameName\(m\.name, m\.archive, o\.handOff\?\.welcome\?\.variant\), o\.gameMode \?\? rankOf\(m\.name\)\?\.mode \?\? ''\);/);
     // The front end mounts a disc map. It never passes a forge layout's `gameMode` (FG-51's caption stays in the forge).
     expect(src('frontEnd.ts')).not.toMatch(/\bgameMode\b/);
   });

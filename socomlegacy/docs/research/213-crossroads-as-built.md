@@ -105,9 +105,9 @@ command's 44 bytes:
 The round is made by `FUN_003cbdf0(DAT_004b5220, weapon, ammo)` (D:L107202) and fired through the weapon's vtable
 +0xc with the start, the direction and an owner: `FUN_002b3580()`'s, replaced by the context's type-9 entry when it
 resolves (through `FUN_0029e4e0(0x4362e0, ...)`) to one whose +0x10 is 2 (D:L107285-107300). Whether a switch's
-presser is that context is not traced.
+presser is that context is not traced. *(Since read, 2026-11-14: it is -- LATER 1038's re-read, below.)*
 
-**A switch's blast, measured on the original running (proven for the kill feed's line; 2026-11-14).** Q14 (the capture rig on the original running, r0004, Crossroads MP72, two clients, 2026-11-14; its files `gate-runner/shadow/out/2026-11-14/q10-hitreg/q14-bridge-b/`, upload owed):
+**A switch's blast, measured on the original running (proven for the kill feed's line; 2026-11-14).** Q14 (the capture rig on the original running, r0004, Crossroads MP72, two clients, 2026-11-14; its files `gate-runner/shadow/out/2026-11-14/q10-hitreg/q14-bridge-b/`, uploaded to the private bucket 2026-11-14, 32 files: the pictures, `times.txt` and `setup.log` stand; its mp4s are frozen stills, `FROZEN.txt` beside them):
 the SEAL `<the presser>` used `seal_callstrike_1` ("FLIP SWITCH", Cross once, under the reticle, 10:36:50.698Z) while
 the Terrorist `<the victim>` stood under `seal_demo_1`'s arch (879.4, 42.5, 1489.0). Read: `<the victim>` at full
 health at +0.165 s, all six parts 0 by +1.13 s, posture 8 (dead) by +2.36 s; `<the presser>` unhurt; on both consoles
@@ -120,6 +120,172 @@ so its victim dies his own death; and the trace in `match/src/room.ts` beside it
 program's context with entries of types 3, 4 and 1, no 9): the original credits the presser. The capture decides
 (parity clause: when two disagree the original decides); the reading is kept here as it was and is re-read next --
 where the presser reaches the round's owner or the kill's credit -- LATER 1038.
+
+**The re-read: the presser is the switch program's type-9 entry (LATER 1038; reading, reviewed 2026-11-14 by an independent decode).**
+`FUN_00272bb0` takes its context entries as a variable list of (type, value) pairs after the program and a flag,
+ended by a 0 type (`FUN_00272c30`'s loop, D:L120362-120622; type 9 kept as an entry whose +0xc is the value,
+D:L120570-120593, and read back by `FUN_00272640` / `FUN_00272560`, D:L120013-120075). The R5900 passes eight
+arguments in registers (a0-a3, t0-t3) and the rest on the stack, and the decompilation shows the registers only. In
+`FUN_002b44e0` the registers carry the program, 1, and the types 3, 4 and 1 with their values (the action's +0x14 and
++0x18, unread here, and the presser's +0x3b0) -- what the trace above read as the whole context
+(D:L156826-156838). The machine code (`socom2_game.elf`, hand-decoded at 0x2b4598-0x2b4624) loads the presser's id
+(`+4`) and branches on its sign (`bltz` at 0x2b45a8): when it is not negative it stores 9, the id and 0 at 0(sp),
+8(sp) and 16(sp) before the call at 0x2b45e0, so the context's list goes on to a type-9 entry naming the presser and
+then ends; when it is negative (no presser) only the 0 at 0(sp) (0x2b45f4), no type 9. `FUN_0025ccb0` then takes that
+entry: the id resolves to a player (`FUN_0029e4e0(0x4362e0, ...)`, its +0x10 2), and he is the round's owner over
+the console's own SEAL (D:L107285-107300), written to the round's `+0xac`; at a hit that kills,
+`FUN_005a0e70` reads `+0xac` and credits that player with the death (D:L459286-459300), and `FUN_0059ee20` scores it
+as his (D:L458059-458147: a kill of the other side, a team kill of his own side, a suicide if he is the victim). A
+peer's copy of the press (D:L160543) calls `FUN_002b44e0` with the presser the message names, so every console's
+round is the presser's -- as Q14's two feeds read. Every caller of `FUN_002b44e0` passes the actor who used the
+action (D:L81236, D:L451513, D:L452018, D:L452207, D:L502654). Not carried further: a `CALL_ANIMATION`'s callee gets a
+context of the command's own entries (`FUN_0025d5c0`, D:L107755-107768). And a destructible's death has no presser:
+its five calls (`FUN_00273a50`, D:L121010-121060) end in a register or `sd zero, 0(sp)` (0x273dcc-0x273e8c), no type
+9 -- its round stays each console's own SEAL's (`SCENE_ROUND_OWNER_READING`). **Built** (LATER 1038,
+`agent/later-1038-scene-owner`): the room's press passes its presser to the run (`viewer/src/worldState.ts`,
+`WorldRunContext.by`; a `CALL_ANIMATION`'s callee is not given him), the `fire` hook hands him to `Room.sceneRound`,
+which resolves him when the command runs (as `FUN_0025ccb0` does, D:L107287-107297) and holds the player, never the
+id; `fireSceneRounds` makes him the owner at every victim (`SCENE_ROUND_PRESSER_READING`, `match/src/room.ts`; test
+`match/test/sceneRoundPresser.test.ts`). A victim of the other side is the presser's kill (`enemy`; proven for the
+feed's line by Q14). **A teammate: the presser's team kill, friendly fire off and on -- proven by Q18 (b) (off,
+n = 1) and Q18-b2 (on, n = 2), below** (`teammate` `'presser'`). *Was (the main controller's ruling, seat 67, 2026-11-14, on the review
+of 077e8ec19c; reading, pending Q18 (b)):* a teammate of the presser under the arch meets the friendly-fire gate as
+the presser's round -- spared with friendly fire off (the room's default), and with it on killed as the presser's
+team kill (`FUN_00545c10`, D:L458112-458113). The presser under his own arch dies his own death either way (killer and
+victim one, D:L458084-458085). A presser who leaves between the command and the blast (`departed` `'orphan'`): the
+original's death still carries the round's `+0xac` id (`FUN_005a0e70` passes it on whether or not the lookup finds a
+player, D:L459286-459300), and what it makes of a gone id is unread; the room takes the projectile's rule for a
+departed thrower -- no one present credited or charged, his name kept in the line. Owed, both and the counters:
+the rig's Q18 (the next rig session, date not set) -- each console's round block (actor `+0x58c`: kills `+0x598`, deaths `+0x59e`, suicides `+0x5a0`,
+team kills `+0x5a2`, score `+0x5c8`; research 155 §1.2, 91 §8) before the press and after the death, with (a) the
+other side, (b) a teammate and (c) the presser himself under `seal_demo_1`'s arch. *(Taken 2026-11-15 for (a) and (b),
+below; (c) not run.)*
+
+**Q18: the counters and the teammate, measured on the original running (WM-SWITCH, 2026-11-15).** Q18 (the capture rig
+on the original running, r0004, Crossroads MP72, three clients on a local server, 2026-11-15; the room's CREATE GAME
+default "Friendly Fire is disabled", Medius RulesSet 0; reads only, the set-up writing placements and yaw alone; its
+files in the private bucket under `gate-runner/shadow/out/2026-11-15/q10-hitreg/q18-bridge-counters/`: `score.txt`,
+`README.txt`, `setup.log` and a zip of the rows, the pictures and ten videos). SEALs: the presser (the host) and a
+teammate; Terrorists: the third. Every body CROUCHED (posture 1) through every case here, Q18-b2 included (the rig's
+correction of 2026-11-15: its relay had the posture word reversed); the stance was not varied, so a standing body's case is unmeasured. The switch `seal_callstrike_1` used under the
+reticle as in Q14; each console's round block read (`+0x58c`: kills `+0x598`, deaths `+0x59e`, suicides `+0x5a0`,
+team kills `+0x5a2`, the round score `+0x5c8` read as a signed halfword), which resets at each round's start. One run
+each, as the rig reported it and seat 67 filed it (`agent-mail/evidence/q18-bridge-counters-2026-11-15/READ.md`; 67 did
+not open the bucket's files, so a reviewer re-reads `score.txt` and the zip's rows against these):
+- **(b) the same side, friendly fire disabled** (round 2): the teammate under the arch KILLED -- health 0, posture 8 by
+  +1.86 s after the press; the feed "`<the presser>` fragged `<the teammate>` with MPBOMB"; the presser's kills 0,
+  deaths 0, suicides 0, **team kills 0 -> 1**, **round score 0 -> -1**; the teammate's **deaths 0 -> 1**, suicides 0;
+  the third unchanged.
+- **(a) the other side** (round 5; round 4 the same kill and feed, its after-reads late): the victim dead at +1.13 s,
+  posture 8; the feed "`<the presser>` fragged `<the victim>` with MPBOMB", then "ALL TERRORISTS ELIMINATED" and "SEALS
+  VICTORIOUS!"; the presser's **kills 0 -> 1**, round score 0 -> 3; the victim's **deaths 0 -> 1**, suicides 0. The
+  round ended on this kill, so the 3 holds whatever its end awarded (the rig's caveat).
+- Not taken in this match: (b) with friendly fire ON (taken since, Q18-b2 below); (c) the presser under his own arch;
+  an enemy kill in a round that does not end on it. Five presses in rounds 1 and 3 brought no blast and no counter
+  change (all recorded; why not known).
+- **Q18-b2: (b) with friendly fire ENABLED** (the rig on the original running, r0004, a new MP72 match, three clients,
+  friendly fire enabled through the game's own CREATE GAME row, 2026-11-15; shadow-relay-1's report as relayed by the
+  controller; files in the private bucket under `gate-runner/shadow/out/2026-11-15/q10-hitreg/q18-bridge-counters/`,
+  `score.txt` extended and `b2-files.zip`; this note's author did not open them). The presser and the victim both
+  SEALs, an enemy left alive so the round GOES ON. Run 1: the teammate under the arch KILLED; the presser's **team
+  kills 0 -> 1**, **round score 0 -> -1**, kills 0; the victim's deaths 1, suicides 0; the feed "`<the presser>`
+  fragged `<the teammate>` with MPBOMB". Run 2 (another round): the same.
+
+**Proven** (the original running, r0004): a switch's blast kills a teammate of the presser with friendly fire off
+(n = 1, Q18 (b)) and on (n = 2, Q18-b2), booked to the presser as a team kill and to the victim as a death, not a
+suicide, the presser's round score moving -1 each time -- and in Q18-b2 the round went on, so that -1 is **not** a
+round-end effect; an enemy it kills is the presser's kill and the victim's death (n = 1, Q18 (a)); the feed names the
+presser and MPBOMB in every case. **Not proven:** the enemy kill's own score (Q18 (a)'s round ended on it); where the
+team kill's -1 comes from against the source's values (below).
+
+**Why the gate lets it through (reading; WM-SWITCH; re-read at the source by its review, 2026-11-15).** r0004's `CZSealBody::OnWeaponHit` (0x5b2360,
+the twin of r0001's `FUN_005ac670`, which the decompilation omits) is r0001's gate with one more condition: after
+"owner != victim" it loads the round's flag byte `+4` and takes the friendly-fire return only when bit 4 is clear
+(r4 0x5b243c-0x5b2448: `lbu`, the shift pair that keeps bit 4, `bnez` past the return); r0001 returns at once
+(0x5ac74c). Both read again for this task with capstone over `game/overlays_r0004/socom2_game_r0004.elf` and
+`game/disc/socom2_game.elf`, agreeing with the r0004 investigation's cluster note
+(`agent-mail/evidence/r0004-investigation/cluster-ff-projectile-exception.md`, 2026-11-01, §1; archived 2026-11-14) and
+research 398 §6. Bit 4 is set by `FUN_003c6ac0` (D:L318232-318235; r4 0x3e8c40), which `FUN_0025ccb0` calls
+on its round online (D:L107308, D:L107322; r4 0x25d79c with `a1` 1, 0x25d84c with 1, both behind the online byte
+0x45d481) -- the console-local round every scene `FIRE_WEAPON` makes, its fuse counted online and never sent (research
+332 §1.2). So the gate is skipped for **every scene program's `FIRE_WEAPON` round** (and the launcher's Backblast
+child, `FUN_003d2d70` D:L325639, which the 0x9f rule after the gate refuses where it is reached, research 377), not
+for blasts in general: a grenade, a rocket, a claymore, a mine or a C4 charge a player sets off carries no bit 4 and
+meets the gate as before.
+Before LATER 1038 no scene round had a teammate owner (each console's own SEAL owns it; the cluster note found no
+type-9 launch, missing the stack argument 1038 read), which is why the bypass showed nothing; with the presser as
+owner it is the case that kills the teammate. The spectator test before the gate still holds. **Built** (WM-SWITCH,
+`agent/wm-switch`): `ffRefuses`' `localRound` (`match/src/room.ts`), passed by `fireSceneRounds` alone; a scene round
+with no presser (owner the victim) changes nothing. With friendly fire ON the room books the same team kill: the
+bypass does not read the switch (the death, its owner and the team-kill count proven with it on by Q18-b2, n = 2; the
+score an open reading, below). Test: `match/test/sceneRoundPresser.test.ts`.
+Not ruled out by the reading: a whole-byte copy of `+4` from a network packet (the review's note 3); the control below
+separates the cases it would blur.
+
+**The control: Q23, an M67 at a teammate (WM-SWITCH, 2026-11-15).** The capture rig on the original running (MP2, three
+clients, friendly fire disabled; reads only; every body CROUCHED, posture 1, by the rig's correction), legs 1 and 2 as the rig reported them (shadow-relay-1's report, relayed in
+`agent-mail/evidence/weekend-mega-2026-11-14/INTAKE.md` §21; its files in the private bucket under
+`gate-runner/shadow/out/2026-11-15/q10-hitreg/q23-explosives-teammate/`; this note's author did not open them, so a
+reviewer re-reads the rows against these): an M67 bursting 1.04 u from an enemy and 1.82 u from a teammate of the
+thrower KILLED the enemy and left the teammate UNHARMED -- the thrower's kills 0 -> 1, team kills 0, round score 0 -> +2
+in a round that ended on that kill; the thrower's own M67 killed him as a SUICIDE (suicides 1, score -2). **Proven**
+(the original running, the rig's reads of each console's round block, n = 1 each; the same kind of evidence as Q18):
+with friendly fire off an ordinary grenade spares a teammate and kills its thrower as his own suicide. So the port's
+friendly-fire gate holds for a grenade, and the bypass is the scene round's alone, as the reading has it. **Leg 5,
+friendly fire ENABLED** (the same rig, r0004, the friendly-fire-on match relayed with Q18-b2 -- one match by the relay's heading, not said outright -- 2026-11-15; its distances to two decimals as the main controller's relay gave them, INTAKE section 23 saying only "about 7 u"; files under
+`gate-runner/shadow/out/2026-11-15/q10-hitreg/q23-explosives-teammate/`, `score.txt` extended and `L5-files.zip`): an
+M67 bursting 7.04 u from the thrower's teammate and 6.80 u from an enemy killed BOTH; the thrower's kills 1, team
+kills 1, round score 0 net, the round ending on it; two "fragged ... with M67" feed lines. Proven, n = 1. With leg 1
+this is the pair: the friendly-fire switch governs a grenade (spared off, killed on) and does not govern the switch's
+blast (killed off and on). The grenade's net 0 fits the source's kill +2 and team kill -2 (fits, not proves: the round
+ended on it). Not run: legs 3 and 4.
+
+**Unmeasured, named (the WM-SWITCH review's notes 5 and 6).** (1) A presser who is dead but still in the room keeps
+ownership (`fireSceneRounds`' `live` tests only that he is the same player in the room), and since WM-SWITCH his round
+kills his teammates with friendly fire off too; whether the original's lookup (`FUN_0029e4e0` in `FUN_0025ccb0`,
+D:L107287-107297) still finds a dead SEAL is unread, and no capture has a presser die between the press and the blast.
+(2) With friendly fire off a teammate's Backblast is refused by the port's gate with the reason 'friendly fire'
+(`ffRefuses`), where in r0004 that child round carries bit 4 (`FUN_003d2d70` D:L325639), passes the gate and is refused
+at the Backblast rule after it (r4 0x5b25b0-0x5b25fc): the outcome is the same (no hit), the reason differs; true
+before WM-SWITCH, unmeasured; no consumer of the reason on the wire is known to this note.
+
+**The score (`SCENE_ROUND_TEAM_KILL_SCORE_READING`).** The room books a team kill -2 for every cause: `FUN_00545c10`
+(the only team-kill scorer `FUN_0059ee20` calls, D:L458112-458113) adds 1 to `+0x16` and -2 to `+0x3c` (the round
+score, `+0x5c8` of the actor) on the killer's own console (D:L411864-411865); r0004's twin (0x54a630) is the same, its
+-2 at 0x54a684. The press itself scores its record's `points` (2 for both switches, §4) through `FUN_00545530`
+(D:L411589-411591, from `FUN_002bb5b0` D:L160645; r0004's twin unchanged), and a kill +2 (`FUN_00545290` D:L411491).
+With these source values every captured case of the switch comes out exactly one point under the port: Q18 (a) 3
+against the room's 4 (press 2 + kill 2), Q18 (b) and both Q18-b2 runs -1 against the room's 0 (press 2 - team kill 2).
+**The gap is in what the press is worth with that kill, not in the -2** (the controller's reading of the rows, 8f,
+2026-11-15; reading, the score open): Q18-b2's -1 came in a round that went on, so it is no round-end effect; Q23
+leg 5's grenade nets 0 over a kill and a team kill, fitting the source's +2 and -2 (fits, not proves, its round ended
+on it); and a press worth +1 with a -2 team kill fits both Q18 (b) rows and Q18 (a) (3 = +1 press + 2 kill). The
+source reads the switch record's points as 2 in full (`FUN_00545530` D:L411589-411591, §4), so something halves or
+offsets the press's 2 in these cases -- not found. *Was (this note, earlier on 2026-11-15):* "one shared -1 points at
+the press (or at something the scene round's death does), not at the -2". Readings for what offsets it, none
+confirmed: the press's points not counted on the presser's own console (a peer applies the host's score message
+through `FUN_002bb770`, D:L160668, research 176; Q18's presser was the host, whose own press scores through
+`FUN_002bb5b0`, so this reading needs the host's path to differ); the record's `points` differing in r0004 from the
+r0001 value read in §4; something the scene round's death books beside the kill. Not changed (the controller,
+2026-11-15): `SCENE_ROUND_TEAM_KILL_SCORE_READING` stays -2 and the room's booking as it is; the ordinary -2 and the
+press's 2 are the source's, and nothing read books -1 for this cause.
+
+**Where the point goes: Q18's per-poll rows read, not settled** (source inspection of a capture of the original: the
+runner seat's read of the bucket's `score.txt`, `README.txt` and the zip's `case-a-r5/times.txt`, `case-b-r2/times.txt`
+and `rows-b.txt`, 2026-11-15, `agent-mail/evidence/weekend-mega-2026-11-14/box/q18-presser-score-read/READ.md`; nothing
+re-measured). The rows are the driver's PINE polls of memory, not game ticks: pairs about 265 ms apart, a pair every
+1.3-1.9 s, wall-clock ms from the press and no tick numbers. (a), round 5: the presser's round score 0 at -3.8 s, and 3
+at the first poll after the press, +1.129 s, together with kills 1 and the victim already dead; no poll falls between
+the press and the death; 3 at every poll to +24.7 s; the round ended on that kill, so the 3 may still hold a round-win
+award. (b), round 2: the per-poll rows hold the victim's health only (whole at +157 ms, 0 and posture 8 at +1.861 s);
+the counters were read only at -8.7 s and at +32 s (the presser, 0 -> -1 with team kills 0 -> 1) and +75 s (the
+victim, score 0 -> 0, deaths 0 -> 1). In both cases the score is first seen changed together with the kill counter --
+an inference from where the polls fall, not a reading. **Where the point goes stays unread.** The presses of rounds 1
+and 3 changed no counter, but the switch did not take them (no blast), so they do not test a taken press without a
+kill. **Owed rig leg, in these words:** a taken press with no one in the blast (no kill), the presser's counters polled
+through it; or polls under 100 ms apart between the press and the victim's health reaching 0. And the remaining leg of
+the switch: an enemy kill by the switch in a round that goes on (the rig could not run it without a side change in the
+lobby).
 
 **+0x8c and +0x90 are timers, in seconds.** The round's tick `FUN_003c5310` (D:L316819-316918) counts +0x8c down by
 the frame's time unless it is 9999999.0 ("never"). At or below 0, with +0xc5 and +0xc6 clear, it sets +0xc4, and
@@ -336,15 +502,28 @@ page now presents the press, the room still decides it.
 `not alive` (dead, or the round over); `no switch` (an index that is no SWITCH record: a door goes by `door`, the
 tents are XR-05's); `no action` (the struck node is not the record's or under it); `reach` (`actionAtPick([record])`
 from the struck point: the record's own strict reach); `walled` / `missed` (the head's line to the point, `c4Line` as
-PF-13's C4 uses it); `used` (`WorldState.actionUsed`: once a round, cleared by `FUN_002b5510` through `reset`);
-`busy` (`executeAction` refuses while the action's program runs, `FUN_002b44e0` D:L156787). A malformed event (a
+PF-13's C4 uses it); `busy` / `used` (`WorldState.actionRefusal`, `FUN_002b46f0`: busy while the action's program runs,
+`FUN_002b44e0` D:L156787; used only for a `one_shot` record after a completed run, or a used Forge switch -- LATER 976,
+2026-11-20: there is no once-a-round use of a disc switch; `actionUsed` is the score's once, `+0x3f` bit 1). A malformed event (a
 non-whole index, a surface whose path is not a string or whose point is not three finite numbers) is ignored before
 any of these. On success the room marks the use, broadcasts `{ type: 'action', action, by }`, and calls `scored`, the
 hook PF-14 fills (the record's `points` 2, `FUN_00545530`).
 
+**The build (OT.R97; the LATER 976 delta review, 2026-11-22, a decode of r0004's ELF by its reviewer; reading, pending
+review).** The citations above are r0001's. In r0004 `FUN_002b46f0` is 0x2b6160 (the same rule; the offsets `+0x3f` /
+`+0x3e` become `+0x43` / `+0x42`), `FUN_002b44e0` is 0x2b5ef0 and `LAB_002b46d0` is 0x2b6100, and r0004 CHANGES the
+last two: 0x2b5ef0 takes a fourth argument and, refusing a use while the action's program runs, stores it at the action's
+`+0x30` (-1 otherwise); the end callback 0x2b6100, after clearing `+0x10` and counting `+0x42`, calls 0x2b5ef0 again
+(no actor, index 0) when `+0x30` is not -1 and equals the valve record's value. Only the NETWORKED use passes a real
+fourth argument (the counterpart of r0001's `FUN_002bb310` call, at 0x2bd0ec; 7 of 8 callers pass -1). **The deferred
+use, not built (a named unknown):** a networked use that arrives while the program runs is kept and run at the program's
+end in r0004; the port refuses it `busy` (`room.ts` `useAction`, `actionPage.ts`). Its reach: about one latency around a
+run's end (MP73's radios, 30 s). What would settle it: the 0x2bd0ec caller's message read, and a capture of two presses
+of an MP73 radio across its run's end.
+
 **The run.** `executeAction` runs `*_demo_site1` on the room's world, silent (`ROOM_SKIP_EFFECTS_READING`; silent is now
-`executeAction`'s default on a world whose `skipEffects` is set), and refuses an action used this round as well as one
-whose program runs. Every command from 156 to 340 is timeless, so on the press's own tick `destroyed` and `parts` turn
+`executeAction`'s default on a world whose `skipEffects` is set), and refuses an action whose program runs (or a
+`one_shot` record's after a completed run; LATER 976). Every command from 156 to 340 is timeless, so on the press's own tick `destroyed` and `parts` turn
 on and `healthy` off (240/248/256), the switch's node is hidden (`seal_callstrike1` at 264), the rubble's 170 polygons
 are live and the street's witness segment meets them 4 times (s1); the other arch is untouched. The program's own run
 ends at 2.25 s (the sound tail). The state reaches every page in the next snapshot's `env` and a late joiner's welcome
@@ -356,9 +535,13 @@ arches from their saved references (bit 28) and clears the use.
 - `FIRE_WEAPON` (offsets 28 and 84): **built** (corrected 2026-11-14). The world hands the command to its `fire` hook
   (`viewer/src/worldState.ts`, `WorldHooks.fire`), and the room fires the round: `Room.sceneRound` queues it at the
   command's node past its fuse, and `fireSceneRounds` sets it off on the tick it is due (research 386 §3.2, LATER 63;
-  `match/src/room.ts`). Its blast follows the bomb's path, which hurts the players (research 332 §2). A player it kills
-  dies his own death in the port (a suicide, `SCENE_ROUND_OWNER_READING`); the original running credits the switch's
-  presser ("fragged ... with MPBOMB", Q14, §2.2, 2026-11-14) -- the port differs, LATER 1038. *Was:* "the world's
+  `match/src/room.ts`). Its blast follows the bomb's path, which hurts the players (research 332 §2). A player of the
+  presser's other side it kills is the presser's kill ("fragged ... with MPBOMB", as Q14 measured on the original
+  running, §2.2; `SCENE_ROUND_PRESSER_READING`, LATER 1038, 2026-11-14; its counters Q18 (a), 2026-11-15); a teammate of
+  the presser is the presser's team kill, friendly fire off as on -- the gate passes a scene round (proven for friendly
+  fire off by Q18 (b) and on by Q18-b2, 2026-11-15; the score an open reading; §2.2, WM-SWITCH). *Was (LATER 1038 until WM-SWITCH):* a
+  teammate spared with friendly fire off. *Was (until LATER 1038):* every victim's own death, a suicide
+  (`SCENE_ROUND_OWNER_READING`). *Was:* "the world's
   host falls through it: no blast, no damage, no hook (`BRIDGE_FIRE_WEAPON_READING`, PF.R32) ... read, not built here".
 - `CALL_ANIMATION`s of the common set's `fire_explode_med` (twice) and `dust_explode_long`: the map's set does not hold
   them, so the world hands them to the page's `call` hook, at the calling program's root (`worldmodel/seal_demo_1`),
@@ -511,6 +694,7 @@ from the cell word 0x83c1fe41 (173 s2; BOMB_GROUND_READING)" (registry `world.cr
 | `MPBOMB_PLAYER_BLAST_PLACEHOLDER` (retired; was viewer `net/objective.ts`; XR-05's row, research 214 s6) | was `'none'`: the detonation hurts no player (PF.R32). XR-08's `bombBlast` reached the scene only (s5) and never called `blast()`'s player loop | capture B item 9 | retired 2026-10-16 (BOMB-DAMAGE, research 332): `MPBOMB_BLAST_OWNER_READING` |
 | `SCENE_BLAST_REACH_PLACEHOLDER` (viewer `sceneHealth.ts`; MAP-06's row, research 209) | PF.R11's reach: XR-08's detonation goes through it (`sceneBlast`). AD-5 (2026-10-16, 209 §13): the base takes 50 x 14 at its basedi's midpoint, 18.89 u from the planted bomb, its health floored at 0, through `FUN_003c80e0`'s material gate (`blastLine`); a base falls with the bomb out to 237 u (0.79 of 300 u). *Was:* "the full 50 against health 2 kills at any falloff, so the rule decides reach only" (s5) | a trace of the blast's path to the damage interface (173 s3); H102 | open; kept (H102), cross-reference |
 | `BOMB_GROUND_READING` (viewer `net/objective.ts`; XR-05's row, research 214 s6) | `'cellY'`: StartBomb at its AI cell's quantised height, pinned by XR-08 on the fixture: cell (95, 112) of `ground`, word 0x83c1fe41, y 47.334 (s5) | capture B items 5, 11 and 15 (RDRAM: the bomb node's position) | open; cross-reference, the row is 214 s6's |
+| `SCENE_ROUND_TEAM_KILL_SCORE_READING` (match `room.ts`; WM-SWITCH, 2026-11-15) | `-2`: the score a switch's blast books its presser for a teammate it kills -- the room's ordinary team kill (`FUN_00545c10` D:L411864-411865; r0004 0x54a684), not applied apart; with the press's own points (2, `FUN_00545530`) the room nets 0 over the press and the kill where Q18 (b) (friendly fire off) and both Q18-b2 runs (friendly fire on, the round going on) read the presser's round score 0 -> -1 (the original running, r0004, MP72, 2026-11-15; `gate-runner/shadow/out/2026-11-15/q10-hitreg/q18-bridge-counters/`, `score.txt`, `b2-files.zip`) (§2.2) | a taken press with no one in the blast (no kill), the presser's counters polled through it, or polls under 100 ms apart between the press and the victim's health reaching 0 (Q18's per-poll rows, read 2026-11-15, do not settle it, §2.2); an enemy kill by the switch in a round that goes on | open: the room's value is the source's, kept (the controller, 2026-11-15); every captured switch case is one under the room -- Q18 (a) 3 against 4, Q18 (b) and Q18-b2's two runs (friendly fire on, the round going on) -1 against 0 -- so the gap is in what the press is worth with that kill, not in the -2; Q23 leg 5's grenade nets 0 over a kill and a team kill, fitting the source's +2 and -2 (§2.2) |
 | `BLAST_LIST_ORDER_PLACEHOLDER` (viewer `sceneHealth.ts`; MAP-06's row, research 209) | the order the explosion's list is walked in: the port asks `SceneHealth.list` in the map's binding order, a death run before the next target's ray (`FUN_003c7ee0` D:L319007-319073, `FUN_003c7dd0` D:L318999); on MP12 it does not decide the SEAL base behind the mast (s5) | a trace of `FUN_003c7ee0`'s list order | open; cross-reference, the row is 209 §14's. *Was* (PR #405 as opened, never on `main`): `BASE_BLAST_LINE_PLACEHOLDER`, dropped 2026-10-22 (s5) |
 
 owner row (unnumbered draft, XR-08; the controller numbers it at the main merge after sprint 17): standing on the bomb at detonation hurts you, since BOMB-DAMAGE (2026-10-16, research 332; H107 answered). *Was:* "does not hurt you yet (PF.R32)".

@@ -4,7 +4,7 @@ import {
   arcPoint, THROW_ARC, buildGrid, gridCast, CLAYMORE_RULES, GAME_FRAME_DT, GameFrameAccumulator, HE, launchGrenade, M67, PLACE_CLAYMORE_ANIM, releaseSeconds,
   stepGrenade, THROW_ANIMS, throwClipSeconds, tumbleQuaternion, type Grid, type GridParams, type V3, type WorldPoly,
   CLAYMORE, maxThrowSpeed, THROW_AIM_CLAMP, throwElevation, type ThrowAnim, type ThrowableRecord,
-  CAMERA_SKIP, heldPower, stepThrowPower, segmentHits, AN_M8, SURFACE_SIDE, SURFACE_SKIP, surfaceMaterial, surfaceWord, readKitTable,
+  aimPickBlocks, CAMERA_SKIP, heldPower, stepThrowPower, segmentHits, AN_M8, SURFACE_SIDE, SURFACE_SKIP, surfaceMaterial, surfaceWord, readKitTable,
 } from '@s2u/scene';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
@@ -19,7 +19,7 @@ import { clipsFromPack, motionTableFromArchive } from '../src/motionTable';
 import { blindGlow, blindWash } from '../src/flash';
 import { THROW_CLIPS, ThrowPose, throwPoseEnds } from '../src/throwPose';
 import {
-  C4_FALLBACK_PLACEHOLDER, C4_KIT_TIMER_SECONDS, releaseAimSin, releasePowerClears, THROW_ABORT_POWER, THROW_CLEARANCE_ENDS,
+  C4_FALLBACK_PLACEHOLDER, C4_KIT_TIMER_SECONDS, releaseAimSin, releasePowerClears, THROW_ABORT_POWER, THROW_CLEARANCE_LENGTH_READING,
   THROW_CLEARANCE_QUERY_PLACEHOLDER, throwClear, throwClearanceSegment,
 } from '../src/throwCommit';
 import { loadMap } from '../src/loadMap';
@@ -241,7 +241,7 @@ describe('the smoke and the flash going off', () => {
     const seen: (number | null)[] = [];
     const floor: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/f', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000]),
+      points: Float32Array.from([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000]),
     };
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
     const grid = buildGrid(params, [], [], [floor], [{ modelName: 'worldmodel', path: 'worldmodel/f0', first: 0, count: 1 }]);
@@ -302,10 +302,10 @@ describe('the smoke and the flash going off', () => {
   const claymoreFloor = (): Grid => {
     const floor: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/f', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000]),
+      points: Float32Array.from([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000]),
     };
     // PF-13: a pool of WATER (byte 11) 5 deep over x 1700..1900, z -1900..-1700, far from every other placement here.
-    const pool: WorldPoly = { ...floor, path: 'worldmodel/pool', material: 11, points: Float32Array.from([1700, 55, -1900, 1900, 55, -1900, 1900, 55, -1700, 1700, 55, -1700]) };
+    const pool: WorldPoly = { ...floor, path: 'worldmodel/pool', material: 11, points: Float32Array.from([1700, 55, -1700, 1900, 55, -1700, 1900, 55, -1900, 1700, 55, -1900]) };
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
     return buildGrid(params, [], [], [floor, pool], [
       { modelName: 'worldmodel', path: 'worldmodel/f0', first: 0, count: 1 }, { modelName: 'worldmodel', path: 'worldmodel/pool', first: 1, count: 1 },
@@ -415,11 +415,11 @@ describe('the smoke and the flash going off', () => {
   });
 
   /**
-   * MINES-ROOM (research 235 §8): the room now broadcasts a PMN's trip as `detonate` (no `except`), while the page still
-   * trips its own copy (`proximityTripped` in `fly`, grenade.ts) -- the page's half is deferred (LATER 930). Both orders end in ONE
-   * explosion and no copy left at rest: `detonateRemote` sets the trigger of a copy at rest only (a `detonated` copy is
-   * passed over), and `proximityTripped` passes over a copy whose trigger is already set (`g.trigger`, scene
-   * `projectile.ts`). No page code changed for this.
+   * MINES-ROOM (research 235 §8): the room broadcasts a PMN's trip as `detonate` (no `except`). LATER 930 (the page's
+   * half): online the page trips no copy itself (`fly` and `startAged` skip `proximityTripped` while `online()`), so a
+   * false trip -- its own corpse's feet, a body the room does not test -- can no longer set off a copy whose room mine stays
+   * armed; the room's `detonate` is the one trip. Offline (no room) the page still trips its copies. `detonateRemote` sets
+   * the trigger of a copy at rest only; `proximityTripped` passes over a copy whose trigger is already set.
    */
   describe('a PMN tripped by the page and by the room\'s `detonate`: one explosion, either order (research 235 §8)', () => {
     const PMN_RECORD: ThrowableRecord = { ...THROWABLES.Claymore, name: 'PMN Mine', id: 158, fuse: 8, removal: 10, explosionDamage: 6.5, explosionRadius: 40, proximity: 10, model: 'pmn', icon: 'pmn.tif', capacity: 4 };
@@ -438,13 +438,13 @@ describe('the smoke and the flash going off', () => {
       return { g, booms, walkIn: (): void => { actors = [[143, 50, 200]]; } };
     };
 
-    it('the page\'s own trip first, then the room\'s `detonate` for the same pid: no second explosion, no throw, no ghost', () => {
+    it('RED: LATER 930 -- online, a body inside the PMN\'s 10 u trips nothing on the page; the room\'s `detonate` then gives one explosion, no ghost', () => {
       const { g, booms, walkIn } = page();
       walkIn();
-      run(g, 0.1);                                               // the page's copy trips and goes off
-      expect(booms).toEqual(['PMN Mine']);
-      expect(g.stats().live.find((l) => l.pid === 5)?.state).not.toBe('rest');
-      expect(() => g.detonateRemote(5)).not.toThrow();          // the room's `detonate`, a frame or more later
+      run(g, 0.5);                                               // online the page does not trip its copy (today: it goes off)
+      expect(booms).toEqual([]);
+      expect(g.stats().live.find((l) => l.pid === 5)?.state).toBe('rest');
+      expect(() => g.detonateRemote(5)).not.toThrow();          // the room's `detonate`: the one trip
       expect(() => run(g, 0.5)).not.toThrow();
       expect(booms).toEqual(['PMN Mine']);
       run(g, PMN_RECORD.removal + 0.5);                         // its Timer2 (10 s): gone, never back at rest
@@ -452,7 +452,7 @@ describe('the smoke and the flash going off', () => {
       expect(booms).toEqual(['PMN Mine']);
     });
 
-    it('the room\'s `detonate` first, then the page\'s own trip a frame later: one explosion, no ghost', () => {
+    it('the room\'s `detonate` first, then the body inside 10 u a frame later: one explosion, no ghost', () => {
       const { g, booms, walkIn } = page();
       g.detonateRemote(5);                                       // the room's trip, before the page's snapshot shows the body
       walkIn();                                                  // the body inside 10 u on the next frame
@@ -500,7 +500,7 @@ describe('the smoke and the flash going off', () => {
       expect(booms).toEqual(['PMN Mine']);
     });
 
-    it('the placer\'s own PMN, untagged (the launch point not matched), ignores the room\'s `detonate`; the page\'s own trip still sets it off', () => {
+    it('the placer\'s own PMN, untagged (the launch point not matched), ignores the room\'s `detonate`; online the page\'s own trip sets nothing off (LATER 930)', () => {
       const { g, booms, at, walkIn } = own();
       g.tagOwn('PMN Mine', [at[0] + 1, at[1], at[2]], 5);       // 1 u off: not this copy
       expect(g.stats().live[0]!.pid).toBeUndefined();
@@ -509,9 +509,164 @@ describe('the smoke and the flash going off', () => {
       expect(booms).toEqual([]);
       expect(g.stats().live[0]!.state).toBe('rest');
       walkIn();
+      run(g, 0.5);
+      expect(booms).toEqual([]);
+      expect(g.stats().live[0]!.state).toBe('rest');
+    });
+
+    it('LATER 930 -- offline (no room) the page still trips its copy: a body at 9.9 u sets it off', () => {
+      const grid = claymoreFloor();
+      let actors: V3[] = [[600, 50, 200]];
+      const booms: string[] = [];
+      const { g } = thrower({ grid: () => grid, snapshot: () => snap({ feet: [600, 50, 200], yaw: 0 }), actors: () => actors, online: () => false });
+      g.setRecords([PMN_RECORD]);
+      g.on('explode', (e) => booms.push(e.item));
+      g.launchRemote('PMN Mine', mine, [1, 0, 0], 2, { pid: 5 });
+      run(g, PMN_RECORD.fuse + 0.5);
+      expect(booms).toEqual([]);
+      actors = [[mine[0] + 9.9, mine[1], mine[2]]];
       run(g, 0.1);
       expect(booms).toEqual(['PMN Mine']);
     });
+
+    it('RED: LATER 930 -- online, a body at 9.9 u trips nothing until the room\'s `detonate`', () => {
+      const grid = claymoreFloor();
+      const nb: string[] = [];
+      const { g: g2 } = thrower({ grid: () => grid, snapshot: () => snap({ feet: [600, 50, 200], yaw: 0 }), actors: () => [[mine[0] + 9.9, mine[1], mine[2]]], online: () => true });
+      g2.setRecords([PMN_RECORD]);
+      g2.on('explode', (e) => nb.push(e.item));
+      g2.launchRemote('PMN Mine', mine, [1, 0, 0], 2, { pid: 5 });
+      run(g2, PMN_RECORD.fuse + 1);
+      expect(nb).toEqual([]);
+      g2.detonateRemote(5);
+      run(g2, 0.5);
+      expect(nb).toEqual(['PMN Mine']);
+    });
+  });
+
+  /**
+   * LATER 929 (H2 of the mines investigation of 2026-11-12): a placed charge the room refused after the page set it down
+   * is told `stale`; the page's `giveBack` then takes its own pid-less copy back (the oldest of that kind, as the room
+   * answers in order) and, for the claymore, lowers the Detonator when no claymore of its own is left down.
+   */
+  describe('LATER 929: a placed charge the room refused is taken back on the page', () => {
+    it('RED: the claymore refused stale -- its drawn copy gone, the charge back, the Detonator down', () => {
+      const grid = claymoreFloor();
+      const { g } = thrower({ grid: () => grid, snapshot: () => snap({ feet: [100, 50, 200], yaw: 0 }), handPoint: () => [102, 62, 192], online: () => true });
+      g.select('Claymore');
+      g.pull();
+      run(g, 3);
+      expect(g.stats().placed).toBe(1);
+      expect(g.stats().leftByItem.Claymore).toBe(3);
+      expect(g.select('Detonator')).toBe(true);
+      expect(g.giveBack('Claymore')).toBe(true);                 // the room's `stale` for the placement
+      expect(g.stats().live).toEqual([]);                        // today: the copy stays drawn
+      expect(g.stats().placed).toBe(0);
+      expect(g.stats().leftByItem.Claymore).toBe(4);
+      expect(g.select('Detonator')).toBe(false);
+    });
+
+    it('two placed, the first refused: the older pid-less copy goes, the tagged one stays', () => {
+      const grid = claymoreFloor();
+      let feet: V3 = [100, 50, 200];
+      const { g } = thrower({ grid: () => grid, snapshot: () => snap({ feet, yaw: 0 }), handPoint: () => [feet[0] + 2, feet[1] + 12, feet[2] - 8], online: () => true });
+      const place = (): void => { g.select('Claymore'); g.pull(); run(g, 3); };
+      place();
+      const first = g.stats().live[0]!.pos as V3;
+      feet = [700, 50, 200];
+      place();
+      expect(g.stats().placed).toBe(2);
+      const second = g.stats().live[1]!.pos as V3;
+      g.tagOwn('Claymore', second, 9);                           // the second was taken: its `placed`
+      g.giveBack('Claymore');                                    // the first refused
+      expect(g.stats().live.map((l) => l.pid)).toEqual([9]);
+      expect(g.stats().live[0]!.pos).toEqual(second);
+      expect(first).not.toEqual(second);
+      expect(g.stats().leftByItem.Claymore).toBe(3);
+    });
+  });
+
+  /**
+   * LATER 1407 (the controller's rulings 1-2, 2026-11-24; an ADAPTATION, the network's: the original never refuses a
+   * launched grenade, `FUN_002c17b0` D:L163740-163770): a hand throw the room refused is told `stale` (request 'throw',
+   * its seq); `giveBack` retires the page's OLDEST own flying copy of that kind with no pid (untagged: the room answers in
+   * order and `tagOwn` names the ones it took), never a tagged one. No refund when the page's own SEAL is dead (the room's
+   * `not alive`: the original's console spends it either way) or when the copy predates the kit's last refill (a spawn).
+   */
+  describe('LATER 1407: a hand throw the room refused is taken back on the page', () => {
+    const run = (g: GrenadeThrower, seconds: number): void => { for (let t = 0; t < seconds - 1e-9; t += 1 / 60) g.update(1 / 60); };
+    /** Two own M67s thrown from two places (the launch point `tagOwn` matches the room's `placed` by). */
+    const two = (extra: Partial<GrenadeSource> = {}) => {
+      let feet: V3 = [100, 50, 200];
+      const { g } = thrower({ online: () => true, snapshot: () => snap({ feet }), ...extra });
+      g.select('M67');
+      const a = g.throwNow(0.2)!;
+      run(g, 1.2);
+      feet = [700, 50, 200];
+      const b = g.throwNow(0.2)!;
+      expect(g.stats().live).toHaveLength(2);
+      expect(a.from).not.toEqual(b.from);
+      return { g, a, b };
+    };
+
+    it('RED: the oldest untagged own copy goes and the item comes back; the tagged one stays', () => {
+      const { g, b } = two();
+      g.tagOwn('M67', b.from, 9);                                // the second was taken: its `placed`
+      const left = g.stats().leftByItem.M67!;
+      expect(g.giveBack('M67')).toBe(true);                      // the first refused: its `stale`
+      expect(g.stats().live.map((l) => l.pid)).toEqual([9]);     // today: both still drawn
+      expect(g.stats().leftByItem.M67).toBe(left + 1);
+    });
+
+    it('never a tagged copy: with every own copy taken, nothing is retired', () => {
+      const { g, a, b } = two();
+      g.tagOwn('M67', a.from, 8);
+      g.tagOwn('M67', b.from, 9);
+      g.giveBack('M67');
+      expect(g.stats().live.map((l) => l.pid)).toEqual([8, 9]);
+    });
+
+    it("RED: a refusal heard dead ('not alive') retires the copy and refunds nothing", () => {
+      let dead = false;
+      const { g } = two({ dead: () => dead });
+      dead = true;
+      const left = g.stats().leftByItem.M67!;
+      expect(g.giveBack('M67')).toBe(false);
+      expect(g.stats().live).toHaveLength(1);                    // today: 2
+      expect(g.stats().leftByItem.M67).toBe(left);               // today: left + 1
+    });
+
+    it('RED: a throw from before the spawn (the refill) is retired with no refund into the new kit', () => {
+      const { g } = thrower({ online: () => true });
+      g.select('M67');
+      g.throwNow(0.2);
+      g.refill();                                                 // the own spawn's fresh kit
+      run(g, 1.2);
+      g.select('M67');
+      g.throwNow(0.2);                                            // the new kit's first throw
+      const left = g.stats().leftByItem.M67!;
+      expect(g.giveBack('M67')).toBe(false);                     // the pre-spawn throw's `stale`
+      expect(g.stats().live).toHaveLength(1);                    // the older copy gone, the new one flying
+      expect(g.stats().leftByItem.M67).toBe(left);               // today: left + 1
+    });
+  });
+
+  /**
+   * LATER 931 (H4 of the mines investigation of 2026-11-12, Fix C): a hydrate the page is told is its OWN (`own`, from
+   * `netPage.joinSinks`' `owner === self`) lays a copy that is not `remote`: `claymoresDown()` counts it and the Detonator
+   * is taken up; without `own` it is another's, as before.
+   */
+  it("RED: LATER 931 -- a hydrated own claymore counts as down and lets the Detonator up; another's does not", () => {
+    const rest = { state: 'rest' as const, age: 90, fuse: 0, removal: 0, bounces: 0, dud: false };
+    const mine = thrower().g;
+    mine.launchRemote('Claymore', [110, 50, 200], [0, 0, -1], 1, { pid: 4, ...rest, own: true });
+    expect(mine.stats().live.map((l) => l.pid)).toEqual([4]);
+    expect(mine.claymoresDown()).toBe(1);                         // today: 0 (hydrated remote)
+    expect(mine.select('Detonator')).toBe(true);
+    const theirs = thrower().g;
+    theirs.launchRemote('Claymore', [110, 50, 200], [0, 0, -1], 2, { pid: 5, ...rest });
+    expect(theirs.claymoresDown()).toBe(0);
+    expect(theirs.select('Detonator')).toBe(false);
   });
 
   it('the claymore: four down at most, set down on the move, none wading past 3.2 u or off the ground, and the Detonator reaches 500 units', () => {
@@ -615,9 +770,9 @@ describe("PAR-96 B4: the page counts the SEAL's claymores only (FUN_003cc1f0; re
   const grid = (): Grid => {
     const f: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/f', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000]),
+      points: Float32Array.from([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000]),
     };
-    const wall: WorldPoly = { ...f, path: DI, ditype: 2, points: Float32Array.from([130, 50, 150, 130, 50, 250, 130, 110, 250, 130, 110, 150]) };
+    const wall: WorldPoly = { ...f, path: DI, ditype: 2, points: Float32Array.from([115, 50, 150, 115, 50, 250, 115, 110, 250, 115, 110, 150]) };   // LATER 1139: x 115 (was 130): 15 u, inside the hip gate
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
     return buildGrid(params, [], [], [f, wall], [
       { modelName: 'worldmodel', path: 'worldmodel/f0', first: 0, count: 1 }, { modelName: 'worldmodel', path: DI, first: 1, count: 1 },
@@ -736,7 +891,7 @@ describe('PF-28: the joiner\'s projectiles (GrenadeThrower.launchRemote with a h
 describe("LATER 643: another's copy started at the room's age (launchRemote's ageTicks)", () => {
   /** A floor at y 50 (a bouncing material). */
   const floorGrid = (): Grid => {
-    const poly: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/p0', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0, points: Float32Array.from([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000]) };
+    const poly: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/p0', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0, points: Float32Array.from([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000]) };
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
     return buildGrid(params, [], [], [poly], [{ modelName: 'worldmodel', path: 'worldmodel/p00', first: 0, count: 1 }]);
   };
@@ -785,7 +940,7 @@ describe("PF-28 fix round: the joiner's copy steps as the room's, and its smoke 
   /** A floor at y 50 (a bouncing material) and, for the rounds, a wall across z = -300. */
   const floorGrid = (): Grid => {
     const poly = (points: number[], i: number): WorldPoly => ({ modelName: 'worldmodel', path: `worldmodel/p${i}`, region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0, points: Float32Array.from(points) });
-    const polys = [poly([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000], 0), poly([-2000, 0, -300, 2000, 0, -300, 2000, 400, -300, -2000, 400, -300], 1)];
+    const polys = [poly([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000], 0), poly([-2000, 0, -300, 2000, 0, -300, 2000, 400, -300, -2000, 400, -300], 1)];
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
     return buildGrid(params, [], [], polys, polys.map((p, i) => ({ modelName: 'worldmodel', path: `${p.path}${i}`, first: i, count: 1 })));
   };
@@ -794,7 +949,10 @@ describe("PF-28 fix round: the joiner's copy steps as the room's, and its smoke 
     const grid = floorGrid(), cast = gridCast(grid, '');
     // The room's M67, stepped by game frames to just after its first bounce.
     const ref = launchGrenade([0, 100, 0], [60, 0, 0], M67);
-    while (ref.bounces === 0) stepGrenade(ref, GAME_FRAME_DT, cast);
+    // Capped (a grenade that never meets the floor fails here, not as a synchronous spin vitest's timeout cannot stop).
+    let steps = 0;
+    while (ref.bounces === 0 && steps < 600) { stepGrenade(ref, GAME_FRAME_DT, cast); steps++; }
+    expect(ref.bounces).toBeGreaterThan(0);
     expect(ref.firstBounce).toBe(false);
     const { g } = thrower({ grid: () => grid });
     g.launchRemote('M67', [...ref.pos], [...ref.vel], 2, { pid: 1, state: 'flight', age: ref.age, fuse: ref.fuse, removal: ref.removal, bounces: ref.bounces, dud: ref.dud });
@@ -1333,7 +1491,7 @@ describe('M4: a launcher\'s round in flight on the page (research 94 §C4.3)', (
   /** A floor at y 50 and a wall across z at `wallZ`, x -2000..2000. */
   const range = (wallZ: number): Grid => {
     const poly = (points: number[], i: number): WorldPoly => ({ modelName: 'worldmodel', path: `worldmodel/p${i}`, region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0, points: Float32Array.from(points) });
-    const polys = [poly([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000], 0), poly([-2000, 0, wallZ, 2000, 0, wallZ, 2000, 400, wallZ, -2000, 400, wallZ], 1)];
+    const polys = [poly([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000], 0), poly([-2000, 0, wallZ, 2000, 0, wallZ, 2000, 400, wallZ, -2000, 400, wallZ], 1)];
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
     return buildGrid(params, [], [], polys, polys.map((p, i) => ({ modelName: 'worldmodel', path: `${p.path}${i}`, first: i, count: 1 })));
   };
@@ -1465,8 +1623,10 @@ describe('PAR-20 D10: the release under the threshold is refused before the comm
     expect(releasePowerClears(0.15)).toBe(true);                          // .15 is stored as that float32: no less than it
     expect(releasePowerClears(f32of(0x3e199999))).toBe(false);            // the float32 just under it
     expect(releasePowerClears(f32of(0x3e19999b))).toBe(true);
-    // The port model's digital taps at 60 Hz (research 230 s2.2): 0, 1, 3 ticks under it; 4 ticks over it.
-    for (const [ticks, clears] of [[0, false], [1, false], [3, false], [4, true]] as const) expect(releasePowerClears(1 - 0.95 ** ticks)).toBe(clears);
+    // The port model's digital taps at 60 Hz (research 230 s2.2): 0, 1, 3 ticks under it; 4 ticks over it. LATER 1027
+    // re-pin: the taps' power is the chase's own (`heldPower`, 1 - exp(-3.16099 t): 0, 0.0513, 0.146, 0.190), was
+    // the 60 Hz Euler step's 1 - 0.95^ticks (0, 0.05, 0.143, 0.185).
+    for (const [ticks, clears] of [[0, false], [1, false], [3, false], [4, true]] as const) expect(releasePowerClears(heldPower(ticks / 60))).toBe(clears);
   });
 
   it('a tap under the threshold starts no throw and spends nothing: no throwStart, no throw, the grenade still up, the power zeroed; the next hold throws', () => {
@@ -1493,7 +1653,7 @@ describe('PAR-20 D10: the release under the threshold is refused before the comm
     }
   });
 
-  it('a release with no throw for the state (a prone peek, a lean with no lean clip) is refused as a short tap is: the power zeroed (FUN_005499e0 D:L414008-414012 -> FUN_005be9a0 D:L475497-475498, research 256 s5)', () => {
+  it('a release with no throw for the state (a prone peek, a lean with no lean clip) is refused as a short tap is: the power zeroed (r0001 FUN_005499e0 D:L414008-414012 -> FUN_005be9a0 D:L475497-475498, superseded under OT.R97; research 256 s5)', () => {
     for (const body of [{ peek: -1, leanClip: true, stance: 'prone' }, { peek: 1 }] as Partial<PlaySnapshot>[]) {
       const { g } = thrower({ snapshot: () => snap(body) });
       g.select('M67');
@@ -1596,9 +1756,9 @@ describe('PAR-20 D09: a C4 placing whose callback was removed is not committed a
   const grid = (): Grid => {
     const f: WorldPoly = {
       modelName: 'worldmodel', path: 'worldmodel/f', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0,
-      points: Float32Array.from([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000]),
+      points: Float32Array.from([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000]),
     };
-    const wall: WorldPoly = { ...f, path: DI, ditype: 2, points: Float32Array.from([130, 50, 150, 130, 50, 250, 130, 110, 250, 130, 110, 150]) };
+    const wall: WorldPoly = { ...f, path: DI, ditype: 2, points: Float32Array.from([115, 50, 150, 115, 50, 250, 115, 110, 250, 115, 110, 150]) };   // LATER 1139: x 115 (was 130): 15 u, inside the hip gate
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
     return buildGrid(params, [], [], [f, wall], [
       { modelName: 'worldmodel', path: 'worldmodel/f0', first: 0, count: 1 }, { modelName: 'worldmodel', path: DI, first: 1, count: 1 },
@@ -1677,6 +1837,33 @@ describe('PAR-20 D09: a C4 placing whose callback was removed is not committed a
     // The own charge's removal had already run out, so that frame dropped it. The remote copy was hydrated
     // without a removal clock, so it stays, detonated, until one is set.
     expect(g.stats().live.map((l) => [l.pid, l.state])).toEqual([[8, 'detonated']]);
+  });
+
+  // C4-TOLD (an online adaptation, product track; the online room's refusal, which the original has not): a C4 plant the room
+  // refused (`stale`, request 'throw') is taken back as LATER 929's claymore is -- the page's oldest pid-less own copy
+  // gone before its fuse runs out, so no blast of it is drawn, and the charge back. An accepted (tagged) one is untouched.
+  it('RED: C4-TOLD -- a C4 the room refused stale is taken back: its copy gone, no blast, the charge back', () => {
+    const map = grid();
+    const g = new GrenadeThrower({
+      grid: () => map, snapshot: () => snap({ yaw: 0 }), view: () => 'third', handPoint: () => [102, 62, 192],
+      aim: () => ({ eye: [100, 62, 200], far: [400, 62, 200] }), online: () => true,
+    });
+    g.setRecords([C4]);
+    g.setWorld(() => ({ health: { blastAt: () => [], c4TargetAt: (path: string, damage: number) => (path === DI && damage >= 17 ? 0 : null) } }));
+    g.setKit(['M67', 'AN-M8', 'C4']);
+    const booms: string[] = [];
+    g.on('explode', (e) => booms.push(e.item));
+    run(g, 0.3);
+    const before = g.stats().leftByItem.C4!;
+    expect(g.plantC4()).toBe(true);
+    run(g, C4_PLANT_SECONDS + 0.1);
+    expect(g.stats().live.map((l) => l.state)).toEqual(['rest']);
+    expect(g.stats().leftByItem.C4).toBe(before - 1);
+    expect(g.giveBack('C4')).toBe(true);                         // the room's `stale` for the plant
+    expect(g.stats().live).toEqual([]);                          // today: the copy stays drawn and goes off on its fuse
+    expect(g.stats().leftByItem.C4).toBe(before);
+    run(g, C4.fuse + C4_SERVER_DETONATE_GRACE_S_ADAPTATION + 1);
+    expect(booms).toEqual([]);
   });
 
   it('an online C4 with no detonate still explodes about a second after its fuse; one with no server id does not wait', () => {
@@ -1901,7 +2088,7 @@ describe('PAR-20 D09: a C4 placing whose callback was removed is not committed a
     g.on('throwStart', (e) => { hold = e.hold; });
     run(g, 0.3);
     expect(g.plantC4()).toBe(true);
-    // The pane struck at the plant's start: the wall at x 130 (the saved point [130, 62, 200]).
+    // The pane struck at the plant's start: the wall at x 115 (the saved point [115, 62, 200]).
     const pane = aimPick(map, [100, 62, 200], [400, 62, 200])!.poly;
     return {
       g, placed, state, left: g.stats().leftByItem.C4!,
@@ -1921,9 +2108,9 @@ describe('PAR-20 D09: a C4 placing whose callback was removed is not committed a
   };
   const plantedAtSave = (p: ReturnType<typeof commitPlant>, seconds = C4_PLANT_SECONDS + 0.2): void => {
     run(p.g, seconds);
-    expect(p.placed).toEqual([{ item: 'C4', pos: [130, 62, 200] }]);
+    expect(p.placed).toEqual([{ item: 'C4', pos: [115, 62, 200] }]);
     expect(p.g.stats().leftByItem.C4).toBe(p.left - 1);
-    expect(p.g.stats().live.map((l) => l.pos)).toEqual([[130, 62, 200]]);
+    expect(p.g.stats().live.map((l) => l.pos)).toEqual([[115, 62, 200]]);
   };
 
   it('LATER 122: a target that stops taking the charge, or is gone, mid-clip plants nothing; the C4 is kept', () => {
@@ -2007,121 +2194,130 @@ describe('PAR-20 D09: a C4 placing whose callback was removed is not committed a
 });
 
 /**
- * PAR-20 D12 (research 256 s5): the release request's clearance (`FUN_005499e0` D:L413977-414063, asked by `FUN_005be9a0`
- * D:L475493-475497 before anything is committed): a segment in the actor frame from `GetThrowAnim`'s hand point (its z
- * forward of the feet taken back to 0, D:L414020-414052) to a point by the body's state -- standing a toss's or a throw's,
- * crouched one, prone a toss's or a throw's (D:L414022-414049) -- through the actor's matrix (D:L414053-414054) and the
- * world's segment query (`FUN_0031e250` D:L414055): a hit refuses the throw. Any other state -- the lean, 3 -- returns 1
- * before the query (D:L414037-414039): never refused by it.
+ * PAR-20 D12, r0004 (OT.R97; research 256 s5, "the r0004 clearance"): the release request's clearance (r0004 `0x54e6f0`,
+ * asked by the release request at 0x5c5d6c before anything is committed): a ray from `GetThrowAnim`'s hand point
+ * (unclamped) through the actor's matrix, 25 units (`THROW_CLEARANCE_LENGTH_READING`) along the aim vector (0, s,
+ * -sqrt(1 - s^2)) turned by the matrix's 3x3, through the world's segment query (`0x33b860`); the ONE hit nearest the
+ * start refuses only when `0x5bc8d0` calls it a blocker (the port's `aimHitKept`). The lean is cast like any state.
+ * r0001's per-state end points (`FUN_005499e0`) are superseded (research 256 s5).
  */
-describe('PAR-20 D12: the stance-specific clearance before the commit (research 256 s5)', () => {
-  const f32 = (bits: number): number => { const d = new DataView(new ArrayBuffer(4)); d.setUint32(0, bits); return d.getFloat32(0); };
+describe('PAR-20 D12: the release clearance before the commit, r0004 (research 256 s5)', () => {
   const close = (a: readonly number[], b: readonly number[]): void => { for (let k = 0; k < 3; k++) expect(a[k]).toBeCloseTo(b[k]!, 5); };
-  /**
-   * A floor at y 50 and, when `wallZ` is given, a wall across z there, x 0..200, y 50..100 -- wound so its normal is +z
-   * (facing a thrower at z 200 throwing toward -z), or, `back`, wound the other way (LATER 250: its normal -z, so the
-   * throw's segment enters it from behind).
-   */
-  const world = (wallZ?: number, back = false): Grid => {
-    const poly = (points: number[], i: number, ditype = 3): WorldPoly => ({ modelName: 'worldmodel', path: `worldmodel/c${i}`, region: 0, ditype, material: 7, ptcount: 4, cameratype: 0, points: Float32Array.from(points) });
-    const polys = [poly([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000], 0)];
-    if (wallZ !== undefined) {
-      polys.push(poly(back ? [0, 100, wallZ, 200, 100, wallZ, 200, 50, wallZ, 0, 50, wallZ] : [0, 50, wallZ, 200, 50, wallZ, 200, 100, wallZ, 0, 100, wallZ], 1, 2));
-    }
+  const poly = (points: number[], i: number, ditype = 3, material = 7, cameratype = 0): WorldPoly => ({ modelName: 'worldmodel', path: `worldmodel/c${i}`, region: 0, ditype, material, ptcount: 4, cameratype, points: Float32Array.from(points) });
+  /** A wall across z there, x 0..200, y 50..100, its normal +z (facing a thrower at z 200 throwing toward -z); `back`, wound the other way. */
+  const wallAt = (z: number, i: number, back = false, material = 7, cameratype = 0): WorldPoly =>
+    poly(back ? [0, 100, z, 200, 100, z, 200, 50, z, 0, 50, z] : [0, 50, z, 200, 50, z, 200, 100, z, 0, 100, z], i, 2, material, cameratype);
+  const gridOf = (walls: WorldPoly[]): Grid => {
+    const polys = [poly([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000], 0), ...walls];
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
     return buildGrid(params, [], [], polys, polys.map((p, i) => ({ modelName: 'worldmodel', path: `${p.path}${i}`, first: i, count: 1 })));
   };
+  /** A floor at y 50 and, when `wallZ` is given, one wall there (`wallAt`). */
+  const world = (wallZ?: number, back = false): Grid => gridOf(wallZ === undefined ? [] : [wallAt(wallZ, 1, back)]);
   const at = (over: Partial<PlaySnapshot> = {}): PlaySnapshot => snap({ yaw: 0, ...over });
+  const SEE_THROUGH = 3;                                  // INVISIBLE_DI: PENETRATION 1 without PICKUP
+  const STONE = 7;
 
-  it("the five end points are FUN_005499e0's float32 words, in the actor frame (D:L414004-414006, D:L414025-414047)", () => {
-    expect(THROW_CLEARANCE_ENDS.standToss).toEqual([f32(0x405d4092), f32(0x414744f2), f32(0xc1200000)]);
-    expect(THROW_CLEARANCE_ENDS.standThrow).toEqual([f32(0x3f93dffc), f32(0x4155abbf), f32(0xc17c0000)]);
-    expect(THROW_CLEARANCE_ENDS.crouch).toEqual([f32(0x3f6ca633), f32(0x412a1a13), f32(0xc141999a)]);
-    expect(THROW_CLEARANCE_ENDS.proneToss).toEqual([f32(0x3fe8e697), f32(0x40b290cf), f32(0xc129999a)]);
-    expect(THROW_CLEARANCE_ENDS.proneThrow).toEqual([f32(0x3f18110a), f32(0x411150d9), f32(0xc0d80000)]);
+  it('the ray is 25 units, r0004 0x54e798; the query placeholder kept', () => {
+    expect(THROW_CLEARANCE_LENGTH_READING).toBe(25);
     expect(THROW_CLEARANCE_QUERY_PLACEHOLDER).toBe('movement surfaces, every gated owner');
+    expect(surfaceMaterial(SEE_THROUGH).name).toBe('INVISIBLE_DI');
+    expect(aimPickBlocks(surfaceMaterial(SEE_THROUGH))).toBe(false);
+    expect(aimPickBlocks(surfaceMaterial(STONE))).toBe(true);
   });
 
-  it("the exact segment: from GetThrowAnim's hand point (z forward of the feet taken to 0) to the state's end point, turned by the yaw; the lean has none", () => {
+  it("the exact ray: from GetThrowAnim's hand point (unclamped) 25 units along the aim, turned by the yaw; the lean cast from its own hand", () => {
     const feet: V3 = [100, 50, 200];
-    // Standing, power .9 aimed level: the throw (hand 3.34, 19.35, 3.91 -- behind, kept) to (1.155, 13.354, -15.75).
-    let seg = throwClearanceSegment(at(), 0.9, 0)!;
-    close(seg.from, [feet[0] + 3.343816, feet[1] + 19.34775, feet[2] + 3.913763]);
-    close(seg.to, [feet[0] + 1.1552730, feet[1] + 13.354430, feet[2] - 15.75]);
-    // Standing, power .3 aimed level: the toss (hand 3.13, 13.8, -10.5: forward, so z 0) to (3.457, 12.454, -10).
-    seg = throwClearanceSegment(at(), 0.3, 0)!;
-    close(seg.from, [feet[0] + 3.13, feet[1] + 13.8, feet[2]]);
-    close(seg.to, [feet[0] + 3.4570661, feet[1] + 12.454332, feet[2] - 10]);
-    // Crouched still: the crouch throw's hand; crouched moving: the standing throw's hand, the crouch's end point both.
-    seg = throwClearanceSegment(at({ stance: 'crouch', crouched: true }), 0.9, 0)!;
-    close(seg.from, [feet[0] + 6.05, feet[1] + 15.59, feet[2] + 1.96]);
-    close(seg.to, [feet[0] + 0.9244110, feet[1] + 10.631366, feet[2] - 12.1]);
-    seg = throwClearanceSegment(at({ stance: 'crouch', crouched: true, vx: 20 }), 0.9, 0)!;
-    close(seg.from, [feet[0] + 3.343816, feet[1] + 19.34775, feet[2] + 3.913763]);
-    close(seg.to, [feet[0] + 0.9244110, feet[1] + 10.631366, feet[2] - 12.1]);
-    // Prone: the throw and the toss (hand -0.97 and -8.53 forward: z 0).
-    seg = throwClearanceSegment(at({ stance: 'prone' }), 0.9, 0)!;
-    close(seg.from, [feet[0] + 6.29, feet[1] + 15.05, feet[2]]);
-    close(seg.to, [feet[0] + 0.5940100, feet[1] + 9.0822382, feet[2] - 6.75]);
-    seg = throwClearanceSegment(at({ stance: 'prone' }), 0.3, 0)!;
-    close(seg.from, [feet[0] + 2.39, feet[1] + 7.87, feet[2]]);
-    close(seg.to, [feet[0] + 1.8195370, feet[1] + 5.5801768, feet[2] - 10.6]);
-    // Turned: yaw 90 takes the actor's -z to the world's -x.
-    seg = throwClearanceSegment(at({ yaw: 90 }), 0.9, 0)!;
-    close(seg.to, [feet[0] - 15.75, feet[1] + 13.354430, feet[2] - 1.1552730]);
-    // The lean (state 3): no segment, FUN_005499e0 returns 1 before the query.
-    expect(throwClearanceSegment(at({ peek: 1, leanClip: true }), 0.9, 0)).toBeNull();
-    expect(throwClearanceSegment(at({ peek: -1, leanClip: true, stance: 'crouch', crouched: true }), 0.3, 0)).toBeNull();
+    const ray = (hand: readonly number[], d: V3 = [0, 0, -25]): [V3, V3] => {
+      const from: V3 = [feet[0] + hand[0]!, feet[1] + hand[1]!, feet[2] + hand[2]!];
+      return [from, [from[0] + d[0], from[1] + d[1], from[2] + d[2]]];
+    };
+    const check = (seg: { from: V3; to: V3 }, [from, to]: [V3, V3]): void => { close(seg.from, from); close(seg.to, to); };
+    check(throwClearanceSegment(at(), 0.9, 0), ray(THROW_ANIMS.standThrow.offset));             // the throw: hand behind the feet
+    check(throwClearanceSegment(at(), 0.3, 0), ray(THROW_ANIMS.standToss.offset));              // the toss: hand 10.5 ahead, NOT clamped
+    expect(THROW_ANIMS.standToss.offset[2]).toBeCloseTo(-10.5, 6);
+    check(throwClearanceSegment(at({ stance: 'crouch', crouched: true }), 0.9, 0), ray(THROW_ANIMS.crouchThrow.offset));
+    check(throwClearanceSegment(at({ stance: 'crouch', crouched: true, vx: 20 }), 0.9, 0), ray(THROW_ANIMS.standThrow.offset));
+    check(throwClearanceSegment(at({ stance: 'prone' }), 0.9, 0), ray(THROW_ANIMS.proneThrow.offset));
+    check(throwClearanceSegment(at({ stance: 'prone' }), 0.3, 0), ray(THROW_ANIMS.proneToss.offset));
+    // The aim: (0, s, -sqrt(1 - s^2)) x 25 (r0004 0x5edff8-0x5ee07c).
+    check(throwClearanceSegment(at(), 0.9, 0.5), ray(THROW_ANIMS.standThrow.offset, [0, 12.5, -25 * Math.sqrt(0.75)]));
+    // Turned: yaw 90 takes the actor's -z to the world's -x (the 3x3 alone: no translation in the direction).
+    const h = THROW_ANIMS.standThrow.offset, seg = throwClearanceSegment(at({ yaw: 90 }), 0.9, 0);
+    close(seg.from, [feet[0] + h[2], feet[1] + h[1], feet[2] - h[0]]);
+    close(seg.to, [seg.from[0] - 25, seg.from[1], seg.from[2]]);
+    // The lean (state 3): cast like any state, from the lean's own hand point (r0004 0x585740-0x58580c).
+    check(throwClearanceSegment(at({ peek: 1, leanClip: true }), 0.9, 0), ray(THROW_ANIMS.peekRightToss.offset));
+    check(throwClearanceSegment(at({ peek: -1, leanClip: true, stance: 'crouch', crouched: true }), 0.3, 0), ray(THROW_ANIMS.peekLeftToss.offset));
   });
 
-  // LATER 250 (research 281 §4.3; reading, pending review): the clearance asks the hull's one-sided test -- a face counts
-  // only entered from its front (`FUN_002d2890` side mode 0x20 for a hull collider, D:L174831-174837, D:L215827-215828).
-  it('LATER 250: the same wall wound the other way -- the segment entering it from behind -- does not refuse the throw; wound to face the thrower, it does', () => {
+  // LATER 250 (research 281 §4.3; for r0004 the walk 0x2f1690 is not read -- the capture's fit used front entries).
+  it('LATER 250: the same wall wound the other way -- the ray entering it from behind -- does not refuse the throw; wound to face the thrower, it does', () => {
     expect(throwClear(world(190, true), at(), 0.9, 0)).toBe(true);           // a back entry: no hit, the throw goes
-    expect(throwClear(world(190), at(), 0.9, 0)).toBe(false);                // a front entry: refused, as before
+    expect(throwClear(world(190), at(), 0.9, 0)).toBe(false);                // a front entry: refused
   });
 
-  it("a wall across the standing throw's segment refuses it before the commit, nothing spent; the same wall clears the prone throw (whose end stops short) and the lean (no query)", () => {
+  it('the second reader (item-1-r0004-second-read.md s8.5): a see-through NEAREST hit clears the throw even with a wall behind it; a blocker nearest refuses it', () => {
+    expect(throwClear(gridOf([wallAt(195, 1, false, SEE_THROUGH), wallAt(190, 2)]), at(), 0.9, 0)).toBe(true);   // nearest INVISIBLE_DI: clear
+    expect(throwClear(gridOf([wallAt(195, 1), wallAt(190, 2, false, SEE_THROUGH)]), at(), 0.9, 0)).toBe(false);  // nearest stone: refused
+    // An `m_cameratype` 1 face (bit 18) is never a hit: the walk's class 0 drops it before the pick (the movement's filter,
+    // `THROW_CLEARANCE_QUERY_PLACEHOLDER`), so the verdict's cameratype-1 pass is moot and the stone behind it refuses.
+    expect(throwClear(gridOf([wallAt(195, 1, false, STONE, 1), wallAt(190, 2)]), at(), 0.9, 0)).toBe(false);
+    expect(throwClear(gridOf([wallAt(195, 1, false, STONE, 1)]), at(), 0.9, 0)).toBe(true);
+    expect(throwClear(gridOf([wallAt(190, 1, false, SEE_THROUGH)]), at(), 0.9, 0)).toBe(true);
+  });
+
+  it('the second reader (s8.5): a lean facing a wall is REFUSED -- r0004 casts the lean (r0001 returned 1 for it, D:L414037-414039)', () => {
+    expect(throwClear(world(190), at({ peek: 1, leanClip: true }), 0.9, 0)).toBe(false);
+    expect(throwClear(world(190), at({ peek: -1, leanClip: true }), 0.9, 0)).toBe(false);
+    expect(throwClear(world(), at({ peek: 1, leanClip: true }), 0.9, 0)).toBe(true);
+  });
+
+  it('a wall across the ray refuses it before the commit, nothing spent; past its end it clears; the prone ray meets the same wall', () => {
     const wall = world(190);
     expect(throwClear(wall, at(), 0.9, 0)).toBe(false);
     expect(throwClear(world(), at(), 0.9, 0)).toBe(true);
-    expect(throwClear(world(180), at(), 0.9, 0)).toBe(true);                       // past the end point (z 184.25)
-    expect(throwClear(wall, at({ stance: 'prone' }), 0.9, 0)).toBe(true);          // the prone end is z 193.25
-    expect(throwClear(wall, at({ peek: 1, leanClip: true }), 0.9, 0)).toBe(true);  // the lean's early return
+    expect(throwClear(world(175), at(), 0.9, 0)).toBe(true);                       // past the end (z 203.91 - 25 = 178.91)
+    expect(throwClear(wall, at({ stance: 'prone' }), 0.9, 0)).toBe(false);         // the prone hand at 65 up, 25 along: in the wall
     expect(throwClear(null, at(), 0.9, 0)).toBe(true);                             // no hull loaded: nothing to hit
-    // Through the thrower: refused like a short tap (FUN_00592d40), no clip, no hold, nothing spent; the lean throws.
-    let now = at();
-    const { g, events } = thrower({ grid: () => wall, snapshot: () => now });
+    // Through the thrower: refused like a short tap (FUN_00592d40), no clip, no hold, nothing spent; the lean is refused
+    // the same; with the wall gone the lean throws.
+    let now = at(), hull: Grid = wall;
+    const { g, events } = thrower({ grid: () => hull, snapshot: () => now });
     const starts: string[] = [];
     g.on('throwStart', (e) => starts.push(e.anim.clip));
     g.select('M67');
     const left = g.stats().left;
-    g.pull();
-    for (let i = 0; i < 40; i++) g.update(1 / 60);
-    g.release();
-    for (let i = 0; i < 120; i++) g.update(1 / 60);
+    const hold = (): void => {
+      g.pull();
+      for (let i = 0; i < 40; i++) g.update(1 / 60);
+      g.release();
+      for (let i = 0; i < 120; i++) g.update(1 / 60);
+    };
+    hold();
     expect(starts).toEqual([]);
     expect(events.filter((e) => e.startsWith('throw '))).toEqual([]);
     expect(g.stats()).toMatchObject({ phase: 'ready', equipped: true, power: 0, left });
     now = at({ peek: 1, leanClip: true });
-    g.pull();
-    for (let i = 0; i < 40; i++) g.update(1 / 60);
-    g.release();
-    for (let i = 0; i < 120; i++) g.update(1 / 60);
+    hold();
+    expect(starts).toEqual([]);
+    expect(g.stats().left).toBe(left);
+    hull = world();
+    hold();
     expect(starts).toEqual(['seal_toss_rlean']);
     expect(g.stats().left).toBe(left - 1);
   });
 });
 
 /**
- * PAR-20 D12 on the disc's hull (research 256 s5, "Measured at Frostfire's spawn A"): standing at A (feet 796, 100,
- * 614, as `e2e/grenade.spec.ts` and `e2e/fire.spec.ts` stand) facing yaw 90 (-x) at `init_aim_pitch`, a second's hold
- * is the standing throw, and its clearance segment -- from the hand's table point, behind the feet, to the end point
- * 15.75 ahead -- crosses `container_blue01`'s side 12 units west of A (the face `fire.test.ts` shoots): a vertical
- * METAL_THICK movement surface of a static world node, which no variant of `FUN_002d2890`'s surface filter drops (bit 1
- * set; bits 18 and 19 clear; the material not VOLUMETRIC, D:L174845-174864). So the release request refuses it, as
- * `FUN_005499e0` reads (D:L414053-414061) under `THROW_CLEARANCE_QUERY_PLACEHOLDER`. Yaws 210 and 240, the spec's
- * throws, are clear.
+ * PAR-20 D12 on the disc's hull (research 256 s5, "Measured at Frostfire's spawn A"), under r0004: standing at A (feet
+ * 796, 100, 614, as `e2e/grenade.spec.ts` and `e2e/fire.spec.ts` stand) facing yaw 90 (-x) at `init_aim_pitch`, a
+ * second's hold is the standing throw, and its clearance ray -- from the hand's table point, behind the feet, 25 units
+ * along the aim -- crosses `container_blue01`'s side west of A (the face `fire.test.ts` shoots): a vertical METAL_THICK
+ * movement surface of a static world node, which no variant of the surface filter drops (bit 1 set; bits 18 and 19
+ * clear; the material not VOLUMETRIC) and which `0x5bc8d0` calls a blocker. So the release request refuses it. The aim
+ * here is the page's (`releaseAimSin`, the pitch's sine; the rest aim's s = 0 refuses the same). Yaws 210 and 240, the
+ * spec's throws, are clear; yaw 90's lean meets the same container and is refused (r0004 casts the lean).
  */
 describe.skipIf(!MP2_ZDB)(`PAR-20 D12 on Frostfire's hull: the container west of spawn A refuses the standing throw${MP2_ZDB ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
   const SPAWN_A: [number, number, number] = [796, 100, 614];
@@ -2132,23 +2328,22 @@ describe.skipIf(!MP2_ZDB)(`PAR-20 D12 on Frostfire's hull: the container west of
   const at = (yaw: number): PlaySnapshot => snap({ feet: SPAWN_A, yaw, pitch: REST_PITCH });
   const near = (a: readonly number[], b: readonly number[], digits = 3): void => { for (let k = 0; k < 3; k++) expect(a[k]).toBeCloseTo(b[k]!, digits); };
 
-  it("yaw 90: the standing throw's segment meets container_blue01's side 12 units west of A -- a movement surface of a static world node -- and the clearance refuses", async () => {
+  it("yaw 90: the standing throw's ray meets container_blue01's side west of A -- a movement surface of a static world node, a blocker -- and the clearance refuses", async () => {
     const g = await grid();
     const s = at(90), aimSin = releaseAimSin(s);
-    expect(FULL).toBeCloseTo(1 - 0.95 ** 60, 9);
-    const seg = throwClearanceSegment(s, FULL, aimSin)!;
-    // The throw (not the toss): hand (3.344, 19.348, 3.914) behind the feet, kept; end (1.155, 13.354, -15.75), both
+    expect(FULL).toBeCloseTo(1 - (1 - 3 * GAME_FRAME_DT) ** (1 / GAME_FRAME_DT), 9);   // LATER 1027 re-pin: 0.9576, was 1 - 0.95^60
+    const seg = throwClearanceSegment(s, FULL, aimSin);
+    // The throw (not the toss): hand (3.344, 19.348, 3.914) behind the feet; 25 along the aim (sine -0.1593), both
     // turned by yaw 90 (the actor's -z is the world's -x, its +x the world's -z).
     near(seg.from, [799.913763, 119.34775, 610.656184]);
-    near(seg.to, [780.25, 113.354430, 612.844727]);
+    near(seg.to, [799.913763 - 25 * Math.sqrt(1 - aimSin * aimSin), 119.34775 + 25 * aimSin, 610.656184]);
     const hits = segmentHits(g, seg.from, seg.to, (p) => (surfaceWord(p) & (SURFACE_SIDE | SURFACE_SKIP)) === SURFACE_SIDE);
-    expect(hits).toHaveLength(1);
     const [hit] = hits;
     expect(hit!.owner.path).toBe('worldmodel/container_blue01=container_blue01/climb');
     expect(hit!.owner.sweep).toBeUndefined();                                     // a static node, not a door's leaf
-    expect(hit!.t).toBeCloseTo(0.79466, 4);                                       // 16.43 of the segment's 20.67
-    near(hit!.point, [784.288, 114.585, 612.395]);
-    // The side: vertical (its normal 10 degrees off +x), y 100..130 -- the segment crosses it at 114.6, the floor never.
+    expect(hit!.t).toBeCloseTo(0.62070, 4);                                       // 15.5 of the ray's 25
+    near(hit!.point, [784.594, 116.876, 610.656]);
+    // The side: vertical (its normal 10 degrees off +x), y 100..130 -- the ray crosses it at 116.9, the floor never.
     expect(hit!.normal[1]).toBe(0);
     expect(hit!.normal[0]).toBeCloseTo(Math.cos(Math.PI / 18), 6);
     const ys = [...hit!.poly.points].filter((_, i) => i % 3 === 1);
@@ -2157,12 +2352,13 @@ describe.skipIf(!MP2_ZDB)(`PAR-20 D12 on Frostfire's hull: the container west of
     expect(surfaceWord(hit!.poly) & (SURFACE_SIDE | SURFACE_SKIP | CAMERA_SKIP)).toBe(SURFACE_SIDE);
     expect(surfaceMaterial(hit!.poly.material, 'METAL_THICK')).toMatchObject({ name: 'METAL_THICK', volumetric: false, liquid: false });
     expect(throwClear(g, s, FULL, aimSin)).toBe(false);
+    expect(throwClear(g, s, FULL, 0)).toBe(false);                                // the rest aim (s = 0) the same
   }, 60_000);
 
-  it("yaws 210 and 240 (the spec's throws from A) are clear; yaw 90's lean asks no query", async () => {
+  it("yaws 210 and 240 (the spec's throws from A) are clear; yaw 90's lean meets the same container and is refused (r0004 casts the lean)", async () => {
     const g = await grid();
     for (const yaw of [210, 240]) expect(throwClear(g, at(yaw), FULL, releaseAimSin(at(yaw)))).toBe(true);
-    expect(throwClear(g, snap({ feet: SPAWN_A, yaw: 90, pitch: REST_PITCH, peek: 1, leanClip: true }), FULL, releaseAimSin(at(90)))).toBe(true);
+    expect(throwClear(g, snap({ feet: SPAWN_A, yaw: 90, pitch: REST_PITCH, peek: 1, leanClip: true }), FULL, releaseAimSin(at(90)))).toBe(false);
   }, 60_000);
 
   it("through the thrower, as the hook's throwGrenade(1) asks it: at yaw 90 refused -- nothing thrown, nothing spent, the grenade still up, the power zeroed; at yaw 210 thrown", async () => {
@@ -2193,7 +2389,7 @@ describe('PAR-46: a throw drawn off the walk flies over the map\'s hull', () => 
   /** A floor at y 50 and a wall across z = -300, x -2000..2000 (the PF-28 fix round's ground). */
   const mapGrid = (): Grid => {
     const poly = (points: number[], i: number): WorldPoly => ({ modelName: 'worldmodel', path: `worldmodel/p${i}`, region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0, points: Float32Array.from(points) });
-    const polys = [poly([-2000, 50, -2000, 2000, 50, -2000, 2000, 50, 2000, -2000, 50, 2000], 0), poly([-2000, 0, -300, 2000, 0, -300, 2000, 400, -300, -2000, 400, -300], 1)];
+    const polys = [poly([-2000, 50, 2000, 2000, 50, 2000, 2000, 50, -2000, -2000, 50, -2000], 0), poly([-2000, 0, -300, 2000, 0, -300, 2000, 400, -300, -2000, 400, -300], 1)];
     const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 500, cellsX: 8, cellsZ: 8, originX: -2000, originZ: -2000 };
     return buildGrid(params, [], [], polys, polys.map((p, i) => ({ modelName: 'worldmodel', path: `${p.path}${i}`, first: i, count: 1 })));
   };
@@ -2397,7 +2593,7 @@ function claymoreFloorNu1b(): Grid {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: 0, originZ: 0 };
   const poly: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([0, 50, 0, 400, 50, 0, 400, 50, 400, 0, 50, 400]),
+    points: Float32Array.from([0, 50, 400, 400, 50, 400, 400, 50, 0, 0, 50, 0]),
   };
   return buildGrid(params, [], [], [poly], [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }]);
 }

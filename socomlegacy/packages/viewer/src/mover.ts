@@ -12,9 +12,12 @@ import type { GateTop } from './net/actionGate';
 import { SCOPE_SLOW } from './zoom';
 import { wrapYaw } from './yaw';
 import { PRONE_HEIGHT } from './stature';
+import { AI_ONLINE_LANDING_CLASS, DIVE_LANDING_SPEED_FACTOR } from './net/damage';
 import { OrderedBoundsIndex } from './orderedBoundsIndex';
-import { CLIMBABLE, CORNER_DOT } from './climb';
-import { weaponLineLengthOf, WEAPON_LINE_ONE_SIDED_PLACEHOLDER } from './weaponLine';
+import { contactSlide, type OtherBody } from './pushApart';
+import { CLIMBABLE, CORNER_DOT, footStepOffset } from './climb';
+import { weaponLineLengthOf, WEAPON_LINE_NO_FIREPOINT, WEAPON_LINE_ONE_SIDED_READING } from './weaponLine';
+import { FootPlant } from './footPlant';
 import {
   actionClipOf, GROUND_PLAY_PHASE, groundClipOf, oneShotPhase, PRONE_TILT_EASE_BASIS_READING, rootTiltStart, rotateByQuat, stepRootTilt,
   tiltWindowOf, traversalPhase, worldToBody, type RootTiltState, type TiltQuat, type TiltTop,
@@ -159,6 +162,40 @@ type GroundCorrection = (feet: readonly [number, number, number]) => readonly [n
  * research 71 §1.5's 60 Hz); under PF.R8 this tick stays as transport and a per-frame constant runs once per
  * `GAME_FRAME_DT` through `GameFrameAccumulator` (research 208).
  */
+/**
+ * READING (named; LATER 1349, B-90; research 251 s7; reading, pending review): a landing forces the stance to STAND and
+ * keeps the stance held before it as the request (`'stand'`). The landing function (r0004 0x5b52b0, r0001 `FUN_005af590`
+ * D:L466641-466728) calls the stance writer (the actor's `+0x90`) with 0 on every landing past its opening gate -- soft,
+ * hard, the hits, the run-on landing with no clip (0x5b54d8-0x5b54e4; the class-3 one 0x5b54f0-0x5b5500) -- and leaves
+ * the request byte `+0x374` alone; the per-tick applier (r0004 0x557f20, `FUN_00552d60`) asks the gate (0x558080,
+ * `FUN_00552ec0`) for it every tick and takes it once the body is free. The dive's landing (0x585900) writes no stance.
+ * Measured on r0004 by capture B90-PC4 (Shadow PC 4; sha256 e2a315aa...6761cafe; recounted by a fresh reader, the build
+ * accepted with a caveat): prone hands-off 20 game frames standing, then prone; prone with the stick held 2 frames; crouched
+ * hands-off 20 frames (5/5 each). A knock's landing does not reach 0x5b52b0 (0x5b5a64-0x5b5be4 -> 0x585a80). Unread: the
+ * landing function's opening gate (the globals at r0004 0x442ff8 and 0x45d481; the 1349 review's F6). *Was:* the landing
+ * kept the stance.
+ */
+export const LANDING_STANCE_READING = 'stand' as const;
+
+/**
+ * READING (named; LATER 1349 vs LATER 873, research 251 s7; reading, pending review): a landing that pushes NO clip keeps
+ * the stance (`'kept'`). The landing (r0004 0x5b52b0) writes stance 0 on that path too, but later in the same call of the
+ * ground driver (0x556050) the chooser (0x58c710 with 0, at 0x556a1c) rewrites the stance from the top record's state
+ * byte; with no clip pushed the top is the record the body jumped or fell from, so the frame ends in its stance (a run
+ * record's state byte 1 for a crouch: inferred, medium -- the table at 0x65d140, entry 1, would read it). The applier's task
+ * runs before the landing's in a frame (scheduler keys 1.0 and 4.6), so the 0 is never seen between frames: LATER 873's
+ * rows (`l873-crouchjump`, sha256 c5cb12bcd659...) show posture 1 in every read from the frame the airborne bit clears
+ * (3 of 3). A second reader of the settling read confirmed it (its F1 corrected the mechanism from a re-take to the
+ * chooser). Outside this reading: the ladder SLIDE's exit, the landing function's second caller (0x5540f0, from the
+ * actor table's slot +0x28 = 0x668b48) runs at the tail of 0x556050 (0x55702c-0x557030), AFTER the chooser, so a clipless
+ * slide exit ends its frame at stance 0 and the stance returns the next frame; the port's slide exit keeps the stance
+ * (the 1349 delta's D1; LATER 1379; not built). Unread, not built (its D5; LATER 1380): the landing skips the clip's push when `+0xeac` is set
+ * (0x5b5470), and the original's stick test sums both axes' squares against 0.03^2 (0x5b5418-0x5b5438) where the port
+ * tests each axis (`idle`), the two differing between 0.021 and 0.03 on both axes.
+ * *Was* (eac123fa02): stand on every landing, then the request re-taken on the landing's tick.
+ */
+export const LANDING_NO_CLIP_STANCE_READING = 'kept' as const;
+
 export const TICK = 1 / 60;
 /**
  * Sprint 1's eye over the feet (W1.R2): no longer a view (W2.1 retired it: W2.R1), the height `setCamera` and the
@@ -173,8 +210,168 @@ export const BODY_RADIUS = 3.5;
 /** FUN_0054aa30 D:L415166/416025-416044; FUN_005483d0 D:L413432/413538, RAM0x44c268. */
 export const AI_HULL_READING = { ahead: 1.4, still: 0.0005, slope: 0.6427876353263855 } as const;
 
-/** No step moves further than this at once, so a wall 3.5 away cannot be stepped through at any speed. */
+/**
+ * No step moves further than this at once, so a wall 3.5 away cannot be stepped through at any speed. LATER 1148: the walk's
+ * own ground tick on the segment arm (`WALL_BODY_READING` 'segments') does not split its move by it -- the walls are met
+ * once on the tick's move (`resolveSegments`) and the floor at the frame's end (`GROUND_FLOOR_PROBE_READING` 'frame-end').
+ * It still splits the air's move, the AI's corrected move, a `glide` (a move outside the walk's tick) and the disc arm's
+ * whole move, where each part is slid (`slide`) and refused over no floor (`step`): the disc arm keeps the sub-step floor
+ * rule, a third deviation from the frame's one probe (research 444 s9; the review of 42550490c1, finding 11).
+ */
 const MAX_SUBSTEP = 1;
+/**
+ * LATER 1148 (research 444 s2, s5, s9): when the ground walk tests its floor. `'frame-end'` (built): once a game frame,
+ * on the tick that ends it (`throttleFrameEnds` of the tick's number, the throttle's frames), at the position the frame's
+ * whole step reached -- `FUN_005483d0` takes the frame's displacement in one add (D:L413918) and `FUN_005b0840` probes
+ * once from `+0xf54` (D:L467215-467256), read by `FUN_005b0420` (D:L467055-467103) with no lower bound on the pick
+ * (`FUN_005b5d40` D:L470233-470274). A hit is taken (`groundEndpoint`) and becomes the last hit; a miss puts the body back
+ * at the last hit (`GROUND_PUT_BACK_READING`), keeps the speed (`GROUND_SPEED_KEPT_READING`) and counts toward the retry
+ * (`GROUND_RETRY_REFUSALS_READING`). The tick between two frame ends (the port's 60 Hz tick, `GROUND_WALLS_PER_TICK_READING`)
+ * goes no further than the frame's move: over a floor it takes its move and the floor's y (never a take-off), over none it
+ * holds its move for the frame's end (`GROUND_FRAME_TICKS_READING`) and the body stays -- the original makes one move a
+ * frame, the walls only shortening it, and stands nowhere no frame's move ends (the census's three walls met from behind
+ * their normals at 42550490c1, each walked through on such a tick). Relay-1's rows on r0004 (MP72 b2_wc07's top; bugs/P10-crossroads-rows-read.md after its fresh review): the run
+ * leaves, the walk at z 1269 is held, the walk at z 1220 walks off. `'sub-step'`: the old rule, each `MAX_SUBSTEP` part
+ * refused over no floor, which held a run at a floorless strip wider than 0.54 (MP72's wedge). The AI's seam (`move`'s
+ * `correct`) keeps its own single end probe. [reading, pending review]
+ */
+export const GROUND_FLOOR_PROBE_READING = 'frame-end' as 'frame-end' | 'sub-step';
+/**
+ * LATER 1148, THE RETRY CYCLE (research 444 s9): after `refused` game frames refused in a row, ONE idle frame (no move, the
+ * ground state idle, the ramped stick back to rest), and the speed ramp restarts from rest; a few refusals (the run's three)
+ * leave the ramp going on. The rows: held 17-18 updates before the idle row (`measured`) -- top-walk-stand-1 17 and
+ * narrow-walk-1 18 refused updates, each then one idle row (action 1) and the ramp from 0.36 again. top-walk-2's 11, ended
+ * by a half-step and no idle row, is its own case (`GROUND_HALF_STEP_READING`), not the retry. What sets the count is not
+ * read; built at narrow-walk-1's 18. [reading: the range measured, the count's source unread]
+ */
+export const GROUND_RETRY_REFUSALS_READING = { refused: 18, measured: [17, 18] } as const;
+/**
+ * LATER 1148 (research 444 s9; the review of 42550490c1, finding 9): top-walk-2 was held 11 updates and moved on by a
+ * 16.7 ms half-step, with no idle row -- a way off a hold the port does not model (what makes the half-step is unread).
+ * [reading: measured once in the rows, unmodelled]
+ */
+export const GROUND_HALF_STEP_READING = 'unmodelled' as 'unmodelled';
+/**
+ * LATER 1148 (research 444 s9; the review of 42550490c1, finding 9): the first frame's step from rest -- after the retry's
+ * restart, or from a placing -- is the original's 0.36 u at the walk (the rows, narrow-walk-1..3: 0.358-0.359), the port's
+ * about 0.27 u (0.268 numbered from 2, crossroadsWallTop's z 1220 walk): the port's stick ramp (`throttleRamp`) reaches
+ * less in its first frame. A named difference, not tuned. [reading: the rows' step measured, the port's ramp its own]
+ */
+export const GROUND_FIRST_STEP_READING = { original: 0.358, port: 0.268 } as const;
+/**
+ * LATER 1148 (research 444 s9; the review of 42550490c1, finding 5): a ground frame whose move ends over no floor is put
+ * back whole (`FUN_005b0420` D:L467091-467103); the port's old retry of a refused step as its part along x, then along z
+ * (`step`), which slid a body pressed diagonally into a floorless edge along it, is not on the walk's ground tick: such a
+ * body stops dead at the edge (walk.test). [reading, pending review]
+ */
+export const GROUND_AXIS_RETRY_READING = 'none' as 'none';
+/**
+ * LATER 1148 (research 444 s9, finding 2): a refused frame's put-back goes to the LAST HIT's point (`+0x400..+0x408`, the
+ * hit record's, D:L467123-467143; `FUN_003157d0` D:L467099, y included), which the port stores at each frame end's hit. The
+ * hit's point is the probe column, here the feet: the root offset's x/z (D:L467221-467251) is taken as 0. [reading]
+ */
+export const GROUND_PUT_BACK_READING = 'last-hit' as 'last-hit';
+/**
+ * LATER 1148 (research 444 s9, finding 5): what keeps the speed through a refused frame is not shown (`+0x2c` is the clip's
+ * every frame, D:L438910, D:L438985; the miss branch D:L467091-467103 writes neither it nor the animation; the vtable
+ * `+0x10` at D:L467100 not followed). No carrier is invented: the port's velocity and ramped stick go on through the
+ * put-back, only the slope slide stopped (`+0x1340` zeroed). [reading]
+ */
+export const GROUND_SPEED_KEPT_READING = 'port-velocity' as 'port-velocity';
+/**
+ * LATER 1148 (research 444 s9, finding 6; a declared deviation of the 60 Hz tick, MISSION R8): a game frame is 2.002 ticks,
+ * so about one in 500 spans 3 ticks (and the first after a placing, `GROUND_FRAME_TICKS_READING`) and its step is three
+ * ticks' move; and the walls are met on each tick's move (`resolveSegments`), not once on the frame's displacement
+ * (D:L413409-413900). The in-between tick's x/z is taken only over a floor; over none its move waits for the frame's end
+ * (`GROUND_FRAME_TICKS_READING`). A tick with a move held runs the walls on the held move and its own together, as ONE
+ * move from the body (the re-review of e9d8e8c0ee, finding 1; the main controller's ruling: the original's one move a
+ * frame, the walls only shortening it, `FUN_005483d0` D:L413918), so no tick takes the body further than the frame's
+ * wall-shortened move; with nothing held a tick's walls are its own move's. [reading]
+ *
+ * LATER 1194 (the main controller's ruling (a), 2026-11-18): `'per-frame'` (built) -- the walls are met once a game frame
+ * on the frame's move FROM THE FRAME'S START, as the original casts them: its segment ends at the feet + 1.1 x 1.4 r along
+ * the move plus the whole frame displacement `+0xf44` (`FUN_0054aa30` D:L415157-415166, D:L415395-415402), and a deepest
+ * hit over 1 with more than two hits puts the body back at the tick's start with the displacement zeroed (`FUN_005483d0`
+ * D:L413598-413609). Cast on a tick's move the segments are a tick's move (1.08 at the run) short of the original's, so the
+ * jam's depth is almost never reached and the ordinary slide keeps the move's tangential part: MP81's steel crate slid
+ * 6.8 u/s along the far wall where the original holds (r0004 rig rows, 2 trials; the rows fit a frame ramp of 0.3605 k at
+ * frame k, the frame that meets the wall 1.15 deep with three hits). On the frame-end tick the frame's raw moves (every
+ * tick's, taken or held) are met as one move from the frame's start; on a tick between two frame ends the frame's move
+ * is predicted (this tick's move continued to the frame's end, `GROUND_FRAME_TICKS_READING`'s prediction), met from the
+ * frame's start, and the tick shows its share of it -- so no tick shows a slide the frame end takes back. A tick whose
+ * frame move meets no wall takes its own move exactly as `'per-tick'` (the floors' rules unchanged). `'per-tick'`: the
+ * walls on the tick's move from the body, the port before LATER 1194. [reading, pending review; owed: the census, the bot
+ * soak and every wall-slide file on a box (the ruling's (b))]
+ * THE SEPARATION LOOK (relay-2, PC 2, 2026-11-18; r0004, standing, 5 trials, the predictions sealed before): from 1.5 u
+ * back the original jams at x 1487.86 as predicted; from 3.0 u back its approach ends at x 1486.36 as predicted (the 30 Hz
+ * ramp, 0.3605 k) and it SLIDES along the far wall at 65 x the run's tangent (5.17 u/s at yaw -85.4), as predicted -- for
+ * about 0.25 s, until a HALF-LENGTH game frame (16.7 ms on the rows' game clock) moves it half a frame (x +1.08): its
+ * shorter segments meet no wall, and every full frame after it jams (1.44 deep). The port has no such frame: from that
+ * start it slides on along the wall. A MISS, named: the original's frame time varies (`GROUND_HALF_STEP_READING`, LATER
+ * 1052) -- about one half-length frame every 2-3 s in the PCSX2 rows -- and the same half frames make the hold's z creep
+ * (one half frame's tangent, ~0.08, every ~1.6 s). Whether a console shows them as PCSX2 does is unknown.
+ */
+export const GROUND_WALLS_PER_TICK_READING = 'per-frame' as 'per-frame' | 'per-tick';
+/**
+ * LATER 1194B (research 444 s10; the candidate's (a), the main controller's trial of 2026-11-20): with the walls met once a
+ * game frame (`GROUND_WALLS_PER_TICK_READING` 'per-frame'), a frame whose ground ticks ran under two actions -- the page's
+ * ticks start an action mid-frame, as a crouch run's release starts 0x11 on the frame's second tick -- is met on the LAST
+ * tick's move over the frame's ticks, not on the sum of the two actions' moves. The original makes one displacement a
+ * frame under one action (`FUN_005483d0` D:L413918) and every line's end carries that whole displacement (`FUN_0054aa30`
+ * D:L415455, D:L415522); the deep-hit put-out takes the depth less 1 after the slide strips the move's part into the
+ * face (D:L413559, D:L413602-413614), so a run tick carried into 0x11's first frame puts the body out by that tick's move
+ * too (12.58 + 1.083 - 1). `'sum'`: every tick's move summed (LATER 1194 as built). [placeholder (the fresh review of
+ * e5c7e10bc0, finding 5): the original has no ticks inside a frame, so which action owns a mixed 60 Hz frame is the port's
+ * own model, read nowhere; settled by a capture of an action started mid-frame against a wall]
+ */
+export const GROUND_FRAME_ONE_ACTION_PLACEHOLDER = 'last-action' as 'last-action' | 'sum';
+/**
+ * LATER 1148 (research 444 s9, finding 6): the frame's step is its ticks' moves, two or three (`GROUND_WALLS_PER_TICK_READING`):
+ * a game frame is 2.002 ticks, so about one frame in 500 spans three -- and the FIRST frame after a placing always does,
+ * when the ticks are counted from it (`throttleFrameEnds(2)` is false; the review of 42550490c1, finding 8), its step three
+ * ticks' move; ticks numbered by the command (`commandSeq`, the room's and the page's) keep their own phase. A tick
+ * between two frame ends whose move ends over no floor holds that move (the body stays) and the frame's end probes once at
+ * the body plus every held move plus its own, the walls met on them as one move (`GROUND_WALLS_PER_TICK_READING`) -- the
+ * frame's one move (`FUN_005483d0` D:L413918); a held move is dropped when the body is placed, lands or is moved by
+ * another path, and by the retry's idle frame. The in-between tick ALSO holds when its own move ends over a floor but
+ * the frame end's probe point would be over none (the main controller's ruling 09:3xZ: no tick shows a position the
+ * frame end will not keep -- before it, a body at a floorless edge stepped out on the in-between tick and was put back
+ * on the next, every frame, research 444 s9.3): that point is the port's prediction, this tick's move continued to the
+ * frame's end with its change since the last tick (the speed ramp), the command assumed to stay. A frame end probes at
+ * the body plus the held moves plus its own either way, so the hold never changes the probe POINT; it changes a frame end
+ * only by the walls and by the height its floor and take-off tests start from (`groundEndpoint` against `s.y`, which a
+ * hold leaves at the frame's start: the original's one move a frame); a prediction too long only holds a tick the frame
+ * end then crosses whole. [reading]
+ */
+export const GROUND_FRAME_TICKS_READING = 'ticks-of-the-frame' as 'ticks-of-the-frame';
+/**
+ * LATER 1148 (research 444 s9, finding 4): `FUN_00516f10` (D:L413925-413940) is a capped push onto `+0xf54`, not a
+ * shortening of the move; not built -- the port's walls stay as they are, `MAX_SUBSTEP`'s guard with them. [reading]
+ */
+export const WALL_SWEEP_PUSH_READING = 'not-built' as 'not-built';
+/**
+ * LATER 1148 (research 444 s9, finding 1): the probe origin's y `+0xf58` is overwritten by `FUN_0059afd0` before the probe
+ * (D:L413944-413947, the altitude) and raised to `DAT_0066aab8` (D:L467218-467220); the port probes from the feet +
+ * `probeLift`, as the walk's pick always has -- the difference named, not followed. [reading]
+ */
+export const GROUND_PROBE_ORIGIN_Y_READING = 'feet' as 'feet';
+/**
+ * LATER 1151, A NAMED LIMIT, NOT PARITY (research 444 s9; the main controller's ruling of 08:37Z on ffde437bd2): the bots'
+ * GRAPH BUILDER's probe (`match/src/bots/navigation.ts` `clearBody`, the whole body's `glide`) moves outside the walk's
+ * tick (`walkTick_` false), so it keeps `move`'s pre-LATER-1148 sub-step floor rule -- each `MAX_SUBSTEP` part refused
+ * over no floor -- while the bots themselves now WALK by the frame-end rule (`GROUND_FLOOR_PROBE_READING`). The probe is
+ * the port's own instrument with no original; its graph is kept byte-identical to the trunk's builder. Nothing reads
+ * this constant: it names the path, it switches nothing. [reading: the port's instrument, kept old]
+ */
+export const NAV_PROBE_SUBSTEP_FLOOR_READING = 'sub-step' as 'sub-step';
+/**
+ * LATER 1151, A NAMED LIMIT, NOT PARITY (research 444 s9; the main controller's ruling of 08:37Z on ffde437bd2): THE
+ * DIVE's carry (`./traversal`, the driver's `glide`) is a player's move made through `glide`, so it keeps `move`'s
+ * pre-LATER-1148 sub-step floor rule. THE ORIGINAL's FLOOR RULE FOR A DIVE IS NOT READ (whether its carry probes the floor
+ * once a frame, as the walk's `FUN_005b0840` does, is unestablished); today's behaviour is kept unchanged. Nothing reads
+ * this constant: it names the path, it switches nothing. [reading: the dive's floor rule unread, kept old]
+ */
+export const DIVE_GLIDE_FLOOR_READING = 'sub-step' as 'sub-step';
 
 /** The SEAL's three stances, in the order the touch button cycles them (`zSeal/zseal.h`'s `SEAL_STANCE`). */
 export type Stance = 'stand' | 'crouch' | 'prone';
@@ -292,15 +489,14 @@ export const WALL_HEAD_LINE_READING = 'posed' as 'posed' | 'idle';
  * `FUN_00577000` / `FUN_00576e30` as the animator transcribes it) -- re-measured by `crouchRunHeadLineDisc.test.ts`.
  * `stand`: each direction class (`moveClass`: 0 right, 1 forward, 2 left, 3 back) at the stick's length 0.1 to 1.0,
  * the greatest over the class's own direction and its two diagonals (the blend between them); a length between two
- * samples takes the greater of the two (between 0.8 and 0.9 the animator's head falls near-linearly, 16.530 to 16.006,
- * 16.215 at 0.86: the greater over-stops a stick there by up to 0.3, research 217 s2.3). Forward: the walk
+ * samples is interpolated (LATER 1169 (B); *was:* the greater of the two) (between 0.8 and 0.9 the animator's head falls near-linearly, 16.530 to 16.006,
+ * 16.215 at 0.86: the greater over-stopped a stick there by up to 0.3, research 217 s2.3). Forward: the walk
  * (`seal_walk_alert`) to 0.4, the jog to 0.7, the run (`seal_run`) at 1.0 15.40 to 15.76 (research 217 s2.3's 15.39 to
  * 15.74 off the clip's keys). `crouch`: by the held class (`Walker.ground`'s `cls`), its own set and no blend
  * (`FUN_00582d10`: one set by the class), the greatest over the stick's lengths -- forward `seal_crouchwalk` 13.122
  * (research 217 s2.3's 12.84 to 13.09 off its keys), back `_bw` 13.114, right `seal_crouchstrafe_right_fast` 12.990,
  * left `seal_crouchstrafe_left` 13.274; `prone`: the crawl's and the prone strafes'. [reading, pending review: measured
- * on the port's animator, not the original's; the samples' spacing (0.1) and the greater of two stand for the sticks
- * between; owed with `WALL_HEAD_LINE_READING`'s capture]
+ * on the port's animator, not the original's; the samples' spacing (0.1), interpolated, stands for the sticks between; owed with `WALL_HEAD_LINE_READING`'s capture]
  */
 export const POSED_HEAD_READING = {
   stand: {
@@ -312,6 +508,38 @@ export const POSED_HEAD_READING = {
   crouch: { forward: 13.122, back: 13.114, right: 12.990, left: 13.274 },
   prone: 4.996,
 } as const;
+/**
+ * LATER 1201 + LATER 1169 (B) (the main controller's ruling, 2026-11-18): the same table with the rifle RAISED -- the port's
+ * animator with the Fire set at weight 1 (`./weaponPose` `fireLayer`; `FUN_0057a330` D:L438828-438860 blends each play's
+ * Fire version at the raise weight), measured as `POSED_HEAD_READING` is (the head's greatest over a held cycle),
+ * re-measured by `crouchRunHeadLineDisc.test.ts`. The crouch strafes, the crawl and the jumps have no Fire version, so
+ * those rows equal the lowered ones (a standing strafe row takes its diagonals, whose forward and back clips have one);
+ * the RIFLE's Fire set only -- a raised pistol (`seal_pfp_*`, `./weaponPose` `PISTOL_FIRE_VERSIONS`) takes this table
+ * too, not measured on its own; `idle` is the stance's Fire idle (`seal_fp_stand`, `seal_fp_crouch`; prone keeps the lowered
+ * idle, `seal_fp_prone`'s 3.307 not adopted -- the original's resting prone read 4.264, neither table's). [reading,
+ * pending review: the capture (`HEADCHAIN-READ.md`) has the aimed head about 0.24-0.32 LOWER than this table at 0.75 and
+ * at rest (15.45-15.51 against 15.774; 15.54-15.57 against 15.806; crouch 8.89 against 9.298) and within 0.02 of it at a
+ * full run (15.68-15.72 against 15.706) -- `AIMED_HEAD_RESIDUAL_READING`]
+ */
+export const POSED_HEAD_AIMED_READING = {
+  idle: { stand: 15.806, crouch: 9.298, prone: 3.637 },
+  stand: {
+    forward: [15.962, 15.962, 15.963, 15.909, 15.866, 15.827, 15.782, 15.766, 15.721, 15.706],
+    back: [15.237, 15.241, 15.263, 15.404, 15.374, 15.598, 16.108, 16.530, 16.528, 16.527],
+    right: [15.828, 15.828, 15.831, 15.808, 15.795, 15.787, 15.944, 16.139, 16.143, 16.143],
+    left: [15.567, 15.678, 15.854, 16.043, 15.945, 15.838, 15.952, 16.145, 16.149, 16.149],
+  },
+  crouch: { forward: 13.025, back: 12.909, right: 12.990, left: 13.274 },
+  prone: 4.996,
+} as const;
+/**
+ * LATER 1201's residual, named (reading, pending review): the port's Fire-set head stands about 0.24-0.32 over the
+ * original's aimed head at rest and at the 0.75 run (the capture, `HEADCHAIN-READ.md`), 0.41 crouched at rest; the prone
+ * rest (the lowered 3.637 kept) 0.63 under the original's 4.264; not read --
+ * the aim's twist and pitch (`FUN_005aca70`, the animator's `aimWeight`) or the Fire blend's own weights are the
+ * candidates. Settled by a capture of the aimed node chain beside the port's per node.
+ */
+export const AIMED_HEAD_RESIDUAL_READING = 'unread: standing 0.24-0.32 high, crouched 0.41 high; prone rest 0.63 low' as const;
 /**
  * AIR-HEAD-LINE (2026-11-13; research 217 s2.2): the head node's height over the feet at each key of the two clips the
  * airborne body plays (the animator's `SEAL_ANIMS.launch` for the action `launch`, `SEAL_ANIMS.inAir` for `fall`), the
@@ -553,6 +781,77 @@ export const AIR_HEIGHT_READING = 'altitude' as 'altitude' | 'displacement';
  */
 export const AIR_FLOOR_PROBE_READING = 'frame-end' as 'frame-end' | 'sub-step';
 /**
+ * LATER 1176 (research 151 section 8; reading, pending review -- a capture comparison and an r0004 memory trace of the
+ * original fit it exactly): the frame that brings a walk-off's feet to the floor does not land it. `FUN_0057e050`, pushing
+ * `Jump fall` (9), sets `+0x1061` bit 0x02 (D:L440727-440728), which keeps `FUN_0059b440` off its strict landing
+ * (D:L456506-456516); `FUN_0059ad30`'s last block (D:L456314-456323) puts the feet on the frame-end floor and clears the
+ * bit, leaving the fall speed and the airborne bit. The NEXT game frame adds g dt (D:L456496), hands the speed to the
+ * landing and zeroes it (D:L456515-456516) and clears the airborne bit (D:L456528): the damage reads the contact frame's
+ * speed + g dt. `'next-frame'`: so here, for a fall under the flag (`FALL_FLAG_READING`: a walk-off; FLE-1); a placed
+ * body, a let-go, the launch and a blast knock land on the contact, the bit unset. `'contact-frame'`: the port before LATER 1176.
+ * [reading, pending review: the r0004 twins of `FUN_0059b440` / `FUN_0059ad30` not re-read (the trace fits them); whether
+ * a jump whose launch has popped (the fall pushed after it) takes the same frame is the same code path, not captured; the
+ * port decides by the action, not the bit: a `Jump fall` body that rises into ground has the bit cleared by that clamp in
+ * the original, so its later downward contact lands at once -- here it still pends (the fresh review's F2, rare, unmodelled)]
+ */
+export const LANDING_FRAME_READING = 'next-frame' as 'next-frame' | 'contact-frame';
+/**
+ * FLE-1 (the fall-leave-edge plan, ruled FLE.R3-R5; research 151 s8-s9; reading, pending review): the walk-off's fall
+ * FLAG. `FUN_0057e050` pushes `Jump fall` and sets `+0x1061` bit 1 / clears bit 2 (D:L440726-440728) from
+ * `FUN_005af930`'s airborne branch (D:L466967-466969) -- the one place a fall sets it. Under it each game frame
+ * `FUN_0059b870` adds last frame's root y minus this frame's to the altitude (D:L439111-439116, D:L456611-456612); the
+ * floor test is skipped (D:L456505-456510) until frame K's store goes strictly under the floor, which `FUN_0059ad30`
+ * lifts to it and clears the bit (D:L456314-456321) -- the late landing at K+1 (`LANDING_FRAME_READING`). A frame-end
+ * probe miss clears the bit too (`FUN_005b0420` D:L467096-467097): that fall lands at K. Built: the port's walk-off sets
+ * it on the tick ending its first air frame, after that tick's floor test (the push follows the test, as read); a flagged
+ * fall's floor test, lift and hand-off run only on ticks that end a game frame (PF.R8's adaptation, said as such).
+ */
+export const FALL_FLAG_READING = 'walk-off' as 'walk-off' | 'none';
+/**
+ * FLE-1: the roots the pose step reads, over the feet (the disc's motion data, constant on their keys -- re-read by
+ * `fallRootsDisc.test.ts`): `seal_run` 10.3047, `seal_crouchwalk` 9.3281, the fall clip `seal_runningjump_in_air`
+ * 10.5977. The step on air frame 1 is the edge gait's root less the fall clip's; the fall clip's is constant, so later
+ * frames add nothing. Built for the single-clip gaits only (FLE.R4): the crouched full-stick run and the crouched walk.
+ */
+export const FALL_POSE_ROOT_READING = Object.freeze({ run: 10.3047, crouchWalk: 9.3281, fall: 10.5977 });
+/**
+ * FLE-1, NAMED (not built; FLE-1B): every other gait at the edge -- the standing walk (measured +0.4200 against no step
+ * here), the jog, strafes, diagonals, backwards, an unsettled ramp, the standing full-stick run, prone -- takes NO pose
+ * step, the flag and the late landing still applying: their roots are the page animator's blends (`bandPick`), unread
+ * for the room. The known error: every altitude of such a fall off by the missed step.
+ */
+export const FALL_ROOT_BLENDED_GAITS_READING = 'no step' as const;
+/**
+ * FLE-1, NAMED (parity clause 7, two readings): a body put in the air by a placing, a climb's let-go or a seat
+ * (`setAirborne`) is NOT flagged -- (a) the branch's own condition predicts it is; (b) the placed 56 u row measured no
+ * loss, which a flagged fall's late landing does not give. Left as today. Settles it: a write-watch of a placed drop.
+ */
+export const FALL_FLAG_PLACED_READING = 'not flagged' as const;
+/**
+ * FLE-1, NAMED: the crouch walk's pose step is taken on the forward, settled case on a level or downhill top, no water;
+ * the slope scale uphill, water, the other classes and the band pick's result at that speed are unread (FLE-1B).
+ */
+export const FALL_ROOT_CROUCH_BAND_READING = 'forward, settled, level or downhill, dry' as const;
+/**
+ * FLE-1, NAMED: the walk-off from the peek states (`+0x174` 3, 9, 10: `FUN_0057df20` sets the bit without the clip,
+ * D:L440678-440679) and the two other clears of bit 1 (`FUN_00550ef0` D:L418164-418165 under the dive; `FUN_00553ea0`
+ * D:L419830-419831) are not followed: those paths keep today's behaviour.
+ */
+export const FALL_FLAG_OTHER_PATHS_READING = 'not followed' as const;
+/**
+ * FLE-1 (the fresh review's F1): a GLIDED move does not arm the flag. The push and the bit are skipped while the dive is
+ * current (`FUN_00577e40(actor, DAT_003def08)`, D:L466957; `DAT_003def08` is "dive_to_prone", research 80 s0, research 392)
+ * -- the dive's carry off an edge (`./traversal`'s `glide`) keeps today's landing, as the plan's item 2 says. The other
+ * glides keep today's landing too: the bot navigation's probe walker (no original: the bots' scratch walker, whose
+ * airborne glides `clearBody` discards); and the hostage follower's `glideAi` -- TWO READINGS, recorded (parity clause 7):
+ * (a) a hostage runs the SEAL body's update `FUN_00550ef0` (research 334, 433), which calls `FUN_005af930` (D:L418169),
+ * whose branch pushes `FUN_0057e050` unless action 9, the dive or `FUN_0057e130`'s predicate -- so the source predicts a
+ * hostage's walk-off IS flagged; (b) the AI controller's terms of that predicate (`FUN_0057e130` / `FUN_00589900`) are not
+ * read. The unchanged behaviour is kept (the fresh re-review's F-a). Settles it: that read, or a rig walk-off of a hostage.
+ * Only a walked tick's walk-off (`step60` -> `move` -> `groundEndpoint`) arms it.
+ */
+export const FALL_FLAG_GLIDE_READING = 'not armed' as const;
+/**
  * AIR-PROBE (research 399): the airborne probe's origin. `'feet'` (built): the column at the body's own x/z at the
  * frame's end, the origin's y the feet as the tick found them + `probeLift` (the sub-step's pick, `airStep`, had the
  * same gap). The original's origin is `+0xf54..+0xf5c` after the frame's step -- its y `+0xf58`, raised to at least
@@ -600,8 +899,11 @@ export function airPosedHead(air: Pick<MoverAction, 'name' | 't'>): number | nul
  * `busy` (a one-shot owning the body, an airborne action no table holds, or a crouched or prone body in the air), or
  * `'idle'` -- the stance's idle head (`wallProbeHeights`).
  */
-export function wallHeadLine(posture: Stance, ground: GroundMotion, busy = false, air: Pick<MoverAction, 'name' | 't'> | null = null): number {
-  const idle = IDLE_HEAD.idle[posture] + HEAD_LINE_LIFT;
+export function wallHeadLine(posture: Stance, ground: GroundMotion, busy = false, air: Pick<MoverAction, 'name' | 't'> | null = null, raised = false): number {
+  // LATER 1201: the raise picks the table (`POSED_HEAD_AIMED_READING`); the raise envelope's ease between them is not
+  // followed (the command's state, +0xf74's 1 up / 2 down, picks it whole).
+  const T = raised ? POSED_HEAD_AIMED_READING : POSED_HEAD_READING;
+  const idle = (raised ? POSED_HEAD_AIMED_READING.idle[posture] : IDLE_HEAD.idle[posture]) + HEAD_LINE_LIFT;
   if (WALL_HEAD_LINE_READING !== 'posed') return idle;
   if (air) {
     // AIR_POSED_HEAD_READING: standing only -- whether the original plays the standing in-air clips for a crouched or
@@ -612,18 +914,21 @@ export function wallHeadLine(posture: Stance, ground: GroundMotion, busy = false
   }
   if (busy || ground.state !== posture) return idle;
   if (posture === 'crouch') {
-    const c = POSED_HEAD_READING.crouch;
+    const c = T.crouch;
     const head = ground.cls < 0 ? Math.max(c.forward, c.back, c.right, c.left) : c[POSED_CLASS[ground.cls as 0 | 1 | 2 | 3]];
     return head + HEAD_LINE_LIFT;
   }
-  if (posture === 'prone') return POSED_HEAD_READING.prone + HEAD_LINE_LIFT;
+  if (posture === 'prone') return T.prone + HEAD_LINE_LIFT;
   const f = Math.abs(ground.forward) <= FORWARD_DEAD ? 0 : ground.forward, m = Math.min(1, Math.hypot(f, ground.right));
   if (m === 0) return idle;
   // The standing blend is picked by the stick, not a held class (`locomotion`; the ground state keeps none standing):
   // its class here only picks the table's row, the row holding its two diagonals.
-  const row = POSED_HEAD_READING.stand[POSED_CLASS[moveClass(ground.right, f, -1) as 0 | 1 | 2 | 3]];
-  const lo = Math.max(0, Math.floor(m * 10 + 1e-9) - 1), hi = Math.max(0, Math.ceil(m * 10 - 1e-9) - 1);
-  return Math.max(row[lo]!, row[hi]!) + HEAD_LINE_LIFT;
+  const row = T.stand[POSED_CLASS[moveClass(ground.right, f, -1) as 0 | 1 | 2 | 3]];
+  // LATER 1169 (B): interpolated between the two samples (was: the greater of the two); under 0.1 the 0.1 sample. The
+  // lowered table so taken meets the original's run head at 0.75 (16.777 against 16.775-16.782) and at 1.0 (15.761
+  // against 15.751-15.758; `HEADCHAIN-READ.md`).
+  const x = Math.max(0, m * 10 - 1), lo = Math.floor(x), hi = Math.min(9, lo + 1), t = x - lo;
+  return row[lo]! + (row[hi]! - row[lo]!) * t + HEAD_LINE_LIFT;
 }
 /**
  * `FUN_00552ec0`'s prone gate (D:L418935-418940): from stand or crouch, `FUN_0054d620(11.2, 8.0, step_height x 0.5)`
@@ -729,8 +1034,9 @@ export const PROBE_LIFT_FLOOR_R0004: Readonly<Record<Stance, number>> = Object.f
 export const PROBE_LIFT_PRONE_READING = PRONE_ROOT;
 /**
  * The standing jump's root term (`'floor'`) [reading]: the trace reads `seal_jump`'s root rising over the floor to 15.059
- * (one frame lagged; ORIGIN-TRACE.md case (d)), but the mover carries no clip's root height (`actionRoots` keeps x and z;
- * the room has no posed skeleton), so the standing jump lifts by the standing floor, 11.48. Settled by the clip's
+ * (one frame lagged; ORIGIN-TRACE.md case (d)), but the probe takes no clip's root height (`actionRoots` keeps the y keys
+ * since AS-34, read for the bloom's rise alone, `Walker.carriedAir`; the room has no posed skeleton), so the standing jump
+ * lifts by the standing floor, 11.48. Settled by the clip's
  * `skel_root` y per frame carried to the mover, one tick lagged under max() (research 80 s7).
  */
 export const STANDING_JUMP_PROBE_ROOT_READING = 'floor' as 'floor';
@@ -739,6 +1045,8 @@ export const STANDING_JUMP_PROBE_ROOT_READING = 'floor' as 'floor';
  * its launch keep the stance's ground root under max() -- standing under the floor (11.48), crouched 5.504, prone 2.168 --
  * though the air clips' own roots are not carried; only the launch was traced airborne (ORIGIN-TRACE.md case (a)).
  * Settled by a trace of a walk-off fall and a dive (research 80 s7).
+ * FLE-1 (not reconciled, unchanged): the same root read another way -- the rig read `+0x14c4` = 10.3047 at a crouch
+ * run's edge (`FALL_POSE_ROOT_READING`, research 151 s9.5) against research 80's trace; settled by the writer of `+0x14c4`.
  */
 export const AIR_PROBE_ROOT_READING = 'stance-root' as 'stance-root';
 /**
@@ -746,6 +1054,8 @@ export const AIR_PROBE_ROOT_READING = 'stance-root' as 'stance-root';
  * lowest run root the r0004 origin trace reads (ORIGIN-TRACE.md case (a), action 2 frames: 10.02-10.79), so the lift is
  * max(10.02, 5.0) = 10.02 where posture 0's floor would give 11.48 (review 1 F2). The run's root moves through its
  * frames; settled by the run clip's `skel_root` y per frame carried to the mover, one tick lagged (research 80 s7).
+ * FLE-1 (not reconciled, unchanged): the same root read another way -- the rig read `+0x14c4` = 10.3047 at a crouch
+ * run's edge (`FALL_POSE_ROOT_READING`, research 151 s9.5) against research 80's trace; settled by the writer of `+0x14c4`.
  */
 export const CROUCH_RUN_PROBE_ROOT_READING = 10.02;
 /**
@@ -806,6 +1116,17 @@ export function probeLiftFor(word: Stance, drawn: Stance): number {
 export const STEEP_FLOOR_CONTACT_READING = { normalY: 0.1, distance: 6, gain: 0.7 } as const;
 
 /**
+ * R4P-107 (FEEL-M-PRONESLOPE; research 217 section 2.8; reading, pending review): the same r0004 push's PRONE block.
+ * `FUN_0054f330`'s twin, with the slide not started (r0004 `+0x1344` 0; r0001 `+0x1340`), gives a prone body the same zeroes and contact record
+ * with no `n_y` test and no facing test (r4 0x5542e0-0x554328); the record is kept only for a face steeper than
+ * `max_slope`, i.e. a sliding floor. The driver's push off it (r0001 `FUN_0054a6d0`, D:L414410-414469) takes the prone distance
+ * `max(min, |scale x the back axis . n|)` in place of the standing 6 (r0001 D:L416578-416613; the product through `fabs`
+ * before the floor: r0004 0x552e98, r0001 D:L416596), the same 0.7. *Was*: prone exempt,
+ * so a prone body could lie on a face too steep to stand on.
+ */
+export const STEEP_FLOOR_CONTACT_PRONE_READING = { min: 7, scale: 8 } as const;
+
+/**
  * `FUN_00586c10`'s snap on one axis (D:L445017-445031 of D:L444957-445041): last tick's value past `at` (0.78 lateral, 0.9 forward) and
  * the wish moving faster than `rate` (7.8, 9) a second -- a full axis let go or thrown across. The axis takes the wish
  * at once, and the game snapshots the pose on screen and cross-fades from it over `STICK_SNAP_BLEND`
@@ -826,6 +1147,22 @@ export const STICK_SNAP_BLEND = 0.2;
  * 5; the game's x is the actor's lateral, its z the forward). The walker judges the snap over a game frame instead
  * (`Walker.throttle`, MISSION R8.1) and runs only the ramp (`throttleRamp`) every tick.
  */
+/**
+ * RAMP-LEAD (LATER 1164; simulation track; the main controller's ruling 2026-11-18 ~02:55Z: within MISSION R8, parity
+ * clause 6): the share of a tick the stick a ground move uses is read ahead of the ramped stick. The original steps the
+ * throttle once a game frame (`FUN_00586c10`, one 1/6 step at `upper_x_accel` / `upper_z_accel` 5 a second; R8.1's Q12
+ * proved the read interval and the ramp) and moves the whole frame at the new value, so after k frames of a ramp from
+ * rest it has moved top x GAME_FRAME_DT x k(k + 1) / 12 -- r0004's strafe moves 0.363, 0.722, 1.084, 1.445, 1.807, 2.166
+ * a frame (EPH run 20261118T022816Z, a capture comparison, unscored). R8's continuous ramp moved tick n at n/12, half a
+ * step behind: 0.54 short at the top, a tick later to 90 %. Read half a tick ahead, (n + 1/2)/12, the 60 Hz ramp lands
+ * on the original's frame ends (the frame that reaches the top 0.05 short, the read capped at the stick) and its
+ * per-second totals stay R8's. The state's stick (the snap's reference, the clips, the idle test) is the ramp as before.
+ * Level: a reading of `FUN_00586c10`, pending review (research 446) -- a transcription, not a value the viewer chose; the
+ * r0004 numbers a capture comparison, unscored (the Shadow PC 2 replicate: the page's ramp frames 1-5 within 0.002 of
+ * PCSX2's on the tick-state harness, LATER 1165 (c)+(d)).
+ */
+export const RAMP_LEAD = 0.5;
+
 export function throttleStep(prev: number, target: number, axis: 'forward' | 'right', dt: number = TICK): number {
   if (throttleSnaps(prev, target, axis, dt)) return target;
   return throttleRamp(prev, target, axis, dt);
@@ -853,6 +1190,34 @@ export function throttleFrameEnds(n: number): boolean {
   const frame = (k: number): number => Math.floor((k * TICK + 1e-9) / GAME_FRAME_DT);
   return frame(n) !== frame(n - 1);
 }
+
+/**
+ * LATER 1219 (the owner's ruling, 2026-11-21: "movement presses at the next game-frame boundary approved"): when a pad's
+ * press of the MOVE stick from rest is first read. `'frame-start'` (built): at the next game frame's start -- the original
+ * copies the controller's axes into the actor once an actor tick, before the driver, with no test of the clip playing but
+ * behind three gates and with listed zeroings after (`FUN_00551ec0` D:L418510-418531, D:L418613-418702), and the
+ * actor ticks once a 30 Hz game frame, so a press that lands between two frame ends is first seen by the frame that starts
+ * after it. A tick that is not a frame's first (`throttleFrameEnds` of the tick before it is false) and whose last read
+ * was at rest takes that rest read again (`Walker.idleRead`); the press is read on the next frame's first tick, at most one
+ * 60 Hz tick later on a two-tick frame (two on a three-tick one). Only the mover's stick (forward, right and the crouch's
+ * saved pair) is held: the look, the camera, the buttons and the weapon never pass through it (`pressFrame.test.ts`).
+ * `'at-once'`: the port before it, the press read on its own 60 Hz tick, so the ticks that pair into a frame depended on
+ * where the press fell (at MP81 a press after 30 still ticks slid along the far wall where one after 31 held). A BROWSER
+ * ADAPTATION of the read's window, as IDLE-FRAME's (MISSION R8.1): the original has no tick inside a frame.
+ * [reading, pending review: the once-a-frame copy read at the source; no capture of a press against the frame clock]
+ */
+export const PRESS_FRAME_READING = 'frame-start' as 'frame-start' | 'at-once';
+export type PressFrameTiming = typeof PRESS_FRAME_READING;
+let pressFrameTiming_: PressFrameTiming = PRESS_FRAME_READING;
+/**
+ * LATER 1219's PLAYTEST INSTRUMENT (a browser adaptation: the owner's hands-on of both timings; never in a release's
+ * behaviour): the timing every mover in this process follows unless its own `Walker.pressFrame` says otherwise. Set only
+ * by the test build's switch (`./pressFrameSwitch`, `?devmode`) on the page -- which is the room's process too in the
+ * offline test room -- and by a server started with `S2U_PLAYTEST_PRESS_FRAME` (`packages/central`, `packages/match`
+ * mains). Nothing else calls it, so a release build and a release server run `PRESS_FRAME_READING`.
+ */
+export function setPressFrameTiming(t: PressFrameTiming): void { pressFrameTiming_ = t; }
+export function pressFrameTiming(): PressFrameTiming { return pressFrameTiming_; }
 
 /**
  * `FUN_00583350` and the blend it sets up: the velocity on the ground plane, (forward, right) in units a second,
@@ -906,6 +1271,69 @@ function classAxis(c: MoveClass, bands: Bands): { f: number; r: number; band: nu
 /** `FUN_00586f00`: a stick within 0.03 of rest (`DAT_003f3428`) is idle; no locomotion runs. */
 function idle(forward: number, right: number): boolean {
   return Math.abs(right) <= FORWARD_DEAD && Math.abs(forward) <= FORWARD_DEAD;
+}
+
+/**
+ * R4P-208 (FEEL-M-TURNBAND; reading, pending review): the ground start's TURN BAND. Turning in place and easing the
+ * stick forward, the original holds until the forward passes `0.03 + t^2 x (0.3 - 0.03)`, or backing up past
+ * `-(0.045 + t^2 x (0.5 - 0.045))`, t the turn word (`actor+0x23c` as stored, squared with no clamp; the port's
+ * `turn / turnMaxRate`); the right axis past 0.03 always starts. Standing (`FUN_00586570` D:L444899-444901) only while
+ * the turn memory (`actor+0x105e` bit 0x10) is set; crouched and prone through the shared test (`FUN_00586f00`
+ * D:L445057-445082, called from D:L444142 / D:L443900): with 0x10 the band, with 0x08 the plain 0.03 on the forward, with
+ * neither the band unless `sqrt(t^2 + forward^2)` is within 0.03 (so a crouch holds from a turn's first frame).
+ * r0004 the same (`FUN_0058bba0` / `FUN_0058c530`, instruction for instruction). The captured values: FEELMV-C7B-PC2
+ * (atlas's r0004 parity plan, R4P-208; `test/turnBand.test.ts`).
+ */
+const TURN_BAND_FORWARD = [0.03, 0.3] as const;              // the band's floor and its full-turn top, forward
+const TURN_BAND_BACK = [0.045, 0.5] as const;                // and backing up
+/** `DAT_003f3420` (r0004 0x41eb00): past it on the turn axis a still body turns in place and sets the memory. */
+const TURN_IN_PLACE = 0.025;
+/**
+ * The turn memory `actor+0x105e` bits 4 / 3, written by EVERY stance's control (the R4P-208 review's F1): `'walked'`
+ * (0x08, clearing 0x10) on a start from any memory -- standing D:L444887-444888 / 444914-444915 / 444939-444940, the
+ * crouch D:L444167-444168 / 444190-444191, prone D:L443902-443903; `'turning'` (0x10, clearing 0x08) on a hold with the
+ * turn past 0.025 -- standing `FUN_00586050` D:L444696, the crouch D:L444231-444232, prone D:L443930-443931; both
+ * cleared on a hold at rest -- standing `FUN_00586240` D:L444783-444788, the crouch D:L444322-444323 (not under
+ * `+0x21c` bit 2, a crouch run let go: the port's crouch with its posture stand), prone D:L443967.
+ */
+type TurnMemory = 'none' | 'turning' | 'walked';
+/**
+ * `TURN_BAND_READING` (reading, pending review): 'slewed-state' -- standing, the BAND alone compares the forward after
+ * `FUN_005b56c0`'s slope scale (r0004 0x5bbb00; `1 - d^2` uphill, 1 on flat ground or downhill) and `FUN_00586c10`'s slew
+ * (r0004 0x58c240), the pair the control stores back to `+0x244` / `+0x240` (D:L444864-444869; r0004 0x58be20 / 0x58be2c)
+ * before its branches; the per-tick copy at the head of `FUN_0057a330` (D:L438704-438706; r0004 0x57f5c0-0x57f5dc) keeps
+ * it as the next tick's previous, and neither standing hold writes it, so the slew advances while the band holds
+ * (FINDING-R4P208-slew, seat-movement 2026-11-24; FEELMV-C7B-PC2's `+0x240` 0.16395 / 0.32786 under the turn, a capture
+ * comparison, unscored). The port: the state's ramped stick (`state.stickForward`, as `Walker.throttle` leaves it on the
+ * scaled pair -- not RAMP-LEAD's read), run before the band whenever a raw axis is off rest and kept on a hold; at rest the
+ * raw pair is stored, as the original's scale and slew are skipped then (D:L444864). The right's and the plain 0.03 tests
+ * read the stick before the slew (the port's standing ones after the slope scale, the original's before it: a departure
+ * only for a push within a hair of 0.03 uphill); crouch and prone the raw stick (`FUN_00584c60` D:L444142, before its
+ * scale and slew). The capture's 0.87 s at byte 66 is the slope scale on M51's 11.8-degree insertion, not the slew.
+ * Unread, named in research 251 §7 (note-only rows: no constant here switches on either): the slope's heading (the
+ * original's scale reads the heading before the tick's turn by the capture's fit, the port's `stickScale` the yaw the page
+ * wrote before the tick) and the slew's skip (the `+0xc0` object's slot +0x30, its writer unread; the port always
+ * slews). A placing (`reset`: `place`, `seed`, `adopt`) zeroes the kept value and the snap's reference; the turn memory
+ * survives it. The original's constructor `FUN_00553ea0` zeroes `+0x248` / `+0x24c`
+ * (D:L419426-419427); r0004's TeleportTo writes neither, so its kept value survives a teleport (the port zeroes it: a
+ * departure of at most the slew's first frames after a placing); whether `ReCreate` clears it is unread. The memory's
+ * writes are the port's on every start and every turning hold; the original's skip them when the push they follow is
+ * refused -- the start's flip under `+0x105d` bit 2 (D:L444904-444911), the turn's set under the push of 0x10
+ * (D:L444678-444681; the crouch's D:L444218-444221). Not read: the standing control's earlier exits (`+0xeac`,
+ * D:L444816-444827; D:L444854-444860), where the kept value is the raw stick.
+ */
+export const TURN_BAND_READING = 'slewed-state' as const;
+
+/** Whether the ground start holds the body (no locomotion) under the turn band: `FUN_00586570` / `FUN_00586f00`. */
+function bandHolds(forward: number, right: number, t: number, memory: TurnMemory, standing: boolean, bandForward = forward): boolean {
+  if (Math.abs(right) > FORWARD_DEAD) return false;
+  const t2 = t * t;
+  // the band's forward: standing, the slewed state (`TURN_BAND_READING`); the right's and the plain tests take `forward`
+  const inBand = bandForward < TURN_BAND_FORWARD[0] + t2 * (TURN_BAND_FORWARD[1] - TURN_BAND_FORWARD[0])
+    && bandForward > -(TURN_BAND_BACK[0] + t2 * (TURN_BAND_BACK[1] - TURN_BAND_BACK[0]));
+  if (memory === 'turning') return inBand;
+  if (memory === 'walked' || standing) return Math.abs(forward) <= FORWARD_DEAD;
+  return Math.hypot(t, forward) <= FORWARD_DEAD || inBand;
 }
 
 /** `FUN_00584c60`: the crouch runs from this stick magnitude: 12.4 / 14.8 (`153.76 <= |s|^2 x 219.04`). */
@@ -1001,12 +1429,14 @@ export interface GroundData {
   points: Float32Array;
   /** Per polygon, `GROUND_FIELDS` words: ptcount, ditype, material, cameratype, region, appflags. */
   fields: Uint32Array;
+  /** FLE-2: the map's default soil as a hull material byte (`Grid.defaultMaterial`; `climb.ts` `defaultMaterialByte`). */
+  defaultMaterial?: number;
 }
 /** TRAVERSAL SEAM (web research 86): the sixth word is `m_appflags`, which marks the ladders (`./traversal`). */
 const GROUND_FIELDS = 6;
 
 /** Packs a map's hull for the trip from the worker (`GroundData`). */
-export function packGround(grid: GridParams, polys: readonly WorldPoly[], owners: CollisionOwner[]): GroundData {
+export function packGround(grid: GridParams, polys: readonly WorldPoly[], owners: CollisionOwner[], defaultMaterial?: number): GroundData {
   let floats = 0;
   for (const p of polys) floats += p.points.length;
   const points = new Float32Array(floats);
@@ -1019,7 +1449,9 @@ export function packGround(grid: GridParams, polys: readonly WorldPoly[], owners
     const flags = (p.appflags ?? 0) | ((p.inside ?? 0) << 3) | ((p.reverbZone ?? 0) << 4);
     fields.set([p.ptcount, p.ditype, p.material, p.cameratype, p.region >>> 0, flags], i * GROUND_FIELDS);
   });
-  return { grid, owners, points, fields };
+  // FLE-2 (the review's F4): the map's default soil rides every repack of a map's ground (the Forge's hide, doors, access
+  // pieces, turrets, layouts) -- lost, a byte-0 floor on a GRASS / SNOW map would stand every body 0.8 higher.
+  return { grid, owners, points, fields, ...(defaultMaterial !== undefined ? { defaultMaterial } : {}) };
 }
 
 /**
@@ -1049,7 +1481,9 @@ export function groundPolygons(ground: GroundData): WorldPoly[] {
 
 /** The grid the probe walks, from what the worker sent: only the collision is linked, which is all it reads. */
 export function groundGrid(ground: GroundData): Grid {
-  return buildGrid(ground.grid, [], [], groundPolygons(ground), ground.owners);
+  const grid = buildGrid(ground.grid, [], [], groundPolygons(ground), ground.owners);
+  if (ground.defaultMaterial !== undefined) grid.defaultMaterial = ground.defaultMaterial;   // FLE-2
+  return grid;
 }
 
 /**
@@ -1072,11 +1506,17 @@ export interface Landing {
   /** `FUN_005ac1f0`'s class (`landingClass`): 0 none, 1 light, 2 heavy, 3 death -- the audio's landing sounds. */
   cls: 0 | 1 | 2 | 3;
   /**
-   * BLAST KNOCK: the landing of `Fall forward` / `Fall backwards` (`FUN_00580360`), which the fall's damage reads at
-   * `speed` x 1.2 (`./net/damage` `KNOCK_LANDING_SPEED_FACTOR`, L441929; research 151 §3.4). The class and the clip
-   * here are the mover's own, at the contact speed.
+   * BLAST KNOCK: the landing of `Fall forward` / `Fall backwards`, which the fall's damage reads at the plain contact
+   * speed (R4P-104: r0004 0x5b5aa8-0x5b5aac; D:L466836, D:L466844). The class and the clip here are the mover's own.
    */
   knocked: boolean;
+  /**
+   * R4P-104 (reading, pending review): the landing of a dive carried off an edge -- the dive's clip in play at the
+   * contact (r0004 0x5b5ce4-0x5b5cfc; D:L466908-466914), its landing r0004 0x585900 (`FUN_00580360`) -- which the fall's
+   * damage reads at `speed` x 1.2 (`./net/damage` `DIVE_LANDING_SPEED_FACTOR`; 0x585980-0x585994, D:L441929). The class
+   * and the clip here are the mover's own, at the contact speed.
+   */
+  dived: boolean;
 }
 
 /** What the hook reports of the mover: in the air, crouched (the posture), the stance, and the last landing. */
@@ -1110,6 +1550,11 @@ export interface PlaySnapshot {
    * clearance D:L414024, the hand-open's reach D:L477069): `./throwCommit` `releaseStance`.
    */
   stanceState?: Stance;
+  /**
+   * SWAPFIRE-CROUCH: the stance in use (`Walker.stanceInUse`, `FUN_0058a720(body, 1)`), present only where it differs
+   * from the posture -- stand while the crouched stop (action 0x11) plays forward. The kit's row (`./matchFirearm`).
+   */
+  stanceInUse?: Stance;
   landing: LandingKind | null;
   jumps: number;
   /** The ground state and its stick (`GroundMotion`): what the locomotion clips play by. */
@@ -1348,6 +1793,12 @@ export const ACTION_CLIPS = Object.freeze({
   // the stick), `NoFire ()` bare; `MOTION_P.ZAR` 16 keys and its root's travel (-0.016, 0.078: in place) -- 3.78 s by
   // `oneShotSeconds`. No push: only the clip's own root moves the body.
   proneCover: { playback: 4.3, frames: 16, noInterrupt: 1, travel: [-0.02, 0.08] },
+  // LATER 1188 (research 447 s12): a hostage's flashbang cower (`Flashbang cower`, `Crouch flashbang cower`, GLOBAL):
+  // `motion.rdr` playback and NoInterrupt, `MOTION_P.ZAR` keys (40, 55) and root travel (the golden's re-derivation).
+  cowerStand: { playback: 5.2, frames: 40, noInterrupt: 1, travel: [-4.73, 11.46] },
+  cowerStand2: { playback: 4.8, frames: 40, noInterrupt: 1, travel: [1.36, -0.77] },
+  cowerCrouch: { playback: 5.1, frames: 55, noInterrupt: 1, travel: [1.54, -0.28] },
+  cowerCrouch2: { playback: 4.7, frames: 55, noInterrupt: 1, travel: [2.83, -0.68] },
   // PAR-84 (research 230 section 5.2.10): the launcher's raise, `Rifle -> Launcher` (`seal_rifle2launcher`) from the rifle
   // and `Pistol -> Launcher` (`seal_pistol2launcher`) from the pistol (`FUN_005a6d30` D:L462112-462116), and the still
   // lower, the same clip reversed (`FUN_005a6b70` D:L462069-462070, D:L462078-462079): `motion.rdr` playback 1.5,
@@ -1481,7 +1932,9 @@ export interface PushedTop { clip: PushedClip; t: number; cuttable: boolean }
  * The reload's clip that holds the mover (`FUN_005a82e0`, decomp 462786-462930), or null: crouched `Rifle crouch
  * reload` / `Pistol crouch reload`, prone `Rifle prone reload` / `Pistol prone reload`; standing none -- `seal_reload`
  * gives way to the first push and goes on over the locomotion (the header of `HOLD_CLIPS`). Whether the SEAL is still
- * enough for the crouched one is `Walker.hold`'s test.
+ * enough for the crouched one is `Walker.hold`'s test. The rifle's and the pistol's families only (`./reloadClip`
+ * `reloadHolds`, B-18): the shotgun reload's, the pump's and `Rifle m203 reload`'s clips hold none, and the stance waits
+ * on their still clip's life (`oneShotOnTop`).
  */
 export function reloadHold(stance: Stance, pistol: boolean): HoldClip | null {
   if (stance === 'crouch') return pistol ? 'seal_p_crouch_reload' : 'seal_crouch_reload';
@@ -1683,14 +2136,34 @@ export const LAUNCHER_RAISE_NETWORK_LOG_READING = false as boolean;
 
 /**
  * PAR-84 (research 230 section 5.2.10-5.2.11): a launcher clip asked of a mover in the air is refused (`'refused'`:
- * `Walker.launcherClip` starts none). The page's take that raises or lowers the launcher is refused in the air already
- * (`WalkMode.swapGate` -> `Walker.swapRefused`), so only a room whose mover is airborne on the clip's command while the
- * page's was not meets it. [reading: assumed, not cited -- the original's push through `FUN_00588bc0` asks
- * `FUN_00589900` first (called at D:L446072), whose body (from D:L446425) is read only in its first 40 lines, which
+ * `Walker.launcherClip` starts none). Under `AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION` (B-65) the page's take that raises or
+ * lowers the launcher passes the gate in the air (`WalkMode.swapGate` -> `Walker.swapRefused`), so EVERY launcher raise
+ * or lower taken in the air meets this, on both movers alike: no body clip plays, while the launcher's ready timers still
+ * run (`room.ts` `firearmReadyAt`). The value is unchanged; whether the owner wants that, a refusal or a clip is an open
+ * question with the controller (B-65's review, F2). Was: "The page's take ... is refused in the air already ..., so only
+ * a room whose mover is airborne on the clip's command while the page's was not meets it." [reading: assumed, not
+ * cited -- the original's push through `FUN_00588bc0` asks `FUN_00589900` first (called at D:L446072), whose body
+ * (from D:L446425) is read only in its first 40 lines, which
  * carry no airborne test (F2 of PAR-84's review); the rest is unread. And the port's fall (`setAirborne`) replaces an
  * action, where the original's `Jump fall` would be pushed over the clip]
  */
 export const LAUNCHER_RAISE_AIR_READING = 'refused' as 'refused' | 'started';
+
+/**
+ * B-65 (MISSION OT.R151; OWNER-DECISIONS C2): an INTENTIONAL DIVERGENCE, the owner's [adaptation:
+ * Craig, relayed by the main controller 2026-11-24, "B65: allow swapping equipment mid air. intentional divergence."; "this
+ * includes nade swapping"]. The original refuses a swap pressed in the air: `FUN_00594cf0`'s gate `FUN_005a8cb0`
+ * (D:L463148-463190; the body free -- alive, not in the air: `+0x105e` bit 5, posture 6) and `FUN_005b4340(actor, 4)`
+ * (D:L469305-469520: posture 6, `Jump launch` / `Jump fall`) -- research 201 §1, 211 §2. True, `Walker.swapRefused` takes
+ * it on the page and in the room alike (the air and the jump's air actions refuse nothing more), and `swapWeapon` plays it
+ * as the moving swap's overlay so the flight keeps its fall and its velocity (research 211 §11). Extended to the STANDING
+ * jump [adaptation: the owner, 2026-11-25 ~02:17Z, B-65 Q1, "add it to the standing jump as well"]: its `Jump` action
+ * (`seal_jump`, the feet on the floor) -- refused by the original as an action playing (`FUN_005b4340(actor, 4)`) --
+ * refuses no swap either, taken as the same overlay so the jump's clip, rise and timing run on, and a launcher clip asked
+ * under it starts no body clip (`Walker.launcherClip`), as in the air. Everything else stands: the scope, a swap playing,
+ * a knock-down, the landings, and a reload in the air (`FUN_005c2a90` D:L477395).
+ */
+export const AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION = true as boolean;
 
 /**
  * PAR-83: the launcher up on the commands' clock -- the base's first command (`launcherBaseCommand`) and the firearm it
@@ -1862,6 +2335,7 @@ export function landingHitDraw(seq: number): number {
 export type MoverActionName = 'jump' | 'launch' | 'fall' | 'land' | 'landHard' | 'standToCrouch' | 'crouchToProne' | 'standToProne'
   | 'hit' | 'hitStomach' | 'landDeath' | 'getUp' | 'swapStand' | 'swapCrouch' | 'swapProne'
   | 'fallForward' | 'fallBackwards' | 'landBackwards' | 'getUpBackwards' | 'proneCover'
+  | 'cowerStand' | 'cowerStand2' | 'cowerCrouch' | 'cowerCrouch2'
   | LauncherClipName;
 export interface MoverAction {
   name: MoverActionName;
@@ -2085,6 +2559,8 @@ export const ACTION_FAMILY: Readonly<Record<MoverActionName, ActionFamily>> = Ob
   hit: 'landing', hitStomach: 'landing', landDeath: 'reaction', getUp: 'getUp',
   swapStand: 'swap', swapCrouch: 'swap', swapProne: 'swap',
   fallForward: 'reaction', fallBackwards: 'reaction', landBackwards: 'reaction', getUpBackwards: 'getUp', proneCover: 'reaction',
+  // LATER 1188: the cower is a reaction (`Prone cover`'s family; the same NoInterrupt / NoPitchtwist on the disc).
+  cowerStand: 'reaction', cowerStand2: 'reaction', cowerCrouch: 'reaction', cowerCrouch2: 'reaction',
   // PAR-84: the launcher's raise and still lower are in `FUN_005a7980`'s list with the firearm swaps (D:L462484-462491).
   rifleToLauncher: 'swap', pistolToLauncher: 'swap',
   // NU-5: the pick-up's `Swap rifle` (research 211's swap family of clips; not in `FUN_005a7980`'s list: no `swapping`).
@@ -2478,6 +2954,19 @@ export class Walker {
   private inAir = false;
   /** The last landing, null in the air or before the first fall. */
   private landing_: Landing | null = null;
+  /** LATER 1176 (`LANDING_FRAME_READING`): the feet put on the floor by a walk-off's contact frame, the landing the next frame's. */
+  private landPending_ = false;
+  private landY_ = 0;
+  /** FLE-1 (`FALL_FLAG_READING`): +0x1061 bit 1 -- the walk-off's fall under the flag. */
+  private fleFlag_ = false;
+  /** FLE-1: a walk-off waiting for its first air frame's end, and the pose step it takes then (`FALL_POSE_ROOT_READING`). */
+  private fleArm_: number | null = null;
+  /** FLE-1: a frame-end probe miss this tick, clearing the flag after this tick's floor test (`FUN_005b0420`). */
+  private fleMissClear_ = false;
+  /** FLE-1 (`FALL_FLAG_GLIDE_READING`): a glided move under way -- its walk-off does not arm the flag. */
+  private gliding_ = false;
+  /** FLE-2 (the review's F2): the dive's carry is gliding -- the one glide the original holds on the BARE floor (D:L456503; bare at D:L456544-456559). */
+  private diving_ = false;
   /** Seconds since the feet left the floor, while airborne. */
   private airTime = 0;
   /** `FUN_005858a0`'s direction class, kept for its hysteresis. */
@@ -2529,6 +3018,48 @@ export class Walker {
   private snapFollow: [boolean, boolean] = [false, false];
   /** THROTTLE-FRAME (R8.1): this frame's snap counted (`stickSnaps_`): one cross-fade a snap event, not one a tick after it. */
   private snapCounted = false;
+  /**
+   * IDLE-FRAME (R8.1 extended to the idle test, `FUN_00586570` D:L444861-444867 standing, `FUN_00586f00` crouched and prone; Q12, reading -- MISSION R8.1): the ground or jump control's last stick read past the idle
+   * test -- (forward, right, the crouch's saved forward and right) -- and the number of the tick it was read on (the one
+   * `throttleFrames` gives it, `throttleTick`: the command's, so the room and the page agree on it), null when that read
+   * was at rest. A centre a tick reads between two game frames' ends is not the frame's read: that tick takes this read
+   * again (`idleRead`).
+   */
+  private idleHeld: [number, number, number, number] | null = null;
+  private idleHeldAt = -1;
+  /**
+   * LATER 1219 (`PRESS_FRAME_READING`): the last stick read past the idle test when that read was AT REST (the raw stick
+   * the idle test keeps), null when it was not, and on a new mover (its first press is read on its own tick) -- kept
+   * through a placing and a take, which the page and the room do on different commands (`walk.ts` resume re-places, the
+   * room's `handBack` does not; `throttleFrame.test.ts` F1 (h)). What a tick takes again when a press lands
+   * on it between two frame ends. Whichever tick that read was on: a mover that ran fewer ticks than its twin (the room's
+   * dropped backlog, `throttleFrame.test.ts` F1) holds or reads the same press as the one that ran them all at rest.
+   */
+  private restRead: [number, number, number, number] | null = null;
+  /**
+   * LATER 1219: whether this mover reads a press at the game frame's start; null (the default) follows the process's
+   * timing (`pressFrameTiming`: `PRESS_FRAME_READING` unless the test build's PLAYTEST INSTRUMENT set the other), so the
+   * page's mover and the room's in one process flip together. A test's own value overrides it. A pad's stick only
+   * (`idleFrame`), never a synthetic one.
+   */
+  pressFrame: boolean | null = null;
+  /**
+   * IDLE-FRAME's window applies to this mover's stick: a pad's (a person's, the default). False for a stick no pad stands
+   * behind -- BOT ADAPTATION (the main controller's ruling (a), 2026-11-14, logged for the owner): the planner emits a
+   * stick every tick with no pad behind it; the original's 30 Hz read window is a property of a pad read, so it is not
+   * applied to a synthetic stick, and the idle test runs every tick as before. Not a tuning: the walker has one rule, and
+   * this says whose input is a pad's. Set by `./net/moverSim` from the seat's kind (`MoverSim.ai`), on every command.
+   */
+  idleFrame = true;
+  /**
+   * R4P-301 (`./footPlant`; r0004 `FUN_00553870`, D4:L455508-455563; reading, pending review): the standing turn in
+   * place's foot plant -- its play clock, raise envelope and latches, kept on the walker (the page's replays build new
+   * movers on it). `plantStep_`: this tick's displacement when the plant overwrites it (`slideOrMove`), else null.
+   */
+  readonly footPlant = new FootPlant();
+  private plantStep_: [number, number] | null = null;
+  private plantTicked_ = false;
+  private plantYaw_ = 0;
   /** The velocity carried through the air and a landing clip (`actor+0x1350` / `+0x1358`), world x and z. */
   private carried: [number, number] = [0, 0];
   /**
@@ -2546,6 +3077,13 @@ export class Walker {
    * a move's driver), when the jump reads the tick's own velocity.
    */
   private bodyVelocity_: [number, number] | null = null;
+  /**
+   * WM-HOSTAGE task 1 (research 435): the same pre-wall velocity, READ ONLY -- the port's stand-in for the body's +0x64
+   * (the clip's velocity turned to the world plus +0x1a4, FUN_0054d9a0 D:L416515-416520), which the move's tail copies to
+   * +0x38 (D:L413963-413965) and a leader's follow heading tests (FUN_005fc970): no wall writes it, so a run held against
+   * a wall keeps its speed. Null where `bodyVelocity_` is (the air, a driver's move).
+   */
+  get preWallVelocity(): readonly [number, number] | null { return this.bodyVelocity_; }
   /** HOTFIX BRIDGE-WEDGE (`WEDGE_PUSH_OUT_ADAPTATION`): where the body stood when the tick began, x and z. */
   private tickFromX = 0;
   private tickFromZ = 0;
@@ -2565,10 +3103,33 @@ export class Walker {
    * page's through `WalkMode.setHeldModels` (`./matchFirearm` `spawnKit`, `takeKit`), which every mover the walk makes
    * carries. Until a kit is set, the port's SEAL's M4A1 SD and Mark 23 (`HELD_RIFLE`, `HELD_SIDEARM`; W2.R4): the
    * walkers no kit reaches -- a test's, a tool's, a bot's probe. An item up keeps the firearm's
-   * (`WEAPON_LINE_ITEM_MODEL_PLACEHOLDER`). null: no weapon held, no line (D:L416870: no entry or no model,
+   * (`WEAPON_LINE_ITEM_MODEL_READING`: by the body’s mount). null: no weapon held, no line (D:L416870: no entry or no model,
    * `FUN_0054e8f0` returns false).
    */
-  heldModels: { rifle: string | null; pistol: string | null } = { rifle: DEFAULT_WEAPON, pistol: DEFAULT_SIDEARM };
+  heldModels: { rifle: string | null; pistol: string | null; launcher?: string | null } = { rifle: DEFAULT_WEAPON, pistol: DEFAULT_SIDEARM };
+  /**
+   * WEAPON-LINE part 2 (`WEAPON_LINE_ITEM_MODEL_READING` 'none'): whether the body's picked mount is the empty one -- a
+   * launcher followed by an item -- so no line is cast; to be given by the room and the page, as `launcherSetOn` is. Not
+   * yet wired (`WEAPON_LINE_MOUNT_NONE_PLACEHOLDER`): absent, never.
+   */
+  weaponLineMountNone: (() => boolean) | null = null;
+  /**
+   * GRENADE-LOWERS part 1 (a capture; reading, pending review): whether a hand grenade is up (class 'y', `./weaponRaise`
+   * `handGrenade`) -- no weapon line is cast then. PC 2's L1578-PROBE-WEAPONS (r0004): held hand grenades (items 121 / 126)
+   * cannot be raised and their muzzle probe is refused, no weapon-line push; GRENADE-LOWER-r0004's select legs: the probe
+   * is refused from the select frame on and the weapon line never fires with the grenade up, still or walking. This
+   * overrides `WEAPON_LINE_ITEM_MODEL_READING`'s firearm mount for the hand grenade alone (a charge's or the gear's line is
+   * not captured). To be given by the page (`./walk`, beside `launcherMountOn`) and the room (match `room.ts`
+   * `watchMoves`, from `handAt`) alike; absent, never.
+   */
+  handGrenadeUp: (() => boolean) | null = null;
+  /**
+   * WEAPON-LINE part 2 (the review's F1): whether the body's picked mount is the LAUNCHER -- from the raise to the put-away's
+   * START, where the original writes `+0xf79` = the new hand's mount (`FUN_005a6b70`, D:L462086; r0004 0x5ac898) -- not the
+   * launcher's set, which holds through the still lower's clip to its end (`FUN_005a60d0`, D:L461769-461771). Given by the
+   * room (`held` up) and the page (`launcherUp`). Absent (a bare mover): the set stands in for it.
+   */
+  launcherMountOn: (() => boolean) | null = null;
   /** SEGMENT-BODY part 2: whether this body casts the weapon line at all (`WEAPON_LINE_BOTS_READING` for the bots: none). */
   weaponLineCast = true;
   /**
@@ -2581,6 +3142,27 @@ export class Walker {
   private floorNormal_: [number, number, number] = [0, 1, 0];
   /** Slide speed `actor+0x1340` (research 201 §3). 0 when the surface test does not pass. */
   private slideSpeed_ = 0;
+  /** L208: a seeded spawn whose first game frame has not ended (`seed`): the frame's floor is the record the seed wrote. */
+  private seeded_ = false;
+  /** L208: whether the body is a seeded spawn whose first game frame has not run (`seed`); the room runs it at once. */
+  get seeded(): boolean { return this.seeded_; }
+  /**
+   * L208: runs a seeded spawn's first game frame now, still (its head-line put-out, move, frame-end pick and y snap): the
+   * room at its spawn and the page after its seed alike, so both carry the same body from the first command on. At most
+   * four ticks (a frame is two or three); a no-op on a body not seeded.
+   */
+  runSeedFrame(): void {
+    for (let i = 0; i < 4 && this.seeded_; i++) this.tick({ forward: 0, right: 0, boost: false });
+  }
+  /**
+   * L208 (the root-fix review's F1, option (ii)): the page takes on a body the room told that it did NOT seed (an explicit
+   * placement, a running body) -- standing at (x, y, z), with no pick and no frame of its own. A seeded spawn the page
+   * re-runs from the room's seed point instead (`WalkMode.respawn`), since a frame on the told RESULT would push again
+   * where the head line still meets a face (MP64 respawn 181: 3.23 u off).
+   */
+  adopt(x: number, y: number, z: number): void {
+    this.reset(x, y, z, [0, 1, 0]);
+  }
   /** `seal_slide` would play: speed at or over g/4, and no swap in progress. The clip is not on the action stack. */
   private slideClip_ = false;
   /**
@@ -2754,6 +3336,20 @@ export class Walker {
   private rootTilt_: RootTiltState = rootTiltStart();
   /** The last landing was a blast's knock-down (`knock`): its `Land forward` gets up, the game's own get-up. */
   private knockLanding_ = false;
+  /**
+   * R4P-104: in the air from a dive carried off an edge (`markDiveFall`, the traversal's dive end): the landing it ends
+   * in is the dive's (`Landing.dived`). Cleared at every landing, placing and knock, and when the traversal ends the fall
+   * with no landing (`setAirborne(false)`: the jump-grab, a ladder's or a hang's hand-back; the R4P-104 review's F3).
+   */
+  private diveFall_ = false;
+  /**
+   * R4P-104 (reading, pending review): this body is an AI-controlled one in a network game -- the original's
+   * `CSealCtrlAi` online, whose landing r0004's `HandleFallingDamage` returns class 0 for (0x5b2168-0x5b21a4,
+   * `AI_ONLINE_LANDING_CLASS`): the living body's clip over the hard rate is class 0's `Jump land hard` (D:L466676-466678),
+   * the landing's `cls` (its sound) kept the real one. Set by match `hostageFollow.ts` alone (the escortees: Extraction's
+   * hostages, Escort's VIPs); never by a CPU seat (`MATCH_BOT_FALL_ADAPTATION`).
+   */
+  onlineAi = false;
   /** PAR-19: the stance asked for and not yet taken (`actor+0x374`: `changeStance`, `retryStance`), null when none. */
   private pending_: Stance | null = null;
   /** PAR-19: the last end of a body owner or the overlay (`ActionEnd`), and who hears each one (`onActionEnd`). */
@@ -2869,6 +3465,13 @@ export class Walker {
    */
   launcherSetOn: (() => boolean) | null = null;
   /**
+   * R4P-R2 (L106; reading, pending review): whether the turret anim set is on the body -- mounted, or a release's reversed
+   * clip (`./net/emplacement` `onTurretSet`); the room (`room.ts`) sets it; null: never. r0004's CanBeginJumpFall
+   * (0x583400) answers 0 on the turret set or with a mount held (D4:L481315; D4:L538271-538273 names the set), where r0001's
+   * `FUN_0057e130` asks only the common gate (D:L440760-440761): so the airborne branch pushes no `Jump fall` (`fall`).
+   */
+  turretSetOn: (() => boolean) | null = null;
+  /**
    * LATER 512c (research 92 section 4, "LATER 512c's reading"; reading, pending review): whether a one-shot the mover does
    * not hold is on top of the body's stack on the command asked now -- the flinch (`FUN_005a2690`) or a map program's push
    * (a door's `Open door`), the page's flinch slot (`./walk` `flinchCut`) and the room's (`room.ts` `flinchFrom` ..
@@ -2890,6 +3493,20 @@ export class Walker {
    */
   pushedOnTop: (() => PushedTop | null) | null = null;
   /**
+   * LATER 711 (research 426; reading, pending review): the other SEALs' bodies this body is slid against
+   * (`./pushApart` `contactSlide`, `FUN_0054f7e0`'s contact slide, online and offline alike) -- the room's other live
+   * seats, the page's other players. Null: none (a mover nobody tells walks through bodies, as before).
+   */
+  bodies: (() => readonly OtherBody[]) | null = null;
+  /**
+   * LATER 711 step (2), not built: the muzzle push of a local human's body (the controller's vtable `+0x2c`, research
+   * 426 s3), set as `weaponLineCast` is -- a person's seat on, an AI seat off. Read by nothing until the muzzle's reach
+   * is measured (`PUSH_APART_MUZZLE_REACH_READING`, research 426 s8).
+   */
+  bodyPush = false;
+  /** LATER 711: this body's controller is an AI's (`+0x30`; the room's CPU seats): two AI bodies slide on 0.65 of the radii. */
+  bodyAi = false;
+  /**
    * LATER 504: a prone press under the launcher's set -- the crouch state's prone request (`FUN_00584c60`) and whether the
    * set allows it are not read, so the port takes it as off the set (the stance gate's own answer). Settled by reading
    * the crouch state's prone branch under `DAT_0044d408`, or a capture of a prone press with the launcher up.
@@ -2905,13 +3522,29 @@ export class Walker {
   /** LATER 504: the launcher's set as `followLauncherSet` last saw it. */
   private launcherSet_ = false;
 
-  /** LATER 504: the set's start kneels the mover at once, its end stands it at once (`launcherSetOn`). */
+  /**
+   * LATER 504: the set's end stands the mover at once (`launcherSetOn`). R4P-247 (reading, pending review; QL55B-PC2
+   * captured the timing x2): the set's start kneels it when the raise is POPPED, not at once. The raise binds the set's
+   * base (0x12, state 1) and pushes its clip; a push writes no posture, and every pop writes the posture of the blend it
+   * uncovers -- PopBlend (r0001 `FUN_0028da00` D:L135104) through BodySetState (r0004 0x58fcb0, r0001 `FUN_0058a6b0`
+   * D:L446812-446825); seat-kill's fresh review, the mechanism review (agent/spc-atlas). So the crouch lands where the
+   * raise comes off (`endBody`): its own end on raised + `playedOutCommand`, one before `launcherBaseCommand`, 41 game
+   * frames after the set binds -- or a knock, a dance or the air taking it off first. So with a forward raise on the mover the latch flips here
+   * (WEAPON-LINE reads it) and the crouch waits; with none (a body past its raise) it kneels at once, as before.
+   */
   private followLauncherSet(): void {
     const on = this.launcherSetOn?.() === true;
     if (on === this.launcherSet_) return;
     this.launcherSet_ = on;
     if (this.dead_) return;
+    if (on && this.raisingLauncher()) return;                      // R4P-247: kneels at the raise's pop (`endAction`)
     this.stance = on ? 'crouch' : 'stand';
+  }
+
+  /** R4P-247: a forward launcher raise (`Rifle -> Launcher` / `Pistol -> Launcher`, not the still lower) is the action. */
+  private raisingLauncher(): boolean {
+    const a = this.action_;
+    return !!a && (a.name === 'rifleToLauncher' || a.name === 'pistolToLauncher') && !a.reversed;
   }
 
   /**
@@ -2929,6 +3562,14 @@ export class Walker {
    * not mapped to the port's paths (a named gap).
    */
   private stanceTaken_ = true;
+  /**
+   * R4P-104: the traversal's dive ended off an edge with the walker in the air (`traversal.ts`, the dive's end): the
+   * landing it falls to is the dive's (`Landing.dived`; r0004 0x5b5ce4-0x5b5cfc, the dive's clip in play at the contact).
+   */
+  markDiveFall(): void {
+    if (this.inAir) this.diveFall_ = true;
+  }
+
   /** LATER 414: raise the stance word's bit (a take the motion code makes itself: the dive's prone, once it is down). */
   markStanceTaken(): void {
     this.stanceTaken_ = true;
@@ -3118,11 +3759,16 @@ export class Walker {
    */
   private endBody(reason: ActionEndReason): void {
     const a = this.action_;
+    const raise = this.raisingLauncher();                           // R4P-247: a forward launcher raise coming off now
     if (a) {
       this.action_ = null;
       this.emitEnd({ body: { source: 'action', name: a.name, family: ACTION_FAMILY[a.name], serial: a.serial }, overlay: null, reason });
     }
     this.endVictory(reason);
+    // R4P-247: EVERY pop writes the posture of the blend it uncovers (r0004's PopBlend -> BodySetState 0x58fcb0; r0001
+    // FUN_0028da00 D:L135104 -> FUN_0058a6b0 D:L446812-446825): a forward raise coming off ANY way -- its end, a knock,
+    // a dance, the air -- under the launcher's set uncovers the set's Crouch row (posture 1), so the body kneels here.
+    if (raise && this.launcherSet_ && !this.dead_) this.stance = 'crouch';
   }
 
   /** The victory dance comes off for `reason` (`ActionEnd`): `stopped` its owner's, else the body's reasons. */
@@ -3289,8 +3935,10 @@ export class Walker {
    * argument 1, `FUN_0028c160`); the moving one runs backwards from its end (`FUN_00587780` kind 5, `FUN_0028d3f0(…, 1)`,
    * D:L445380-445398, 438618; research 211 §2). The gate (research 201 §1, 211 G4; one for the page and the room):
    * refused in the 9x view or a scope (`FUN_005c4fd0`: zoom 4 and up, `scoped` -- the page's `./zoom`, the room's
-   * `Button.Scope`), in the air, and while an action plays (`FUN_005b4340(actor, 4)`: the landings, the get-ups, the
-   * knock-down; a swap's own, `FUN_005a7980`) -- but not during a stance transition (206 §1.3 A27; the plan's PF-39),
+   * `Button.Scope`), in the air (the original's; taken under `AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION`, as the overlay, and so
+   * under the standing jump's `jump`),
+   * and while an action plays (`FUN_005b4340(actor, 4)`: the landings, the get-ups, the knock-down; a swap's own,
+   * `FUN_005a7980`) -- but not during a stance transition (206 §1.3 A27; the plan's PF-39),
    * which the swap's clip takes over: the stance word is already the new one (`changeStance`), so the selector reads it
    * [reading of the stance change; which clip the game plays there is owed to capture C3, research 211 §7]. Null when
    * refused.
@@ -3301,7 +3949,10 @@ export class Walker {
     const s = this.state;
     const still = s.vx * s.vx + s.vz * s.vz + s.vy * s.vy <= 400;
     this.hand = to === 'pistol' ? 1 : 0;                          // NU-1c B11: the hand the swap takes (MoverSim.weapon's)
-    if (this.stance_ === 'prone' || still) {
+    // B-65 (`AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION`, no original): in the air, or under the standing jump's `jump` (the
+    // owner, 2026-11-25), the overlay -- never a full-body swap action, which would cut the jump.
+    const overJump = AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION && this.action_?.name === 'jump';
+    if (!this.inAir && !overJump && (this.stance_ === 'prone' || still)) {
       const action = this.stance_ === 'prone' ? 'swapProne' : this.stance_ === 'crouch' ? 'swapCrouch' : 'swapStand';
       this.start(action, ACTION_SECONDS[action], reversed);
       s.vx = 0; s.vz = 0;
@@ -3327,6 +3978,10 @@ export class Walker {
   launcherClip(name: LauncherClipName, reversed: boolean, elapsed = 0): boolean {
     const c = ACTION_CLIPS[name];
     if (this.inAir && LAUNCHER_RAISE_AIR_READING === 'refused') return false;
+    // B-65 extended to the standing jump (`AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION`, the owner 2026-11-25): a launcher take
+    // passes the gate under `jump` now; its raise or lower starts no body clip there, as in the air, so the jump is not
+    // cut (the pick-up's clips are not the take's and keep their path).
+    if (AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION && this.action_?.name === 'jump' && (name === 'rifleToLauncher' || name === 'pistolToLauncher')) return false;
     if (swapPlayedOut(elapsed, c.playback, c.frames)) return false;
     this.start(name, ACTION_SECONDS[name], reversed);
     this.action_!.t = elapsed;
@@ -3345,16 +4000,25 @@ export class Walker {
 
   /**
    * The swap's gate alone (`swapWeapon`'s refusal, no clip started): in the 9x view or a scope (`scoped`: the room's the
-   * last command's view, the page's the last tick's -- `WalkMode.swapGate`), in the air, or an action other than a
-   * stance transition playing (`FUN_005c4fd0`, `FUN_005b4340(actor, 4)`; research 201 §1), or the victory dance owning
-   * the body (`bodyOwner`'s `victory`: its NoFire refuses the swap through the common gate, research 303 section 3).
+   * last command's view, the page's the last tick's -- `WalkMode.swapGate`), in the air (the original's rule, overridden
+   * by the owner: `AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION`, B-65), or an action other than a stance transition (or, under
+   * the same adaptation, the standing jump's `jump`) playing
+   * (`FUN_005c4fd0`, `FUN_005b4340(actor, 4)`; research 201 §1), or the victory dance owning the body (`bodyOwner`'s
+   * `victory`: its NoFire refuses the swap through the common gate, research 303 section 3).
    */
   swapRefused(scoped: boolean = this.scoped): boolean {
     if (this.bodyOwner()?.family === 'victory') return true;
     // FUN_005b4340 code 4: a slide speed over 0.001 refuses the swap (research 201 §1, §27.3).
     if (this.slideSpeed_ > 0.001) return true;
-    if (scoped || this.inAir || this.swapping()) return true;   // a swap playing, the moving one too (FUN_005a7980)
+    // B-65: the air's refusal is the original's rule (FUN_005a8cb0 D:L463148-463190), overridden by the owner
+    // (`AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION`): in the air, neither the air nor the jump's launch / fall refuses.
+    const air = this.inAir && AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION;
+    if (scoped || (this.inAir && !air) || this.swapping()) return true;   // a swap playing, the moving one too (FUN_005a7980)
     const a = this.action_?.name;
+    if (air && (a === 'launch' || a === 'fall')) return false;
+    // The owner, 2026-11-25 (B-65 Q1, "add it to the standing jump as well"): the standing jump's `jump`, on the floor,
+    // refuses no swap either -- the original's code-4 refusal of an action playing (FUN_005b4340), overridden.
+    if (AIR_SWAP_OWNER_DIVERGENCE_ADAPTATION && a === 'jump') return false;
     return a !== undefined && a !== 'standToCrouch' && a !== 'crouchToProne' && a !== 'standToProne';
   }
 
@@ -3366,19 +4030,26 @@ export class Walker {
   pistolHand: (() => boolean) | null = null;
 
   /**
+   * R4P-211 (L368; r0004 `IsThrowing(actor, 0)`, 0x5ad9f0, holds the pistol peek right and left tosses, D4:L503648-503650,
+   * D4:L503688; reading, pending review): with the pistol in hand the two lean tosses are the throw term again; and since
+   * LATER 1442 (below) the standing throw is the rifle's `Throw grenade`, the term too -- so with either hand every throw
+   * hold on top holds the term (merged 2026-11-24, the two readings together). *Was* (LATER 509, r0001's term 4):
    * LATER 509 (research 369 §1 term 4): a throw's hold on top that the common gate's throw term holds for the hand. The
-   * rifle's: every throw hold. The pistol's: all but its standing throw and its two lean tosses -- `FUN_0058c820` swaps a
-   * one-shot to its pistol pair only where the Seal anim set holds the pistol type (D:L448176-448189; research 85 §8.1
-   * item 3): the standing throw becomes "Pistol throw grenade" (S:0x660ed0, a record) and the lean tosses the pistol's peek
-   * tosses (S:0x6615d0, S:0x661600), none among D:L462622-462626's words; the crouched and prone throws' pistol types
-   * (ELF 0x6617e0, 0x6617a0) have no record, so the rifle's "Crouch throw grenade" / "Prone throw grenade" stay on top --
-   * term 4 (the review's F1: *was* every throw clip excused); the tosses are term 4 either way. One function for the
+   * rifle's: every throw hold. The pistol's: all but its two lean tosses -- the hand pass (`FUN_0058c960`, D:L448198 on;
+   * research 85 §8.1 item 3; LATER 1442) swaps only the two peek tosses to the pistol's (S:0x6615d0, S:0x661600), none
+   * among D:L462622-462626's words; the standing, crouched and prone throws play the rifle's `Throw grenade` /
+   * "Crouch throw grenade" / "Prone throw grenade", so term 4 holds (*was*, before LATER 1442's review F2: the standing
+   * throw excused as "Pistol throw grenade" by `FUN_0058c820`). One function for the
    * gate's top, the climb's offer and the dance.
    */
   throwOnTop(pistol = this.pistolHand?.() === true): boolean {
     const h = this.hold_;
     if (!h || holdFamily(h.clip) !== 'throw') return false;
-    return !(pistol && (h.clip === 'seal_throwgrenade' || h.clip === 'seal_toss_rlean' || h.clip === 'seal_toss_llean'));
+    // LATER 1442's review F2 (the sidearm's standing throw plays the rifle's `Throw grenade`) and R4P-211 (the pistol peek
+    // tosses held by r0004's IsThrowing(actor, 0), D4:L503648-503650, D4:L503688): no throw hold is excused any more, term 4
+    // holds for both hands.
+    void pistol;
+    return true;
   }
 
 
@@ -3387,8 +4058,8 @@ export class Walker {
    * (`./net/actionGate`), `pistol` the hand: a throw's hold on top, the review's F1 -- term 4's words (`FUN_005a7de0`
    * D:L462622-462626 on the words of D:L495211-495237) are the rifle's throws, the four tosses (the pistol's two among
    * them) and the rifle's peek tosses; the pistol's standing throw and peek tosses are not (its crouched and prone throws
-   * keep the rifle's types: research 85 §8.1 item 3), so with the pistol only its standing throw and its lean tosses are no
-   * term (`throwOnTop`) --
+   * keep the rifle's types: research 85 §8.1 item 3) -- *was*; now every throw is the term, either hand (`throwOnTop`:
+   * R4P-211, D4:L503688, the lean tosses; LATER 1442, the standing throw plays the rifle's `Throw grenade`) --
    * not a placing's; a reload's hold (`FUN_005a7ab0`'s clips, D:L462527-462546); a swap's clip or its moving overlay or the
    * launcher's raise (`FUN_005a7980`'s, D:L462484-462497); a get-up (the walker's get-up actions for `FUN_00587f90`'s
    * animation types, D:L462679); null: none of them.
@@ -3452,6 +4123,10 @@ export class Walker {
     this.endOverlay('replaced');
     this.stance = 'stand';
     this.pending_ = null;
+    // IDLE-FRAME: the take pops the body (`FUN_0058c350`); no read from before it is taken again (`idleRead`). The page
+    // takes at send time, the room on M (`room.ts` `takeMount`), and a held walk read stepped the page's body a tick at a
+    // mid-frame M the room ran mounted (turretHold A1, 50 ms / 144 Hz: page-room 0.58).
+    this.idleHeld = null;
   }
 
   /** The ground state as it last ran (`GroundMotion`). */
@@ -3501,7 +4176,7 @@ export class Walker {
 
   /**
    * THROTTLE-FRAME (R8.1): the ramped stick (forward, right) at the last game frame's end, what this tick's snap is judged
-   * from (`throttle`). A tick at rest between two frames' ends (`FUN_00586f00`) leaves it alone.
+   * from (`throttle`). A tick at rest between two frames' ends (the idle test: `FUN_00586570` standing, `FUN_00586f00` crouched) leaves it alone.
    */
   get snapRef(): readonly [number, number] {
     return this.snapRef_;
@@ -3518,7 +4193,7 @@ export class Walker {
    * the cross-fade is counted once a frame (`snapCounted`). Without a snap the ramp (`throttleRamp`) runs every tick at its
    * per-second rate, as R8 has it. A press from rest (`snapRef_` 0, not past `at`) ramps, as the original's.
    */
-  private throttle(forward: number, right: number, dt: number): void {
+  private throttle(forward: number, right: number, dt: number): [number, number] {
     const s = this.state, follow = this.snapFollow, ref = this.snapRef_;
     const snapForward = !follow[0] && throttleSnaps(ref[0], forward, 'forward', GAME_FRAME_DT);
     const snapRight = !follow[1] && throttleSnaps(ref[1], right, 'right', GAME_FRAME_DT);
@@ -3527,6 +4202,11 @@ export class Walker {
     s.stickForward = follow[0] ? forward : throttleRamp(s.stickForward, forward, 'forward', dt);
     s.stickRight = follow[1] ? right : throttleRamp(s.stickRight, right, 'right', dt);
     if ((snapForward || snapRight) && !this.snapCounted) { this.snapCounted = true; this.stickSnaps_++; }
+    // RAMP-LEAD (LATER 1164): the stick the move uses, read `RAMP_LEAD` of the tick further along the ramp.
+    return [
+      follow[0] ? forward : throttleRamp(s.stickForward, forward, 'forward', dt * RAMP_LEAD),
+      follow[1] ? right : throttleRamp(s.stickRight, right, 'right', dt * RAMP_LEAD),
+    ];
   }
 
   /**
@@ -3535,6 +4215,66 @@ export class Walker {
    * frame's reference (`snapRef_`) -- whatever path set it this tick (the ramp, a snap, the idle test's raw stick, a
    * clip's stick read and not obeyed) -- and the frame's snap is spent.
    */
+  /**
+   * IDLE-FRAME (R8.1 extended; the main controller's order, 2026-11-14, on seat 8a's reading F3): the idle
+   * test -- the stick within 0.03, the body still and the raw stick kept; standing `FUN_00586570` D:L444861-444869 (both
+   * raw axes within 0.03 skip the slope and the ramp, the raw stick stored), dispatched by `FUN_005870e0` D:L445165;
+   * crouched and prone `FUN_00586f00`, from the stance handlers (D:L443566, 443663, 443900, 444142) -- is the original's once a 30 Hz game frame, on
+   * the frame's read, so a centre no frame's read falls in never stops its body: Q12's velocity (read at about 1.36 kHz)
+   * shows no zero on an uncaught gap, only a whole jump, and a zero on a caught one in about g / 33 of the runs (reading, MISSION R8.1: the
+   * capture is scored by a scratch script, no test re-reads its rows;
+   * `throttleFrame.test.ts`, "IDLE-FRAME"). Run every 60 Hz tick it stopped the port's body for a tick on a centre between
+   * two frame ends (60 % of the phases at g 10, 100 % at g 20). So a tick whose stick is at rest and which does not end a
+   * game frame (`throttleFrameEnds` of the number `throttleFrames` will give it) takes last tick's read past the test again
+   * -- the pad not read, as the original's frame does not read it -- and the frame's end judges the rest as before (its
+   * still tick and a `snapRef_` of the centre). A read at rest, a read not of the number just before this one (a clip, an
+   * elapsed backlog, a command passed over, a placing between) or a frame's end leaves the stick as it is. The read is kept
+   * by the tick's number, not a count of the walker's own ticks, so the room and the page hold or not alike. A browser
+   * adaptation of the test's window, as R8.1's.
+   */
+  /**
+   * LATER 1219 (the walls trial, 2026-11-21; `roomDoorHold.test.ts`'s RED): a tick a clip plays without obeying the stick
+   * (a hold's push, a transition's root motion, a landing's carry) still READS the pad. The original's actor pass copies
+   * the controller's axes into the actor (`+0x23c/+0x240/+0x244`) before its driver on every tick, with no test of the clip
+   * playing (`FUN_00551ec0` D:L418613-418615, r0004 0x5575e8 word-identical), though behind three gates (a controller; not
+   * the D:L418511-418513 branch; the controller's tick answered, D:L418527) and followed by listed zeroings (death,
+   * carries, some motions: D:L418616-418702; none by motion id a stance transition, the one keyed on the top node's flag,
+   * `FUN_00587e00` D:L418699-418702, unread for them). So the clip's frames keep the original's stick
+   * current, and the first ground frame after the clip obeys it from that frame's own copy (copy, then driver): it is
+   * not a press from rest. Here: a stick off rest on a frame's first tick clears the rest read (`idleRead`), a stick at
+   * rest keeps it, and a press new since the frame's start waits for the next one -- the window's browser adaptation, as
+   * `PRESS_FRAME_READING`'s (the original has no tick inside a frame). Second-read in r0001 and r0004 (Fable, 2026-11-21).
+   */
+  private clipRead(forward: number, right: number, crouchForward: number, crouchRight: number): void {
+    if (!this.idleFrame) { this.restRead = null; return; }
+    const n = this.commandSeq !== this.throttleSeq ? this.commandSeq : this.throttleTick + 1;   // `throttleFrames`'s number
+    if (idle(forward, right) && idle(crouchForward, crouchRight)) this.restRead = [forward, right, crouchForward, crouchRight];
+    else if (this.restRead !== null && throttleFrameEnds(n - 1)) this.restRead = null;
+  }
+
+  private idleRead(forward: number, right: number, crouchForward: number, crouchRight: number): [number, number, number, number] {
+    if (!this.idleFrame) { this.idleHeld = null; this.restRead = null; return [forward, right, crouchForward, crouchRight]; }   // a synthetic stick
+    const atRest = idle(forward, right) && idle(crouchForward, crouchRight);
+    const held = this.idleHeld;
+    const n = this.commandSeq !== this.throttleSeq ? this.commandSeq : this.throttleTick + 1;   // `throttleFrames`'s number
+    if (atRest && held !== null && this.idleHeldAt === n - 1 && !throttleFrameEnds(n)) {
+      this.idleHeldAt = n;
+      return [held[0], held[1], held[2], held[3]];
+    }
+    // LATER 1219 (`PRESS_FRAME_READING` 'frame-start'): a press from rest on a tick that does not start a game frame is
+    // not read -- the frame was read at its start, at rest (`FUN_00551ec0` D:L418613-418615); the next frame's first tick
+    // reads it, whatever ticks ran between (a clip, a command passed over): the room and the page hold alike.
+    const rest = this.restRead;
+    if ((this.pressFrame ?? pressFrameTiming_ === 'frame-start') && !atRest && rest !== null && !throttleFrameEnds(n - 1)) {
+      this.idleHeldAt = n;
+      return [rest[0], rest[1], rest[2], rest[3]];
+    }
+    this.restRead = atRest ? [forward, right, crouchForward, crouchRight] : null;
+    this.idleHeld = atRest ? null : [forward, right, crouchForward, crouchRight];
+    this.idleHeldAt = n;
+    return [forward, right, crouchForward, crouchRight];
+  }
+
   private throttleFrames(): void {
     const seq = this.commandSeq;
     this.throttleTick = seq !== this.throttleSeq ? seq : this.throttleTick + 1;
@@ -3556,6 +4296,12 @@ export class Walker {
    * the heavy landing's coin is drawn from it (`landingHitDraw`, `LANDING_HIT_DRAW_READING`).
    */
   commandSeq = 0;
+
+  /**
+   * LATER 1201: the rifle raised this command (`Command.raised`, ER-2: the original's +0xf74 1 up / 2 down), laid by
+   * `./net/moverSim` `prepare` on the page and the room alike; the head line takes the Fire set's table when set.
+   */
+  raised = false;
 
   /**
    * The draw `FUN_005af590` makes between its two hit clips (`FUN_00197740`), [0, 1): a test's override; null (the
@@ -3659,7 +4405,7 @@ export class Walker {
    */
   private endAction(reason: ActionEndReason): void {
     const name = this.action_?.name;
-    this.endBody(reason);
+    this.endBody(reason);                                           // R4P-247: a raise's pop kneels the body there
     if (name === 'getUp' || name === 'getUpBackwards') this.stance = 'stand';
   }
 
@@ -3700,6 +4446,14 @@ export class Walker {
    * stick does (`FUN_00550ef0`).
    */
   turn = 0;
+
+  /** R4P-208: the turn memory (`actor+0x105e` 0x10 / 0x08), written by every stance's start test (`TurnMemory`). */
+  private turnMemory_: TurnMemory = 'none';
+  /**
+   * R4P-208 fold 3, a test-harness adaptation (product track): the turn memory, read only, for the EPH harness's per-tick
+   * read (`./ephFrame`); nothing in the game reads it through here.
+   */
+  get turnMemory(): 'none' | 'turning' | 'walked' { return this.turnMemory_; }
 
   /**
    * SEP-POP (OT.R93; the owner, 2026-10-31: SEPARATE "identical to the original"): whether the stick cuts this walker's
@@ -3744,22 +4498,37 @@ export class Walker {
     clip: string, c: { playback: number; frames: number; travel: readonly number[] }, seconds: number, t: number, reversed: boolean, suppliedKeys?: Float32Array,
   ): [number, number] {
     const n = c.frames, end = (n - 1) / n;
-    const keys = suppliedKeys ?? this.actionRoots?.get(clip);
-    if (!keys || keys.length < 2 * n) {
+    const run = t / (c.playback * end);
+    const phase = Math.min(end, Math.max(0, reversed ? end - run : run));
+    const step = rootKeyStep(suppliedKeys ?? this.actionRoots?.get(clip), n, Math.floor(phase * n + 1e-9));
+    if (!step) {
       const v = (reversed ? -1 : 1) / seconds;
       return [c.travel[0]! * v, c.travel[1]! * v];
     }
-    const run = t / (c.playback * end);
-    const phase = Math.min(end, Math.max(0, reversed ? end - run : run));
-    let a = Math.min(n - 1, Math.floor(phase * n + 1e-9)), b = a + 1;
-    if (b >= n) { b = n - 1; a = Math.max(0, n - 2); }
     const k = ((reversed ? -1 : 1) * n) / c.playback;
-    return [(keys[2 * b]! - keys[2 * a]!) * k, (keys[2 * b + 1]! - keys[2 * a + 1]!) * k];
+    return [step[0] * k, step[1] * k];
   }
 
   /** The body in use (`STANCE[posture]` gives its root and column): `stand` while a crouch runs at full stick. */
   get posture(): Stance {
     return this.posture_;
+  }
+  /**
+   * SWAPFIRE-CROUCH: the stance in use, `FUN_0058a720(body, 1)` (D:L446829-446870): while `Stand -> Crouch` (action
+   * 0x11) is the top played forward it answers the action's clip flag 0x20 -- stand (D:L446846-446850; the flag's
+   * meaning a reading, the stand row's use PROVEN by atlas's r0004 capture, agent/spc-atlas 899c79b16a
+   * docs/atlas/captures/nade-swap-reticle-r0004-desert-glory.md: 1.668 a frame and a 1.000 hold through action 17);
+   * else the posture. The kit's and the cone's row only (`PlaySnapshot.stanceInUse`, `AimMover.stanceInUse`), and the
+   * round's (`WalkMode.stanceInUse` -> `./matchFirearm`; the room's `ShotCone.round`): the animator and the aim eye keep
+   * the posture, the exertion keeps the stance word. r0004 twins: 0x58fd20 (the function), 0x57d220 (the action test),
+   * 0x5c9bec (the kit's read), 0x54fd4c (the probe class's read). ONE ARM OF SIX: the five others are departures
+   * named, not built (a LATER row): 0x11 reversed (Crouch -> Stand: the original keeps the CROUCH row for the clip; the
+   * port gives stand at once), 0x13 forward (crouch; the port prone) and reversed (prone; the port crouch), 0x19 forward
+   * (stand; the port prone) and reversed (prone; the port stand). The probe class reading it is not built either.
+   */
+  get stanceInUse(): Stance {
+    const a = this.action_;
+    return a !== null && a.name === 'standToCrouch' && !a.reversed ? 'stand' : this.posture_;
   }
   /** The feet before the last tick, for drawing the eye between ticks. */
   private prev = { x: 0, y: 0, z: 0 };
@@ -3841,10 +4610,18 @@ export class Walker {
   /**
    * TRAVERSAL SEAM: moves the mover across the ground by (dx, dz) as a tick's step does -- the walls, the floors, a step
    * down, an edge's fall -- for a move that carries it (the dive).
+   * LATER 1151, a named limit, not parity: a glide is outside the walk's tick, so its floor is `move`'s sub-step rule,
+   * not the frame's end -- for the bots' graph builder's probe (`NAV_PROBE_SUBSTEP_FLOOR_READING`) and for the dive's
+   * carry (`DIVE_GLIDE_FLOOR_READING`, the original's rule for a dive unread). No other caller of the port reaches it.
    */
-  glide(dx: number, dz: number, correct?: GroundCorrection): void {
+  glide(dx: number, dz: number, correct?: GroundCorrection, dive = false): void {
+    this.seeded_ = false;                                       // L208 (the fresh review's F5): a glide is no seeded first frame
     if (correct) this.wallHits_ = []; // AI body tick: expose only this move's contacts to its controller.
-    this.move(dx, dz, correct);
+    const walk = this.walkTick_;
+    this.walkTick_ = false;                                      // LATER 1148: a glide is a whole move, never a frame's tick
+    this.gliding_ = true;                                        // FLE-1: FALL_FLAG_GLIDE_READING
+    this.diving_ = dive;                                         // FLE-2: only the dive's carry stands on the bare floor
+    try { this.move(dx, dz, correct); } finally { this.walkTick_ = walk; this.gliding_ = false; this.diving_ = false; }
   }
 
   /** Normal grounded AI has one centerline, not the local player's standing disc.
@@ -3852,7 +4629,10 @@ export class Walker {
    * The nearest segment hit is filtered before displacement projection (005483d0 D:L413409-413568).
    */
   glideAi(dx: number, dz: number, correct?: GroundCorrection, defaultMaterial = ''): void {
+    this.seeded_ = false;                                       // L208 (the fresh review's F5): a glide is no seeded first frame
     this.wallHits_ = [];
+    this.gliding_ = true;                                        // FLE-1: FALL_FLAG_GLIDE_READING
+    try {
     if (this.inAir) { this.move(dx, dz, correct); return; }
     const s = this.state, length = Math.hypot(dx, dz);
     let x = s.x + dx, z = s.z + dz;
@@ -3883,6 +4663,7 @@ export class Walker {
     }
     if (correct) { const at = correct([x, s.y, z]); x = at[0]; z = at[2]; }
     this.groundEndpoint(x, z);
+    } finally { this.gliding_ = false; }
   }
 
   /**
@@ -3895,7 +4676,7 @@ export class Walker {
     this.endBody('replaced');                                    // the action, the victory dance with it
     if (on) this.coverHold();                                    // PAR-79: the fall over a reload hold (`takeOff`)
     this.endHold('replaced');
-    this.jumping = false; this.jumpDelay = 0;
+    this.jumping = false; this.jumpDelay = 0; this.landPending_ = false; this.fleFlag_ = false; this.fleArm_ = null; this.fleMissClear_ = false;
     if (on) {
       this.takeOff();
       this.state.vy = vy;
@@ -3903,6 +4684,7 @@ export class Walker {
       return;
     }
     this.inAir = false;
+    this.diveFall_ = false;                                      // R4P-104 F3: the fall ends here, no landing is the dive's
     this.coveredHold_ = null;                                    // PAR-79: no landing hands it back
     this.state.vy = 0;
     this.carried = [0, 0];
@@ -3930,37 +4712,92 @@ export class Walker {
   place(x: number, fromY: number, z: number): boolean {
     const floor = selectFloor(probeGround(this.grid, x, z), fromY, fromY - this.probeLift());
     if (!floor) return false;
+    // FLE-2: placed at the height the ground holds it at, the floor + its soil's offset (`soilY`; FUN_005b0420 D:L467105-467118
+    // writes the sum at a lift, FUN_0059b440 D:L456513-456523 every ground frame after) -- never 0.8 over it for a tick.
+    this.reset(x, this.soilY(floor), z, floor.normal);
+    return true;
+  }
+
+  /**
+   * L208 (ATLAS's reviewed record mp64-spawn-r0004.md, finding 1; seat-kill's key-job reads kill/keyjob-l208-faceprobe.md
+   * and keyjob-l208-order.md; a reading, pending review): a SPAWN seeds the body at the record lifted a unit (`at`, the
+   * feet; `FUN_002b8100` D:L158793) with the seed as its floor and a floor normal up -- the respawn's TeleportTo only
+   * writes (r0004 0x555800's phases; r0001 FUN_005506a0 D:L417822-417826). NO pick at the seed column: the first frame
+   * runs its own order -- the head line's deep-hit put-out from the seed height (r0004 0x54cf30, 0x54d868-0x54d910;
+   * D:L413598-413614), the move, the frame-end probe from the MOVED position, the y snap. `place` picks at the column
+   * first, which on Shadow Falls respawn 181 stood the body on inv_di 8.84 over the bed (the original never is).
+   * False, and nothing moves, only where the column holds no face at all (a port guard).
+   */
+  seed(x: number, y: number, z: number): boolean {
+    // r0004 refuses nothing at a spawn: a null pick in the first frame keeps the body at the seed (the miss branch, r0004
+    // 0x5b63d0-0x5b6468; seat-kill's read, which withdrew its review's F4). Only a column with no face at all is refused,
+    // a port guard (the page's respawn reports "no ground").
+    if (probeGround(this.grid, x, z).length === 0) return false;
+    this.reset(x, y, z, [0, 1, 0]);
+    this.seeded_ = true;                                         // the written record stands for the first frame's floor
+    return true;
+  }
+
+  /** The state a placing or a seed starts the body from, at (x, y, z) on a floor whose normal is `normal`. */
+  private reset(x: number, y: number, z: number, normal: readonly number[]): void {
+    this.seeded_ = false;
     this.placement = ++placementSerial;                          // LATER 960: a placing, told to the room's hostages
-    Object.assign(this.state, { x, y: floor.y, z, vx: 0, vz: 0, vy: 0, stickForward: 0, stickRight: 0 });
-    this.prev = { x, y: floor.y, z };
+    Object.assign(this.state, { x, y, z, vx: 0, vz: 0, vy: 0, stickForward: 0, stickRight: 0 });
+    this.prev = { x, y, z };
     this.accumulator = 0;
     this.tiltClock.reset();                                      // PRONE-TILT-2: the rule's frames start with the placing
     this.throttleTick = 0;                                       // THROTTLE-FRAME (R8.1): an unnumbered tick counts from the placing
     this.snapRef_ = [0, 0]; this.snapFollow = [false, false]; this.snapCounted = false;   // the stick at rest, as placed
+    this.idleHeld = null;                                        // IDLE-FRAME: no read before the placing is taken again
     this.restDrawn();
     this.inAir = false;
     this.landing_ = null;
+    this.diveFall_ = false;                                      // R4P-104
     this.action_ = null;                                         // a placing starts the body afresh: no end is heard
     this.overlay_ = null;
     this.hold_ = null;
     this.coveredHold_ = null;                                    // PAR-79
     this.dance_ = null;                                          // the victory dance too: no end is heard
     this.pending_ = null;
-    this.jumpLock = 0; this.jumpDelay = 0; this.jumping = false; this.carried = [0, 0];
+    this.jumpLock = 0; this.jumpDelay = 0; this.jumping = false; this.carried = [0, 0]; this.landPending_ = false; this.fleFlag_ = false; this.fleArm_ = null; this.fleMissClear_ = false;
     this.contact_ = null;                                         // SEGMENT-BODY: no stored contact on a placing
     this.bodyVelocity_ = null;                                   // LATER 676: no clip velocity kept from before it
     this.wedgeArmed = 0;                                         // HOTFIX BRIDGE-WEDGE: no landing yet
-    this.setFloorNormal(floor.normal);
+    this.setFloorNormal(normal);
     this.stopSlide();
     this.ground_ = { state: 'idle', forward: 0, right: 0, cls: -1 };
     this.landedPop = false;
     this.cutStick_ = { forward: 0, right: 0 };                   // PAR-64: no stick before the first tick
-    return true;
+    this.footPlant.reset(); this.plantStep_ = null; this.plantTicked_ = false; this.plantYaw_ = this.state.yaw;   // R4P-301: no half-step
   }
 
   /** Whether the mover is falling. */
   get airborne(): boolean {
     return this.inAir;
+  }
+
+  /**
+   * AS-34 L78 (`./accuracy` `airBloomFeed`): the carried velocity (`carried`, world x and z; r0004 body `+0x1354` /
+   * `+0x135c`) and whether this flight is a running jump's (`jumping` in the air: its start r0004 0x5838a0 zeroes the
+   * vector's y and the body's own velocity) -- what the kit's airborne bloom reads. `rise`: the standing jump's body
+   * vertical `+0x30` (AS-34; `STANDING_JUMP_RISE_READING`), the `seal_jump` root's y velocity at the action's phase.
+   */
+  get carriedAir(): { x: number; z: number; runningJump: boolean; rise: number } {
+    return { x: this.carried[0], z: this.carried[1], runningJump: this.inAir && this.jumping, rise: this.jumpRise() };
+  }
+
+  /**
+   * AS-34: the `seal_jump` root's y velocity while the standing jump (action `jump`) plays -- its y keys (`actionRoots`)
+   * differenced at the action's phase as `clipVelocity` does x and z (`FUN_0028c250`), units a second; 0 off it or with
+   * no y keys.
+   */
+  private jumpRise(): number {
+    const a = this.action_;
+    if (!a || a.name !== 'jump') return 0;
+    const c = ACTION_CLIPS.jump, n = c.frames, keys = this.actionRoots?.get(SEAL_ANIMS.jump);
+    const end = (n - 1) / n, phase = Math.min(end, Math.max(0, a.t / (c.playback * end)));
+    const step = rootKeyStep(keys, n, Math.floor(phase * n + 1e-9), true);
+    return step ? step[2] * n / c.playback : 0;
   }
 
   /** The last landing since the feet last left the floor, or null: in the air, or not yet fallen since `place`. */
@@ -3992,6 +4829,7 @@ export class Walker {
    */
   knock(velocity: readonly number[], fall: 'fallForward' | 'fallBackwards' | 'proneCover'): boolean {
     const s = this.state;
+    this.diveFall_ = false;                                      // R4P-104: a knock's landing is the knock's, never the dive's
     this.stopSlide();
     this.endHold('knock');
     this.coveredHold_ = null;                                    // PAR-79: the knock pops the stack (FUN_0057e770 D:L440997)
@@ -4004,6 +4842,7 @@ export class Walker {
     }
     this.jumpDelay = 0;
     this.jumping = false;
+    this.landPending_ = false; this.fleFlag_ = false; this.fleArm_ = null; this.fleMissClear_ = false;
     // AIR-PROBE: the last hit is where the knock left the floor -- only when it did. The original's knock writes no
     // `+0x400` (`FUN_0057e770` D:L440990-441080), so a knock in the air keeps the flight's last hit (review F2).
     if (!this.inAir) this.airHit = [s.x, s.z];
@@ -4037,6 +4876,12 @@ export class Walker {
     // owner (`bodyOwner`), the one answer the stance gate asks too.
     if (this.bodyOwner() !== null) return false;
     if (this.floorNormal_[1] < MAX_SLOPE_COS) return false;
+    // The head ray (`jumpClear`): r0004's jump 0x583490 asks 0x584670 at 0x583530, after the floor's normal and before
+    // the stance and the speed, so a roof inside it refuses the standing and the running jump alike (r0001
+    // `FUN_0057e1b0` D:L440800-440803; pilot key job B-20, a reading pending review; B-20's capture of r0004: the standing
+    // jump under Frostfire's tunnel roof refused 6 of 6). The other gates refuse with no side effect, so their order here
+    // is immaterial.
+    if (!this.jumpClear()) return false;
     const s = this.state;
     // `JUMP_CONTACT_PROVEN` 'none' (the r0004 capture): the stored contact refuses no running jump; the r0001 reading
     // (`FUN_0057e1b0` D:L440815-440819, `+0x10ac` set: the standing jump) is kept as 'stored-contact', rejected.
@@ -4172,7 +5017,12 @@ export class Walker {
     this.fell = false;
     this.tickFromX = this.state.x; this.tickFromZ = this.state.z;   // HOTFIX BRIDGE-WEDGE: the push-out's reach
     if (this.wedgeArmed > 0 && !this.inAir) this.wedgeArmed--;
-    this.step60(input, dt);
+    this.walkTick_ = true;                                       // LATER 1148: the moves of this tick are a game frame's ticks
+    this.walkDt_ = dt;                                           // LATER 1194: a tick of a game frame's length is its own frame
+    try { this.step60(input, dt); } finally { this.walkTick_ = false; }
+    // R4P-301: a tick whose ground state did not run still runs the plant's clock and raise (its gates closed).
+    if (!this.plantTicked_) this.plantTick(false, dt);
+    this.plantTicked_ = false; this.plantYaw_ = this.state.yaw;
     this.throttleFrames();                                       // THROTTLE-FRAME (R8.1): a frame's end after its tick's stick
     for (let f = this.tiltClock.advance(dt); f > 0; f--) this.tiltTick();   // PRONE-TILT: FUN_00548090 once a game frame (D:L417863)
     this.clocked = 0;                                            // PAR-79: between ticks, no clock ran
@@ -4368,7 +5218,7 @@ export class Walker {
     // FUN_00584c60 saves these before the crouch/run decision (D:L444137-444145).
     // Its crouch normalization also precedes slope/water scaling (research 86 section 5.3).
     const crouchForward = forward, crouchRight = right;
-    if (!this.inAir && this.driver?.stickScale) [forward, right] = this.driver.stickScale(this, forward, right);   // TRAVERSAL SEAM: slope, water
+    if (!this.inAir && this.driver?.stickScale) [forward, right] = this.driver.stickScale(this, forward, right);   // TRAVERSAL SEAM: slope, water (stand, crouch; prone reads the saved pair, B-26)
     if (this.inAir) { this.fall(dt, forward, right); return; }
     if (this.interrupted(cutStick.forward, cutStick.right)) {   // FUN_00587c20: cut; the ground state takes over
       const cut = this.action_!;
@@ -4400,6 +5250,7 @@ export class Walker {
       if (end) this.endVictory(end);
       else {
         s.stickForward = forward; s.stickRight = right;           // read, not obeyed: the clip's root alone moves the SEAL
+        this.clipRead(forward, right, crouchForward, crouchRight);   // LATER 1219: read, not obeyed
         this.victoryStep(dt);
         return;
       }
@@ -4414,6 +5265,7 @@ export class Walker {
     if (pushed && !(pushed.cuttable && this.cutAsked && this.stickCuts(cutStick.forward, cutStick.right))) {
       const c = PUSHED_CLIPS[pushed.clip];
       s.stickForward = forward; s.stickRight = right;
+      this.clipRead(forward, right, crouchForward, crouchRight);     // LATER 1219: read, not obeyed
       this.ground_ = { state: 'idle', forward: 0, right: 0, cls: -1 };
       const [tx, tz] = this.clipVelocity(pushed.clip, c, oneShotSeconds(c.playback, c.frames), pushed.t, false);
       const yaw = (s.yaw * Math.PI) / 180, co = Math.cos(yaw), sn = Math.sin(yaw);
@@ -4429,6 +5281,7 @@ export class Walker {
         // The kit's one-shot on top of the stack: no ground state (FUN_00550ef0 418172-418246); the clip's root alone
         // moves the SEAL (FUN_0028c250), along the facing. The stick is read, not obeyed.
         s.stickForward = forward; s.stickRight = right;
+        this.clipRead(forward, right, crouchForward, crouchRight);   // LATER 1219: read, not obeyed
         this.ground_ = { state: 'idle', forward: 0, right: 0, cls: -1 };
         const [tx, tz] = this.clipVelocity(hold.clip, HOLD_CLIPS[hold.clip], hold.seconds, hold.t, false);
         const yaw = (s.yaw * Math.PI) / 180, c = Math.cos(yaw), sn = Math.sin(yaw);
@@ -4448,6 +5301,7 @@ export class Walker {
       // transition played backwards (getting up). The ground state does not run (FUN_005870e0). PAR-84: the launcher's
       // raise and still lower (backwards) too: a one-shot on top, no ground state (FUN_00550ef0 D:L418171-418203).
       s.stickForward = forward; s.stickRight = right;
+      this.clipRead(forward, right, crouchForward, crouchRight);     // LATER 1219: read, not obeyed
       this.ground_ = { state: 'idle', forward: 0, right: 0, cls: -1 };
       const act = this.action_!;
       // A dead SEAL's `Land forward` held at its last key has no root travel left: the body stays where it fell.
@@ -4467,6 +5321,7 @@ export class Walker {
     }
     if (held === 'land' || held === 'landHard') {             // FUN_0054d9a0: the carried velocity, running down
       s.stickForward = forward; s.stickRight = right;          // FUN_0057a330: actor+0x248 = +0x244 each tick
+      this.clipRead(forward, right, crouchForward, crouchRight);     // LATER 1219: read, not obeyed
       this.ground_ = { state: 'idle', forward: 0, right: 0, cls: -1 };
       const [cx, cz] = this.carried, c = Math.hypot(cx, cz), cut = CARRY_DECAY * dt;
       this.carried = c <= cut ? [0, 0] : [cx - (cx / c) * cut, cz - (cz / c) * cut];
@@ -4474,13 +5329,29 @@ export class Walker {
       this.slideOrMove(forward, right, dt);
       return;
     }
-    const v = held === 'jump' ? this.jumpControl(forward, right, dt) : this.locomote(forward, right, dt, crouchForward, crouchRight);
+    // IDLE-FRAME (`idleRead`): a centre between two game frames' ends is not read; the frame's end judges it.
+    const [readForward, readRight, readCrouchForward, readCrouchRight] = this.idleRead(forward, right, crouchForward, crouchRight);
+    forward = readForward; right = readRight;
+    const v = held === 'jump' ? this.jumpControl(forward, right, dt) : this.locomote(forward, right, dt, readCrouchForward, readCrouchRight);
     const yaw = (s.yaw * Math.PI) / 180;
     // The camera looks down its own -z (`camera.ts`): forward is (-sin, -cos), right is (cos, -sin).
     const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
     s.vx = fx * v.forward + rx * v.right;
     s.vz = fz * v.forward + rz * v.right;
+    // R4P-301: the plant overwrites the tick's displacement after the mover writes it (D4:L455116-455118), the
+    // velocity left as it was. Standing still on the ground state's path: the stick at rest, posture standing.
+    this.plantTick(held !== 'jump' && v.forward === 0 && v.right === 0 && this.stance_ === 'stand' && this.posture_ === 'stand', dt);
     this.slideOrMove(forward, right, dt);
+  }
+
+  /** R4P-301: one tick of the foot plant (`./footPlant` `FootPlant.tick`); its displacement, if any, for `slideOrMove`. */
+  private plantTick(standingStill: boolean, dt: number): void {
+    const s = this.state;
+    this.plantTicked_ = true;
+    this.plantStep_ = this.footPlant.tick({
+      standingStill, turn: this.turn, raised: this.raised, player: this.idleFrame,
+      yaw: s.yaw, prevYaw: this.plantYaw_, x: s.x, z: s.z, dt,
+    });
   }
 
   /**
@@ -4494,8 +5365,12 @@ export class Walker {
    */
   private slideOrMove(forward: number, right: number, dt: number): void {
     const s = this.state;
+    const planted = this.plantStep_;                             // R4P-301: this tick's plant step, taken on every path
+    this.plantStep_ = null;
     this.bodyVelocity_ = [s.vx, s.vz];                          // LATER 676: the clip's velocity, before the walls
-    const floor = selectFloor(probeGround(this.grid, s.x, s.z), s.y + this.probeLift(), s.y);
+    // L208: a seeded spawn's first frame stands on the record the seed wrote (normal up: no steep slide), not on a pick at
+    // the seed column -- the original's frame builds its record from the MOVED position (`seed`).
+    const floor = this.seeded_ ? null : selectFloor(probeGround(this.grid, s.x, s.z), s.y + this.probeLift(), s.y);
     const span = floor ? slideSpanOf(floor.poly.points, s.x, s.z) : null;
     const startSpeed = this.slideSpeed_;
     const frame = floor ? steepGroundFrame({
@@ -4514,10 +5389,18 @@ export class Walker {
       // pushed off it along its horizontal normal, over the slide's own step.
       const n = floor.normal, h2 = n[0] * n[0] + n[2] * n[2];
       const yaw = (s.yaw * Math.PI) / 180;
-      if (this.stance_ !== 'prone' && span !== null && span >= SLIDE_SPAN_MIN && startSpeed === 0
-        && n[1] < STEEP_FLOOR_CONTACT_READING.normalY && h2 > 0 && Math.sin(yaw) * n[0] + Math.cos(yaw) * n[2] > 0) {
+      const backDotN = Math.sin(yaw) * n[0] + Math.cos(yaw) * n[2];
+      const prone = this.stance_ === 'prone';
+      // R4P-107 (`STEEP_FLOOR_CONTACT_PRONE_READING`, r4 0x5542e0-0x554328): prone takes the push with no `n_y` and no
+      // facing test, at `max(7, |8 x back . n|)` (the driver's fabs: r0004 0x552e98, r0001 D:L416596).
+      // review F2: r0004 returns before both blocks when the extent read fails (r4 0x554204): `span` null pushes nothing.
+      if (startSpeed === 0 && h2 > 0 && span !== null && (prone
+        || (span >= SLIDE_SPAN_MIN && n[1] < STEEP_FLOOR_CONTACT_READING.normalY && backDotN > 0))) {
         this.carried = [0, 0];
-        const { distance, gain } = STEEP_FLOOR_CONTACT_READING;
+        const { gain } = STEEP_FLOOR_CONTACT_READING;
+        const distance = prone
+          ? Math.max(STEEP_FLOOR_CONTACT_PRONE_READING.min, Math.abs(STEEP_FLOOR_CONTACT_PRONE_READING.scale * backDotN))
+          : STEEP_FLOOR_CONTACT_READING.distance;
         // The record's point is the floor's hit under the feet; the moved feet are the frame's (its y the feet's: the
         // port writes no `+0xf48`). `t` < 1: within `distance` in front of the face's plane, or behind it.
         const t = (n[0] * dx + n[1] * (s.y - floor.y) + n[2] * dz) / (distance * h2);
@@ -4558,13 +5441,29 @@ export class Walker {
       this.land(forward, right, was);
       return;
     }
-    this.move(s.vx * dt, s.vz * dt);
+    if (planted) this.move(planted[0], planted[1]);
+    else this.move(s.vx * dt, s.vz * dt);
   }
 
   /** In the air the slide stops (`actor+0x105e` bit 5; research 201 §3). No exit landing on this path. */
   private stopSlide(): void {
     this.slideSpeed_ = 0;
     this.slideClip_ = false;
+  }
+
+  /**
+   * L253 / R4P-240 (reading, pending review): the slope slide stopped by a floor probe's miss off the walk -- the ladder's
+   * put-back (`./traversal` `Traversal.putBack`), as the walk's own put-back in `groundFrameMove` already does. The
+   * original's `ProcessDownProbe` (r0004 `FUN_005b6200`, from `CZSealBody::PostTick` for every state, D4:L456462) puts the
+   * body back on the floor record and zeroes the slope slide's speed, `+0x1344` in r0004 -- `+0x1340` in r0001, CZSealBody's
+   * band r0004 +0x1338..+0x1374 sitting 4 above r0001's +0x1334..+0x1370 (D4:L508319) -- only while the switch byte r0004
+   * 0x40a390 is non-zero (the load 0x5b63d4, D4:L508278) -- 1 in the image and 1 running (IQ-120, Q108-PC2), so the call is
+   * unconditional. `stopSlide` zeroes that speed
+   * (`slideSpeed_`) AND clears the drawn slide clip (`slideClip_`): the mapping the walk's put-back already makes of the
+   * original's zeroing, so the two put-backs match.
+   */
+  stopSlopeSlide(): void {
+    this.stopSlide();
   }
 
   /**
@@ -4594,16 +5493,27 @@ export class Walker {
   private locomote(forward: number, right: number, dt: number, crouchForward: number, crouchRight: number): { forward: number; right: number } {
     const s = this.state;
     const still = { forward: 0, right: 0 };
-    const idleForward = this.stance === 'crouch' ? crouchForward : forward;
-    const idleRight = this.stance === 'crouch' ? crouchRight : right;
-    if (idle(idleForward, idleRight)) {                          // FUN_00586f00: at rest, the raw stick is kept
+    // B-26 (slope-and-stances read, reading pending review): the stick scale FUN_005b56c0 / r0004 FUN_005bbb00 has
+    // three callers -- stand D4:L485527, crouch walk D4:L484825, crouch run D4:L484835 (r0001 D:L444865 / 444163 /
+    // 444173) -- and prone none: ProneControl FUN_00588b00 takes the raw axes (D4:L484566), so prone reads the saved,
+    // unscaled pair (no slope and no water factor).
+    const idleForward = this.stance === 'stand' ? forward : crouchForward;
+    const idleRight = this.stance === 'stand' ? right : crouchRight;
+    const t = this.turn / SEAL_TUNING.turnMaxRate, standing = this.stance === 'stand';
+    // R4P-208 (`TURN_BAND_READING` 'slewed-state'): standing with a raw axis off rest, the slew runs first on the scaled pair
+    // (D:L444864-444869) and the band compares the state it leaves; its RAMP-LEAD read is the move's, below
+    const lead = standing && !idle(crouchForward, crouchRight) ? this.throttle(forward, right, dt) : null;
+    const holds = bandHolds(idleForward, idleRight, t, this.turnMemory_, standing, lead ? s.stickForward : idleForward);
+    const runLetGo = this.stance === 'crouch' && this.posture_ === 'stand';                // +0x21c bit 2: no clear at rest
+    this.turnMemory_ = !holds ? 'walked' : Math.abs(t) > TURN_IN_PLACE ? 'turning' : runLetGo ? this.turnMemory_ : 'none';
+    if (holds) {                                                 // FUN_00586570 (standing) / FUN_00586f00: at rest, the raw stick is kept
       // LATER 678 (`CROUCH_RUN_RETURN_READING`, SEPARATE only under OT.R93): a crouch run let go -- `+0x21c` bit 2 set,
       // the port's crouch with its posture stand -- not turning pushes `Stand -> Crouch` over the crouch idle (D:L444282,
       // D:L444316-444317); its head line's push off a wall is `CROUCH_RUN_RELEASE_PUSH_READING`'s.
       const released = CROUCH_RUN_RETURN_READING === 'stand-to-crouch' && this.stanceSeparate
         && this.stance === 'crouch' && this.posture_ === 'stand'
         && Math.abs(this.turn / SEAL_TUNING.turnMaxRate) <= CROUCH_IDLE_TURN && this.action_ === null && !this.inAir;
-      s.stickForward = idleForward; s.stickRight = idleRight;
+      if (!lead) { s.stickForward = idleForward; s.stickRight = idleRight; }   // a standing hold off rest keeps the slew's
       this.cls = -1;
       this.posture_ = this.stance;
       this.ground_ = { state: 'idle', forward: 0, right: 0, cls: -1 };
@@ -4611,12 +5521,18 @@ export class Walker {
       return still;
     }
     if (this.stance === 'prone') {                               // FUN_005845c0 -> FUN_00583500: no ramp
-      s.stickForward = forward; s.stickRight = right;
-      this.cls = moveClass(right, forward, this.cls);
+      const rawForward = crouchForward, rawRight = crouchRight;   // B-26: raw, no slope or water factor (D4:L484566)
+      s.stickForward = rawForward; s.stickRight = rawRight;
+      this.cls = moveClass(rawRight, rawForward, this.cls);
       this.posture_ = 'prone';
-      this.ground_ = { state: 'prone', forward, right, cls: this.cls };
+      this.ground_ = { state: 'prone', forward: rawForward, right: rawRight, cls: this.cls };
       const a = classAxis(this.cls, STANCE.prone.bands);
-      const speed = (a.f !== 0 ? Math.abs(forward) : Math.abs(right)) * a.band;
+      const speed = (a.f !== 0 ? Math.abs(rawForward) : Math.abs(rawRight)) * a.band;
+      // B-26 PRONE STRAFE DRIFT (reading, pending review): the strafe class's velocity is its play's own root velocity
+      // in the body frame (r0004 FUN_0028d5e0 into +0x2c, D4:L479445; r0001 FUN_0028c250, D:L438910), turned by the body quaternion alone
+      // (r0004 FUN_00324370, D4:L455110; r0001 FUN_00306fd0, D:L416515), so it leans off sideways by the clip's root heading (`proneStrafeHeading`).
+      const heading = a.r !== 0 ? proneStrafeHeading(this.actionRoots, a.r > 0 ? SEAL_ANIMS.proneRight : SEAL_ANIMS.proneLeft) : null;
+      if (heading) return { forward: heading.forward * speed, right: heading.right * speed };
       return { forward: a.f * speed, right: a.r * speed };
     }
     if (this.stance === 'crouch') {                              // FUN_00584c60
@@ -4631,15 +5547,15 @@ export class Walker {
         const [walkForward, walkRight] = this.driver?.stickScale
           ? this.driver.stickScale(this, normalizedForward, normalizedRight)
           : [normalizedForward, normalizedRight];
-        this.throttle(walkForward, walkRight, dt);
+        const [moveForward, moveRight] = this.throttle(walkForward, walkRight, dt);   // RAMP-LEAD: the move's stick
         this.posture_ = 'crouch';
         this.ground_ = { state: 'crouch', forward: s.stickForward, right: s.stickRight, cls: this.cls };
         // FUN_00582d10: one set by the class at m, no blend; FUN_00583350's DAT_0064fc80 scales it all the same.
-        const f = Math.abs(s.stickForward) <= FORWARD_DEAD ? 0 : s.stickForward;
-        const len = Math.hypot(f, s.stickRight);
+        const f = Math.abs(moveForward) <= FORWARD_DEAD ? 0 : moveForward;
+        const len = Math.hypot(f, moveRight);
         if (len === 0) return still;
         const m = Math.min(1, len);
-        const w = Math.min(1, Math.asin(Math.min(1, Math.abs(s.stickRight) / len)) * (2 / Math.PI));
+        const w = Math.min(1, Math.asin(Math.min(1, Math.abs(moveRight) / len)) * (2 / Math.PI));
         const a = classAxis(this.cls, STANCE.crouch.bands);
         // MOVE-4: `FUN_0057a330` D:L438911-438956 (r0004 0x57f580) hands w of the class clip's root velocity to x and
         // 1 - w to z -- the class axis keeps its own sign, the other takes the stick's -- and D:L438985 scales by
@@ -4647,17 +5563,17 @@ export class Walker {
         // bots (H392, the owner 2026-11-14: "Always the original's"; the function reads no mode): until then COMBINED and
         // the bots ran the whole speed along the class axis (19.8 at 45 degrees).
         const v = (m * a.band) / Math.hypot(w, 1 - w);
-        const side = a.r !== 0 ? a.r : s.stickRight >= 0 ? 1 : -1;
-        const ahead = a.f !== 0 ? a.f : s.stickForward >= 0 ? 1 : -1;   // `+0xf64`, the stick before the dead zone
+        const side = a.r !== 0 ? a.r : moveRight >= 0 ? 1 : -1;
+        const ahead = a.f !== 0 ? a.f : moveForward >= 0 ? 1 : -1;   // `+0xf64`, the stick before the dead zone
         return { forward: ahead * (1 - w) * v, right: side * w * v };
       }
       this.posture_ = 'stand';                                  // headroom: stands and runs the standing blend
     } else {
       this.posture_ = 'stand';
     }
-    this.throttle(forward, right, dt);
+    const [moveForward, moveRight] = lead ?? this.throttle(forward, right, dt);   // RAMP-LEAD (LATER 1164): the move's stick
     this.ground_ = { state: 'stand', forward: s.stickForward, right: s.stickRight, cls: this.cls };
-    return locomotion(s.stickForward, s.stickRight, STANCE.stand.bands);   // FUN_00583030
+    return locomotion(moveForward, moveRight, STANCE.stand.bands);   // FUN_00583030
   }
 
   /**
@@ -4679,13 +5595,19 @@ export class Walker {
    */
   private probeHeights(): readonly [number, number] {
     const air = this.inAir ? this.action_ : null;
-    return [WALL_PROBE_READING[this.posture_].h, wallHeadLine(this.posture_, this.ground_, this.inAir || this.action_ !== null, air)];
+    return [WALL_PROBE_READING[this.posture_].h, wallHeadLine(this.posture_, this.ground_, this.inAir || this.action_ !== null, air, this.raised)];
   }
 
   /**
    * `FUN_0057f150` (D:L441263-441285): the jump's camera-class cast (`cameraClassClear`) from the stance's head + 1
-   * (`JUMP_HEAD_READING`) up 20. The query only: `jump` does not ask it yet -- D13's refusal waits for its capture
-   * (PTW.R1; research 230 s3.1, s7), so a roof over the head still lets a jump start.
+   * (`JUMP_HEAD_READING`) up 20; r0004 0x584670 (r0001's bar relocations). `jump` asks it (B-20: the controller's
+   * ruling 2026-11-22 that the r0004 read and B-20's capture are what PTW.R1 waited for); the head's height stays the
+   * named reading and D13's crouch-run half is open (research 230 s3.1, s7). KNOWN BIAS (B-20's fresh review, F1): a
+   * RUNNING jump's ray also starts from the IDLE stand head 17.394, 1.6-2.0 above the port's own posed running head
+   * (`POSED_HEAD_READING`, 15.40-15.76 at full stick), so it tops at 38.39 where the posed head's would top near
+   * 36.4-36.8: a roof in that band refuses a running jump the original may take (PC 4's MP2 census: 2,489 of 7,879
+   * blocked cells have a roof 36-38 over the floor); crouched and moving the bias runs the other way. The moving head
+   * from the posed table is the follow-up (LATER row); a running jump on r0004 under a 37-38 ceiling settles it.
    */
   jumpClear(): boolean {
     const s = this.state;
@@ -4824,9 +5746,19 @@ export class Walker {
    * SEGMENT-BODY part 2: the weapon line's length for the hand held (`./weaponLine` `WEAPON_LINE_LENGTH_READING`, by the
    * held model's `WEAP_GEO` name, case aside -- `weaponLineLengthOf`, the SA-80's `IW80A2`; `FUN_0054e8f0`
    * D:L416892-416902), or null with no model held or none known. The firearm hand's with an item up
-   * (`WEAPON_LINE_ITEM_MODEL_PLACEHOLDER`).
+   * (`WEAPON_LINE_ITEM_MODEL_READING`: by the body’s mount).
    */
   weaponLineLength(): number | null {
+    // WEAPON-LINE part 2 (`WEAPON_LINE_ITEM_MODEL_READING`): the model of the body's picked mount -- none, the launcher's
+    // while it is the mount (raise to the put-away's start: `launcherMountOn`; no line where it has no firepoint node),
+    // else the firearm hand's, an item up or not.
+    if (this.weaponLineMountNone?.() === true) return null;
+    if (this.launcherMountOn ? this.launcherMountOn() === true : this.launcherSet_) {
+      const launcher = this.heldModels.launcher ?? null;
+      return launcher !== null && !WEAPON_LINE_NO_FIREPOINT.has(launcher.toLowerCase()) ? weaponLineLengthOf(launcher) : null;
+    }
+    // GRENADE-LOWERS: L1578-PROBE-WEAPONS, no line -- after the launcher's gate, which keeps its own while it is the mount
+    if (this.handGrenadeUp?.() === true) return null;
     const name = this.hand === 1 ? this.heldModels.pistol : this.heldModels.rifle;
     return name !== null ? weaponLineLengthOf(name) : null;
   }
@@ -4847,8 +5779,9 @@ export class Walker {
    * an `aimpoint` and a `firepoint` node, the two the mount finds into `+0x14ac` and `+0x14bc` (the body's slot +100,
    * research 202 s3.10; `weaponLine.test.ts` over the kit table's firearms).] The hit: the nearest crossed polygon
    * whose material is not VOLUMETRIC or LIQUID, at any slope (D:L416644-416672: the material table's `+0x3c` bits 0 and
-   * 1), over the movement's surfaces as the segment records' query is (`segmentHit`), met from the front under
-   * `WEAPON_LINE_ONE_SIDED_PLACEHOLDER`.
+   * 1), over the movement's surfaces as the segment records' query is (`segmentHit`; `WEAPON_LINE_POLYGON_SET_READING`, the
+   * original's set exactly), met from the front under `WEAPON_LINE_ONE_SIDED_READING`, on the map's hull alone -- not
+   * other actors' bone boxes, which the original's line may meet (`WEAPON_LINE_BODIES_PLACEHOLDER`).
    */
   private weaponLine(d: readonly [number, number, number]): SegmentHitOf | null {
     if (!this.weaponLineCast || this.slideSpeed_ !== 0) return null;
@@ -4858,7 +5791,7 @@ export class Walker {
     const yaw = (s.yaw * Math.PI) / 180, fx = -Math.sin(yaw), fz = -Math.cos(yaw);
     const a: [number, number, number] = [s.x, y, s.z];
     const b: [number, number, number] = [s.x + fx * length + d[0], y, s.z + fz * length + d[2]];
-    const hits = segmentHits(this.grid, a, b, (p) => (surfaceWord(p) & (2 | (1 << 18))) === 2, ALL_LAYERS, WEAPON_LINE_ONE_SIDED_PLACEHOLDER);
+    const hits = segmentHits(this.grid, a, b, (p) => (surfaceWord(p) & (2 | (1 << 18))) === 2, ALL_LAYERS, WEAPON_LINE_ONE_SIDED_READING);
     for (const h of hits) {
       const material = surfaceMaterial(h.poly.material);
       if (!material.volumetric && !material.liquid) return h;
@@ -4933,6 +5866,20 @@ export class Walker {
    * hit and no slide speed, the look-ahead (`SEGMENT_LOOK_AHEAD_READING`). The new position is the start plus what is
    * left (D:L413918).
    */
+  /**
+   * LATER 711: the frame's displacement slid against the other bodies (`./pushApart` `contactSlide`; research 426 s4),
+   * before the world collision takes it, as `FUN_0054f7e0` runs before `FUN_00549f30` (D:L416574-416687).
+   */
+  private pushApart(d: [number, number, number]): [number, number, number] {
+    const others = this.bodies?.();
+    if (!others || others.length === 0) return d;
+    const s = this.state;
+    const carried: [number, number] = [this.carried[0], this.carried[1]];
+    const out = contactSlide(s.x, s.y, s.z, this.stance, d, others, this.bodyAi, carried);
+    if (carried[0] !== this.carried[0] || carried[1] !== this.carried[1]) this.carried = carried;
+    return out;
+  }
+
   private resolveSegments(d: [number, number, number]): [number, number, number] {
     const s = this.state, B = SEGMENT_BODY_READING;
     const kept: { seg: BodySegment; hit: SegmentHitOf; index: number }[] = [];
@@ -4942,7 +5889,7 @@ export class Walker {
       const seg = segments[index]!, hit = this.segmentHit(seg.a, seg.b);
       if (hit) kept.push({ seg, hit, index });
     }
-    this.storeContact(kept, d, slot);
+    if (!this.frameBetween_) this.storeContact(kept, d, slot);   // LATER 1194B: once a frame (`frameWalls`)
     if (kept.length === 0) return d;
     let [dx, dy, dz] = d;
     const air = this.inAir;
@@ -5078,15 +6025,199 @@ export class Walker {
     return depth;
   }
 
+  /** LATER 1148: the last frame end's hit (x, y, z), where a refused frame puts the body back (`GROUND_PUT_BACK_READING`). */
+  private groundHit_: [number, number, number] | null = null;
+  /** LATER 1148: where the last ground move left the body (x, z); a body moved since by another path starts its hit there. */
+  private groundAt_: [number, number] | null = null;
+  /** LATER 1148: game frames refused in a row (`GROUND_RETRY_REFUSALS_READING`). */
+  private groundRefusals_ = 0;
+  /** LATER 1148: the retry's idle frame runs (from the frame end that set it to the next one). */
+  private groundIdle_ = false;
+  /**
+   * LATER 1148: the walk's own tick runs (`tick` -> `step60`), so a ground move is one of a game frame's ticks and
+   * `groundFrameMove` takes it. A move made outside a tick (the bots' navigation probe's `glide`, never ticked) or by a
+   * driver's `glide` (the dive's carry) is a whole move: it takes `move`'s sub-step path, probed at each part and at its
+   * end, as before LATER 1148 -- never counted as a tick between frame ends (the review of 42550490c1, finding 3).
+   * Accepted for now as a named limit, not as parity (LATER 1151; `NAV_PROBE_SUBSTEP_FLOOR_READING`,
+   * `DIVE_GLIDE_FLOOR_READING`).
+   */
+  private walkTick_ = false;
+  /** LATER 1148: the frame's move held by its ticks between frame ends that ended over no floor (`GROUND_FRAME_TICKS_READING`). */
+  private groundHeldX_ = 0;
+  private groundHeldZ_ = 0;
+  /** LATER 1148: the last ground tick's own move (its share of the frame's, walls met), to continue to the frame's end; null after a placing. */
+  private groundLastMove_: [number, number] | null = null;
+  /** LATER 1194 (`GROUND_WALLS_PER_TICK_READING` 'per-frame'): where the frame began (x, y, z) -- the last frame end, or a placing. */
+  private groundFrom_: [number, number, number] | null = null;
+  /** LATER 1194: the frame's raw moves so far (every tick's, before its walls), x and z. */
+  private groundRawX_ = 0;
+  private groundRawZ_ = 0;
+  /** LATER 1194: the last tick's raw move, to continue this tick's to the frame's end (the ramp's change); null after a placing. */
+  private groundRawLast_: [number, number] | null = null;
+  /** LATER 1194: the frame's ground ticks run so far (the share of the frame an in-between tick shows). */
+  private groundFrameTicks_ = 0;
+  /** LATER 1194B: the action the frame's first ground tick ran under (`GROUND_FRAME_ONE_ACTION_PLACEHOLDER`). */
+  private groundFrameAction_: string | null = null;
+  /**
+   * LATER 1194: the walk tick's dt. The frames are counted on 60 Hz ticks (`throttleFrameEnds`); a tick run with about a
+   * game frame's dt (over 1.5 `TICK`: a harness's 1/30 s walk, `hostageTraversal.test.ts`) moves a whole frame, so it meets
+   * the walls on its own move from the body -- the frame's start -- as 'per-tick' (`frameWalls` is not asked).
+   */
+  private walkDt_ = TICK;
+  /** LATER 1194B: `frameWalls`' resolve of a tick between two frame ends: the contact is not stored there (`storeContact`). */
+  private frameBetween_ = false;
+
+  /**
+   * LATER 1194 (`GROUND_WALLS_PER_TICK_READING` 'per-frame'): the walls on the frame's move from the frame's start; the move
+   * from the BODY this tick takes, as `resolveSegments`' result is taken by `groundFrameMove` (`held` + this tick's when
+   * no wall is met). The frame-end tick (`ends`) meets the frame's raw moves; the tick between meets them continued to the
+   * frame's end (`GROUND_FRAME_TICKS_READING`'s prediction), from the frame's start, and shows its share of the resolved
+   * move: the frame's start + the resolved move x the raw moves' share of the predicted (their projection on it, 0..1) --
+   * so a jammed frame shows the frame's start, a slide along a wall its part of the frame's slide; a still body (nothing
+   * predicted) takes the frame's time share instead, so one put out by the depth (D:L413612-413614) is put out over the
+   * frame's ticks, whole at its end, as the original's one resolution a frame. With no wall met it returns `held` + its
+   * own move, as 'per-tick'. The segments see the body at the frame's start (`FUN_0054aa30` casts from the node as the
+   * frame began), so the stored contact and the walls met are the frame's.
+   */
+  private frameWalls(dx: number, dz: number, heldX: number, heldZ: number, ends: boolean, n: number): [number, number] {
+    const s = this.state, from = this.groundFrom_!;
+    let rawX = this.groundRawX_ + dx, rawZ = this.groundRawZ_ + dz;
+    const last = this.groundRawLast_;
+    const run = ++this.groundFrameTicks_;                        // the frame's ticks so far, this one included
+    // LATER 1194B (`GROUND_FRAME_ONE_ACTION_PLACEHOLDER`): a frame whose ticks ran under two actions is the last one's.
+    const act = this.action?.name ?? null;
+    if (run === 1) this.groundFrameAction_ = act;
+    else if (act !== this.groundFrameAction_ && GROUND_FRAME_ONE_ACTION_PLACEHOLDER === 'last-action') { rawX = dx * run; rawZ = dz * run; }
+    let left = 0;
+    this.groundRawLast_ = [dx, dz];
+    let px = rawX, pz = rawZ;
+    if (ends) { this.groundRawX_ = 0; this.groundRawZ_ = 0; this.groundFrameTicks_ = 0; }
+    else {
+      this.groundRawX_ = rawX; this.groundRawZ_ = rawZ;
+      const gx = last ? dx - last[0] : 0, gz = last ? dz - last[1] : 0;
+      for (let k = 1; ; k++) {                                   // ticks n+1 .. the frame's end
+        px += dx + k * gx; pz += dz + k * gz;
+        left = k;
+        if (throttleFrameEnds(n + k)) break;
+      }
+    }
+    const bx = s.x, by = s.y, bz = s.z;
+    s.x = from[0]; s.y = from[1]; s.z = from[2];
+    const asked: [number, number, number] = [px, 0, pz];
+    // FUN_005483d0 stores or drops the contact once a game frame, over the frame's one hit table (D:L413823-413901; r0004
+    // 0x54df00-0x54e204 the same; the second read of LATER 1334, 2026-11-21): the tick between two frame ends resolves the
+    // predicted move for its own share and leaves the contact as the last frame end left it.
+    this.frameBetween_ = !ends;
+    const met = this.resolveSegments(asked);
+    this.frameBetween_ = false;
+    s.x = bx; s.y = by; s.z = bz;
+    if (met === asked) return [heldX + dx, heldZ + dz];          // no wall kept: the tick's own move, as 'per-tick'
+    let tx: number, tz: number;
+    if (ends) { tx = from[0] + met[0]; tz = from[2] + met[2]; }
+    else {
+      const pp = px * px + pz * pz;
+      const f = pp > 1e-12 ? Math.min(1, Math.max(0, (rawX * px + rawZ * pz) / pp)) : run / (run + left);
+      tx = from[0] + met[0] * f; tz = from[2] + met[2] * f;
+    }
+    return [tx - bx, tz - bz];
+  }
+
+  /**
+   * LATER 1148 (`GROUND_FLOOR_PROBE_READING` 'frame-end'): a ground tick's move, its walls not yet met: they are met here
+   * (`resolveSegments`) on the held moves and this one together, as one move from the body (`GROUND_WALLS_PER_TICK_READING`).
+   * Between two frame ends the move goes no further than the frame's: over a floor it is taken, the floor's y with it
+   * (never a take-off), over none it is held for the frame's end and the body stays (`GROUND_FRAME_TICKS_READING`); on the
+   * tick that ends a game frame the floor is probed once at the body plus the held moves plus its own -- a hit taken
+   * (`groundEndpoint`) and kept as the last hit, a miss put back at the last hit with the speed kept, and after
+   * `GROUND_RETRY_REFUSALS_READING.refused` misses in a row one idle frame with the ramp back at rest.
+   */
+  private groundFrameMove(dx: number, dz: number): void {
+    const s = this.state;
+    const at = this.groundAt_;
+    if (!this.groundHit_ || !at || at[0] !== s.x || at[1] !== s.z || !this.groundFrom_) {   // placed, landed or moved: a new last hit, nothing held
+      this.groundHit_ = [s.x, s.y, s.z];
+      this.groundHeldX_ = 0; this.groundHeldZ_ = 0;
+      this.groundLastMove_ = null;
+      this.groundFrom_ = [s.x, s.y, s.z];                        // LATER 1194: a new frame start, nothing raw
+      this.groundRawX_ = 0; this.groundRawZ_ = 0; this.groundRawLast_ = null; this.groundFrameTicks_ = 0;
+    }
+    const idleFrame = this.groundIdle_;
+    if (idleFrame) { this.groundHeldX_ = 0; this.groundHeldZ_ = 0; }
+    const heldX = this.groundHeldX_, heldZ = this.groundHeldZ_;
+    const n = this.commandSeq !== this.throttleSeq ? this.commandSeq : this.throttleTick + 1;   // `throttleFrames`'s number
+    if (throttleFrameEnds(n)) this.seeded_ = false;              // L208: the seed's record holds through its first frame
+    // The walls on the frame's move so far as ONE move from the body -- the held moves and this tick's together
+    // (`GROUND_WALLS_PER_TICK_READING`; FUN_005483d0 D:L413918): no tick takes the body further than the frame's
+    // wall-shortened move. With nothing held this is the tick's own move, as on every other path. 'per-frame' (LATER
+    // 1194): the frame's move from the frame's start (`frameWalls`).
+    let [mx, mz] = GROUND_WALLS_PER_TICK_READING === 'per-frame' && this.walkDt_ <= 1.5 * TICK
+      ? this.frameWalls(dx, dz, heldX, heldZ, throttleFrameEnds(n), n)
+      : ((m) => [m[0], m[2]] as [number, number])(this.resolveSegments([heldX + dx, 0, heldZ + dz]));
+    if (idleFrame) {                                             // THE RETRY: one frame still, the ramp back at rest
+      mx = 0; mz = 0;
+      s.vx = 0; s.vz = 0; s.stickForward = 0; s.stickRight = 0;
+      this.ground_ = { state: 'idle', forward: 0, right: 0, cls: -1 };
+    }
+    const x = s.x + mx, z = s.z + mz;                            // the frame's move so far, from the body
+    const ownX = mx - heldX, ownZ = mz - heldZ, last = this.groundLastMove_;   // this tick's share, and the last tick's
+    this.groundLastMove_ = [ownX, ownZ];
+    if (!throttleFrameEnds(n)) {
+      if (mx === heldX && mz === heldZ) return;                  // still between two frame ends: nothing new to take
+      const floor = selectFloor(probeGround(this.grid, x, z), s.y + this.probeLift(), s.y);
+      // The frame end's probe point, as this tick's move would go on to it (`GROUND_FRAME_TICKS_READING`): its share of
+      // the frame's move, changed each tick by as much as it changed since the last tick (the speed ramp), for each tick
+      // left to the frame's end (one; two on a 3-tick frame's first). Over no floor the frame end would put the body
+      // back, so this tick holds too and the body stands until the frame end decides (the main controller's ruling
+      // 09:3xZ: no tick shows a position the frame end will not keep; FUN_005483d0 D:L413918).
+      const gx = last ? ownX - last[0] : 0, gz = last ? ownZ - last[1] : 0;
+      let ex = x, ez = z;
+      for (let k = 1; ; k++) {                                   // ticks n+1 .. the frame's end
+        ex += ownX + k * gx; ez += ownZ + k * gz;
+        if (throttleFrameEnds(n + k)) break;
+      }
+      const endFloor = floor && selectFloor(probeGround(this.grid, ex, ez), s.y + this.probeLift(), s.y);
+      // LATER 1148's sill fault: a floor more than `groundTouchDistance` below -- here or at the frame end's point -- is a
+      // drop the frame end will decide (a take-off, or a gap it crosses whole), so this tick holds too: the original reads
+      // its ground at the frame's start (`FUN_00550570` -> `FUN_005b0420`, D:L417768-417771) and makes one move a frame
+      // (`FUN_005506a0`, D:L417804-417826), never standing at a mid-frame position past an edge (where a crouch run's
+      // headroom would let it stand under no lintel: the r0004 sill rows keep a crouched body's stance word through the
+      // fall, bugs/P10-sill-rows-read.md, unreviewed).
+      const drop = (f: { y: number }): boolean => f.y - s.y < -SEAL_TUNING.groundTouchDistance;
+      // L208 (the fresh review's F1): a seeded spawn's first frame holds too, so its first pick is the frame end's, from the
+      // moved position -- no stand at a part-moved column under a leaning face (`seed`).
+      if (this.seeded_ || !floor || !endFloor || drop(floor) || drop(endFloor)) { this.groundHeldX_ = mx; this.groundHeldZ_ = mz; return; }   // held for the frame's end, the body stays
+      this.groundHeldX_ = 0; this.groundHeldZ_ = 0;
+      s.x = x; s.z = z;
+      s.y = this.soilY(floor); this.setFloorNormal(floor.normal);   // FLE-2: the hold at the floor + its soil's offset
+    } else {
+      this.groundHeldX_ = 0; this.groundHeldZ_ = 0;
+      if (idleFrame) this.groundIdle_ = false;
+      if (this.groundEndpoint(x, z)) {
+        this.groundRefusals_ = 0;
+        this.groundHit_ = this.inAir ? null : [s.x, s.y, s.z];
+      } else {
+        const hit = this.groundHit_!;
+        s.x = hit[0]; s.y = hit[1]; s.z = hit[2];                // FUN_005b0420 D:L467091-467103: back at the last hit
+        this.stopSlide();                                        // +0x1340 zeroed; the velocity and the ramp kept
+        if (++this.groundRefusals_ >= GROUND_RETRY_REFUSALS_READING.refused) { this.groundRefusals_ = 0; this.groundIdle_ = true; }
+      }
+      this.groundFrom_ = this.inAir ? null : [s.x, s.y, s.z];    // LATER 1194: the next frame starts where this one ended
+    }
+    this.groundAt_ = this.inAir ? null : [s.x, s.z];
+  }
+
   /**
    * The horizontal move of a tick in sub-steps of at most `MAX_SUBSTEP`: on the ground, or in the air past an edge.
    * SEGMENT-BODY (`WALL_BODY_READING` 'segments'): the walls first, once, on the whole move from where the tick began
    * (`resolveSegments`, still or not: a still body casts along its facing, D:L415135-415161), then the floors along
    * what is left, sub-step by sub-step (`step`'s floor rules, the port's own: `FUN_005b0840` probes once at the new
-   * position).
+   * position). LATER 1148: a ground move with no AI correction goes to `groundFrameMove` instead
+   * (`GROUND_FLOOR_PROBE_READING` 'frame-end'): the floor once a game frame, at its end.
    */
   private move(dx: number, dz: number, correct?: GroundCorrection): void {
+    [dx, , dz] = this.pushApart([dx, 0, dz]);
     if (WALL_BODY_READING === 'segments') {
+      if (GROUND_FLOOR_PROBE_READING === 'frame-end' && this.walkTick_ && !this.inAir && !correct) { this.groundFrameMove(dx, dz); return; }   // its walls there, with the held move
       [dx, , dz] = this.resolveSegments([dx, 0, dz]);
       const distance = Math.hypot(dx, dz);
       if (distance === 0) { if (correct && !this.inAir) this.step(0, 0, correct); return; }
@@ -5130,7 +6261,8 @@ export class Walker {
     // the launch -- about its key 8 -- and `seal_runningjump_in_air` plays only on a walk-off or a flight outlasting
     // the launch [reading: the game pushes the fall the tick after the launch's pop; here the same tick].
     const held = this.action_?.name;
-    if (held !== 'fall' && held !== 'launch' && held !== 'fallForward' && held !== 'fallBackwards') this.start('fall', null);   // FUN_0057e050: `Jump fall`
+    // R4P-R2 (L106): r0004's predicate refuses it on the turret set (`turretSetOn`, D4:L481315).
+    if (held !== 'fall' && held !== 'launch' && held !== 'fallForward' && held !== 'fallBackwards' && this.turretSetOn?.() !== true) this.start('fall', null);   // FUN_0057e050: `Jump fall`
     [s.vx, s.vz] = this.carried;
     this.airTime += dt;
     const startX = s.x, startZ = s.z;                            // where the tick began (HOTFIX BRIDGE-WEDGE)
@@ -5143,7 +6275,15 @@ export class Walker {
     this.airFrom += s.y - this.airTo;
     this.airTo = s.y;
     const frameEnds = this.airClock.advance(dt);                 // AIR-PROBE: this tick ends a game frame when > 0
-    for (let frames = frameEnds; frames > 0; frames--) {
+    // LATER 1176 (`LANDING_FRAME_READING`): the frame after the contact adds g dt and lands -- no height step
+    // (D:L456496, D:L456515-456516, D:L456528); the feet stay where the contact frame put them.
+    let landNow = false;
+    for (let frames = frameEnds; frames > 0 && !landNow; frames--) {
+      if (this.landPending_) {
+        s.vy -= SEAL_TUNING.gravity * GAME_FRAME_DT;
+        landNow = true;
+        break;
+      }
       this.airFrom = s.y;
       // FUN_005af930 (D:L466797-466803) counts actor+0x1360 down by the frame's dt, then FUN_0059b440 (D:L456496-456498)
       // adds g dt to the fall speed and moves the height by it -- the wind-up's frames included: from 0.1 the delay
@@ -5172,7 +6312,7 @@ export class Walker {
       // records, `FUN_0054aa30` D:L415134-415166). The height steps at 30 Hz, so half the 60 Hz ticks had a level `dy`
       // and laid the records flat and low: a running jump met a face its records clear in the original.
       const geomDy = AIR_SEGMENT_DIRECTION_READING === 'velocity' ? s.vy * dt : dy;
-      const [rx, ry, rz] = this.resolveSegments([s.vx * dt, geomDy, s.vz * dt]);
+      const [rx, ry, rz] = this.resolveSegments(this.pushApart([s.vx * dt, geomDy, s.vz * dt]));
       if (AIR_FLOOR_PROBE_READING === 'frame-end') {
         // AIR-PROBE (research 399): the resolved move whole; the floor probed once a game frame, on the tick that ends
         // it, at the move's end (`FUN_005506a0` D:L417822-417826, `FUN_005b0840` at `+0xf54`), from the feet as the tick
@@ -5182,7 +6322,7 @@ export class Walker {
         s.x += rx; s.z += rz;
         if (frameEnds > 0) {
           if (selectFloor(probeGround(this.grid, s.x, s.z), s.y + this.probeLift(), s.y)) this.airHit = [s.x, s.z];
-          else { [s.x, s.z] = this.airHit; this.stopSlide(); }
+          else { [s.x, s.z] = this.airHit; this.stopSlide(); if (this.fleFlag_) this.fleMissClear_ = true; }   // FLE-1: D:L467096-467097
         }
       } else {
         const distance = Math.hypot(rx, rz), parts = Math.ceil(distance / MAX_SUBSTEP);
@@ -5195,26 +6335,96 @@ export class Walker {
       [s.vx, s.vz] = this.carried;
     } else picked = this.airWalls(startX, startZ, from);
     if (this.jumpDelay > 0) return;                              // the wind-up: the landing is off
+    if (landNow) {                                               // LATER 1176: the landing, a frame after the contact
+      s.y = this.airTo = Math.min(s.y, this.landY_);                // FLE-2: landY_ is the K lift's floor + soil offset
+      this.landPending_ = false;
+      this.land(forward, right);
+      return;
+    }
     // The floor is FUN_005b5d40's pick, as on the ground: the highest at or under the probe's origin + 1 (the feet as
     // they were + `probeLift` + 1, the tick's one origin), else the lowest while within 20 over the feet -- so a slope that rose over the feet is still
-    // theirs. FUN_0059ad30 (456313-456322) puts the feet on it whenever they are under it, rising or not, and
-    // FUN_0059b440's walk-off branch (456502-456512) zeroes the fall speed only when it is a fall: rising into the
-    // ground the feet ride it and the rise goes on; falling, it is the landing (web research 86 section 6.3).
+    // theirs. FUN_0059ad30 (456313-456322) puts the feet on it whenever they are under it, rising or not: rising into the
+    // ground the feet ride it and the rise goes on; falling, it is the landing (web research 86 section 6.3) -- at once for
+    // a body in the launch (FUN_0059b440's strict landing, D:L456513-456516), a game frame later for a fall under the flag (`FALL_FLAG_READING`, a walked walk-off; FLE-1),
+    // whose +0x1061 bit 0x02 keeps FUN_0059b440 off that landing (D:L456506-456511) until the clamp has cleared it
+    // (LATER 1176, `LANDING_FRAME_READING`; *was:* read as the walk-off branch D:L456502-456512 zeroing the fall speed).
     // HF2-slim: the air pass's own pick at the same point, the same origin and feet, when it left the body there.
     const floor = picked !== undefined ? picked : selectFloor(probeGround(this.grid, s.x, s.z), from + this.probeLift(), s.y);
-    if (floor && s.y <= floor.y) {
-      s.y = floor.y;
+    if ((this.fleFlag_ || this.landPending_) && LANDING_FRAME_READING === 'next-frame') {
+      // FLE-1 / LATER 1176: a flagged fall's floor test runs only on a tick that ends a game frame; between, the body is
+      // left as the frame left it. Frame K is the first whose store is strictly UNDER the floor (D:L456314-456317):
+      // lifted to it, airborne, the speed kept; frame K+1 lands (above).
+      if (this.fleFlag_ && frameEnds > 0 && floor && s.y < floor.y) {
+        // FLE-2: tested against the BARE floor, lifted to the floor + its soil's offset on the same frame (FLE.R4) -- the
+        // rig's frame tables reach the rest root 42.575 on frame K itself, never the bare 43.375 (fallLedge.test.ts).
+        s.y = this.soilY(floor);
+        this.setFloorNormal(floor.normal);
+        this.fleFlag_ = false;
+        this.landPending_ = true; this.landY_ = s.y;
+        this.airFrom += s.y - this.airTo;
+        this.airTo = s.y;
+      }
+    } else if (floor && s.y <= floor.y) {
+      // FLE-2: the test against the BARE floor (D:L456505-456514); at or under it the body is written at the floor + its
+      // soil's offset, rising or falling (D:L456513-456523, the review's F5); only a landing (vy <= 0) lands.
+      s.y = this.soilY(floor);
       this.setFloorNormal(floor.normal);
       if (s.vy <= 0) this.land(forward, right);
       this.airFrom += s.y - this.airTo;                          // MISSION R8: the floor's correction carries the pair
       this.airTo = s.y;
     }
+    if (frameEnds > 0 && this.inAir) {
+      if (this.fleMissClear_) { this.fleFlag_ = false; this.fleMissClear_ = false; }   // FLE-1: the miss, from the next frame
+      if (this.fleArm_ !== null) {
+        // FLE-1: the walk-off's first air frame ends -- the push and the flag after its floor test (D:L466967-466969,
+        // D:L440727), then the pose add (`FUN_0059b870`): the edge gait's root less the fall clip's.
+        this.fleFlag_ = true;
+        s.y += this.fleArm_;
+        this.airTo = s.y;
+        this.fleArm_ = null;
+      }
+    }
+  }
+
+  /**
+   * FLE-1 (`FALL_POSE_ROOT_READING`): the walk-off's pose step on air frame 1 from the gait it left the edge in
+   * (`groundBefore`, the leaving tick's ground state): the crouched full-stick run (`seal_run`) or the crouched settled
+   * forward walk (`seal_crouchwalk`, the stick rescaled to 14 / 14.8, D:L444159-444169); any other gait none
+   * (`FALL_ROOT_BLENDED_GAITS_READING`).
+   */
+  /**
+   * FLE-2 (`LANDING_FOOT_STEP_OFFSET_READING`; research 151 s9.1): the height a standing or landing body is held at --
+   * the floor's y plus its soil's `FOOT_STEP_OFFSET` (`FUN_0059b440` D:L456513-456523, every frame on the ground;
+   * `FUN_005b0420` D:L467105-467118 at a lift), the soil the floor polygon's material byte names, byte 0 the map's
+   * default (`FUN_002ddc30` D:L181208; `Grid.defaultMaterial`). -0.8 on GRASS, BROKEN GLASS, LEAVES, ICE, SNOW and GRAVEL.
+   * The bare floor in the cases of s9.1: a dive (`FUN_00577e40` with `DAT_003def08`, D:L456503, bare at D:L456544-456559 -- the
+   * port's dive carry, `glide(..., dive)` from `traversal.ts`; every other glide, the hostage's `glideAi` and the bots'
+   * navigation probe, takes the ordinary path and the offset: the review's F2); the floor block skipped (D:L456491 --
+   * the airborne passes, which never call this). The flagged fall's K lift: D:L456314-456321 writes the bare floor and
+   * sets bit 2 (D:L456320) and bit 0 (D:L456321), and the bit-0 lift path (`FUN_005b0420` D:L467105-467118) then writes the floor + the
+   * offset on the same frame -- so the K lift's height is the floor + the offset; the rig's frame tables (q29, MP12)
+   * agree, reaching the rest root 42.575 on frame K.
+   */
+  private soilY(floor: { y: number; poly: { material: number } }): number {
+    return floor.y + this.soilOffset(floor);
+  }
+
+  private soilOffset(floor: { poly: { material: number } }): number {
+    return this.diving_ ? 0 : footStepOffset(floor.poly.material, this.grid.defaultMaterial ?? 0);
+  }
+
+  private fallPoseStep(): number {
+    const g = this.groundBefore, R = FALL_POSE_ROOT_READING;
+    if (this.stance_ !== 'crouch' || !g) return 0;
+    if (g.state === 'stand' && g.forward === 1 && g.right === 0) return R.run - R.fall;
+    if (g.state === 'crouch' && Math.abs(g.forward - 14 / 14.8) < 1e-9 && g.right === 0 && g.cls === 1) return R.crouchWalk - R.fall;
+    return 0;
   }
 
   /**
    * The landing (`FUN_005af930` -> `FUN_005af590`, decomp 466641-466728): the contact speed classed for the hook
    * (`./physics` `landingKind`); over `land_hard_fall_rate` the hard clip, else with the stick at rest or the last
-   * airborne velocity (the fall included) under `LAND_STILL` the soft one, else none -- the stick taking the run on at
+   * airborne velocity (the fall included -- the original's sums the move's, not the fall: LATER 1377) under `LAND_STILL` the soft one, else none -- the stick taking the run on at
    * once (`actor+0x248 = +0x244`). No jump for `JUMP_LOCK` after (`actor+0x135c`, `FUN_005af930` D:L466889).
    *
    * A slide exit passes `slideExit` (the slide speed) and is `FUN_005af590` only: no jump lock. Its still test reads
@@ -5223,6 +6433,24 @@ export class Walker {
    * §2.4 and research 230 read the stick half as at rest (`idle`, `FUN_00586f00`'s 0.03, the two axes at
    * D:L466680-466681). No wider small-stick threshold is transcribed, so none is added.
    */
+  /**
+   * LATER 1349 (B-90; `LANDING_STANCE_READING`): a landing that pushes its clip stands, the stance held before it kept as
+   * the request, which `retryStance` takes back each tick once the clip frees the body (B90-PC4: prone 20 frames, crouch
+   * 20; the stick held cuts the clip: 2). A landing with no clip keeps the stance (`LANDING_NO_CLIP_STANCE_READING`). Not
+   * for a knock's landing (it does not reach the landing function: the touchdown dispatch sends it to r0004 0x585a80,
+   * 0x5b5a64-0x5b5be4; the 1349 review's F4) or a dive's (its own landing, 0x585900, writes no stance). Unread, not built: the gate rewrites the request to the current stance when the crouch room test blocks
+   * (r0004 0x558354-0x558364 and kin; the settling read's review F2), so a blocked room test after a clip landing would
+   * turn the request into stand -- not captured.
+   */
+  private landingStand(): void {
+    const moves = this.driver as (TickDriver & { inDive?(): boolean }) | null;   // as `aimProne` asks it
+    if (LANDING_STANCE_READING !== 'stand' || this.knockLanding_ || moves?.inDive?.() === true || this.stance_ === 'stand') return;
+    const held = this.pending_ ?? this.stance_;
+    this.stance_ = 'stand';
+    this.posture_ = 'stand';
+    this.pending_ = held;                                        // `+0x374` kept: not `set stance`, which forgets it
+  }
+
   private land(forward: number, right: number, slideExit?: number): void {
     const s = this.state;
     const speed = slideExit ?? Math.max(0, -s.vy);
@@ -5230,22 +6458,27 @@ export class Walker {
     let clip: Landing['clip'] = null;
     const knocked = this.action_?.name;
     this.knockLanding_ = knocked === 'fallForward' || knocked === 'fallBackwards';
+    // R4P-104: the dive's landing (r0004 0x585900) asks the fall's damage at the contact speed x 1.2 (0x585980-0x585994).
+    const dived = this.diveFall_ && !this.knockLanding_;
+    this.diveFall_ = false;
     if (knocked === 'fallForward' || knocked === 'fallBackwards') {
       // BLAST KNOCK: on the ground in `Fall forward` / `Fall backwards`, `FUN_005805b0` (via L441960-441985) pushes
       // `Land forward` / `Land backwards`; its end pushes the get-up (L446653-446700).
       clip = knocked === 'fallForward' ? 'landDeath' : 'landBackwards';
     } else if (speed > JUMP_TABLE.land_hard_fall_rate) {
       // FUN_005af590 by FUN_005ac1f0's class: death `Land forward`, heavy one of the two hits, else `Jump land hard`.
-      const cls = landingClass(speed);
+      // R4P-104: an AI online is spared with class 0 (r0004 0x5b2168-0x5b21a4): the clip's class, never the sound's.
+      const cls = this.onlineAi ? AI_ONLINE_LANDING_CLASS : landingClass(speed);
       // A corpse's class is 3 whatever its speed (D:L466658-466660: the alive bit clear): `Land forward`, no coin (PF-21).
       // FALL-DEATH-LAND: the fall's damage runs before the pick (`FUN_005ac1f0` D:L466656), so a body this landing kills
       // (`fallKills`) is one too. The living's heavy coin (L466667-466669) from the command (LANDING_HIT_DRAW_READING), or a test's `random`.
-      const corpse = this.dead_ || this.fallKills?.(speed) === true;
+      const corpse = this.dead_ || this.fallKills?.(dived ? speed * DIVE_LANDING_SPEED_FACTOR : speed) === true;
       const draw = cls === 2 && !corpse ? (this.random ? this.random() : landingHitDraw(this.commandSeq)) : 1;
       clip = corpse || cls === 3 ? 'landDeath' : cls === 2 ? (draw <= 0.5 ? 'hitStomach' : 'hit') : 'landHard';
     } else if (still) clip = 'land';
-    this.landing_ = { kind: landingKind(speed, JUMP_TABLE), speed, airTime: this.airTime, clip, cls: landingClass(speed), knocked: this.knockLanding_ };
+    this.landing_ = { kind: landingKind(speed, JUMP_TABLE), speed, airTime: this.airTime, clip, cls: landingClass(speed), knocked: this.knockLanding_, dived };
     s.vy = 0;
+    this.landPending_ = false; this.fleFlag_ = false; this.fleArm_ = null; this.fleMissClear_ = false;
     this.inAir = false;
     this.jumping = false;
     if (slideExit === undefined) this.jumpLock = JUMP_LOCK;
@@ -5254,6 +6487,9 @@ export class Walker {
     this.landedPop = true;
     const covered = this.coveredHold_;
     this.coveredHold_ = null;                                    // PAR-79: a landing's clip pops it with the stack (FUN_005af590 D:L466691-466693)
+    // LATER 1349: a landing that pushes its clip stands (`landingStand`); one that pushes none keeps the stance
+    // (`LANDING_NO_CLIP_STANCE_READING`).
+    if (clip && LANDING_STANCE_READING === 'stand') this.landingStand();
     if (clip) this.start(clip, ACTION_SECONDS[clip], false, 'complete');   // the fall's (or the launch's) end: the landing
     else {
       // FUN_00589aa0 pops the launch or the fall, and FUN_0028da00 hands back the play it was pushed over -- the run
@@ -5397,8 +6633,14 @@ export class Walker {
     const rise = floor.y - s.y;
     s.x = x; s.z = z;
     if (rise < -SEAL_TUNING.groundTouchDistance) {
-      this.takeOff(); this.start('fall', null);
-    } else { s.y = floor.y; this.setFloorNormal(floor.normal); }
+      this.takeOff();
+      // R4P-R2 (L106): on the turret set r0004's predicate answers 0 (`turretSetOn`, D4:L481315) -- no `Jump fall`
+      // pushed, so no flag (`FUN_0057e050` sets it, D:L440726-440728); the body still leaves the floor.
+      if (this.turretSetOn?.() !== true) {
+        this.start('fall', null);
+        if (FALL_FLAG_READING === 'walk-off' && !this.gliding_) this.fleArm_ = this.fallPoseStep();   // FLE-1: the flag at air frame 1's end
+      }
+    } else { s.y = this.soilY(floor); this.setFloorNormal(floor.normal); }   // FLE-2: floor + the soil's offset
     return true;
   }
 
@@ -5718,20 +6960,107 @@ export class Walker {
 }
 
 /**
+ * Each root array's key count, set where `actionRoots` builds it from the clip's `frameCount`: the x/z pairs fill the
+ * first 2n slots whatever follows them (AS-34, agent/as-34 809c0830c1, appends the n root y keys), so a reader never
+ * takes n from the length. An untagged array (a hand-built pairs-only stub) reads `length / 2`.
+ */
+const ROOT_FRAMES = new WeakMap<Float32Array, number>();
+/** Tags a root array with its clip's key count (`ROOT_FRAMES`); returns it. */
+export function tagRootFrames(keys: Float32Array, frames: number): Float32Array {
+  ROOT_FRAMES.set(keys, frames);
+  return keys;
+}
+/** A root array's key count: its tag, else `length / 2` (pairs only). */
+export function rootFrames(keys: Float32Array): number {
+  return ROOT_FRAMES.get(keys) ?? (keys.length >> 1);
+}
+
+/**
+ * The root key pair a play's velocity is read off at key slot `slot` of `n` (`FUN_0028c250` through `FUN_00289bb0`):
+ * the slot and the next, the last slot paired with the one before it (r0001 `FUN_00289bb0` D:L132714-132719, called by
+ * `FUN_0028c250` D:L134167-134168; r0004 0x28af40 / 0x28d5e0, D4:L140476-140480: index n -> n - 1). Read through
+ * `rootKeyStep` by `Walker.clipVelocity`, `Walker.jumpRise` and `proneStrafeHeading`.
+ */
+export function rootKeyPair(slot: number, n: number): [number, number] {
+  let a = Math.min(n - 1, slot), b = a + 1;
+  if (b >= n) { b = n - 1; a = Math.max(0, n - 2); }
+  return [a, b];
+}
+
+/**
+ * The one reader of a root key array's layout (the main controller's ruling 2026-11-24T13:4xZ, the AS-34 / B-26
+ * reconciliation): n keys as `actionRoots` builds them, the 2n x/z pairs (`keys[2i]`, `keys[2i + 1]`) then the n root
+ * y keys (`keys[2n + i]`, AS-34), n the clip's frame count (the caller's). The root's change at key slot `slot` over
+ * `rootKeyPair`'s pair, `[x, z, y]`; y is read only when `y` is asked and is 0 otherwise. One length guard: x and z
+ * need 2n entries, y 3n; short (or no) keys answer null. Read by `Walker.clipVelocity`, `Walker.jumpRise` and
+ * `proneStrafeHeading`.
+ */
+export function rootKeyStep(keys: Float32Array | null | undefined, n: number, slot: number, y = false): [number, number, number] | null {
+  if (!keys || keys.length < (y ? 3 : 2) * n) return null;
+  const [a, b] = rootKeyPair(slot, n);
+  return [keys[2 * b]! - keys[2 * a]!, keys[2 * b + 1]! - keys[2 * a + 1]!, y ? keys[2 * n + b]! - keys[2 * n + a]! : 0];
+}
+
+/** B-26: the two prone strafe clips whose root keys the mover reads for the strafe's heading (`proneStrafeHeading`). */
+export const PRONE_STRAFE_CLIPS: readonly string[] = [SEAL_ANIMS.proneRight, SEAL_ANIMS.proneLeft];
+
+/**
+ * B-26 PRONE STRAFE DRIFT (the slope-and-stances read, item 2; reading, pending review): a prone strafe's velocity is
+ * the play's own root velocity in the body frame (r0004 `FUN_0028d5e0` into `+0x2c`, D4:L479445; r0001 `FUN_0028c250`, D:L438910; the
+ * root-delta rebuild D4:L479649-479669 is not the strafe's), turned to the world by the body quaternion `+0x70`
+ * alone (r0004 `FUN_00324370`, D4:L455110; r0001 `FUN_00306fd0`, D:L416515) -- no floor normal. UNREAD (named,
+ * not applied): the crawl clip's own sideways root drift, and the pistol prone strafes' (`seal_p_` sets) roots. The
+ * heading is the loaded clip's root travel summed over one loop as the original indexes it (x right, z behind, as
+ * `actionRoots` keeps them; n from `rootFrames`): each of the n key slots' pair (`rootKeyPair`), the last slot paired
+ * with the one before it (D4:L140476-140480), so the last pair counts twice -- not last key less first. As a unit
+ * (forward, right); the speed stays the class's `motion.rdr` band. Null when the clip's root is not loaded or does not
+ * travel: the strafe then keeps the pure lateral axis. The port moves along the loop's summed heading; the original's
+ * per-slot velocity wobbles about it within a loop, which the port does not follow. NOT TRACED: that a loop spans n equal
+ * slots rests on the phase setter (r0001 `FUN_0028d670` D:L134887-134901; r0004 0x28ea00) and the clip's loop bit
+ * (D:L134484, D:L134897); whether the prone strafes carry that bit is untraced -- without it the play spans n - 1 slots
+ * and the heading is last less first (0.02-0.03 deg on the real clips). The world step is dt x (the
+ * rotated velocity + the push accumulator `+0x1a4`) (D4:L455111-455113, cleared after; zero on an ordinary strafe,
+ * inferred); the 0.5 in the orientation's advance (D4:L455074-455085) is the quaternion half-angle. The root-delta
+ * rebuild's set includes `DAT_0040a088`, "Buddycarry step" (D4:L537509), not a transition; neither prone strafe is in it.
+ * NOT TRACED (the second read's omissions, named): tick 0's three-way branch on `+0x2a`, with a second velocity call at
+ * D4:L479411 (the strafe likely takes L479445); the possible velocity overrides at D4:L455096-455108; and the
+ * root-delta speed against the original's -- the port keeps the 5.5 band.
+ */
+export function proneStrafeHeading(roots: ReadonlyMap<string, Float32Array> | null, clip: string): { forward: number; right: number } | null {
+  const keys = roots?.get(clip);
+  const n = keys ? rootFrames(keys) : 0;
+  if (!keys || n < 2) return null;
+  let right = 0, forward = 0;
+  for (let slot = 0; slot < n; slot++) {
+    const step = rootKeyStep(keys, n, slot);
+    if (!step) return null;
+    right += step[0];
+    forward -= step[1];
+  }
+  const len = Math.hypot(forward, right);
+  return len > 1e-6 ? { forward: forward / len, right: right / len } : null;
+}
+
+/**
  * The root keys of the clips the mover plays as actions (`./walk` `ACTION_CLIPS`: the hits, the death landing, the
  * get-up, the transitions) and holds (`HOLD_CLIPS`: the claymore's placing, the reloads), x and z a key in the model's
- * frame: what the mover's per-key root motion reads (`Walker.actionVelocity`, `FUN_0028c250`).
+ * frame: what the mover's per-key root motion reads (`Walker.actionVelocity`, `FUN_0028c250`). AS-34: the `n` root y
+ * keys follow the `2n` x/z pairs (a reader of the pairs alone is unchanged), for the standing jump's rise
+ * (`Walker.carriedAir`'s `rise`).
  */
 export function actionRoots(clips: readonly MotionClip[]): Map<string, Float32Array> {
-  const wanted = new Set<string>([...Object.keys(ACTION_CLIPS).map((k) => SEAL_ANIMS[k as keyof typeof ACTION_CLIPS]), ...HOLD_CODES, ...Object.keys(PUSHED_CLIPS)]);
+  const wanted = new Set<string>([
+    ...Object.keys(ACTION_CLIPS).map((k) => SEAL_ANIMS[k as keyof typeof ACTION_CLIPS]), ...HOLD_CODES, ...Object.keys(PUSHED_CLIPS),
+    ...PRONE_STRAFE_CLIPS,                                       // B-26: the prone strafe's heading (`proneStrafeHeading`)
+  ]);
   const out = new Map<string, Float32Array>();
   for (const c of clips) {
     if (!wanted.has(c.name)) continue;
     const root = c.parts.find((p) => p.name === 'skel_root');
     if (!root || root.translations.length < 3 * c.frameCount) continue;
-    const keys = new Float32Array(2 * c.frameCount);
-    for (let i = 0; i < c.frameCount; i++) { keys[2 * i] = root.translations[3 * i]!; keys[2 * i + 1] = root.translations[3 * i + 2]!; }
-    out.set(c.name, keys);
+    const n = c.frameCount, keys = new Float32Array(3 * n);
+    for (let i = 0; i < n; i++) { keys[2 * i] = root.translations[3 * i]!; keys[2 * i + 1] = root.translations[3 * i + 2]!; keys[2 * n + i] = root.translations[3 * i + 1]!; }
+    out.set(c.name, tagRootFrames(keys, n));                  // B-26: the key count rides with the array (`rootFrames`)
   }
   return out;
 }
@@ -5746,6 +7075,7 @@ export function moverSnapshot(w: Walker, moves: TraversalHooks | null, jumps: nu
     feet: w.tickFeet(), rootTilt: w.rootTilt.q, yaw: wrapYaw(s.yaw), pitch: s.pitch, vx: s.vx, vz: s.vz, vy: s.vy,
     airborne: w.airborne, crouched: w.posture === 'crouch', stance: w.posture,
     ...(w.stance !== w.posture ? { stanceState: w.stance } : {}),   // OBF-23: the crouch-run's state 1
+    ...(w.stanceInUse !== w.posture ? { stanceInUse: w.stanceInUse } : {}),   // SWAPFIRE-CROUCH: the kit's row
     landing: w.landing?.kind ?? null, jumps,
     ground: { ...w.ground }, stickSnaps: w.stickSnaps, action: w.action && { ...w.action }, turnRate,
     traversal: moves?.pose() ?? null, peek: moves?.peeking() ?? 0, ...(moves?.leanClipOn?.() ? { leanClip: true as const } : {}),

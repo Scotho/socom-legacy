@@ -105,6 +105,50 @@ describe('HF-PATH original BASIC planner (research 333)', () => {
     sub.cells[4 * 9 + 2] = 9;
     expect(p.canTravel(loc(2, 2), loc(1, 7))).toBe(false);
   });
+  // A1b (research 333 s5): WalkLine moves an action endpoint by GetDirVec(nibble) x 0.75 (FUN_00537e50
+  // D:L403393-403401, D:L403421-403429; r0004 FUN_0053c8a0 D4:L442946-442953, D4:L442974-442981), and GetDirVec's
+  // default case answers a nibble 9..15 north with no diagonal factor (FUN_00519130 D:L386525-386528; r0004
+  // FUN_005193f0). Cells 1.5 u, so 0.75 is half a cell: the start (2,2) moved north sits on row 2's top edge, and the
+  // line to (6,1) crosses the blocked (3,1); unmoved, it stays in row 2 past x 3.
+  function northCase(nibble: number | null): HostagePathPlanner {
+    const sub = grid(0, 9);
+    sub.cellSize = [1.5, 1.5]; sub.max = [13.5, 100, 13.5];
+    sub.cells[2 * 9 + 2] = 0x81;
+    if (nibble !== null) sub.markers.push({ loc: loc(2, 2), word: 8, flags: nibble });
+    sub.cells[1 * 9 + 3] = 9;
+    return new HostagePathPlanner(maps(sub));
+  }
+  it('A1b: an action endpoint with a nibble 9..15 moves north unscaled, as nibble 0 does (GetDirVec\'s default)', () => {
+    expect(northCase(8).canTravel(loc(2, 2), loc(6, 1)), 'control: nibble 8, no move').toBe(true);
+    expect(northCase(0).canTravel(loc(2, 2), loc(6, 1)), 'nibble 0: north, into (3,1)').toBe(false);
+    for (let n = 9; n <= 15; n++) expect(northCase(n).canTravel(loc(2, 2), loc(6, 1)), `nibble ${n}`).toBe(false);
+  });
+  it('A1b (review F1): lineTravel\'s endpoint moves a full 0.75 north for 9..15, not the diagonal-scaled 0.53', () => {
+    // Only (2,1) blocked; the line from the action cell (2,2) to (8,1). Moved a full half cell north the start sits on
+    // z 2.0 and the first 0.2 step enters (2,1); moved 0.354 cell (0.75 x 0.7071, a diagonal's north part) or not at
+    // all, the line stays in row 2 until x is past 3.
+    const only21 = (nibble: number): boolean => {
+      const sub = grid(0, 9);
+      sub.cellSize = [1.5, 1.5]; sub.max = [13.5, 100, 13.5];
+      sub.cells[2 * 9 + 2] = 0x81; sub.markers.push({ loc: loc(2, 2), word: 8, flags: nibble });
+      sub.cells[1 * 9 + 2] = 9;
+      return new HostagePathPlanner(maps(sub)).canTravel(loc(2, 2), loc(8, 1));
+    };
+    expect(only21(8), 'control: no move').toBe(true);
+    expect(only21(1), 'NE: north by 0.75 x 0.7071 only, misses (2,1)').toBe(true);
+    expect(only21(0), 'N: a full 0.75').toBe(false);
+    for (let n = 9; n <= 15; n++) expect(only21(n), `nibble ${n}: a full 0.75, unscaled`).toBe(false);
+  });
+  it('A1b: the probe\'s endpoint takes the same move for a nibble 9..15 as for 0', () => {
+    const dir = (nibble: number): readonly number[] => {
+      let d: readonly number[] = [];
+      northCase(nibble).routeProbeCells(loc(2, 2), loc(6, 1), s => { d = s.direction; return false; });
+      return d;
+    };
+    const north = dir(0);
+    expect(north, 'control: the move changes the direction').not.toEqual(dir(8));
+    for (let n = 9; n <= 15; n++) expect(dir(n), `nibble ${n}`).toEqual(north);
+  });
   it('reads the trail width as the first blocked square ring (including the original asymmetric perimeter)', () => {
     const sub = grid(), p = new HostagePathPlanner(maps(sub));
     expect(p.width(loc(3, 3))).toBe(4);

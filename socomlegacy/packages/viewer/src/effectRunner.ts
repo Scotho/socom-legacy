@@ -17,7 +17,7 @@ import { evaluateCondition } from './roundCues';
  *   modelled (ruling R1): the disc's one pair, MP64's `bugs_flying` (`set 0 cmd 66 set 0 cmd 72`, where M51's copy has
  *   an OR), read false while both were unread; since INV-RAIN F3 its first operand, `CAMERA_INDOORS`, decides it
  *   (`indoorsOperand`; `tools/test/effectConditionSweepDisc.test.ts`).
- * - **WAIT** holds for its seconds, or its frames; **LOOP** returns to the sequence's start (forever at -1, as the
+ * - **WAIT** holds for its seconds, or its frames (LATER 1426: begun and ticked in one call, the leftover handed on); **LOOP** returns to the sequence's start (forever at -1, as the
  *   flash's `fire_fix` does until `STOP_SEQUENCE` ends it); **STOP_SEQUENCE** ends a named sequence.
  * - **FOR_CHILDREN ... END_FOR_CHILDREN** (XR-04; research 213 s2.3): the block is skipped whole -- its body never runs,
  *   not even once on the unbound loop variable. Its one use on the sprint maps is the debris flight (Crossroads' bridges
@@ -122,13 +122,50 @@ export interface EffectHost {
   random(run: EffectRun): number;
 }
 
+/**
+ * WAIT_EQUALITY_HOLD_READING (LATER 1426; research 89 s1, research 101; reading, pending review): the margin a timed
+ * WAIT's hold takes. The original holds while dt + elapsed <= seconds (r0004 0x25f810-0x25f864) -- equality holds, the
+ * end strictly after the seconds. The port sums the wait's elapsed time with a compensated (Neumaier) sum in double and
+ * holds while elapsed + dt <= seconds + this margin, so a sum within rounding of the seconds counts as equality. The
+ * margin sits ~1,300x above the sum's largest error over the disc's plain sequences (7.4e-13, MP62 `destroy_strike_1`'s
+ * 961 ticks, the first 16 s WAIT; 1.4e-13 over MP6 `f18contrail`'s 600,001) and ~6x under the smallest stored f32 gap
+ * below a k/60 (5.96e-9 over every timed WAIT value on the disc, the 0.35 s wait), and every end lands strictly after
+ * the seconds, as the original's does -- except that the port holds one tick past the original if the exact sum lands
+ * in (s, s+1e-9]. The 6x margin was measured on the PLAIN chains; the 1,137 non-plain sequences (a host's timed
+ * command sets the phase) are not covered by the census. The target is the original's
+ * observable end, not its f32 arithmetic on a grid it never ran (its dt is the game frame). Refused, measured
+ * (`test/effectWaitCensus.devdisc.test.ts` against the exact rule on the stored f32 values): the f32 sum and compare
+ * (98 later / 130 same / 28 earlier against the port before; ~61% of the k/60 waits ended at tick k, before the
+ * original could); a plain double sum with a 1e-6 margin (243 of 256: 13 stored values just below k/60 held as
+ * equality, a tick late). Settled by a capture of a whole-sixtieth wait's end against the room's grid.
+ */
+export const WAIT_EQUALITY_HOLD_READING = 1e-9;
+
+/**
+ * COUNTED_WAIT_FRAME_READING (LATER 1426 Q2; research 89 s1, research 101; reading, pending review): a counted WAIT (flag
+ * 0x10) counts the port's ticks -- 1/60 s in the room, the display's frame on the page -- where the original's counts its
+ * game frame (525/15734 s, `@s2u/scene` gameFrame). Whether MISSION R8's "everything else continuously" makes a frame
+ * count the game frame is the owner's (HUMAN_TASKS H494); until then the port's tick.
+ */
+export const COUNTED_WAIT_FRAME_READING = 'the port\'s tick, until H494 rules' as const;
+
+/** A running WAIT (LATER 1426): its seconds and elapsed time (a compensated sum), or its frame limit and count. */
+interface WaitState {
+  seconds: number;
+  elapsed: number;
+  /** The compensation term of `elapsed`'s Neumaier sum. */
+  comp: number;
+  frames: number | null;
+  count: number;
+}
+
 interface SeqState {
   pc: number;
   done: boolean;
-  /** A running timed command's tick, or a wait's time left. */
+  /** A running timed command's tick. */
   tick: OpTick | null;
-  waitLeft: number;
-  waitFrames: number | null;
+  /** A running WAIT. */
+  wait: WaitState | null;
   loops: number;
   loopTime: number;
 }
@@ -166,6 +203,15 @@ function branchTable(ops: readonly EffectOp[]): { next: Int32Array; end: Int32Ar
   return { next, end };
 }
 
+/**
+ * PR #5 B1 (the owner, 2026-11-21: "approved on the loop condition applying to forge only"): the Forge layout's own
+ * programs, as `./forge/placedAccess` `scriptPrograms` names them -- an effect object's, the map script's, a damage
+ * trigger's, a switch's (`forge_<kind>_run`). Only these test a WHILE's condition; a disc program's conditional WHILE
+ * keeps the port's earlier reading (taken as false) until the retail case is settled on the simulation track. A browser
+ * adaptation of the Forge (FG.R2); nothing a disc program does changes.
+ */
+export const isForgeScriptProgram = (name: string): boolean => /^forge_(?:map_script|object_\d+|trigger_\d+|switch_\d+)_run$/.test(name);
+
 /** One playing effect animation. */
 export class EffectRun {
   private readonly seqs: SeqState[];
@@ -175,17 +221,28 @@ export class EffectRun {
   private ended = false;
   /** Seconds since it started. */
   time = 0;
+  /** PR #5 B1: whether a conditional WHILE tests its condition here (`isForgeScriptProgram`). */
+  private readonly testsWhile: boolean;
 
   constructor(readonly program: EffectProgram, private readonly host: EffectHost, readonly context: unknown = null) {
     this.tables = program.sequences.map((s) => branchTable(s.ops));
-    // A sequence of activation 2 that the animation's own `CALL_SEQUENCE` names waits for the call (Frostfire's
-    // `firey_flames` turns its vent lights on and off so); one no call names runs from the start, as the activation
-    // gate does (`shell_eject`'s range test, `Anim_Params`' second offset) [reading: research 89 §12].
+    this.testsWhile = isForgeScriptProgram(program.name);
+    // Research 448 (a reading, pending review): the start runs the activation-1 sequences only (`FUN_0026ae20`
+    // D:L115457-115509 puts every other in state 1, which `FUN_00269da0` D:L114845-114910 never steps); any other
+    // waits for a start by name -- its animation's `CALL_SEQUENCE` here (the original's `OBJECT_MOTION` material and the
+    // game's AI starts reach one too; no port host calls `callSequence` today) -- `FUN_00269b00` D:L114701-114760. An animation none of whose
+    // sequences runs ends at once (`FUN_00269cc0`: state 1 is not running; D:L118642-118654). Was research 89 §12's
+    // "one no call names runs from the start", which took Desert Glory's burn-barrel light (bugs intake v0423 s5).
+    // `Anim_Params`' guard sequences (`EffectProgram.guards`: offsets +0x10/+0x12/+0x14, `shell_eject`'s range test)
+    // keep the port's run from the start unless a CALL_SEQUENCE names them, as before; their own timing is not this rule.
     const called = new Set<string>();
     for (const s of program.sequences) for (const o of s.ops) if (o.op === 'callSequence') called.add(o.sequence);
+    const guards = new Set(program.guards ?? []);
     // PB-9b: the cleanup sequence waits for the end (`EffectProgram.cleanup`).
     this.seqs = program.sequences.map((s, i) => ({
-      pc: 0, done: i === program.cleanup || (s.activation === 2 && called.has(s.name)), tick: null, waitLeft: 0, waitFrames: null, loops: 0, loopTime: 0,
+      pc: 0,
+      done: i === program.cleanup || (s.activation !== 1 && !(guards.has(i) && !called.has(s.name))),
+      tick: null, wait: null, loops: 0, loopTime: 0,
     }));
   }
 
@@ -193,7 +250,7 @@ export class EffectRun {
   callSequence(name: string): void {
     this.program.sequences.forEach((s, i) => {
       if (s.name !== name || i === this.program.cleanup) return;
-      Object.assign(this.seqs[i]!, { pc: 0, done: false, tick: null, waitLeft: 0, waitFrames: null, loops: 0, loopTime: 0 });
+      Object.assign(this.seqs[i]!, { pc: 0, done: false, tick: null, wait: null, loops: 0, loopTime: 0 });
     });
   }
 
@@ -220,8 +277,11 @@ export class EffectRun {
     const i = this.program.cleanup;
     const seq = i === undefined ? undefined : this.program.sequences[i];
     if (i === undefined || !seq) return;
-    Object.assign(this.seqs[i]!, { pc: 0, done: false, tick: null, waitLeft: 0, waitFrames: null, loops: 0, loopTime: 0 });
+    Object.assign(this.seqs[i]!, { pc: 0, done: false, tick: null, wait: null, loops: 0, loopTime: 0 });
     const failed = this.failed;
+    // A WAIT under one CLEANUP_DT in a cleanup sequence now passes within this single step, and the commands after it
+    // run (this follows the dispatcher's begin-then-tick); no disc cleanup sequence holds a WAIT (pinned in
+    // test/effectRunnerWait.test.ts).
     this.failed = false;                             // the cleanup's own commands run though the animation stopped
     this.step(i, seq.ops, CLEANUP_DT);
     this.failed = failed;
@@ -253,16 +313,20 @@ export class EffectRun {
         s.pc++;
         continue;
       }
-      if (s.waitFrames !== null || s.waitLeft > 0) {
-        if (s.waitFrames !== null) {
-          if (--s.waitFrames > 0) return;             // WAIT n frames resumes n ticks after it began
-          s.waitFrames = null;
-        } else {
-          s.waitLeft -= dt;
-          if (s.waitLeft > 1e-9) return;
-          s.waitLeft = 0;
-        }
-        dt = 0;
+      if (s.wait) {
+        // LATER 1426 (research 89 s1; reading, pending review): the WAIT's tick, r0004 0x25f7c0-0x25f8bc (r0001's at
+        // 0x25ec50-0x25ed4c; the menus' copy `@s2u/ui` zanimRuntime, research 106). Timed: held while dt + elapsed is at or
+        // under the seconds (equality holds; WAIT_EQUALITY_HOLD_READING), the whole dt spent; once past, done with
+        // dt - max(0, seconds - elapsed) handed to the next command in the same tick. Counted: one a tick from its begin
+        // tick, done once the count passes its limit, dt untouched (COUNTED_WAIT_FRAME_READING).
+        const w = s.wait;
+        if (w.frames === null) {
+          const sum = w.elapsed + dt;
+          const comp = w.comp + (Math.abs(w.elapsed) >= Math.abs(dt) ? (w.elapsed - sum) + dt : (dt - sum) + w.elapsed);
+          if (sum + comp <= w.seconds + WAIT_EQUALITY_HOLD_READING) { w.elapsed = sum; w.comp = comp; return; }
+          dt = Math.max(0, dt - Math.max(0, w.seconds - (w.elapsed + w.comp)));
+        } else if (++w.count <= w.frames) return;
+        s.wait = null;
         s.pc++;
         continue;
       }
@@ -278,11 +342,12 @@ export class EffectRun {
         case 'else': s.pc = table.end[s.pc]! >= 0 ? table.end[s.pc]! + 1 : s.pc + 1; continue;
         case 'endif': s.pc++; continue;
         case 'wait': {
-          if (op.frames !== null) s.waitFrames = op.frames;
-          else s.waitLeft = op.seconds + (op.range ? op.range * this.host.random(this) : 0);
-          if (s.waitFrames === null && s.waitLeft <= 0) s.pc++;
-          else if (s.waitFrames !== null && s.waitFrames <= 0) { s.waitFrames = null; s.pc++; }
-          else return;
+          // LATER 1426: the begin (r0004 0x25f8c0-0x25f948; `FUN_0025ed50` D:L108436-108447) -- the count zeroed, a random
+          // range drawn once over the seconds -- and the dispatcher calls the tick in the same call (r0004
+          // 0x26b32c-0x26b388; `FUN_0026a6e0` D:L115199-115211): on round the loop, with this tick's dt.
+          s.wait = op.frames !== null
+            ? { seconds: 0, elapsed: 0, comp: 0, frames: op.frames, count: 0 }
+            : { seconds: op.seconds + (op.range ? op.range * this.host.random(this) : 0), elapsed: 0, comp: 0, frames: null, count: 0 };
           continue;
         }
         case 'loop': {
@@ -305,8 +370,9 @@ export class EffectRun {
           // `FUN_0025e630` (decomp 108131): flag 1 always goes on (the ripples' endless loop); otherwise its condition, an
           // IF's tokens (`holds`), tested each time END_WHILE brings it back -- held, into the body; not, past END_WHILE.
           // Was taken as false (only the endless form was on the effects' path); a Forge script's "While a flag is" runs it.
-          // A WHILE with no tokens read stays false, as before.
-          const enter = op.forever || (op.conditions !== undefined && op.conditions.length > 0 && this.holds(op.conditions));
+          // A WHILE with no tokens read stays false, as before. PR #5 B1: a Forge program's only (`isForgeScriptProgram`);
+          // a disc program's conditional WHILE is still taken as false until the retail case is settled.
+          const enter = op.forever || (this.testsWhile && op.conditions !== undefined && op.conditions.length > 0 && this.holds(op.conditions));
           s.pc = enter || table.end[s.pc]! < 0 ? s.pc + 1 : table.end[s.pc]! + 1;
           continue;
         }

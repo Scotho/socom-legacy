@@ -45,7 +45,13 @@
    one under the exporter's team, `packs.ts:1347`: a bug, fixed here).
 6. **The layout record stays version 3 and grows by optional fields** (A2), as `zones` and `contentBase` were
    added: a layout that uses none of them saves byte for byte as today, and a reader that does not know one refuses
-   the record by name.
+   the record by name. FN-4 departs from this for one thing (the Forge plan `2026-11-14-forge-next.md`, FN.R4 and
+   FN.R5: the owner's "relative to the parent by default, and agreed with your suggestion", so that an angle typed
+   relative to a parent reads back exactly): record version 4 keeps a piece's yaw, pitch and roll on a hundredth of
+   a degree and is written only when one is off the whole degree, so every other layout still saves as version 3
+   byte for byte. The lattice is the Forge seat's measured call, approved by the weekend's main controller on
+   2026-11-15, the owner's and the Forge's owner's to overturn (OT.R112). A 0.2.0 build refuses a version-4 layout
+   by its version, in words; no pack contract version moves (the same call, accepted by the main controller).
 7. **Scripting is rules data the engine runs, never code** (H343 stands). A layout's script is a rules member in its
    pack.
 8. **Contract 0.2.0 in one step.** A build holds a **list** of the contract versions it reads (at 0.2.0:

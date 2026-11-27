@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { matchLoader, type MatchWorker } from '../src/matchMount';
 import type { ViewerRequest, ViewerResponse } from '../src/worker';
+import { installXboxMemorySink, XboxMemoryTrace } from '../src/xboxMemoryTrace';
 
 const source = { kind: 'http', baseUrl: '/maps' } as const;
 const flush = async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); };
@@ -34,7 +35,7 @@ function workers() {
   const finish = async () => { for (let i = 0; i < 4; i++) await reply(); };
   return { made, make, current, reply, finish };
 }
-afterEach(() => { window.history.replaceState(null, '', '/'); });
+afterEach(() => { window.history.replaceState(null, '', '/'); installXboxMemorySink(null); });
 
 describe('Xbox mission asset ownership (browser adaptation)', () => {
   it('cancels an obsolete mission before starting the next and ignores its late replies', async () => {
@@ -70,14 +71,16 @@ describe('Xbox mission asset ownership (browser adaptation)', () => {
     } finally { loader.dispose(); }
   });
 
-  it('a stale worker\'s crash and partial sound leave the replacement mission clean', async () => {
+  it('discards partial sound and does not record stale worker failures against a replacement mission', async () => {
     window.history.replaceState(null, '', '/?renderer=xbox');
+    const trace = new XboxMemoryTrace({ now: () => 1 }); installXboxMemorySink(trace);
     const rig = workers(), loader = matchLoader(source, rig.make);
     try {
       const a = loader.load('mp2'); await rig.reply(); await rig.reply(); await rig.reply();
       const old = rig.current(); old.say({ kind: 'sound', id: old.asked[0]!.id, data: { banks: ['old'] } });
       const b = loader.load('mp3'); await flush(); expect(await a).toBeNull();
       old.fail(); old.say({ kind: 'error', id: rig.current().asked[0]!.id, message: 'late old crash' });
+      expect(trace.report().failed).toBe(false);
       await rig.finish(); expect((await b)?.sound?.data.banks).toEqual([]);
     } finally { loader.dispose(); }
   });
@@ -129,6 +132,7 @@ describe('Xbox mission asset ownership (browser adaptation)', () => {
   });
 
   it('the native-worker identity guard rejects stale replies even when request serialization is disabled', async () => {
+    const trace = new XboxMemoryTrace({ now: () => 1 }); installXboxMemorySink(trace);
     const rig = workers(), loader = matchLoader(source, rig.make, { cancelSupersededLoads: true, serialWorkerRequests: false, releaseWorkerAfterLoad: true });
     try {
       const a = loader.load('mp2'), old = rig.current();
@@ -137,6 +141,7 @@ describe('Xbox mission asset ownership (browser adaptation)', () => {
       old.fail();
       old.say({ kind: 'error', id: current.asked[0]!.id, message: 'stale' });
       old.say({ kind: 'sound', id: current.asked[0]!.id, data: { banks: ['stale'] } });
+      expect(trace.report().failed).toBe(false);
       current.say({ kind: 'map', id: current.asked[0]!.id, map: { path: 'RUN/MP3.ZDB', archive: 'MP3' } });
       current.say({ kind: 'play', id: current.asked[1]!.id, data: null });
       await flush();

@@ -13,7 +13,8 @@ where the decompilation lost an argument), and the disc's `RUN/READERC.ZAR` (`mo
   (`225 <= |v|^2`, the local velocity) the **running jump** -- a real leap off the floor; under it the **standing
   jump** -- a clip on the floor, the feet never leaving it.
 - **The running jump's rise is an impulse, not a clip**: `actor+0x1364 = jump_factor x gravity x -0.4` (0.85 x 235 x
-  0.4 = **79.9 units a second up**), written into the fall speed **0.1 s after the take-off** (`actor+0x1360`), then
+  0.4 = **79.9 units a second up**), written into the fall speed **0.1 s after the take-off** (`actor+0x1360`; r0001's offsets -- on r0004 the `+0x13xx` words are 4 higher:
+  the impulse `+0x1368`, the timer `+0x1364`, the fall speed `+0x1340`, patches-contrib's trace 2026-11-24, research 84 §3), then
   `dynamics.rdr`'s 235 a second squared. The top is **13.58 units (1.36 m)** in closed form, **12.27 at the game's
   30 Hz frame** (525/15734 s; the fall speed takes `g dt` before it moves the height) over where the rise began --
   which is **0.785 under the floor**, the wind-up's sink over two frames (§6b), so **11.485 over the floor**; **22
@@ -76,7 +77,9 @@ case 3 the fall -- which confirms the reading of the local path.
 `FUN_00588bc0(actor, 8, 6, 0, 0xd)` -- action 8 `Jump launch` -- then `actor+0x1360 = 0.1`, `actor+0x135c = 0.4`,
 `actor+0x1364 = DAT_0044c258 x DAT_0044c250 x -0.4` (the tuning table's `+0x08` `jump_factor` and `+0x00` `gravity`),
 `actor+0x1061` bit 1 set (the jump's own airborne flag) and bit 2 cleared, and `actor+0x1350..0x1358 = actor+0x38..0x40`
-(the world velocity at take-off). Then each tick:
+(the world velocity at take-off). These are r0001's offsets (D: lines); on r0004 the `+0x13xx` words are 4 higher (not `+0x1061` or `+0x38..+0x40`,
+outside the moved band; atlas-parity's second read) -- the timer
+`+0x1364`, the impulse `+0x1368`, the fall speed `+0x1340` (r0004 0x583490 D4:L481396-481400; research 84 §3). Then each tick:
 
 - **`FUN_005af930`** (466729-467019): `0x135c -= dt` (floored at 0); while `0x1360 > 0` it counts down and, **on the
   tick it reaches 0, `0x133c = 0x1364`** -- the fall speed becomes -79.9 (up). The airborne bit 5 is set, then
@@ -822,6 +825,11 @@ beside page v0.4.2 in SEPARATE, 3 trials each; capture, unscored).
   `FUN_005483d0` D:L413618-413671). Scoped to the launch (review 1 F3): a walk-off fall, a dive, a knock and the bots
   keep the step-up, unevidenced either way. Pinned by `weaponLine.test.ts`'s two JUMP-AIR cases (red with `'any'`:
   the port steps up mid-air and lands on the top). Owed: the refusal read, or a trace of an airborne approach.
+  **2026-11-24 (R4P-243, ATLAS L373; reading, pending review; capture IQ-179 queued)**: the refusal read -- r0004's
+  CanTraverse `FUN_005b9ff0` kind 4 runs the step-up only when `FUN_0058d580` answers 0, the top blend neither `Jump
+  launch` nor `Jump fall`, airborne or not (D4:L510624-510642); the r0001 twin runs it unconditionally
+  (D:L469263-469276). The value is now `'not-in-jump-blend'` (a fall's and a grounded launch's step-up refused, the
+  landing's kept); research 313 section 8.24.
 - **`AIR_PROBE_LIFT_READING`** -- retired 2026-11-09 by PROBE-ORIGIN (below; was `mover.ts`, `'r0004-floor'`; the same batch; **proven** for the launch: a memory trace
   of r0004 compared value for value over 2034 frames to 0.0001, held by `jumpAir.test.ts`'s pin of the traced 11.480 and
   the r0004 code read below; review 2 N2): in the running jump's launch the airborne floor pick's origin sits 11.48 over the feet
@@ -897,7 +905,12 @@ beside page v0.4.2 in SEPARATE, 3 trials each; capture, unscored).
   2.30 units across in its second tick (airborne, velocity 0, at the face's height; that move's mechanism is not traced),
   then falls straight down to the floor under the record, first grounded after its 18th tick, and rests at
   (1391.30, 9.321, 2438.80), about 6.5 from the record, 6.42 under the water line (pinned by `probeOrigin.test.ts`; the
-  room's rest is not re-measured). Before LATER 833 the push's 4.19 units were carried as a 251 u/s take-off and the
+  room's rest is not re-measured). Since LATER 1148 (the floor tested once a game frame at its end, research 444) the
+  push comes at the first game frame's end, the third tick after the placing (that frame spans three ticks,
+  `GROUND_FRAME_TICKS_READING`; the two ticks before it hold, as the frame end would take off): the body takes off two
+  ticks later, is first grounded after its 20th tick and rests at the same (1391.30, 9.321, 2438.80), 6.42 under the
+  line. These are REGRESSION PINS of the port's own values (`probeOrigin.test.ts`), neither a reading nor a measurement
+  of the original: where the original's body ends is unknown (the r0004 respawn capture below settles it). Before LATER 833 the push's 4.19 units were carried as a 251 u/s take-off and the
   body flew about 89 units to (1474.96, 15.105, 2438.84), 0.47 under the line (the room's (1472.73, 14.88, 2437.30),
   about 0.66 under) -- the launch LATER 833 removed. The respawn ends wet either way, and the rest now differs from the
   alternative, where r0004's GetIntersect skips near-vertical faces and the spawn stands in the water at 9.32, by those
@@ -905,6 +918,88 @@ beside page v0.4.2 in SEPARATE, 3 trials each; capture, unscored).
   exchange fixture (`e2e/weaponExchangePlacement.ts`, a product-track fixture adaptation) settles a walker on a candidate
   and refuses one that does not stay or rests wet, so it refuses respawn 181. Settled by an r0004 respawn capture at MP64 respawn 181 (filed for the two-client session
   beside run 8), or the VU0 microprogram (vcallms 0x70 at 0x2dd130) disassembled.
+  **Re-filed 2026-11-23 (L208, below):** ATLAS's reviewed r0004 capture (`docs/atlas/captures/mp64-spawn-r0004.md`,
+  finding 1) puts the original's body on the BED (9.324) in its first update, and the VU0 face test IS now read (0x2fa140
+  with programs 0x70/0x10/0x20): it refuses nothing by slope. The departure was the port's ORDER -- a pick at the seed
+  column before any move -- not the face; the spawn now seeds (`Walker.seed`) and reaches the capture's row within 0.003.
+  The pins above describe `place`, which the room's and the page's spawns no longer use.
+- **L208: a spawn's first update -- the seed, the wall put-out, then the pick** (2026-11-23; reading, pending review:
+  seat-kill's two key-job reads, one reader each; atlas-parity's non-author check 2026-11-23T00:44Z AGREES with
+  findings; the port's change `Walker.seed`, `mover.ts`).
+  **The face probe refuses nothing by slope.** The vertical floor query `FUN_002d3030` (r0001, the surface loop from
+  D:L174995; node gate D:L175073-175101, type-1 surfaces D:L175324-175328) calls `CDIPoly`'s vtable slot +0x14, which in
+  r0004 is **0x2fa140** (0x2fa140-0x2fa1f8, VU0 micro-programs 0x70, 0x10 and 0x20). Its tests, read instruction by
+  instruction in r0004: the line must enter the face from its front; the hit point must lie inside or on every edge with
+  a tolerance of 1e-5 in units of |N||e| (program 0x20); the material must be neither VOLUMETRIC nor LIQUID, and the
+  surface word's bits 18 and 19 clear. **There is no normal-y (slope) threshold anywhere in the probe.** The only n.y
+  test in the chain is the sibling slot +0x18, r0004 0x2fa8d0 (r0001 `FUN_002dd8e0`, D:L181055-181119), which refuses
+  n.y == 0 and is not the floor query's path. The pick, r0001 `FUN_005b5d40` (D:L470165-470290) = r0004 0x5bc180
+  (0x5bc180-0x5bc5a8), sends VOLUMETRIC and LIQUID hits elsewhere, skips an actor's own model, then takes the highest
+  hit at or under origin + 1, else the lowest, and none over feet + 20. So MP64's `worldmodel/inv_di` (material 3,
+  INVISIBLE_DI, normal (0.809, 0.067, 0.584), 18.16 over (1386.037, 2435.000)) PASSES the probe and the pick if probed
+  at respawn 181's seed column.
+  **The original never probes the seed column: it moves first.** TeleportTo, r0001 `FUN_00546cf0` (D:L412487-412520),
+  only WRITES: the actor matrix (the seed), the stored floor y `+0x2e4` = the seed's y, the floor-hit record `+0x400..`
+  = the seed with normal up and polygon 0, and `+0xe1` bit 0. It probes and moves nothing. The next update runs in this
+  order (r0004 0x555800, r0001 `FUN_005506a0` D:L417822-417826): the movement step **0x54cf30** (r0001 `FUN_005483d0`),
+  then the probe's record builder **0x5b6620** (r0001 `FUN_005b0840`) from the MOVED position, then the pick, then y is
+  snapped. So y is first set by a pick made after the move.
+  **The move: the head line's deep-hit put-out.** The segment builder, r0004 0x54f700 (r0001 `FUN_0054aa30`), casts the
+  body's wall lines every update, still or not. A still body's line runs along the facing (the matrix's third row,
+  negated), `r x 1.4` long (D:L415135-415166; r0004 0x54fe90-0x54ff34), with r 3.5 in both stances, so 4.9. The HEAD
+  line starts at the actor's position + the posed head node `+0x308`'s height + 2.0 (D:L415437-415446; r0004
+  0x550f88-0x550ff0), and side lines start at feet + step_height 6.5. In the movement step, each kept hit's normal has
+  its y zeroed when under max_slope's cosine (threshold at 0x44f5f8), then is normalised (D:L413538-413541; r0004
+  0x54d550-0x54d594). Depth = |(segment end - hit point) . normal|, and the deepest is kept (D:L413571-413585; r0004
+  0x54d710-0x54d7ec). Then: deepest over 1.0 with 3 or more hits, or prone -> position put back, displacement zeroed;
+  else displacement += normal x (deepest - 1.0) (D:L413598-413614; r0004 0x54d868-0x54d910). It is a line's end, not a
+  capsule.
+  **MP64 respawn 181, worked (yaw 90, the record's):** the seed is at y 10.21 (the record's cell y + 1). Standing, the
+  head line is at 10.21 + 17.394 + 2.0 = 29.60. inv_di leans (n.y 0.067), so the line's end is 3.205 behind it, and the
+  push is 2.205 along (0.811, 0.585). Crouched it is at 10.21 + 10.138 + 2.0 = 22.35, depth 3.692, push 2.692. (17.394
+  and 10.138 are the idle clips' head node, the port's `IDLE_HEAD`.) At the moved columns inv_di no longer covers the
+  point (the seed is only 0.594 inside its footprint), so the pick takes the bed at 9.324. ATLAS's capture: (1387.826,
+  2436.291) standing, (1388.221, 2436.575) crouched. The port's `resolveSegments` fed the seed gives (1387.825,
+  2436.290) and (1388.220, 2436.575). From the bed's 9.324 the push would be 2.265; from 18.16 the hits number three and
+  the rule zeroes the move. **The height discriminates, and it is the seed's.**
+  **What this does not settle.** The capture shows the seed's x/z and the rest; the yaw is the record's (at yaw 0 the
+  same rule gives 1.10). The port now seeds at the CELL's y + 1 as r0004 does (`SpawnSlot.cellY`, 10.210 here; it
+  seeded at the slot's FLOOR y + 1, 10.321, before a342cbaf82, which left the push 0.007 short). The rest after the first update (the original crouches by its second
+  update, and the crouch clip carries the body ~1.7) is LATER 1402, a separate root. What makes the order proven: a
+  per-frame capture of a spawn where the head line hits within its first update (181 is one), logging the matrix
+  position before and after 0x54cf30.
+  **Where the port seeds (2026-11-23, after L208's first gate):** only a spawn from a RECORD seeds (`Room.spawn` with a
+  slot; the page's respawn at the point the room tells). An explicit placement -- the rule spawner's respawns and
+  `rebuildWaiting`'s rebuild in place -- is no record and keeps the pick from the point + the standing lift. And the room
+  runs a seeded body's first game frame AT the spawn (its put-out, move, pick and y snap, still), and tells its OWN page
+  alone the seed it ran from (every other page, the valves and a recording get the spawn without it); that page seeds
+  there, faces as told, and runs the same still frame (`Walker.runSeedFrame`) -- the same inputs, so the room's body by
+  construction, a take-off's air phase included -- and a told spawn with no seed (an explicit placement, a running body)
+  is adopted at its point (`Walker.adopt`). Measured (the option (ii) review, 2026-11-23): an earlier head's "3.23 u off at
+  respawn 181" was its frame run BEFORE the yaw was set (the frame there depends on the facing), not a frame on the told
+  result pushing again; the seed matters where the page would otherwise ADOPT a seeded result (the lobby hand-off: a
+  take-off adopted on the ground lands 2.2-11.1 u off), and the page keeps it for that hand-off. The source, reading, pending review (seat-kill's order read): TeleportTo
+  only writes (FUN_00546cf0 D:L412487-412520), and the actor's NEXT update (r0004 0x555800; FUN_005506a0
+  D:L417822-417826) runs the order whatever the controller holds; whether that update falls in the TeleportTo's own frame
+  is unread -- the port's running it at the spawn is the nearest reading, and a respawn capture's first rows settle it.
+  Both were the gate's reds (match netcode x4, botTeamTactics, roomDamageReport x3; viewer weaponExchangePlacement x3,
+  twoRoundsFixture), green at the base and green again after this.
+  **The sweep and its two big rows (2026-11-23; seat-kill's reads `pilot/kill/keyjob-l208-mp8-mp64-read.md` and
+  `keyjob-l208-small-rows.md`, reading, pending review).** Spawned as the room spawns, `place` (the old pick at the seed
+  column) against the seed over all 4,591 start and respawn records moves 13 rests, each named in
+  `spawnSeedSweep.disc.test.ts` with its seeded rest: respawn 181 (the fix); six the first frame's put-out from the seed's
+  height (a body seeded at `place`'s floor height rests where `place` does); four MP11 a steep-floor slide on the other
+  phase of the port's two-tick frame (THROTTLE-FRAME, a browser adaptation, so neither rest is the original's); and two
+  big rows. **MP8 respawn 0/326** (cell y 18.096; the slot's y 102.862 is `placeSpawnSlots`' fallback pick on
+  `land35/g3341`, 84.8 up): seeded at 19.096 no line hits, the pick is null and the miss branch holds the body at the seed,
+  (1065.848, 19.096, 484.239), inside a `land35` spike's foot. A WALKING player there may be stuck by the same branch: a
+  player-visible risk shipped on a reading (LATER 1419; parity until its capture says otherwise, then Craig's divergence to choose). **MP64 respawn 1/95**: from the cell y + 1 (63.612) the
+  centre line meets `jungletree_skinny` at depth 1.038 and a SIDE line at 4.489; the put-out is 3.489 along (0.878, -0.479)
+  onto `walkable_terrain_2490` at 61.876, the port's answer to 0.008. It is close-run: the side line's r0004 construction is
+  unread, and a third hit would jam the rule (the body put back). **The captures that prove them:** MP8 respawn 0/326, the
+  matrix position per update from the respawn (the prediction: (1065.848, 19.096, 484.239), still), then a walk off it
+  (stuck or free); MP64 respawn 1/95, the first placing row (the prediction (659.10, 413.33) against `place`'s (656.04,
+  415.00)).
 - **`MP8_RESPAWN_326_READING`** (*note only*: no constant holds it; PROBE-ORIGIN, the controller's word): MP8 respawn
   0/326's record (1065.85, 102.86, 484.24) stands on a near-vertical floor, `land35/g3341` (mat 19, normal y 0.054); on both
   builds the body is placed there at 102.86, slides and takes r0004's near-vertical push (0x554180-0x554354), and leaves it
@@ -914,10 +1009,24 @@ beside page v0.4.2 in SEPARATE, 3 trials each; capture, unscored).
   under the feet is 0.16, under `SLIDE_SPAN_MIN` 4 (`steepSlide.ts`, `slideEligible`; 0x54f3c8, research 201 s3), by
   `SLIDE_SPAN_MEASURE_READING` `'column'`. Under `'vertices'` the polygon's extent is 10.52 and the body would slide, so
   this rest also rests on that reading (`FUN_002dbfb0`'s two points), beside the VU0 question. Under the former +6.5 it fell to `land36/g3344` (mat 0, normal y 0.982, the ground below) at
-  (1066.56, 18.83, 478.52), grounded and dry: a 93-unit difference. Whether the original's floor query hits the
+  (1066.56, 18.83, 478.52), grounded and dry: a 93-unit difference. Since LATER 1148 (research 444: the floor tested
+  once a game frame at its end, no lower bound on the pick, `FUN_005b5d40` D:L470233-470274) the body slides on the
+  record's face for 16 ticks, leaves it on its 17th and falls about 84 to `land36/g3344` again, resting at
+  (1065.58, 18.965, 475.77), grounded and dry; the 111.92 rest on `land35/g3343` above is the port before LATER 1148.
+  These are REGRESSION PINS of the port's own values (`probeOrigin.test.ts`), neither a reading nor a measurement of the
+  original: where the original's body ends is unknown (below). Whether the original's floor query hits the
   near-vertical record floor (VU0 GetIntersect, vcallms 0x70 at 0x2dd130, unread) and where its body ends are unknown; the
   push's carried speed is unmeasured. Settled by an r0004 respawn capture at MP8 respawn 0/326, filed for the two-client
   session beside run 8 and MP64 181. Pinned by `probeOrigin.test.ts`.
+  **2026-11-23 (L208; seat-kill's read `pilot/kill/keyjob-l208-mp8-mp64-read.md`, reading, pending review):** the
+  record's CELL y is 18.096 (cell word 0x81c07e01); the 102.86 above is `placeSpawnSlots`' own pick at the cell centre,
+  which found nothing at the cell's height and fell back to the lowest hit, `land35/g3341`, 84.8 up. r0004 seeds at the
+  cell y + 1, 19.096: no wall line hits, the first update's pick is null (nothing at or under the origin + 1, the lowest over
+  the feet + 20), and the miss branch (r0004 0x5b63d0-0x5b6468) keeps the body at the stored record, the seed, every update:
+  it STANDS at (1065.848, 19.096, 484.239). The spawns now seed so (`SpawnSlot.cellY`, `Walker.seed`), pinned by
+  `spawn181Disc.test.ts`; `place`'s 19.38 rest above was near it by accident and a floor-y seed's 109.75 had no support.
+  Proven only by a capture at this record (a walking player there may be stuck by the same branch). `probeOrigin.test.ts`
+  still pins `place`, now no spawn's path.
 - **PLANT-PROBE: B194's plant sweep under LATER 785** (a plain note, no reading: the name first filed for it,
   MP9_SEAL_BASE_TOP_READING, was retired at the fresh review, 2026-11-09 -- nothing unread is left). The sweep
   (`central/test/bombPlantSweep.parity.test.ts`) walks the room's own mover, whose floor probe is `FUN_005b0840`'s (queued
@@ -982,6 +1091,13 @@ beside page v0.4.2 in SEPARATE, 3 trials each; capture, unscored).
   stance's measured root 11.484, which `ROOT_POSE_SLACK_PLACEHOLDER` (4) was sized to cover (`seal_jump`'s
   10.51-15.08), so its verdicts are the base's (pinned by `test/jumpAimRoot.test.ts`'s grids). Owed: the room's root
   slack re-sized against the posed root on every body (the slack is the port's own tolerance; no original).
+  **Prone (LATER 661, 2026-11-18; reading, pending review):** a prone body's aim frame stands on its posed root
+  whatever it plays, outside this constant (`aimRoot`'s prone branch): `FUN_0029a950` (D:L142448-142487) reads the
+  skeleton root's posed height through `FUN_002869d0` on the actor's root node for EVERY stance and lays its ramp on it
+  (5.5 + 4.5 x clamp((root - 2.169155) x 0.2914734)), and the page's camera already stands there (`setPosedRoot`). So the
+  crawl's 2.289, the turn's 2.266 and the strafes' 1.602 / 1.863 (`MOTION_P.ZAR`) stand the eye, where it stood on
+  `PRONE_ROOT` 2.168 (up to 0.566 u off the camera). The hit half was already the play's: HIT-POSE's A = B holds prone
+  (match `test/hitPoseProne.test.ts`, worst 0 u, roots 2.168 / 2.289 / 1.602 / 1.863). No poser: the stance root, as before.
 - **`JUMP_AIM_ROOT_CLOCK_READING`** (match `room.ts`, `'last-tick'`; JUMP-AIM-ROOT): the instant of that root -- the
   room's `HitPoser` as the last tick's `remember` posed it, one tick behind the command (a burst's commands share one);
   the crouched jump's posed root moves at most 0.52 u a tick (the A = B walk). Owed: a capture of the page's eye against

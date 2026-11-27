@@ -44,10 +44,9 @@ describe('the ai namespace (set 2): the names in FUN_005de320\'s order', () => {
     expect(AI_COMMAND_NAMES).toHaveLength(35);
   });
 
-  it('an undecoded set-2 command is named by the namespace (`ai::MOVE`), not by its number', () => {
-    const op = decodeEffectOp({ set: 2, cmd: 16, bytes: new Uint8Array(44) }, ['NA']);
-    expect(op).toEqual({ op: 'other', cmd: 16, name: 'ai::MOVE' });
+  it('an undecoded set-2 command is named by the namespace (`ai::EVENT`), not by its number', () => {
     expect(decodeEffectOp({ set: 2, cmd: 5, bytes: new Uint8Array(36) }, ['NA'])).toEqual({ op: 'other', cmd: 5, name: 'ai::EVENT' });
+    expect(decodeEffectOp({ set: 2, cmd: 26, bytes: new Uint8Array(36) }, ['NA'])).toEqual({ op: 'other', cmd: 26, name: 'ai::SIGNAL' });
   });
 });
 
@@ -82,11 +81,49 @@ describe('ai::ANIMATE decoded (FUN_005d3c80 / FUN_005d3740)', () => {
   it.skipIf(!MP2)(`Frostfire's singleDoor_right: open and close each MOVE, ANIMATE 63 for 0.25 s, then the valve, the sound and the swing${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
     const program = doorProgram();
     const kinds = (name: string): string[] => program.sequences.find((s) => s.name === name)!.ops.map((o: EffectOp) => (o.op === 'other' ? o.name : o.op));
-    expect(kinds('open')).toEqual(['ai::MOVE', 'aiAnimate', 'valve', 'ai::EVENT', 'sound', 'fromTo']);
-    expect(kinds('close')).toEqual(['ai::MOVE', 'aiAnimate', 'valve', 'fromTo', 'sound']);
+    expect(kinds('open')).toEqual(['aiMove', 'aiAnimate', 'valve', 'ai::EVENT', 'sound', 'fromTo']);
+    expect(kinds('close')).toEqual(['aiMove', 'aiAnimate', 'valve', 'fromTo', 'sound']);
     for (const name of ['open', 'close']) {
       const animate = program.sequences.find((s) => s.name === name)!.ops.find((o) => o.op === 'aiAnimate');
       expect(animate, name).toEqual({ op: 'aiAnimate', type: 63, prewait: 0, postwait: 0.25, blocking: false, select: 0 });
+    }
+  });
+});
+
+/**
+ * LATER 1206 (research 428 s8.4-s8.5; reading, pending review): `ai::MOVE` (set 2 command 16; 44 bytes) decoded. The
+ * parser `FUN_005d64b0` (D:L488996-489058) allocates 0x2c bytes and fills: +4 `select` (the actor's tag-1 index), +8 `pos`
+ * (three f32), +0x14 `dir` (three f32), +0x20 `dist` (f32), +0x24 `node` (the node reference), +0x28 the mode in its low
+ * nibble (1 `node`, 2, 3, 4) with `blocking` at bit 5 (0x20). The begin `FUN_005d5d00` (D:L488725-488994) reads them so.
+ */
+describe('ai::MOVE decoded (FUN_005d64b0 / FUN_005d5d00)', () => {
+  function moveBytes(o: { select: number; pos: [number, number, number]; dir: [number, number, number]; dist: number; node: number; flags: number }): Uint8Array {
+    const b = new Uint8Array(44), v = new DataView(b.buffer);
+    b[0] = 0x10; b[1] = 0x02; b[2] = 0xb0;
+    v.setInt32(4, o.select, true);
+    o.pos.forEach((x, k) => v.setFloat32(8 + 4 * k, x, true));
+    o.dir.forEach((x, k) => v.setFloat32(0x14 + 4 * k, x, true));
+    v.setFloat32(0x20, o.dist, true);
+    v.setInt32(0x24, o.node, true);
+    b[0x28] = o.flags;
+    return b;
+  }
+
+  it('the mode in the low nibble of +0x28, blocking at its bit 5, the node at +0x24, dist +0x20, pos +8, dir +0x14, select +4', () => {
+    expect(decodeEffectOp({ set: 2, cmd: 16, bytes: moveBytes({ select: 0, pos: [0, 0, -13], dir: [0, 0, -1], dist: 18, node: 0xfa, flags: 0x01 }) }, ['NA'])).toEqual({
+      op: 'aiMove', mode: 1, node: 0xfa, dist: 18, pos: [0, 0, -13], dir: [0, 0, -1], blocking: false, select: 0,
+    });
+    expect(decodeEffectOp({ set: 2, cmd: 16, bytes: moveBytes({ select: 2, pos: [1, 2, 3], dir: [0, 1, 0], dist: 4, node: 7, flags: 0x24 }) }, ['NA'])).toEqual({
+      op: 'aiMove', mode: 4, node: 7, dist: 4, pos: [1, 2, 3], dir: [0, 1, 0], blocking: true, select: 2,
+    });
+  });
+
+  it.skipIf(!MP2)(`Frostfire's singleDoor_right: open's and close's MOVE are mode 1, the door's node, 18 u, not blocking on the disc${MP2 ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+    const program = doorProgram();
+    for (const name of ['open', 'close']) {
+      const move = program.sequences.find((s) => s.name === name)!.ops.find((o) => o.op === 'aiMove');
+      expect(move, name).toMatchObject({ op: 'aiMove', mode: 1, dist: 18, blocking: false, select: 0 });
+      console.log(`LATER 1206 MP2 singleDoor_right ${name}: ${JSON.stringify(move)}`);
     }
   });
 });

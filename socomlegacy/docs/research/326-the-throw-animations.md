@@ -189,8 +189,8 @@ and found no path; nothing here adds one. The port plays none: agrees.
 | 2 prone | toss | `Prone toss grenade` | `seal_prone_tossgrenade` | 27 | 1.1 | 0.56 (0.593 s) | 0.9 | none (0.4) | none | 60th | 63rd |
 | 3 peek right | the lean clip playing | `Peek right toss` | `seal_toss_rlean` | 35 | 1.25 | 0.55 | 0.9 | none (0.4) | none | 68th | 72nd |
 | 3 peek left | the lean clip playing | `Peek left toss` | `seal_toss_llean` | 28 | 1.2 | 0.87 | 0.9 | none (0.4) | none | 65th | 68th |
-| pistol hand, stand | throw | `Pistol throw grenade` | `seal_p_throwgrenade` | 28 | 1.6 | 0.46 | 0.49 | none (0.4) | `throw_whoosh@0.45` | 48th | 91st |
-| pistol hand, stand | toss | `Pistol toss grenade` | `seal_p_tossgrenade` | 30 | 2.0 | 0.69 (1.334 s) | 0.8 | none (0.4) | none | 95th | 114th |
+| pistol hand, stand | throw | *was* `Pistol throw grenade`; since LATER 1442 the rifle's `Throw grenade` plays (only the peek tosses swap, research 85 §8.1) | `seal_p_throwgrenade` (on the disc; not played) | 28 | 1.6 | 0.46 | 0.49 | none (0.4) | `throw_whoosh@0.45` | 48th | 91st |
+| pistol hand, stand | toss | *was* `Pistol toss grenade`; since LATER 1442 the rifle's `Toss grenade` plays | `seal_p_tossgrenade` (on the disc; not played) | 30 | 2.0 | 0.69 (1.334 s) | 0.8 | none (0.4) | none | 95th | 114th |
 | pistol hand, peek | the lean | `Pistol peek right/left toss` | `seal_p_toss_rlean` / `seal_p_toss_llean` | 35 / 28 | 1.25 / 1.2 | 0.55 / 0.87 | 0.9 | none (0.4) | none | as the rifle's | as the rifle's |
 | pistol hand, crouch or prone | any | the rifle's type (the pistol pairs 0x6617e0, 0x6617a0, 0x661820 are registered, D:L494748-494752, and not in the Seal set: research 85 §8.1) | the rifle's clip | | | | | | | | |
 
@@ -710,7 +710,7 @@ others' bodies take each change through the same classes. No wire change.
 | `TAKE_UP_FADE_READING` (NU-8b B4, 2026-10-16; in code) | viewer `matchThrow.ts` (the part's body layer, `TAKE_UP_BLEND`) | `'a throwable, the claymore or the PMN'`: the take-ups that ask the body's 0.3 s snapshot cross-fade with no play change (`FUN_005a64c0` `bVar6`, D:L461889-461895, D:L461917-461920; the item's class from `FUN_005c1660` D:L476709-476734), on the frame drawn next with a tick run (the kit's frame, `FUN_00551ec0` D:L418611 -> `FUN_005dfc80` -> D:L494228, after the driver D:L418454-418455; PAR-67's order); not from a raised launcher (the hand word 4 -> `FUN_005a6b70`, D:L461870-461876: its own lower clip, no snapshot; the review's F1, built); not built: the put-away after a take-up from a launcher (the word 0 or 3, D:L462086, then the block D:L461896-461914; the ordinary put-away takes the swap's branch, D:L461966-461968, no snapshot -- was: "the put-away to the firearm in the hand (the same branch, D:L461896-461914)", the review's F2), C4's plant (its switch and its `Put on wall` push in one frame, their order not read), the Detonator's switches (the placement's own, `FUN_005c8a20`, not read); settles: capture NU8-1 |
 | `REMOTE_TAKE_UP_FADE_READING` (*note only*; NU-8b B4, 2026-10-16: not built) | viewer `remotePlayers.ts` (would be) | the copy's take-up cross-fade from the item field (`+0x66` into the copy's selector, research 324 §3; §4) -- not settled by ER-2's raise state (protocol 14 carries byte +0x7e, not the item field +0x66; the fade is the body's snapshot cross-fade, not the raise envelope): the port's wire carries no throwable or charge in the hand (`room.ts` `bodyOf`, `held` the launcher's alone; `REMOTE_HAND_RAISE_READING`'s finding), so no copy sees a take-up; settles: the hand's item on the wire (a protocol change), then built; capture NU8-2 |
 | `LAST_GRENADE_PENDING_PRESS_PULLS_READING` (*note only*; GRENADE-RETHROW fold 2, 2026-11-09; **retired 2026-11-09** by the GR-1 fold, capture GR-1 §7.2: the port's `holdPulls` is 0 from the launch for a press while pending, last grenade or not -- the measured value, class 0x79 (agent-mail `evidence/gr-1-2026-11-09/`, `capture/last-t1..t3.csv`), the M67's own pass open; `throwAgain.test.ts` "the slot's last grenade, pressed while pending" pins 0) | -- (was: viewer `matchThrow.ts` (`pendingPress`, settled in the part's `frame` at the pop); removed 2026-11-09) | was `1`: the slot's last grenade thrown with the trigger pressed while pending and held through the pop -- the launch's count 1 (D:L477023-477025) survives the held button (edge 1), the pop's one update of edge 3 (D:L453484-453500) zeroes it only if a kit frame runs then (D:L476399-476400), and the last launch's lower `kit+0x820` (`FUN_005c5340` D:L479318-479320) withholds them while it runs (D:L476549-476568); its length against the pop unread; pinned in `throwAgain.test.ts` ("GRENADE-RETHROW fold"); **GR-1 (2026-11-09, §7.2): the value contradicted** -- on the class-0x79 path `+0x818` reads 0 at every row from the launch through the pop and after (3/3, ±0): a press while pending stays at the edge 0 until the slot is empty (the double remap, D:L453633-453660), so the launch's own kit frame zeroes the count at the edge 0 (D:L476380-476382; the mechanism a reading, GR-1's comparison reviewed PASS WITH FINDINGS, high, per the merge ccf3deed6), and the lower `kit+0x820` lasts one kit frame (0.0100 on the launch's row only), 24-25 updates before the pop; the outcome, no round after L1 under the held R1 (3/3), is measured but not explained by the count (0); the port's fold done 2026-11-09 (0 from the launch; the constant removed); still owed: a pass with the hand's slot and the drawn firearm in the columns (§7.2's no-round outcome); was: "settles: capture GR-1's last-grenade pass"; was: "stays a reading, in code 1" |
-| `THROW_REARM_UPDATES_READING` (GRENADE-RETHROW, 2026-11-09; in code; **proven** 2026-11-09 by capture GR-1 for the class-0x79 path, §7.2; the count's chain beneath, reading, GR-1's comparison reviewed PASS WITH FINDINGS, high, per the merge ccf3deed6) | viewer `grenade.ts` (`finishThrow` arms it, `update` -> `rearmWindUp`) | `2`: the updates from a throw clip's pop to the next wind-up's first chase with the trigger held through the clip -- **proven** by capture GR-1 (agent-mail `evidence/gr-1-2026-11-09/`, 2026-11-09T07:20-07:35Z, r0004 on PCSX2 2.8.2, M51 slot 5; the base and primary legs, 6/6 pops, ±0 updates, one row one controller update; the MARK141, class 0x79, in place of the M67, whose own clip is not measured -- an M67 pass open; compared by a reader who wrote neither, §7.2); the pop's update clears bits 0x40/0x80 and remaps the edge (D:L453484-453500), the next sets the wind-up bit on the held button's fresh press with a grenade left (D:L453543-453567, D:L453633-453637; `FUN_005bdb00` -> `FUN_005bda70` D:L474519-474538), the one after chases from 0 (D:L453505-453517); the updates are the original's controller updates (`FUN_00594cf0`, one a game frame, a fixed step); the port counts `GrenadeThrower.update` calls, one a page frame at a variable step (the "next update throws" precedent, `release`), so its re-arm lands two page frames after the pop -- about 14 ms at 144 Hz, 33 ms at 60 Hz, 67 ms at 30 Hz -- a frame-rate dependence against the original's two fixed updates (GRENADE-RETHROW fold, review F2); the kit count `+0x818` a firearm taken under the held trigger holds (`./matchThrow` `holdPulls`; reviews F1, F3, F4, F5, reading, GRENADE-RETHROW's third review PASS WITH FINDINGS, high, per the merge 6133a16fd): the launch raises it (D:L477023-477025) and `FUN_005c0ae0`, run on every kit frame `FUN_005c1970` passes (the launch's own among them, D:L476564-476569; D:L476877-476902, D:L477144-477150), zeroes it at edge 0 or 3 (D:L476380-476382, D:L476399-476400) -- a press after the hand opened: 0, zeroed on the launch frame itself, last grenade or not; a press while pending, held through the launch (edge 1): the pop remaps 1 to 3 for one update (D:L453484-453500), then the re-arm's double remap 0 (D:L453638-453660); with one left no `kit+0x820` runs (`FUN_005c5340` D:L479318-479343), so the first kit frame after the pop zeroes it (0); with the slot's last, `LAST_GRENADE_PENDING_PRESS_PULLS_READING` (retired 2026-11-09 by the GR-1 fold: 0, the port's `holdPulls` 0 from the launch) -- *GR-1 (§7.2): the edge 1 at the launch does not occur; a press while pending reads the edge 0 until the slot is empty (the double remap, D:L453638-453660, while a grenade is left), so the launch's own kit frame zeroes the count -- measured 0 on the last grenade, 3/3; the port's count 0 from the launch since the GR-1 fold (2026-11-09; was: "with one left the port's 1 settles to 0 at the pop, the same end")*; the controller's place in the frame against the driver's pop and `FUN_005a7de0(actor, 1, 1)`'s other conditions (D:L462636-462707, §1.6) unread; pinned in `throwAgain.test.ts` ("GRENADE-RETHROW"); no harness spec or golden trace holds it; the port's page-frame count (two `GrenadeThrower.update` calls) against the original's two fixed updates stays the named frame-rate difference (review F2); was: "settles: capture GR-1" |
+| `THROW_REARM_UPDATES_READING` (GRENADE-RETHROW, 2026-11-09; in code; **proven** 2026-11-09 by capture GR-1 for the class-0x79 path, §7.2; the count's chain beneath, reading, GR-1's comparison reviewed PASS WITH FINDINGS, high, per the merge ccf3deed6) | viewer `grenade.ts` (`finishThrow` arms it, `update` -> `rearmWindUp`) | `2`: the updates from a throw clip's pop to the next wind-up's first chase with the trigger held through the clip -- **proven** by capture GR-1 (agent-mail `evidence/gr-1-2026-11-09/`, 2026-11-09T07:20-07:35Z, r0004 on PCSX2 2.8.2, M51 slot 5; the base and primary legs, 6/6 pops, ±0 updates, one row one controller update; the MARK141, class 0x79, in place of the M67, whose own clip is not measured -- an M67 pass open; compared by a reader who wrote neither, §7.2); the pop's update clears bits 0x40/0x80 and remaps the edge (D:L453484-453500), the next sets the wind-up bit on the held button's fresh press with a grenade left (D:L453543-453567, D:L453633-453637; `FUN_005bdb00` -> `FUN_005bda70` D:L474519-474538), the one after chases from 0 (D:L453505-453517); the updates are the original's controller updates (`FUN_00594cf0`, one a game frame, a fixed step); the port counted `GrenadeThrower.update` calls, one a page frame (was, to LATER 1027: its re-arm two page frames after the pop -- about 14 ms at 144 Hz, 33 ms at 60 Hz, 67 ms at 30 Hz -- the frame-rate dependence of GRENADE-RETHROW's review F2); since LATER 1027 (research 437 s5) it counts two game frames of the updates' real seconds, 2 x `GAME_FRAME_DT` at any page rate; the kit count `+0x818` a firearm taken under the held trigger holds (`./matchThrow` `holdPulls`; reviews F1, F3, F4, F5, reading, GRENADE-RETHROW's third review PASS WITH FINDINGS, high, per the merge 6133a16fd): the launch raises it (D:L477023-477025) and `FUN_005c0ae0`, run on every kit frame `FUN_005c1970` passes (the launch's own among them, D:L476564-476569; D:L476877-476902, D:L477144-477150), zeroes it at edge 0 or 3 (D:L476380-476382, D:L476399-476400) -- a press after the hand opened: 0, zeroed on the launch frame itself, last grenade or not; a press while pending, held through the launch (edge 1): the pop remaps 1 to 3 for one update (D:L453484-453500), then the re-arm's double remap 0 (D:L453638-453660); with one left no `kit+0x820` runs (`FUN_005c5340` D:L479318-479343), so the first kit frame after the pop zeroes it (0); with the slot's last, `LAST_GRENADE_PENDING_PRESS_PULLS_READING` (retired 2026-11-09 by the GR-1 fold: 0, the port's `holdPulls` 0 from the launch) -- *GR-1 (§7.2): the edge 1 at the launch does not occur; a press while pending reads the edge 0 until the slot is empty (the double remap, D:L453638-453660, while a grenade is left), so the launch's own kit frame zeroes the count -- measured 0 on the last grenade, 3/3; the port's count 0 from the launch since the GR-1 fold (2026-11-09; was: "with one left the port's 1 settles to 0 at the pop, the same end")*; the controller's place in the frame against the driver's pop and `FUN_005a7de0(actor, 1, 1)`'s other conditions (D:L462636-462707, §1.6) unread; pinned in `throwAgain.test.ts` ("GRENADE-RETHROW"); no harness spec or golden trace holds it; the port's page-frame count (two `GrenadeThrower.update` calls) against the original's two fixed updates stays the named frame-rate difference (review F2); was: "settles: capture GR-1" |
 | `DETONATOR_RAISE_READING` (*note only*; candidate, none: nothing built) | -- | the Detonator's trigger reaches `FUN_005dfe30(body, 1)` (its class is not 'y', D:L453633-453634) and the envelope is refused for its record (`+0x7c == 0xbe`, D:L494261-494263): what the state 0x11 with no envelope draws (`FUN_005dfc80` D:L494179-494230) is not read; settles: those lines read whole, or capture NU8-3 |
 
 Readings the code holds that this note moves (their rows are research 251 §12.9's and research 101's): `THROW_LOW_STANCE_POP_READING` to `'kept'` in every stance (§2.3, B2); `PISTOL_ONESHOT_PARTS_READING.place` to `'push'` (§3, B3). *Both moved 2026-10-16 by NU-8b, research 101's rows in place with their "was".*
@@ -859,6 +859,88 @@ refusal, §2.1) -- so only the last grenade's case differed: the port handed 1, 
 (`SWAP_HELD_TRIGGER_READING`'s own case, research 211 §10.4) and the launcher's timer through its lower
 (`KIT_TIMER_TICK_READING`), which GR-1 did not exercise; the no-round outcome above.
 
+### 7.3 LAST-GRENADE, 2026-11-11: the hand's slot in GR-1's legs
+
+GR-1's rows did not carry the hand's slot, so "L1 under the held R1 changes no row" (§7.2, the last leg) was the code's
+reading of a slot nobody measured. The Fable seat's second reader (`DEEP-LAST-GRENADE.md`, `agent/fable-findings`
+9ac55e9c8, 2026-11-10; itself **reading, pending review**, its §1) asked for one pass with the kit's selected slot
+`+0x824` and its remembered quick-use slot `+0x828` in the columns, and predicted both (its §2.1 table: after the
+slot's last launch by route A `+0x824` **unchanged, the empty grenade**; route A never writes `+0x828`; and the swap's
+gate refuses any swap under a held trigger -- it reads the edge, not the hand). Queued by the main controller
+(redotcom-99, 2026-11-10) as LAST-GRENADE.
+
+**The run.** `tools/eph/gr1.ts` with `--kit-words 0x824,0x828` (`agent/last-grenade` d869fcbcd; the columns' parser
+tested in `tools/test/ephGr1.test.ts`) and GR-1's own legs (`tools/eph/scripts/gr1-legs.json`), the same settings as
+§7.2: MARK141 (class 0x79), R2 held 1 s, Up twice, Cross; the count at `kit+0x274`; r0004 on PCSX2 2.8.2 (the rig's
+patched PINE build), **PINE reads only**, M51 save-state slot 5 restored before every trial; 2026-11-11T02:37-02:43Z on
+the owner's second PC. Six legs of three trials: §7.2's five (base, primary, pending, after, last) and the legs file's
+sixth, `discover` (one throw, R1 held 0.5-1.0 s; GR-1 ran it apart with `--discover`, which this pass does not pass);
+6,030 rows; every step one 30 Hz game frame (no frame dropped); two rows torn, both at t 0.000 before any input
+(after-t1, discover-t1), excluded. The kit's back pointer (§7.1) held on all 18 loads. The rows: the second PC's
+evidence `last-grenade/capture/<leg>-t<n>.csv`, with `gr1.json`, `gr1.log` and the run's output.
+
+**Tolerances.** The slot words compared exactly (±0 on the integer, every row); a slot change against a controller
+field within one row (§7.2's kit-against-controller tolerance, the sampling phase); a swap counted when the slot
+changes on the first row after the L1 tap's row.
+
+**The comparison and its level.** Compared against `DEEP-LAST-GRENADE.md`'s table by the seat that ran it, then
+re-read from the raw rows by a fresh reader who did not run them (2026-11-11, AGREE WITH FINDINGS; every value and
+trial count agreed, its findings folded here). **Proven** for class 0x79, route A, r0004 and these legs, within the
+tolerances above -- **once the rows are uploaded** where another reader can open them (as §7.2's are; the second PC's
+upload waits on the owner's AWS login); until then a live memory trace, re-read, held on the second PC. Each row's
+level is in the table.
+
+| what | the reading (DEEP-LAST-GRENADE §2.1) | the rows | trials | level |
+|---|---|---|---|---|
+| `+0x824` with the MARK141 up, before any input | -- | 4 (the MARK141's slot) on every leg's first row | 18/18 | measured (as above) |
+| `+0x828` | route A never writes it; every store but the quick-use's is -1 | -1 at every row of every trial | 18/18 | as above |
+| `+0x824` after a launch with grenades left | unchanged | 4 through every launch of base, primary (its launch at 1.77, before the swap), pending, after, discover and the last leg's first five | 18/18 | as above |
+| `+0x824` after the slot's **last** launch (the count 1 -> 0 at 16.782) | **unchanged: the empty grenade** | **4** at every row from the launch to the leg's end (25.99 s; R1 let go at 20.5) | 3/3 | as above |
+| L1 at 19.0 under R1 held since 16.15, the slot empty (the edge 1) | refused: any swap under a held trigger | no column changes from the clip's end (17.58) to R1's let-go (20.5): `+0x824` 4, the edge 1, `+0x818` 0 -- the swap not taken | 3/3 | as above |
+| L1 at 3.30 under R1 held since 2.00, a grenade left (the edge 0 under the double remap, §7.2) | taken: the edge is not 1 | `+0x824` 4 -> **0** on the next row (3.336), the edge 2, then 1; the rifle's rounds (`+0x818` 1, 2, 3 at 3.40, 3.54, 3.67) | 3/3 | as above |
+
+So the swap was taken in the leg where the edge read 0 and not taken in the leg where it read 1, with the hand's slot
+measured both times; after the slot's last grenade the hand stays on the empty grenade (`+0x824` 4, `+0x828` -1) --
+LATER 792's "the hand after the last launch", measured. **What decides the swap is not measured here**: the two legs
+also differ in the slot's count (5 against 0), the wind-up bit (`ctrl+0x170` 0x40 set against clear) and the power
+(0.88 against 0). That the gate's edge clause refuses it is DEEP's reading of the code (the swap gate's clause, the edge `+0x118` exactly 1: D:L463174-463181, its §1), and stays
+**reading, pending review**; a firearm up, R1 held, then L1 (DEEP's T5) would isolate the edge. "Refused" in the table
+is the reading's word; the rows show only that no column changed (no refusal sound or message is in them). Measured
+for the class-0x79 path and route A only: route B (the Action quick-use of the charges, the only writer of `+0x828`)
+and the M67 are not in these rows.
+
+**The isolation legs (2026-11-11T02:57-03:03Z; asked by the main controller, redotcom-2f, relayed by seat 65, after
+the port comparison found the port takes L1 under the held R1 after the last launch).** The same rig, settings and
+columns, `EnableCheats = false` in client A's ini (the only pnach is the DNAS-check bypass, the online login's);
+3 trials a leg. Legs: `tools/eph/scripts/gr1-isolate-legs.json` (cc56d85b7) and `gr1-isolate-pistol-legs.json`
+(fbc472dad), the MARK141 legs taken up as above, the pistol legs by R2 held 1 s, Up, Cross (the MARK 23 SD, 12/12 in
+the hand shot). 4,680 rows; no frame dropped; one row torn, lastrelease-t2's t 0.000 before any input, excluded.
+
+| leg | the press | `+0x824` | trials |
+|---|---|---|---|
+| lastrelease: the last leg's six throws, R1 **released** at 16.0 and left up, L1 at 19.0 from the empty slot | edge 0 | 4 -> **0** on the next row (19.051): taken | 3/3 |
+| (the last leg above, for the same row: R1 **held** since 16.15, L1 at 19.0) | edge 1 | 4 throughout: not taken | 3/3 |
+| t5ctl: the rifle up (slot 0), L1 at 2.0, R1 never pressed | edge 0 | 0 throughout: L1 from the rifle changes no slot | 3/3 |
+| t5: the rifle up, R1 held 1.0-5.0, L1 at 3.0 | edge 1 | 0 throughout (uninformative: L1 from the rifle is no swap, the row above) | 3/3 |
+| t5pctl: the pistol up (slot 1), L1 at 2.0, R1 never pressed | edge 0 | 1 -> **0** on the next row (2.035): taken | 3/3 |
+| t5p: the pistol up, R1 held 1.0-5.0 (one round, `+0x818` 1), L1 at 3.0 | edge 1 | 1 throughout: not taken | 3/3 |
+
+At the L1 row the last leg and lastrelease agree in every logged column -- `ctrl+0x170` (0x180800), the wind-up and
+release bits, the power (0), the stack top (0x1), `+0x818`, `+0x81c`, `+0x820`, the count (0), `+0x824` (4),
+`+0x828` (-1) -- **but the edge** (1 held, 0 released), 3/3; and the pistol pair differs at its L1 row in the edge and in
+`+0x818` (the round). A taken swap also sets `ctrl+0x170` bit 0x10 on its row (0x180810, lastrelease and t5pctl). So:
+
+- **The empty slot does not refuse the swap**: from the slot's empty grenade, L1 with R1 up is taken.
+- **A held trigger refuses it, the grenade's slot and a firearm's alike**: with R1 held (edge 1) L1 was not taken from
+  the empty grenade nor from the pistol, and with R1 up it was taken from both.
+- Among the logged columns the edge is the one that separates taken from not taken in the grenade pair; an unlogged
+  difference (the press history: the last leg's R1 went down again at 16.15) is not excluded by these rows. The
+  mechanism -- the swap gate's clause on the edge (`+0x118` exactly 1, D:L463174-463181) -- stays DEEP's reading, now
+  with the measured contrast the reading predicts.
+
+Level: as the rows above (a live memory trace, to be re-read by the same fresh reader; proven for these legs within
+§7.3's tolerances once re-read and uploaded).
+
 ## 8. Evidence, apart
 
 - Source inspection: the decompilation (the lines cited) and the ELF's strings (the addresses in the header); the
@@ -883,3 +965,58 @@ refusal, §2.1) -- so only the last grenade's case differed: the port handed 1, 
 - What a reviewer should re-read first: §1.1 and §1.6 (the raise's three calls and the idle branch's 'y' test, D:L453568,
   D:L453598-453600, D:L453520, D:L453484-453488, D:L453633-453634), §2.3 (the two state handlers' pushes), and R326.4's
   reliance on research 324 for the instance list.
+
+## 9. GRENADE-LOWERS (2026-11-25)
+
+The owner's report for v0.4.32: in the original, taking up a hand grenade lowers the rifle, so a player passes a door
+without the gun catching the jamb; in the port the gun stayed up. The records (PC 2, r0004; observed captures,
+unscored -- no harness score, no value-for-value comparison by a second reader yet):
+
+- **GRENADE-LOWER-r0004** (`GRENADE-LOWER-PC2.zip`, sha256
+  `fbd22c33f3cb46ff877df333611e2854de2e616b75917657915cb3cea0ba863d`), the select legs: on the frame a hand grenade is
+  selected (the menu closes) the weapon state `+0xf74` goes 1 -> 2 and the raise envelope `+0x1160..+0x116c` goes to
+  (0, 0, 0, 0) on that same frame, the held item still the rifle; the next frame the held slot becomes the grenade. No
+  envelope follows while it is held (0 to 4.5 s) and no lower clip plays (the action stack's top unchanged): the lowered
+  look is the weapon state, not an action. The muzzle probe is taken up to the select frame and refused from it on; the
+  weapon line never fires with the grenade up, still or walking. At the door: the body against the jamb is the same
+  either way -- no door effect of its own; what the grenade removes is the weapon line's catch.
+- **L1578-PROBE-WEAPONS**: held hand grenades (items 121 / 126) cannot be raised (`+0x1160` stays 0), their muzzle probe
+  is refused, no weapon-line push. L1526's reading names SetWeaponState `FUN_005e7600` as the writer that zeroes the
+  raise at the selection.
+
+The port's match (reading, pending review): `./weaponRaise` `RaiseInput.lowered` (a hand grenade held, the class 'y'
+with a round in the slot) holds the state down and the envelope at 0 on the select frame and each update after, a
+throw's release-to-pop chain (§7.2) left as it was; `Walker.handGrenadeUp` casts no weapon line, after the launcher's
+gate (`./weaponLine` `WEAPON_LINE_ITEM_MODEL_READING`'s exception), answered on the page (`./walk`
+`setHandGrenadeUp`, from `./matchFirearm`) and in the room (match `room.ts` `watchMoves`, the seat's ROOM-HAND word).
+An empty slot's press still asks the rifle up as the firearm's (B-01 D1, r0004 0x59bc40-0x59bc50).
+
+The class gate is an inference: the records show the hand grenades (121, 126; a frag leg is to follow on another map,
+treated the same), not the test the original makes -- LATER 1578 names `FUN_00549c30`'s 0.5 envelope test as possibly
+the original's gate, which would make the line follow the raise's weight rather than the item's class. Where the
+records do not reach -- a trigger held through the take-up, whose edge 1 asks the rifle up by
+`HELD_TRIGGER_ITEM_RAISE_READING` -- the port follows `GRENADE_LOWERS_OWNER`, the owner's ruling ("a grenade in hand
+puts the rifle down ... even if our readings are wrong"), MISSION OT.R159. RAISE-HELD-FIRE's (m02d) reading
+that the held edge keeps the rifle up through a grenade's take-up is SET ASIDE by that ruling for a hand grenade held
+(`test/weaponRaise.test.ts`'s m02d case now pins the owner's rule); it stands for every other item. A fall already
+under way (a throw's release chain, the pistol hand's peek toss) eases down as before: only a rifle left or asked up is cut.
+
+## 10. EMPTY_THROWABLE_SWAP_OWNER (2026-11-25): the owner's departure from §7.3
+
+The owner's ruling, verbatim, given 2026-11-25 ~23:00Z in the main controller's seat: "even if the original does not
+work this way, add a deliberate ruling that would allow this. so somebody with nades who holds it by accident can still
+swap in the same way as if they were winding up the throw. Same for flashbangs and smokes and HE." MISSION OT.R162,
+pending (filed by seat-merge at the merge).
+
+- **The measured original** (§7.3, GR-1, r0004, 3/3): with R1 held (the edge 1), L1 was not taken from the MARK141's
+  slot its last throw left empty; with R1 up it was; under a wind-up with a grenade left (the edge 0) it was.
+- **The departure**: viewer `src/kit.ts` `EMPTY_THROWABLE_SWAP_OWNER` (an owner constant, not a reading or a
+  placeholder). With a hand-thrown grenade up (class 'y', `./weaponRaise` `handGrenade`: the M67, the HE, the AN-M8,
+  the Mark141) and its slot empty, the swap gate's held-edge clause (`./matchFirearm` `kitFree`, `SWAP_HELD_EDGE_READING`)
+  does not refuse: L1 is taken as the wind-up's is (PAR-19 D07), and the held trigger is handed to the firearm
+  (TRIGGER-SWAP, `heldPulls`), which fires after its raise (SWAP-FIRE). The edge itself is not remapped (the raise's
+  controller, `./weaponRaise`, is unchanged): the exception sits at the gate, so it also covers a trigger held from
+  before the empty grenade was taken up, which a wind-up with a round (the edge 1 kept) would refuse.
+- **Outside it**: the C4, the satchel, the claymore, the PMN and the Detonator -- a held trigger still refuses their swap.
+- **Held by**: `packages/viewer/test/grenadeTriggerSwapFire.test.ts` (the four thrown kinds empty and with rounds; the
+  claymore and the PMN empty, refused). A unit test of the ruling, not of the original.

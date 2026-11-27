@@ -21,7 +21,7 @@ import type { PageHands } from './matchThrow';
 import { Button, TICK_HZ, type Command } from './net/protocol';
 import type { NetPage } from './netPage';
 import type { Play, PlayClips } from './play';
-import { mountShape, turretReloadCountdown } from './net/emplacement';
+import { mountShape, onTurretSet, turretReloadCountdown } from './net/emplacement';
 import type { RemotePlayers } from './remotePlayers';
 import { TurretPage, turretWeapon, type TurretPageDeps } from './turretPage';
 import type { TraversalPage } from './traversalPage';
@@ -45,7 +45,7 @@ import type { WorldState } from './worldState';
 export interface MatchActionsDeps {
   walk: Pick<WalkMode, 'mode' | 'isDead' | 'isLocked' | 'feet' | 'fireAim' | 'lookAim' | 'setCamera' | 'setLocked' | 'setActionFilter' | 'setNetTap'
     | 'syncVictoryMotion' | 'stopVictoryMotionAfter' | 'victoryMotionActive'>
-    & Partial<Pick<WalkMode, 'binoculars' | 'setTurretHold' | 'setTurretAim' | 'pickupClaimed' | 'mountTake' | 'mountUntake' | 'mountRekey' | 'mountRefused' | 'launcherSetOn' | 'traversal' | 'actionGateShut' | 'triggerHeld' | 'airAfter' | 'posture'>>;
+    & Partial<Pick<WalkMode, 'binoculars' | 'setTurretHold' | 'setTurretAim' | 'pickupClaimed' | 'mountTake' | 'mountUntake' | 'mountRekey' | 'mountRefused' | 'launcherSetOn' | 'turretSet' | 'traversal' | 'actionGateShut' | 'triggerHeld' | 'airAfter' | 'posture'>>;
   fly: Pick<FlyCamera, 'pose'>;
   /**
    * The doors (`./doorPage`): their target under the reticle, their action; G1, the target's node and valve for its
@@ -74,14 +74,18 @@ export interface MatchActionsDeps {
      * after the command before, for the wind-up's chase over them.
      */
     mountUntake?(held: boolean, wait?: readonly { held: boolean; air: boolean }[]): void;
+    /** R4P-R2 (L67): whether an item is in the hand, and the item put away to the firearm (`GrenadeCore`); absent, nothing. */
+    equipped?(): boolean;
+    select?(item: 'rifle'): boolean;
   };
   /** Research 303: the page's body, which plays the VICTORY DANCE (`Play.startVictory`). */
   play: Pick<Play, 'startVictory' | 'stopVictory' | 'resetVictory' | 'victoryActive' | 'victoryState'> & Partial<Pick<Play, 'weaponStats'>>;
   /**
    * Research 303: the firearm -- its trigger let go as the dance takes the body (`MatchFirearm.held`), and its reload
-   * heard: an accepted reload clears the dance (`FUN_005a86b4` -> `FUN_0058a4d0`), as the room's does.
+   * heard: an accepted reload clears the dance (`FUN_005a86b4` -> `FUN_0058a4d0`), as the room's does. RAISE-1577 fix
+   * forward: `rearm` (`MatchFirearm.rearm`), where given, lets it go keeping a held R1's level for the next press.
    */
-  firearm: { held(): void; fire: Pick<Fire, 'subscribe'> & Partial<Pick<Fire, 'state' | 'mountTake' | 'mountUntake' | 'reloadLocked'>> };
+  firearm: { held(): void; rearm?(): void; fire: Pick<Fire, 'subscribe'> & Partial<Pick<Fire, 'state' | 'mountTake' | 'mountUntake' | 'reloadLocked'>> };
   net(): NetPage | null;
   /**
    * Chain Reaction's lever when there is no player match (`ActionPage` `offline`). The page pauses its own hooks.
@@ -93,6 +97,8 @@ export interface MatchActionsDeps {
    * (`CranePage.press`); each true when the press is one of theirs. Absent, those presses follow the room alone.
    */
   gatePress?: (action: number, seq: number) => boolean;
+  /** LATER 307 (`./actionPage` `gateLever`): a gate lever's program as presentation -- the handles' turns (`./gatePage` `present`). */
+  gateLever?: (action: number, read: (valve: string) => number) => boolean;
   cranePress?: (valve: string, seq: number) => boolean;
   isCrane?: (valve: string) => boolean;
   map(): LoadedMap | null;
@@ -134,7 +140,7 @@ export interface MatchActionsDeps {
    * silent, no pose, the round undrawn. T81-4: `clips` whole (the pack's clips and `motion.rdr`, `RemotePlayers.playClips`):
    * the page's own mount steer reads the mount clip's root keys (`mountShape`).
    */
-  turret?: Pick<TurretPageDeps, 'sound' | 'bodyFeet' | 'hand'> & {
+  turret?: Pick<TurretPageDeps, 'sound' | 'bodyFeet' | 'hand' | 'kit'> & {
     clips?(): PlayClips | null;
     round?(record: WeaponRecord, from: [number, number, number], dir: [number, number, number], frame: ArrayLike<number> | null, count: number): void;
   };
@@ -196,6 +202,7 @@ export function actionHands(of: () => Pick<MatchActions, 'pageHands'>): Required
     thermal: () => of().pageHands.thermal(), turret: () => of().pageHands.turret(),
     mountTaken: () => of().pageHands.mountTaken(), commandSeq: () => of().pageHands.commandSeq(),
     heldPulls: () => of().pageHands.heldPulls(),                                                                              // TRIGGER-SWAP fold
+    placingClip: () => of().pageHands.placingClip(),                                                                          // LATER 1427 review F1
   };
 }
 
@@ -260,7 +267,10 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
    */
   const victory = new VictoryPage({
     client: openClient, map: () => d.map(), play: d.play, walk,
-    release: () => { d.firearm.held(); d.grenade.cancelMenuHold(); },
+    // RAISE-1577 fix forward (RAISEGATE-WRITER-BP-r0004, a capture: R1 held across a round end re-arms as a fresh edge,
+    // 03 -> 00 -> 02 -> 01): the trigger let go, a held R1's level kept (`rearm`). Was: `held()`, which dropped the level,
+    // so the rifle stayed down into the next round while R1 stayed held (PC 4's NEXT-SMOKE9-RAISE).
+    release: () => { if (d.firearm.rearm) d.firearm.rearm(); else d.firearm.held(); d.grenade.cancelMenuHold(); },
   });
   roomEvents.on((ev) => victory.event(ev));
   const offReload = d.firearm.fire.subscribe((e) => { if (e.type === 'reloadStart') victory.reloaded(); });   // PAR-37: the reload's command kept
@@ -277,6 +287,7 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
     net: openClient,
     offline: d.craneToggle,
     ...(d.gatePress ? { gatePress: d.gatePress } : {}),
+    ...(d.gateLever ? { gateLever: d.gateLever } : {}),
     ...(d.cranePress ? { cranePress: d.cranePress } : {}),
     ...(d.isCrane ? { isCrane: d.isCrane } : {}),
   });
@@ -357,6 +368,11 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
     // the kit's timer handed over (its end in this page's numbering) and the body popped and stood (`./net/blast`
     // `mountPop`) -- in that order: the throw before the pop, so the walker's 'replaced' end finds no throw to let go.
     takeRefused: () => walk.mountRefused?.() ?? walk.isDead(),
+    // R4P-R2 (L67; reading, pending review): the release draws a firearm, not the item kept at the mount -- r0004's 0x54a900
+    // (D4:L452157-452169; `./net/emplacement` `dismountSlot`): an item in the hand is put away (the room's ROOM-HAND word
+    // follows it; the room clears its own at the release too). The firearm under it stays the page's
+    // (DISMOUNT_FIREARM_UNDER_ITEM_READING).
+    drawn: () => { if (d.grenade.equipped?.()) d.grenade.select?.('rifle'); },
     took: (m) => {
       const level = d.grenade.mountTake?.();
       windUp = typeof level === 'boolean' ? { m, levels: [{ at: m - 1, held: level }] } : null;   // LATER 532: the level at M - 1
@@ -391,6 +407,9 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
       d.grenade.mountUntake?.(wu.levels.at(-1)!.held, wait);
     },
   });
+  // R4P-R2 review 1 F3 (L106): the page's walker told the turret set over the room's span (`onTurretSet`: held, or the own
+  // release's reversed clip), so no `Jump fall` begins here where the room's mover refuses it (r0004 0x583400).
+  walk.turretSet = () => onTurretSet(turrets.mounted() !== null, turrets.releaseTravelling());   // review 2 F2: every walk, a stub's too
   turrets.attach(roomEvents);
   walk.setTurretHold?.((w) => { turrets.holdTick(w); });   // PAR-44 (research 215 s7.5): the hold's place on the own mover, each tick
   walk.setTurretAim?.((yaw, pitch) => turrets.clampLook(yaw, pitch));   // T81-3 (research 215 s7.8): the walk's look held to the held turret before its gate, as room.ts onTurret
@@ -713,6 +732,7 @@ export function mountActions(d: MatchActionsDeps): MatchActions {
       // TRIGGER-SWAP fold: null while this part owns the trigger (mounted, its release clip, a press it keeps till let go --
       // the release's or the dance's, `triggerTaken`), else the hold's count
       heldPulls: () => (isMounted() || turrets.travelling() || triggerTaken ? null : turretHeld ? turretPulled : handedPulls),
+      placingClip: () => bomb.ownPlacingClip(),             // LATER 1427 review F1: the bomb's own plant or manual drop on top
     },
     follow: (client) => { roomEvents.follow(client); followSeek(client); },
     unlock: () => { turretLock = false; },

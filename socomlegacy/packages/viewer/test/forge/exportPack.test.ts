@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
 import {
   MAP_PACK_RULES_PATH, PACK_MANIFEST_FILE, readMapPack, recordOfLayout, THUNDERSTORE_CODES, THUNDERSTORE_TEAM, type Diagnostic,
 } from '@s2u/creator-contracts';
@@ -256,6 +257,28 @@ describe("FX-11a's review, finding B (pin): the layout and its rules read back f
     // The fold (`mapPack.ts`): the draft's own pack leaves `requires`, and the reader attaches the pack's own reference.
     expect(read.pack.layouts[0]!.record).toEqual({ ...exported, requires: [r.ref] });
     expect(read.pack.rules).toEqual({ pack: r.ref, spec: layout.rules!.spec });
+  });
+});
+
+describe('FN-4: a layout whose piece is turned off the whole degree exports a version-4 layout member', () => {
+  it('FN-4, RED: a piece turned 58.67 / 38.93 / 27.03 (three\'s YXZ): the member is version 4 with those angles, and the pack reads back', async () => {
+    // FN-4 (the Forge lane's FN.R5; a browser adaptation): the record's version 4 keeps a piece's angles on a hundredth of
+    // a degree. Expected RED at the RED commit and at the readers' commit: the writer still puts each angle on a whole
+    // degree (version 3, 59 / 39 / 27). GREEN from the writer's commit. Written, NOT RUN (the host rule).
+    const d = (deg: number): number => (deg * Math.PI) / 180;
+    const turned = new Matrix4().compose(new Vector3(40, 0, -20), new Quaternion().setFromEuler(new Euler(d(38.93), d(58.67), d(27.03), 'YXZ')), new Vector3(1, 1, 1)).elements.slice();
+    const yard = discYard();
+    const layout = { ...yard, name: 'Fine yard', pieces: [...yard.pieces, { asset: 'MP2:crate', m: turned }] };
+    const r = await exportForgePack({ layout, ...base({ id: 'fine.map' }) });
+    expect(codes(r.diagnostics)).toEqual([]);
+    if (!r.ok) throw new Error('refused');
+    const member = jsonOf(r, 'layouts/fine-yard.json');
+    expect(member['version']).toBe(4);
+    expect((member['pieces'] as number[][])[3]![4]).toBe(58.67);
+    expect(member['poses']).toEqual([[3, 38.93, 27.03, 1, 1, 1]]);
+    const read = await readMapPack(r.files);
+    expect(codes(read.diagnostics)).toEqual([]);
+    expect(read.ok && read.pack.layouts[0]!.record.version).toBe(4);
   });
 });
 

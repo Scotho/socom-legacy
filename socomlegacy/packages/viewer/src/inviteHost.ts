@@ -7,6 +7,8 @@ import {
 } from '@s2u/ui';
 import { directUniverse, LobbyLinkDirect, takeLobbyLinkDirect } from './lobbyLinkDirect';
 import { routeSegmentsOfPath } from './menuRoutes';
+import { detailsHidden, onStreamerChange } from './streamerMode';
+import { addressOf, heldInviteAddress, holdInviteAddress, releaseInviteAddress } from './inviteAddressHold';
 
 /**
  * LOBBY-INVITE's page half (web sprint 41, W41.R2; product track, OT.R53): the address's invite, the cross-tab hand-off,
@@ -296,7 +298,15 @@ interface InviteWindow {
 export function pageInvite(search: string, win: InviteWindow, o: { base?: string; dev?: boolean; now?: () => number } = {}): InviteMount {
   const base = o.base ?? String((import.meta.env as Record<string, unknown> | undefined)?.['BASE_URL'] ?? '/');
   // The old query wins when both are present (LINK-2: `?invite=` keeps working for one release).
-  const link = inviteOf(search) ?? lobbyInviteOf(routeSegmentsOfPath(win.location.pathname, base));
+  // STREAMER-P1 1b (`./inviteAddressHold`): the path a launcher held; and held here, the address bared at once, while
+  // Streamer mode's details are Hidden. The invite is read from what the address carried, as before.
+  const at = addressOf(win.location);
+  const link = inviteOf(search) ?? lobbyInviteOf(routeSegmentsOfPath(at.pathname, base));
+  if (link !== null && heldInviteAddress() === null) holdInviteAddress(win, base, { pathname: at.pathname, search });
+  // 1b review F2: turned on while this invite is still pending (after the launcher's hand-over), the address bared then.
+  const offStreamer = link === null ? null : onStreamerChange(() => {
+    if (!used && heldInviteAddress() === null) holdInviteAddress(win, base);
+  });
   const now = (o.now ?? Date.now)();
   const took = tookMarked(link, now);
   const direct = takeLobbyLinkDirect(link, now);                      // LOBBY_LINK_DIRECT_ADAPTATION: the launcher's START, once
@@ -307,6 +317,8 @@ export function pageInvite(search: string, win: InviteWindow, o: { base?: string
     consumed: () => {
       if (used) return;
       used = true;
+      offStreamer?.();
+      if (heldInviteAddress() !== null) { releaseInviteAddress(); return; }   // STREAMER-P1 1b: the address is bare already
       const l = win.location;
       const root = base.endsWith('/') ? base : `${base}/`;
       const path = link?.lobbyId ? `${root}${INVITE_ROUTE.join('/')}` : l.pathname;
@@ -326,6 +338,16 @@ export function pageInvite(search: string, win: InviteWindow, o: { base?: string
 export const INVITE_COPY_ADAPTATION = 'the Clipboard API, else the copy command; the outcome a line in B_CHATLIST' as const;
 export const INVITE_COPIED_LINE = 'Invite link copied.';
 export const INVITE_COPY_REFUSED_LINE = 'Copy this invite link:';
+/**
+ * STREAMER-P1 (OT.R152; a browser adaptation, `./streamerMode`): while Streamer mode's Room and account details are Hidden,
+ * the invite link is never drawn -- a copy still copies it and says so; a refused copy says this instead of the link.
+ */
+export const INVITE_LINK_HIDDEN_LINE = 'The invite link could not be copied, and is not shown in streamer mode.';
+/** The GAME LOBBY's line after the button's copy: copied, else the link to copy by hand (or, while details are Hidden, not). */
+export function inviteCopyLine(ok: boolean, href: string): string {
+  if (ok) return INVITE_COPIED_LINE;
+  return detailsHidden() ? INVITE_LINK_HIDDEN_LINE : `${INVITE_COPY_REFUSED_LINE} ${href}`;
+}
 
 /** Copies `text`: true when the Clipboard API or the copy command took it. Never throws. */
 export async function copyText(text: string, nav: { clipboard?: { writeText(text: string): Promise<void> } }, doc: Pick<Document, 'createElement' | 'execCommand' | 'body'> | null): Promise<boolean> {
@@ -482,7 +504,7 @@ export function connectInvite(host: Pick<UiCommandHost, 'setBindingGate'>, o: In
       ...(g.lobbyId ? { lobbyId: g.lobbyId } : {}),
     });
     const ok = await mount.copy(href);
-    appendGameLobbyChat(o.uiVars, `${ok ? INVITE_COPIED_LINE : `${INVITE_COPY_REFUSED_LINE} ${href}`}\n`);
+    appendGameLobbyChat(o.uiVars, `${inviteCopyLine(ok, href)}\n`);   // STREAMER-P1: the link never drawn while details are Hidden
   }
 
   const holds = (): boolean => { const l = o.lobby(); return !!l && (l.ticket() !== null || ACQUIRING.has(l.state())); };

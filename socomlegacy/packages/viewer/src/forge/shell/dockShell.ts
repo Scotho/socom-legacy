@@ -229,17 +229,28 @@ export function createDockShell(options: DockShellOptions): ForgeShellPage {
   /** The group the compass stands over now. */
   let compassGroup: DockGroup | null = null;
   workbench.append(canvas, overlay, compass, edgeLayer, stash);
-  let drawnKey = '';
+  /**
+   * What was last drawn -- the panels' availability and whether the viewport was drawn alone -- the ONE record that
+   * `refresh`, `update` and `frame` each compare against (FORGE-DOCKS, LATER 1100 and 1103): written by `render` alone,
+   * whoever called it, so a maximized render made through one caller is undone through any other.
+   */
+  const drawnState = { availability: '', maximized: false };
+  const availabilityKey = (): string => [...mounted.values()].map((m) => (available(m.panel) ? '1' : '0')).join('');
+  /** Whether the state now differs from what was last drawn (`drawnState`). */
+  const drawnStale = (): boolean => maximized() !== drawnState.maximized || availabilityKey() !== drawnState.availability;
   /** Whether a node has something to draw now (a tab with a section). */
   const liveNode = (n: DockNode): boolean => (n.kind === 'group' ? liveTabs(n).length > 0 : n.children.some(liveNode));
   /** Each group's element as drawn, for a drop's hit test. */
   const elementOf = new Map<DockNode, HTMLElement>();
   const render = (): void => {
     if (disposed) return;
+    const max = maximized();
+    drawnState.availability = availabilityKey();
+    drawnState.maximized = max;
     for (const m of mounted.values()) if (m.panel.dock !== 'workspace') stash.append(m.host);
     canvas.replaceChildren();
     elementOf.clear();
-    if (maximized()) {
+    if (max) {
       const alone = doc.createElement('div');
       alone.className = 'fx-dg-group fx-dg-viewport fx-dg-alone';
       alone.append(tabBody(viewportKey));
@@ -654,9 +665,6 @@ export function createDockShell(options: DockShellOptions): ForgeShellPage {
     };
   };
   const focusTab = (key: string): void => { workbench.querySelector<HTMLElement>(`.fx-dg-tab[data-forge-tab="${CSS.escape(key)}"]`)?.focus(); };
-  let lastAvailability = '';
-  let lastMaximized = false;
-  const availabilityKey = (): string => [...mounted.values()].map((m) => (available(m.panel) ? '1' : '0')).join('');
 
   const shell: ForgeShellPage = {
     register(panel) {
@@ -699,7 +707,6 @@ export function createDockShell(options: DockShellOptions): ForgeShellPage {
       const key = dockTabKeyOf(panel);
       // A tab the viewer closed stays closed (`closed`) till the Window menu opens it again.
       if (panel.dock !== 'workspace' && !groupOf(key) && !closed[key]) { place(key, panel.dock); save(); }
-      lastAvailability = availabilityKey();
       render();
     },
     unregister(id) {
@@ -735,17 +742,15 @@ export function createDockShell(options: DockShellOptions): ForgeShellPage {
     },
     update() {
       for (const m of mounted.values()) m.instance.update?.();
-      const key = availabilityKey() + (maximized() ? 'M' : '');
-      if (key !== lastAvailability) { lastAvailability = key; render(); } else syncShown();
+      if (drawnStale()) render(); else syncShown();
     },
     refresh() {
-      const key = availabilityKey() + (maximized() ? 'M' : '');
-      if (key !== drawnKey) { drawnKey = key; render(); } else syncShown();
+      if (drawnStale()) render(); else syncShown();
     },
     frame(dt, now) {
-      // Docks off, Walk or a match begun or ended: the tree drawn again (the viewport alone, or everything).
-      const max = maximized();
-      if (max !== lastMaximized) { lastMaximized = max; render(); }
+      // Docks off, Walk or a match begun or ended -- whichever caller drew the last state: the tree drawn again (the
+      // viewport alone, or everything). Every page frame: the flag alone against the one record, no availability string.
+      if (maximized() !== drawnState.maximized) render();
       syncShown();
       for (const m of mounted.values()) if (m.shown) m.instance.frame?.(dt, now);
     },

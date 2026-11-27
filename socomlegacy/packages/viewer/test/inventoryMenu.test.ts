@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { noInput, type Input } from '../src/gamepad';
 import {
   DEFAULT_BINDS, INVENTORY_ARROW, INVENTORY_ARROW_ALPHA_READING, INVENTORY_COLUMN, INVENTORY_FADE, INVENTORY_ICON_ALPHA,
-  INVENTORY_ICON_INSET, INVENTORY_IDLE_CLOSE, INVENTORY_LANES, INVENTORY_MENU_KEYS_READING, INVENTORY_ROWS, INVENTORY_SLIDE_RATE,
+  INVENTORY_ICON_INSET, INVENTORY_IDLE_CLOSE, INVENTORY_LANES, INVENTORY_REFUSAL_CLEAR_UPDATES_READING, INVENTORY_MENU_KEYS_READING, INVENTORY_ROWS, INVENTORY_SLIDE_RATE,
   INVENTORY_TAG, INVENTORY_TEXT_RGBA, INVENTORY_WORDS, InventoryMenu, magsText, stepSlot,
   type InventoryHost, type InventoryKit, type SlotInfo,
 } from '../src/inventoryMenu';
@@ -11,8 +11,15 @@ import { FONT_TEXT_01, textWidth } from '../src/hudFont';
 import { HUD_COLOURS, HUD_LAYOUT } from '../src/hud';
 import { StanceButton } from '../src/stanceButton';
 import type { Stance } from '../src/mover';
-import { DEFAULT_RIFLE, type WeaponRecord } from '@s2u/scene';
+import { buildGrid, DEFAULT_RIFLE, GAME_FRAME_DT, type WeaponRecord, type WorldPoly } from '@s2u/scene';
 import { Fire } from '../src/fire';
+import { controllerConfigs } from '../src/controllerConfigs';
+import { fireInterval, roundsPerPull } from '../src/accuracy';
+import { nextEdge } from '../src/weaponRaise';
+import { steerInput } from '../src/modern/replays/worldSteer';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * The alive R2 inventory, `CWeaponSel` (research 94 §4.3; research 188 §1.2 L2): R2 opens it over the kit's slots on the
@@ -222,7 +229,7 @@ describe('each button inside does the original\'s action (FUN_0021bda0 L72552-72
 describe('the game keeps what the menu does not read; the menu takes what it does', () => {
   it('open, Up / Down / L1 / L2 / Cross / R2 never reach the zoom, the swap, the action or a second R2', () => {
     const h = harness();
-    h.frame({ inventory: true });
+    h.frame({ inventory: true, moveY: 1 });              // WM-STICK (OT.R130): opened walking, the stick stays the walk's
     const game = h.frame({ zoom: true, swap1: true, action: true, moveY: 1, fire: true, leanLeft: true });
     for (const lane of ['zoom', 'swap1', 'action', 'inventory'] as const) expect(game[lane], lane).toBe(false);
     expect(game.moveY).toBe(1);                           // the walk, the trigger and the peek go on
@@ -594,4 +601,805 @@ it('native pressure from Triangle closing inventory stays consumed until release
   for (const g of [frame(0.8), frame(0.8), frame(0)]) expect([g.stance, g.stancePressure]).toEqual([false, 0]);
   const again = frame(0.8);
   expect([again.stance, again.stancePressure]).toEqual([true, 0.8]);
+});
+
+/**
+ * Research 451 (SURE SHOT, the refused open): `FUN_0021c6f0` refused -- the kit's gate `FUN_005a8cb0` 0 while the trigger's
+ * edge is 1, held (D:L463174-463181; D:L72830-72832) -- runs `FUN_0021aaa0`, which writes the local pad's slots 9, 7, 6
+ * (X, Circle, Triangle) to state 0 (D:L72015-72017; `FUN_002da160` D:L179191-179197); the sampler reads a button still
+ * down as first-down again (`FUN_002d9ff0` D:L179153-179168) and `FUN_002c60c0` counts only state 2 as held
+ * (D:L166671-166684), so the cleared buttons read up, then down: a new press. A dead body never reaches the open
+ * (`FUN_00219c80` D:L71617-71620) and clears nothing. The buttons are mapped to lanes through the active config.
+ */
+describe('research 451: a refused open clears the pad\'s X, Circle and Triangle (FUN_0021aaa0 D:L72015-72017)', () => {
+  afterEach(() => { controllerConfigs.reset(); });
+
+  /**
+   * One page frame a GAME frame (`GAME_FRAME_DT`, a 30 Hz page): the class's frames are then the original's updates, and
+   * `N` below counts game frames (the clear's span is game time, `INVENTORY_REFUSAL_CLEAR_SECONDS`).
+   */
+  const G = GAME_FRAME_DT;
+  /** Game frames of the game's input with `lanes` held, R2's lane (`inventory`) pressed on frame `at`; the game's inputs. */
+  const run = (h: ReturnType<typeof harness>, lanes: Partial<Input>, at: number, n: number): Input[] => {
+    const out: Input[] = [];
+    for (let i = 0; i < n; i++) out.push(h.frame({ ...lanes, ...(i === at ? { inventory: true } : {}) }, G));
+    return out;
+  };
+  /** The trigger's edge machine (`weaponRaise.ts` `nextEdge`, `FUN_00594cf0` D:L453543-453567) over the game's `fire`: the presses. */
+  const presses = (games: readonly Input[]): number => {
+    let edge: 0 | 1 | 2 | 3 = 0, n = 0;
+    for (const g of games) { edge = nextEdge(edge, g.fire); if (edge === 2) n++; }
+    return n;
+  };
+  const N = INVENTORY_REFUSAL_CLEAR_UPDATES_READING;
+
+  it('SURE SHOT (Goldeneye), X held, the gate closed: R1\'s refused open makes fire read up, then down -- one more press', () => {
+    controllerConfigs.select('Goldeneye');
+    const h = harness(seal(), { canChange: false });
+    const games = run(h, { fire: true }, 5, 5 + 1 + N + 5);
+    expect(h.menu.isOpen()).toBe(false);
+    expect(games.slice(0, 6).every((g) => g.fire), 'held, and the refusal\'s own update as sampled').toBe(true);
+    expect(games.slice(6, 6 + N).map((g) => g.fire), 'the cleared update(s)').toEqual(Array(N).fill(false));
+    expect(games.slice(6 + N).every((g) => g.fire), 'down again').toBe(true);
+    expect(presses(games)).toBe(2);
+  });
+
+  it('five R1 presses with X held: six presses of the trigger (the hand-over\'s leg 1, predicted)', () => {
+    controllerConfigs.select('Goldeneye');
+    const h = harness(seal(), { canChange: false });
+    const games: Input[] = [];
+    for (let k = 0; k < 5; k++) games.push(...run(h, { fire: true }, 10, 20));
+    expect(presses(games)).toBe(6);
+  });
+
+  it('R1\'s first-down at update N with X held, the gate closed: the trigger\'s new press (edge 2) is at N+2, each of five', () => {
+    // A capture of the original, pending review (research 451 §5, leg 1: SURE SHOT, M4A1 SD on single, X held, R1 x5; per-frame
+    // pad stamps): R1 first-down at frame N, X's slot 9 a new first-down (state 1) at N+1 -- never 0 in a sampled frame,
+    // 2 -> 1 -> 2 -- and the round at N+2, the same for all five. The port's lane reads X up at N+1 (the class's cleared
+    // update: state 1 is not held for FUN_002c60c0) and down at N+2, where `nextEdge` makes the press (3 -> 2). This class
+    // sees the game's lanes only: the round itself is the firearm's (`./fire`), driven from the edge, not reached here.
+    controllerConfigs.select('Goldeneye');
+    const h = harness(seal(), { canChange: false });
+    let edge: 0 | 1 | 2 | 3 = 0, update = 0;
+    const gaps: number[] = [];
+    for (let k = 0; k < 5; k++) {
+      let r1 = -1;
+      for (let i = 0; i < 20; i++, update++) {
+        const g = h.frame({ fire: true, ...(i === 10 ? { inventory: true } : {}) }, G);   // one game frame each
+        if (i === 10) r1 = update;
+        edge = nextEdge(edge, g.fire);
+        if (edge === 2 && r1 >= 0) gaps.push(update - r1);
+      }
+    }
+    expect(gaps, 'the R1 -> new press gap, updates').toEqual([2, 2, 2, 2, 2]);
+  });
+
+  it('PRECISION SHOOTER (Default): fire is R1 (slot 10), which the clear never writes -- fire does not move', () => {
+    const h = harness(seal(), { canChange: false });
+    const games = run(h, { fire: true }, 5, 20);
+    expect(games.every((g) => g.fire)).toBe(true);
+    expect(presses(games)).toBe(1);
+  });
+
+  it('PRECISION SHOOTER: X is Action there, so an X held at the refusal is a new Action press', () => {
+    const h = harness(seal(), { canChange: false });
+    const games = run(h, { fire: true, action: true }, 5, 5 + 1 + N + 2);
+    expect(games.slice(6, 6 + N).map((g) => g.action)).toEqual(Array(N).fill(false));
+    expect(games[6 + N]!.action).toBe(true);
+  });
+
+  it('a dead body\'s refused press clears nothing (D:L71617-71620: the open is never reached)', () => {
+    controllerConfigs.select('Goldeneye');
+    const h = harness(seal(), { alive: false, canChange: false });
+    const games = run(h, { fire: true, action: true, jump: true, stance: true }, 5, 20);
+    for (const lane of ['fire', 'action', 'jump', 'stance'] as const) expect(games.every((g) => g[lane]), lane).toBe(true);
+    expect(presses(games)).toBe(1);
+  });
+
+  it('the gate open: the menu opens and clears nothing of fire (the open\'s own masks are INVENTORY_LANES\')', () => {
+    controllerConfigs.select('Goldeneye');
+    const h = harness();
+    const games = run(h, { fire: true }, 5, 20);
+    expect(h.menu.isOpen()).toBe(true);
+    expect(games.every((g) => g.fire)).toBe(true);
+  });
+
+  it('SURE SHOT: Circle held at the refusal is a new Action and Jump press', () => {
+    controllerConfigs.select('Goldeneye');
+    const h = harness(seal(), { canChange: false });
+    const games = run(h, { action: true, jump: true }, 5, 5 + 1 + N + 2);
+    expect(games[5]!.action && games[5]!.jump).toBe(true);
+    for (const lane of ['action', 'jump'] as const) {
+      expect(games.slice(6, 6 + N).map((g) => g[lane]), lane).toEqual(Array(N).fill(false));
+      expect(games[6 + N]![lane], lane).toBe(true);
+    }
+  });
+
+  it('Triangle held at the refusal: at one update no reader sees its clear -- no stance press, no cancel, no tap (D:L453331-453334)', () => {
+    // The controller first (the constant's 1): the sampler sets Triangle's byte to 1 before the stance block reads it, so the
+    // block never re-arms (it arms only on the byte at 0). The HUD first would make it 2 updates AND the stance re-press.
+    expect(N, 'the stance lane is out of the clear only while the constant is 1 (research 451 §2, §3)').toBe(1);
+    for (const name of ['Goldeneye', 'Default'] as const) {
+      controllerConfigs.select(name);
+      const h = harness(seal(), { canChange: false });
+      const games = run(h, { stance: true, stancePressure: 0.8 }, 5, 5 + 1 + N + 2);
+      for (const g of games) expect([g.stance, g.stancePressure, !!g.stanceCancelled], name).toEqual([true, 0.8, false]);
+    }
+  });
+
+  it('a main-thread stall before the next update keeps the clear: the host clock 3x the frame\'s real seconds, still a new press', () => {
+    // The 0d3b220872 review: the clock (performance.now() inside the callback) and `real` (the rAF timestamp delta) are two
+    // time bases, so a stall between them must not drop the clear -- that R1 would fire nothing, the reported bug.
+    controllerConfigs.select('Goldeneye');
+    const h = harness(seal(), { canChange: false });
+    const games = run(h, { fire: true }, 5, 6);
+    h.state.now += 2 * G;    // with the frame's own G: the clock moves 3 G while the next frame's `real` is G
+    for (let i = 0; i < 6; i++) games.push(h.frame({ fire: true }, G));
+    expect(games[6]!.fire, 'the cleared update').toBe(false);
+    expect(games.slice(7).every((g) => g.fire), 'down again').toBe(true);
+    expect(presses(games)).toBe(2);
+  });
+
+  it('a cleared button let go inside the clear stays up: nothing more', () => {
+    controllerConfigs.select('Goldeneye');
+    const h = harness(seal(), { canChange: false });
+    for (let i = 0; i < 5; i++) h.frame({ fire: true });
+    h.frame({ fire: true, inventory: true });
+    const games = [h.frame(), h.frame(), h.frame()];
+    expect(games.every((g) => !g.fire)).toBe(true);
+  });
+
+  /**
+   * The class's game `fire` fed into the real firearm (`./fire`), as a page that takes the trigger from the menu's output
+   * would (`trigger` on the lane's change, then `update(dt)`), at `fps` page frames a second: X held, R1 tapped five times
+   * (three page frames down), spaced ~34 game frames as the capture's. The rounds, and each new round's GAME frame (the
+   * firearm's own steps, `GAME_FRAME_DT`) counted from the first step that reads R1's first-down. Single shot.
+   */
+  const firing = (fps: number, phase: number): { rounds: number; gaps: number[] } => {
+    controllerConfigs.select('Goldeneye');
+    const h = harness(seal(), { canChange: false });
+    const eye: [number, number, number] = [0, 20, 0];
+    // `fire.test.ts`'s `world([wallAt(-30)])`: a wall across x at z -30 for the round to meet.
+    const wall: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/q', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from([-50, 0, -30, 50, 0, -30, 50, 50, -30, -50, 50, -30]) };
+    const grid = buildGrid({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 }, [], [], [wall],
+      [{ modelName: wall.modelName, path: `${wall.path}0`, first: 0, count: 1 }]);
+    const fire = new Fire({ grid: () => grid, aim: () => ({ eye, far: [0, 20, -1000] }) }, { ...DEFAULT_RIFLE, magazine: 1000 }, undefined, () => 0.5);
+    fire.setGun({ trigger: () => {}, roundsPerPull: () => 1, interval: (w) => w, round: (d) => d });
+    let rounds = 0, steps = 0, acc = 0, r1Step = -1;
+    const gaps: number[] = [];
+    fire.subscribe((e) => { if (e.type === 'round') { rounds++; if (r1Step >= 0) { gaps.push(steps - r1Step); r1Step = -1; } } });
+    const dt = fps === 30 ? GAME_FRAME_DT : 1 / fps, spacing = Math.round(34 * GAME_FRAME_DT * fps);
+    let held = false;
+    const page = (r1: boolean, first: boolean): void => {
+      if (first) r1Step = steps + 1;                     // the first step at or after R1's page frame reads its first-down
+      const g = h.frame({ fire: true, ...(r1 ? { inventory: true } : {}) }, dt);
+      if (g.fire !== held) { held = g.fire; if (held) fire.pull(); else fire.release(); }
+      acc += dt;
+      const n = Math.floor((acc + 1e-9) / GAME_FRAME_DT); steps += n; acc -= n * GAME_FRAME_DT;   // the firearm's own steps
+      fire.update(dt);
+    };
+    for (let i = 0; i < spacing + phase; i++) page(false, false);
+    for (let k = 0; k < 5; k++) {
+      for (let i = 0; i < spacing; i++) page(i < 3, i === 0);
+    }
+    return { rounds, gaps };
+  };
+
+  it.each([30, 60, 120, 144])('%s Hz page, the real firearm: five refused R1 taps with X held fire 6 rounds, each new one 2 or 3 GAME frames after R1', (fps) => {
+    // The capture of the original (research 451 §5, leg 1, reviewed): 6 rounds; slot 9 2 -> 1 -> 2, the round at N+2 of the
+    // 30 Hz game frames. The firearm steps its pad once a GAME frame (`fireCore.ts` `update`, `padStep` per GAME_FRAME_DT),
+    // so the cleared lane must read up across a whole game step, not one page frame. Every phase of the page against the kit.
+    const phases = Array.from({ length: Math.ceil(fps / 30) + 1 }, (_, phase) => firing(fps, phase));
+    expect(phases.map((p) => p.rounds), 'rounds, each phase').toEqual(phases.map(() => 6));
+    // The gap: the original's 2, or 3 -- research 451 §2's named residue, the firearm's pad (`padStep`) re-entering at state 1
+    // where the original's X goes 2 -> 1 -> 2: one GAME frame late whenever the kit step that reads R1 falls in R1's own page
+    // frame (every one at 30 Hz). Never fewer than the original's, never a second game frame more.
+    for (const p of phases) expect(p.gaps.every((g) => g === 2 || g === 3), `R1 -> round, game frames: ${p.gaps}`).toBe(true);
+    if (fps === 30) expect(phases.map((p) => p.gaps), 'one page frame a game frame: the residue every tap').toEqual(phases.map(() => [3, 3, 3, 3, 3]));
+  });
+
+  /**
+   * LATER 1345 (research 451 §5, "the round is one frame late in the port"; the side finding of LATER 1412's pin review).
+   * The original's clear writes X's slot to 0 while X is down (`FUN_0021aaa0` D:L72015-72017, `FUN_002da160`
+   * D:L179191-179197) and the sampler steps it on (`FUN_002d9ff0` D:L179153-179168): 2 -> 1 -> 2, never 0 in a sampled
+   * frame, so `FUN_002c60c0`'s held (state 2 only, D:L166671-166684) reads false for exactly ONE update and the round
+   * leaves at N+2 (PC 4's capture, r0004, `D:/s2u-records/SURESHOT-PC4/`, legs 1-2; a capture, pending review).
+   *
+   * The harness: the class's game `fire` into the real firearm as the pages' feed hands it (a let-go and a press on the
+   * lane's change, then `update(dt)`), X held, at `fps`. Each of the firearm's game steps (`GAME_FRAME_DT`) is recorded:
+   * `up`, the trigger physically let go at the step; `held`, the pad's held answer the step reads (`Fire.padHeldRead`); and
+   * whether a round left on it. `r1`: per R1 first-down, the first step at or after its page frame -- the capture's N.
+   * `xTap`: X itself let go from that page frame until a step has read it up (the shortest re-tap the game reads; no R1).
+   * `weapon`: a record fired through `./accuracy`'s single-shot gate; without one, `firing`'s gun (one round a pull).
+   *
+   * Expected failures (the controller's ruling, 2026-11-24: no fix in v0.4.32; `tools/test/itFailsRegister.test.ts`, LATER
+   * 1345). No lane can carry it: the firearm steps its own pad from a boolean (`fireCore.ts` `update`, `padStep`), which
+   * passes through state 1 on the way back down, and the class cannot see the firearm's step phase. The route for v0.4.33
+   * is the original's own: the pad written to 0 with the trigger held, in `fireCore.ts` (research 451 §5).
+   */
+  const drive = (fps: number, frames: number, r1Down: (f: number) => boolean, xTap: (f: number) => boolean = () => false, weapon?: WeaponRecord) => {
+    controllerConfigs.select('Goldeneye');
+    const h = harness(seal(), { canChange: false });
+    const eye: [number, number, number] = [0, 20, 0];
+    const wall: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/q', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from([-50, 0, -30, 50, 0, -30, 50, 50, -30, -50, 50, -30]) };
+    const grid = buildGrid({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 }, [], [], [wall],
+      [{ modelName: wall.modelName, path: `${wall.path}0`, first: 0, count: 1 }]);
+    const fire = new Fire({ grid: () => grid, aim: () => ({ eye, far: [0, 20, -1000] }) }, weapon ?? { ...DEFAULT_RIFLE, magazine: 1000 }, undefined, () => 0.5);
+    fire.setGun(weapon
+      ? { trigger: () => {}, roundsPerPull: () => roundsPerPull(1), interval: (w) => fireInterval(w, 1), round: (d) => d }
+      : { trigger: () => {}, roundsPerPull: () => 1, interval: (w) => w, round: (d) => d });
+    const steps: { up: boolean; held: boolean; round: boolean }[] = [], r1: number[] = [];
+    let rounds = 0, fired = false, acc = 0, trigger = false, letGo = false;
+    fire.subscribe((e) => { if (e.type === 'round') { rounds++; fired = true; } });
+    const dt = fps === 30 ? G : 1 / fps;
+    for (let f = 0; f < frames; f++) {
+      const down = r1Down(f);
+      if (down && !(f > 0 && r1Down(f - 1))) r1.push(steps.length);
+      if (xTap(f)) letGo = true;
+      const g = h.frame({ fire: !letGo, ...(down ? { inventory: true } : {}) }, dt);
+      if (g.fire !== trigger) { trigger = g.fire; if (trigger) fire.pull(); else fire.release(); }   // the pages' feed
+      acc += dt;
+      const n = Math.floor((acc + 1e-9) / G); acc -= n * G;               // the firearm's own steps this page frame
+      expect(n, 'at most one game step a page frame (30 Hz and up)').toBeLessThanOrEqual(1);
+      const held = fire.padHeldRead(dt);
+      fired = false;
+      fire.update(dt);
+      expect(fired && n === 0, 'a round leaves only at a game step').toBe(false);
+      if (n > 0) { steps.push({ up: !trigger, held, round: fired }); letGo = false; }
+    }
+    return { steps, r1, rounds };
+  };
+  /** The capture's leg 1 at `fps`: five R1 taps (three page frames down) ~34 game frames apart, the first `phase` page frames late. */
+  const leg1 = (fps: number, phase: number): ReturnType<typeof drive> => {
+    const spacing = Math.round(34 * G * fps);
+    return drive(fps, 6 * spacing + phase, (f) => f >= spacing + phase && (f - phase) % spacing < 3);
+  };
+  /** Every phase of the page against the kit's steps, and one more. */
+  const phasesOf = (fps: number): number[] => Array.from({ length: Math.ceil(fps / 30) + 1 }, (_, phase) => phase);
+
+  it.fails.each([30, 60, 120, 144])('GAP (LATER 1345), the residue: %s Hz page, X held, a refused R1 at update N -- the round leaves at N+2 (the original\'s), every tap, every phase; flips with the original\'s pad write (FUN_0021aaa0) in fireCore.ts, v0.4.33', (fps) => {
+    for (const phase of phasesOf(fps)) {
+      const d = leg1(fps, phase);
+      expect(d.rounds, `phase ${phase}: rounds`).toBe(6);
+      const gaps = d.r1.map((n) => d.steps.findIndex((s, i) => i >= n && s.round) - n);
+      expect(gaps, `phase ${phase}: R1 -> round, game updates`).toEqual([2, 2, 2, 2, 2]);
+    }
+  });
+
+  it.fails.each([30, 60, 120, 144])('GAP (LATER 1345), the span: %s Hz page -- per refused R1 the trigger reads not held for exactly ONE game update (the constant), let go across no second; flips with the original\'s pad write (FUN_0021aaa0) in fireCore.ts, v0.4.33', (fps) => {
+    expect(N, 'INVENTORY_REFUSAL_CLEAR_UPDATES_READING').toBe(1);
+    for (const phase of phasesOf(fps)) {
+      const d = leg1(fps, phase);
+      const per = (key: 'up' | 'held', want: boolean): number[] =>
+        d.r1.map((n, k) => d.steps.slice(n, d.r1[k + 1] ?? d.steps.length).filter((s) => s[key] === want).length);
+      // The original's held answer over a clear: 2 -> 1 -> 2, one update not held (state 1), research 451 §5.
+      expect(per('held', false), `phase ${phase}: updates the pad reads not held, per R1`).toEqual([N, N, N, N, N]);
+      // The clear's own span, whatever carries it: the trigger is never let go across a second game update (60 Hz: three
+      // page frames of 1/60 s span `GAME_FRAME_DT`, and in one phase hold two of the firearm's steps).
+      expect(per('up', true).every((n) => n <= N), `phase ${phase}: updates the trigger is let go, per R1: ${per('up', true)}`).toBe(true);
+    }
+  });
+
+  it.fails('GAP (LATER 1345), 60 Hz, R1 tapped 10 a second with X held: every phase fires what X re-tapped at its best phase fires (the bad phase fires 0); flips with the original\'s pad write (FUN_0021aaa0) in fireCore.ts, v0.4.33', () => {
+    // FireWait 0.12 on single (`./accuracy` `fireInterval`: x 1.2), three seconds; a tap every 6 page frames, one frame down.
+    // A CONSISTENCY bound, not a parity figure: the expected count is the port's own X re-tapped at its best phase (rapid
+    // R1 taps of the original are unmeasured, research 451 §5); it holds the 60 Hz swallow as a gap.
+    const fps = 60, frames = 3 * fps, every = 6;
+    const record: WeaponRecord = { ...DEFAULT_RIFLE, fireWait: 0.12, magazine: 100000 };
+    const at = (phase: number) => (f: number): boolean => f >= phase && (f - phase) % every === 0;
+    const phases = Array.from({ length: every }, (_, phase) => phase);
+    const best = Math.max(...phases.map((p) => drive(fps, frames, () => false, at(p), record).rounds));
+    expect(best, 'X re-tapped fires').toBeGreaterThan(1);
+    expect(phases.map((p) => drive(fps, frames, at(p), undefined, record).rounds), 'rounds, each phase of R1').toEqual(phases.map(() => best));
+  });
+
+  it('a lane no cleared button holds is untouched (SURE SHOT: the peek, the zoom, R1 itself)', () => {
+    controllerConfigs.select('Goldeneye');
+    const h = harness(seal(), { canChange: false });
+    const games = run(h, { fire: true, leanLeft: true, zoom: true, reload: true }, 5, 10);
+    for (const lane of ['leanLeft', 'zoom', 'reload'] as const) expect(games.every((g) => g[lane]), lane).toBe(true);
+  });
+});
+
+/**
+ * LATER 1412 (the owner's aim: SURE SHOT's R1 re-fire kept, but never faster than the weapon). The original's gate is a
+ * decompile reading (research 451 §1.8-9): the refused open's clear (`FUN_0021aaa0`) writes X back to a new press, whose
+ * round still passes the kit's frame gate -- no round while the kit's timer `kit+0x81c` is above 0 (`FUN_005c0ae0`
+ * D:L476446-476448), the timer set at each round (D:L475517). Rapid R1 taps were never captured of the original (the
+ * capture, research 451 §5 leg 1, spaces its five ~34 game frames apart): this pins the port's routing, not a measured
+ * rate. The port routes the same way: the menu's clear only shapes the game's `fire` lane; rounds leave only in the
+ * firearm's game steps (`fireCore.ts` `update`) when the pad reads held and the wait has run out, each round setting the
+ * wait to `fireInterval` (`./accuracy`: FireWait x 1.2 single, x 0.8 burst and automatic). The harness is the research 451
+ * block's `firing` (the class's game `fire` into the real firearm), with the mode's real gun and the taps' spacing as
+ * parameters. No "never more than X re-tapped" bound: under the original's own clear (a pad write while held, LATER
+ * 1345) a cleared X costs one not-held update where an X re-tap costs two, so the original out-fires that baseline; a
+ * pin stricter than the original would lock in a departure (the controller's ruling). The owner's aim proper is the
+ * weapon's own wait (every gap) and the total it allows.
+ */
+describe('LATER 1412: SURE SHOT\'s R1 re-fire never faster than the weapon (the normal fire gate)', () => {
+  afterEach(() => { controllerConfigs.reset(); });
+
+  /** An M16A2-like record: FireWait 0.12 (`DEFAULT_RIFLE`'s, the M4A1's), the magazine deep enough never to run dry. */
+  const RECORD: WeaponRecord = { ...DEFAULT_RIFLE, fireWait: 0.12, magazine: 100000 };
+  const MODES = [[1, 'single'], [2, 'burst'], [3, 'automatic']] as const;
+  const SECONDS = 3;
+
+  /**
+   * `SECONDS` of page frames at `fps`, X held, a tap every 1 / `rate` s from page frame `phase` (each tap's start at least
+   * two page frames after the last: one down, one up). `r1`: the tap is R1 (the inventory, refused) held one page frame, X
+   * held throughout; otherwise X itself let go at the tap's page frame and held again once a firearm step has read it up
+   * (the shortest re-tap the game reads). Each round's game step, and the rounds of each pull of the firearm's trigger.
+   */
+  const run = (mode: 1 | 2 | 3, fps: number, rate: number, phase: number, r1: boolean): { steps: number[]; perPull: number[]; T: number } => {
+    controllerConfigs.select('Goldeneye');
+    const h = harness(seal(), { canChange: false });
+    const eye: [number, number, number] = [0, 20, 0];
+    const wall: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/q', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from([-50, 0, -30, 50, 0, -30, 50, 50, -30, -50, 50, -30]) };
+    const grid = buildGrid({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 }, [], [], [wall],
+      [{ modelName: wall.modelName, path: `${wall.path}0`, first: 0, count: 1 }]);
+    const fire = new Fire({ grid: () => grid, aim: () => ({ eye, far: [0, 20, -1000] }) }, RECORD, undefined, () => 0.5);
+    fire.setGun({ trigger: () => {}, roundsPerPull: () => roundsPerPull(mode), interval: (w) => fireInterval(w, mode), round: (d) => d });
+    const dt = fps === 30 ? GAME_FRAME_DT : 1 / fps, frames = Math.round(SECONDS * fps);
+    const starts = new Set<number>();
+    for (let k = 0, last = -2; ; k++) {
+      const s = Math.max(phase + Math.round((k * fps) / rate), last + 2);
+      if (s >= frames) break;
+      starts.add(s); last = s;
+    }
+    const steps: number[] = [], perPull: number[] = [];
+    let step = 0, acc = 0, held = false, letGo = false;
+    fire.subscribe((e) => { if (e.type === 'round') { steps.push(step); perPull[perPull.length - 1]!++; } });
+    for (let f = 0; f < frames; f++) {
+      if (!r1 && starts.has(f)) letGo = true;
+      const x = r1 || !letGo;
+      const g = h.frame({ fire: x, ...(r1 && starts.has(f) ? { inventory: true } : {}) }, dt);
+      // perPull opens at each page-level rising edge; the firearm clears its pull only when a game step reads up, so a
+      // re-press inside one step splits across two entries -- the burst check can only under-count (never fail falsely).
+      if (g.fire !== held) { held = g.fire; if (held) { perPull.push(0); fire.pull(); } else fire.release(); }
+      acc += dt;
+      const n = Math.floor((acc + 1e-9) / GAME_FRAME_DT); acc -= n * GAME_FRAME_DT;
+      expect(n, 'at most one game step a page frame (30 and 60 Hz)').toBeLessThanOrEqual(1);
+      step += n;
+      fire.update(dt);
+      if (letGo && n > 0) letGo = false;                  // a step has read X up: held again from the next page frame
+    }
+    return { steps, perPull, T: frames * dt };
+  };
+
+  for (const fps of [30, 60]) {
+    for (const [mode, name] of MODES) {
+      // A tap needs a page frame down and one up, so 20 a second is held to 15 at 30 Hz (`last + 2` below); true at 60 Hz.
+      it.each([5, 10, 20])(`${fps} Hz page, ${name}: R1 tapped %s a second (at most a tap every 2 page frames) with X held -- every gap at least the weapon's wait, never above its total`, (rate) => {
+        const interval = fireInterval(RECORD.fireWait, mode);
+        const minGap = Math.ceil(interval / GAME_FRAME_DT - 1e-9);
+        const phases = Array.from({ length: (2 * fps) / 30 + 2 }, (_, p) => p);
+        for (const phase of phases) {
+          const sure = run(mode, fps, rate, phase, true);
+          const at = `phase ${phase}`;
+          const gaps = sure.steps.slice(1).map((s, i) => s - sure.steps[i]!);
+          expect(gaps.every((g) => g >= minGap), `${at}: gaps ${gaps} against ${minGap} game frames`).toBe(true);
+          expect(sure.steps.length, `${at}: rounds against 1 + floor(T / interval)`).toBeLessThanOrEqual(1 + Math.floor(sure.T / interval + 1e-9));
+          if (mode === 2) expect(Math.max(...sure.perPull), `${at}: a burst's rounds a pull`).toBeLessThanOrEqual(3);
+          // Not vacuous: at 5 a second, on single, the R1 re-presses do fire again (a held X alone fires one round). Faster
+          // taps may be absorbed (at 20 a second fire never reads held two game steps running, R1 or X): fewer, never more.
+          if (mode === 1 && rate === 5) expect(sure.steps.length, `${at}: SURE SHOT's re-fire kept`).toBeGreaterThan(1);
+        }
+      });
+    }
+  }
+});
+
+/**
+ * Research 451 §4: the walking pages' trigger fed from the R2 inventory's game lane. `./main` and `./matchMount` handed the
+ * firearm its trigger from the merged lanes before `InventoryMenu.frame`, so a refused open's clear reached nothing that
+ * fires. The page now takes the game's `fire` -- the merged lane less the clear, `InventoryMenu.clears` read before
+ * `frame` -- so the trigger stays where it was in the page frame (ahead of the menu's gate, `press`'s `canChange`) and only
+ * the clear changes what it is fed. No page frame changes order. The two wirings below are the pages' own, run on the
+ * class and the real firearm (`./fire`); the pages' text is pinned at the end (no mount-level harness reaches them).
+ */
+describe('research 451 §4: the walking trigger is the inventory\'s game lane (main.ts, matchMount.ts)', () => {
+  afterEach(() => { controllerConfigs.reset(); });
+
+  /** A page's walking pad frames with the real firearm: `wiring` 'merged' (was) or 'game' (now); each page frame's trigger call and rounds. */
+  const page = (wiring: 'merged' | 'game', config: 'Default' | 'Reverse' | 'Config4' | 'Goldeneye', canChange: boolean, perPull: number, fps: number) => {
+    controllerConfigs.select(config);
+    const h = harness(seal(), { canChange });
+    const eye: [number, number, number] = [0, 20, 0];
+    const wall: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/q', region: 0, ditype: 2, material: 25, ptcount: 4, cameratype: 0, points: Float32Array.from([-50, 0, -30, 50, 0, -30, 50, 50, -30, -50, 50, -30]) };
+    const grid = buildGrid({ atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 }, [], [], [wall],
+      [{ modelName: wall.modelName, path: `${wall.path}0`, first: 0, count: 1 }]);
+    const fire = new Fire({ grid: () => grid, aim: () => ({ eye, far: [0, 20, -1000] }) }, { ...DEFAULT_RIFLE, magazine: 1000 }, undefined, () => 0.5);
+    fire.setGun({ trigger: () => {}, roundsPerPull: () => perPull, interval: (w) => w, round: (d) => d });
+    let rounds = 0;
+    fire.subscribe((e) => { if (e.type === 'round') rounds++; });
+    let padMerged: Input = noInput();
+    const calls: string[] = [], shots: number[] = [], games: Input[] = [], inputs: Input[] = [], held: boolean[] = [], cleared: boolean[] = [];
+    const dt = 1 / fps;
+    /**
+     * The hands (`matchThrow.ts` `hands().trigger`, :830-858), which `matchFirearm.ts`:910 asks first: a throwable up, a
+     * press pulls the pin and a let-go throws it (`grenade.pull` / `release`); the launcher up, a press is a rocket
+     * (`launch`; its raise and NoFire waits not modelled: none run in these scripts). Their counts, `throws` / `rockets`.
+     */
+    let pin = false, throws = 0, rockets = 0;
+    const handsTake = (hand: 'grenade' | 'launcher', down: boolean): void => {
+      if (hand === 'launcher') { if (down) rockets++; return; }
+      if (down) pin = true;
+      else if (pin) { pin = false; throws++; }
+    };
+    let hand: 'grenade' | 'launcher' | undefined;
+    /** The trigger as the pages' `trigger` / `firearm.trigger` hand it to the real firearm, each call recorded (`by`: its source). */
+    const pull = (down: boolean, by: string): string => {
+      if (hand) {                                                     // matchFirearm.ts:910: the hands' (a throwable's, the launcher's)
+        if (!down && fire.triggerHeld()) fire.release();              // :904: a let-go frees the firearm's hold first
+        handsTake(hand, down);
+      } else if (down) fire.pull(); else fire.release();
+      return `${by}${down}`;
+    };
+    /**
+     * One page frame with `lanes` held: the trigger fed as the wiring does, the inventory's frame, the firearm's update.
+     * `off`: the clear's reach is off this frame (a lock, a turret, the mouse captured: main.ts's `reach`). `mouse`: the
+     * camera's `onFire` between the last frame and this one (`./camera`: down only while captured), both wirings alike.
+     * `hand`: a throwable (`grenade.equipped()`) or the launcher (`rocket.up()`) in the hands this frame: the trigger theirs.
+     */
+    const step = (lanes: Partial<Input> & { off?: boolean; mouse?: boolean; hand?: 'grenade' | 'launcher' }): void => {
+      const { off = false, mouse, hand: up, ...pad } = lanes;
+      hand = up;
+      let call = mouse === undefined ? '' : `${pull(mouse, 'mouse:')} `;
+      const input = { ...noInput(), ...pad };
+      if (wiring === 'merged') { if (input.fire !== padMerged.fire) call += pull(input.fire, ''); }
+      const reach = !off && !hand, clearing = reach && h.menu.clears('fire', input);   // the pages' `reach`: no throwable or launcher up
+      if (wiring === 'game') {   // main.ts's three lines: `triggerFeed` every frame, on the reach its edge, off it the old line
+        const fed = h.menu.triggerFeed(padMerged, input, reach);
+        if (reach) { if (fed !== null) call += pull(fed, ''); }
+        else if (input.fire !== padMerged.fire) call += pull(input.fire, '');
+      }
+      const game = h.frame(pad, dt);
+      if (reach) expect(game.fire, 'clears() before frame is frame\'s own game fire').toBe(input.fire && !clearing);
+      const before = rounds;
+      fire.update(dt);
+      calls.push(call); shots.push(rounds - before); games.push(game); inputs.push(input); held.push(fire.triggerHeld()); cleared.push(clearing);
+      padMerged = input;
+    };
+    return { step, calls, shots, games, inputs, held, cleared, rounds: () => rounds, throws: () => throws, rockets: () => rockets };
+  };
+  /** The scripts, page frames of lanes: a hold, taps, and with R2 (`inventory`) pressed into a held trigger. */
+  const hold = (n: number): Partial<Input>[] => [...Array(5).fill({}), ...Array(n).fill({ fire: true }), ...Array(10).fill({})];
+  /** Taps three game frames down, spaced 0.4 s, at `fps`: each held past the kit's second read. */
+  const taps = (n: number, fps: number): Partial<Input>[] => Array.from({ length: n }, (_, i) => (i % Math.ceil(0.4 * fps) < Math.ceil(3 * GAME_FRAME_DT * fps) ? { fire: true } : {}));
+  const refusedR2 = (n: number): Partial<Input>[] => Array.from({ length: n }, (_, i) => ({ fire: i >= 2 && i < n - 4, ...(i % 15 === 7 ? { inventory: true } : {}) }));
+  const run = (p: ReturnType<typeof page>, script: Partial<Input>[]): void => { for (const l of script) p.step(l); };
+
+  it.each([
+    ['Default', 1], ['Default', 3], ['Default', Infinity], ['Reverse', Infinity], ['Config4', 1], ['Goldeneye', 1], ['Goldeneye', Infinity],
+  ] as const)('the inventory closed and idle (%s, %s a pull): the game fire is the merged lane every frame; the trigger press for press as before', (config, perPull) => {
+    for (const fps of [30, 60, 144]) {
+      for (const script of [hold(90), taps(4 * fps, fps)]) {
+        const was = page('merged', config, true, perPull, fps), now = page('game', config, true, perPull, fps);
+        run(was, script); run(now, script);
+        expect(now.games.map((g) => g.fire), `${fps} Hz: game fire === merged fire`).toEqual(now.inputs.map((i) => i.fire));
+        expect(now.calls, `${fps} Hz: the trigger's calls, frame for frame`).toEqual(was.calls);
+        expect(now.shots, `${fps} Hz: the rounds, frame for frame`).toEqual(was.shots);
+        expect(now.rounds()).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('a plain press: the trigger\'s first-down on the same page frame as before, the first round at the kit\'s second read (fire.test.ts:2514)', () => {
+    const was = page('merged', 'Default', true, 1, 30), now = page('game', 'Default', true, 1, 30);
+    run(was, hold(10)); run(now, hold(10));
+    expect(now.calls.indexOf('true')).toBe(5);                     // the press's own page frame
+    expect(was.calls.indexOf('true')).toBe(5);
+    expect(now.shots.indexOf(1), 'read 1 state 1, read 2 held: one game frame after the press').toBe(6);
+    expect(was.shots.indexOf(1)).toBe(6);
+  });
+
+  it.each(['Default', 'Reverse', 'Config4'] as const)('%s: R1 held, R2 refused -- the trigger unchanged (fire is R1, slot 10: the clear never writes it)', (config) => {
+    for (const fps of [30, 60, 144]) for (const perPull of [1, 3, Infinity]) {
+      const was = page('merged', config, false, perPull, fps), now = page('game', config, false, perPull, fps);
+      run(was, refusedR2(100)); run(now, refusedR2(100));
+      expect(now.calls).toEqual(was.calls);
+      expect(now.shots).toEqual(was.shots);
+    }
+  });
+
+  it('SURE SHOT, X held, R1 refused: the clear now reaches the gun -- a let-go and a new press per refusal, one round each on single', () => {
+    const was = page('merged', 'Goldeneye', false, 1, 30), now = page('game', 'Goldeneye', false, 1, 30);
+    const script = refusedR2(100);                                // R1 (`inventory`) six times into a held X
+    run(was, script); run(now, script);
+    const refusals = script.filter((l, i) => l.inventory && l.fire && script[i + 1]?.fire && script[i + 2]?.fire).length;
+    expect(was.rounds(), 'was: one press, one round').toBe(1);
+    expect(now.rounds(), 'now: one more per refusal').toBe(1 + refusals);
+    expect(now.calls.filter((c) => c === 'true').length).toBe(1 + refusals);
+  });
+
+  /**
+   * The blast radius (research 451 §6): seeded random pads -- the trigger, R2 / R1 (`inventory`), the menu's Cross, Up and
+   * Triangle -- with the gate open and closed, every config, single, burst and auto, 30, 60 and 144 Hz. Every reader of
+   * the trigger reads `firearm.trigger`'s calls or what they set (`Fire.triggerHeld`: the network's trigger, `main.ts`
+   * `net?.trigger` / `net?.frame`; the raise's pad, the rounds): outside a clear's frames (and the one after), the calls
+   * and the held trigger are the old wiring's frame for frame; under the three configs whose fire is R1 nothing differs.
+   */
+  it('the blast radius: the trigger fed as before on every frame outside a refused open\'s clear of fire; R1-fire configs on every frame', () => {
+    let seed = 451;
+    const rnd = (): number => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    for (const config of ['Default', 'Reverse', 'Config4', 'Goldeneye'] as const) for (const canChange of [false, true]) for (const fps of [30, 60, 144]) for (const perPull of [1, 3, Infinity]) {
+      const script: Partial<Input>[] = [];
+      let fire = false;
+      for (let i = 0; i < 400; i++) {
+        if (rnd() < 0.08) fire = !fire;
+        script.push({ fire, ...(rnd() < 0.04 ? { inventory: true } : {}), ...(rnd() < 0.05 ? { action: true } : {}), ...(rnd() < 0.03 ? { zoom: true } : {}), ...(rnd() < 0.02 ? { stance: true } : {}) });
+      }
+      const was = page('merged', config, canChange, perPull, fps), now = page('game', config, canChange, perPull, fps);
+      run(was, script); run(now, script);
+      const tag = `${config} gate ${canChange} ${fps} Hz ${perPull}`;
+      if (config !== 'Goldeneye' || canChange) {
+        expect(now.cleared.some(Boolean), `${tag}: no clear of fire`).toBe(false);
+        expect(now.calls, tag).toEqual(was.calls);
+        expect(now.shots, tag).toEqual(was.shots);
+        continue;
+      }
+      expect(now.cleared.some(Boolean), `${tag}: the script reaches a clear`).toBe(true);
+      for (let i = 0; i < script.length; i++) {
+        if (now.cleared[i] || (i > 0 && now.cleared[i - 1])) continue;
+        expect([now.calls[i], now.held[i]], `${tag}, frame ${i}`).toEqual([was.calls[i], was.held[i]]);
+      }
+    }
+  });
+
+  /** A seeded script under SURE SHOT's gate closed: X (`fire`) toggled, R1 (`inventory`) pressed, the reach off at random runs. */
+  const seeded = (seed: number, n: number, offRate: number): (Partial<Input> & { off?: boolean })[] => {
+    const rnd = (): number => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const out: (Partial<Input> & { off?: boolean })[] = [];
+    let fire = false, off = false;
+    for (let i = 0; i < n; i++) {
+      if (rnd() < 0.08) fire = !fire;
+      if (rnd() < offRate) off = !off;
+      out.push({ fire, off, ...(rnd() < 0.06 ? { inventory: true } : {}) });
+    }
+    return out;
+  };
+
+  /**
+   * Research 451 §6, the turret, a lock, the dead, a captured mouse: off the clear's reach the page runs the old line, and
+   * `triggerFeed`'s own answer there is the old feed -- the merged lane's edge -- whatever the clear holds. So every call
+   * made on such a frame is the old wiring's call, frame for frame, even inside a refused open's clear; a turret (called
+   * only while it is held: `matchActions.ts`:601) sees nothing of the clear.
+   */
+  it('off the reach (a turret held, a lock, the dead, the mouse captured): every trigger call is the old line\'s, frame for frame, inside a clear too', () => {
+    for (const fps of [30, 60, 144]) for (const perPull of [1, 3, Infinity]) for (const [seed, rate] of [[7, 0.05], [451, 0.2], [1340, 0.5]] as const) {
+      const script = seeded(seed, 600, rate);
+      const was = page('merged', 'Goldeneye', false, perPull, fps), now = page('game', 'Goldeneye', false, perPull, fps);
+      run(was, script); run(now, script);
+      const tag = `${fps} Hz ${perPull} seed ${seed}`;
+      let offInClear = 0;
+      for (let i = 0; i < script.length; i++) {
+        if (!script[i]!.off) continue;
+        expect(now.calls[i], `${tag}, frame ${i}`).toBe(was.calls[i]);
+        if (now.games[i]!.fire !== now.inputs[i]!.fire) offInClear++;   // the inventory's own clear running, off the reach
+      }
+      expect(offInClear, `${tag}: the script runs a clear off the reach`).toBeGreaterThan(0);
+    }
+  });
+
+  it('the seam: triggerFeed off the reach is the merged lane\'s edge exactly (after.fire against before.fire), a clear pending or not', () => {
+    controllerConfigs.select('Goldeneye');
+    const h = harness(seal(), { canChange: false });
+    for (let i = 0; i < 3; i++) h.frame({ fire: true });
+    h.frame({ fire: true, inventory: true });                       // refused: X's clear pending
+    expect(h.menu.clears('fire', { ...noInput(), fire: true })).toBe(true);
+    for (const b of [false, true]) for (const a of [false, true]) {
+      expect(h.menu.triggerFeed({ ...noInput(), fire: b }, { ...noInput(), fire: a }, false), `${b} -> ${a}`).toBe(a !== b ? a : null);
+    }
+  });
+
+  it('MOUNTED (a turret: the walk locked, `acts.turrets.mounted()` set): a refused R1 on SURE SHOT with X held -- no clear reaches the trigger, one press and one round as before', () => {
+    for (const fps of [30, 60, 144]) for (const perPull of [1, 3, Infinity]) {
+      const script = refusedR2(100).map((l) => ({ ...l, off: true }));
+      const was = page('merged', 'Goldeneye', false, perPull, fps), now = page('game', 'Goldeneye', false, perPull, fps);
+      run(was, script); run(now, script);
+      expect(now.games.some((g, i) => g.fire !== now.inputs[i]!.fire), 'the inventory\'s clear ran').toBe(true);
+      expect(now.calls).toEqual(was.calls);
+      expect(now.calls.filter((c) => c === 'true').length).toBe(1);
+      expect(now.shots).toEqual(was.shots);
+      expect(now.held).toEqual(was.held);
+    }
+  });
+
+  /**
+   * Research 451 §4, §6: the throwables and the launcher, LEFT OUT (unread). `matchFirearm.ts`:910 hands every trigger edge
+   * to the hands first (`matchThrow.ts`:830-858): a throwable up, a let-go then a press is a throw and a new pin; the
+   * launcher up, a second rocket. Whether the original's clear reaches either is not read, so a throwable or the launcher
+   * in the hands puts the page off the reach (`!grenade.equipped() && !rocket.up()`, main.ts's and matchMount.ts's `reach`)
+   * and the old line runs: the hands get the old wiring's calls, frame for frame.
+   */
+  it.each(['grenade', 'launcher'] as const)('SURE SHOT, a %s in the hands, X held, R1 refused: no throw or rocket more than before, the same trigger calls', (up) => {
+    for (const fps of [30, 60, 144]) {
+      const script = refusedR2(100).map((l) => ({ ...l, hand: up }));    // X held 2..95, R1 every 15 frames: refused
+      const was = page('merged', 'Goldeneye', false, 1, fps), now = page('game', 'Goldeneye', false, 1, fps);
+      run(was, script); run(now, script);
+      const tag = `${up} ${fps} Hz`;
+      expect(now.games.some((g, i) => g.fire !== now.inputs[i]!.fire), `${tag}: the inventory's clear ran`).toBe(true);
+      expect(now.calls, tag).toEqual(was.calls);
+      expect([now.throws(), now.rockets()], tag).toEqual([was.throws(), was.rockets()]);
+      expect([was.throws(), was.rockets()], `${tag}: one pin held to the let-go, or one rocket`).toEqual(up === 'grenade' ? [1, 0] : [0, 1]);
+      expect(now.rounds(), `${tag}: the firearm fires nothing`).toBe(0);
+    }
+  });
+
+  /**
+   * The reach toggling inside a clear's game frame (the review's item 2): a turret, a lock, a capture or a throwable taken
+   * up or put down on the page frames a clear spans (144 Hz: five). The trigger's level, frame for frame: never held with
+   * X up; the clear's let-go and re-press where the reach is on at both; the residue §4 names where the reach turns off
+   * after the let-go and stays off past the clear's end -- let go with X held -- recovered by the next X press.
+   */
+  describe('the reach toggled inside a clear (144 Hz, X held from frame 4, R1 refused at frame 10)', () => {
+    const fps = 144, R = 10;
+    /** The script: X held 4..`xUp`-1 and again from `xDown`; `offAt` the frames off the reach. */
+    const script = (offAt: (i: number) => boolean, xUp = 80, xDown = 100):(Partial<Input> & { off?: boolean })[] =>
+      Array.from({ length: 100 }, (_, i) => ({ fire: i >= 4 && (i < xUp || i >= xDown), off: offAt(i), ...(i === R ? { inventory: true } : {}) }));
+    /** The frames the clear holds `fire` (on the reach throughout). */
+    const clearFrames = (): number[] => { const p = page('game', 'Goldeneye', false, 1, fps); run(p, script(() => false)); return p.cleared.flatMap((c, i) => (c ? [i] : [])); };
+    const levels = (s: (Partial<Input> & { off?: boolean })[]): boolean[] => { const p = page('game', 'Goldeneye', false, 1, fps); run(p, s); return p.held; };
+    /** `true` on frames `from`..`to`-1, else false. */
+    const span = (...runs: [number, number][]): boolean[] => Array.from({ length: 100 }, (_, i) => runs.some(([a, b]) => i >= a && i < b));
+
+    it('the clear spans frames 11-15 here (the frame after the refusal, its game frame of dt)', () => {
+      expect(clearFrames()).toEqual([11, 12, 13, 14, 15]);
+      expect(levels(script(() => false)), 'on throughout: the let-go at 11, the re-press at 16').toEqual(span([4, 11], [16, 80]));
+    });
+    it('on -> off -> on (off 12-13): let go at 11, re-pressed at 16 as on throughout', () => {
+      expect(levels(script((i) => i === 12 || i === 13))).toEqual(span([4, 11], [16, 80]));
+    });
+    it('on -> off -> on -> off -> on (off 12, 14): the same', () => {
+      expect(levels(script((i) => i === 12 || i === 14))).toEqual(span([4, 11], [16, 80]));
+    });
+    it('off -> on (off 10-12): held through the off frames, let go at 13, re-pressed at 16', () => {
+      expect(levels(script((i) => i >= 10 && i <= 12))).toEqual(span([4, 13], [16, 80]));
+    });
+    it('off throughout the clear (10-15): the old line -- held, no let-go', () => {
+      expect(levels(script((i) => i >= 10 && i <= 15))).toEqual(span([4, 80]));
+    });
+    it('on -> off past the clear\'s end (off 12-29): the residue -- let go with X held -- till X\'s next press (up 40, down 45)', () => {
+      expect(levels(script((i) => i >= 12 && i <= 29, 40, 45))).toEqual(span([4, 11], [45, 100]));
+      expect(levels(script((i) => i >= 12 && i <= 50, 40, 45)), 'the next press off the reach too').toEqual(span([4, 11], [45, 100]));
+    });
+    it('seeded: the reach toggled at random over refused R1s -- never held with X up, and held after every X press outside a clear', () => {
+      for (const seed of [11, 451, 1340]) {
+        const s = seeded(seed, 800, 0.3);
+        const p = page('game', 'Goldeneye', false, 1, fps);
+        run(p, s);
+        for (let i = 0; i < s.length; i++) {
+          if (!s[i]!.fire) expect(p.held[i], `seed ${seed} frame ${i}: X up, the trigger up`).toBe(false);
+          const pressed = !!s[i]!.fire && !(i > 0 && s[i - 1]!.fire);
+          if (pressed && !p.cleared[i]) expect(p.held[i], `seed ${seed} frame ${i}: X's press holds it`).toBe(true);
+        }
+      }
+    });
+  });
+
+  /**
+   * The mouse (`./camera`): its trigger goes down only while the pointer is captured (camera.ts:1196-1197) and is let go
+   * when the capture ends (camera.ts:1322-1324), and a captured mouse puts the pages off the reach (`!fly.isLocked()`). So
+   * on every frame the mouse can hold the trigger the page runs the old line, and the clear never lets go of it.
+   */
+  it('the mouse held with X (captured), a refused R1, X let go inside the clear: the calls, the level and the rounds frame for frame as before', () => {
+    for (const fps of [30, 60, 144]) for (const perPull of [1, 3, Infinity]) {
+      const clearFrames = Math.ceil(GAME_FRAME_DT * fps);
+      const script: (Partial<Input> & { off?: boolean; mouse?: boolean })[] = [];
+      for (let i = 0; i < 60; i++) {
+        const xDown = i >= 4 && i < 12 + Math.floor((clearFrames - 1) / 2);   // R1 at 10; the clear from 11: X let go inside it (30 Hz: its one frame, then up)
+        script.push({ off: true, fire: xDown, ...(i === 2 ? { mouse: true } : i === 50 ? { mouse: false } : {}), ...(i === 10 ? { inventory: true } : {}) });
+      }
+      const was = page('merged', 'Goldeneye', false, perPull, fps), now = page('game', 'Goldeneye', false, perPull, fps);
+      run(was, script); run(now, script);
+      const tag = `${fps} Hz ${perPull}`;
+      expect(now.games.some((g, i) => g.fire !== now.inputs[i]!.fire), `${tag}: the clear ran`).toBe(true);
+      expect(now.calls, tag).toEqual(was.calls);
+      expect(now.held, tag).toEqual(was.held);
+      expect(now.shots, tag).toEqual(was.shots);
+    }
+  });
+
+  it('the mouse, random: on every frame the mouse holds the trigger (captured: off the reach) the calls are the old wiring\'s', () => {
+    for (const fps of [30, 60, 144]) for (const seed of [3, 97, 451]) {
+      let s = seed;
+      const rnd = (): number => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+      const script: (Partial<Input> & { off?: boolean; mouse?: boolean })[] = [];
+      let fire = false, captured = false, mouse = false, mouseFrames = 0;
+      const held: boolean[] = [];
+      for (let i = 0; i < 600; i++) {
+        let ev: boolean | undefined;
+        if (rnd() < 0.04) { captured = !captured; if (!captured && mouse) { mouse = false; ev = false; } }   // camera.ts:1324: the capture's end lets go
+        else if (captured && rnd() < 0.08) { mouse = !mouse; ev = mouse; }                                  // camera.ts:1197: down only captured
+        if (rnd() < 0.08) fire = !fire;
+        script.push({ fire, off: captured, ...(ev === undefined ? {} : { mouse: ev }), ...(rnd() < 0.06 ? { inventory: true } : {}) });
+        held.push(mouse);
+        if (mouse) mouseFrames++;
+      }
+      const was = page('merged', 'Goldeneye', false, 1, fps), now = page('game', 'Goldeneye', false, 1, fps);
+      run(was, script); run(now, script);
+      expect(mouseFrames).toBeGreaterThan(0);
+      for (let i = 0; i < script.length; i++) {
+        if (!held[i]) continue;
+        expect(script[i]!.off, `frame ${i}: a held mouse is captured`).toBe(true);
+        expect(now.calls[i], `${fps} Hz seed ${seed}, frame ${i}`).toBe(was.calls[i]);
+      }
+    }
+  });
+
+  it('a spectator or the dead (the walk locked, `alive` false): off the reach, and the refused R2 clears nothing at all (D:L71617-71620)', () => {
+    for (const config of ['Default', 'Goldeneye'] as const) {
+      const script = refusedR2(100);
+      const run2 = (wiring: 'merged' | 'game') => {
+        controllerConfigs.select(config);
+        const h = harness(seal(), { alive: false, canChange: false });
+        let before: Input = noInput();
+        const calls: (boolean | null)[] = [], games: Input[] = [];
+        for (const pad of script) {
+          const input = { ...noInput(), ...pad };
+          calls.push(wiring === 'game' ? h.menu.triggerFeed(before, input, false) : input.fire !== before.fire ? input.fire : null);
+          expect(h.menu.clears('fire', input)).toBe(false);
+          games.push(h.frame(pad));
+          before = input;
+        }
+        return { calls, games };
+      };
+      const was = run2('merged'), now = run2('game');
+      expect(now.calls).toEqual(was.calls);
+      expect(now.games.map((g) => g.fire)).toEqual(script.map((l) => !!l.fire));
+    }
+  });
+
+  it('a close inside the clear (the loading hold\'s flush, a screen\'s opening, a spawn) ends it: the next edge is the merged lane\'s, as before', () => {
+    controllerConfigs.select('Goldeneye');
+    const h = harness(seal(), { canChange: false });
+    const x = { ...noInput(), fire: true };
+    for (let i = 0; i < 3; i++) { h.menu.triggerFeed(x, x, true); h.frame({ fire: true }, 1 / 144); }
+    expect(h.menu.triggerFeed(x, { ...x, inventory: true }, true)).toBe(null);
+    h.frame({ fire: true, inventory: true }, 1 / 144);                 // refused: the clear pending
+    expect(h.menu.triggerFeed({ ...x, inventory: true }, x, true), 'the clear\'s let-go').toBe(false);
+    h.menu.close();
+    expect(h.menu.triggerFeed(x, x, true), 'after the close: X held is no edge').toBe(null);
+  });
+
+  it('the replay viewer: its steer lane writes no trigger and no R1 (worldSteer.ts steerInput), so a refused R1 is the live pad\'s alone', () => {
+    const full = { moveX: 1, moveY: -1, lift: 1, boost: true, lookX: 1, lookY: -1 };
+    for (const fire of [false, true]) for (const inventory of [false, true]) {
+      const out = steerInput({ ...noInput(), fire, inventory }, full);
+      expect([out.fire, out.inventory]).toEqual([fire, inventory]);
+    }
+    const main = src('main.ts');
+    expect(main).toMatch(/let playOn = REPLAY_WORLD \? false : /);   // framed as the replay's world: a watcher, no play
+  });
+
+  const src = (f: string): string => readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../src', f), 'utf8');
+  /** The reach both pages compute: the walk unlocked and alive, no turret held, the mouse not captured (then the hands, per page). */
+  const REACH_GUARD = '!walk.isLocked() && !walk.isDead() && acts.turrets.mounted() === null && !fly.isLocked()';
+  it('main.ts: the trigger fed by triggerFeed on the reach (walking, no menu, unlocked, alive, no turret, the mouse free, no throwable or launcher up), the old line off it, ahead of inventory.frame', () => {
+    const main = src('main.ts');
+    const body = main.slice(main.indexOf('function padFrame('));
+    const at = (needle: string): number => { const i = body.indexOf(needle); expect(i, needle).toBeGreaterThan(0); return i; };
+    const reach = at(`const reach = walking && !menu && ${REACH_GUARD}\n    && !grenade.equipped() && !rocket.up();`);
+    expect(main).toContain('const { grenade, rocket, throwPose, whiteOut, inventory } = throws;');   // the hands' own (`throws.hands`)
+    expect(at("const walking = playOn && walk.mode() === 'walk';")).toBeLessThan(reach);
+    const fed = at('const fed = inventory.triggerFeed(padMerged, input, reach);');
+    const onReach = at('if (reach) { if (fed !== null) trigger(fed); }');
+    const old = at('else if (playOn && !menu && input.fire !== padMerged.fire) trigger(input.fire);');
+    const menu = at('else if (menu && padMerged.fire) trigger(false);');
+    const frame = at('const game = menu || !walking ? input : inventory.frame(padMerged, input, dt, frameTime.real());');
+    expect([reach < fed, fed < onReach, onReach < old, old < menu, menu < frame]).toEqual([true, true, true, true, true]);
+    expect(body.slice(onReach, old).split('\n').length, 'the reach\'s branch and the old line one if-else chain').toBe(2);
+  });
+
+  it('matchMount.ts: the same reach and feed; off it the old triggerLane line, ahead of the inventory\'s frame', () => {
+    const mount = src('matchMount.ts');
+    const body = mount.slice(mount.indexOf('const padFrame = '));
+    const at = (needle: string): number => { const i = body.indexOf(needle); expect(i, needle).toBeGreaterThan(0); return i; };
+    const reach = at(`const reach = !menu && walking && ${REACH_GUARD}\n      && !throws.grenade.equipped() && !throws.rocket.up();`);
+    const fed = at('const fed = throws.inventory.triggerFeed(padMerged, input, reach);');
+    const old = at('if (!reach) firearm.triggerLane(padMerged, input);');
+    const onReach = at('else if (fed !== null) firearm.trigger(fed);');
+    const frame = at('const game = menu || !walking ? input : throws.inventory.frame(padMerged, input, dt, frameTime.real());');
+    expect([at("const walking = walk.mode() === 'walk';") < reach, reach < fed, fed < old, old < onReach, onReach < frame]).toEqual([true, true, true, true, true]);
+  });
 });

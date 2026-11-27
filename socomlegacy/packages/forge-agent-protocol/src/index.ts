@@ -722,6 +722,8 @@ export const REFUSAL_HINTS: Readonly<Record<string, string>> = Object.freeze({
   UNSUPPORTED_FORMAT: "That file format is not supported: call agent_capabilities for the accepted formats.",
   LOCAL_FILES_UNAVAILABLE: "Local packs are not available on this page (no local folder or files chosen, or a browser without support): ask the player to choose a folder or add files, or continue without packs.",
   STORAGE_FAILED: "The browser's storage refused the write (it may be full): ask the player to free space, then retry.",
+  // LATER 1135: a file's request failed every time it was tried -- not a bad file; the fetched files are kept.
+  DOWNLOAD_FAILED: "A file of the pack could not be downloaded after several tries (the network): retry the same install; it resumes from the files already kept.",
   DIGEST_MISMATCH: "The data did not match its digest: send it again from the start.",
   ITEM_TOO_LARGE: "One item alone is larger than a page of the answer: read a narrower section or a smaller selection.",
   MAP_IMPORT_FAILED: "The map could not be imported: ask the player for a different map pack.",

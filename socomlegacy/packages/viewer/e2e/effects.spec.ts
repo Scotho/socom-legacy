@@ -106,7 +106,7 @@ test('Frostfire: the M4A1 flash rides the muzzle while the SEAL runs and fires (
   await page.locator('canvas').first().hover();
   await page.keyboard.down('KeyW');
   await page.waitForTimeout(700);
-  type Sample = { flash: [number, number, number] | null; muzzle: [number, number, number] | null; feet: number[] | null };
+  type Sample = { flash: [number, number, number] | null; muzzle: [number, number, number] | null; unbent: [number, number, number] | null; feet: number[] | null };
   const samples: Sample[] = [];
   for (let i = 0; i < 8; i++) {
     // One round, then the flash and the posed muzzle read in the same frame, one page frame on: the body has moved a
@@ -114,7 +114,7 @@ test('Frostfire: the M4A1 flash rides the muzzle while the SEAL runs and fires (
     samples.push(await page.evaluate(() => new Promise<Sample>((done) => {
       window.__viewer.shoot();
       requestAnimationFrame(() => done({
-        flash: window.__viewer.effects().flashAt, muzzle: window.__viewer.weapon().muzzle, feet: window.__viewer.feet(),
+        flash: window.__viewer.effects().flashAt, muzzle: window.__viewer.weapon().drawnMuzzle, unbent: window.__viewer.weapon().muzzle, feet: window.__viewer.feet(),
       }));
     })));
     await page.waitForTimeout(150);
@@ -124,7 +124,11 @@ test('Frostfire: the M4A1 flash rides the muzzle while the SEAL runs and fires (
   const lit = samples.filter((s) => s.flash && s.muzzle);
   expect(lit.length).toBeGreaterThanOrEqual(5);                        // a flash drawn a frame after most rounds
   // On the muzzle as it is posed this frame: the same matrix, so float error only -- a flash left where the gun was at
-  // the shot would sit a stride back (0.3 units a frame at 60 fps, more at fewer).
+  // the shot would sit a stride back (0.3 units a frame at 60 fps, more at fewer). The flash is a model on the gun AS DRAWN,
+  // so it rides the drawn firepoint (`drawnMuzzle`), the recoil bend kept; `muzzle` is the unbent arm chain's, where the
+  // round leaves (research 442, the main controller's ruling (B)). The bend's offset between the two is logged.
+  const bend = lit.filter((s) => s.unbent).map((s) => dist(s.muzzle!, s.unbent!));
+  console.log(`the recoil bend's offset of the drawn muzzle from the unbent one: ${bend.map((d) => d.toFixed(3)).join(' ')}`);
   const off = lit.map((s) => dist(s.flash!, s.muzzle!));
   expect(Math.max(...off), `flash to muzzle, each lit sample: ${off.map((d) => d.toFixed(4)).join(' ')}`).toBeLessThan(0.05);
   expect(dist(start, lit[lit.length - 1]!.feet!)).toBeGreaterThan(4);  // while the SEAL ran from where he stood

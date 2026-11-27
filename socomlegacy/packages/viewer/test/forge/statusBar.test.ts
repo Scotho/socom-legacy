@@ -147,6 +147,9 @@ vi.mock('../../src/forge/archives', () => ({ Archives: class {
   clips = async () => null;
   list = async () => ({ entries: [], problems: [] });
   load = archiveLoad;
+  census = async () => null;
+  props = async () => null;
+  scriptNames = async () => null;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
@@ -181,7 +184,7 @@ describe('the mounted Forge\'s status bar (FUI-4)', () => {
     expect(chipWord('issues')).toBe('Not checked');
     expect(chipWord('lobby'), 'no lobby, no lobby chip').toBeNull();
     expect(document.querySelector('.fx-loading-bar')!.getAttribute('role')).toBe('progressbar');
-    expect(document.querySelector('.fx-outliner')!.textContent, 'the empty state names the next step').toMatch(/Nothing placed yet.+(place|choose|pick)/i);
+    expect(document.querySelector('.fx-outliner')!.textContent, 'the empty state names the next step').toMatch(/Nothing placed yet.+(click|spawn)/i);   // his words (PR #5): 'click an asset or an object button to spawn it'
 
     expect(await api.execute('spawn.place', { team: 'A', at: [0, 80, 0] }, api.read().revision)).toMatchObject({ ok: true });
     expect(chipWord('save')).toBe('Saving…');

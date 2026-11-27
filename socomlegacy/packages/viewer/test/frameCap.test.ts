@@ -69,4 +69,24 @@ describe('frameCapGate (VS-4): draws skipped between the cap\'s intervals, never
   it('the first frame draws, whatever the cap', () => {
     for (const cap of [0, 30, 60, 120] as const) expect(frameCapGate(cap).shouldDraw(5)).toBe(true);
   });
+
+  it('LATER 1321: restart() -- the next frame draws even where the cap would skip it, the cadence restarted from it, the cap kept', () => {
+    const gate = frameCapGate(30);
+    let t = 0;
+    const drawn: boolean[] = [];
+    for (let i = 0; i < 9; i++) { t += 1000 / 60; drawn.push(gate.shouldDraw(t)); }
+    expect(drawn.filter(Boolean).length).toBe(5);                                       // every other frame at 30 on 60 Hz
+    expect(drawn.at(-1)).toBe(true);                                                     // the last drew: unasked, the next is skipped
+    gate.restart();
+    t += 1000 / 60;
+    expect(gate.shouldDraw(t)).toBe(true);                                               // drawn after all
+    t += 1000 / 60;
+    expect(gate.shouldDraw(t)).toBe(false);                                              // the cadence counted from it
+    t += 1000 / 60;
+    expect(gate.shouldDraw(t)).toBe(true);
+    expect(gate.cap()).toBe(30);
+    let n = 0;
+    for (let i = 0; i < 600; i++) { t += 1000 / 60; if (gate.shouldDraw(t)) n++; }
+    expect(Math.abs(n - 300)).toBeLessThanOrEqual(1);                                   // still 30 a second after
+  });
 });

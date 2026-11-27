@@ -6,7 +6,7 @@ import { aiCellCentre, aiCellIndex, aiCellY, type AiLoc, type AiMaps } from '@s2
 import { HostagePathPlanner, locateAiCell } from '../../../match/src/hostagePath';
 
 /**
- * The AI map overlay (the owner, 2026-11-12: "Is there any way we can visualize [the nav grid]?"; a browser adaptation,
+ * The AI map overlay (the Forge's owner (crispy, OT.R112), 2026-11-12: "Is there any way we can visualize [the nav grid]?"; a browser adaptation,
  * FG.R2 -- the game draws no such thing): every stored cell of the map's `AIMAPS.MPS` (research 75 §4, read by
  * `@s2u/scene` `parseAiMaps`) drawn as a flat tile at its own height (`aiCellY`), coloured by its soil (bits 0-4 of the
  * cell word, named by research 200 §2). It shows the original's data only; nothing here changes what the AI does.
@@ -26,7 +26,7 @@ export const AI_SOIL_NAMES: Readonly<Record<number, string>> = {
 
 /**
  * The overlay's kinds, in the legend's order, with their colours (a browser adaptation's own, no original): walkable
- * ground green, the special soils by kind (stairs blue, climb amber, steep violet -- not orange, the selection's colour: the owner, 2026-11-16 -- water cyan), the blocked ones red,
+ * ground green, the special soils by kind (stairs blue, climb amber, steep violet -- not orange, the selection's colour: the Forge's owner (crispy, OT.R112), 2026-11-16 -- water cyan), the blocked ones red,
  * collision dark red. `note` is what the planner does on it (research 200 §1.2-§1.3).
  */
 export type AiSoilKind = 'walkable' | 'stairs' | 'climb' | 'steep' | 'water' | 'blocked' | 'collision';
@@ -120,7 +120,7 @@ export function buildAiLinks(ai: AiMaps): { group: Group; count: number; dispose
 }
 
 /**
- * The overlay's legend in the viewport (the owner, 2026-11-12: "a little legend in the viewport indicating what each
+ * The overlay's legend in the viewport (the Forge's owner (crispy, OT.R112), 2026-11-12: "a little legend in the viewport indicating what each
  * colour means"): a swatch and a word for each kind the map has, its cell count, and what the planner does on it.
  */
 export function drawAiMapLegend(host: HTMLElement, counts: ReadonlyMap<AiSoilKind, number>, extras: readonly AiLegendExtra[] = []): void {
@@ -197,7 +197,7 @@ const ROUTE_OK = 0xf4d35e;
 const ROUTE_NONE = 0xff3b30;
 
 /**
- * The route preview (the owner, 2026-11-12): each start's route to the cheapest goal by the hostage planner
+ * The route preview (the Forge's owner (crispy, OT.R112), 2026-11-12): each start's route to the cheapest goal by the hostage planner
  * (`HostagePathPlanner.plan`, research 200/333: the A*, its BASIC costs and its smoothing, no budget), drawn as a line
  * through its waypoints over the tiles; a start with no route gets a red ring. The planner's own runtime obstacles
  * (moving bodies) are not modelled here: the map's cells alone.

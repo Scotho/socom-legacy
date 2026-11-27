@@ -1,17 +1,18 @@
 /**
- * The Forge's keyboard shortcuts, every one in one list (the owner, 2026-11-20: "we need to overhaul all shortcuts for
+ * The Forge's keyboard shortcuts, every one in one list (the Forge's owner (crispy, OT.R112), 2026-11-20: "we need to overhaul all shortcuts for
  * all things ... fully customize what shortcuts they can use for each command"; a browser adaptation, the game has no
  * editor). Each command has an id, a name, where it applies (`scopes`), the layer it sits on (a running tool's keys
  * come before the mode's, the camera's while it flies before the editor's), and its default keys -- the reference
- * editor's in Geometry mode (the owner: "for the geometry editing tools, we should try to stay consistent with the
+ * editor's in Geometry mode (the Forge's owner (crispy, OT.R112): "for the geometry editing tools, we should try to stay consistent with the
  * hammer shortcuts"). The page, Geometry mode, the camera, the Outliner, the menus' key column and the tooltips all
  * read their keys from here, so a key changed in Edit > Preferences is changed everywhere.
  *
  * A key is stored by where it sits on the keyboard (`KeyboardEvent.code`: `KeyZ`, `Digit1`, `NumpadAdd`), so a set works
  * on any layout; Ctrl and Cmd are one modifier. A chord is written `Ctrl+Alt+Shift+Code`, modifiers in that order.
- * Custom keys are kept in this browser only (the owner: "store it ... locally in their browser cache ... don't store it
+ * Custom keys are kept in this browser only (the Forge's owner (crispy, OT.R112): "store it ... locally in their browser cache ... don't store it
  * in the map"), and can be exported to a file and imported again.
  */
+import { pageSettings } from '../pageStore';
 
 /** Where a command applies. `forge`: the Forge editor outside Geometry mode; `geo:*`: Geometry mode's selection modes. */
 export type ShortcutScope =
@@ -148,7 +149,7 @@ export const SHORTCUT_COMMANDS: readonly ShortcutCommand[] = [
   c('polygon.back', 'Polygon: take back the last point', 'Running tools', ['tool:polygon'], ['Backspace'], 'tool'),
   c('polygon.cancel', 'Polygon: cancel', 'Running tools', ['tool:polygon'], ['Escape'], 'tool'),
   c('paint.back', 'Paint / Sample: back to Select', 'Running tools', ['tool:paint'], ['Escape'], 'tool'),
-  // The Outliner, while it has the focus (its arrow keys taken out again: the owner, 2026-11-20).
+  // The Outliner, while it has the focus (its arrow keys taken out again: the Forge's owner (crispy, OT.R112), 2026-11-20).
   c('outliner.rename', 'Rename', 'Outliner (when focused)', ['outliner'], ['F2'], 'panel'),
 ];
 
@@ -230,14 +231,14 @@ export function onShortcutsChange(f: () => void): () => void { listeners.add(f);
 
 function readStore(): Record<string, string[]> {
   try {
-    const raw = globalThis.localStorage?.getItem(STORE_KEY);
+    const raw = pageSettings.get(STORE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as { version?: number; keys?: Record<string, unknown> };
     return sanitize(parsed.keys ?? {});
   } catch { return {}; }
 }
 function writeStore(): void {
-  try { globalThis.localStorage?.setItem(STORE_KEY, JSON.stringify({ version: 1, keys: custom })); } catch { /* storage refused: kept for this visit */ }
+  pageSettings.set(STORE_KEY, JSON.stringify({ version: 1, keys: custom }));   // refused: kept for this visit, the store says why once
 }
 function sanitize(keys: Record<string, unknown>): Record<string, string[]> {
   const out: Record<string, string[]> = {};
@@ -333,7 +334,9 @@ export function exportShortcuts(): string {
 export function importShortcuts(text: string): { ok: true; count: number } | { ok: false; error: string } {
   let parsed: { format?: string; keys?: Record<string, unknown> };
   try { parsed = JSON.parse(text) as typeof parsed; } catch { return { ok: false, error: 'That file is not a shortcut set (it is not JSON).' }; }
-  if (parsed.format !== 'forge-shortcuts' || !parsed.keys || typeof parsed.keys !== 'object') return { ok: false, error: 'That file is not a Forge shortcut set.' };
+  // PR #5 D6 (ours): JSON that is no object (null, a number, a list, a string) is refused in words, not thrown.
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+    || parsed.format !== 'forge-shortcuts' || !parsed.keys || typeof parsed.keys !== 'object') return { ok: false, error: 'That file is not a Forge shortcut set.' };
   remember();
   custom = sanitize(parsed.keys);
   commit();

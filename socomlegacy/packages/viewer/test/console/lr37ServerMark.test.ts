@@ -6,9 +6,9 @@ import { createState, type Adapters } from '../../src/console/state';
 
 /**
  * LR-37 (5; the owner, 2026-10-29: "Add a status icon for Server status on the front page (subtle)."). A small, low-contrast
- * mark in the header's brand row, after the version badge, on Home only (since LR-39 the overlay's too): central's status as the
- * server adapter reads it (`status()`, the Server screen's tone rule: ready online, `alert: false` checking, else
- * unreachable), its words in its label. A browser adaptation.
+ * mark in the header's brand row, after the version badge, on every tab and screen (the owner, 2026-11-18; was Home only):
+ * central's status as the server adapter reads it (`status()`, the Server screen's tone rule: ready online, `alert: false`
+ * checking, else unreachable), its words in its label. A browser adaptation.
  */
 const withStatus = (st: ReturnType<Adapters['server']['status']>): Adapters => {
   const A = sampleAdapters();
@@ -47,16 +47,17 @@ describe('LR-37 (5): the front page\'s server status mark', () => {
     }
   });
 
-  // LR-39 (LR.R32, the owner, 2026-10-31): the overlay's Home is the page's, so it carries the mark too (was: none over a game).
-  it('not on another screen; on the overlay\'s Home over a game too (LR-39)', () => {
+  // The owner, 2026-11-18: on every tab and screen, page and overlay, so the header's donation box does not move (was:
+  // Home only, LR-40 (8); LR-39 gave the overlay's Home it).
+  it('on every screen, page and overlay', () => {
     const A = sampleAdapters();
     const S = createState(A);
     S.screen = 'options';
-    expect(markOf(headerHtml(S, A))).toBeNull();
+    expect(markOf(headerHtml(S, A))).not.toBeNull();
     S.screen = 'home';
     S.mode = 'overlay';
     expect(markOf(headerHtml(S, A))).not.toBeNull();
     S.screen = 'options';
-    expect(markOf(headerHtml(S, A))).toBeNull();
+    expect(markOf(headerHtml(S, A))).not.toBeNull();
   });
 });

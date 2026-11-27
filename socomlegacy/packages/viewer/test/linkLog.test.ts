@@ -76,3 +76,15 @@ describe('linkLog: which programs link, and whether a frame waits (research 90 #
     expect(log.total).toBe(450);
   });
 });
+
+describe('XBOX-CAUSE-B: the time of the last link', () => {
+  it('lastAt is null before any link and the record’s time after each', () => {
+    let t = 100;
+    const log = new LinkLog(() => t);
+    expect(log.lastAt).toBeNull();
+    log.record({ object: null, material: null }, true);
+    expect(log.lastAt).toBe(100);
+    t = 250; log.record({ object: null, material: null }, false);
+    expect(log.lastAt).toBe(250);
+  });
+});

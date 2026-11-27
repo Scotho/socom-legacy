@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { buildGrid, polygonNormal, type CollisionOwner, type GridParams, type WorldPoly } from '@s2u/scene';
-import { Walker } from '../src/mover';
+import { throttleFrameEnds, Walker } from '../src/mover';
 
 /**
  * LATER 678 (simulation track; research 217 s2.9, "The crouch run's release"; `CROUCH_RUN_RETURN_READING`, research 101):
@@ -28,9 +28,15 @@ const EAST = 270;
 const WALL = 50;
 /** The capture's stand-offs (feet to the plane): the crouch run at rest, and where the release ends. */
 const CAPTURE_REST = 5.85, CAPTURE_END = 12.88;
+/** The capture's start, feet to the plane (house-crouch `--at` x 5395.45 against the plane x 5425). */
+const CAPTURE_START = 5425 - 5395.45;
+/** Script ms to 60 Hz ticks from the placing. */
+const ms = (t: number): number => Math.round(t * 60 / 1000);
 /**
  * The tolerances, stated: at rest the port stops between the centre line's reach (1.1 x 1.4 x 3.5 = 5.39) and that plus
- * one 60 Hz move of the run (65 / 60; owner ruling R8, research 217 s2.9 checkpoint 4), so 5.85 within 0.7; the end
+ * one move of the run -- a 60 Hz tick's (65 / 60) when it was set (owner ruling R8, research 217 s2.9 checkpoint 4); with
+ * the walls met once a game frame (LATER 1194) the band is a frame's move, (5.39, 7.56], and 0.7 is kept, narrower than
+ * that band: the phase (below) decides where in it the body rests, not the tolerance -- so 5.85 within 0.7; the end
  * within 1 u (the port's fixed crouched muzzle reach gives 12.58, checkpoints 1-3; the original's posed reach and the
  * clip's root travel are not read).
  */
@@ -56,11 +62,28 @@ describe("LATER 678: a crouch run let go against a wall (ac's r0004 house2 captu
   it('LATER 678: the release plays Stand -> Crouch and its push puts the body out to about 12.88 off the wall, never nearer than its rest', () => {
     const w = new Walker(world());
     w.stanceSeparate = true;                                          // SEPARATE: the release is built there only (OT.R93)
-    expect(w.place(WALL - 30, 1, 0)).toBe(true);
+    // LATER 1194B: the capture's own start and script times (research 444 s10). The walls are met once a game frame, so a
+    // pressed body stops anywhere in one frame's move past the centre line's reach -- (5.39, 7.56] at the crouch run --
+    // and where depends on the start and the ticks before the press. They are the capture's, not chosen: house-crouch's
+    // `--at` 5395.45 (29.55 from the plane x 5425), Triangle at 500 ms, the stick full at 1600 ms, let go at 6600 ms
+    // (`agent-mail/tools/eph-page-seg3-kit/BRIEF.md`, the case table; the r0004 runs' own script). The yaw stays 270
+    // (the capture's 268.1 is 1.9 degrees off the normal: cos 0.9995). THE PHASE (the re-review of d7772d3ec2, finding 1):
+    // what sets the rest is whether the press starts a game frame -- the rest is 5.943 when it does, 7.026 when it falls
+    // on a frame's second tick, the end 12.846 either way. The original reads the stick once a frame (THROTTLE-FRAME,
+    // MISSION R8.1, the read interval proven by the capture rig's Q12), so its press always starts a frame; the page's
+    // can fall mid-frame, which the original cannot show. So the ticks are numbered (`commandSeq`) from 2, where the
+    // press tick (96, at 1600 ms) starts a frame -- asserted below -- not from the placing, whose first frame spans three
+    // ticks (`GROUND_FRAME_TICKS_READING`).
+    expect(w.place(WALL - CAPTURE_START, 1, 0)).toBe(true);
+    let seq = 2;
+    const tick = w.tick.bind(w);
+    w.tick = (input, dt) => { w.commandSeq = seq++; tick(input, dt); };
     w.state.yaw = EAST;
+    for (let i = 0; i < ms(500); i++) w.tick(STILL);
     w.changeStance('crouch');
-    for (let i = 0; i < 120; i++) w.tick(STILL);
-    for (let i = 0; i < 240; i++) w.tick(FORWARD);                  // full stick until it rests
+    for (let i = ms(500); i < ms(1600); i++) w.tick(STILL);
+    expect(throttleFrameEnds(seq - 1), 'the press starts a game frame (the original reads the stick once a frame)').toBe(true);
+    for (let i = ms(1600); i < ms(6600); i++) w.tick(FORWARD);     // full stick until the capture lets go
     const rest = WALL - w.state.x;
     expect(Math.abs(rest - CAPTURE_REST), `at rest ${rest}`).toBeLessThan(REST_TOLERANCE);
     let nearest = rest, standToCrouch = false;

@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { castRay, probeGround, segmentHits, type CollisionOwner, type EffectOp, type EffectProgram, type GridParams, type WorldPoly } from '@s2u/scene';
 import { forkGround, WorldState } from '../src/worldState';
+import { CameraEffects, cameraEffectsTurn, publishCameraEffects } from '../src/cameraEffects';
 import { groundGrid, packGround, Walker, type GroundData, type WalkInput } from '../src/mover';
 import { AUTOSTART_RESET_READING, readMapMeta, type MapInitial, type MapMeta } from '../src/mapMeta';
 import { parseZdb, Zar, zdbMember } from '@s2u/archive';
@@ -30,11 +31,11 @@ const poly = (path: string, ditype: number, points: number[]): WorldPoly => ({
 const ARCH = 'worldmodel/arch', PROTO = 'worldmodel/arch=arch';
 const HEALTHY = `${PROTO}/healthy`, DESTROYED = `${PROTO}/destroyed`, DIA = `${PROTO}/destroyed/dia`;
 const POLYS: WorldPoly[] = [
-  poly('worldmodel/floor', 3, [-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+  poly('worldmodel/floor', 3, [-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
   poly(`${HEALTHY}/wall`, 2, [10, 0, -100, 10, 0, 100, 10, 50, 100, 10, 50, -100]),         // across x 10
-  poly(`${HEALTHY}/deck`, 3, [30, 20, 100, 60, 20, 100, 60, 20, 140, 30, 20, 140]),          // a floor at y 20
+  poly(`${HEALTHY}/deck`, 3, [30, 20, 140, 60, 20, 140, 60, 20, 100, 30, 20, 100]),          // a floor at y 20
   poly(DESTROYED, 2, [-30, 0, -100, -30, 0, 100, -30, 30, 100, -30, 30, -100]),               // rubble across x -30
-  poly(DIA, 3, [-60, 5, 100, -40, 5, 100, -40, 5, 140, -60, 5, 140]),                          // rubble's floor at y 5
+  poly(DIA, 3, [-60, 5, 140, -40, 5, 140, -40, 5, 100, -60, 5, 100]),                          // rubble's floor at y 5
   poly('worldmodel/arch_b', 2, [-80, 0, -100, -80, 0, 100, -80, 50, 100, -80, 50, -100]),    // beside: across x -80
 ];
 const OWNER_PATHS = ['worldmodel/floor', `${HEALTHY}/wall`, `${HEALTHY}/deck`, DESTROYED, DIA, 'worldmodel/arch_b'];
@@ -448,5 +449,100 @@ describe('DF-4: a door program\'s CALL_ANIMATION into the map set', () => {
     const before = world.states();
     expect(world.doorCall(DOOR, 'no_such_anim')).toBe(false);
     expect(world.states()).toEqual(before);
+  });
+});
+
+/**
+ * PR #5's import (seat-forge, item A2): the room sets `runForgeScripts` on every room's world (match `room.ts`,
+ * FORGE_SCRIPT_ROOM_ADAPTATION), and its `applyInitial` and `reset` then start the autostarts to run a Forge layout's own
+ * scripts. The page's camera reads one node, the PAGE world's `camera_effects` (LATER 1246, `../src/cameraEffects`); a
+ * room on the same page (the test room, offline play, Forge Play) must not take it away. Synthetic hull, no game data.
+ */
+describe("PR #5 A2: a room's world runs Forge scripts without taking the page's camera_effects", () => {
+  const turned = (): CameraEffects => {
+    const node = new CameraEffects();
+    node.rotate({ op: 'rotate', node: 1, flags: 1, xyz: [0, 0, 0] } as never);
+    const leg = node.motion({ op: 'motion', motion: { node: 1, flags: 0x101, lifetime: 1, angular: { w: [0, 0.0008726646, 0], accel: [0, 0, 0] } } } as never);
+    for (let i = 0; i < 30; i++) leg(1 / 60);
+    return node;
+  };
+  it("a room's world (Forge scripts on, autostarts off): the page's node stays published through applyInitial and reset", () => {
+    const ground = hull();
+    publishCameraEffects(turned());
+    try {
+      expect(cameraEffectsTurn(), 'the page world turns the look').not.toBeNull();
+      const room = new WorldState(meta(), ground, groundGrid(ground));
+      room.runForgeScripts = true;
+      room.applyInitial();
+      expect(cameraEffectsTurn(), "after the room's applyInitial").not.toBeNull();
+      room.reset();
+      expect(cameraEffectsTurn(), "after the room's reset").not.toBeNull();
+    } finally { publishCameraEffects(null); }
+  });
+  it("the page's own world (autostarts on) still publishes its node, as LATER 1246 has it", () => {
+    const ground = hull();
+    publishCameraEffects(turned());
+    try {
+      const page = new WorldState(meta(), ground, groundGrid(ground));
+      page.runAutostartPrograms = true;
+      page.applyInitial();
+      expect(cameraEffectsTurn(), "the page world's own fresh node: no turn yet").toBeNull();
+    } finally { publishCameraEffects(null); }
+  });
+});
+
+/**
+ * PR #5's import (seat-forge, item B2; simulation track): the PR writes the game's round valves (`../src/gameValves`:
+ * `mp_timer`, `mp_game_type`, `mp_winner`, `aiteam_00`, `rescuecount`, `killcount` ... and the bomb page's `mp_bomb`) on
+ * every match's world and keeps them across the round's reset (`setKeptValve`). A disc program that tests one of them
+ * would then branch where it did not before. For Sunday the valves are fed only where the world runs a Forge layout's
+ * own program (`../src/effectRunner` `isForgeScriptProgram`; the planner's default, the owner's B1 ruling's form: "a
+ * Forge map loses nothing by it"). Synthetic hull, no game data.
+ */
+describe('PR #5 B2: the game valves reach a world only where a Forge program runs', () => {
+  const forgeProgram = { program: { name: 'forge_map_script_run', root: 1, flags: 0, nodes: ['NA', 'forge/map_script'], sequences: [] }, search: [0, 0] };
+  const withScene = (programs: typeof forgeProgram[]): MapMeta => ({ ...meta(), scene: { destructibles: [], programs } } as MapMeta);
+  it('a world with no Forge program: a game valve told it is not kept, before or after the reset', () => {
+    const ground = hull();
+    const world = new WorldState(withScene([]), ground, groundGrid(ground));
+    world.setKeptValve('mp_timer', 1);
+    world.setKeptValve('mp_game_type', 3);
+    expect([world.valve('mp_timer'), world.valve('mp_game_type')]).toEqual([0, 0]);
+    world.reset();
+    expect([world.valve('mp_timer'), world.valve('mp_game_type')]).toEqual([0, 0]);
+  });
+  it("a world running a Forge layout's own program keeps them across the reset, as the PR has it", () => {
+    const ground = hull();
+    const world = new WorldState(withScene([forgeProgram]), ground, groundGrid(ground));
+    world.setKeptValve('mp_timer', 1);
+    world.setKeptValve('mp_game_type', 3);
+    world.reset();
+    expect([world.valve('mp_timer'), world.valve('mp_game_type')]).toEqual([1, 3]);
+  });
+  it("a layout whose only script is a damage trigger's (its program on its destructible) keeps them too (B2 review F1)", () => {
+    const ground = hull();
+    const trigger = { id: 0, key: 'forge_trigger_1#0@forge/trigger_1', anim: 'forge_trigger_1', instance: 0, targetPath: 'forge/trigger_1',
+      health: 0, armor: 0, shield: 0, program: { name: 'forge_trigger_1_run', root: 1, flags: 0, nodes: ['NA', 'forge/trigger_1'], sequences: [] },
+      root: 'forge/trigger_1', nodes: [null, 'forge/trigger_1'], wreck: 'forge_trigger_1_wreck' };
+    const world = new WorldState({ ...meta(), scene: { destructibles: [trigger], programs: [] } } as MapMeta, ground, groundGrid(ground));
+    world.setKeptValve('killcount', 2);
+    world.reset();
+    expect(world.valve('killcount')).toBe(2);
+  });
+  it("a disc map's own destructible (its archive animation's program) opens nothing (B2 fold re-read F4)", () => {
+    const ground = hull();
+    const barrel = { id: 0, key: 'barrel_explode#0@worldmodel/arch', anim: 'barrel_explode', instance: 1, targetPath: 'worldmodel/arch',
+      health: 50, armor: 0, shield: 0, program: { name: 'barrel_explode', root: 1, flags: 0, nodes: ['NA', 'worldmodel/arch'], sequences: [] },
+      root: 'worldmodel/arch', nodes: [null, 'worldmodel/arch'] };
+    const world = new WorldState({ ...meta(), scene: { destructibles: [barrel], programs: [] } } as MapMeta, ground, groundGrid(ground));
+    world.setKeptValve('mp_timer', 1);
+    world.reset();
+    expect(world.valve('mp_timer')).toBe(0);
+  });
+  it('a disc map (no scene at all) is a world with no Forge program', () => {
+    const ground = hull();
+    const world = new WorldState(meta(), ground, groundGrid(ground));
+    world.setKeptValve('mp_winner', 8);
+    expect(world.valve('mp_winner')).toBe(0);
   });
 });

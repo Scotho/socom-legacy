@@ -315,7 +315,7 @@ export const BOMB_SITE_GUIDE_COLOUR = 0xff4d4d;
 export const SWITCH_REACH_COLOUR = 0x7fd1ff;
 
 /**
- * How rounded a plant site's square gizmo is: its corners' radius as a share of its reach (the owner, 2026-11-14: "a
+ * How rounded a plant site's square gizmo is: its corners' radius as a share of its reach (the Forge's owner (crispy, OT.R112), 2026-11-14: "a
  * rounded square that fits the circle radius. Like in game where when we plant the bomb we see that red square
  * outline"). The look only, an editor's value: the disc's outline is a rounded rectangle round its tent's plant quad
  * (`./siteOutlines`), the reach itself is still the round `range` the plant's test measures.

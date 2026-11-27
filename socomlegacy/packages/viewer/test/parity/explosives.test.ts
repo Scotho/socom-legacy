@@ -4,6 +4,7 @@ import { fixture as discFixture, FIXTURES_ABSENT } from '../../../archive/test/f
 import { GrenadeThrower, type GrenadeEvents, type GrenadeSource } from '../../src/grenade';
 import { Walker, TICK, moverSnapshot, type PlaySnapshot } from '../../src/mover';
 import { ThrowPose, throwPoseEnds } from '../../src/throwPose';
+import { THROW_AIM_ORIGIN_LATCH_READING } from '../../src/throwAim';
 import { clipsFromPack, motionTableFromArchive } from '../../src/motionTable';
 /** Research 230 section 2, reading, pending review. Public component event wiring mirrors the audited
  * throwStart -> ThrowPose.start/Walker.hold seam. This is not a browser or original-game run.
@@ -11,11 +12,13 @@ import { clipsFromPack, motionTableFromArchive } from '../../src/motionTable';
  */
 const reader = discFixture('RUN/READERC.ZAR'), pack = discFixture('RUN/MOTION_P.ZAR');
 describe.skipIf(!reader || !pack)(`research 230: explosives${!reader || !pack ? ` (${FIXTURES_ABSENT})` : ''}`, () => {
-    const floor: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0, points: Float32Array.from([-400, 50, -400, 400, 50, -400, 400, 50, 400, -400, 50, 400]) };
+    const floor: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 7, ptcount: 4, cameratype: 0, points: Float32Array.from([-400, 50, 400, 400, 50, 400, 400, 50, -400, -400, 50, -400]) };
     const DI = 'worldmodel/access1=access1/good_parts/di_good';
-    const wall: WorldPoly = { ...floor, path: DI, ditype: 2, points: Float32Array.from([130, 50, 150, 130, 50, 250, 130, 110, 250, 130, 110, 150]) };
+    const wall: WorldPoly = { ...floor, path: DI, ditype: 2, points: Float32Array.from([115, 50, 150, 115, 50, 250, 115, 110, 250, 115, 110, 150]) };   // LATER 1139: x 115 (was 130): 15 u, inside the hip gate
     const grid = buildGrid({ atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 }, [], [], [floor, wall], [{ modelName: 'worldmodel', path: floor.path, first: 0, count: 1 }, { modelName: 'worldmodel', path: DI, first: 1, count: 1 }]);
     const still = { forward: 0, right: 0, boost: false };
+    /** The camera east from the feet along the ground, onto the wall 15 u off: C4's target under the reticle. */
+    const wallAim = { eye: [100, 62, 200] as [number, number, number], far: [400, 62, 200] as [number, number, number] };
     let table: NonNullable<ReturnType<typeof motionTableFromArchive>>;
     let clips: Map<string, ReturnType<typeof clipsFromPack>[number]>;
     // Synthetic target-eligible record, not a claim that these overridden fixture fields are retail C4 data.
@@ -28,7 +31,18 @@ describe.skipIf(!reader || !pack)(`research 230: explosives${!reader || !pack ? 
         expect(w.airborne).toBe(false);
         let pitch = 0;
         const snapshot = () => ({ ...moverSnapshot(w, null, 0, 0), feet: [w.state.x, w.state.y, w.state.z], pitch } as PlaySnapshot);
-        const g = new GrenadeThrower({ grid: () => grid, snapshot, view: () => 'third', handPoint: () => [102, 62, 192], aim: () => ({ eye: [100, 62, 200], far: [400, 62, 200] }), ...extra });
+        // LANE-KILL B-06: the throw's aim is the body's vector toward the camera's aim point (r0004 `0x5e6690`,
+        // `../../src/throwAim`), and the release clearance casts 25 u along it (r0004 `0x54e6f0`). The camera east to the
+        // wall 15 u off (`wallAim`, C4's reticle on its target) turns the aim into it, and the original refuses that throw
+        // (a standing select refused at 20 u at the default look, KILL-LATCH-PC2 s2). So the throws look along the body's
+        // facing at the fixture's pitch, from the standing latch's height (THROW_AIM_ORIGIN_LATCH_READING.stand): the
+        // aim's y is then sin(pitch), as the throws here test; C4's plant keeps `wallAim`.
+        const aheadAim = () => {
+            const r = pitch * Math.PI / 180, y = w.state.yaw * Math.PI / 180;
+            const eye: [number, number, number] = [w.state.x, w.state.y + THROW_AIM_ORIGIN_LATCH_READING.stand.up, w.state.z];
+            return { eye, far: [eye[0] - 300 * Math.cos(r) * Math.sin(y), eye[1] + 300 * Math.sin(r), eye[2] - 300 * Math.cos(r) * Math.cos(y)] as [number, number, number] };
+        };
+        const g = new GrenadeThrower({ grid: () => grid, snapshot, view: () => 'third', handPoint: () => [102, 62, 192], aim: aheadAim, ...extra });
         const pose = new ThrowPose(() => ({ clips, table }));
         const thrown: Parameters<GrenadeEvents['throw']>[0][] = [], starts: Parameters<GrenadeEvents['throwStart']>[0][] = [], placed: Parameters<GrenadeEvents['place']>[0][] = [];
         g.on('throwStart', e => { starts.push(e); pose.start(e.anim); w.hold(e.hold); });
@@ -130,7 +144,7 @@ describe.skipIf(!reader || !pack)(`research 230: explosives${!reader || !pack ? 
         expect(cut.w.holding).toBeNull();
         expect(cut.thrown).toHaveLength(1);
         busy = cut.g.phase();
-        const c4 = fixture();
+        const c4 = fixture({ aim: () => wallAim });              // C4's reticle on the barrier (SUP-03), the camera east
         c4.g.setRecords([C4]);
         c4.g.setWorld(() => ({ health: { blastAt: () => [], c4TargetAt: (path: string, damage: number) => (path === DI && damage >= 17 ? 0 : null) } }));
         c4.g.setKit(['M67', 'AN-M8', 'C4']);

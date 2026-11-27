@@ -10,11 +10,12 @@ import {
 import { fixture } from '../../archive/test/fixtures';
 import { DoorSet } from '../src/doors';
 import {
-  aimPick, c4Line, c4PlantAllowed, C4Settle, c4TargetOf, C4_AIM_SETTLE_S, C4_REACH_READING, C4_REFUSED_MATERIAL, ACTION_RANGE_DEFAULT,
+  aimPick, c4Line, c4PlantAllowed, C4Settle, c4TargetOf, C4_AIM_SETTLE_S, C4_HIP_REACH_SQ, C4_REFUSED_MATERIAL, ACTION_RANGE_DEFAULT,
 } from '../src/equipment';
 import { actionAtPick, type MapAction } from '../src/mapActions';
 import { under, type MapInitial, type MapMeta } from '../src/mapMeta';
-import { groundGrid, packGround, type GroundData } from '../src/mover';
+import { groundGrid, groundPolygons, packGround, rootY, type GroundData } from '../src/mover';
+import { Traversal } from '../src/traversal';
 import { blastLine, destructiblesOf, type SceneProgram } from '../src/sceneHealth';
 import { loadSimMap, type SimMap } from '../src/simMap';
 import { forkGround, ROOM_SKIP_EFFECTS_READING, WorldState } from '../src/worldState';
@@ -59,7 +60,7 @@ const DOOR = 'worldmodel/door_ft_1';
 
 /** The hull: the floor; each barrier's `di_good` two walls 2 apart (two polygons along a witness line); its rubble. */
 function hull(): GroundData {
-  const polys: WorldPoly[] = [{ ...across('worldmodel/floor', 0), ditype: 3, points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]) }];
+  const polys: WorldPoly[] = [{ ...across('worldmodel/floor', 0), ditype: 3, points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]) }];
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor', first: 0, count: 1, flags: FLAGS }];
   for (const b of B) {
     owners.push({ modelName: 'worldmodel', path: b.di, first: polys.length, count: 2, flags: FLAGS });
@@ -171,8 +172,8 @@ describe('the access barriers on a synthetic Vigilance twin (SUP-03; data none)'
     const record: ThrowableRecord = { ...CLAYMORE, name: 'C4', id: 151, fuse: 6, removal: 6.1,
       explosionDamage: 18, explosionRadius: 50, ignoreExplosionDI: true, capacity: 4 };
     const g = new GrenadeThrower({ grid: () => f.grid, view: () => 'third', online: () => online,
-      snapshot: () => ({ feet: [30, 0, 0], yaw: 0, pitch: 0, stance: 'stand', airborne: false } as PlaySnapshot),
-      handPoint: () => [30, 12, -8], aim: () => ({ eye: [30, 12, 0], far: [100, 12, 0] }),
+      snapshot: () => ({ feet: [35, 0, 0], yaw: 0, pitch: 0, stance: 'stand', airborne: false } as PlaySnapshot),   // LATER 1139: 15 u off (was 20)
+      handPoint: () => [35, 12, -8], aim: () => ({ eye: [35, 12, 0], far: [100, 12, 0] }),
     });
     g.setRecords([record]);
     g.setWorld(() => f.w);
@@ -295,8 +296,8 @@ describe('the access barriers on a synthetic Vigilance twin (SUP-03; data none)'
     const record: ThrowableRecord = { ...CLAYMORE, name: 'C4', id: 151, fuse: 6, removal: 6.1,
       explosionDamage: 18, explosionRadius: 50, ignoreExplosionDI: true, capacity: 4 };
     const g = new GrenadeThrower({ grid: () => f.grid, view: () => 'third', online: () => false,
-      snapshot: () => ({ feet: [30, 0, 0], yaw: 0, pitch: 0, stance: 'stand', airborne: false } as PlaySnapshot),
-      handPoint: () => [30, 12, -8], aim: () => ({ eye: [30, 12, 0], far: [100, 12, 0] }),
+      snapshot: () => ({ feet: [35, 0, 0], yaw: 0, pitch: 0, stance: 'stand', airborne: false } as PlaySnapshot),   // LATER 1139: 15 u off (was 20)
+      handPoint: () => [35, 12, -8], aim: () => ({ eye: [35, 12, 0], far: [100, 12, 0] }),
     });
     g.setRecords([record]);
     g.setWorld(() => f.w);
@@ -354,15 +355,16 @@ describe('the access barriers on a synthetic Vigilance twin (SUP-03; data none)'
     expect(B.map(witness)).toEqual([0, 2]);
   });
 
-  it("the C4 target is the bound destructible under the reticle (aimPick -> c4TargetOf) within C4_REACH_READING of the feet, settled 0.2 s, not on INVISIBLE_DI; the room checks the page's named node along the head's line (c4Line)", () => {
+  it("the C4 target is the bound destructible under the reticle (aimPick -> c4TargetOf) within the hip's reach (|point - hip|^2 < 396), settled 0.2 s, not on INVISIBLE_DI; the room checks the page's named node along the head's line (c4Line)", () => {
     const { w, grid, blast } = world();
     const h = w.health;
     const look = (feet: V3, to: V3) => aimPick(grid, [feet[0], feet[1] + 12, feet[2]], to);
-    const feet: V3 = [B[0]!.x - 20, 0, 0];
+    const feet: V3 = [B[0]!.x - 15, 0, 0];                                         // LATER 1139: 15 u (was 20), inside the hip gate
     const aim = look(feet, [B[0]!.x + 100, 12, 0]);
+    const hipOf = (f: V3): V3 => [f[0], f[1] + rootY('stand'), f[2]];                // LATER 1139: c4TargetOf measures from the hip
     expect(aim?.path).toBe(B[0]!.di);
-    expect(c4TargetOf(h, aim, feet, C4.rating)).toBe(0);
-    expect(c4TargetOf(h, aim, feet, M67.rating)).toBeNull();                       // a charge of 10 is under 17
+    expect(c4TargetOf(h, aim, hipOf(feet), C4.rating)).toBe(0);
+    expect(c4TargetOf(h, aim, hipOf(feet), M67.rating)).toBeNull();                       // a charge of 10 is under 17
     // The settle (kit +0x8a4, V1 #9): the frame that sets it and six game frames more on the same, unmoved target; the SEAL's speed is never read.
     const settle = new C4Settle();
     let held = 0;
@@ -381,16 +383,17 @@ describe('the access barriers on a synthetic Vigilance twin (SUP-03; data none)'
     expect(c4PlantAllowed({ target: 0, settledFor: 1, material: look(feet, [B[0]!.x + 100, 12, 0])!.material })).toBe(false);
     expect(c4Line(grid, [feet[0], 12, 0], { path: B[0]!.di, point: aim!.point })).toEqual({ clear: true, material: C4_REFUSED_MATERIAL });
     aim!.poly.material = byte;
-    // Out of reach: the hit 32 along the ground (C4_REACH_READING: the action object's default reach, strict).
-    expect(C4_REACH_READING).toBe(ACTION_RANGE_DEFAULT);
-    const far: V3 = [B[0]!.x - C4_REACH_READING, 0, 0];
-    expect(c4TargetOf(h, look(far, [B[0]!.x + 100, 12, 0]), far, C4.rating)).toBeNull();
+    // Out of reach (LATER 1139): the hit 20 from the hip, |point - hip|^2 >= 396 (FUN_005be9a0 D:L475400-475405; proven on
+    // r0004 by the capture agent-mail/evidence/later1139-c4reach, 2026-11-18: 19.8 u prompts, 20.0 u does not).
+    expect(C4_HIP_REACH_SQ).toBe(396);
+    const far: V3 = [B[0]!.x - 20, 0, 0];
+    expect(c4TargetOf(h, look(far, [B[0]!.x + 100, 12, 0]), hipOf(far), C4.rating)).toBeNull();
     // The floor under the reticle: no destructible.
-    expect(c4TargetOf(h, look(feet, [feet[0] + 5, -5, 0]), feet, C4.rating)).toBeNull();
+    expect(c4TargetOf(h, look(feet, [feet[0] + 5, -5, 0]), hipOf(feet), C4.rating)).toBeNull();
     // Opened, the barrier is no one's target: the reticle passes on.
     blast([B[0]!.x - 6, 20, 0], C4.rating, C4.radius);
     expect(look(feet, [B[0]!.x + 100, 12, 0])?.path ?? null).not.toBe(B[0]!.di);
-    expect(c4TargetOf(h, look(feet, [B[0]!.x + 100, 12, 0]), feet, C4.rating)).toBeNull();
+    expect(c4TargetOf(h, look(feet, [B[0]!.x + 100, 12, 0]), hipOf(feet), C4.rating)).toBeNull();
     expect(h.c4TargetAt(B[0]!.di, C4.rating)).toBeNull();
   });
 
@@ -508,12 +511,15 @@ describe.skipIf(!HAVE_MP51)(`Vigilance's five access barriers on the disc${HAVE_
 
   it("each barrier's witness segment goes 2 -> 0 when C4 or an RPG round opens it and stays 2 after an M67; the four door_ft doors still swing", async () => {
     const m = await load();
-    // AD-5: from the witness segment's start the line to access4's and access5's midpoints (12.0 and 14.0 u) crosses
-    // their own good_parts -- STONE, PENETRATION 0, not the target node -- so FUN_003c80e0 refuses it (D:L319117);
-    // access1-3's lines meet only their di_good. Was: all five opened from there (the line ran to the nearest point).
+    // LATER 1087 (b): the scene line is one-sided (the original's hull batch, `FUN_002d3030` D:L175277-175282; research
+    // 430 s3.1), so all five open from the witness. A/B at the same head: two-sided, access4's and access5's lines to
+    // their midpoints (12.0 and 14.0 u) were refused by their own good_parts (STONE, PENETRATION 0; FUN_003c80e0
+    // D:L319117) -> [] ; one-sided they pass -> [access4], [access5]: those faces are met from their backs (a face that
+    // blocks two-sided but not one-sided is crossed from behind). access1-3 unchanged (they meet only their di_good).
+    // Was (AD-5, two-sided): access1-3 only.
     for (let k = 0; k < 5; k++) {
       const f = fresh(m);
-      expect(f.fromWitness(k, C4).map((id) => f.w.health.list[id]!.anim), `access${k + 1} from its witness`).toEqual(k < 3 ? [`access${k + 1}`] : []);
+      expect(f.fromWitness(k, C4).map((id) => f.w.health.list[id]!.anim), `access${k + 1} from its witness`).toEqual([`access${k + 1}`]);
     }
     for (let k = 0; k < 5; k++) {
       for (const charge of [C4, RPG]) {
@@ -605,32 +611,85 @@ describe.skipIf(!HAVE_MP51)(`Vigilance's five access barriers on the disc${HAVE_
     expect(f.hits(0)).toBe(0);
   }, 120_000);
 
+  /** mp51-in-t1.csv's frame ends from the first moving row to the stop (rows 10-16; the capture's own per-frame z). */
+  const ACCESS1_IN_T1 = [1064.639, 1063.915, 1062.832, 1061.384, 1059.577, 1057.497, 1055.417] as const;
+  /**
+   * The walk in from outside (-z), at the capture's facing (yaw 2.3: its x slide along the plank matches, frame 7 x
+   * 1492.716 against the capture's 1492.720 -- the fresh review of 1d3d40a26a), with the Traversal driver a player's walker
+   * has (its stick scale on a rise, `FUN_005b56c0`, gives the capture's 2.08-a-frame steps up the approach: the review's
+   * F3), standing at rest to a frame's end first (17 ticks: LATER 1219 then reads the stick at the next frame's start, as
+   * the rig's walker stood before its walk), then `frames` game frames' ends.
+   */
+  const frameEndsIn = (ground: GroundData, grid: ReturnType<typeof groundGrid>, x: number, y: number, z: number, frames: number, xs?: number[]): number[] => {
+    const w = new Walker(grid);
+    w.driver = new Traversal(grid, groundPolygons(ground));
+    expect(w.place(x, y, z)).toBe(true);
+    w.state.yaw = 2.3;
+    for (let i = 0; i < 17; i++) w.tick({ forward: 0, right: 0, boost: false });
+    const out: number[] = [];
+    for (let i = 0; out.length < frames; i++) {
+      w.tick({ forward: 1, right: 0, boost: false });
+      if (i % 2 === 1) { out.push(w.state.z); xs?.push(w.state.x); }   // the ticks 19, 21 ... from the placing end the frames
+    }
+    return out;
+  };
+
   // SEGMENT-BODY part 11 (the e2e twin is c4Barricades.spec.ts's MP51 block). Captured: r0004, ac, 2026-11-04
   // (agent-mail evidence eph-hunt-2026-11-01/segment-body/mp51-barricade/RESULTS.md, 2 trials each way): every wall of
   // access1's di_good faces +z and its collider's +0x80 reads 0x41 (bit 1 clear: one-sided, FUN_002d2890
   // D:L174831-174837; research 281 s4.3). From inside wc16 the original walks out through the intact planks (z 1046.4 ->
-  // 1050.7 at 65 u/s); from outside (-z) it stops at z 1054.375-1054.417. The tolerance is LATER 681's stand-off residue
-  // (0.6); the port stood at 1054.708 when this was written. Caveat: the walking client may have been a terrorist.
-  it('access1 intact: walked out of wc16 the body passes the planks; walked in from outside it stops at the captured 1054.4; opened, it walks in', async () => {
+  // 1050.7 at 65 u/s); from outside (-z) it stops at z 1054.375-1054.417. Caveat: the walking client may have been a
+  // terrorist.
+  // LATER 1194B (the walls trial, 2026-11-21; the main controller's ruling): the walk in from outside is pinned to the
+  // capture's OWN frames, not its summary's stop. mp51-in-t1.csv (one row a game frame, ~33 ms; a memory trace of the
+  // original running [proven]) walks from (1493.1, 43.26, 1065): frame ends 1064.639, 1063.915, 1062.832, 1061.384,
+  // 1059.577, 1057.497, 1055.417 (rows 10-16), then HOLDS at 1055.417 for 20 rows (16-35), the stick held: the frame that
+  // would cross the plank's contact is cut whole (FUN_005483d0 D:L413557-413567: on the ground the move loses its whole
+  // part along the hit's normal; D:L413602-413614 pushes only out), as the port's is. RESULTS.md's 1054.375 comes 0.65 s
+  // later from ONE step of 1.042 (row 36), half a frame's 2.08: a one-field frame (LATER 1322); trial 2's early 0.633
+  // step (row 13) is another, which shifts its lattice to end at 1054.417. The port has fixed frames, so the summary's
+  // stop is not its to reach; the trial-1 lattice is. Was: the summary's 1054.4 within LATER 681's 0.6 at three x.
+  it('access1 intact: walked out of wc16 the body passes the planks; walked in from outside it stops on the capture\'s own frames (mp51-in-t1); opened, it walks in', async () => {
     const m = await load();
     const walk = (grid: ReturnType<typeof groundGrid>, x: number, y: number, z: number, yaw: number, ticks: number): Walker => {
       const w = new Walker(grid);
       expect(w.place(x, y, z)).toBe(true);
       w.state.yaw = yaw;
-      for (let i = 0; i < 18; i++) w.tick({ forward: 0, right: 0, boost: false });
+      // LATER 1194B (the walls trial, 2026-11-21): rest to a game frame's end (`throttleFrameEnds`: 3, 5, 7 ... from the
+      // placing), so the stick's first tick starts a frame and is read at once (LATER 1219: a press from rest is read at a
+      // frame's start). After 18 ticks the first stick tick fell inside a frame and the walk began a tick late.
+      for (let i = 0; i < 17; i++) w.tick({ forward: 0, right: 0, boost: false });
       for (let i = 0; i < ticks; i++) w.tick({ forward: 1, right: 0, boost: false });
       return w;
     };
     const f = fresh(m);
     expect(f.w.isActive('worldmodel/access1=access1/good_parts/di_good')).toBe(true);
     expect(walk(f.grid, 1493.0955, 63.4, 1036.6, 180, 42).state.z, 'out from inside: through').toBeGreaterThan(1049.2);
-    for (const x of [1488, 1493.0955, 1498]) {
-      const z = walk(f.grid, x, 50, 1065, 0, 150).state.z;
-      expect(Math.abs(z - 1054.4), `in from outside at x ${x}: z ${z.toFixed(3)}`).toBeLessThanOrEqual(0.6);
-    }
+    // In from outside, at the capture's start: the frame ends (every second stick tick: the rest ends a frame).
+    const ends = frameEndsIn(f.ground, f.grid, 1493.1, 43.26, 1065, 27);
+    const said = ends.map((z) => z.toFixed(3)).join(' ');
+    // (i) every frame end to the stop, within 0.1 (the file's band rule; the port, the review of eead0cc605: within 0.014, the stop 1055.431).
+    ACCESS1_IN_T1.forEach((z, k) => expect(Math.abs(ends[k]! - z), `frame ${k + 1}: ${said}`).toBeLessThanOrEqual(0.1));
+    // (ii) the stop on the 7th frame, as the original's, then held: frames 8-27 where frame 7 ended (the capture holds 20 rows).
+    expect(ends[6]! - ends[5]!, `the 7th frame moves: ${said}`).toBeLessThan(-0.5);
+    for (let k = 7; k < 26; k++) expect(Math.abs(ends[k]! - ends[6]!), `frame ${k + 1} holds: ${said}`).toBeLessThan(0.01);   // the capture holds rows 16-35: frames 7-26
+    // The plank's face is flat across the doorway: from the test's other two x the walk stops where it does at the capture's.
+    for (const x of [1488, 1498]) expect(Math.abs(frameEndsIn(f.ground, f.grid, x, 50, 1065, 27)[26]! - ends[26]!), `in from outside at x ${x}`).toBeLessThan(0.1);
     f.blast(0, C4);
     expect(f.w.isActive('worldmodel/access1=access1/good_parts/di_good')).toBe(false);
     expect(walk(f.grid, 1493.0955, 50, 1065, 0, 150).state.z, 'opened: in from outside').toBeLessThan(1048);
+  }, 120_000);
+
+  // GAP (LATER 1322; the fresh review of 1d3d40a26a, F3): the original's final rest. mp51-in-t1.csv holds 1055.417 for 20
+  // rows, then ONE row at dt 0.0167 (row 36, a half-time frame) moves 1.042 to 1054.375, where it stays (trial 2 ends at
+  // 1054.417 the same way). The port's frames are whole, so it holds at its 7th frame's end: the original's half-time
+  // frames are LATER 1322's to read. Passes when the port reaches the capture's final rest.
+  it.fails("GAP (LATER 1322): access1 in from outside, the final rest within 0.1 of the capture's (mp51-in-t1 row 36, 1054.375)", async () => {
+    const f = fresh(await load());
+    const xs: number[] = [];
+    const ends = frameEndsIn(f.ground, f.grid, 1493.1, 43.26, 1065, 40, xs);
+    expect(Math.abs(ends[39]! - 1054.375), `the rest: ${ends[39]!.toFixed(3)}`).toBeLessThanOrEqual(0.1);
+    expect(Math.abs(xs[39]! - 1491.112), `the rest's x (the capture's slide stops at 1491.112): ${xs[39]!.toFixed(3)}`).toBeLessThanOrEqual(0.1);
   }, 120_000);
 });
 

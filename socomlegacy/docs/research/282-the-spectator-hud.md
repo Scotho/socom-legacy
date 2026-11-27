@@ -34,8 +34,9 @@ actor: "the local seat is a spectator". So the panel is a spectator's only (D:L5
 **The hide-all `FUN_001f77c0`** (D:L56312-56361), online: the prompts `+0x174d0` (D:L56325), the scope's `+0x165a0`
 (D:L56326), the reticle's root `+0x11df0` (D:L56327), the stance word `+0x11ca0` (D:L56328), three more of the HUD's
 children (D:L56332-56334), the ZOOM line `+0x744` (D:L56338), the weapon box (`FUN_00237de0`, D:L56340), the
-teammates' name tags `+0x17580` (D:L56341; was "the voice element" -- NU-9's review, F2, 2026-10-15: research 329; the port's `START_MENU_HIDES` dropped `'voice'`, taken from the old mapping, with PAR-97, 2026-10-16), the info box (D:L56346, outside state 3) and the panel (D:L56348), the three message windows
-(D:L56354-56356) and **the compass ring and the marks' parent** (`FUN_00212260`, D:L56359; D:L68360-68369). The round
+teammates' name tags `+0x17580` (D:L56341; was "the voice element" -- NU-9's review, F2, 2026-10-15: research 329; the port's `START_MENU_HIDES` dropped `'voice'`, taken from the old mapping, with PAR-97, 2026-10-16), the info box (D:L56346, outside state 3) and the panel (D:L56348), the main and the small message windows
+(D:L56354-56355; D:L56356 is object 0x437540, not a message window -- its loader `FUN_002ca100`, D:L57429-57431 -- and the
+subtitles window 0x436b80 is not in the hide-all: PICKUP-LINE's re-read, 2026-11-22) and **the compass ring and the marks' parent** (`FUN_00212260`, D:L56359; D:L68360-68369). The round
 timer and the number are hidden there offline only (D:L56320-56324).
 
 **The frame's common lines** after the path: the timer's text is written (`FUN_001f6b60`, D:L56604) and, online, the

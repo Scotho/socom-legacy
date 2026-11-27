@@ -9,6 +9,8 @@ import { WEAPON_LINE_BOTS_READING } from '../../viewer/src/weaponLine';
 import { HostageObstacleRecord, recoveryRequest, recoverySuffix, recoveryTarget, selectRecoveryRay, HOSTAGE_AVOIDANCE_READING, type RecoveryRay, HostageRouteProbe, type RouteProbeSample } from './hostageAvoidance';
 import { HostageSteering, HOSTAGE_STEERING_READING, passedRoutePoint, routeProjection, steeringDirection } from './hostageSteering';
 import { HOSTAGE_YIELD_SEED_PLACEHOLDER, HostageYieldRandom, actorProbeEligible, resolveProbeActor, type HostageActorWorld } from './hostageActors';
+import { DOOR_MOVE_ARRIVE_READING, DOOR_MOVE_FACE_READING, DOOR_MOVE_TIMEOUT_READING } from '../../viewer/src/doors';
+import { HOSTAGE_DOOR_ACTION_READING } from './hostageDoors';
 
 /** Research334: No_weapon GLOBAL climb types and motion.rdr NoTurn membership. */
 export const HOSTAGE_CLIMB_READING: { required: readonly string[]; noTurn: readonly string[] } = {
@@ -59,6 +61,14 @@ export const FOLLOW_SLOTS_READING = [[2, 2], [3, -2], [4, -3], [5, -2], [6, 3], 
 /** Research 334 §3: remaining special controller states and contact/action integrations. */
 export const FOLLOW_STEERING_PLACEHOLDER = 'special aim/strafe and alert states, physical actor contacts, non-route Yield modes, Yield default-wait producer, neighbor ordering and actor-probe disable producer, airborne climb entry, ladder reservations and special action controllers';
 /**
+ * The velocity a leader's follow heading tests while he is AIRBORNE (research 435 s10): the original's +0x38 x/z then is
+ * the carried take-off / walk-off velocity (+0x1350 / +0x1358; FUN_0054d9a0's air branch D:L416523-416527, the walk-off's
+ * save D:L466972-466974, the tail's copy D:L413963-413965), cut only by walls. The room feeds the follow heading the
+ * walker's pre-wall velocity (`Walker.preWallVelocity`) and, airborne where that is null, falls back to the walker's
+ * w.vx / w.vz -- its carried velocity, at most one tick's wall cut apart. [reading]
+ */
+export const FOLLOW_LEADER_VELOCITY_AIR_READING = 'airborne: the carried velocity (the walker w.vx / w.vz)';
+/**
  * FOLLOW_ACTION_CELL_READING (DF-10; research 334 §14, 200 §3.1) [reading, pending review]: what the path follower does
  * at a route point whose cell carries an AI marker (`FUN_00567900`'s action dispatch). The marker's type is its u16 at
  * +6, bits 7-11 (the marker word's bits 23-27); the eight-entry jump table at 0x65c990 (disassembly 0x567c28-0x567c54,
@@ -71,30 +81,54 @@ export const FOLLOW_STEERING_PLACEHOLDER = 'special aim/strafe and alert states,
  * (D:L502697-502761) aims at that action. A FOLLOW stack [9, 0x17] admits 0xb (`FUN_005f5cd0`: the masks' AND
  * 0x1ffffdfe & 0x190f4bc0 = 0x190f49c0 keeps bit 11); a second test at 0x567f04 (`$s0`) is not transcribed. So a
  * follower meets a shut door with plain steering -- the leaf's collision stops it, as the MP6 jail door does -- unless the
- * door's marker binds an action (`FOLLOW_ACTION_BIND_PLACEHOLDER`). Types 4 and 7 are not read here: 'unread'.
+ * door's marker binds an action. The markers DO bind: the binder `FUN_002a8140` writes each door marker's action id at
+ * load, after the AI maps' reset to 0xffff (research 418 s22.10, read twice from the bytes; measured on MP71, research
+ * 404 s30; built in `hostageDoors.ts` `bindDoorMarkers`, research 428 s4; the placeholder that said none binds retired
+ * 2026-11-18, LATER 958). Types 4 and 7 are not read here: 'unread'.
  */
 export const FOLLOW_ACTION_CELL_READING = 'type 1 with a bound action whose valve is 0 pushes CAiSAction; else plain steering';
 
 /**
- * FOLLOW_ACTION_BIND_PLACEHOLDER (DF-10; research 334 §14): whether any AI marker carries an action's id at run time. On
- * the disc every marker of the four EXTRACTION maps carries id 0xffff (MP71: six type-1 markers, one at each door; MP6:
- * one type-0 at cdoor1), and the AI maps' load sets every marker's id to DAT_0065ab30 = 0xffff (`FUN_0052bb70`
- * D:L395962); actions take ids 0, 1, ... in load order (D:L157310), so none answers 0xffff and the dispatch steers. No
- * writer of an action id into a marker was found in this read, and the case that one exists is strong: `FUN_0052daa0`
- * -> `FUN_00530bd0` (D:L398970) finds a marker BY ACTION ID (word bits 4-19), called from eight sites (D:L157540, 435268, 450957, 489120, 500391, 500463, 500548, 502723; the
- * last inside `FUN_005f0180`, which aims CAiSAction) beside `FUN_002b5760` (D:L157531-157546) -- all dead code in
- * retail if every marker stays 0xffff. Settles: a writer outside the `& 0xfff0000f | x << 4` idiom (a u16 store at the
- * marker's +4 or +6, say) found in the code, or a memory read of MP71's marker table (sub-map 0's list at +0x100,
- * 40-byte records) on a running console after the map loads.
+ * WM-HOSTAGE task 2 (research 428 s5 item 2): the doors a follower may use, lent by the room's extraction. `at` is the
+ * door (its index in the room's door set) a bound type-1 marker on cell `loc` names, else null (`followDoorCells`);
+ * `valve` that door's valve now; `use` the room's own use of it with pick 0, by this hostage (true when it started).
  */
-export const FOLLOW_ACTION_BIND_PLACEHOLDER = 'none bound: every marker id 0xffff after the load';
+export interface FollowDoors {
+  at(loc: AiLoc): number | null;
+  valve(door: number): number;
+  use(door: number, feet: V3): boolean;
+}
+
+/**
+ * HOSTAGE_FLIGHT_DOOR_HOLD_PLACEHOLDER (LATER 1208; research 445 s5.9): a door goal pushed over the flight (0x1b's run, the
+ * walker in movement state 3) holds the run -- the room's 0x1b frame is told it still moves, so its sub-state stands -- and on
+ * the goal's end the run goes on along its route, the follow's state untouched. What 0x1b does when 0xb is pushed over it
+ * and on its resume (its signal slot; whether it re-plans) is unread. The port's 0x1b frame still runs under the hold
+ * (`ExtractionAuthority`'s `flee`): the object's loss during it ends the flight's run and drops the door goal at once
+ * (`motion.stop`), where the original's driver ticks only the top goal and 0xb would finish first (the review's F3).
+ * Settles: a read of 0x1b's suspend and resume, and the L1208 capture (the door on the run's line).
+ */
+export const HOSTAGE_FLIGHT_DOOR_HOLD_PLACEHOLDER = 'the run held under the door goal; resumed on its route after' as const;
+
+/**
+ * HOSTAGE_YIELD_MOVEMENT_STATE_READING (SHOTS-1208 r58, review 1 F2; research 445 s5.10; reading, pending review): the walker's
+ * movement state +0x3f4 while a yield (AI state 3, pushed above follow by `FUN_00556370` D:L420802) stands. The follow tick
+ * `FUN_005fae70` with a top that is not 9 (D:L508399-508404) calls `FUN_0056d090`, which restores the previous state through
+ * `FUN_0056cbf0` -- whose force to 6 (D:L431676-431687) needs follow on top -- and the yield's own tick `FUN_00601f80` sets 4
+ * (D:L511960, D:L511979); 6 comes back only on follow's resume (`FUN_005fdf80` D:L510104). Which yield sub-state the port's
+ * `yielding` stands for is not tracked, so the port takes 4, the yield tick's own. In state 4 the original's dispatcher takes
+ * its case 4 (D:L432578-432581), which does not call `FUN_00567900`: whether the route is walked under a yield at all is
+ * UNREAD, and the port's walk of its route while yielding is its earlier model, not this reading. Passing 4 keeps that
+ * model braking at the last point (`FUN_00567900` D:L429556-429559), the conservative outcome (SHOTS-1208 review 2 F1).
+ */
+export const HOSTAGE_YIELD_MOVEMENT_STATE_READING = 4;
 
 /** The follower's dispatch at an action cell (`FOLLOW_ACTION_CELL_READING`). */
 export type FollowActionDispatch = 'steer' | 'action' | 'unread';
 
 /**
- * The action a marker binds under `FOLLOW_ACTION_BIND_PLACEHOLDER`: its id (word bits 4-19) when an action of the map
- * answers it -- the actions' ids are 0 .. `actionCount` - 1 in load order -- else null (0xffff answers none).
+ * The action a marker binds: its id (word bits 4-19, written at load by `FUN_002a8140`; 0xffff on the disc) when an action
+ * of the map answers it -- the actions' ids are 0 .. `actionCount` - 1 in load order -- else null (0xffff answers none).
  */
 export function markerAction(markerWord: number, actionCount: number): number | null {
   const id = (markerWord >>> 4) & 0xffff;
@@ -111,6 +145,50 @@ export function followActionDispatch(markerWord: number, actionValve: number | n
   if (type !== 1 || actionValve === null || actionValve !== 0) return 'steer';
   return 'action';
 }
+/**
+ * AI_CORRECTION_ENABLE_READING (research 434 s1, s4, s8; reading, pending review): the hostage controller's +0x171 bit 7,
+ * which gates the AI-map correction in the body's move `FUN_005483d0` (D:L413920-413922, r1 0x549740-0x549774: the
+ * correction `FUN_00516f10` D:L413925 runs only with the bit set and +0x172 bit 0 clear, `DAT_0066b000` being 0). Its
+ * writers the port's follower holds (`HostageFollow`):
+ * - SET at spawn -- the AI reset's 1 (`FUN_00573130` D:L434856), measured idle 0x88 on the host (research 434 s8);
+ * - CLEAR on follow's enter or resume (`FUN_005fdf80` D:L510064, D:L510111), SET on its suspend or exit (D:L510089,
+ *   D:L510099);
+ * - CLEAR at the end of each follow tick with follow the top goal, online (`FUN_005fae70` D:L508484; the 1-branch needs
+ *   the multiplayer flag clear, D:L508425), and nothing on a tick whose top goal is another (D:L508399-508404);
+ * - SET when an obstacle record of type 2, 4 or 1 matures (`FUN_00556370` D:L420662, D:L420688, D:L420745);
+ * - every write while movement state +0x3f4 is 7 stores 0 (`CSealCtrlAi`'s setter r1 0x557ee0-0x557ef0;
+ *   `correctionEnableWrite`), and leaving state 7 restores nothing for this class (research 434 s4).
+ */
+export const AI_CORRECTION_ENABLE_READING = 'set at spawn; clear on follow enter/resume and each follow tick on top; set on suspend/exit and a maturing record; 0 in movement state 7';
+
+/** The order within a frame of the gate's reader and the AI tick's writers (`AI_CORRECTION_FRAME_ORDER_PLACEHOLDER`). */
+export type AiCorrectionFrameOrder = 'ai-tick-then-move' | 'move-then-ai';
+/**
+ * AI_CORRECTION_FRAME_ORDER_PLACEHOLDER (research 434 s8, s9): the order within a frame of the body's move (the gate's
+ * reader, `FUN_005483d0` from `CZSealBody` slot +0x20 `FUN_005506a0`) and the controller's AI tick (`CSealCtrlAi` slot
+ * +0xc `FUN_0056de10`, the bit's writers). The frame loop calling both is unread. The interim order is
+ * 'ai-tick-then-move': the move sees the bit as the frame's AI tick left it -- a reason, not a reading (research 434 s8).
+ * Under either order one set event gives one corrected move, a frame apart, when the next tick is a follow tick; while
+ * another goal (the port's state 16) stays on top no follow tick writes (D:L508399-508404), so each frame's move is corrected.
+ */
+export const AI_CORRECTION_FRAME_ORDER_PLACEHOLDER = 'ai-tick-then-move' as AiCorrectionFrameOrder;
+
+/**
+ * AI_CORRECTION_UNCOVERED_STATES_PLACEHOLDER (research 434 s8, s9): the bit for a hostage halted, rescued or dead is
+ * unread. The port keeps the behaviour it had before the gate for them, 'ungated' (the correction subject only to the
+ * cell and the obstacle record). Of the three the follower sees only a dead body (`Walker.dead`); a halted or rescued
+ * hostage is not stepped through `HostageFollow.step` by the room (extraction steps only follow, state 9).
+ */
+export const AI_CORRECTION_UNCOVERED_STATES_PLACEHOLDER = 'ungated' as 'ungated' | 'gated';
+
+/**
+ * `CSealCtrlAi`'s slot +0xb4 setter (r1 0x557ee0, research 434 s1 and s3): bit 7 takes the argument's low bit, forced 0
+ * while movement state +0x3f4 is 7 (r1 0x557ee0-0x557ef0). Returns the bit's new value.
+ */
+export function correctionEnableWrite(value: boolean, movementState7: boolean): boolean {
+  return movementState7 ? false : value;
+}
+
 const same = (a: AiLoc, b: AiLoc) => a.map === b.map && a.x === b.x && a.z === b.z;
 const xyCells = (a: AiLoc, b: AiLoc) => Math.abs(a.x - b.x) + Math.abs(a.z - b.z);
 const cells = (a: AiLoc, b: AiLoc) => a.map === b.map ? xyCells(a, b) : Infinity;
@@ -121,15 +199,36 @@ export class FollowTrail {
   readonly points: (AiLoc & { width: number })[] = [];
   heading: [number, number] | null = null;
   private runningMs = 0;
-  /** FUN_005fc970 D:L509297-509347: sustained forward run takes velocity heading, otherwise facing. */
+  /** The leader's saved heading (+0x4f4) and its latch byte (+0x515); `updateHeading`. */
+  private saved: [number, number] | null = null;
+  private latched = false;
+  /**
+   * FUN_005fc970 D:L509297-509358 (research 334 s1, `FOLLOW_RULES_READING`'s heading rows; the latch: research 435 s2,
+   * reading pending review). A sustained forward run (branch A, D:L509312-509329: more than headingMs of |v|^2 >
+   * headingSpeedSq within headingCos of the facing) sets heading and saved to the velocity's unit; otherwise (branch B,
+   * D:L509337-509350) an unlatched leader's heading and saved take his current facing, a latched one's heading takes the
+   * saved; every update then latches (+0x515 = 1, D:L509357). So a leader's heading stays his facing at the first update
+   * of a lead -- measured on the rig (r0004, MP71, run C5, n = 1: +0x4e8 constant through a turn and a run east).
+   */
   updateHeading(dt: number, leader: FollowLeader): void {
     const yaw = leader.yaw * Math.PI / 180, x = -Math.sin(yaw), z = -Math.cos(yaw);
-    const speed = Math.hypot(leader.velocity[0], leader.velocity[2]);
-    if (speed * speed > FOLLOW_RULES_READING.headingSpeedSq && (x * leader.velocity[0] + z * leader.velocity[2]) / speed > FOLLOW_RULES_READING.headingCos)
+    // D:L509310-509312: the squared speed is the sum of squares compared with 800.0 -- not a length squared again (a
+    // velocity of exactly 800 must fail the strict test; hypot(...)^2 rounds 800 above it).
+    const speedSq = leader.velocity[0] * leader.velocity[0] + leader.velocity[2] * leader.velocity[2], speed = Math.sqrt(speedSq);
+    if (speedSq > FOLLOW_RULES_READING.headingSpeedSq && (x * leader.velocity[0] + z * leader.velocity[2]) / speed > FOLLOW_RULES_READING.headingCos)
       this.runningMs += Math.trunc(dt * 1000);
     else this.runningMs = 0;
-    this.heading = this.runningMs > FOLLOW_RULES_READING.headingMs ? [leader.velocity[0] / speed, leader.velocity[2] / speed] : [x, z];
+    const saved: [number, number] = this.runningMs > FOLLOW_RULES_READING.headingMs ? [leader.velocity[0] / speed, leader.velocity[2] / speed]
+      : this.latched && this.saved ? this.saved : [x, z];
+    this.saved = saved;
+    this.heading = [saved[0], saved[1]];
+    this.latched = true;
   }
+  /**
+   * FUN_005fcc40 D:L509375-509376: the tick clears +0x515 only while the body's follower count +0x520 is below 1 --
+   * called each frame for a body that leads no living hostage (research 435 s2, reading pending review).
+   */
+  release(): void { this.latched = false; }
   add(loc: AiLoc, width = 0): void {
     // The source compares x/z only, through inclusive index DAT_00650928 (5), D:L392414-392423.
     const loop = this.points.slice(0, FOLLOW_RULES_READING.loopWindow + 1).findIndex(p => p.x === loc.x && p.z === loc.z);
@@ -149,6 +248,30 @@ export class FollowTrail {
   contains(loc: AiLoc): boolean { return this.points.some(p => cells(p, loc) <= p.width); }
 }
 
+/**
+ * The formation goal's cell, FUN_005fd790 D:L509786-509897 (research 435; research 334 s1): the trail point at index
+ * `depth` is the base; then lateral steps i = 1..|lateral| from that base, (x + trunc(0.5 - hz*i*sign), z + trunc(0.5 +
+ * hx*i*sign)), each kept only while the trail contains it (FUN_00524760, `FollowTrail.contains`) and its soil is
+ * walkable (FUN_0052a090, `traversable`); the first failure stops. Null when the trail has no point at `depth` -- the
+ * caller's fallback (`HostageFollow.control`) then applies.
+ */
+export function formationGoalCell(trail: FollowTrail, heading: readonly [number, number], slot: readonly [number, number],
+  planner: Pick<FollowPlanner, 'traversable'>): (AiLoc & { width: number }) | null {
+  const [depth, lateral] = slot;
+  const [fx, fz] = heading;
+  const origin = trail.points[depth];
+  if (!origin) return null;
+  let goal: AiLoc & { width: number } = origin;
+  const sign = Math.sign(lateral);
+  for (let i = 1; i <= Math.abs(lateral); i++) {
+    const next = { map: origin.map, x: origin.x + Math.trunc(0.5 - fz * sign * i), z: origin.z + Math.trunc(0.5 + fx * sign * i) };
+    // FUN_005fd790 D:L509862-509875 checks this candidate's soil, not the intervening slope/line.
+    if (!trail.contains(next) || !planner.traversable(next)) break;
+    goal = { ...next, width: 0 };
+  }
+  return goal;
+}
+
 /** FUN_005fb1c0 D:L508938-508948: conversion is through the LEADER controller's speed table. */
 export function followThrottle(goalDistance: number, leaderSpeed: number, leaderTop: number): number {
   if (goalDistance > FOLLOW_RULES_READING.matchRadius * FOLLOW_RULES_READING.radius) return 1;
@@ -164,6 +287,8 @@ export class HostageFollow {
   private readonly walker: Walker;
   private route: FollowPoint[] = [];
   private ticket: FollowTicket | null = null;
+  /** SHOTS-1208 r108: a request was registered by the last sub 0 (its answer becomes the route); false after an untraversable target. */
+  private requested = false;
   private waiting = 0;
   private started = false;
   private leaderId: number | null = null;
@@ -181,16 +306,38 @@ export class HostageFollow {
   get yieldTo(): number | null { return this.yielding?.actor ?? null; }
   private readonly obstacle = new HostageObstacleRecord();
   private recovery: { phase: 0 | 1 | 4 | 5 | 6; reentries: number; replace?: boolean; rays?: readonly RecoveryRay[]; previous: AiLoc; target: AiLoc; ticket: FollowTicket | null } | null = null;
+  /**
+   * The pushed `CAiSAction` on a shut door (`HOSTAGE_DOOR_ACTION_READING`): its door, its stage (0, 6, 7), and whether it
+   * was pushed over the flight (LATER 1208: `run`'s walker) rather than over the follow.
+   */
+  private doorAction: { door: number; stage: 0 | 6 | 7; flight: boolean } | null = null;
+  /**
+   * LATER 1206: the door program's `ai::MOVE` goal on this body (`doorMove`): its point and facing, the seconds it has
+   * left (`DOOR_MOVE_TIMEOUT_READING`), and `done` once arrived or timed out -- what the door program waits on.
+   */
+  private doorGoal: { point: V3; facing: V3; left: number; arrived: boolean; done: boolean } | null = null;
 
   private readonly traversal: Traversal | null;
   private bodyCommand: { forward: number; side: number } | null = null;
   private traversalReleased = false;
   private lateralUpdated = false;
   private controlVelocity: V3 = [0, 0, 0];
+  /** The controller's +0x171 bit 7 (`AI_CORRECTION_ENABLE_READING`): SET at spawn, the AI reset's 1 (`FUN_00573130` D:L434856). */
+  private correctionEnable = true;
+  /** The bit as it stood before this frame's AI tick: the move's under 'move-then-ai' (`AI_CORRECTION_FRAME_ORDER_PLACEHOLDER`). */
+  private correctionEnableBeforeTick = true;
+  /**
+   * Movement state +0x3f4 is 7 (`FUN_0056af50`, the physical action mode). The port's follower has no movement state 7
+   * (a ladder needs mode 7 and a reservation, and the port's normal entry starts none: viewer `traversal.ts`), so nothing
+   * sets it; every write of the bit honours it (`correctionEnableWrite`).
+   */
+  private actionMode7 = false;
 
   constructor(private readonly planner: FollowPlanner, grid: Grid, feet: V3, yaw: number, private readonly defaultMaterial = '', clips: SimClips | null = null,
-    private readonly actorWorld?: HostageActorWorld) {
+    private readonly actorWorld?: HostageActorWorld, private readonly doors?: FollowDoors) {
     this.walker = new Walker(grid);
+    this.walker.onlineAi = true;                                  // R4P-104: `CSealCtrlAi` online: class 0's landing clip (r0004 0x5b2168-0x5b21a4)
+    this.walker.idleFrame = false;                                // IDLE-FRAME's BOT ADAPTATION: a hostage's stick is its AI's, no pad (LATER 1053)
     this.walker.weaponLineCast = WEAPON_LINE_BOTS_READING === 'cast';   // SEGMENT-BODY (review 2 F3): an AI body (`CSealCtrlAi`, +0x2c 0)
     // FUN_005b2620 D:L468322–468347 requires these six anim-set motions before dispatch.
     const required = HOSTAGE_CLIMB_READING.required;
@@ -209,6 +356,8 @@ export class HostageFollow {
   get feet(): V3 { const s = this.walker.state; return [s.x, s.y, s.z]; }
   get traversalPose() { return this.traversal?.pose() ?? null; }
   get yaw(): number { return this.walker.state.yaw; }
+  /** The controller's +0x171 bit 7 as it stands (`AI_CORRECTION_ENABLE_READING`); read-only. */
+  get aiCorrectionEnabled(): boolean { return this.correctionEnable; }
   rekey(old: number, id: number): void { if (this.leaderId === old) this.leaderId = id; }
   /**
    * LATER 354: the blast's knock laid on the body (`FUN_005a0e70` calls the knock `FUN_0057e770` for a local controller,
@@ -240,18 +389,35 @@ export class HostageFollow {
     return !(w.dead && (a.name === 'landDeath' || a.name === 'landBackwards') && a.seconds !== null && a.t >= a.seconds);
   }
   stop(): void {
+    // Follow's suspend or exit writes 1 (`FUN_005fdf80` signals 1 and 2, D:L510089 / D:L510099; AI_CORRECTION_ENABLE_READING).
+    // The room ends follow through here (extraction's signal hook for state 9's signals 1 and 2, and each frame a hostage
+    // is not in follow); its other callers -- a leader lost mid-follow, a release, a death -- take the same write.
+    this.writeCorrectionEnable(true);
     this.yielding = null;
     // The port drops a stopped follower's queued request (its owner's cancel, FUN_005107b0); the original's stop path is unread.
     this.ticket?.cancel(); this.recovery?.ticket?.cancel();
-    this.sub = 0; this.route = []; this.ticket = null; this.waiting = 0;
-    this.goal = null; this.started = false; this.leaderId = null; this.arrivedLeader = null;
+    this.sub = 0; this.route = []; this.ticket = null; this.requested = false; this.waiting = 0;
+    // SHOTS-1208 r152: the start gate (`started`, the follow state's +0x76 cleared) is NOT re-armed here: `FUN_005fdf80`
+    // writes +0x76 only on event 0, the enter (D:L510077, its one store in D:L510042-510125; r4 0x6058a8) -- `enter`; suspend (2), resume
+    // (3) and exit (1) leave it, and the follow tick's clear (r1 0x5fb470 / r4 0x602c50) is `control`'s `started = true`.
+    this.goal = null; this.leaderId = null; this.arrivedLeader = null;
     this.directTarget = null; this.steering.reset(); this.obstacle.clear(); this.recovery = null; this.segmentStart = null; this.previousDot = 0;
+    this.doorAction = null;
+    if (this.doorGoal) this.doorGoal.done = true;
+    this.doorGoal = null;
     // Stopping the AI never cancels the physical fall's momentum (FUN_0059b440 D:L456496-456512).
     if (!this.walker.airborne) {
       this.velocity = [0, 0, 0];
       this.walker.state.vx = this.walker.state.vy = this.walker.state.vz = 0;
     }
   }
+
+  /**
+   * SHOTS-1208 r152 (research 445 s5.10; reading, pending review): the follow goal's enter (`FUN_005fdf80` event 0) sets
+   * +0x76, the start gate, so the follower stands again until its leader's trail measures `trailStart` cells. The room calls
+   * it on state 9's signal 0 (`ExtractionAuthority`'s AI hook); a resume (signal 3) does not.
+   */
+  enter(): void { this.started = false; }
 
   /** Body physics runs even when route planning fails, an AI location is absent, or FOLLOW has ended. */
   physics(dt: number): boolean {
@@ -265,6 +431,75 @@ export class HostageFollow {
     this.recordVelocity(before, dt);
     return this.velocity.some(v => v !== 0);
   }
+  /** LATER 1170: the flight's route (`run`): the cell it runs to and the planner's points left; null when not running. */
+  private fleeRoute: { goal: AiLoc; points: FollowPoint[] } | null = null;
+
+  /**
+   * LATER 1170 (research 445 s5; `HOSTAGE_FLEE_MOVE_PLACEHOLDER`): `CAiSGrenade`'s move child 0x18 at throttle 1.0
+   * (D:L423275-423282), whose own tick is unread -- the body's physics, then the planner's route from the hostage's cell to
+   * `goal` (planned once a goal), each point steered at on the follower's direct steering at throttle 1 and moved as a
+   * follow moves (`move`). Whether it still runs: false once the route is spent (it stands at the cell) or none was found.
+   * Follow's own state is not touched; `stopRun` drops the route.
+   */
+  run(dt: number, goal: AiLoc): boolean {
+    const before = this.feet;
+    this.physics(dt);
+    const raw = this.planner.locate(this.feet, this.location?.map);
+    if (raw && this.planner.traversable(raw)) this.location = raw;
+    // LATER 1208: a door goal pushed over the flight is the top goal; in the original 0x1b does not tick under it. The
+    // room's 0x1b frame still runs and is told the run moves, so its sub-state stands (`HOSTAGE_FLIGHT_DOOR_HOLD_PLACEHOLDER`).
+    if (this.doorAction?.flight) {
+      this.doorTick(dt, raw, this.thrown || this.traversal?.active === true);
+      // The door program's MOVE may walk the body (`doorGoalTick`): its velocity is zeroed only when it stood (review F2).
+      const moved = this.feet;
+      if (moved[0] === before[0] && moved[2] === before[2] && !this.walker.airborne) this.walker.state.vx = this.walker.state.vz = 0;
+      this.recordVelocity(before, dt);
+      return true;
+    }
+    const here = this.location;
+    let moving = false;
+    if (here) {
+      const route = this.fleeRoute;
+      if (!route || route.goal.map !== goal.map || route.goal.x !== goal.x || route.goal.z !== goal.z) {
+        const plan = this.planner.plan(here, goal);
+        this.fleeRoute = { goal, points: plan ? [...plan.points] : [] };
+      }
+      const points = this.fleeRoute!.points;
+      while (points.length && xyCells(points[0]!, here) === 0 && points.length > 1) points.shift();
+      // LATER 1208: the run walks the walker in movement state 3 (the run child's tick `FUN_005f1160` routes through
+      // `FUN_00562790`, D:L503231 / D:L503263; `FUN_0056de10` D:L432565-432567 runs `FUN_00567900` in state 3; Q24c M2
+      // measured +0x3f4 = 3 through the run), so its type-1 dispatch is the follower's: a shut door's marker cell ahead
+      // pushes `CAiSAction`, admitted over 0x1b (its mask's bit 11; its veto 0x555390, the follow's always-allow).
+      if (this.doorDispatch(points, true)) {
+        this.recordVelocity(before, dt);
+        return true;
+      }
+      const next = points[0];
+      if (next) {
+        const at = this.feet, to = this.planner.point(next);
+        // The normal route steering (follow's `steering.step`, D:L431374-431420 / D:L429851-429874) at throttle 1: turn
+        // toward the point and run; the point passed within the follow's arrival (`FOLLOW_RULES_READING.arrival` cells).
+        const dx = to[0] - at[0], dz = to[2] - at[2];
+        // The run's movement state is 3 (Q24c M2, above), so its last point zeroes the throttle (D:L429556-429559; SHOTS-1208 r58).
+        const command = this.steering.step(dt, { yaw: this.yaw, dx, dz, throttle: 1, final: points.length === 1, movementState: 3, link: false });
+        this.walker.state.yaw = command.yaw;
+        this.bodyCommand = { forward: command.forward, side: 0 };
+        this.move(dt, command.forward, 0, raw, here);
+        if (Math.hypot(dx, dz) <= FOLLOW_RULES_READING.arrival * FOLLOW_RULES_READING.cell) points.shift();
+        moving = true;
+      }
+    }
+    if (!moving && !this.walker.airborne) this.walker.state.vx = this.walker.state.vz = 0;
+    this.recordVelocity(before, dt);
+    return moving;
+  }
+
+  /** LATER 1170: the flight's route dropped (0x1b ended or suspended); LATER 1208: with any door goal it pushed. */
+  stopRun(): void {
+    if (this.doorAction?.flight) this.doorDone();
+    this.fleeRoute = null;
+  }
+
   step(dt: number, leader: FollowLeader, trail: FollowTrail, slot: number): void {
     const before = this.feet, falling = this.thrown || this.traversal?.active === true;   // LATER 354: a knock owns it
     this.controlVelocity = this.bodyVelocity;
@@ -293,6 +528,7 @@ export class HostageFollow {
     return this.steering.lateral(dt, this.yaw, toLine);
   }
   private controlTick(dt: number, leader: FollowLeader, trail: FollowTrail, slot: number, falling: boolean): void {
+    this.correctionEnableBeforeTick = this.correctionEnable;
     this.lateralUpdated = false;
     this.control(dt, leader, trail, slot, falling);
     // FUN_0056fd00 D:L433132-433169 and FUN_0054d9a0 D:L416463-416467:
@@ -307,7 +543,14 @@ export class HostageFollow {
     }
   }
   private control(dt: number, leader: FollowLeader, trail: FollowTrail, slot: number, falling: boolean): void {
-    if (this.leaderId !== leader.id) { this.stop(); this.leaderId = leader.id; }
+    if (this.leaderId !== leader.id) {
+      this.stop(); this.leaderId = leader.id;
+      // Follow's enter or resume writes 0 (`FUN_005fdf80` signals 0 and 3, D:L510064 / D:L510111; AI_CORRECTION_ENABLE_READING):
+      // the port's first follow tick under a leader after `stop()`.
+      this.writeCorrectionEnable(false);
+    }
+    // A follow tick before the trail starts the follower still ends writing 0 (D:L508484).
+    if (!this.started && trail.length < FOLLOW_RULES_READING.trailStart) this.followTickWrite();
     if (!this.started) {
       if (trail.length < FOLLOW_RULES_READING.trailStart) { this.stance = leader.stance; return; }
       this.started = true;
@@ -320,8 +563,10 @@ export class HostageFollow {
       if (this.location && xyCells(raw, this.location) !== 0) this.previousLocation = this.location;
       this.location = raw;
     }
+    // HOSTAGE_DOOR_ACTION_READING: a pushed CAiSAction is the top goal; the follow goal does not tick under it.
+    if (this.doorAction) { this.doorTick(dt, raw, falling); return; }
     const here = this.location;
-    if (!here || !there) return; // no valid AI location: never straight-line through an unread map.
+    if (!here || !there) { this.followTickWrite(); return; } // no valid AI location: never straight-line through an unread map.
     this.location = here;
     const actors = this.actorWorld?.actors() ?? [];
     this.obstacle.retainActor(id => actors.some(a => a.id === id && a.alive));
@@ -330,6 +575,11 @@ export class HostageFollow {
     const event = this.obstacle.tick(dt, raw ?? here, this.steering.forward, this.steering.side);
     // FUN_00556370 D:L420744–420819; normal completed route (movement mode3).
     const r = HOSTAGE_AVOIDANCE_READING;
+    // A record maturing writes 1 (AI_CORRECTION_ENABLE_READING): type 2 or 4 past its threshold (`FUN_00556370` D:L420662,
+    // D:L420688; `event`), type 1 with its actor older than DAT_006504f0 (D:L420745; `actorDelay`). The 1 holds until the
+    // next writer. A type 2 that matures out of reach is cleared inside `HostageObstacleRecord.tick` with no event, so its
+    // 1 (written before the reach test, D:L420662) is not seen here (research 434 s8, the port's gap).
+    if (event || (response && response.age > r.actorDelay)) this.writeCorrectionEnable(true);
     let yieldEntered = false;
     const yieldActive = this.yielding !== null;
     // FUN_00556370 D:L420744–420795; FUN_00524d00 pops exactly one head.
@@ -450,6 +700,8 @@ export class HostageFollow {
       this.recovery = null; this.segmentStart = this.feet; this.previousDot = 0;
       return;
     }
+    // Follow on top again (no state 16, no state 3): this tick is the follow tick, and it ends writing 0 (D:L508484).
+    this.followTickWrite();
     if (this.directTarget) { this.moveDirect(dt, raw, here, falling); return; }
     let arrived = false, goalDistance = 0;
     const leaderSpeed = Math.hypot(...leader.velocity);
@@ -459,21 +711,17 @@ export class HostageFollow {
       const [depth, lateral] = formation;
       const yaw = leader.yaw * Math.PI / 180;
       const [fx, fz] = trail.heading ?? [-Math.sin(yaw), -Math.cos(yaw)];
-      let goal = trail.points[depth];
+      const goal = formationGoalCell(trail, [fx, fz], formation, this.planner);
       if (goal) {
-        const origin = goal;
-        for (let i = 1; i <= Math.abs(lateral); i++) {
-          const sign = Math.sign(lateral);
-          const next = { map: origin.map, x: origin.x + Math.trunc(0.5 - fz * sign * i), z: origin.z + Math.trunc(0.5 + fx * sign * i) };
-          // FUN_005fd790 D:L509862-509875 checks this candidate's soil, not the intervening slope/line.
-          if (!trail.contains(next) || !this.planner.traversable(next)) break;
-          goal = { ...next, width: 0 };
-        }
         this.goal = this.planner.point(goal);
       } else {
-        const c = FOLLOW_RULES_READING.cell;
-        this.goal = [leader.feet[0] - FOLLOW_RULES_READING.fallbackVelocity * leader.velocity[0] - depth * c * fx + lateral * c * fz,
-          leader.feet[1], leader.feet[2] - FOLLOW_RULES_READING.fallbackVelocity * leader.velocity[2] - depth * c * fz - lateral * c * fx];
+        // SHOTS-1208 r11 (research 445 s5.10; reading, pending review): FUN_005fb1c0 D:L508700-508703 scales the leader's
+        // velocity (+0x38) by DAT_00650c30 (0x3f266666 = +0.65, `fallbackVelocity`) on all three axes (FUN_00309180
+        // D:L207463-207469) and ADDS it to his position (+0xa4; FUN_00309240 D:L207510-207515); then the slot offset, y 0
+        // (D:L508712-508718). The port subtracted it, on x and z only.
+        const c = FOLLOW_RULES_READING.cell, k = FOLLOW_RULES_READING.fallbackVelocity;
+        this.goal = [leader.feet[0] + k * leader.velocity[0] - depth * c * fx + lateral * c * fz,
+          leader.feet[1] + k * leader.velocity[1], leader.feet[2] + k * leader.velocity[2] - depth * c * fz - lateral * c * fx];
       }
       const target = this.planner.locate(this.goal, there.map);
       if (!target) return;
@@ -489,21 +737,38 @@ export class HostageFollow {
       if (this.sub === 4) { this.arrivedLeader = { ...there }; this.sub = 7; this.route = []; return; }
       if (this.sub === 0) {
         if (arrived) { this.sub = 4; return; }
-        // FUN_005fb1c0 D:L508814-508816, FUN_005623b0 D:L426859-426868: the old request cancelled, the route emptied
-        // (FUN_00527310 D:L393385-393410), then the request. The room supplies live actor occupancy (research335).
-        this.ticket?.cancel(); this.route = [];
-        this.ticket = this.register([here, target], trail.contains(here) ? { corridor: p => trail.contains(p) } : undefined);
+        // SHOTS-1208 r108 (research 445 s5.10; reading, pending review): FUN_005623b0 D:L426850-426871 re-plans only
+        // when the target cell's soil passes (FUN_0052a180 / FUN_0052a090, D:L426851-426857); an untraversable target
+        // leaves the old request, its answer and the route untouched. Either way the state goes to 2 (D:L508814-508816).
+        if (this.planner.traversable(target)) {
+          // D:L426858-426868: the old request cancelled, the route emptied (FUN_00527310 D:L393385-393410), then the
+          // request. The room supplies live actor occupancy (research335).
+          this.ticket?.cancel(); this.route = [];
+          this.ticket = this.register([here, target], trail.contains(here) ? { corridor: p => trail.contains(p) } : undefined);
+          this.requested = true;
+        }
         this.sub = 2;
         return;
       }
       if (this.sub === 2) {
         // D:L508825: while the request is queued or searching the follower has no route and stands.
         if (this.ticket?.state === 'pending') return;
-        const points = this.ticket?.state === 'done' ? this.ticket.path?.points ?? null : null;
-        this.ticket = null;
-        if (!points?.length) { this.sub = 8; this.waiting = FOLLOW_RULES_READING.retry; return; }
-        this.route = points.slice(); this.sub = 3;
-        this.segmentStart = this.feet; this.previousDot = 0;
+        // SHOTS-1208 r108 (review 1 F1): case 2 (D:L508825-508835) waits 2.5 s when the live route holds no node (+0x508,
+        // the remaining count: `FUN_00524d00` pops a node by decrementing it) or the request is not done (+0x4ec != 4);
+        // else it walks at once (state 3) -- `FUN_00526540` (D:L393116-393163) rebuilds only the sub-map list from the
+        // nodes still held. After a new request the live route is its answer; after an untraversable target (no request)
+        // it is what is left of the old route, walked on from where it stands. `ticket` stays as the last request (its
+        // state is the +0x4ec the test reads). Held at r0004 by the key job (0x6029a0; 0x5676f0).
+        if (this.requested) {
+          this.requested = false;
+          const points = this.ticket?.state === 'done' ? this.ticket.path?.points ?? null : null;
+          if (!points?.length) { this.sub = 8; this.waiting = FOLLOW_RULES_READING.retry; return; }
+          this.route = points.slice();
+          this.segmentStart = this.feet; this.previousDot = 0;
+        } else if (!this.route.length || this.ticket?.state !== 'done') {
+          this.sub = 8; this.waiting = FOLLOW_RULES_READING.retry; return;
+        }
+        this.sub = 3;
       }
       const end = this.route.at(-1);
       if (!end) { this.sub = arrived ? 4 : 0; return; }
@@ -525,10 +790,15 @@ export class HostageFollow {
     }
     // Original recursion consumes each reached point without a stationary frame.
     while (this.route.length) {
+      // FUN_00567900 D:L429515: the action dispatch reads the point steered to before its arrival (HOSTAGE_DOOR_ACTION_READING).
+      if (this.doorDispatch()) return;
       // Point-cell arrival is FUN_00567900 D:L429574-429592; width=0 for the original follower app flags 3.
-      while (this.route.length && same(here, this.route[0]!)) this.advancePoint();
-      const next = this.route[0];
-      if (!next) { this.sub = arrived ? 4 : 0; return; }
+      if (same(here, this.route[0]!)) {
+        this.advancePoint();
+        if (!this.route.length) { this.sub = arrived ? 4 : 0; return; }
+        continue;
+      }
+      const next = this.route[0]!;
       const aim = this.planner.point(next), old = this.feet, dx = aim[0] - old[0], dz = aim[2] - old[2], d = Math.hypot(dx, dz);
       const radians = this.yaw * Math.PI / 180;
       const dot = d ? (-Math.sin(radians) * dx - Math.cos(radians) * dz) / d : 0;
@@ -563,13 +833,112 @@ export class HostageFollow {
       }
       this.previousDot = dot;
       const throttle = this.throttle = yieldActive ? this.throttle : followThrottle(goalDistance, leaderSpeed, leader.topSpeed);
-      const command = this.steering.step(dt, { yaw: this.yaw, dx, dz, throttle, final: this.route.length === 1 || next.action, link: next.link, hanging: this.traversal?.state().kind === 'hang' });
+      // SHOTS-1208 r58: the follower walks in movement state 6 (`FUN_0056cbf0` forces 6 while follow is on top,
+      // D:L431676-431687), so its last point keeps the follow throttle (`FUN_00567900` D:L429556-429559); under a yield
+      // it is not 6 (`HOSTAGE_YIELD_MOVEMENT_STATE_READING`), so the last point brakes.
+      const movementState = yieldActive ? HOSTAGE_YIELD_MOVEMENT_STATE_READING : 6;
+      const command = this.steering.step(dt, { yaw: this.yaw, dx, dz, throttle, final: this.route.length === 1, action: next.action, movementState, link: next.link, hanging: this.traversal?.state().kind === 'hang' });
       const side = this.lateral(dt, projection ? [projection.point[0] - old[0], projection.point[1] - old[2]] : null);
       if (!HOSTAGE_CLIMB_READING.noTurn.includes(this.traversalPose?.clip ?? '')) this.walker.state.yaw = command.yaw;
       this.bodyCommand = { forward: command.forward, side };
       if (!falling) this.move(dt, command.forward, side, raw, here);
       return;
     }
+  }
+  /**
+   * `FUN_00567900`'s type-1 dispatch (D:L429515; r1 0x567ee8-0x568150, research 418 s22.4; `HOSTAGE_DOOR_ACTION_READING`):
+   * the point steered to lies on a bound door marker's cell with more than one point left, and the door's valve is 0 --
+   * the push of `CAiSAction`, admitted (`HOSTAGE_DOOR_PUSH_GATE_READING`), and the walker returns without steering
+   * (`HOSTAGE_DOOR_STAND_PLACEHOLDER`). True when it pushed.
+   */
+  private doorDispatch(route: readonly FollowPoint[] | readonly AiLoc[] = this.route, flight = false): boolean {
+    const doors = this.doors, next = route[0];
+    if (!doors || !next || route.length < 2) return false;
+    const door = doors.at(next);
+    if (door === null || doors.valve(door) !== 0) return false;   // r1 0x567f0c-0x567f14: valve non-zero (open, locked 99) steers
+    this.steering.forward = this.steering.side = this.steering.turn = 0;
+    this.doorAction = { door, stage: 0, flight };
+    return true;
+  }
+  /**
+   * `CAiSAction`'s tick `FUN_005efa50` on the door (`HOSTAGE_DOOR_ACTION_READING`), the body standing
+   * (`HOSTAGE_DOOR_STAND_PLACEHOLDER`) but while the door program's MOVE holds a goal on it (`doorMove`, LATER 1206):
+   * complete at the top of the tick when the valve reads the wanted state (D:L502499-502504); stage 0 -> 6
+   * (D:L502508-502528); stage 6 the use with pick 0 (D:L502654), refused complete at once (D:L502655-502656), accepted
+   * stage 7; stage 7 waits with no timeout (D:L502665-502667; `HOSTAGE_DOOR_USE_COUNT_PLACEHOLDER`). Not built: the shut
+   * behind (`HOSTAGE_DOOR_SHUT_BEHIND_READING`).
+   */
+  private doorTick(dt: number, raw: AiLoc | null, falling: boolean): void {
+    const action = this.doorAction!, doors = this.doors!;
+    if (this.doorGoal && !this.doorGoal.done) { this.doorGoalTick(dt, raw, falling); return; }
+    this.steering.forward = this.steering.side = this.steering.turn = 0;
+    if (doors.valve(action.door) === HOSTAGE_DOOR_ACTION_READING.wanted) { this.doorDone(); return; }
+    if (action.stage === 0) { action.stage = 6; return; }
+    if (action.stage === 6) {
+      if (doors.use(action.door, this.feet)) action.stage = 7;
+      else this.doorDone();
+    }
+  }
+  /**
+   * LATER 1206 (research 428 s8.4-s8.5; reading, pending review): the door program's `ai::MOVE` on this body
+   * (`DoorHooks.move` through the room's `doorMove`): the goal `point` and `facing` its begin gave the controller
+   * (`FUN_0056daa0`, `FUN_0056d920`, D:L488972-488977), held until the body is within `DOOR_MOVE_ARRIVE_READING` of the
+   * point (`FUN_00566dc0` D:L429158-429161) AND faces the goal within `DOOR_MOVE_FACE_READING` (the facing bit, D:L429178-
+   * 429185; the review's F1), or `DOOR_MOVE_TIMEOUT_READING` has passed (its timer `+0x1c0`, counted down by the frame's
+   * dt, D:L429080-429098). Answers the program's "done?": true once the goal is gone either way. Called
+   * from the door's use inside the action's stage 6 (`doorTick`); with no door action, nothing to walk: done at once.
+   */
+  doorMove(point: readonly [number, number, number], facing: readonly [number, number, number]): () => boolean {
+    if (!this.doorAction) return () => true;
+    const goal = { point: [point[0], point[1], point[2]] as V3, facing: [facing[0], facing[1], facing[2]] as V3, left: DOOR_MOVE_TIMEOUT_READING, arrived: false, done: false };
+    this.doorGoal = goal;
+    return () => goal.done;
+  }
+  /**
+   * One tick of the MOVE's goal (`doorMove`): the timer counted down by `dt` (`FUN_00566dc0` D:L429080-429098), the
+   * arrival tested on the flat distance (D:L429158-429161), else the body steered at the point by the follower's own direct
+   * steering (`HostageSteering.directStep`, as `moveDirect`) -- HOSTAGE_DOOR_MOVE_STEER_PLACEHOLDER: the goal driver's own
+   * gains (its sticks at `+8` / `+0xc`, D:L429100-429150) are not transcribed. The facing is held and not turned to
+   * (HOSTAGE_DOOR_MOVE_FACING_PLACEHOLDER): once arrived the body stands, and the goal stays until its yaw faces the goal
+   * within `DOOR_MOVE_FACE_READING` -- which, not turned, it reaches only by chance -- else until the timeout (the original's
+   * tick holds on the facing bit too: the review's F1). The goal gone, the body stands for the rest of the action.
+   */
+  private doorGoalTick(dt: number, raw: AiLoc | null, falling: boolean): void {
+    const goal = this.doorGoal!, at = this.feet, here = this.location;
+    goal.left -= dt;
+    const dx = goal.point[0] - at[0], dz = goal.point[2] - at[2];
+    // Arrival is LATCHED: the original clears the position bit once (D:L429160) and tests the distance only while it is
+    // set (D:L429121) -- once arrived the body only turns (the 1206 delta review's N1).
+    if (!goal.arrived && Math.hypot(dx, dz) <= DOOR_MOVE_ARRIVE_READING) goal.arrived = true;
+    const arrived = goal.arrived;
+    // The facing goal's residual: the body's yaw against the facing's (forward is (-sin, -cos) of the yaw, degrees).
+    const want = Math.atan2(-goal.facing[0], -goal.facing[2]), have = (this.yaw * Math.PI) / 180;
+    const faced = Math.abs(Math.atan2(Math.sin(want - have), Math.cos(want - have))) <= DOOR_MOVE_FACE_READING;
+    if ((arrived && faced) || goal.left <= 1e-9 || !here) {
+      goal.done = true;
+      this.steering.forward = this.steering.side = this.steering.turn = 0;
+      return;
+    }
+    if (arrived) { this.steering.forward = this.steering.side = this.steering.turn = 0; this.bodyCommand = { forward: 0, side: 0 }; return; }
+    const command = this.steering.directStep(dt, { yaw: this.yaw, dx, dz, throttle: this.throttle, radius: DOOR_MOVE_ARRIVE_READING });
+    if (!HOSTAGE_CLIMB_READING.noTurn.includes(this.traversalPose?.clip ?? '')) this.walker.state.yaw = command.yaw;
+    this.bodyCommand = { forward: command.forward, side: command.side * HOSTAGE_TOP_SPEED_READING.strafe + this.lateral(dt, null) };
+    if (!falling) this.move(dt, this.bodyCommand.forward, this.bodyCommand.side, raw, here);
+  }
+  /**
+   * The action's completion: the follow goal's event 3 resets its state to INIT (research 404 s24.1, D:L510103-510112),
+   * the route emptied for its new request; the start gate (`started`) is not re-armed (research 428 s2, review 1 finding 11).
+   * LATER 1208: over the flight, the goal under it is 0x1b, not the follow: the follow's state is left as it was and the
+   * run goes on along its route (`HOSTAGE_FLIGHT_DOOR_HOLD_PLACEHOLDER`: what 0x1b does on its resume is unread).
+   */
+  private doorDone(): void {
+    const flight = this.doorAction?.flight === true;
+    this.doorAction = null;
+    if (this.doorGoal) this.doorGoal.done = true;
+    this.doorGoal = null;
+    if (flight) return;
+    this.ticket?.cancel(); this.ticket = null; this.requested = false;
+    this.sub = 0; this.route = [];
   }
   private moveDirect(dt: number, raw: AiLoc | null, here: AiLoc, falling: boolean): void {
     if (!this.directTarget) return;
@@ -589,10 +958,12 @@ export class HostageFollow {
     const proposed: V3 = [old[0] - Math.sin(heading) * travel + Math.cos(heading) * side * dt, old[1],
       old[2] - Math.cos(heading) * travel - Math.sin(heading) * side * dt];
     // FUN_005b7ba0 D:L471292-471306: a blocked raw cell invalidates navigation beyond one cell on either axis.
-    // Normal AI setup enables this correction; physical action mode7 disables it (raw FUN_00557ee0).
+    // FUN_005483d0 D:L413920-413922: the correction runs only with the controller's +0x171 bit 7 set
+    // (AI_CORRECTION_ENABLE_READING; `correctionOpen`).
     const valid = raw && Math.abs(raw.x - here.x) <= 1 && Math.abs(raw.z - here.z) <= 1;
+    const open = this.correctionOpen();
     const correct = (at: readonly [number, number, number]): V3 => {
-      if (!valid || this.obstacle.suppressesCorrection) return [...at];
+      if (!valid || !open || this.obstacle.suppressesCorrection) return [...at];
       const result = this.planner.correctMotionWithContact?.(raw, at);
       if (result) { if (result.obstacle) this.obstacle.ai(result.obstacle, dt); return result.feet; }
       return this.planner.correctMotion?.(raw, at) ?? [...at];
@@ -606,6 +977,29 @@ export class HostageFollow {
       const at: V3 = [hit.x, hit.y, hit.z], cell = this.planner.locate(at);
       if (cell) this.obstacle.hull(at, cell);
     }
+  }
+  /** A write of the +0x171 bit 7 through `CSealCtrlAi`'s setter (r1 0x557ee0): 0 in movement state 7, never a restore. */
+  private writeCorrectionEnable(value: boolean): void {
+    this.correctionEnable = correctionEnableWrite(value, this.actionMode7);
+  }
+  /**
+   * The follow tick's own write (`FUN_005fae70` D:L508484): 0 online, and only when follow is the top goal -- not while
+   * the port's state 16 (`recovery`) or state 3 (`yielding`) sits above it, when the tick writes nothing
+   * (D:L508399-508404, `FUN_0056d090`).
+   */
+  private followTickWrite(): void {
+    if (this.recovery || this.yielding) return;
+    this.writeCorrectionEnable(false);
+  }
+  /**
+   * Whether the body's move corrects (`FUN_005483d0` D:L413920-413922): the bit as the frame order gives it to the move
+   * (`AI_CORRECTION_FRAME_ORDER_PLACEHOLDER`), and a dead body as before the gate (`AI_CORRECTION_UNCOVERED_STATES_PLACEHOLDER`).
+   * +0x172 bit 0 (the cell locate's, research 434 s5) is left to the move's existing `valid` cell test, as before;
+   * `DAT_0066b000` is 0.
+   */
+  private correctionOpen(): boolean {
+    const bit = AI_CORRECTION_FRAME_ORDER_PLACEHOLDER === 'ai-tick-then-move' ? this.correctionEnable : this.correctionEnableBeforeTick;
+    return bit || (this.walker.dead && AI_CORRECTION_UNCOVERED_STATES_PLACEHOLDER === 'ungated');
   }
   /** FUN_005623b0 / FUN_0052c5c0's registration through the room's queue; a planner without `request` answers at once
    * through `plan`, leg by leg (any failing leg reads as a refusal). */

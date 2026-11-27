@@ -76,10 +76,11 @@ Research 213 §2.2 read `FUN_003c5310` as "the round's tick", whose fuse counts 
 tick is the **placed charge's**, not the pool round's:
 
 - The pool's element is the base class: constructed by `FUN_003cb8a0` (vtable `0x4083d0`, D:L320887) in 0xc4-byte
-  slots (D:L321067). `FUN_003c5310` reads `+0xc4`, `+0xc5`, `+0xc6`, `+0xc8`, `+0xcc` and `+0xd0`
-  (D:L316834-316836, D:L316850-316852, D:L316897-316899) -- past the end of a 0xc4-byte slot. Those fields belong to the derived class
-  (vtable `0x4083a0`), whose constructor `FUN_003c5830` calls the base's and then sets them (D:L316967-316975): the
-  placed charge's (research 85 §5.2, "the placed-explosive tick 0x3c5310"; the room's `holdsFuse`).
+  slots (D:L321067). `FUN_003c5310` reads `+0xc4`, `+0xc5`, `+0xc6`, `+0xc8`, `+0xcc` and `+0xd0` (D:L316834-316836,
+  D:L316850-316852, D:L316897-316899) -- past the end of a 0xc4-byte slot. Those fields belong to the derived class
+  (vtable `0x4083a0`), whose constructor `FUN_003c5830` calls the base's and then sets `+0xc4` (a byte), `+0xc8`,
+  `+0xcc`, `+0xd0` and `+0x8c`, but not `+0xc5` or `+0xc6` (D:L316967-316975): the placed charge's (research 85 §5.2,
+  "the placed-explosive tick 0x3c5310"; the room's `holdsFuse`).
 - The pool round's tick is `CZProjectile`'s `PostTick` `FUN_003c9fb0` (research 85 §5, named by names.csv). It counts
   `+0x8c` down every frame with **no** online test (D:L320127-320129), then calls `HandleTimers` `FUN_003c99a0`
   (D:L320191).
@@ -146,7 +147,9 @@ the same body path (§1). So each would hurt a player inside 300 u of its node, 
 fires a second MPBOMB blast at the base (its `healthy` node) besides the bomb's. Two things differ and are not read:
 the switch's program may carry a type-9 context (the presser), which would make **him** the owner on every console
 (D:L107286-107297) -- whether it does is not traced (research 213 §2.2, "whether a switch's presser is that context");
-the original running credits the presser in the kill feed (Q14, 2026-11-14, research 213 §2.2; LATER 1038) --
+the original running credits the presser in the kill feed (Q14, 2026-11-14, research 213 §2.2; LATER 1038), and
+it does: the press puts the presser in the context as its type-9 entry (research 213 §2.2's re-read; the port since,
+`SCENE_ROUND_PRESSER_READING`) --
 and the order of the base's blast against its swap (the program's `WAIT 0.15` comes after the FIRE_WEAPON).
 
 **Not built.** These blasts are the room's world's (`viewer/src/worldState.ts`: the host's `fireWeapon` falls through,

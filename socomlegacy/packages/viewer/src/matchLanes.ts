@@ -86,6 +86,6 @@ export function playerLanes(l: LaneParts, before: Input, after: Input, dt: numbe
   // pad's reader takes Triangle's button from the game while the profile's Prone is bound (`./controllerInput` `poll`;
   // the review's F1 moved the gate there from here, where the profile is not known), so `after.stance` is taken as given.
   // OT.R107: a SEPARATE Prone bind's Triangle (`Input.stanceOff`) is Triangle's action only, never the stance (`stanceLane`).
-  l.stanceButton.lanes(walk.stanceMode?.() ?? PRONE_POP_ADAPTATION, { triangle: walking && stanceLane(after), prone: walking && after.prone }, dt, walk);
+  l.stanceButton.lanes(walk.stanceMode?.() ?? PRONE_POP_ADAPTATION, { triangle: walking && stanceLane(after), prone: walking && after.prone, ...(walking && after.stanceLength !== undefined ? { triangleLength: after.stanceLength } : {}), ...(walking && after.stanceTimed ? { triangleTimed: true } : {}) }, dt, walk);
   firearm.viewLanes(walking);                         // the view from the head past third person, the scope's walk, the binoculars
 }

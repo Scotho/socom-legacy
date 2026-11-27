@@ -154,6 +154,22 @@ describe('FX-1: a piece tilted and scaled in the editor survives the viewer reco
     expect([scale.x, scale.y, scale.z].map((s) => Math.round(s * 100) / 100)).toEqual([2, 1, 0.5]);
   });
 
+  it('FN-4, RED: a version-4 record (a piece turned 58.67 / 38.93 / 27.03) is admitted by checkRecord and read by readSaved as it was', () => {
+    // FN-4 (the Forge lane's FN.R5; a browser adaptation): the record's version 4 keeps a piece's angles on a hundredth of a
+    // degree. Expected RED at the RED commit: "not a forge record of version 2 or 3". GREEN from the readers' commit; the
+    // matrix it opens to is the turn's (three's `YXZ`) within 1e-9. Written, NOT RUN (the host rule).
+    const fine = {
+      schema: 'forge-layout', version: 4, name: 'Fine', base: 'MP2', assets: ['MP2:crate'],
+      pieces: [[0, 1, 0, 2, 58.67]], poses: [[0, 38.93, 27.03, 1, 1, 1]], spawns: [['A', 1, 0, 2, 0]], ids: { pieces: ['p0'], spawns: ['s0'] },
+    };
+    expect(checkRecord(fine)).toBeNull();
+    const read = readSaved(JSON.stringify(fine), 'ignored');
+    expect(JSON.stringify(read)).toBe(JSON.stringify(fine));
+    const want = new Matrix4().compose(new Vector3(1, 0, 2), new Quaternion().setFromEuler(new Euler(d(38.93), d(58.67), d(27.03), 'YXZ')), new Vector3(1, 1, 1)).elements;
+    const m = layoutOfRecord(read).pieces[0]!.m;
+    want.forEach((v, i) => expect(Math.abs(m[i]! - v), `m[${i}]`).toBeLessThanOrEqual(1e-9));
+  });
+
   it('a layout with no tilted or scaled piece saves as before: no poses key in the record or its text', () => {
     const record = readSaved(JSON.stringify(file), 'Yard');
     expect('poses' in record).toBe(false);

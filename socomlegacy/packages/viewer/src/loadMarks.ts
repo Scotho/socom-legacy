@@ -5,6 +5,8 @@
  * the first world frame one `match load:` console line gives each phase's milliseconds after the load's start. Nothing
  * the game does, and nothing the page sends, changes.
  */
+import { noteXboxMemory } from './xboxMemoryTrace';
+
 export const LOAD_MARKS_ADAPTATION = 'the match load phases marked for measurement' as const;
 
 /** The User Timing names' prefix. */
@@ -93,6 +95,7 @@ export function setLoadMarkListener(fn: ((phase: LoadPhase) => void) | null): vo
  * frame the summary is logged once. Never throws: an instrument does not stop a load.
  */
 export function markLoad(phase: LoadPhase, perf: LoadMarkClock | null = pagePerformance(), log: (line: string) => void = (l) => { console.info(l); }): void {
+  noteXboxMemory(`load:${phase}`);
   reached = phase === 'load-start' ? 0 : Math.max(reached, LOAD_PHASES.indexOf(phase));
   if (phase === 'load-start') startedAt = typeof globalThis.performance?.now === 'function' ? globalThis.performance.now() : null;
   try { listener?.(phase); } catch { /* an instrument never stops the load */ }

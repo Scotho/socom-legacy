@@ -411,7 +411,7 @@ describe('the DEV-only talk keys (constraint 8; OT.R29; H87 VOICE-KEY: V in the 
     e.key('keydown', 'KeyV');                                             // closed (ROUND_TEXT_LINE_DEV_OPEN_ADAPTATION): V is the talk key's
     expect([...h.keys('round')]).toEqual(['Circle']);
     e.key('keyup', 'KeyV');
-    line.key({ hid: 0x28, shift: false, capsLamp: false });               // ENTER opens the line
+    line.key({ hid: 0x35, shift: false, capsLamp: false });               // tilde opens the line (V21.R15a, RC-2: it replaced ENTER)
     e.key('keydown', 'KeyV');                                             // open: V is the line's alone
     expect([...h.keys('round')]).toEqual([]);
     e.key('keyup', 'KeyV');

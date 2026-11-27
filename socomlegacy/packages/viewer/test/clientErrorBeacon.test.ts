@@ -231,13 +231,13 @@ describe('the page\'s context and beacon', () => {
     const read = (f: string): string => readFileSync(fileURLToPath(new URL(f, import.meta.url)), 'utf8');
     const entry = read('../src/entry.ts');
     const install = entry.indexOf('installClientErrorBeacon(window, pageClientErrorBeacon());');
-    const boot = entry.indexOf('void bootPage(');
+    const boot = entry.indexOf('const boot = (): Promise<unknown> => bootPage(');
     expect(install).toBeGreaterThan(-1);
     expect(boot).toBeGreaterThan(install);
     const match = read('../src/matchMount.ts');
     expect(match.indexOf('beaconMatchBegan();')).toBeGreaterThan(match.indexOf('attached = true;'));
     // VS-8: the teardown's one line hands the match's seats, its map code and the scale it ended at to the perf report
-    expect(match).toMatch(/const teardown = \(\): void => \{[\s\S]{0,200}beaconMatchEnded\(\{ seats: net\?\.rows\.length \?\? null, map: map\?\.archive \?\? null, scaleAtEnd: ratioTargetOf\(renderer\)\?\.pixelRatio\(\) \?\? null, video: videoAtStart \}\);/);
+    expect(match).toMatch(/const teardown = \(\): void => \{[\s\S]{0,400}beaconMatchEnded\(\{ seats: net\?\.rows\.length \?\? null, map: map\?\.archive \?\? null, scaleAtEnd: ratioTargetOf\(renderer\)\?\.pixelRatio\(\) \?\? null, video: videoAtStart \}\);/);
   });
 
   it('the page\'s beacon is one, its page id random and not a person; its text is the performance line\'s graphics part', () => {

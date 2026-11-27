@@ -24,7 +24,7 @@ const quad = (pts: number[], ditype: number, path: string): WorldPoly => ({
 /** `airFloorProbe.test.ts`'s strip: a floor at y 0 to z 0, none over z (0, 0.8), the floor again from z 0.8. */
 const GAP = 0.8;
 const POLYS: WorldPoly[] = [
-  quad([-200, 0, -200, 200, 0, -200, 200, 0, 0, -200, 0, 0], 3, 'worldmodel/near'),
+  quad([-200, 0, 0, 200, 0, 0, 200, 0, -200, -200, 0, -200], 3, 'worldmodel/near'),
   quad([-200, 0, GAP, 200, 0, GAP, 200, 0, 200, -200, 0, 200], 3, 'worldmodel/far'),
 ];
 const OWNERS: CollisionOwner[] = POLYS.map((p, first) => ({ modelName: p.modelName, path: p.path, first, count: 1 }));

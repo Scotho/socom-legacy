@@ -240,6 +240,7 @@ describe.skipIf(noDisc)(`the anim set and the clips on the disc${noDisc ? ' (REA
       expect(c, type).toBeTruthy();
       return c![0]!;
     };
+
     expect({
       stand: one('Stand'), walk: one('Walk'), jog: one('Jog'), run: one('Run'), walkBack: one('Walk backwards'), jogBack: one('Jog backwards'),
       strafeRight: one('Strafe right'), strafeRightFast: one('Strafe right fast'), runRight: one('Run right'),
@@ -259,6 +260,9 @@ describe.skipIf(noDisc)(`the anim set and the clips on the disc${noDisc ? ' (REA
       swapMoving: one('Moving rifle -> Pistol'),
       rifleToLauncher: one('Rifle -> Launcher'), pistolToLauncher: one('Pistol -> Launcher'),   // PAR-84, research 230 s5.2.10
       swapRifleExchange: one('Swap rifle'), swapRifleClaim: one('Swap rifle'),   // NU-5 X1 / research 324 P2: one clip, two names
+      // LATER 1188: GLOBAL's flashbang cower, standing and crouched, two types each (research 447 s12).
+      cowerStand: one('Flashbang cower'), cowerStand2: one('Flashbang cower2'),
+      cowerCrouch: one('Crouch flashbang cower'), cowerCrouch2: one('Crouch flashbang cower2'),
     }).toEqual({ ...SEAL_ANIMS });
     expect(seal.get('Crouch')).toEqual(CROUCH_IDLES.map((c) => c.clip));
     // the sets' order is motion.rdr's: the transitions as the builder files them, ascending in every set
@@ -303,6 +307,8 @@ describe.skipIf(noDisc)(`the anim set and the clips on the disc${noDisc ? ' (REA
       proneCover: SEAL_ANIMS.proneCover,                             // PF-19: `Prone cover` (GLOBAL), research 179 s11.9
       rifleToLauncher: SEAL_ANIMS.rifleToLauncher, pistolToLauncher: SEAL_ANIMS.pistolToLauncher,   // PAR-84, research 230 s5.2.10
       swapRifleExchange: SEAL_ANIMS.swapRifleExchange, swapRifleClaim: SEAL_ANIMS.swapRifleClaim,   // NU-5, research 323 X1, 324 P2
+      cowerStand: SEAL_ANIMS.cowerStand, cowerStand2: SEAL_ANIMS.cowerStand2,                  // LATER 1188, research 447 s12
+      cowerCrouch: SEAL_ANIMS.cowerCrouch, cowerCrouch2: SEAL_ANIMS.cowerCrouch2,
     };
     const clips = new Map(clipsFromPack(new Uint8Array(readFileSync(PACK)), Object.values(names)).map((c) => [c.name, c]));
     for (const [k, n] of Object.entries(names)) {

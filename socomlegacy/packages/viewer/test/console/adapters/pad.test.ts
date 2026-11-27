@@ -11,7 +11,7 @@ import { mountShell } from '../shell';
 /**
  * The console launcher's pad adapter (slice 2, part b): "connected" is a standard-layout pad read (the deviceStore rule,
  * `../../src/startup.ts` `publishDevices`: `input.raw.mapping === 'standard'`); the pad is read through the setup page's
- * saved choices (`../../src/setupPad.ts` `GamePad`: the chosen device, its bindings and its dead zone, 0.15 by default),
+ * saved choices (`../../src/setupPad.ts` `GamePad`: the chosen device, its bindings and its dead zone, 0.05 by default),
  * and the launcher's own menu reading stays the design's (a circular 0.24 dead zone, 400 / 100 ms repeat). The header's
  * lamp and Home's Controller item read it. Storage is the page's (`pageSettings` over jsdom's localStorage). A browser
  * adaptation with no original (OT.R28).
@@ -77,11 +77,11 @@ describe('the pad adapter', () => {
     expect(adapter.connected()).toBe(false);
   });
 
-  it('the dead zone is the saved profile\'s, 0.15 by default', () => {
+  it('the dead zone is the saved profile\'s, 0.05 by default (WM-PAD-DEADZONE)', () => {
     const p = pad();
     const a = live(() => [p]).adapter;
     a.read();
-    expect(a.deadZone()).toBe(0.15);
+    expect(a.deadZone()).toBe(0.05);
     saveProfile(p, { deadZone: 0.3 });
     const b = live(() => [p]).adapter;
     b.read();
@@ -112,5 +112,55 @@ describe('the pad adapter', () => {
     expect(padFrame(adapter.read(), held, 16)).toEqual([]);
     current = pad({ axes: [0.5, 0, 0, 0] });                         // calibrated to about 0.39: over the menu's 0.24
     expect(padFrame(adapter.read(), held, 32)).toEqual(['right']);
+  });
+});
+
+/**
+ * WM-7's fix (WM.R7): the overlay's pad is read from its first poll (`heldSpent`), the console's `settle` spending what
+ * is held then; the launcher PAGE keeps the menus' rest rule (`../../src/setupPad.ts` `waitForRest`). A browser
+ * adaptation (OT.R28).
+ */
+describe('WM-7: the page keeps the rest rule; the overlay\'s option reads the pad at once', () => {
+  it('no option (the page): a button held at the first poll gives no pad until every button rests', () => {
+    let current = pad({ down: [0] });
+    const { adapter } = live(() => [current]);
+    expect(adapter.read()).toEqual([]);
+    expect(adapter.read()).toEqual([]);
+    current = pad();
+    expect(adapter.read()).toHaveLength(1);
+    current = pad({ down: [0] });
+    expect(adapter.read()).toHaveLength(1);                          // rested once: read from then on
+  });
+
+  it('with `heldSpent` (the overlay): the first poll returns the pad, the held button in it', () => {
+    const adapter = livePad(vi.fn(), { source: { getGamepads: () => [pad({ down: [0] })] }, heldSpent: true });
+    const read = adapter.read();
+    expect(read).toHaveLength(1);
+    const cross = read[0]!.buttons[0];
+    expect(typeof cross === 'object' && cross.pressed).toBe(true);
+  });
+
+  it('PAGE mode, a pad connected late with a button held: no press until every button rests, then one press', () => {
+    let pads: PadLike[] = [];
+    const { adapter } = live(() => pads);
+    let queued: ((now: number) => void) | null = null;
+    let t = 1000;
+    const frame = (): void => { t += 16; const f = queued; queued = null; f?.(t); };
+    page = bootConsole(document, window, { ...sampleAdapters(), data: 'live', states: undefined, pad: adapter }, {
+      keymap: false, frame: { request: (cb) => { queued = cb; return 1; }, cancel: () => { queued = null; } },
+    });
+    const press = vi.spyOn(page.ctl, 'padPress');
+    frame(); frame(); frame();                                       // no pad yet
+    pads = [pad({ down: [13] })];                                    // Down held as it first reads
+    for (let i = 0; i < 40; i++) frame();
+    expect(press).not.toHaveBeenCalled();
+    pads = [pad()];
+    frame(); frame();
+    expect(press).not.toHaveBeenCalled();
+    pads = [pad({ down: [13] })];
+    frame();
+    pads = [pad()];
+    frame();
+    expect(press.mock.calls).toEqual([['down']]);
   });
 });

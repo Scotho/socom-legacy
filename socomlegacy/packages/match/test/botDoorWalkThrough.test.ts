@@ -26,7 +26,10 @@ import { TeamTactics, type TacticalIntent } from '../src/bots/teamTactics';
  * (2026-11-02), which the segment body moves (its side lines meet the jambs). Re-measured 2026-11-07 on
  * agent/door-open-lock (the door-open body hold, research 92 section 2: the press's `Open door` holds the bot's body on
  * its root until its stick may cut the clip, 23 commands; one press each, every start -- 37 starts faster or level, 12
- * slower, the most +36 at MP51 door_ft_4 1 40 -12). A start may take `SLACK` more.
+ * slower, the most +36 at MP51 door_ft_4 1 40 -12). A start may take `SLACK` more. Re-pinned 2026-11-18 for LATER 1164 (the
+ * stick ramp read half a tick ahead, strafeRamp.test.ts) with LATER 1173 (the bots' waypoint pass-by and held-waypoint
+ * easing): MP51 door_ft_1 1 40 0 184 -> 236 and 1 24 -12 213 -> 251, each still one press and through; every other start
+ * within its SLACK as measured (the routes from rest are up to 0.54 longer and the waypoint handling moved).
  */
 const FIXTURES = process.env.S2U_TEST_FIXTURES ? resolve(process.env.S2U_TEST_FIXTURES) : resolve(import.meta.dirname, '../../../test-fixtures');
 const DISC = process.env.SOCOM_DISC;
@@ -126,11 +129,11 @@ const BASE: Record<string, number> = {
   'MP2 bdoor_4 -1 64 -12': 186,
   'MP2 bdoor_4 -1 64 0': 194,
   'MP2 bdoor_4 -1 64 12': 194,
-  'MP51 door_ft_1 1 24 -12': 213,
+  'MP51 door_ft_1 1 24 -12': 251,   // LATER 1164 + 1173: 213 before (the ramp lead and the bots' waypoint pass-by); one press, through
   'MP51 door_ft_1 1 24 0': 186,
   'MP51 door_ft_1 1 24 12': 174,
   'MP51 door_ft_1 1 40 -12': 237,
-  'MP51 door_ft_1 1 40 0': 184,
+  'MP51 door_ft_1 1 40 0': 236,     // LATER 1164 + 1173: 184 before; one press, through
   'MP51 door_ft_1 1 40 12': 180,
   'MP51 door_ft_1 -1 24 -12': 184,
   'MP51 door_ft_1 -1 24 0': 189,

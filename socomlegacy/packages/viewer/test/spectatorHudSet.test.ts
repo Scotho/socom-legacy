@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   AT_REST, DEFAULT_MODEL, HUD_ALIVE_RIGHT_LAYOUT_ADAPTATION, HUD_LAYOUT, hudPass, OWN_BODY_HIDES, POV_HELP_OFFERED_ADAPTATION,
-  POV_HELP_PLACE_ADAPTATION, POV_HELP_SHOWN_ADAPTATION, POV_HELP_WAITING_ADAPTATION, SCOREBOARD_HIDES, SPECTATOR_FOLLOWED_HEALTH_READING,
+  POV_HELP_PLACE_ADAPTATION, POV_HELP_SHOWN_ADAPTATION, SCOREBOARD_HIDES, SPECTATOR_FOLLOWED_HEALTH_READING,
   SPECTATOR_HELP, SPECTATOR_HELP_TAIL_PLACEHOLDER, SPECTATOR_HIDES, SPECTATOR_INFO_LAYOUT, SPECTATOR_OWN_INFO_PLACEHOLDER, spectatorHudView,
   TEAMMATE_HIDES, TEXT_LINE_LAYOUT, type HudModel, type HudQuad, type HudSpectatorView,
   type HudTiming, type SpectatorHudSource,
 } from '../src/hud';
 import { deadHelpLines } from '../src/weaponSelect';
 import {
-  COMPASS, PORT_GAPS, SCOREBOARD_HIDDEN, SPECTATOR_HIDDEN, TEAMMATE_BOX, readOf, spectatorHudFindings, type SpectatorHudRead, type SpectatorHudStep,
+  COMPASS, PORT_GAPS, SMALL_WINDOW, SCOREBOARD_HIDDEN, SPECTATOR_HIDDEN, TEAMMATE_BOX, readOf, spectatorHudFindings, type SpectatorHudRead, type SpectatorHudStep,
 } from '../e2e/spectatorHudSet';
 
 /**
@@ -85,7 +85,7 @@ describe('PAR-48c: the spectator HUD check the rendered specs share (e2e/spectat
   it("its lists are the HUD's own: the hide-all's set (SPECTATOR_HIDES), the board's (SCOREBOARD_HIDES), a dead body's (OWN_BODY_HIDES), the placeholders still standing", () => {
     expect(new Set(SPECTATOR_HIDDEN)).toEqual(new Set(SPECTATOR_HIDES));   // the review's F3: the number drawn (research 282 §6)
     expect(new Set(SCOREBOARD_HIDDEN)).toEqual(new Set(SCOREBOARD_HIDES));
-    expect(new Set(COMPASS)).toEqual(new Set(OWN_BODY_HIDES));
+    expect(new Set([...COMPASS, ...SMALL_WINDOW])).toEqual(new Set(OWN_BODY_HIDES));   // PICKUP-LINE correction 3 (D:L57113)
     // LATER 117: a dead player watching a teammate keeps the box's panel and icon (FUN_00237e50 D:L85358, D:L85367-85371).
     expect(new Set(SPECTATOR_HIDDEN.filter((e) => !TEAMMATE_BOX.includes(e)))).toEqual(new Set(TEAMMATE_HIDES));
     expect(PORT_GAPS).toEqual({
@@ -190,21 +190,26 @@ describe("LATER 118: the dead's help lines judged on their two steps (FUN_001f9f
 
 /**
  * PV-6h (POV_VIEW_ADAPTATION; the plan 2026-11-11-players-view, Log 16:30Z, call 2; research 402): the player's view's
- * mark is one line, a browser adaptation with no original, drawn on the help block's own grid three lines above its
- * first (`POV_HELP_PLACE_ADAPTATION`: baseline 380 - 3 x 18 = 326, centred on x 324) -- the same place on the spectator's,
- * the dead watcher's and the ghost watcher's path. It is none of the six help slots: the original's lines 5 and 6 sit
- * at baselines 452 and 470, below the 448-high frame (the review of 42bdc829f). Its alpha is its own: 'offered' on the
- * help clock, 'shown' at the lines' full alpha, 'waiting' at half of it. What this block holds above all: every quad
- * drawn without the line is drawn with it, in order; the line lies inside the frame and crosses nothing drawn there.
+ * mark is one line, a browser adaptation with no original. WM-PV-HINT (the owner's ruling of 2026-11-15, superseding
+ * option 4D): the help block's bottom line, line 4's slot (`POV_HELP_PLACE_ADAPTATION`: baseline 380 + 3 x 18 = 434,
+ * centred on x 324) -- the same place on the spectator's, the dead watcher's and the ghost watcher's path; "<Cross> HOLD:
+ * VIEW", in the view "<Cross> HOLD: EXIT"; always up at the lines' full alpha (half for a second after a swap,
+ * `POV_HINT_DIM_*`). Where a help line stands in that slot (the spectator's four, the ghost's four) the lines move up one
+ * pitch (`POV_HELP_LINES_SHIFT_ADAPTATION`) and still fade on their clock; a dead watcher's line 4 is blank, and his
+ * lines stay. What this block holds above all: every quad drawn without the line is drawn with it, in order (the help
+ * lines one pitch higher where they move); the line lies inside the frame and crosses nothing drawn there but the line
+ * above it by the block's own 3 px.
  */
-describe("PV-6h: the player's view's help line (POV_HELP_*_ADAPTATION), on the help block's grid above its first line", () => {
+describe("PV-6h: the player's view's help line (POV_HELP_*_ADAPTATION), the help block's bottom line", () => {
   type Pov = NonNullable<HudSpectatorView['pov']>;
   type Rect = { x: number; y: number; w: number; h: number };
   const STATES: readonly Pov[] = ['offered', 'shown', 'waiting'];
   const HALF: HudTiming = { ...AT_REST, stance: 1, help: 0.5 };
   const TIMINGS: readonly [string, HudTiming][] = [['lit', LIT], ['half-faded', HALF], ['faded', FADED]];
-  /** The help lines' alpha (`SPECTATOR_HELP.alpha`, 100 of the GS's 128) as the line takes it in each state. */
-  const alphaOf = (pov: Pov, t: HudTiming): number => (pov === 'offered' ? (t.help ?? 1) * 100 : pov === 'shown' ? 100 : 50) / 128;
+  /** The line's alpha: the help lines' full (`SPECTATOR_HELP.alpha`, 100 of the GS's 128) whatever their clock. */
+  const alphaOf = (_pov: Pov, _t: HudTiming): number => 100 / 128;
+  /** How far a path's help lines move up under the line: the spectator's and the ghost's (line 4 written), not the dead's. */
+  const shiftOf = (path: keyof typeof PATHS): number => (path === 'dead' ? 0 : SPECTATOR_HELP.pitch);
   /** The page's `SpectatorView` getters (`pov`, `povShown`) for a state; null: a source without them. */
   const getters = (pov: Pov | null): Partial<SpectatorHudSource['spectator']> => (pov === null ? {} : { pov: pov !== 'offered', povShown: pov === 'shown' });
   const ghostly = (src: SpectatorHudSource): SpectatorHudSource => ({ ...src, ghost: () => true });
@@ -224,17 +229,24 @@ describe("PV-6h: the player's view's help line (POV_HELP_*_ADAPTATION), on the h
   };
   const quadsOf = (view: HudSpectatorView, t: HudTiming, over: Partial<HudModel> = {}): HudQuad[] =>
     hudPass(PS2, busy(view, { ...CROWDED, ...over }), SIZES, t, false, null).quads;
+  /** A quad's key, its numbers to 1e-6 (a moved line's y is its own sum, not the old y less the pitch to the last bit). */
+  const keyOf = (q: HudQuad): string => JSON.stringify(q, (_k, v: unknown) => (typeof v === 'number' ? Math.round(v * 1e6) / 1e6 : v));
   /** The quads `withPov` adds to `without`, and `without`'s own as `withPov` keeps them (in order): a multiset difference. */
   function split(withPov: readonly HudQuad[], without: readonly HudQuad[]): { added: HudQuad[]; kept: HudQuad[] } {
     const left = new Map<string, number>();
-    for (const q of without) left.set(JSON.stringify(q), (left.get(JSON.stringify(q)) ?? 0) + 1);
+    for (const q of without) left.set(keyOf(q), (left.get(keyOf(q)) ?? 0) + 1);
     const added: HudQuad[] = [], kept: HudQuad[] = [];
     for (const q of withPov) {
-      const k = JSON.stringify(q), n = left.get(k) ?? 0;
+      const k = keyOf(q), n = left.get(k) ?? 0;
       if (n > 0) { left.set(k, n - 1); kept.push(q); } else added.push(q);
     }
     return { added, kept };
   }
+  /** The quads drawn without the line as they stand beside it: the path's help lines `shiftOf` higher. */
+  const movedOf = (path: keyof typeof PATHS, t: HudTiming): HudQuad[] =>
+    quadsOf(PATHS[path](null), t).map((q) => (q.element === 'help' ? { ...q, y: q.y - shiftOf(path) } : q));
+  /** The line's own quads on a path: what it draws beyond the moved lines. */
+  const lineOf = (path: keyof typeof PATHS, pov: Pov, t: HudTiming): HudQuad[] => split(quadsOf(PATHS[path](pov), t), movedOf(path, t)).added;
   /** A quad's rect by its top-left corner: `HudQuad.x`, `.y` are its CENTRE (`hudLayout`'s `push`); the layout's rects are corners. */
   const boxOf = (q: HudQuad): Rect => ({ x: q.x - q.w / 2, y: q.y - q.h / 2, w: q.w, h: q.h });
   const crosses = (a: Rect, b: Rect): boolean => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
@@ -247,11 +259,10 @@ describe("PV-6h: the player's view's help line (POV_HELP_*_ADAPTATION), on the h
   ];
 
   it('its words, alpha share and place are labelled constants (no original); the original lines and the tail placeholder are as they were', () => {
-    expect(POV_HELP_OFFERED_ADAPTATION).toBe('Hold ¦ for the Player\'s View.');
-    expect(POV_HELP_SHOWN_ADAPTATION).toBe('PLAYER\'S VIEW.  Hold ¦ to leave.');
-    expect(POV_HELP_WAITING_ADAPTATION).toBe(0.5);
-    expect(POV_HELP_PLACE_ADAPTATION).toEqual({ x: SPECTATOR_HELP.x, y: SPECTATOR_HELP.y0 - 3 * SPECTATOR_HELP.pitch });
-    expect(POV_HELP_PLACE_ADAPTATION).toEqual({ x: 324, y: 326 });
+    expect(POV_HELP_OFFERED_ADAPTATION).toBe('¦ HOLD: VIEW');
+    expect(POV_HELP_SHOWN_ADAPTATION).toBe('¦ HOLD: EXIT');
+    expect(POV_HELP_PLACE_ADAPTATION).toEqual({ x: SPECTATOR_HELP.x, y: SPECTATOR_HELP.y0 + 3 * SPECTATOR_HELP.pitch });
+    expect(POV_HELP_PLACE_ADAPTATION).toEqual({ x: 324, y: 434 });
     expect(SPECTATOR_HELP_TAIL_PLACEHOLDER).toEqual([]);
     expect(SPECTATOR_HELP.lines).toEqual(['You are a spectator.  Use the directional', 'buttons to cycle through active players',
       'and fixed views.  ¦ Use the Free-Motion', 'Camera.  ¬ Jump to visible players.']);
@@ -278,12 +289,13 @@ describe("PV-6h: the player's view's help line (POV_HELP_*_ADAPTATION), on the h
   for (const path of ['follow', 'dead', 'ghost'] as const) {
     for (const pov of STATES) {
       for (const [when, t] of TIMINGS) {
-        it(`${path}, ${pov}, ${when}: every other quad unchanged; the line inside the frame, at its alpha, crossing nothing`, () => {
-          const without = quadsOf(PATHS[path](null), t), withPov = quadsOf(PATHS[path](pov), t);
+        it(`${path}, ${pov}, ${when}: every other quad unchanged (the help lines moved up where they move); the line inside the frame, at its alpha, crossing nothing`, () => {
+          const without = movedOf(path, t), withPov = quadsOf(PATHS[path](pov), t);
           const { added, kept } = split(withPov, without);
           // Every quad drawn without the line is drawn with it, in the same order -- each original help line's glyphs,
-          // place, colour and alpha, and every other element -- and none is gone.
-          expect(kept).toEqual(without);
+          // colour and alpha (its place one pitch higher on the spectator's and the ghost's path), and every other
+          // element -- and none is gone.
+          expect(kept.map(keyOf)).toEqual(without.map(keyOf));
           expect(added.every((q) => q.element === 'help')).toBe(true);
           const a = alphaOf(pov, t);
           if (a <= 0) { expect(added).toEqual([]); return; }
@@ -297,10 +309,20 @@ describe("PV-6h: the player's view's help line (POV_HELP_*_ADAPTATION), on the h
             expect(b.y + b.h, `${q.texture} bottom`).toBeLessThanOrEqual(PS2.height);
           }
           // Crossing nothing the HUD draws there: its named rects, whether or not drawn on this path, and every quad drawn
-          // without the line (the original help lines', the panel's, the text line's, the voice element's, the hold bar's).
+          // beside it (the help lines', the panel's, the text line's, the voice element's, the hold bar's) -- but the line
+          // above it (baseline 416: the spectator's moved line 4, the ghost's moved line 4, the dead's line 3), whose glyph
+          // cells end at 420.5 (+ 0.9 the shadow) against the line's start at 417.5: the block's own 3 px.
+          const above = (o: HudQuad): boolean => o.element === 'help' && Math.abs(o.y - (POV_HELP_PLACE_ADAPTATION.y - SPECTATOR_HELP.pitch - 6)) < 2;
           for (const q of added) {
-            for (const [name, r] of NAMED) expect(crosses(boxOf(q), r), `${q.texture} crosses the ${name}`).toBe(false);
-            for (const o of without) expect(crosses(boxOf(q), boxOf(o)), `${q.texture} crosses a ${o.element} quad (${o.texture})`).toBe(false);
+            const b = boxOf(q);
+            for (const [name, r] of NAMED) expect(crosses(b, r), `${q.texture} crosses the ${name}`).toBe(false);
+            for (const o of without.filter((x) => !above(x))) {
+              expect(crosses(b, boxOf(o)), `${q.texture} crosses a ${o.element} quad (${o.texture})`).toBe(false);
+            }
+            for (const o of without.filter(above)) {
+              const ob = boxOf(o);
+              if (crosses(b, ob)) expect(ob.y + ob.h - b.y, `line above's ${o.texture} into the line's ${q.texture}`).toBeLessThanOrEqual(3.9 + 1e-9);
+            }
           }
           // The text pass at the line's own alpha, the font's glyphs in the help lines' colour (100, 100, 20) (the pad's
           // Cross glyph in its own); the shadow, black, at min(alpha, 96).
@@ -315,12 +337,12 @@ describe("PV-6h: the player's view's help line (POV_HELP_*_ADAPTATION), on the h
     }
   }
 
-  it("its place is the help block's grid three lines above its first, the same on all three paths: the words as help line 0 would draw them, 54 higher", () => {
-    // The words drawn as a help line 0 (the teammate path's draw of `help`), lit: the same quads but 3 x 18 = 54 higher.
+  it("its place is the help block's line 4, the same on all three paths: the words as help line 0 would draw them, 54 lower", () => {
+    // The words drawn as a help line 0 (the teammate path's draw of `help`), lit: the same quads but 3 x 18 = 54 lower.
     for (const pov of STATES) {
       const asLine0: HudSpectatorView = { path: 'teammate', followed: { name: 'BRAVO', health: null }, stats: null, help: [pov === 'offered' ? POV_HELP_OFFERED_ADAPTATION : POV_HELP_SHOWN_ADAPTATION] };
       const line0 = quadsOf(asLine0, LIT).filter((q) => q.element === 'help');
-      const addedOn = (path: keyof typeof PATHS): HudQuad[] => split(quadsOf(PATHS[path](pov), LIT), quadsOf(PATHS[path](null), LIT)).added;
+      const addedOn = (path: keyof typeof PATHS): HudQuad[] => lineOf(path, pov, LIT);
       const follow = addedOn('follow');
       expect(addedOn('dead'), pov).toEqual(follow);
       expect(addedOn('ghost'), pov).toEqual(follow);
@@ -328,8 +350,8 @@ describe("PV-6h: the player's view's help line (POV_HELP_*_ADAPTATION), on the h
       follow.forEach((q, i) => {
         const o = line0[i]!;
         expect({ ...q, y: 0, rgba: [] }).toEqual({ ...o, y: 0, rgba: [] });
-        expect(q.y).toBeCloseTo(o.y - 3 * SPECTATOR_HELP.pitch, 9);
-        if (pov !== 'waiting') expect(q.rgba).toEqual(o.rgba);   // 'offered' lit and 'shown': the lines' own alpha
+        expect(q.y).toBeCloseTo(o.y + 3 * SPECTATOR_HELP.pitch, 9);
+        expect(q.rgba).toEqual(o.rgba);   // every state, lit: the lines' own alpha
       });
     }
   });

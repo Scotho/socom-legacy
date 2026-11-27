@@ -33,6 +33,17 @@ import { AI_HULL_READING, BODY_RADIUS, WALL_PROBE_READING, wallProbeHeights, typ
  * point as soon as its located cell is the point's cell (`FUN_00567900` D:L429574-429592; research 200 s3). Only there:
  * the cell's reach everywhere lets the walk turn at a cell's edge and cut a doorway's corner (Fish Hook's z ~720,
  * `match/test/extractionWalkway.test.ts`).
+ *
+ * Raised inner points (product track, a test-harness adaptation: it changes nothing the game does): a point whose stored
+ * height lies over a step above the floor the walk is actually on there (`walkedFloors`: the floor walked, sampled a unit
+ * apart from the first point, as `walkedHeights` reads it) is reached on cell arrival too (`byCell`), not by the flat
+ * `WALKWAY.within` alone. `onProp` reads the floor under a point from its own height and so takes a raised piece's top
+ * for the floor: Desert Glory's walk out (DF-13 box 2) holds points 29-31 at y 23.9-25.3 on a raised piece beside
+ * mp6_door, the walk on the floor at 0 beneath them, and the SEAL, never climbing, stopped against mp6_door 2.92 u flat
+ * from point 29 in one run and 3.06 u in another -- a pass or a stall on 0.14 u against a point no body stands on. The
+ * cell reach is added to the flat one, never put in its place: a point reached before is reached still. Such a point
+ * that `onProp` does not mark is passed over by a clear leg where one reaches past it (`dropRaised`): under the gated
+ * follower the SEAL stalled 0.24 u outside point 29's cell, so the cell reach alone does not hold it.
  */
 export const WALKWAY = {
   /** The body's disc (`BODY_RADIUS`, mover.ts) and a margin of 1.5 u for the walk's steering: an instrument's choice. */
@@ -68,12 +79,47 @@ export function doorChord(node: string, leaf: readonly ArrayLike<number>[]): Doo
   return { node, a: best[0], b: best[1] };
 }
 
+/**
+ * Each ground polygon's flat bounding box (min x, max x, min z, max z) and its first point's offset -- a speed-up only
+ * (box run d7112b2f37: `walkFloors` samples the floor a unit apart along a whole walk, and the scan of every polygon at
+ * every sample took Fish Hook's walks from ~1.4 s to past the 5 s test timeout). Built fresh at the start of each
+ * `walkFloors` (the doors rewrite `ground.points` in place, `doors.ts` DoorSet, so a box is never kept across calls;
+ * nothing moves inside one synchronous walk). A point strictly outside a polygon's box is strictly outside its footprint
+ * (`footprintDistance` > 0), so skipping it gives the same heights; a point on the box's edge is still tested.
+ */
+export interface GroundBoxes { box: Float64Array; start: Uint32Array }
+function boxesOf(ground: GroundData): GroundBoxes {
+  const n = ground.fields.length / 6, box = new Float64Array(n * 4), start = new Uint32Array(n);
+  let at = 0;
+  for (let i = 0; i < n; i++) {
+    const pc = ground.fields[i * 6]!;
+    start[i] = at;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (let k = 0; k < pc; k++) {
+      const x = ground.points[at + k * 3]!, z = ground.points[at + k * 3 + 2]!;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (z < z0) z0 = z;
+      if (z > z1) z1 = z;
+    }
+    box[i * 4] = x0; box[i * 4 + 1] = x1; box[i * 4 + 2] = z0; box[i * 4 + 3] = z1;
+    at += pc * 3;
+  }
+  return { box, start };
+}
+
 /** The hull's ground heights over (x, z) (`footprintDistance`, `planeHeightAt`, as the harness's `ground` op reads them). */
-function floorsAt(ground: GroundData, x: number, z: number): number[] {
+function floorsAt(ground: GroundData, x: number, z: number, boxes?: GroundBoxes): number[] {
   const ys: number[] = [];
   let at = 0;
   for (let i = 0; i < ground.fields.length / 6; i++) {
-    const pc = ground.fields[i * 6]!, pts = ground.points.subarray(at, at + pc * 3);
+    const pc = ground.fields[i * 6]!;
+    if (boxes) {
+      const b = boxes.box;
+      if (x < b[i * 4]! || x > b[i * 4 + 1]! || z < b[i * 4 + 2]! || z > b[i * 4 + 3]!) continue;
+      at = boxes.start[i]!;
+    }
+    const pts = ground.points.subarray(at, at + pc * 3);
     at += pc * 3;
     if (footprintDistance(pts, x, z) > 0) continue;
     const h = planeHeightAt(pts, x, z);
@@ -88,8 +134,8 @@ function floorsAt(ground: GroundData, x: number, z: number): number[] {
  * prop's top a step or more above it. Else (no `from`, or nothing within a step: a ramp's long leg) the lowest within
  * two steps below `y` and a unit above; `y` itself when none.
  */
-export function floorUnder(ground: GroundData, x: number, z: number, y: number, from?: number): number {
-  const ys = floorsAt(ground, x, z);
+export function floorUnder(ground: GroundData, x: number, z: number, y: number, from?: number, boxes?: GroundBoxes): number {
+  const ys = floorsAt(ground, x, z, boxes);
   if (from !== undefined) {
     const near = ys.filter((h) => Math.abs(h - from) <= WALKWAY.step).sort((a, b) => Math.abs(a - from) - Math.abs(b - from));
     if (near.length) return near[0]!;
@@ -156,6 +202,24 @@ function edgeHits(grid: Grid, a: V3, b: V3, fa: number, fb: number): number[] {
   return out.sort((x, y) => x - y);
 }
 
+/**
+ * DIAG (a test instrument, read only by an env-gated diagnostic; changes nothing): the walls a leg's edges and centre
+ * meet, as `edgeHits` finds them, each with its side (-1, 0, 1), its line's height over the floor, the fraction along
+ * the leg, the crossing point and the polygon's path.
+ */
+export function legWallHits(grid: Grid, a: V3, b: V3, fa: number, fb: number): { side: number; h: number; t: number; at: number[]; path: string }[] {
+  const dx = b[0] - a[0], dz = b[2] - a[2], L = Math.hypot(dx, dz) || 1, nx = -dz / L, nz = dx / L, R = WALKWAY.clear;
+  const out: { side: number; h: number; t: number; at: number[]; path: string }[] = [];
+  for (const side of [-1, 0, 1]) for (const h of WALKWAY.heights) {
+    const from: V3 = [a[0] + nx * R * side, fa + h, a[2] + nz * R * side], to: V3 = [b[0] + nx * R * side, fb + h, b[2] + nz * R * side];
+    for (const x of segmentHits(grid, from, to, (q) => q.cameratype === 0)) {
+      if (Math.abs(x.normal[1]) > AI_HULL_READING.slope) continue;
+      out.push({ side, h, t: +x.t.toFixed(3), at: x.point.map((v) => +v.toFixed(2)), path: x.poly.path });
+    }
+  }
+  return out.sort((x, y) => x.t - y.t);
+}
+
 /** A leg that crosses a door's rest chord goes through the chord's middle, `WALKWAY.doorway` before and after it, square to it. */
 export function throughDoors(route: readonly V3[], doors: readonly DoorChord[]): V3[] {
   if (!route.length) return [];
@@ -209,7 +273,38 @@ export function refineWalkway(grid: Grid, ground: GroundData, route: readonly V3
     pts = next;
     if (!changed) break;
   }
-  return pts;
+  return dropRaised(grid, ground, pts);
+}
+
+/**
+ * DF-13 box 2's cure (product track, a test-harness adaptation: it changes nothing the game does): an inner point raised
+ * over the floor walked -- its stored height over a step (`WALKWAY.step`) above `walkedFloors` there -- that `onProp` does
+ * not mark is passed over. From each point kept, the walk goes on to the farthest later point it reaches across raised
+ * points only, by a leg that meets no wall (`edgeHits`, as `refineWalkway` finds a crossing); with none, to the next
+ * point. A run of raised points is so dropped as one, never point by point against a neighbour itself raised (box run
+ * bef518a475: checked against the next point, Desert Glory's 30 and 31 stayed). Desert Glory's walk out holds points
+ * 29-31 at y 23.9-25.3 on a raised piece beside mp6_door, the walk on the floor at 0: under the gated follower the SEAL
+ * stopped at (1115.5, 1789.4) against the door, 0.24 u east of point 29's cell (x 1105.26-1115.26) and 3.06 u flat from
+ * it (box-wm-hostage-walk-a420caf76), so neither the cell reach (`byCell`) nor `WALKWAY.within` took it -- a stall on a
+ * point no body stands on. A point on a prop stays (`byCell` reaches it on its cell: Fish Hook's bush, the walks green
+ * on it); a raised point no clear leg passes stays -- Desert Glory's next two are mp6_door's approach and doorway,
+ * (1110.5, 24.4, 1793.1) 3.9 u south of fl1_intwall2 and (1109.1, 25.3, 1799.9) between it and fl1_extwall2, every leg
+ * past them crossing those walls or the door's frame (box run 0fafeb1ce, `legWallHits`); they are marked for the cell
+ * reach (`byCell`), and that the walk takes them is the DF-13 box 2 walk's to show, not this.
+ */
+function dropRaised(grid: Grid, ground: GroundData, pts: readonly V3[]): V3[] {
+  if (pts.length <= 2) return [...pts];
+  const walked = walkedFloors(ground, pts), last = pts.length - 1;
+  const raised = (i: number): boolean => i > 0 && i < last && pts[i]![1] - walked[i]! > WALKWAY.step && !onProp(ground, pts[i]!);
+  const clear = (i: number, k: number): boolean => !edgeHits(grid, pts[i]!, pts[k]!, walked[i]!, walked[k]!).some((t) => t > 0.02 && t < 0.98);
+  const out: V3[] = [pts[0]!];
+  for (let i = 0; i < last;) {
+    let to = i + 1;
+    for (let k = i + 2; k <= last && raised(k - 1); k++) if (clear(i, k)) to = k;
+    out.push(pts[to]!);
+    i = to;
+  }
+  return out;
 }
 
 /**
@@ -223,19 +318,46 @@ export function refineWalkway(grid: Grid, ground: GroundData, route: readonly V3
  * (`landHard`, mover.ts's landing branch) -- a walk the original allows, the landing's clip and all.
  */
 export const WALK_LIMITS = { rise: WALKWAY.step, drop: SEAL_TUNING.fallingDamage[0] } as const;
-export function walkedHeights(ground: GroundData, points: readonly V3[]): { rise: number; drop: number; riseAt: V3 | null; dropAt: V3 | null } {
-  const out = { rise: 0, drop: 0, riseAt: null as V3 | null, dropAt: null as V3 | null };
-  if (!points.length) return out;
-  let floor = floorUnder(ground, points[0]![0], points[0]![2], points[0]![1]);
+/** The walk's samples a unit apart along `points`, each with the floor walked there (`floorUnder`, each from the last). */
+function walkFloors(ground: GroundData, points: readonly V3[], visit: (q: V3, f: number, was: number) => void, atPoint?: (i: number, f: number) => void): void {
+  if (!points.length) return;
+  const boxes = boxesOf(ground);                                             // fresh for this walk (see `boxesOf`)
+  let floor = floorUnder(ground, points[0]![0], points[0]![2], points[0]![1], undefined, boxes);
+  atPoint?.(0, floor);
   for (let i = 1; i < points.length; i++) {
     const a = points[i - 1]!, b = points[i]!, n = Math.max(1, Math.ceil(flat(a, b)));
     for (let k = 1; k <= n; k++) {
       const t = k / n, q: V3 = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
-      const f = floorUnder(ground, q[0], q[2], q[1], floor);
-      if (f - floor > out.rise) { out.rise = f - floor; out.riseAt = q; }
-      if (floor - f > out.drop) { out.drop = floor - f; out.dropAt = q; }
+      const f = floorUnder(ground, q[0], q[2], q[1], floor, boxes);
+      visit(q, f, floor);
       floor = f;
     }
+    atPoint?.(i, floor);
   }
+}
+export function walkedHeights(ground: GroundData, points: readonly V3[]): { rise: number; drop: number; riseAt: V3 | null; dropAt: V3 | null } {
+  const out = { rise: 0, drop: 0, riseAt: null as V3 | null, dropAt: null as V3 | null };
+  walkFloors(ground, points, (q, f, floor) => {
+    if (f - floor > out.rise) { out.rise = f - floor; out.riseAt = q; }
+    if (floor - f > out.drop) { out.drop = floor - f; out.dropAt = q; }
+  });
   return out;
+}
+
+/** The floor the walk is on at each point (`walkFloors`: sampled a unit apart from the first point, each from the last). */
+export function walkedFloors(ground: GroundData, points: readonly V3[]): number[] {
+  const out: number[] = [];
+  walkFloors(ground, points, () => { /* the samples between points: the floor carried */ }, (i, f) => { out[i] = f; });
+  return out;
+}
+
+/**
+ * Which points of a walkway are reached on cell arrival (`cellBox`, `insideCell`; the module's note): a point on a prop
+ * (`onProp`, unchanged), or a raised one -- its stored height over a step (`WALKWAY.step`) above the floor the walk is on
+ * there (`walkedFloors`). A test-harness adaptation (product track); a point within a step of the walked floor and not
+ * on a prop is walked to by the flat `WALKWAY.within` as before. By the points' index; the caller leaves out the last.
+ */
+export function byCell(ground: GroundData, points: readonly V3[]): boolean[] {
+  const walked = walkedFloors(ground, points);
+  return points.map((p, i) => onProp(ground, p) || p[1] - walked[i]! > WALKWAY.step);
 }

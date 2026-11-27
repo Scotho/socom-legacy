@@ -78,6 +78,16 @@ describe('the replays adapter', () => {
     expect([ctl.S.screen, CATS[ctl.S.cat]!.id, ctl.S.item[ctl.S.cat]]).toEqual(['home', 'profile', 1]);
   });
 
+  it("REPLAY-STILLS through the live adapter (the owner, 2026-11-22: 'use the same images that other leaderboard or match cards use'): the row keeps the record's stem, so the focused drawer draws the map's still, alt the map's name", async () => {
+    boot({ body: LISTING }, { signedIn: true });
+    await flush();
+    const img = document.querySelector<HTMLImageElement>('#stage .cx-drawer__map img');
+    expect(img, 'the drawer draws the still, not the text (MN-1 put the display name in the row, so the stem test never passed)').not.toBeNull();
+    expect(img!.getAttribute('src')).toMatch(/^\/api\/maps\/MP\d{1,2}\/still\.png$/);
+    expect(img!.getAttribute('alt')).toBe(document.querySelector('#stage .cx-drawer__name')!.textContent);
+    expect(document.querySelector('#stage .cx-drawer__map')!.textContent).not.toMatch(/Map picture from your disc/);
+  });
+
   it('without the disc each watch is locked: Needs disc', async () => {
     const { ctl } = boot({ body: LISTING }, { signedIn: true, disc: 'empty' });
     await flush();

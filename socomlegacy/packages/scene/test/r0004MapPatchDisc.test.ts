@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { parseZdb, Zar, zdbMember } from '@s2u/archive';
 import {
-  applyR0004MapPatch, bitsToFloat, collisionOwners, flattenScene, parseSceneGraph, R0004_CRATE_CAP_COUNT_READING, R0004_MAP_EDITS,
+  applyR0004MapPatch, bitsToFloat, collisionOwners, flattenScene, parseSceneGraph, R0004_CRATE_CAP_COUNT_READING, R0004_MAP_EDITS, R0004_REJECTED_BY_RULING,
   R0004_WORLD_FRAME_BOXES_READING, worldCollision, type R0004Op, type SceneNode,
 } from '../src/index';
 import { chopF32 } from '../src/grid';
@@ -21,9 +21,12 @@ import { chopF32 } from '../src/grid';
 const DISC = process.env.SOCOM_DISC ? resolve(process.env.SOCOM_DISC, 'RUN') : '';
 const have = (stem: string): boolean => !!DISC && existsSync(resolve(DISC, `${stem}.ZDB`));
 
-/** The hull's growth per map: new polygons, mp61's 11, MP72's two crate caps, and mp51's / mp62's list overwrites. */
+/**
+ * The hull's growth per map: new polygons, mp61's 11, MP72's two crate caps, and mp51's / mp62's list overwrites; MP72's
+ * less the two quads of 0x2d8500, which the owner's OT.R127 keeps out (`R0004_REJECTED_BY_RULING`).
+ */
 const GROWTH: Record<string, number> = {
-  mp11: 11, mp10: 1, mp12: 9, mp1: 5, mp51: 112, mp52: 5, mp5: 2, mp61: 75, mp62: 19, mp64: 3, mp6: 15, mp71: 1, mp72: 18,
+  mp11: 11, mp10: 1, mp12: 9, mp1: 5, mp51: 112, mp52: 5, mp5: 2, mp61: 75, mp62: 19, mp64: 3, mp6: 15, mp71: 1, mp72: 16,
   mp73: 4, mp81: 2, mp82: 18, mp83: 8, mp2: 3, mp8: 11, mp9: 6, m52: 8, m61: 0, m73: 1,
 };
 
@@ -47,7 +50,7 @@ for (const [id, edits] of Object.entries(R0004_MAP_EDITS)) {
     });
 
     it('finds every node it names (MP82\'s two nodes under "mp5" aside: a weapon model, not in the map\'s graph)', () => {
-      const missing = report.applied.filter((a) => a.nodes.length === 0 && !['stray', 'noop', 'render'].includes(a.op)).map((a) => `${a.op}@${a.pcs[0]}`);
+      const missing = report.applied.filter((a) => a.nodes.length === 0 && !a.rejected && !['stray', 'noop', 'render'].includes(a.op)).map((a) => `${a.op}@${a.pcs[0]}`);
       expect(missing).toEqual(id === 'mp82' ? ['addNode@0x2e6e90', 'addNode@0x2e71fc'] : []);
     });
 
@@ -67,7 +70,8 @@ for (const [id, edits] of Object.entries(R0004_MAP_EDITS)) {
     it('puts every new polygon where the table says, in its parent\'s frame', () => {
       const placed = new Map<string, Float32Array[]>();
       for (const f of flattenScene(models)) if (/r0004@/.test(f.node.name)) placed.set(f.path, f.node.collision.map((p) => p.points));
-      const want = ops.flatMap((o) => (o.op === 'addNode' && 'name' in o.parent && !(id === 'mp82' && o.parent.name === 'mp5') ? o.polys : []));
+      const ruledOut = new Set(R0004_REJECTED_BY_RULING.filter((r) => r.map === id).map((r) => r.pc));
+      const want = ops.flatMap((o) => (o.op === 'addNode' && 'name' in o.parent && !(id === 'mp82' && o.parent.name === 'mp5') && !ruledOut.has(o.pcs[0]!) ? o.polys : []));
       const got = [...placed].filter(([path]) => !/crate_bananas_stacked4\/r0004@/.test(path)).flatMap(([, p]) => p);
       const key = (p: number[]): string => p.join(',');
       expect(got.map((p) => key(Array.from(p))).sort()).toEqual(want.map((p) => key(p.points.map(bitsToFloat))).sort());
@@ -89,6 +93,10 @@ for (const [id, edits] of Object.entries(R0004_MAP_EDITS)) {
         expect(caps).toHaveLength(R0004_CRATE_CAP_COUNT_READING);
         const crates = base.find((m) => m.name === 'worldmodel')!.children.filter((c) => c.name === 'crate_bananas_stacked4');
         caps.forEach((cap, i) => expect(Array.from(cap.world, (v) => v + 0)).toEqual(Array.from(crates[i]!.matrix, (v) => v + 0)));
+      });
+      it('OT.R127: no hull polygon from 0x2d8500 -- the gray tents\' fronts are open -- and its report entry names the ruling', () => {
+        expect(worldCollision(models).filter((p) => /r0004@0x2d8500/.test(p.path))).toEqual([]);
+        expect(report.applied.filter((a) => a.rejected).map((a) => [a.pcs[0], a.rejected, a.changed])).toEqual([['0x2d8500', 'OT.R127', 0]]);
       });
       it('switches off the one basket_open_up at (825.74, 46.02, 2038.16), and di_roof22 is no longer a floor (ditype 2)', () => {
         const off = collisionOwners(models).filter((o) => (o.flags! & 1) === 0).map((o) => o.path);

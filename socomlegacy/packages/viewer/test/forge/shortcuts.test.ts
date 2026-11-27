@@ -4,7 +4,7 @@ import {
   setKeys, setKeysTogether, SHORTCUT_COMMANDS, undoKeyChange,
 } from '../../src/forge/shortcuts';
 
-// The shortcut list and its checks (a browser adaptation; the owner, 2026-11-20: every command's keys editable).
+// The shortcut list and its checks (a browser adaptation; the Forge's owner (crispy, OT.R112), 2026-11-20: every command's keys editable).
 afterEach(() => resetAllKeys());
 
 describe('the shortcut list', () => {
@@ -70,5 +70,11 @@ describe('the shortcut list', () => {
     expect(keysOf('app.menu')).toEqual(['Ctrl+KeyM']);
     expect(importShortcuts('{"hello":1}').ok).toBe(false);
     expect(importShortcuts('not json').ok).toBe(false);
+    // PR #5 D6 (seat-forge): JSON that is no object (null, a number, a list) is refused in words, never thrown.
+    for (const text of ['null', '5', '[]', '"keys"']) {
+      expect(() => importShortcuts(text), text).not.toThrow();
+      expect(importShortcuts(text), text).toEqual({ ok: false, error: 'That file is not a Forge shortcut set.' });
+    }
+    expect(keysOf('app.menu'), 'a refused file changes nothing').toEqual(['Ctrl+KeyM']);
   });
 });

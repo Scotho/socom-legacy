@@ -28,6 +28,8 @@ import { loadSimMap } from '../src/simMap';
  * back in the ditch. [proven: a memory trace of the original running]
  */
 const DISC = process.env.SOCOM_DISC ? resolve(process.env.SOCOM_DISC) : '';
+/** LATER 1194B: r0004's ditch stall z (ac's capture, case 1 x3). */
+const DITCH_STALL_Z = 841.5;
 const HAVE_M51 = !!DISC && existsSync(resolve(DISC, 'RUN', 'M51.ZDB'));
 
 describe.skipIf(!HAVE_M51)(`M51's ditch holds a body pushed into its far side${HAVE_M51 ? '' : ' (SOCOM_DISC absent)'}`, () => {
@@ -37,10 +39,20 @@ describe.skipIf(!HAVE_M51)(`M51's ditch holds a body pushed into its far side${H
     w.driver = new Traversal(map.grid, groundPolygons(map.ground));
     expect(w.place(990, -140, 841.5)).toBe(true);
     w.state.yaw = 180;                                           // the replays' facing: the stick's right is -x
-    let zMax = -Infinity, xMin = Infinity, xMax = -Infinity, yMax = -Infinity, fastest = 0, running = 0, ticks = 0;
+    // LATER 1194B: the port's frames numbered from 2 (`commandSeq`): counted from the placing the Walker's first frame spans THREE ticks
+    // (`throttleFrameEnds(2)` is false; `GROUND_FRAME_TICKS_READING`, mover.ts, the review of 42550490c1 finding 8), which
+    // puts every later frame end one tick off the capture's, where each of the original's frames is one update.
+    let seq = 2;
+    const tick = w.tick.bind(w);
+    w.tick = (input, dt) => { w.commandSeq = seq++; tick(input, dt); };
+    let zMax = -Infinity, xMin = Infinity, xMax = -Infinity, yMax = -Infinity, fastest = 0, running = 0, ticks = 0, zLate = Infinity;
+    let stepLate = 0;                                            // LATER 1194B: the largest tick's displacement, last 20 ticks
     for (let i = 0; i < 90; i++) {
+      const x0 = w.state.x, z0 = w.state.z;
       w.tick({ forward: 0, right: 1, boost: false });
+      if (i >= 70) stepLate = Math.max(stepLate, Math.hypot(w.state.x - x0, w.state.z - z0));
       if (i < 20) continue;                                      // the run down the bank to the step
+      if (i === 69) zLate = w.state.z;                             // LATER 1194B: z 20 ticks before the end
       zMax = Math.max(zMax, w.state.z); xMin = Math.min(xMin, w.state.x); xMax = Math.max(xMax, w.state.x); yMax = Math.max(yMax, w.state.y);
       fastest = Math.max(fastest, Math.hypot(w.state.vx, w.state.vz));
       ticks++;
@@ -54,12 +66,38 @@ describe.skipIf(!HAVE_M51)(`M51's ditch holds a body pushed into its far side${H
     // -z runs it up the near bank's foot to -146 at z 834 -- the near side, not the far (x stays over 980).
     expect(yMax).toBeLessThan(-145);                             // never up on the far side (its top is -143 .. -145)
     expect(xMax).toBeLessThan(986.5);                            // within the replays' x 981-986 once at the step
-    expect(zMax).toBeLessThanOrEqual(841.5);                     // the slide runs -z, as the original's (843 -> 834)
-    expect(w.state.z).toBeLessThan(838);
-    expect(fastest).toBeGreaterThan(0);
+    // LATER 1194B (research 444 s10): re-pinned to r0004. The slide -z (843 -> 834; was `z < 838`) is the r0001
+    // replays' (their `record.json`, above), the build whose rejected readings research 217 s2.9 records. ac's r0004
+    // ditch capture (case 1 x3, RESULTS.md beside its CSVs, 2026-11-04; proven) STALLS at (982.40, -150.84, 841.50),
+    // the body moving 0.00 u/s against a clip velocity of 65: no slide. So the r0004 pins: never +z of the start (z 841.5),
+    // and stalled -- over the push's last 20 ticks (a third of a second) z moves under 0.01 -- AT the capture's z 841.50,
+    // within 0.1: the capture's value widened by 0.1 each way, the band rule of weaponLine's g19733 spec (its trials agree;
+    // the spread not on this host). Counted from the placing the port stalled at 840.35 (research 444 s10); numbered from 2
+    // not measured here (no disc): the box decides, and a red here is LATER 690's z, filed, never widened.
+    expect(zMax).toBeLessThanOrEqual(841.5);                     // never +z of the start (r0004 holds z 841.50)
+    expect(Math.abs(w.state.z - zLate), `stalled: z ${zLate.toFixed(3)} -> ${w.state.z.toFixed(3)}`).toBeLessThan(0.01);
+    expect(Math.abs(w.state.z - DITCH_STALL_Z), `the stall's z ${w.state.z.toFixed(3)}`).toBeLessThanOrEqual(0.1);
+    // LATER 1194B (the controller's ruling, 2026-11-21): the stall's two speeds, from the same r0004 capture [proven: a
+    // memory trace of the original running] -- agent-mail/evidence/eph-hunt-2026-11-01/segment-body/ditch-capture/
+    // RESULTS.md (archived 2026-11-14 under agent-mail-archive-2026-11-14/evidence/), case 1 t1-t3: "actual plane
+    // displacement 0.00 u/s (stalled)" and "clip velocity +0x2c = 65.0". Was `fastest > 0`: the r0001 replays' slide -z
+    // (the body moving along the step), which that capture contradicts -- the original's body does not move at the step.
+    // The body does not move at the step: its displacement each tick over the last 20 (what the capture's "0.00 u/s"
+    // measures) and its cut velocity (`state.vx/vz`, the walls' cut) both under 0.01, and it stands at the capture's x
+    // 982.40 within 0.1 (the fresh review's finding 1). The velocity before the walls (`preWallVelocity`, what the running
+    // jump reads: LATER 676 below) is the clip's 65.0 within 0.1, all of it along the strafe: `+0x2c` is the clip's
+    // body-frame lateral axis (case 2's walk at yaw 100.6 shows only `+0x34`), which at yaw 180 is world -x, so the world
+    // speed is 65 and its z part none (the review's finding 2). (The trials' mean |v| 63.6 counts the 1-2 startup frames.)
+    expect(stepLate, 'the body\'s displacement a tick at the step: the capture\'s 0.00 u/s').toBeLessThan(0.01);
+    expect(fastest, 'the cut velocity at the step').toBeLessThan(0.01);
+    expect(Math.abs(w.state.x - 982.4), `the stall's x ${w.state.x.toFixed(3)} (the capture's 982.40)`).toBeLessThanOrEqual(0.1);
+    const pre = w.preWallVelocity;
+    expect(pre, 'a velocity before the walls').not.toBeNull();
+    expect(Math.abs(Math.hypot(pre![0], pre![1]) - 65), `the clip's 65.0: pre-wall (${pre![0].toFixed(3)}, ${pre![1].toFixed(3)})`).toBeLessThanOrEqual(0.1);
+    expect(Math.abs(pre![1]), 'the pre-wall velocity along the strafe (no z part at yaw 180)').toBeLessThan(0.1);
     return { running, ticks, walker: w };
   };
-  it('pushed -x into the step at (984, -150, 841.5): blocked, sliding -z', async () => {
+  it('pushed -x into the step at (984, -150, 841.5): blocked, stalled at z 841.50 (the r0004 capture: 0.00 u/s, the clip 65)', async () => {
     await push();
   }, 120_000);
   // LATER 676, closed as faithful: the running jump is offered on every tick at the step. `FUN_0057e1b0` squares the
@@ -104,6 +142,9 @@ describe.skipIf(!HAVE_M51)(`M51's ditch holds a body pushed into its far side${H
   // original's 30 Hz frame steps into the three-hit jam -- and the take-off carry: the port's is zeroed on a jam where
   // the original keeps +0x38 (from +0x64, its writer unread). The fix is the follow-up branch for the next release: the
   // walls stepped at 30 Hz per the owner's H404 (b) ruling, plus the carry.
+  // LATER 1194B (the fresh review's finding 3, 2026-11-21): the diagnosis above predates the walls met once a frame; at
+  // this head the cut speed is under 0.01 on every one of the 70 ticks at the step (the push above), so "the 25 of 70
+  // ticks whose move met no segment" no longer holds. The GAP still fails; its cause is to be re-read at this head (LATER 690).
   it.fails('GAP (LATER 690): from the capture start, the running jump lands back in the ditch, apex 13.17 +- 0.5', async () => {
     const map = await loadSimMap(new FsAssetSource(DISC), 'RUN/M51.ZDB');
     const w = new Walker(map.grid);

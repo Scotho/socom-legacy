@@ -2,6 +2,7 @@ import { playerIdent, playerLink } from './site/playerLink';
 import {
   badge, barList, breadcrumb, dsPanel, easternTime, element, emptyState, failure, link, loadingLine, pageShell, sectionHeading, siteTitle, type Crumb,
 } from './projectSite/components';
+import { MATCH_EVENT_KIND_WORDS_ADAPTATION, NO_EVENT_FILTER, eventFilterOptions, eventRowMatches, eventRowsOf, roundClockText, type EventFilter } from './matchEvents';
 
 /**
  * LCM-8 (the LCM plan, `docs/plans/2026-11-09-live-cards-and-match-pages.md`; the design's Part 8; LCM.R3, LCM.R11,
@@ -10,6 +11,9 @@ import {
  * length, the players, the region -- never the host's name -- and the lobby name), ▶ Watch replay when the match has a replay
  * (LCM-RP: to the replay page, `MATCH_PAGE_WATCH_REPLAY_ADAPTATION`) and Copy link, then
  * the awards, the scoreboard, the rounds, the kill feed one round at a time, and kills by weapon and by hit location.
+ * **WM-DATA-EV** (the owner's approved MEGA-MOCK call 9, `docs/plans` MATCH-DATA lane; a BROWSER ADAPTATION, product
+ * track): the body is four tabs -- Overview (the awards, the scoreboard), Rounds, Events (every recorded event as one
+ * filtered list, `./matchEvents.ts`; it replaced the kill feed) and Weapons -- Overview open first.
  * Its content is the mockup `docs/specs/assets/live-cards/match-page.html` (with Part 8's corrections); its page language
  * is `pages.html` v9's (a breadcrumb, a title and lede, sections under a heading and one rule, panels, 52 px table rows;
  * each identity the medal left, the clan tag a small line above the name).
@@ -103,9 +107,15 @@ export interface MatchPageData {
     replay: string | null; assistsTracked: boolean; live: boolean; region: string | null;
     /** LCM-RP: the replay page's path (`/replay/<id>?match=<matchId>`), or null; absent in an older answer. */
     replayPage?: string | null;
+    /** DAY-VARIANT-STATS: the match's variant (`day`), absent for a plain match; DAY-STILLS-2 asks its still. */
+    variant?: string;
   };
   players: MatchPagePlayer[];
-  rounds: { round: number; winner: number | null; reason: string; ms: number }[];
+  /**
+   * WM-DATA-EV: `startTick`, the round's start tick (the record's `roundStart`) -- not served by central today; when a
+   * served round carries it, the EVENTS tab measures its clock from it (`./matchEvents.ts` `MATCH_EVENTS_CLOCK_ADAPTATION`).
+   */
+  rounds: { round: number; winner: number | null; reason: string; ms: number; startTick?: number }[];
   events: { round: number; seq: number; tick: number; kind: string; actor: string | null; target: string | null; weapon: string | null; part: string | null; how: string | null }[];
   awards: {
     mvp: MatchPageAward | null; topFragger: MatchPageAward | null; sharpshooter: MatchPageAward | null; mostAssists: MatchPageAward | null;
@@ -152,8 +162,13 @@ const kd = (k: number, d: number): string => (d === 0 ? k : k / d).toFixed(2);
 /** A region code in sentence case: "us-central" -> "US central" (the capitals of a short code kept; the caps by CSS). */
 const regionWords = (s: string): string => s.split('-').filter((w) => w !== '').map((w, i) => (w.length <= 2 ? w.toUpperCase() : i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(' ');
 
-/** A map code's still (`/api/maps/<STEM>/still.png`, LCM-9), or null. */
-const stillOf = (map: string | null): string | null => (map !== null && /^MP\d{1,2}$/.test(map) ? `/api/maps/${map}/still.png` : null);
+/**
+ * A map code's still (`/api/maps/<STEM>/still.png`, LCM-9), or null. DAY-STILLS-2 (a browser adaptation: the original has
+ * no Day maps): a match's variant asks `/api/maps/<STEM>/<variant>/still.png` (central falls back to the night still for a
+ * variant with none); a word off the route's form is left out of the path.
+ */
+const stillOf = (map: string | null, variant?: string | null): string | null => (map !== null && /^MP\d{1,2}$/.test(map)
+  ? `/api/maps/${map}${variant && /^[a-z]{1,16}$/.test(variant) ? `/${variant}` : ''}/still.png` : null);
 const mapNameOf = (d: MatchPageData): string => d.match.mapName ?? d.match.map ?? 'Unknown map';
 
 interface Result { seal: number; terrorist: number; winner: 0 | 1 | null; respawn: boolean; a: number; b: number }
@@ -230,7 +245,7 @@ function heroNodes(d: MatchPageData, r: Result, now: number): HTMLElement[] {
   const m = d.match;
   const map = mapNameOf(d);
   const nodes: HTMLElement[] = [];
-  const still = stillOf(m.map);
+  const still = stillOf(m.map, m.variant);   // DAY-STILLS-2: the match's variant's still
   if (still) nodes.push(stillImage(still));
 
   const headline = element('div', 'project-match-headline');
@@ -411,52 +426,20 @@ function roundsSection(d: MatchPageData): HTMLElement | null {
 /** A glyph of the feed's line, drawn and never read (the words beside it say the same). */
 const glyph = (text: string): HTMLElement => { const g = element('span', 'project-feed-glyph', text); g.setAttribute('aria-hidden', 'true'); return g; };
 
-function feedSection(d: MatchPageData): HTMLElement | null {
-  const byRound = new Map<number, MatchPageData['events']>();
-  for (const e of d.events.slice().sort(byTime)) {
-    const list = byRound.get(e.round) ?? [];
-    list.push(e);
-    byRound.set(e.round, list);
+/**
+ * A feed line's words after its time (the EVENTS tab's rows): a kill "<actor> ─ <weapon> ─▶ <target>" and "Head shot";
+ * any other event its actor and `kindWords`.
+ */
+function feedLine(li: HTMLElement, e: MatchPageData['events'][number], name: (n: string | null) => HTMLElement, kindWords: string): void {
+  if (e.kind === 'kill') {
+    if (e.actor !== null) li.append(name(e.actor), document.createTextNode(' '));
+    li.append(glyph('─'), document.createTextNode(' '), element('span', 'project-feed-weapon', e.weapon || e.how || 'kill'), document.createTextNode(' '),
+      glyph('─▶'), element('span', 's2u-visually-hidden', ' killed'), document.createTextNode(' '), name(e.target));
+    if (e.part === 'head') li.append(document.createTextNode(' '), element('span', 'project-feed-head', 'Head shot'));
+  } else {
+    if (e.actor !== null) li.append(name(e.actor), document.createTextNode(' '));
+    li.append(element('span', 'project-feed-kind', kindWords));
   }
-  if (byRound.size === 0) return null;
-  const bots = botsOf(d);
-  const name = (n: string | null): HTMLElement => playerName(document, n, n !== null && bots.has(n));
-  const rounds = [...byRound.keys()];
-  const panel = element('div', 's2u-panel project-feed-panel');
-  const bodyBox = element('div', 's2u-panel__body');
-  const field = element('div', 's2u-field project-feed-pick');
-  const select = element('select');
-  select.id = 'project-feed-round';
-  select.dataset['focusKey'] = 'feed-round';
-  const label = element('label', 's2u-field__label', 'Round');
-  label.htmlFor = select.id;
-  for (const n of rounds) { const op = element('option', '', `Round ${n}`); op.value = String(n); select.append(op); }
-  field.append(label, select);
-  bodyBox.append(field);
-  rounds.forEach((n, i) => {
-    const evs = byRound.get(n)!;
-    const t0 = evs[0]!.tick;
-    const list = element('ol', 'project-feed');
-    list.dataset['round'] = String(n);
-    list.hidden = i !== 0;
-    for (const e of evs) {
-      const li = element('li');
-      li.append(element('span', 'project-feed-time', `+${mmss(((e.tick - t0) * 1000) / MATCH_PAGE_TICK_HZ_ADAPTATION)}`), document.createTextNode(' '));
-      if (e.kind === 'kill') {
-        if (e.actor !== null) li.append(name(e.actor), document.createTextNode(' '));
-        li.append(glyph('─'), document.createTextNode(' '), element('span', 'project-feed-weapon', e.weapon || e.how || 'kill'), document.createTextNode(' '),
-          glyph('─▶'), element('span', 's2u-visually-hidden', ' killed'), document.createTextNode(' '), name(e.target));
-        if (e.part === 'head') li.append(document.createTextNode(' '), element('span', 'project-feed-head', 'Head shot'));
-      } else {
-        if (e.actor !== null) li.append(name(e.actor), document.createTextNode(' '));
-        li.append(element('span', 'project-feed-kind', e.kind));
-      }
-      list.append(li);
-    }
-    bodyBox.append(list);
-  });
-  panel.append(bodyBox);
-  return section('Kill feed', 'project-match-feed', panel);
 }
 
 function weaponsSection(d: MatchPageData): HTMLElement | null {
@@ -479,14 +462,115 @@ function weaponsSection(d: MatchPageData): HTMLElement | null {
   return section('Weapons', 'project-match-weapons-section', cols);
 }
 
+/**
+ * WM-DATA-EV (the owner's approved MEGA-MOCK call 9; a BROWSER ADAPTATION, product track): the EVENTS tab -- every event
+ * of the match as one list (`./matchEvents.ts` `eventRowsOf`), each row its round and its round clock (`roundClockText`:
+ * from the round's START when the served round carries `startTick`, else from the round's first event), and filter chips
+ * by round, side, player and kind (`eventRowMatches`; a chip is the ds tab at its nav size, `aria-pressed`; the mount's
+ * `wireTabs` applies them). A kind has a chip only when the served events carry it (`eventFilterOptions`): nothing is
+ * staged. Drawn with the kill feed's own classes.
+ */
+function eventsSection(d: MatchPageData): HTMLElement {
+  const rows = eventRowsOf(d, MATCH_PAGE_TICK_HZ_ADAPTATION);
+  if (rows.length === 0) return section('Events', 'project-match-events', emptyState('No events recorded', 'This match has no kills or objectives on record.'));
+  const bots = botsOf(d);
+  const name = (n: string | null): HTMLElement => playerName(document, n, n !== null && bots.has(n));
+  const opts = eventFilterOptions(d, rows);
+  const panel = element('div', 's2u-panel project-feed-panel');
+  const bodyBox = element('div', 's2u-panel__body');
+  const chips = (group: keyof EventFilter, label: string, values: { value: string; text: string | Node }[]): HTMLElement => {
+    // the ds field alone: the kill feed's `project-feed-pick` capped its width for one select, which wrapped the chips
+    const field = element('div', 's2u-field');
+    const head = element('p', 's2u-field__label', label);
+    head.id = `project-events-${group}`;
+    const row = element('div', 's2u-tabs');
+    row.setAttribute('role', 'group');
+    row.setAttribute('aria-labelledby', head.id);
+    for (const v of [{ value: '', text: 'All' as string | Node }, ...values]) {
+      const b = element('button', 's2u-tab s2u-tab--nav');
+      b.type = 'button';
+      b.dataset['filter'] = group;
+      b.dataset['value'] = v.value;
+      b.dataset['focusKey'] = `events-${group}-${v.value}`;
+      b.setAttribute('aria-pressed', v.value === '' ? 'true' : 'false');
+      b.append(v.text);
+      row.append(b);
+    }
+    field.append(head, row);
+    return field;
+  };
+  bodyBox.append(
+    chips('round', 'Round', opts.rounds.map((n) => ({ value: String(n), text: `R${n}` }))),
+    chips('side', 'Side', opts.sides.map((s) => ({ value: String(s), text: sideName(s) }))),
+    chips('player', 'Player', opts.players.map((n) => ({ value: n, text: n }))),
+    chips('kind', 'Kind', opts.kinds.map((k) => ({ value: k, text: MATCH_EVENT_KIND_WORDS_ADAPTATION[k] ?? k }))),
+  );
+  const count = element('p', 'project-fine project-match-events-count', `${rows.length} of ${rows.length} events`);
+  count.setAttribute('role', 'status');
+  const list = element('ol', 'project-feed');
+  for (const row of rows) {
+    const li = element('li');
+    li.dataset['round'] = String(row.round);
+    li.dataset['side'] = row.side === null ? '' : String(row.side);
+    li.dataset['kind'] = row.kind;
+    li.dataset['players'] = row.players.join('\n');
+    li.append(element('span', 'project-feed-time', `R${row.round} ${roundClockText(row)}`), document.createTextNode(' '));
+    feedLine(li, row.event, name, MATCH_EVENT_KIND_WORDS_ADAPTATION[row.kind] ?? row.kind);
+    if (row.kind === 'teamkill' || row.kind === 'suicide') li.append(document.createTextNode(' '), element('span', 'project-feed-kind', MATCH_EVENT_KIND_WORDS_ADAPTATION[row.kind]!));
+    list.append(li);
+  }
+  bodyBox.append(count, list);
+  panel.append(bodyBox);
+  return section('Events', 'project-match-events', panel);
+}
+
+/** WM-DATA-EV: the four tabs, their keys and words; Overview open first. */
+const MATCH_TABS: readonly (readonly [string, string])[] = [['overview', 'Overview'], ['rounds', 'Rounds'], ['events', 'Events'], ['weapons', 'Weapons']];
+
+/**
+ * WM-DATA-EV: the body as four tabs (the ds tab row, `role="tablist"`) over four panels -- Overview the awards and the
+ * scoreboard, Rounds the rounds, Events `eventsSection` (in place of the kill feed), Weapons the weapons. A panel with
+ * nothing to show says so. Which tab is open is the mount's (`wireTabs`).
+ */
+function tabbedBodyNodes(d: MatchPageData, r: Result, cells: Map<string, MatchPagePlayer>): HTMLElement[] {
+  const nav = element('div', 's2u-tabs');
+  nav.setAttribute('role', 'tablist');
+  nav.setAttribute('aria-label', 'Match sections');
+  const content: Record<string, (HTMLElement | null)[]> = {
+    overview: [awardsSection(d, cells), boardSection(d, r)], rounds: [roundsSection(d)], events: [eventsSection(d)], weapons: [weaponsSection(d)],
+  };
+  const panels = MATCH_TABS.map(([key, words], i) => {
+    // `project-tap`: the site's tap size (44 px) on a control outside a ds field (the stats pages' control rule)
+    const tab = element('button', 's2u-tab project-tap', words);
+    tab.type = 'button';
+    tab.id = `project-match-tab-${key}`;
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-controls', `project-match-panel-${key}`);
+    tab.setAttribute('aria-selected', i === 0 ? 'true' : 'false');
+    tab.dataset['tab'] = key;
+    tab.dataset['focusKey'] = `tab-${key}`;
+    if (i === 0) tab.classList.add('is-on');
+    nav.append(tab);
+    const panel = element('div');
+    panel.id = `project-match-panel-${key}`;
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', tab.id);
+    panel.dataset['tab'] = key;
+    panel.hidden = i !== 0;
+    const parts = content[key]!.filter((p): p is HTMLElement => p !== null);
+    panel.append(...(parts.length > 0 ? parts : [emptyState(`No ${words.toLowerCase()} recorded`, '')]));
+    return panel;
+  });
+  return [nav, ...panels];
+}
+
 /** The body's sections for the answer (`now` decides whether an old unranked match's events have gone). */
 function bodyNodes(d: MatchPageData, r: Result, now: number): HTMLElement[] {
   const cells = new Map(d.players.map((p) => [p.name, p] as const));
   const gone = d.events.length === 0 && !d.match.counted && !d.match.live && now - d.match.startedAt > MATCH_PAGE_EVENTS_KEPT_DAYS_ADAPTATION * DAY_MS;
-  const parts = gone
-    ? [awardsSection(d, cells), boardSection(d, r),
-      section('Rounds', 'project-match-rounds', emptyState('Round detail is no longer kept', `Unranked matches keep their rounds for ${MATCH_PAGE_EVENTS_KEPT_DAYS_ADAPTATION} days.`))]
-    : [awardsSection(d, cells), boardSection(d, r), roundsSection(d), feedSection(d), weaponsSection(d)];
+  if (!gone) return tabbedBodyNodes(d, r, cells);
+  const parts = [awardsSection(d, cells), boardSection(d, r),
+    section('Rounds', 'project-match-rounds', emptyState('Round detail is no longer kept', `Unranked matches keep their rounds for ${MATCH_PAGE_EVENTS_KEPT_DAYS_ADAPTATION} days.`))];
   return parts.filter((p): p is HTMLElement => p !== null);
 }
 
@@ -543,7 +627,7 @@ function setLiveLine(f: Frame, seen: string, said: string): void {
 function drawReady(f: Frame, d: MatchPageData, now: number): void {
   const r = resultOf(d);
   f.shell.dataset['state'] = 'ready';
-  f.hero.classList.toggle('project-hero--still', stillOf(d.match.map) !== null);
+  f.hero.classList.toggle('project-hero--still', stillOf(d.match.map, d.match.variant) !== null);
   // each scoreboard's sideways scroll, by its region's key, carried across a redraw that rebuilds it
   const scroll = new Map<string, number>();
   for (const w of f.body.querySelectorAll<HTMLElement>('.project-stat-wrap[data-focus-key]')) scroll.set(w.dataset['focusKey']!, w.scrollLeft);
@@ -579,7 +663,8 @@ function focusKeyOf(active: Element | null, within: HTMLElement): string | null 
 function refocus(key: string | null, within: HTMLElement): void {
   if (key === null) return;
   let target: Element | undefined;
-  if (key.startsWith('key:')) target = within.querySelector(`[data-focus-key="${key.slice(4)}"]`) ?? undefined;
+  // the key compared as a value, never spliced into a selector: a player chip's key holds the player's name (`"`, `\`)
+  if (key.startsWith('key:')) target = [...within.querySelectorAll<HTMLElement>('[data-focus-key]')].find((e) => e.dataset['focusKey'] === key.slice(4));
   else {
     const [, at, ...rest] = key.split(':');
     const href = rest.join(':');
@@ -615,7 +700,9 @@ export function mountMatchPage(doc: Document, win: Window, id: string | null, de
   doc.documentElement.removeAttribute('data-console');
   (doc.getElementById('stats-page') ?? doc.body).replaceChildren(f.shell);
 
-  let feedRound: string | null = null;
+  /** WM-DATA-EV: the tab open and the events' filters, kept across a live re-read's redraw. */
+  let openTab: string = MATCH_TABS[0]![0];
+  const eventFilter: EventFilter = { ...NO_EVENT_FILTER };
   /** Whether the last answer drawn was live: a failed read (thrown, or neither 2xx nor 404) then reads again. */
   let drawnLive = false;
   /** LCM-18d: the last answer drawn (its JSON), when it was read, the failed reads in a row since, and a read held while hidden. */
@@ -668,15 +755,7 @@ export function mountMatchPage(doc: Document, win: Window, id: string | null, de
   };
 
   const wire = (): void => {
-    const pick = f.body.querySelector<HTMLSelectElement>('.project-feed-pick select');
-    const show = (round: string): void => {
-      feedRound = round;
-      for (const list of f.body.querySelectorAll<HTMLElement>('.project-feed')) list.hidden = list.getAttribute('data-round') !== round;
-    };
-    if (pick) {
-      if (feedRound !== null && pick.value !== feedRound && [...pick.options].some((op) => op.value === feedRound)) { pick.value = feedRound; show(feedRound); }
-      if (!wired.has(pick)) { wired.add(pick); pick.addEventListener('change', () => show(pick.value)); }
-    }
+    wireTabs();
     const copy = f.hero.querySelector<HTMLButtonElement>('button.project-match-copy');
     const said = f.hero.querySelector<HTMLElement>('.project-match-copied');
     if (copy === null || wired.has(copy)) return;
@@ -690,6 +769,58 @@ export function mountMatchPage(doc: Document, win: Window, id: string | null, de
         if (said) { said.classList.remove('s2u-visually-hidden'); said.textContent = 'Copy failed. Copy the address from the address bar.'; }
       });
     });
+  };
+
+  /** WM-DATA-EV: the tabs open their panel; the chips set their group's filter; both applied again after a redraw. */
+  const wireTabs = (): void => {
+    const tabs = [...f.body.querySelectorAll<HTMLButtonElement>('[role="tablist"] button[role="tab"]')];
+    if (tabs.length === 0) return;
+    const applyTab = (): void => {
+      for (const t of tabs) {
+        const on = t.dataset['tab'] === openTab;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        t.classList.toggle('is-on', on);
+      }
+      for (const p of f.body.querySelectorAll<HTMLElement>('[role="tabpanel"]')) p.hidden = p.dataset['tab'] !== openTab;
+    };
+    const applyFilter = (): void => {
+      for (const b of f.body.querySelectorAll<HTMLButtonElement>('button[data-filter]')) {
+        const v = eventFilter[b.dataset['filter'] as keyof EventFilter];
+        b.setAttribute('aria-pressed', (v === null ? '' : String(v)) === b.dataset['value'] ? 'true' : 'false');
+      }
+      const items = [...f.body.querySelectorAll<HTMLElement>('.project-match-events .project-feed li')];
+      let shown = 0;
+      for (const li of items) {
+        const side = li.dataset['side'];
+        const ok = eventRowMatches({
+          round: Number(li.dataset['round']), side: side === '0' ? 0 : side === '1' ? 1 : null,
+          players: (li.dataset['players'] ?? '').split('\n').filter((n) => n !== ''), kind: li.dataset['kind'] ?? '',
+        }, eventFilter);
+        li.hidden = !ok;
+        if (ok) shown++;
+      }
+      const count = f.body.querySelector<HTMLElement>('.project-match-events-count');
+      if (count) count.textContent = `${shown} of ${items.length} events`;
+    };
+    for (const t of tabs) {
+      if (wired.has(t)) continue;
+      wired.add(t);
+      t.addEventListener('click', () => { openTab = t.dataset['tab'] ?? openTab; applyTab(); });
+    }
+    for (const b of f.body.querySelectorAll<HTMLButtonElement>('button[data-filter]')) {
+      if (wired.has(b)) continue;
+      wired.add(b);
+      b.addEventListener('click', () => {
+        const group = b.dataset['filter'] as keyof EventFilter;
+        const v = b.dataset['value'] ?? '';
+        if (group === 'round') eventFilter.round = v === '' ? null : Number(v);
+        else if (group === 'side') eventFilter.side = v === '0' ? 0 : v === '1' ? 1 : null;
+        else eventFilter[group] = v === '' ? null : v;
+        applyFilter();
+      });
+    }
+    applyTab();
+    applyFilter();
   };
 
   const read = async (): Promise<void> => {

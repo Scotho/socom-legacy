@@ -26,6 +26,9 @@ vi.mock('../../src/forge/archives', () => ({ Archives: class {
   clips = async () => null;
   list = async () => ({ entries: [], problems: [] });
   load = archiveLoad;
+  census = async () => null;
+  props = async () => null;
+  scriptNames = async () => null;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
@@ -274,7 +277,7 @@ describe('the mounted Forge: a panel holding the focus lease (FUI-2)', () => {
   };
   const menuOpen = (): boolean => menuCardOpen(document);   // EDITOR-MAP T1: the button is off his page; the card's presence
 
-  it('R3-A (3): the lease has a keyboard exit -- Escape lets it go (as the pad\'s Circle), M lets it go and opens the menu; a panel\'s own key handler sees them first', async () => {
+  it('R3-A (3): the lease has a keyboard exit -- Escape lets it go (as the pad\'s Circle); the menu key, unbound by default (his table), lets it go and opens the menu once bound; a panel\'s own key handler sees them first', async () => {
     const { mountForge } = await import('../../src/forge/page');
     let ctx: ForgePanelContext | null = null;
     let consume = false;
@@ -312,13 +315,23 @@ describe('the mounted Forge: a panel holding the focus lease (FUI-2)', () => {
     keyH();
     expect(docksOff()).toBe(before);
     expect(c.ui.focus.holder()).toBe('lease');
-    // M: the lease let go, then the menu opens as it does without one.
+    // The menu key (the owner, 2026-11-22: "Accept his choice"): his shortcut table gives `app.menu` no default key, so M
+    // is held with the rest -- the lease kept, no menu. Bound by a person (his `setKeys`, Edit > Preferences' own way),
+    // it lets the lease go, then the menu opens as it does without one.
+    const { keysOf, setKeys, resetKeys } = await import('../../src/forge/shortcuts');
+    expect(keysOf('app.menu'), 'the menu key unbound by default').toEqual([]);
     expect(menuOpen()).toBe(false);
     key(window, 'KeyM', 'm');
-    expect(c.ui.focus.holder()).toBeNull();
-    expect(menuOpen()).toBe(true);
-    key(window, 'KeyM', 'm');
+    expect(c.ui.focus.holder()).toBe('lease');
     expect(menuOpen()).toBe(false);
+    setKeys('app.menu', ['KeyM']);
+    try {
+      key(window, 'KeyM', 'm');
+      expect(c.ui.focus.holder()).toBeNull();
+      expect(menuOpen()).toBe(true);
+      key(window, 'KeyM', 'm');
+      expect(menuOpen()).toBe(false);
+    } finally { resetKeys('app.menu'); }
   }, 90_000);
 
   it('R3-A (7): a staged drop is the page\'s to dispose -- cancelled when a placement stops being admitted (no lease needed) and when its panel unregisters', async () => {

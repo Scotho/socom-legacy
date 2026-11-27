@@ -243,17 +243,22 @@ describe("movement.climb: NU-1c B11 -- the pistol-holder's cut reads the pistol 
     expect(PISTOL_CLIMB_NO_INTERRUPT.seal_p_climbcrate).toBe(1);           // never cut: phase stops at (n - 1) / n
   });
 
-  it('the cut with the pistol in hand, per climb clip: the crate and the blend never cut; the medium, the hang, the step-up and the climb over cut as the rifle\'s', () => {
+  it('the cut with the pistol in hand, per climb clip: the crate and the blend never cut; the medium, the hang and the step-up cut as the rifle\'s; the climb over never (LATER 1223)', () => {
     const full = clipCommands(12, 4, 'rifle', STILL);
     expect(clipCommands(12, 4, 'rifle', FORWARD)).toBeLessThan(full);      // the rifle's crate: cut past 0.9
     expect(clipCommands(12, 4, 'pistol', FORWARD), 'crate').toBe(full);    // RED before B11: cut as the rifle's
     expect(clipCommands(18, 1, 'pistol', FORWARD), 'blend (the crate first)').toBe(clipCommands(18, 1, 'rifle', STILL));
     expect(clipCommands(18, 1, 'rifle', FORWARD)).toBeLessThan(clipCommands(18, 1, 'rifle', STILL));
-    for (const [h, app, label] of [[27, 3, 'medium'], [30, 1, 'stand -> hang'], [8, 1, 'step up'], [10, 5, 'climb over']] as const) {
+    for (const [h, app, label] of [[27, 3, 'medium'], [30, 1, 'stand -> hang'], [8, 1, 'step up']] as const) {
       const rifle = clipCommands(h, app, 'rifle', FORWARD);
       expect(rifle, `${label}: the rifle's cut`).toBeLessThan(clipCommands(h, app, 'rifle', STILL));
       expect(clipCommands(h, app, 'pistol', FORWARD), label).toBe(rifle);
     }
+    // LATER 1223 (CLIMB_OVER_AXES_READING; was: 'climb over' in the loop above, cut as the rifle's): the stick never cuts
+    // the climb over, whichever hand -- FUN_005af930 zeroes the axes the cut reads (D:L466805-466815).
+    const over = clipCommands(10, 5, 'rifle', STILL);
+    expect(clipCommands(10, 5, 'rifle', FORWARD), 'climb over: no cut').toBe(over);
+    expect(clipCommands(10, 5, 'pistol', FORWARD), 'climb over, the pistol: no cut').toBe(over);
   });
 });
 

@@ -143,6 +143,18 @@ const F_099 = Math.fround(0.99);
  * them, so the player control does not run). The page's count is computed fresh each frame, so no stale count crosses
  * the gate; the original's one stale read at the reopen (U3, one frame at most) is not modelled. Settles: those callers
  * read, or a capture of `0x40a378` (r0004) with the raise state through a menu and the round screens (SCOPE.md s2.1 run 10).
+ * RAISE-1577 part 2 (LATER 1577; captures IQ-RAISEGATE-r0004 and IQ-R1RAISE-PC2, r0004): under the ROUND-START screen
+ * ("STARTING ROUND n OF m") the original gates neither the raise nor the trigger -- R1 held from the body's first frame
+ * raises the next frame and fires (observed in the capture at the round start; the port's match is a reading, pinned
+ * by `test/raiseRoundStartScreen.test.ts`) -- and the page's round screens are the round-END ones
+ * only (`NetPage.screenUp`: ROUND COMPLETE, FINAL ROUND, GAME COMPLETE, cleared by the room's `roundStart`), so the
+ * round start was never gated here (`test/raiseRoundStartScreen.test.ts`). Still a reading: (1) the round-end screens'
+ * gate, which the capture did not cover (nor R1 held across a round's end into the next start); (2) the address --
+ * `0x40a378` stayed 1 in every phase captured on r0004 (mid-round, the pause menu, round ends, game end, lobby, READY,
+ * briefing and load, three round starts), so it is the wrong byte or no screen captured clears it; the boot front end
+ * not covered. The pause menu is its own case, not built here: there the original lowers the rifle with R1 held and a
+ * held level re-raises it on resume with no new press; the port's START menu takes the pad (`./main` `startMenu.pad`)
+ * and does not feed this gate -- whether the page lowers under it is not checked here.
  */
 export const RAISE_GATE_READING = "the page's round screens; the original's screens unread" as const;
 
@@ -200,6 +212,22 @@ export const THROW_RIFLE_RAISE_READING = 'down at a take-up; up at a release, do
 export const HELD_TRIGGER_ITEM_RAISE_READING = 'up while held from before the take-up; a press with a grenade up asks nothing' as const;
 
 /**
+ * GRENADE-LOWERS part 1 (the owner's rule, his words in seat-movement's brief for v0.4.32: "this is one of our highest
+ * priorities, yes, a grenade in hand puts the rifle down, preferably as it matches the original on r0004, but it needs
+ * to make it in even if our readings are wrong"). The original's part, a capture: PC 2's GRENADE-LOWER-r0004 select legs
+ * (r0004) -- on the frame a hand grenade is selected the weapon state +0xf74 goes 1 -> 2 and the envelope
+ * +0x1160..+0x116c to 0 on that same frame, the held item still the rifle; no envelope follows while it is held (0 to
+ * 4.5 s), no lower clip -- and PC 2's L1578-PROBE-WEAPONS (items 121 / 126 cannot be raised, +0x1160 0); L1526's reading
+ * of SetWeaponState `FUN_005e7600` zeroing the raise at the selection. The owner's part: the same down state held
+ * whatever the trigger does with the grenade up -- the edge 1 of a trigger held through the take-up asks it up by
+ * `HELD_TRIGGER_ITEM_RAISE_READING`, which no capture has met with the grenade up. A throw's release and its bit-7 chain
+ * to the pop (NU-8a, research 326 s7.2, measured) are left as they were. The page's own body only (`RaiseInput.lowered`,
+ * fed by `RaiseFeed` from the kit's hand, a grenade held with a round in the slot -- not an empty slot, whose press asks up
+ * as the firearm's, B-01 D1); a copy takes its owner's state off the wire (ER-2).
+ */
+export const GRENADE_LOWERS_OWNER = 'a hand grenade selected holds the rifle down, the trigger held or not' as const;
+
+/**
  * RAISE-HELD-FIRE (m02d; research 326 §7; reading, reviewed): the raise request's capability gate. `FUN_005dfe30`
  * tests the body's `+0x258` bit 0 before it stores the UP state (D:L494258-494259; r0004's at 0x5e7690-0x5e7698): the
  * port's `WeaponRaise.request` takes it as passed -- every UP request, the held trigger's among them, goes through that
@@ -219,9 +247,29 @@ export const RAISE_CAPABILITY_GATE_READING = 'taken as passed' as const;
  * so `FUN_0059d830` answers after the pop -- and the port runs that branch at a gated pop (`WeaponRaise`'s bit 7): down
  * for the pop's update, up again on the next under the countdown or a held trigger (D:L453572-453584,
  * D:L453633-453634). Was: `'the countdown'`, no dip at the pop (the branch's reach unread). Settles: the raise state
- * `actor+0xf74` per frame through a last grenade's pop (capture NU8-1's last-grenade throws).
+ * `actor+0xf74` per frame through a last grenade's pop (capture NU8-1's last-grenade throws). B-01 D1 (2026-11-24;
+ * research 321 s7.10): the firearm comes back at the launch only by the Action shortcut's `+0x828` return (D:L477135; the
+ * withdrawal of 2026-11-22, research 321 s3.4); a manually selected slot stays in the hand empty (research 361 s2,
+ * `EMPTY_SLOT_KEEPS_ITEM_READING`), its class 0x79, so the idle branch keeps the countdown frozen and lowers until the
+ * firearm is taken back, and the countdown named here runs from that return.
  */
 export const THROW_LAST_GRENADE_RAISE_READING = "the countdown, the pop's one-update lower" as const;
+
+/**
+ * B-01 D1 (research 321 s7.10; reading, pending review; observed in IQ-169, unscored; the D1-specific leg IQ-185
+ * (PC 4, B01-RECAP-PC4) owed): the slot emptied by its last throw keeps its item pointer (`kit+0xe4[slot]`) and stays
+ * selected (`kit+0x824`), so the hand's class stays 0x79 and the idle branch keeps the countdown frozen (r0004
+ * 0x59bbac-0x59bbc4, 0x59be00-0x59be0c) until the firearm is taken back; the
+ * countdown `THROW_LAST_GRENADE_RAISE_READING` names then runs from the firearm's return (the Action shortcut's `+0x828`
+ * return, D:L477135-477140, or the swap). An r0001 store-and-caller search (seat-shots' second read, not exhaustive)
+ * found no remover of the item on the throw path (the add `FUN_005bc410`, the compactor `FUN_005b9a00` from the removers
+ * `FUN_005b9bb0` / `FUN_005ba040`, the whole-kit clear `FUN_005c8190`; `FUN_00545ee0` not read whole); research 361 s2
+ * agrees; none of it re-read at r0004. A capture observation, not a code reading (IQ-169, B01-SWAP-PC2: a capture
+ * of the original and a page run on one script, unscored): slot 4's item 123 (the Mk141, class 0x79) at the same
+ * pointer through 6 s of idle with 0 left, and `ctrl+0x234` held at 5.0 (leg A), where the page's ran down. The first
+ * round after a grenade -> rifle return was not measured (IQ-169 swapped pistol -> rifle): owed to IQ-185 (PC 4).
+ */
+export const EMPTY_SLOT_KEEPS_ITEM_READING = 'the empty slot keeps its item' as const;
 
 /**
  * LATER 655 (research 321 s3.4, "The first round after a grenade's return"; reading, pending review): the read accounts for
@@ -369,8 +417,8 @@ export interface RaiseStats { weight: number; state: 'up' | 'down'; moving: bool
 
 /**
  * NU-8a B1: a throw's release, inside the throw gates (`FUN_0059d830` D:L457352-457355 lists its type: the plain branch
- * runs under it, 'gated') or outside them (the pistol hand's `Pistol throw grenade`: the bit-7 branch on the next update,
- * 'ungated').
+ * runs under it, 'gated') or outside them (the pistol hand's peek tosses: the bit-7 branch on the next update,
+ * 'ungated'; LATER 1442).
  */
 export type ThrowRelease = 'gated' | 'ungated';
 
@@ -386,8 +434,18 @@ export interface RaiseInput {
   enemies?: number;
   /** ER-1: the player control's gate shut (`DAT_003df1b0` 0, D:L453067-453070; `RAISE_GATE_READING`). */
   gated?: boolean;
-  /** A hand grenade up, one left: the hand's class 'y' (`FUN_005c8040` D:L453568). */
+  /**
+   * A hand grenade up with a round left: the hand's class 'y' and the slot's count (`FUN_005bdb00` D:L474541-474549; r0004
+   * `CZKit::CurItemHasAmmo` 0x5c46b0 at 0x59bc40-0x59bc50) -- the edge-2 wind-up's test.
+   */
   grenade?: boolean;
+  /**
+   * B-01 D1 (reading, reviewed by two readers; the state observed in IQ-169, unscored; the D1-specific leg IQ-185
+   * (PC 4, B01-RECAP-PC4) owed): a hand grenade selected, whatever its count -- the
+   * class alone (`FUN_005c8040` D:L480684-480696; r0004 `CZKit::GetCurItemIDType` 0x5cf750, no count read), the idle
+   * branch's test (0x59bbac-0x59bbc4, 0x59be00-0x59be0c). Absent, `grenade`'s (a copy's inferred hand).
+   */
+  grenadeSelected?: boolean;
   /** The throw's wind-up held (`ctrl+0x170` bit 0x40, set by the press D:L453637). */
   windUp?: boolean;
   /** A throw's release this frame (D:L453520), or none. */
@@ -403,12 +461,21 @@ export interface RaiseInput {
    * pre-14 copy's inference, `REMOTE_HAND_RAISE_READING`) runs.
    */
   raised?: boolean;
+  /**
+   * GRENADE-LOWERS (`GRENADE_LOWERS_OWNER`; GRENADE-LOWER-r0004): the page's own hand grenade held -- the class 'y' with a
+   * round in the slot (`grenade`'s test) -- the state held down and the envelope at 0 each update, outside a throw's
+   * release-to-pop chain. Not an empty slot's (the review's F2): its press asks up as the firearm's (B-01 D1, r0004
+   * 0x59bc40-0x59bc50), and a trigger held after the last grenade's pop stays the firearm's.
+   */
+  lowered?: boolean;
 }
 
 /** NU-8a B1: what the page's own kit tells the raise each frame (`./matchThrow`), beside the firearm's trigger and aim. */
 export interface ItemRaise {
-  /** A hand grenade up with one left (class 'y'). */
+  /** A hand grenade up with one left (class 'y'): the edge-2 wind-up's test. */
   grenade: boolean;
+  /** B-01 D1: a hand grenade selected, whatever its count (the class alone): the idle branch's. Absent, `grenade`'s. */
+  grenadeSelected?: boolean;
   /** The throw's wind-up held. */
   windUp: boolean;
   /**
@@ -429,20 +496,20 @@ export function handGrenade(id: number | null | undefined): boolean {
 }
 
 /**
- * NU-8a B1: a throw's hold code as the release it is (`THROW_RIFLE_RAISE_READING`). The pistol hand's standing throw
- * pushes `Pistol throw grenade` (`FUN_0058c820`'s pair, D:L494748), outside both gates; its hold code is the rifle's
- * `seal_throwgrenade` (`./mover` `HOLD_CLIPS`), told apart by the firearm in the hand. So do its peek tosses (the
- * review's F1): `Pistol peek right toss` (`DAT_003deb28`) and `Pistol peek left toss` (`DAT_003deb38`), paired with the
+ * NU-8a B1: a throw's hold code as the release it is (`THROW_RIFLE_RAISE_READING`). The pistol hand's peek tosses (the
+ * review's F1) push `Pistol peek right toss` (`DAT_003deb28`) and `Pistol peek left toss` (`DAT_003deb38`), paired with the
  * rifle's at D:L494720-494721 and pushed for the pistol hand (`@s2u/scene` `PISTOL_HAND_ANIMS`) under the rifle's lean
  * codes, are in neither list (D:L457352-457355, D:L462579-462582). Outside, the lower on the next update further needs
  * `FUN_0059d830`'s other conditions to pass with the lean beneath -- `FUN_005a7de0(actor, 1, 1)` (D:L457365;
- * D:L462636-462707) and the floor tests (D:L457369-457371) -- named, not read here. The pistol's crouched and prone throws
- * push the rifle's types (their pairs are not in the Seal set, research 85 §8.1) and its toss is in both lists: inside.
- * A hold of another family (a placing, a reload) is no release (null). *Was: the pistol's peek tosses filed as inside.*
+ * D:L462636-462707) and the floor tests (D:L457369-457371) -- named, not read here. The pistol's standing, crouched and
+ * prone throws and its toss push the rifle's types (`handAnim`: only the peek tosses swap, LATER 1442; research 85 §8.1
+ * item 3), in both lists: inside. A hold of another family (a placing, a reload) is no release (null). *Was: the
+ * pistol's peek tosses filed as inside; then the pistol's standing throw filed as outside, `Pistol throw grenade`
+ * (LATER 1442's review F3).*
  */
 export function throwReleaseOf(clip: HoldClip, pistol: boolean): ThrowRelease | null {
   if (holdFamily(clip) !== 'throw') return null;
-  return pistol && (clip === 'seal_throwgrenade' || clip === 'seal_toss_rlean' || clip === 'seal_toss_llean') ? 'ungated' : 'gated';
+  return pistol && (clip === 'seal_toss_rlean' || clip === 'seal_toss_llean') ? 'ungated' : 'gated';
 }
 
 /**
@@ -471,7 +538,8 @@ export class RaiseFeed {
     if (hand) {
       return {
         trigger: firearm.trigger || hand.trigger, aiming: firearm.aiming, ...lanes, grenade: hand.grenade, windUp: hand.windUp,
-        release, pop: hand.pop ?? false,
+        grenadeSelected: hand.grenadeSelected ?? hand.grenade, release, pop: hand.pop ?? false,
+        lowered: hand.grenade,                                     // GRENADE-LOWERS: a grenade HELD, a round in the slot (F2)
       };
     }
     if (firearm.raised !== undefined) {
@@ -663,7 +731,11 @@ export class WeaponRaise {
         // ER-1: UP while the perception has an enemy marked or a scope is up (`FUN_00594cf0` D:L453088-453092, the count
         // `FUN_005c9b30` D:L482090-482132); was `AIM_HOLDS_RAISE && input.aiming`, `ctrl+0xc0` read as the aim lane
         let want: typeof UP | typeof DOWN = (input.enemies ?? 0) > 0 || input.aiming ? UP : DOWN;
-        if (input.grenade) want = DOWN;                                  // NU-8a B1: the class 'y', no countdown (D:L453598)
+        // NU-8a B1: the class 'y', no countdown (D:L453598). B-01 D1: the class alone, whatever the count -- r0004's idle
+        // branch asks `CZKit::GetCurItemIDType` (0x5cf750, no count) at 0x59bbac-0x59bbc4 and with it set jumps over the
+        // countdown's decrement (0x59be20-0x59be84) and re-seed (0x59be88-0x59bed8) at 0x59be00-0x59be0c: frozen under an
+        // empty slot as under a full one (`EMPTY_SLOT_KEEPS_ITEM_READING`). Was: `grenade`, the count folded in.
+        if (input.grenadeSelected ?? input.grenade) want = DOWN;
         else if (want === DOWN) {
           this.countdown -= real;
           if (this.countdown > 0) want = UP;
@@ -671,7 +743,8 @@ export class WeaponRaise {
         this.request(want);
       } else if (this.edge === 2 && input.grenade) {
         // RAISE-HELD-FIRE (`HELD_TRIGGER_ITEM_RAISE_READING`): a press with a hand grenade up is the wind-up's -- the
-        // countdown reset, no request, the edge 2 -> 3 -> 0 (D:L453624-453660)
+        // countdown reset, no request, the edge 2 -> 3 -> 0 (D:L453624-453660). B-01 D1: the class AND a round left
+        // (r0004 0x59bc40-0x59bc50, `CurItemHasAmmo` 0x5c46b0): an empty slot's press asks up below, as the firearm's
         reset();
         this.edge = 0;
       } else {
@@ -680,6 +753,15 @@ export class WeaponRaise {
         reset();
         this.request(UP);
       }
+    }
+    if (input.lowered && !this.bit7 && (this.state & ~MOVING) === UP) {
+      // GRENADE-LOWERS (`GRENADE_LOWERS_OWNER`): a hand grenade held (a round in the slot) -- the state down (+0xf74 2) and the envelope at 0
+      // on the select frame and every update after (GRENADE-LOWER-r0004; `FUN_005e7600`), whatever the edge asked above;
+      // a throw's release and its chain to the pop (bit 7) keep their own (NU-8a), and so does a fall already under way:
+      // only a rifle left or asked UP is cut down (the controller's ruling on glowv2's red: the pistol hand's peek toss's
+      // fall after its ungated release, `seal_toss_rlean`, eases down as before rather than snapping to 0)
+      this.envelope.clear();
+      this.state = DOWN;
     }
     this.run(RAISE_TICK_DT);
   }

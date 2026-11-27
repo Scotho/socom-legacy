@@ -102,6 +102,12 @@ const TICKS = (process.env['S2U_FRAME_TICKS'] ?? '100,500,1000').split(',').map(
 const [WIDTH, HEIGHT] = (process.env['S2U_FRAME_SIZE'] ?? '960x540').split('x').map(Number) as [number, number];
 const PORT = Number(process.env['S2U_FRAME_REPLAY_PORT'] ?? 5305);
 const EXPECT = process.env['S2U_FRAME_EXPECT'] ?? '';
+/**
+ * SPC-4 (research 395's owed CPS.R11 gate): `S2U_FRAME_SHADOW_HULL=1` turns `../src/charShadow.ts`'s SPC-2 switch on in
+ * the page (`setShadowBoundsHull(true)`, the module the dev server serves the page) before any frame is hashed, so a base
+ * run without it and a head run with it (`S2U_FRAME_EXPECT`) are the before/after of the switch. A test-only instrument.
+ */
+const SHADOW_HULL = process.env['S2U_FRAME_SHADOW_HULL'] === '1';
 /** cps-frame-hash-3: the seat followed, the n-th living body in seat order (a test-only choice). */
 const FOLLOW = Number(process.env['S2U_FRAME_FOLLOW'] ?? 0);
 /** cps-frame-hash-4: the diagnosis on request, at one tick; its reads per variant (a test-only choice). */
@@ -187,6 +193,10 @@ test('the frame identity gate: each paused tick read several times, their majori
       // cps-frame-hash-2: the page's frame clock held (dt and the real seconds 0) once the hook has it (after the renderer).
       await expect.poll(() => page.evaluate(() => typeof window.__viewer.holdFrame), { timeout: 120_000 }).toBe('function');
       await page.evaluate(() => window.__viewer.holdFrame!(true));
+      if (SHADOW_HULL) {
+        const on = await page.evaluate(async () => { const url = '/src/charShadow.ts'; const m = await import(/* @vite-ignore */ url) as { setShadowBoundsHull(on: boolean): void; shadowBoundsHull(): boolean }; m.setShadowBoundsHull(true); return m.shadowBoundsHull(); });
+        expect(on, 'S2U_FRAME_SHADOW_HULL: the SPC-2 switch on in the page').toBe(true);
+      }
       await expect.poll(async () => page.evaluate(() => window.__viewer.net?.()?.state ?? null), { timeout: 180_000 }).toBe('open');
       await expect.poll(() => page.evaluate(() => window.__viewer.loading().blocked), { timeout: 180_000 }).toBe(false);
       await page.waitForTimeout(SETTLE_KIT_MS);         // the seek laid, the textures in, a few frames drawn

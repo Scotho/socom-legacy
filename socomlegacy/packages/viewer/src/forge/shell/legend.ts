@@ -50,7 +50,7 @@ export interface LegendPrompt {
 /** What the pad is doing, as the legend reads it. */
 export type LegendContext =
   /**
-   * The editor and how many placements are picked. One tool, Select (the owner, 2026-11-17: an object spawns at once,
+   * The editor and how many placements are picked. One tool, Select (the Forge's owner (crispy, OT.R112), 2026-11-17: an object spawns at once,
    * no placing tool stays armed): no tool to name, step or prompt for.
    */
   | { kind: 'build'; selection: number }

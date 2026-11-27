@@ -222,7 +222,9 @@ describe('the test room\'s fullscreen button (ui.ts onFullscreen) pairs request 
 describe('the front end match mounts both rows (matchMount.ts)', () => {
   it('hands the START menu its adaptations and ticks the readout on the frame counter\'s tick', () => {
     const mount = readFileSync(resolve(here, '../src/matchMount.ts'), 'utf-8');
-    expect(mount).toMatch(/adaptations: \{ fullscreen: matchFullscreen, fps \},/);
+    // WM-LAUNCHER (WM.R7): SHOW FPS is no longer a START menu row (the readout's toggle is the native VIDEO OPTIONS');
+    // the menu's adaptations are FULLSCREEN and SHOW LAUNCHER.
+    expect(mount).toMatch(/adaptations: \{ fullscreen: matchFullscreen, launcher: \(\) => startMenuLauncher\(doc\) \},/);
     expect(mount).toMatch(/toggle: \(refused: \(\) => void\): void => \{ toggleFullscreen\(docFullscreen, refused\); \},/);
     expect(mount).toMatch(/if \(adaptiveRatio\.frame\([^\n]*\)\) fpsReadout\?\.tick\(\);/);
     // B199's merge of main (cd95369d4) folded `matchAbort.reset();` into this line's comment: the reset on a line of its own.

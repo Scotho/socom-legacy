@@ -111,7 +111,9 @@ PORT `room.ts:2131–2156` saves `victim.diedAt` but transmits the selected deat
 
 M1 G31 left `mp_game_sort_order` meaning unread. Its downstream consumer is now traced:
 
-1. `FUN_002f7c40` D196734–196735 writes the valve to 'D' byte 6. `FUN_002e1d50`/`FUN_002e1e10` store normalized 'D' data at list-entry +0x19a (prior PORT-154), so byte 6 is +0x1a0.
+1. `FUN_002f7c40` D196734–196735 writes the valve to 'D' byte 6. `FUN_002e1d50` normalizes the 'D' data (its
+   `FUN_002f7d90` call, D:L183871-183889) and `FUN_002e1e10` copies the raw rules bytes to list-entry +0x8c only
+   (D:L183950-183966); the 'D' data lands at +0x19a (prior PORT-154), so byte 6 is +0x1a0.
 2. Game-list draw `FUN_002e2ce0` calls `FUN_002e4530` at D184407; that calls the sorting routine at D185372.
 3. Small-list `FUN_002e5d90` D186117–186141 compares the **unsigned byte ascending**, then `FUN_00198b80` on the **full name at +0x4c** when equal. Larger-list `FUN_002e4a90` D185623–185646 uses the same comparator. ELF instructions at `0x2e5e2c/30` are `lbu ...0x1a0`; `0x2e5e40` calls `0x198b80`; `0x2e5e50` uses the unsigned less-than comparison. `FUN_00198b80` is the caseless byte-string comparator; this is not a locale-aware browser sort.
 4. Named creation path `FUN_002f9410` D197758–197770 sets persistent to 0 and this priority to **0x7f** before its create transition. This specific path is not proof that every built-in/persistent game uses 127.

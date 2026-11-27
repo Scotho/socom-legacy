@@ -1,3 +1,4 @@
+import { seatKeptInThisUnload } from '../seatKeep';
 import { decodeSnapshot, encodeCommands, frameKind } from './codec';
 import { shortTurn, wrapYaw } from '../yaw';
 import type { Knock } from './blast';
@@ -16,6 +17,10 @@ import { SeatClanBoard } from './seatClans';
 import { equipmentLimit } from '../equipmentLimit';
 import { markLoad } from '../loadMarks';
 import { viewerBuiltAt, viewerRev } from '../revision';
+import { StallMeter } from './stallMeter';
+import { doorRoutes, type DoorRoutes } from './doorRoute';
+import { checkDoorRoute } from '../doorPing';
+import type { PageShot, PageShotReport } from './shotLedger';   // SHOT-LEDGER, an adaptation (B-16; it never changes the game)
 
 /** NCW-8 (`NetClient.beginFrame`): a command frame held for its frame's end, and its newest command's number. */
 type HeldOut = { frame: Uint8Array; cmd: number };
@@ -38,7 +43,11 @@ export interface NetWalk {
    * draw) keys it by the number the room acks (NET-WIRE's landing review, F1).
    */
   setNetTap(tap: ((cmd: Omit<Command, 'seq'>, feet: [number, number, number], facing?: readonly [number, number]) => void) | null, sent?: number): void;
-  respawn(at: readonly [number, number, number], yaw: number, replay?: readonly Command[]): boolean;
+  /**
+   * `told` (L208): a spawn the room told -- with `seed`, the page seeds there and runs the room's first frame; without, it
+   * adopts the body at `at`. Absent, a page-initiated spawn seeds at `at` and runs its frame.
+   */
+  respawn(at: readonly [number, number, number], yaw: number, replay?: readonly Command[], told?: { seed?: readonly [number, number, number] }): boolean;
   /**
    * LATER 498: whether the walk has ground to stand a mover on (`WalkMode.grounded`). A walk without (a map with no
    * ground, a test's) refuses every respawn; its spawn is not held (`NetClient.spawned`), as before LATER 496. Absent: true.
@@ -140,6 +149,13 @@ export interface NetOptions {
   random?: () => number;
   /** A socket for the tests (a `WebSocket`-alike); the page's own by default. */
   socket?: (url: string) => WebSocketLike;
+  /**
+   * The door relay (`./doorRoute`; product track, an adaptation): whether a door is dialled direct or through the
+   * page's own hostname, and told when a socket closed before it opened. The page's `doorRoutes` by default; the tests' own.
+   */
+  routes?: DoorRoutes;
+  /** The check run when the socket closed before it opened (`../doorPing` `checkDoorRoute` by default; the tests' own). */
+  routeCheck?: (dialled: string, routes: DoorRoutes) => Promise<void> | void;
   /**
    * Protocol 10 (MAP-03): the page's world (`../worldState`, on the walk's own hull), which the welcome's and every
    * snapshot's environment are laid on (`applySnapshotWorld`) -- before the snapshot corrects the prediction. Null or
@@ -246,6 +262,22 @@ const deadSocket = (): WebSocketLike => ({
  */
 export const COMBAT_REPORT_RING = 1024;
 
+/**
+ * LATER 876, the review's F5: the longest `why` of a `roundRefused` this page keeps (cut there), and the most distinct
+ * reasons it counts (the rest under `other`) -- so a hostile community host cannot grow the report. Page policies of a
+ * playtest instrument with no original, not game values; the room's own reasons are short and under twenty-five kinds.
+ */
+export const REFUSED_WHY_MAX_CHARS = 40;
+export const REFUSED_REASONS_MAX = 32;
+
+/** SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game) -- what the net client keeps of the page's own rounds. */
+export type { PageShot, PageShotReport } from './shotLedger';
+
+/** [adaptation] LATER 876: a round the room told this page it refused (`roundRefused`): its seq, the request and the reason. */
+export interface RefusedRound { seq: number; request: 'fire'; why: string }
+/** [adaptation] LATER 876: the refused rounds kept (`NetClient.combatReport`'s `refused`). */
+export interface RefusedReport { events: RefusedRound[]; dropped: number; byReason: Record<string, number> }
+
 /** Commands kept for replay and reconciliation: 10 s. */
 const HISTORY = 10 * TICK_HZ;
 /** NET-RES-2a: the welcome's phases of a launched game (its load's hold, a round in any phase) -- not the lobby's 'waiting'. */
@@ -286,6 +318,26 @@ export class NetClient {
    */
   refusal: { reason: string; map: string } | null = null;
   queue = 0;
+  /**
+   * SEAT_CLAIM_ADAPTATION (no original; `../seatClaim`): the room's last `seats` -- the seats a watcher's claim could take
+   * and whether claims are taken -- or null before one (an older room sends none) and once this seat plays.
+   */
+  seats: { open: number; claim: boolean } | null = null;
+  /** SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION: the room holds a seat for this page (`seatComing`) until its `promoted`. */
+  seatComing = false;
+  /**
+   * SEAT_CLAIM_ADAPTATION: the last `promoted` seated a watcher's claim -- from the spectator view or the game lobby --
+   * not a queued joiner's turn; whatever the hello's watch said (a game lobby's watcher says none: its watch is the
+   * services' join type). The room's word (`promoted.claim`), not this client's memory of its own press: a claim made
+   * on an older connection of the page (a reconnect while it waited), or withdrawn as its seat was given, is still one
+   * (a fresh review's finding, 2026-11-25).
+   */
+  seatedByClaim = false;
+  /**
+   * The hello's watch (`NetClientOptions.watch`) while it holds: a watcher drives no walk. SEAT_CLAIM_ADAPTATION: false
+   * from a promotion on (`enterPlay`), the walk tapped as a playing hello's is at its open.
+   */
+  private watching = false;
   /** Round trip, ms (the last pong). */
   rtt = 0;
   /**
@@ -333,24 +385,59 @@ export class NetClient {
   voiceMembers: { channel: number; members: number } | null = null;
   private readonly random: () => number;
   private lastPing = 0;
+  /**
+   * Lag read v4 s6 (an operator's instrument, the product track, no original): the page's main-thread stalls between
+   * two app pings, fed by this client's own `requestAnimationFrame` loop (absent outside a browser: no loop, no fields).
+   */
+  private readonly stalls = new StallMeter();
+  private stallFrame: number | null = null;
+  /** The lag batch review's N1: the `visibilitychange` listener the meter's loop added, removed by `release`. */
+  private stallVisibility: (() => void) | null = null;
   private alive = false;
   /** The combat reports kept (`COMBAT_REPORT_RING`, oldest first) and how many were let go: empty unless a room sends them. */
   private readonly combats: CombatReport[] = [];
   private combatsDropped = 0;
+  /**
+   * [adaptation] LATER 876 (the owner's B2, 2026-11-22: a refused round is told and COUNTED): the rounds the room told
+   * this page it refused (`roundRefused`), oldest first, bounded as the combat report (`COMBAT_REPORT_RING`), how many were
+   * let go, and every one counted by its reason -- for the playtest report. Nothing in the match reads them.
+   */
+  private readonly refusals: RefusedRound[] = [];
+  private refusalsDropped = 0;
+  private readonly refusedBy: Record<string, number> = Object.create(null) as Record<string, number>;
+  private refusedReasons = 0;
+  /**
+   * SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game). The page's own expectation of each
+   * round it sent (`notePageShot`), oldest first, bounded as the combat report (`COMBAT_REPORT_RING`), how many were let
+   * go, and whether the room has sent a combat row naming a seq (`ledgerSeen`: a room speaking the ledger) -- the
+   * playtest report is handed them only then. Nothing in the match reads them.
+   */
+  private readonly pageShots: PageShot[] = [];
+  private pageShotsDropped = 0;
+  private ledgerSeen = false;
   /**
    * NU-3c (research 321 section 4.2.1): each other seat's six part bytes as the room last sent them (`health`), by seat
    * id -- its side's and, to a spectator, every seat's; a seat's `left` forgets them. Read through `healthOf`.
    */
   private readonly partHealth = new Map<number, readonly number[]>();
 
-  /** LATER 62: the socket's URL (the server or the door it named), for the close report's route (`./closeReport`). */
-  get url(): string { return this.opts.url; }
+  /**
+   * LATER 62: the socket's URL (the server or the door it named), for the close report's route (`./closeReport`) -- the
+   * one dialled, so a door reached through the relay (`./doorRoute`) is reported as such.
+   */
+  get url(): string { return this.dialled; }
+  /** The URL this socket dialled: `opts.url`, or its door's relay on the page's hostname (`./doorRoute`). */
+  private readonly dialled: string;
+  /** The socket opened once (a close after it is a drop, never a failed route). */
+  private opened = false;
 
   constructor(private readonly opts: NetOptions, private walk: NetWalk) {
     this.random = opts.random ?? Math.random;
     const factory = opts.socket ?? ((url: string) => new WebSocket(url) as unknown as WebSocketLike);
+    const routes = opts.routes ?? doorRoutes;
+    this.dialled = routes.dial(opts.url);
     try {
-      this.socket = factory(opts.url);
+      this.socket = factory(this.dialled);
     } catch {
       // The WebSocket constructor throws for a bad scheme or a fragment (SyntaxError) and for ws:// from an https page
       // (SecurityError): the connection failed, as a refused one does -- never the page's show() half-way.
@@ -360,6 +447,7 @@ export class NetClient {
     }
     this.socket.binaryType = 'arraybuffer';
     this.socket.onopen = () => {
+      this.opened = true;
       this.state = 'open';
       const types = opts.watch ? undefined : opts.types?.();
       // NCW-10 (an instrument, the product track): the page's build and its build time, last, each only when Vite wrote one
@@ -367,7 +455,7 @@ export class NetClient {
       const build = viewerRev();
       const builtAt = viewerBuiltAt();
       this.out(JSON.stringify({
-        type: 'hello', version: PROTOCOL_VERSION, name: opts.name, map: opts.map, cranes: true, ...(opts.watch ? { watch: true } : {}), ...(opts.rules ? { rules: opts.rules } : {}),
+        type: 'hello', version: PROTOCOL_VERSION, name: opts.name, map: opts.map, cranes: true, variants: true, ...(opts.watch ? { watch: true } : {}), ...(opts.rules ? { rules: opts.rules } : {}),
         ...(types ? { types: { seal: types.seal, terrorist: types.terrorist } } : {}), ...(opts.session ? { session: opts.session } : {}),
         ...(opts.armory && !opts.watch ? { armory: true, ...(opts.armoryOpen?.() ? { armoryOpen: true } : {}) } : {}),
         ...(opts.room ? { token: opts.room.token } : opts.forge
@@ -379,6 +467,9 @@ export class NetClient {
     };
     this.socket.onclose = (ev) => {
       this.closeCode = typeof ev?.code === 'number' ? ev.code : null;
+      // The door relay: closed before it ever opened, and not by the page -- one ping of the door decides whether the
+      // host's next attempt takes the other route (a door that answers refused the socket itself: no flip).
+      if (!this.opened && !this.left) void (opts.routeCheck ?? checkDoorRoute)(this.dialled, routes);
       if (this.state !== 'refused') this.state = 'closed';
       this.release();
     };
@@ -386,10 +477,61 @@ export class NetClient {
     // A socket the page closed (`close`) is heard no more: a frame still on its way would stand or knock the walk the
     // page's next client holds (a map change, 2026-10-01).
     this.socket.onmessage = (ev) => { this.lastHeard = performance.now(); this.delayed(() => { if (!this.left) this.receive(ev.data); }, false); };   // NET-RES-2d: heard
-    if (!opts.watch) {
+    this.watching = opts.watch === true;
+    if (!this.watching) {
       walk.setNetTap((cmd, feet, facing) => this.tick(cmd, feet, facing), this.seq);
       walk.setLocked(true);                                    // until the server stands the mover somewhere
     }
+    this.meterFrames();
+  }
+
+  /** SEAT_CLAIM_ADAPTATION (`../seatClaim`): a watcher's claim of a seat (`on`), or its withdraw from the queue. */
+  seatClaim(on: boolean): void {
+    this.send({ type: 'seatClaim', on });
+  }
+
+  /**
+   * SEAT_CLAIM_ADAPTATION (`../seatClaim`; a service adaptation with no original): a watcher's claim seated it
+   * (`promoted`) -- the walk is tapped and locked as a playing hello's is at its open, until the room's spawn stands it.
+   * Nothing for a client that never watched, nor one released.
+   */
+  private enterPlay(): void {
+    if (!this.watching || this.released) return;
+    this.watching = false;
+    this.walk.setNetTap((cmd, feet, facing) => this.tick(cmd, feet, facing), this.seq);
+    this.walk.setLocked(true);
+  }
+
+  /**
+   * Lag read v4 s6 (an operator's instrument, product track, no original): one `StallMeter` frame a page frame,
+   * `performance.now()`, until `release`. The lag batch review's N1: a browser pauses a hidden tab's frames, so while
+   * the page is not visible (a `document` to ask; none in a worker or node) no frame is counted and the baseline is
+   * dropped, and a `visibilitychange` drops it too -- the first visible frame starts fresh, a hidden spell is no stall.
+   */
+  private meterFrames(): void {
+    if (typeof globalThis.requestAnimationFrame !== 'function') return;
+    const doc = typeof document !== 'undefined' ? document : null;
+    const frame = (): void => {
+      if (this.released) { this.stallFrame = null; return; }
+      if (doc && doc.visibilityState !== 'visible') this.stalls.reset();
+      else this.stalls.frame(performance.now());
+      this.stallFrame = globalThis.requestAnimationFrame(frame);
+    };
+    if (doc && typeof doc.addEventListener === 'function') {
+      this.stallVisibility = () => { this.stalls.reset(); };
+      doc.addEventListener('visibilitychange', this.stallVisibility);
+    }
+    this.stallFrame = globalThis.requestAnimationFrame(frame);
+  }
+
+  /**
+   * The 2 s app ping; lag read v4 s6 (an operator's instrument, product track, no original): with the page's stalls
+   * since the last one when measured, and byte for byte the ping as before when not.
+   */
+  private sendPing(now: number): void {
+    this.lastPing = now;
+    const stalls = this.stalls.take();
+    this.send({ type: 'ping', t: now, ...(stalls ?? {}) });
   }
 
   /**
@@ -399,24 +541,24 @@ export class NetClient {
    * during the load) stood on it; the snapshots correct the rest. A watcher drives no walk.
    */
   rebind(walk: NetWalk): void {
-    if (walk === this.walk || this.opts.watch || this.released) return;
+    if (walk === this.walk || this.watching || this.released) return;
     this.walk.setNetTap(null);
     this.walk = walk;
     walk.setNetTap((cmd, feet, facing) => this.tick(cmd, feet, facing), this.seq);
     // LATER 498: a spawn the old walk refused (the game lobby's idle walk refuses every one) is stood on the new walk
     // at the spawn's own point (`retrySpawn`), once -- not respawned again below.
-    const stood = this.pendingSpawn !== null && this.lastSpawn !== null && (this.retrySpawn(this.lastSpawn.at), this.pendingSpawn === null);
+    const stood = this.pendingSpawn !== null && this.lastSpawn !== null && (this.retrySpawn(this.lastSpawn.at, this.lastSpawn.seed), this.pendingSpawn === null);
     walk.setLocked(!this.alive);
     if (!this.alive && this.markedDead) this.placeLoadDeath();
     walk.setDead?.(this.markedDead);
     // LATER 498's review F1: the new walk refuses the point (no floor there on the match's map) and has ground: held as
     // `spawned` holds one -- the lobby's idle walk (no ground) held nothing, so the hold is taken here.
-    if (this.alive && this.lastSpawn && !stood && !walk.respawn(this.lastSpawn.at, this.lastSpawn.yaw, []) && walk.grounded?.() !== false) {
+    if (this.alive && this.lastSpawn && !stood && !walk.respawn(this.lastSpawn.at, this.lastSpawn.yaw, [], this.lastSpawn.seed ? { seed: this.lastSpawn.seed } : {}) && walk.grounded?.() !== false) {
       this.holdSpawn(this.lastSpawn.yaw, this.lastSpawnAfter);
     }
   }
   /** The room's last spawn of this page's mover (`rebind` stands it on a new walk). */
-  private lastSpawn: { at: readonly [number, number, number]; yaw: number } | null = null;
+  private lastSpawn: { at: readonly [number, number, number]; yaw: number; seed?: readonly [number, number, number] } | null = null;
 
   /** Listens for the server's events (the HUD, the kill lines, the scoreboard); returns the unsubscribe. */
   on(listener: (ev: ServerEvent) => void): () => void {
@@ -528,8 +670,9 @@ export class NetClient {
   private loadedOwed = false;
 
   close(): void {
-    // OT.R59 (RECONNECT-GHOST step 2): the page's own leave said first, so the room never parks the seat (`bye`).
-    this.sayBye();
+    // OT.R59 (RECONNECT-GHOST step 2): the page's own leave said first, so the room never parks the seat (`bye`) -- unless
+    // LATER 896 part 2's "Reload and rejoin" keeps it (`../seatKeep`): that unload's close says nothing, and the room parks it.
+    if (!seatKeptInThisUnload()) this.sayBye();
     this.left = true;
     this.told.close();
     this.clans.close();
@@ -575,7 +718,11 @@ export class NetClient {
   private release(): void {
     if (this.released) return;
     this.released = true;
-    if (!this.opts.watch) { this.walk.setNetTap(null); this.walk.setLocked(false); }
+    if (this.stallFrame !== null && typeof globalThis.cancelAnimationFrame === 'function') globalThis.cancelAnimationFrame(this.stallFrame);
+    this.stallFrame = null;
+    if (this.stallVisibility && typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.stallVisibility);
+    this.stallVisibility = null;
+    if (!this.watching) { this.walk.setNetTap(null); this.walk.setLocked(false); }
     // Dead at the close (the server's, a kick, Online off): the walk back alive, as unlocked -- a dead walk keeps the
     // death camera and hides the reticle (`../reticle` `reticleShown`) until a `spawn` no closed match will send.
     if (this.markedDead) { this.markedDead = false; this.walk.setDead?.(false); }
@@ -643,7 +790,7 @@ export class NetClient {
     if (this.frameOut?.sent) this.frameOut.held.push({ frame, cmd: cmd.seq });
     else { this.out(frame, false); if (this.frameOut) this.frameOut.sent = true; }
     const now = performance.now();
-    if (now - this.lastPing > 2000) { this.lastPing = now; this.send({ type: 'ping', t: now }); }
+    if (now - this.lastPing > 2000) this.sendPing(now);
   }
 
   /** LATER 249 (the review's F1): the injector's outbound reliable messages, in send order -- drained by one timer, so a
@@ -726,7 +873,7 @@ export class NetClient {
     // -- the room closes a watcher that sends nothing for its idle time (`Room.idle`). A transport keep-alive, no original.
     if (this.role !== 'player' && this.state === 'open') {
       const now = performance.now();
-      if (now - this.lastPing > 2000) { this.lastPing = now; this.send({ type: 'ping', t: now }); }
+      if (now - this.lastPing > 2000) this.sendPing(now);
     }
     // Protocol 10 (MAP-03): the room's world first, then the correction against it. Protocol 11 (NET-WIRE): only a
     // snapshot whose environment changed for this connection names it; one without keeps the page's last.
@@ -863,8 +1010,14 @@ export class NetClient {
         break;
       case 'refused': this.state = 'refused'; this.refusal = { reason: ev.reason, map: this.opts.map }; break;
       case 'queue': this.queue = ev.position; break;
+      case 'seats': this.seats = { open: ev.open, claim: ev.claim }; break;   // SEAT_CLAIM_ADAPTATION
+      case 'seatComing': this.seatComing = true; break;                       // SEAT_CLAIM_TAKE_DELAY_MS_ADAPTATION
       case 'renamed': if (ev.id === this.id) this.seatName = ev.name; break;   // OBF-3: the seat's own name, kept
-      case 'promoted': this.role = 'player'; this.team = ev.team; this.queue = 0; break;
+      case 'promoted':
+        this.role = 'player'; this.team = ev.team; this.queue = 0; this.seats = null; this.seatComing = false;
+        this.seatedByClaim = ev.claim === true;                             // SEAT_CLAIM_ADAPTATION: the room's word
+        this.enterPlay();
+        break;
       // MENU-SIDE (the owner's playtest of main 50a98582c): a game seat's side is its own seat in the bridge's view, as
       // the lobby's `player_team` is (`@s2u/ui` `GameLobbyCommands.gameLobby`) -- SWITCH TEAMS re-seats the switcher
       // (`Room.switchTeam`, `FUN_002c4290` D:L165538-165568) and tells it so only here (`left` and `joined` go to the
@@ -880,7 +1033,7 @@ export class NetClient {
       case 'demoted': this.role = 'spectator'; this.team = null; this.queue = ev.position; this.alive = false; this.walk.setLocked(true); break;
       case 'pong': this.rtt = performance.now() - ev.t; break;
       case 'spawn':
-        if (ev.id === this.id) this.spawned(ev.at, ev.yaw, ev.after);
+        if (ev.id === this.id) this.spawned(ev.at, ev.yaw, ev.after, ev.seed);
         else this.markSpawn(ev.id);                     // NU-12 B2: another seat's, counted on the bodies drawn
         break;
       case 'kill':
@@ -905,9 +1058,24 @@ export class NetClient {
         break;
       // INT.R5: a playtest instrument's report, kept for the playtest report only; nothing in the match reads it.
       case 'combat':
+        if (typeof ev.seq === 'number') this.ledgerSeen = true;    // SHOT-LEDGER: the room speaks the ledger
         this.combats.push(ev);
         if (this.combats.length > COMBAT_REPORT_RING) { this.combats.shift(); this.combatsDropped++; }
         break;
+      // LATER 876 (B2/S6; an adaptation): a round of this page's the room refused -- counted only; nothing given back (the
+      // round stays spent) and nothing drawn (`../netPage` `case 'roundRefused'`). The review's F5: a malformed one (seq not
+      // an integer, why not a string) is not kept; why cut to REFUSED_WHY_MAX_CHARS, the reasons bounded (REFUSED_REASONS_MAX).
+      case 'roundRefused': {
+        if (!Number.isInteger(ev.seq) || typeof ev.why !== 'string') break;
+        const why = ev.why.slice(0, REFUSED_WHY_MAX_CHARS);
+        this.refusals.push({ seq: ev.seq, request: 'fire', why });
+        if (this.refusals.length > COMBAT_REPORT_RING) { this.refusals.shift(); this.refusalsDropped++; }
+        let key = why;
+        if (!(key in this.refusedBy) && this.refusedReasons >= REFUSED_REASONS_MAX) key = 'other';
+        if (!(key in this.refusedBy) && key !== 'other') this.refusedReasons++;
+        this.refusedBy[key] = (this.refusedBy[key] ?? 0) + 1;
+        break;
+      }
       // NU-3c: another seat's part bytes, kept for the reticle's bar (`healthOf`); a malformed one is not kept.
       case 'health': { const parts = partHealthWire(ev.parts); if (parts) this.partHealth.set(ev.id, parts); break; }
       case 'left': this.partHealth.delete(ev.id); break;
@@ -937,10 +1105,29 @@ export class NetClient {
 
   /**
    * The combat reports this client kept (INT.R5, research 127 §5): the last `COMBAT_REPORT_RING`, oldest first, and how
-   * many older ones were let go -- a copy, for the playtest report. Empty while the room's option is off.
+   * many older ones were let go -- a copy, for the playtest report. Empty while the room's option is off. With any
+   * refused round told (LATER 876, an adaptation), `refused`: their rows (`COMBAT_REPORT_RING`, oldest first), how many
+   * were let go and the count by reason, whatever the room's option; with none, no `refused` key (the report as before).
    */
-  combatReport(): { events: CombatReport[]; dropped: number } {
-    return { events: [...this.combats], dropped: this.combatsDropped };
+  combatReport(): { events: CombatReport[]; dropped: number; refused?: RefusedReport; pageShots?: PageShotReport } {
+    const kept: { events: CombatReport[]; dropped: number; refused?: RefusedReport; pageShots?: PageShotReport } = { events: [...this.combats], dropped: this.combatsDropped };
+    if (this.refusals.length || this.refusalsDropped) kept.refused = { events: this.refusals.map((r) => ({ ...r })), dropped: this.refusalsDropped, byReason: { ...this.refusedBy } };
+    // SHOT-LEDGER, an adaptation (B-16; it never changes the game): the page's own rounds, once the room speaks the ledger.
+    if (this.ledgerSeen && (this.pageShots.length || this.pageShotsDropped)) kept.pageShots = { events: this.pageShots.map((s) => ({ ...s })), dropped: this.pageShotsDropped };
+    return kept;
+  }
+
+  /**
+   * SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game). The page's own expectation of a
+   * round it sent (`PageShot`), kept for the playtest report: once a seq -- only the first round of a seq is kept (right
+   * for a pull's rays, which share it; were two separate rounds ever to share one command seq, the second's expectation
+   * would be lost and its room rows merged with the first's) -- the oldest let go past `COMBAT_REPORT_RING`. Nothing in
+   * the match reads it.
+   */
+  notePageShot(shot: PageShot): void {
+    if (this.pageShots.at(-1)?.seq === shot.seq) return;
+    this.pageShots.push({ ...shot });
+    if (this.pageShots.length > COMBAT_REPORT_RING) { this.pageShots.shift(); this.pageShotsDropped++; }
   }
 
   /**
@@ -1003,36 +1190,39 @@ export class NetClient {
   private readonly spawnHeldListeners = new Set<() => void>();
 
   /** The server stood the mover somewhere: a new mover there, the commands after `after` replayed on it. */
-  private spawned(at: readonly [number, number, number], yaw: number, after: number): void {
+  private spawned(at: readonly [number, number, number], yaw: number, after: number, seed?: readonly [number, number, number]): void {
     this.loadDeathAt = null;
     this.clearDeathTick();
     this.loadDeathPose = null;
     this.pendingSpawn = null;
     const replay = this.history.filter((h) => h.cmd.seq > after).map((h) => h.cmd);
     this.alive = true;
-    this.lastSpawn = { at, yaw };
+    this.lastSpawn = { at, yaw, ...(seed ? { seed } : {}) };   // L208 (the option (ii) review's F1): the seed kept for the hand-off
     this.walk.setLocked(false);
     this.markedDead = false;
     this.walk.setDead?.(false, { keepDeath: true });               // LATER 496: kept only for a refused respawn
     // LATER 498: held only where the walk has ground (a ground-less walk's false is no refused point).
     this.lastSpawnAfter = after;
-    if (!this.walk.respawn(at, yaw, replay) && this.walk.grounded?.() !== false) { this.holdSpawn(yaw, after); return; }
+    if (!this.walk.respawn(at, yaw, replay, seed ? { seed } : {}) && this.walk.grounded?.() !== false) { this.holdSpawn(yaw, after); return; }
     this.spawnedAfter(after);
   }
 
   /**
    * LATER 496: a refused spawn retried at the room's feet (`server`, the own body's snapshot), with the commands after the
    * spawn's `after` replayed as `spawned` does; once it holds the walk is unlocked and alive, as at a first-call spawn.
-   * Never at all where the page's grid has no floor at the room's feet: the player stays locked (LATER 496's residue).
+   * L208 (the option (ii) review's F6): with no seed it no longer refuses -- the page ADOPTS the room's body, which stands
+   * wherever the room's does, so LATER 496's residue (locked where the page's grid had no floor at the room's feet) is gone
+   * on that path. Given the spawn's `seed` it re-runs the room's first frame, and refuses only where `Walker.seed` does (a
+   * column with no face at all).
    */
-  private retrySpawn(server: readonly [number, number, number]): void {
+  private retrySpawn(server: readonly [number, number, number], seed?: readonly [number, number, number]): void {
     const p = this.pendingSpawn;
     if (!p) return;
     const replay = this.history.filter((h) => h.cmd.seq > p.after).map((h) => h.cmd);
-    if (!this.walk.respawn(server, p.yaw, replay)) return;
+    if (!this.walk.respawn(server, p.yaw, replay, seed ? { seed } : {})) return;   // L208: re-run from the seed, else adopted
     this.pendingSpawn = null;
     this.alive = true;
-    this.lastSpawn = { at: server, yaw: p.yaw };
+    this.lastSpawn = { at: server, yaw: p.yaw, ...(seed ? { seed } : {}) };   // L208 (glance N1): the seed kept for a later rebind
     this.markedDead = false;
     this.walk.setDead?.(false);
     this.walk.setLocked(false);
@@ -1075,10 +1265,10 @@ export class NetClient {
     this.lastSpawnAfter = this.seq;                              // LATER 498: the resume's commands start here
     this.correction = [0, 0, 0]; this.correctionTicks = 0;
     this.shadow = new LookGate(); this.shadowLog.clear(); this.shadowRef = null;
-    if (this.opts.watch || this.released) return;
+    if (this.watching || this.released) return;
     // The review's F3: a walk that could not stand it at once is respawned there, then given the posture and the firearm.
     if (!this.walk.resume?.(ev.at, ev.yaw, ev.posture, ev.weapon, ev.held)) {
-      this.walk.respawn(ev.at, ev.yaw, []);
+      this.walk.respawn(ev.at, ev.yaw, [], {});                  // L208 (option (ii) review F5): the room's body, adopted
       this.walk.resume?.(ev.at, ev.yaw, ev.posture, ev.weapon, ev.held);
     }
     this.walk.setNetTap((cmd, feet, facing) => this.tick(cmd, feet, facing), this.seq);

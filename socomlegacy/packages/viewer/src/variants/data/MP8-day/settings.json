@@ -1,0 +1,106 @@
+{
+ "mapName": {
+  "value": "SOCOM (USA): RAT'S NEST",
+  "source": "s1-MP8.json mapName"
+ },
+ "nightMission": {
+  "value": false,
+  "source": "s1-MP8.json settings.worldRoot.nightMission"
+ },
+ "shadowVector": {
+  "value": [
+   0.12960144877433777,
+   -0.9670108556747437,
+   0.2193024605512619
+  ],
+  "source": "s1-MP8.json settings.worldRoot.shadowVector"
+ },
+ "globalLighting": {
+  "value": {
+   "directions": [
+    [
+     -0.12959885610566602,
+     0.9670069133953642,
+     -0.21932114795813368
+    ],
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     0.359622605682535,
+     -0.7392242251667138,
+     -0.5694024292262683
+    ]
+   ],
+   "colours": [
+    [
+     0.9399999976158142,
+     0.9399999976158142,
+     0.9399999976158142
+    ],
+    [
+     0,
+     0,
+     0
+    ],
+    [
+     0.019999999552965164,
+     0.019999999552965164,
+     0.07999999821186066
+    ]
+   ],
+   "ambient": [
+    0.3100000023841858,
+    0.3100000023841858,
+    0.3100000023841858
+   ]
+  },
+  "source": "s1-MP8.json settings.globalLighting"
+ },
+ "fogColor": {
+  "value": [
+   17,
+   18,
+   23
+  ],
+  "source": "s1-MP8.json settings.camera.fogColor"
+ },
+ "fogNear": {
+  "value": 500,
+  "source": "s1-MP8.json settings.camera.fogNear"
+ },
+ "fogFar": {
+  "value": 599,
+  "source": "s1-MP8.json settings.camera.fogFar"
+ },
+ "fogTop": {
+  "value": 800,
+  "source": "s1-MP8.json settings.camera.fogTop"
+ },
+ "fogBottom": {
+  "value": 500,
+  "source": "s1-MP8.json settings.camera.fogBottom"
+ },
+ "fogEnabled": {
+  "value": true,
+  "source": "s1-MP8.json settings.camera.fogEnabled"
+ },
+ "fogDirectional": {
+  "value": true,
+  "source": "s1-MP8.json settings.camera.fogDirectional"
+ },
+ "fogAltitude": {
+  "value": false,
+  "source": "s1-MP8.json settings.camera.fogAltitude"
+ },
+ "nearPlane": {
+  "value": 4,
+  "source": "s1-MP8.json settings.camera.nearPlane"
+ },
+ "farPlane": {
+  "value": 600,
+  "source": "s1-MP8.json settings.camera.farPlane"
+ }
+}

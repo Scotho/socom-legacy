@@ -4,7 +4,9 @@ import { bytesSource, openZip, ZIP_LIMITS, type ZipArchive } from '../zipReader'
 export const LOCAL_FILE_LIMITS = { files: 8192, bytes: 512 * 1024 * 1024, depth: 16, path: 240 } as const;
 export type LocalPackErrorCode = 'REVISION_CONFLICT' | 'PERMISSION_REQUIRED' | 'INVALID_PATH' | 'NOT_FOUND' | 'LIMIT_EXCEEDED' |
   'DUPLICATE_PATH' | 'UNSUPPORTED_FORMAT' | 'INVALID_PACKAGE' | 'UNSUPPORTED_SURFACE' | 'STORAGE_FAILED' |
-  'APPLY_FAILED' | 'ABORTED' | 'DISPOSED' | 'BUSY';
+  'APPLY_FAILED' | 'ABORTED' | 'DISPOSED' | 'BUSY' |
+  /** LATER 1135: a file's request failed every time it was tried -- a failed download, not a bad file; the next install resumes. */
+  'DOWNLOAD_FAILED';
 
 export class LocalFileError extends Error {
   constructor(readonly code: LocalPackErrorCode, message: string) { super(message); this.name = 'LocalFileError'; }

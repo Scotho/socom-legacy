@@ -46,7 +46,7 @@ export function floorAiMaps(size: number, cell = FLOOR_AI_CELL): AiMaps {
 export const FLOOR_AI_HEADROOM_ADAPTATION = 18;
 
 /**
- * The blank floor's AI map standing on what is built on it (the owner, 2026-11-17: "placed hostages don't seem to spawn
+ * The blank floor's AI map standing on what is built on it (the Forge's owner (crispy, OT.R112), 2026-11-17: "placed hostages don't seem to spawn
  * in correctly when placed on moved/custom geometry in our custom maps"): each of its cells over or near anything off
  * the flat floor takes as its height the lowest open floor under its centre (`openFloorAt`: a room's floor, not its
  * roof; a solid box's top, not the floor under it) on `ground`, the layout's hull; the rest of the floor stays at 0. Its soil kept (a painted one too). A cell's height is the disc's encoding (bits 9-18,

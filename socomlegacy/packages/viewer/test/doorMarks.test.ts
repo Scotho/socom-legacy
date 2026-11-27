@@ -52,8 +52,8 @@ function hull(leafZ: number): Grid {
   return buildGrid(params, [], [], polys, owners);
 }
 
-function setUp(leafZ = -30) {
-  const view: WorldView = buildWorld(map());
+function setUp(leafZ = -30, loaded = map()) {
+  const view: WorldView = buildWorld(loaded);
   for (const task of [...view.revealWorld, ...view.revealProps]) task();
   view.group.updateMatrixWorld(true);
   const grid = hull(leafZ);
@@ -224,5 +224,78 @@ describe("a scorch on a door's leaf (FUN_003b3800 306396-306416: both pools on t
     expect(g.scorchMeshes()).toHaveLength(0);
     g.setMap(null, { models: [], bitmaps, defaultMaterial: '' });
     expect(g.scorchesOnNodes()).toBe(0);
+  });
+});
+
+/** A destructible baked into world geometry still owns its marks (research 92 section 6). */
+describe.each(['world', 'prop', 'instanced prop'] as const)('bullet holes on switchable %s geometry', (kind) => {
+  const path = 'worldmodel/access/barricade';
+  const panel = (left = -5, right = 5, switchPath = path): LoadedMesh => ({
+    ...wallPart(), switchPath,
+    positions: new Float32Array([left, 10, -30, right, 10, -30, right, 30, -30, left, 30, -30]),
+  });
+  const scene = (parts: LoadedMesh[]): LoadedMap => kind === 'world'
+    ? { ...map(), props: [], world: [...parts, wallPart()] }
+    : { ...map(), world: [wallPart()], props: parts.map(part => ({
+      modelName: 'barrier', parts: [part],
+      matrices: new Float32Array(kind === 'prop' ? new Matrix4().toArray()
+        : [...new Matrix4().toArray(), ...new Matrix4().makeTranslation(1000, 0, 0).toArray()]),
+      paths: kind === 'prop' ? [part.switchPath!] : [part.switchPath!, `${part.switchPath}/copy`],
+      order: 0, alternate: false, facade: 0, lod: null,
+    })) };
+
+  it("removes a breached panel's mark while leaving a separate wall's mark", () => {
+    // These cases pin the port's rule under the open reading (research 92 section 6), not a settled one: if the
+    // reading changes, this line fails first and names why.
+    expect(NODE_OFF_MARKS_READING).toBe('removed');
+    const { view, fire, shoot } = setUp(-30, scene([panel()]));
+    const onPanel = shoot([0, 0, -1]);
+    const onWall = shoot([20 / 60, 0, -1]);
+    expect(fire.state().decals).toBe(2);
+    expect(view.setNodeActive('worldmodel/access', false)).toBe(kind === 'instanced prop' ? 2 : 1);
+    expect(onPanel.visible).toBe(false);
+    expect(onWall.visible).toBe(true);
+    expect(fire.state().decals).toBe(1);
+    view.setNodeActive('worldmodel/access', true);
+    expect(onPanel.visible).toBe(false);
+  });
+
+  it('keeps all visual parts of the same node available to one mark', () => {
+    const { view, shoot } = setUp(-30, scene([panel(-5, 0), panel(0, 5)]));
+    const mark = shoot([-0.25 / 30, 0, -1]);
+    const positions = mark.geometry.getAttribute('position');
+    const index = mark.geometry.getIndex()!;
+    const x = Array.from({ length: mark.geometry.drawRange.count }, (_, i) => positions.getX(index.getX(i)));
+    expect(Math.min(...x)).toBeLessThan(0);
+    expect(Math.max(...x)).toBeGreaterThan(0);
+    view.setNodeActive(path, false);
+    expect(mark.visible).toBe(false);
+  });
+
+  it('keeps marks on sibling nodes independent even when their model name and placement match', () => {
+    const { view, fire, shoot } = setUp(-30, scene([panel(-5, 0), panel(0, 5, 'worldmodel/window/pane')]));
+    const onPanel = shoot([-2 / 30, 0, -1]);
+    const onWindow = shoot([2 / 30, 0, -1]);
+    view.setNodeActive(path, false);
+    expect(onPanel.visible).toBe(false);
+    expect(onWindow.visible).toBe(true);
+    expect(fire.state().decals).toBe(1);
+  });
+
+  it('clips a bullet hole at the boundary of two separately switchable panels', () => {
+    const { view, fire, shoot } = setUp(-30, scene([panel(-5, 0), panel(0, 5, 'worldmodel/window/pane')]));
+    const onPanel = shoot([-0.25 / 30, 0, -1]);
+    const positions = onPanel.geometry.getAttribute('position');
+    const index = onPanel.geometry.getIndex()!;
+    for (let i = 0; i < onPanel.geometry.drawRange.count; i++) {
+      expect(positions.getX(index.getX(i))).toBeLessThanOrEqual(0.00001);
+    }
+    const onWindow = shoot([2 / 30, 0, -1]);
+    view.setNodeActive(path, false);
+    expect(onPanel.visible).toBe(false);
+    expect(onWindow.visible).toBe(true);
+    view.setNodeActive('worldmodel/window', false);
+    expect(onWindow.visible).toBe(false);
+    expect(fire.state().decals).toBe(0);
   });
 });

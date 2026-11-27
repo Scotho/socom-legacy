@@ -11,7 +11,7 @@ import {
   ReplayWriter, seekIndex, type ReplayHeader, type ReplayRecord,
 } from '../src/replay/format';
 import { encodeSnapshot as encodeSnapshotPre337 } from '../../viewer/test/fixtures/codecPre337';
-import { withoutViewTails } from '../../viewer/test/fixtures/viewTail';
+import { withoutHands, withoutHandsUnchecked, withoutViewTails } from '../../viewer/test/fixtures/viewTail';
 
 const body = (id: number, x: number): BodyState => ({
   id, feet: [x, 0, 0], yaw: 0, pitch: 0, vx: 0, vy: 0, vz: 0, flags: 0, stance: 0, landing: 0, jumps: 0, ground: 1,
@@ -100,11 +100,11 @@ describe('the .s2r versions (PT-01b)', () => {
     Buffer.from(encodeRecord({ kind: 'snap', tick: 2, bodies: [body(1, 10)] })),
   ]);
   it('refuses a replay recorded under a protocol it holds no decoder for, and readReplayHeader still names it', () => {
-    expect(REPLAY_PROTOCOLS).toEqual([10, 11, 12, 13, 14, 15, 16]);
-    expect(PROTOCOL_VERSION).toBe(16);                           // WIRE-16 (PV.R4): the player's view's bytes, a command 18 and a body 55; 15 PROTO-15 (V19.R10): the mover's rules (LC-1, AIR-PROBE, STEEP-LAUNCH); 14 ER-2: the command's `raised` bit; 13 PLANT-AIM (F2): the plant's pick; 12 SEP-POP (B1): the command's `separate` bit
+    expect(REPLAY_PROTOCOLS).toEqual([10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+    expect(PROTOCOL_VERSION).toBe(19);                           // LATER 1141 (research 441): the cone at the firepoint and the round's `at`, no frame change, an 18 recording on the live decoders; 18 LATER 1147 (research 443): the fire button's two-read press, no frame change, a 17 recording on the live decoders; 17 WM-DATA-17 (WM.R11): the body's hand byte, a body 56; 16 WIRE-16 (PV.R4): the player's view's bytes, a command 18 and a body 55; 15 PROTO-15 (V19.R10): the mover's rules (LC-1, AIR-PROBE, STEEP-LAUNCH); 14 ER-2: the command's `raised` bit; 13 PLANT-AIM (F2): the plant's pick; 12 SEP-POP (B1): the command's `separate` bit
     for (const protocol of [PROTOCOL_VERSION + 1, 9]) {
       const bytes = fileOf({ protocol });
-      expect(() => decodeRecords(bytes)).toThrow(`unsupported replay protocol ${protocol} (this build decodes 10, 11, 12, 13, 14, 15, 16)`);
+      expect(() => decodeRecords(bytes)).toThrow(`unsupported replay protocol ${protocol} (this build decodes 10, 11, 12, 13, 14, 15, 16, 17, 18, 19)`);
       expect(readReplayHeader(bytes)?.protocol).toBe(protocol);
       expect(readReplayHeader(bytes)?.map).toBe('MP2');
     }
@@ -169,18 +169,44 @@ describe('the .s2r versions (PT-01b)', () => {
       const cmd = out.records[2] as Extract<ReplayRecord, { kind: 'cmd' }>;
       expect(snap.bodies.map((b) => [b.id, b.view, b.clock, b.swayX, b.swayY])).toEqual([[1, 0, 0, 0, 0], [2, 0, 0, 0, 0]]);
       expect(snap.bodies[1]!.flags).toBe(1 << 16);
-      // The same snapshot written at 16 reads to the same bodies: the zero tail is the one difference on the wire.
-      expect(snap.bodies).toEqual(decodeSnapshot(encodeSnapshot({ tick: 9, own: null, bodies: [body(1, 10), { ...body(2, -40), flags: 1 << 16 }] })).bodies);
+      // The same snapshot written live reads to the same bodies: the zero tail is the one difference on the wire (the
+      // frozen 15 decoder names no hand, WM-DATA-17's field: the live read compared without it).
+      expect(snap.bodies).toEqual(decodeSnapshot(encodeSnapshot({ tick: 9, own: null, bodies: [body(1, 10), { ...body(2, -40), flags: 1 << 16 }] })).bodies.map(({ hand: _hand, ...b }) => b));
       expect([cmd.tick, cmd.id]).toEqual([4242, 3]);
       expect(cmd.command).toEqual({ seq: 777, forward: 1, right: -63 / 127, yaw: 90, pitch: -12.5, turn: 1.25, buttons: 0x223, stance: 2, weapon: 1, separate: true, raised: true, view: 0, swayX: 0, swayY: 0 });
     }
   });
-  it('WIRE-16 (PV-1): a protocol-16 recording carries the view\'s tail and a body whose flags hold the reserved bit 17, every other field as given', () => {
-    // PV.R4: bit 17 is reserved for the fog of war's lane and defined by nothing; a 16 recording that holds it still decodes.
-    const marked = { ...body(2, -40), flags: (1 << 17) | (1 << 16) | (1 << 6), view: 5, clock: 13, swayX: -30, swayY: 2.5 };
+  it('WM-DATA-17: a protocol-16 recording (55-byte bodies) decodes through the table\'s frozen 16 decoder, the view\'s tail kept, hand 0; its cmd on the live decoder', () => {
+    const viewed = { ...body(2, -40), flags: (1 << 16) | (1 << 6), view: 5, clock: 13, swayX: -30, swayY: 2.5 };
+    const live = encodeSnapshot({ tick: 9, own: null, bodies: [body(1, 10), { ...viewed, hand: 121 }] });
+    const sixteenSnap = withoutHandsUnchecked(live);                // protocol 16's frame: the hand byte never written
+    expect(sixteenSnap.byteLength).toBe(live.byteLength - 2);
+    const command: Command = { seq: 41, forward: 1, right: 0, yaw: 90, pitch: -12.5, turn: 0, buttons: 0x203, stance: 1, weapon: 1, view: 12, swayX: 59.5, swayY: -0.5 };
+    const out = decodeRecords(fileAt(16, sixteenSnap, encodeCommands({ viewTick: 4242, commands: [command] })));
+    expect(out.truncated).toBe(false);
+    expect(out.records.map((r) => r.kind)).toEqual(['header', 'snap', 'cmd', 'end']);
+    const snap = out.records[1] as Extract<ReplayRecord, { kind: 'snap' }>;
+    expect(snap.bodies.map((b) => [b.id, b.view, b.clock, b.swayX, b.swayY, b.hand])).toEqual([[1, 0, 0, 0, 0, 0], [2, 5, 13, -30, 2.5, 0]]);
+    expect(snap.bodies).toEqual(decodeSnapshot(encodeSnapshot({ tick: 9, own: null, bodies: [body(1, 10), viewed] })).bodies);
+    expect((out.records[2] as Extract<ReplayRecord, { kind: 'cmd' }>).command).toMatchObject({ seq: 41, view: 12, swayX: 59.5, swayY: -0.5 });
+  });
+  it('LATER 1141 (protocol 19, no frame change): a protocol-18 recording decodes on the live decoders, as a 19 one', () => {
+    const records: ReplayRecord[] = [
+      { kind: 'header', header: { ...base, protocol: 18 } },
+      { kind: 'snap', tick: 4, bodies: [body(1, 10)] },
+      { kind: 'end', tick: 4, reason: 'closed' },
+    ];
+    const out = decodeRecords(Buffer.concat(records.map((r) => Buffer.from(encodeRecord(r)))));
+    expect(out.truncated).toBe(false);
+    expect((out.records[1] as Extract<ReplayRecord, { kind: 'snap' }>).bodies).toEqual(decodeSnapshot(encodeSnapshot({ tick: 4, own: null, bodies: [body(1, 10)] })).bodies);
+  });
+
+  it('WIRE-16 (PV-1), WM-DATA-17: a protocol-17 recording carries the view\'s tail, the hand and a body whose flags hold the reserved bit 17, every other field as given', () => {
+    // PV.R4: bit 17 is reserved for the fog of war's lane and defined by nothing; a recording that holds it still decodes.
+    const marked = { ...body(2, -40), flags: (1 << 17) | (1 << 16) | (1 << 6), view: 5, clock: 13, swayX: -30, swayY: 2.5, hand: 121 };
     const command: Command = { seq: 41, forward: 1, right: 0, yaw: 90, pitch: -12.5, turn: 0, buttons: 0x203, stance: 1, weapon: 1, view: 12, swayX: 59.5, swayY: -0.5 };
     const records: ReplayRecord[] = [
-      { kind: 'header', header: { ...base, protocol: 16 } },
+      { kind: 'header', header: { ...base, protocol: 17 } },
       { kind: 'snap', tick: 9, bodies: [body(1, 10), marked] },
       { kind: 'cmd', tick: 9, id: 2, command },
       { kind: 'end', tick: 9, reason: 'closed' },
@@ -190,7 +216,7 @@ describe('the .s2r versions (PT-01b)', () => {
     const snap = out.records[1] as Extract<ReplayRecord, { kind: 'snap' }>;
     const back = snap.bodies[1]!;
     expect(back.flags).toBe((1 << 17) | (1 << 16) | (1 << 6));
-    expect([back.view, back.clock, back.swayX, back.swayY]).toEqual([5, 13, -30, 2.5]);
+    expect([back.view, back.clock, back.swayX, back.swayY, back.hand]).toEqual([5, 13, -30, 2.5, 121]);
     expect(snap.bodies).toEqual(decodeSnapshot(encodeSnapshot({ tick: 9, own: null, bodies: [body(1, 10), marked] })).bodies);
     const plain = decodeSnapshot(encodeSnapshot({ tick: 9, own: null, bodies: [{ ...marked, flags: (1 << 16) | (1 << 6) }] })).bodies[0]!;
     expect({ ...back, flags: plain.flags }).toEqual(plain);
@@ -309,10 +335,12 @@ describe('#337 takeover (the wire, additive): a replay without hooks', () => {
     expect('cranes' in snap).toBe(false);
     expect(Buffer.from(encodeRecord(snap)).toString('hex')).toBe(Buffer.from(encodeRecord(snapRec)).toString('hex'));
     const payload = Buffer.from(encodeSnapshotPre337({ tick: 321, own: null, bodies: snapRec.bodies, doors, env }));
-    // WIRE-16 (protocol 16): the record's frame is the pre-#337 bytes with each body's three tail bytes (zero here) added.
+    // WIRE-16 (protocol 16) and WM-DATA-17 (17): the record's frame is the pre-#337 bytes with each body's three view bytes
+    // and its hand byte (zero here) added; protocol 16's frame of it is the hand bytes cut (strict: each proved 0).
     const frame = encodeRecord(snapRec).subarray(5);
-    expect(frame.byteLength - payload.byteLength).toBe(3 * snapRec.bodies.length);
+    expect(frame.byteLength - payload.byteLength).toBe(4 * snapRec.bodies.length);
     expect(Buffer.from(withoutViewTails(frame)).equals(payload)).toBe(true);
+    expect(withoutHands(frame).byteLength).toBe(frame.byteLength - snapRec.bodies.length);
   });
 });
 

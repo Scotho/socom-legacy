@@ -28,14 +28,19 @@ const unit = (a: readonly number[]): V3 => { const l = Math.hypot(a[0]!, a[1]!, 
 /**
  * A floor 800 across at y 0; `side`: a wall along z at that x (z 10..60) beside the page's camera; `back`: a wall across x
  * at that z behind it (x -40..40), which pulls the eye in -- unless its material is VOLUMETRIC (`backMaterial` 1, the
- * engine table's `PARTICLE_SYSTEM`), which the camera's cast skips.
+ * engine table's `PARTICLE_SYSTEM`), which the camera's cast skips. `backFacing` (LATER 1057): the side the back wall's
+ * normal faces -- `'target'` (-z, the body's: the default, so the one-sided pass meets it from its front and stops) or
+ * `'eye'` (+z, the camera's side: met from behind, passed).
  */
-function ground(side: number | null, back: number | null = null, backMaterial = 25): GroundData {
+function ground(side: number | null, back: number | null = null, backMaterial = 25, backFacing: 'eye' | 'target' = 'target'): GroundData {
   const quad = (points: number[], ditype: number, path: string, material = 25): WorldPoly =>
     ({ modelName: 'worldmodel', path, region: 0, ditype, material, ptcount: 4, cameratype: 0, points: Float32Array.from(points) });
-  const polys = [quad([-400, 0, -400, 400, 0, -400, 400, 0, 400, -400, 0, 400], 3, 'worldmodel/floor')];
+  const polys = [quad([-400, 0, 400, 400, 0, 400, 400, 0, -400, -400, 0, -400], 3, 'worldmodel/floor')];
   if (side !== null) polys.push(quad([side, 0, 10, side, 0, 60, side, 60, 60, side, 60, 10], 2, 'worldmodel/wall'));
-  if (back !== null) polys.push(quad([-40, 0, back, 40, 0, back, 40, 60, back, -40, 60, back], 2, 'worldmodel/back', backMaterial));
+  if (back !== null) {
+    const pts = backFacing === 'eye' ? [-40, 0, back, 40, 0, back, 40, 60, back, -40, 60, back] : [-40, 60, back, 40, 60, back, 40, 0, back, -40, 0, back];
+    polys.push(quad(pts, 2, 'worldmodel/back', backMaterial));
+  }
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 4, cellsZ: 4, originX: -400, originZ: -400 };
   const owners: CollisionOwner[] = polys.map((p, i) => ({ modelName: p.modelName, path: `${p.path}${i}`, first: i, count: 1 }));
   return packGround(params, polys, owners);
@@ -50,8 +55,8 @@ function moverOf(sim: MoverSim): AimMover {
 }
 
 /** The page's `WalkMode` at (5, 6) facing -z sends its commands; the server's own mover runs them and feeds a `ShotCone`. */
-function pageAndServer(side: number | null, back: number | null = null, hull = true, backMaterial = 25) {
-  const g = ground(side, back, backMaterial);
+function pageAndServer(side: number | null, back: number | null = null, hull = true, backMaterial = 25, backFacing: 'eye' | 'target' = 'target') {
+  const g = ground(side, back, backMaterial, backFacing);
   const c = document.createElement('canvas');
   c.setPointerCapture = () => undefined;
   c.releasePointerCapture = () => undefined;
@@ -257,6 +262,27 @@ describe('LATER 305: the room\'s cone about the view line from the claimed eye',
     expect(Math.abs(solid.page[2] - open.page[2])).toBeGreaterThan(1);              // the control: a solid wall pulls the eye in
     volumetric.page.forEach((c, i) => expect(c, `page ${i}`).toBeCloseTo(open.page[i]!, 9));   // the page's pass skips it
     volumetric.room.forEach((c, i) => expect(c, `room ${i}`).toBeCloseTo(volumetric.page[i]!, 9));
+  });
+
+  it("LATER 1057: a wall behind the camera met from behind (its normal toward the eye) pulls neither the page's eye nor the room's reproduction", () => {
+    // The pass is one-sided on the hull (`FUN_002d2890` side mode 0x20 for a collider whose +0x80 bit 1 is clear,
+    // D:L174831-174837; `FUN_00316e30` D:L215827-215828; research 382 s8): the room reproduces it with the page's own
+    // `cameraPass`, so a face the boom leaves from behind moves neither eye. The control: met from its front it pulls both.
+    const eyeOf = (back: number | null, backFacing: 'eye' | 'target') => {
+      const rig = pageAndServer(null, back, true, 25, backFacing);
+      for (let f = 0; f < 60; f++) rig.walk.frame(1 / 60);
+      const aimAt = rig.walk.fireAim()!, seq = rig.seq();
+      rig.walk.frame(1 / 60);
+      const room = reproducedEye(rig.cone.frame(seq)!, rig.grid);
+      rig.dispose();
+      return { page: aimAt.eye, room };
+    };
+    const open = eyeOf(null, 'target'), front = eyeOf(13, 'target'), behind = eyeOf(13, 'eye');
+    expect(open.page[2]).toBeGreaterThan(13);                                   // the precondition: the open eye is past z 13
+    expect(front.page[2]).toBeLessThan(13);                                     // the control: met from its front, pulled in
+    expect(front.room[2]).toBeLessThan(13);
+    behind.page.forEach((c, i) => expect(c, `page ${i}`).toBeCloseTo(open.page[i]!, 9));
+    behind.room.forEach((c, i) => expect(c, `room ${i}`).toBeCloseTo(open.room[i]!, 9));
   });
 
   it('forged eyes beside the moved target are refused, at 5, 10, 30 and 60 degrees off the look (LATER 305\'s probe, pinned)', () => {

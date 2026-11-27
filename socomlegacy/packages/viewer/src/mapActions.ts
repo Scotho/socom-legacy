@@ -68,6 +68,14 @@ export interface ActionRecord {
    * Optional as `descriptor` is; absent is false.
    */
   tcm?: boolean;
+  /**
+   * LATER 976 (reading, pending review): whether the record names the `one_shot` key (`0x3f2150`) -- the loader asks only its
+   * presence and sets the action's `+0x3f` bit 3 (D:L157326-157328); `FUN_002b44e0` then refuses a use once a run has
+   * completed (the count `+0x3e`, D:L156799-156800, counted by the program's end callback `LAB_002b46d0`) -- r0001; in
+   * r0004 the same refusal is 0x2b5ef0's on `+0x43` bit 3 and `+0x42`, counted by 0x2b6100 (research 213 s4). No multiplayer
+   * record carries it (campaign M81, M82 only). Optional as `tcm` is; absent is false.
+   */
+  oneShot?: boolean;
 }
 
 /** A record on its placed node. */
@@ -107,6 +115,7 @@ export function actionRecordsOf(script: RdrNode): ActionRecord[] {
       range: num(r, 'range', ACTION_RANGE_DEFAULT), elevation: num(r, 'elevation', ACTION_ELEVATION_NONE),
       points: num(r, 'points', 0), bitmap: one(r, 'bitmap').toLowerCase(), descriptor: one(r, 'descriptor'),
       tcm: rdrGet(r, 'tcm') !== undefined,
+      ...(rdrGet(r, 'one_shot') !== undefined ? { oneShot: true } : {}),
     };
   });
 }

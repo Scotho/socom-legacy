@@ -6,6 +6,7 @@ import {
   BULLET_MARK, DEFAULT_RIFLE, HELD_RIFLE, HELD_SIDEARM, UNITS_PER_METRE, kitWeapons, decalEntry, defaultPrimary, kitPrimaries, readBulletMark,
   M60E3_FIRE_WAIT_READING, R0004_M60E3_STAND, readDefaultRifle, readWeapon, weaponRecord,
   type DecalEntry, type WeaponRecord,
+  weaponStances,
 } from '../src/weapons';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 
@@ -523,5 +524,95 @@ describe.skipIf(!SOUND_RADIUS_ZWEAPON)('R4B-10a off the disc: full weapon record
     const record = records.find((r) => rdrGet(r, 'InternalName') === name)!;
     expect(rdrGet(record, 'Sound_Radius')).toBe(raw);
     expect(weaponRecord(script, name)).toHaveProperty('soundRadius', stored);
+  });
+});
+
+// ---- BUG-L250 SHOT-SHAKE (research 83 s5; reading, pending review) ----------------------------------------------------
+// The weapon parser `FUN_003cda30` fills the stance struct's `+0x4c..+0x68` (`puVar9[0x13..0x1a]`) from `ScreenShake` ->
+// `xaxis` / `yaxis` -> `base`, `rand`, `decr`, `dps` (D:L322327-322370), inside its stance loop -- stance n a copy of
+// n-1 first, a key present overwriting. Its three lookups (`ScreenShake`, `xaxis`, `yaxis`) go through `FUN_0032f0d0`, a
+// depth-first search, on the record's node (`param_2`, the node `Reticule_Modifiers` itself was found in, D:L322197),
+// not the stance's: so each stance takes the record's first `ScreenShake` in the file's order. The constructor's eight
+// are zeros (`STANCE_DEFAULTS`: `screenShake` null).
+describe('BUG-L250: a stance\'s ScreenShake (FUN_003cda30 D:L322327-322370)', () => {
+  const axis = (base: string, rand: string, decr: string, dps: string): RdrNode => rec(['base', base], ['rand', rand], ['decr', decr], ['dps', dps]);
+  const shake = (x: RdrNode | null, y: RdrNode | null): RdrNode => rec(...([...(x ? [['xaxis', x]] : []), ...(y ? [['yaxis', y]] : [])] as [string, RdrNode][]));
+  const gun = (modifiers: RdrNode): RdrNode => ['ZAMMO', [rec(['InternalName', 'r'], ['ID', '1']), rec(['InternalName', 's'], ['ID', '2'])], 'ZWEAPON', [rec(
+    ['InternalName', 'G'], ['FireWait', '0.1'], ['ID', '91'], ['NumMags', '1'], ['Ammo_Capacity', '1'], ['Maximum_Range', '1'],
+    ['DecalSet', 'X'], ['AMMO_TYPES', [rec(['NAME', 'r'])]], ['Reticule_Modifiers', modifiers]), m16]];
+  const MG = { x: { base: 1, rand: 1, decr: 1, dps: 1600 }, y: { base: 1, rand: 1, decr: 1, dps: 2400 } };
+
+  it('a record without the key: every stance null (the constructor\'s zeros); the baked records likewise', () => {
+    const r = weaponRecord(zweapon, 'M4A1');
+    expect([r.stances.stand.screenShake, r.stances.crouch.screenShake, r.stances.prone.screenShake]).toEqual([null, null, null]);
+    for (const b of [DEFAULT_RIFLE, HELD_RIFLE, HELD_SIDEARM]) for (const s of Object.values(b.stances)) expect(s.screenShake).toBeNull();
+  });
+
+  // The review's F1: the parser reads the shake only inside the Reticule_Modifiers block (D:L322197-322198); a record with
+  // no block reads none, whatever ScreenShake it holds elsewhere.
+  it('no Reticule_Modifiers: no shake, even with a ScreenShake elsewhere in the record (weaponStances, as arsenal.ts calls it)', () => {
+    const record: RdrNode = rec(['InternalName', 'G'], ['ScreenShake', shake(axis('1', '1', '1', '1600'), axis('1', '1', '1', '2400'))]);
+    const st = weaponStances(undefined, 'w', 'G', record);
+    expect([st.stand.screenShake, st.crouch.screenShake, st.prone.screenShake]).toEqual([null, null, null]);
+  });
+
+  it('the disc\'s layout in each stance: the eight values, base / rand / decr / dps per axis, on all three stances', () => {
+    const block = (st: RdrNode[]) => [...st, ...rec(['ScreenShake', shake(axis('1', '1', '1', '1600'), axis('1', '1', '1', '2400'))])];
+    const r = weaponRecord(gun(rec(['STANCE_STAND', block(stance)], ['STANCE_CROUCH', block(stance)], ['STANCE_PRONE', block(stance)])), 'G');
+    expect([r.stances.stand.screenShake, r.stances.crouch.screenShake, r.stances.prone.screenShake]).toEqual([MG, MG, MG]);
+  });
+
+  it('copy-forward: stance n starts as n-1, a key present overwrites; an axis absent keeps what it had (zeros under all)', () => {
+    const stand = [...stance, ...rec(['ScreenShake', shake(rec(['dps', '1600'], ['rand', '2']), null)])];
+    const r = weaponRecord(gun(rec(['STANCE_STAND', stand])), 'G');
+    const want = { x: { base: 0, rand: 2, decr: 0, dps: 1600 }, y: { base: 0, rand: 0, decr: 0, dps: 0 } };
+    expect([r.stances.stand.screenShake, r.stances.crouch.screenShake, r.stances.prone.screenShake]).toEqual([want, want, want]);
+  });
+
+  it('the lookups are on the record, depth first (FUN_0032f0d0 on param_2): the first ScreenShake reaches every stance, the stand too', () => {
+    const crouch = [...stance, ...rec(['ScreenShake', shake(axis('1', '1', '1', '1600'), axis('1', '1', '1', '2400'))])];
+    const prone = [...stance, ...rec(['ScreenShake', shake(axis('9', '9', '9', '9'), axis('9', '9', '9', '9'))])];
+    const r = weaponRecord(gun(rec(['STANCE_STAND', stance], ['STANCE_CROUCH', crouch], ['STANCE_PRONE', prone])), 'G');
+    expect([r.stances.stand.screenShake, r.stances.crouch.screenShake, r.stances.prone.screenShake]).toEqual([MG, MG, MG]);
+  });
+});
+
+const SHAKE_FIXTURE = fixture('RUN/ZWEAPON.ZAR');
+describe.skipIf(SHAKE_FIXTURE === null)(`BUG-L250: the ScreenShake nodes off zweapon.rdr${SHAKE_FIXTURE === null ? ` (${FIXTURES_ABSENT})` : ''}`, () => {
+  const script = (): RdrNode => {
+    const zar = Zar.parse(SHAKE_FIXTURE!);
+    return parseRdr(zar.data(zar.root.children.find((k) => k.name.toLowerCase() === 'zweapon.rdr')!));
+  };
+  /** Every place `key` sits under `node`, as the path of keys above it. */
+  const paths = (node: RdrNode, key: string, above: string[] = []): string[][] => {
+    if (typeof node === 'string') return [];
+    const out: string[][] = [];
+    node.forEach((v, i) => {
+      if (v === key) out.push(above);
+      else if (Array.isArray(v)) out.push(...paths(v, key, typeof node[i - 1] === 'string' ? [...above, node[i - 1] as string] : above));
+    });
+    return out;
+  };
+  const MG = { x: { base: 1, rand: 1, decr: 1, dps: 1600 }, y: { base: 1, rand: 1, decr: 1, dps: 2400 } };
+
+  it('exactly 12 nodes, each in a Reticule_Modifiers stance: the M60E3, the M63A, PKM TURRET and LMG TURRET, three stances each', () => {
+    const records = rdrGet(script(), 'ZWEAPON') as RdrNode[][];
+    const found: string[] = [];
+    for (const r of records) for (const key of ['ScreenShake', 'xaxis', 'yaxis']) for (const p of paths(r, key)) {
+      expect(p.slice(0, 2), `${String(rdrGet(r, 'InternalName'))} ${key}`).toEqual(['Reticule_Modifiers', expect.stringMatching(/^STANCE_(STAND|CROUCH|PRONE)$/)]);
+      if (key === 'ScreenShake') found.push(`${String(rdrGet(r, 'InternalName'))} ${p[1]}`);
+    }
+    expect(found).toHaveLength(12);
+    expect([...new Set(found.map((f) => f.replace(/ STANCE_\w+$/, '')))].sort()).toEqual(['LMG TURRET', 'M60E3', 'M63A', 'PKM TURRET']);
+  });
+
+  it('the M60E3, the M63A and both turrets read 1, 1, 1, 1600 / 1, 1, 1, 2400 in all three stances; the M4A1 none', () => {
+    const s = script();
+    for (const name of ['M60E3', 'M63A', 'PKM TURRET', 'LMG TURRET']) {
+      const r = weaponRecord(s, name);
+      expect([r.stances.stand.screenShake, r.stances.crouch.screenShake, r.stances.prone.screenShake], name).toEqual([MG, MG, MG]);
+    }
+    const m4 = weaponRecord(s, 'M4A1');
+    expect([m4.stances.stand.screenShake, m4.stances.crouch.screenShake, m4.stances.prone.screenShake]).toEqual([null, null, null]);
   });
 });

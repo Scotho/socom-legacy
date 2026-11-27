@@ -1,4 +1,5 @@
-import { readPreference, SETUP_KEY } from './startupSettings';
+import { PAD_BUTTON_NAMES, readPreference, savePreference, SETUP_KEY } from './startupSettings';
+import { controllerLabelFamily, isSteamFamily, steamButtonName } from './controllerLabels';
 
 /**
  * The overlay's opening button as it is kept (MU2-16, a **browser adaptation**: the original has no overlay) -- the
@@ -23,4 +24,35 @@ export function readOverlayButton(): number {
   if (raw === null || !/^\d+$/.test(raw)) return OVERLAY_HOME_BUTTON;
   const b = Number(raw);
   return b <= OVERLAY_MAX_BUTTON ? b : OVERLAY_HOME_BUTTON;
+}
+
+const subs = new Set<(button: number) => void>();
+
+/** Keeps `button` as the opening button and tells every mounted reader (the overlay follows it without a remount). */
+export function saveOverlayButton(button: number): void {
+  if (!Number.isInteger(button) || button < 0 || button > OVERLAY_MAX_BUTTON) return;
+  savePreference(OVERLAY_BUTTON_KEY, String(button));
+  for (const cb of [...subs]) { try { cb(button); } catch (e) { console.error('overlay: a binding reader failed', e); } }
+}
+
+/** Calls `cb` with each new opening button saved on this page; answers the unsubscribe. */
+export function onOverlayButtonChange(cb: (button: number) => void): () => void {
+  subs.add(cb);
+  return () => { subs.delete(cb); };
+}
+
+/**
+ * The button's name as the controller page named a binding (its view retired with CX-26; `../../padBinding` names them
+ * alike: the PS2 pad's names, an Xbox pad's own, else "Button <n>"), and 16 the centre button.
+ */
+export function overlayButtonName(button: number, padId = ''): string {
+  const family = controllerLabelFamily(padId);
+  if (isSteamFamily(family)) return steamButtonName(button) ?? `Button ${button + 1}`;
+  const xbox = family === 'xbox';
+  if (button === OVERLAY_HOME_BUTTON) return xbox ? 'Guide' : 'Home (PS / Xbox Guide)';
+  if (xbox) {
+    const names = ['A / Cross', 'B / Circle', 'X / Square', 'Y / Triangle', 'LB', 'RB', 'LT', 'RT', 'View', 'Menu', 'LS', 'RS'];
+    if (names[button]) return names[button]!;
+  }
+  return PAD_BUTTON_NAMES[button] ?? `Button ${button + 1}`;
 }

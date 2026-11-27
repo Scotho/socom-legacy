@@ -35,7 +35,7 @@ const WORLDS = new Map<string, readonly number[]>([
 function hull(): GroundData {
   const floor: WorldPoly = {
     modelName: 'worldmodel', path: FLOOR, region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
   };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: FLOOR, first: 0, count: 1, flags: 0x1001 }];
   return packGround(params, [floor], owners);

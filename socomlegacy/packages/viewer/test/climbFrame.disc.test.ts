@@ -6,6 +6,7 @@ import { parseZdb, Zar, zdbMember } from '@s2u/archive';
 import {
   applyR0004MapPatch, flattenScene, isWallSurface, modelGate, parseSceneGraph, polygonNormal, probeGround, segmentHits, surfaceWord, SURFACE_SKIP,
   worldCollision, worldDi, SEAL_TUNING, type CollisionOwner, type Grid, type SceneNode, type WorldPoly,
+  hullModels,
 } from '@s2u/scene';
 import { simMapFromBytes, stemOf } from '../src/simMap';
 import { groundPolygons, WALL_PROBE_READING } from '../src/mover';
@@ -80,7 +81,8 @@ function load(stem: string): Loaded {
   const sim = simMapFromBytes(bytes, path), polys = groundPolygons(sim.ground);
   const models = parseSceneGraph(Zar.parse(zdbMember(bytes, parseZdb(bytes), `${stemOf(path)}_GEO.ZED`)));
   applyR0004MapPatch(models, stemOf(path));                      // R4B-09: the graph the room's hull is built from (research 383)
-  const placed = placedFrames(models);
+  // LATER 1003: the room's hull joins the archive's libraries (`hullModels`); the frames index it, so they take the same models.
+  const placed = placedFrames(hullModels(bytes, parseZdb(bytes), stemOf(path), models));
   // CLT-2 (research 422; CLT.R2): the room's hull is the worldmodel's polygons, then the clutter's appended -- the frames
   // here are the worldmodel's colliders, so they index the hull's prefix; every polygon after it is a clutter owner's.
   expect(placed.length).toBeLessThanOrEqual(polys.length);

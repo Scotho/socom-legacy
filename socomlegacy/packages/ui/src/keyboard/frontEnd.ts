@@ -1,6 +1,7 @@
 import type { UiDrawItem } from '../compositor/drawList';
 import type { UiScreen } from '../compositor/scene';
 import { deliverDialogEvent } from '../movie/movieCommands';
+import { USBKBD_ENTER } from '../input/dispatch';
 import type { MenuSoftKeyboard } from '../input/menuInput';
 import type { DialogPartsHost } from '../screens/dialogParts';
 import type { FrontEndMachine } from '../screens/frontEndMachine';
@@ -98,6 +99,18 @@ export class SoftKeyboardFrontEnd implements MenuSoftKeyboard {
 
   /** The dispatch's step 2 (`FUN_0038dc00`): true when a keyboard is up and took the pad. */
   input = (pad: WidgetPad): boolean => this.keyboard.input(pad);
+
+  /**
+   * The screen showing (its built dialog's design, one object for as long as it shows) when it has an EVENT binding of
+   * `USBKBD_ENTER` (0x2c) -- what the dispatch's step 6 fires on a USB Enter (`FUN_00368650` D:L264243-264246,
+   * `USB_ENTER_KEYS`), read from the built dialog's bindings; null on a screen without one and with no screen. The
+   * page asks it for its `ENTER_OPENS_CHAT_ADAPTATION` (`packages/viewer/src/softKeyboardKeys.ts`), which keeps an
+   * Enter for the screen it was pressed on.
+   */
+  usbKbdEnterScreen = (): object | null => {
+    const design = this.o.machine().shell()?.design;
+    return design?.bindings.some((b) => b.kind === 'event' && b.code === USBKBD_ENTER) ? design : null;
+  };
 
   /** A tap (`SKB_TOUCH_READING`). */
   tap = (x: number, y: number): 'key' | 'lost' | 'none' => this.keyboard.tap(x, y);

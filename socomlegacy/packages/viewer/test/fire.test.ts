@@ -10,6 +10,8 @@ import {
 } from '@s2u/scene';
 import { parseRdr, rdrGet, Zar, type RdrNode } from '@s2u/archive';
 import { MagazineRing } from '../src/magazines';
+import { depthRatio } from '../src/accuracy';
+import { claimDepth } from '../src/net/shotCone';
 import { KitRounds, RELOAD_DELAY_DEFAULT, reloadDelayOf } from '../src/firearms';
 import { kitRecords } from '../src/loadout';
 import { TICK_HZ } from '../src/net/protocol';
@@ -61,6 +63,13 @@ const kitFrames = (s: number): number => {
   return n;
 };
 const pastKit = (s: number): number => kitFrames(s) * GAME_FRAME_DT + 1e-6;
+
+/**
+ * LATER 1147 (research 443; reading, pending review): the trigger pressed and read -- `pull`, then the kit's two steps that
+ * read it down (`FUN_002d9ff0` D:L179137-179168: 0 -> 1 -> 2; the "held" query at 2, `FUN_002c60c0` D:L166671-166686): the
+ * press's round, or its dry branch, at the second. The rounds the two steps fired. Was: `pull` fired the round at once.
+ */
+const press = (fire: Fire): number => { fire.pull(); return fire.update(2 * GAME_FRAME_DT); };
 
 /** A shooter at (0, 20, 0) looking along `dir` (the aim point 1000 out), over `grid`; `aim` null is "not walking". */
 function rig(grid: Grid | null, dir: V3 = [0, 0, -1], rifle = DEFAULT_RIFLE): { fire: Fire; source: { on: boolean } } {
@@ -249,17 +258,13 @@ describe('the rate, the magazine and the reload (W2.5)', () => {
   });
 
   it('clicks faster than the rate are held back; a release keeps the wait', () => {
+    // LATER 1147 (research 443): each press's round at the kit's second read of it (was: at `pull`, at 0, 0.05, 0.13, 0.14 s).
     const { fire } = rig(world([wallAt(-30)]));
-    expect(fire.pull()).not.toBeNull();
+    expect(press(fire)).toBe(1);             // step 2: the first round
     fire.release();
-    fire.update(0.05);
-    expect(fire.pull()).toBeNull();          // 0.05 s after a shot: FireWait is 0.12
-    fire.release();
-    fire.update(0.08);
-    expect(fire.pull()).toBeNull();          // 0.13 s after it: 3 game frames (0.100 s) run down of 0.12 (LATER 326)
-    fire.release();
-    fire.update(0.01);
-    expect(fire.pull()).not.toBeNull();      // 0.14 s: the 4th game frame (0.133 s) clears it
+    fire.update(GAME_FRAME_DT);              // step 3 reads it up (3): the count cleared, the wait kept
+    expect(press(fire)).toBe(0);             // steps 4-5: held at 5, but 3 game frames (0.100 s) run down of 0.12 (LATER 326)
+    expect(fire.update(GAME_FRAME_DT)).toBe(1);   // step 6: the 4th game frame (0.133 s) clears it
     expect(fire.state().shots).toBe(2);
   });
 
@@ -312,7 +317,7 @@ describe('the rate, the magazine and the reload (W2.5)', () => {
       for (let i = 0; i < 30; i++) { fire.shoot(); fire.update(0.2); }
       expect(fire.state().magazine).toMatchObject({ rounds: 0, reloading: false });
       const before = events.length;
-      expect(fire.pull()).toBeNull();
+      expect(press(fire)).toBe(0);                           // LATER 1147: the dry branch at the press's second read (was: at `pull`)
       expect(events.slice(before)).toEqual(['dry', 'reloadStart']);
       fire.release();
       fire.update(3);                                        // the reload came and went
@@ -320,7 +325,7 @@ describe('the rate, the magazine and the reload (W2.5)', () => {
     for (let i = 0; i < 30; i++) { fire.shoot(); fire.update(0.2); }
     fire.update(3);
     expect(fire.state().magazine).toMatchObject({ rounds: 0, spare: 0 });
-    fire.pull();
+    press(fire);                                             // LATER 1147: at the second read (was: `pull`)
     expect(events.at(-1)).toBe('dry');
     expect(fire.state().magazine.reloading).toBe(false);
   });
@@ -372,15 +377,15 @@ describe('the rate, the magazine and the reload (W2.5)', () => {
       interval: (w) => w * 0.8,
       round: (dir) => { calls.push('round'); return [dir[0] + 0.1, dir[1], dir[2]]; },
     });
-    const shot = fire.pull()!;
+    expect(press(fire)).toBe(1);                           // LATER 1147: the round at the press's second read (was: `pull`'s)
     // The round went off the aim by the gun's tangent: 0.1 right per unit ahead, hitting the wall 30 ahead at x 3.
-    expect(shot.hit!.point[0]).toBeCloseTo(3, 6);
+    expect(fire.state().lastHit!.point[0]).toBeCloseTo(3, 6);
     // Burst: three rounds a pull at 0.8 x FireWait, then nothing until the trigger is let go.
     for (let i = 0; i < 20; i++) fire.update(DEFAULT_RIFLE.fireWait * 0.8);
     expect(fire.state().shots).toBe(3);
     fire.release();
     fire.update(1);
-    expect(fire.pull()).not.toBeNull();
+    expect(press(fire)).toBe(1);                           // LATER 1147: at the press's second read (was: `pull`)
     expect(calls.filter((c) => c === 'round')).toHaveLength(4);
     expect(calls.filter((c) => c === 'down')).toHaveLength(2);
     perPull = 1;
@@ -913,7 +918,7 @@ describe('penetration (research 84 section 13: HandleIntersections 0x3c9b70, FUN
 
 describe('the walk hands the shot its hull and its aim (W2.5)', () => {
   it('none in fly mode; walking, the eye and the aim point, and the round lands on the wall ahead along the look', () => {
-    const floor = quad([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200]);
+    const floor = quad([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200]);
     const polys = [{ ...floor, ditype: 3 }, wallAt(-50)];
     const ground = packGround(
       { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 },
@@ -1049,8 +1054,13 @@ describe('WEAPON: the round leaves the rifle\'s muzzle, the events, the reload\'
     expect(fire.triggerHeld()).toBe(false);
     fire.pull();
     expect(fire.triggerHeld()).toBe(true);
+    // LATER 1147 (research 443): the press's round at the kit's second read -- timed to end the next 60 Hz frame, the kick's
+    // first (was: at `pull`, released at once).
+    fire.update(2 * GAME_FRAME_DT - 1 / 60);
+    fire.update(1 / 60);
+    expect(fire.state().shots).toBe(1);
     fire.release();
-    for (let i = 0; i < 6; i++) fire.update(1 / 60);
+    for (let i = 0; i < 5; i++) fire.update(1 / 60);
     expect(pitch).toBeCloseTo(6 * DEFAULT_RIFLE.rifleKick.stand!.rate / 60, 9);   // rising at FireRifleKickRate
     for (let i = 0; i < 120; i++) fire.update(1 / 60);
     expect(pitch).toBeCloseTo(0, 9);                                                // and back to the rest
@@ -1063,7 +1073,7 @@ describe('WEAPON: the round leaves the rifle\'s muzzle, the events, the reload\'
     const fire = new Fire(source(world([wallAt(-60)]), {
       look: () => ({ pitch, stance: 'stand', pitchPush: push }), kickPitch: (r) => { pitch += r; },
     }), DEFAULT_RIFLE, undefined, () => 0);
-    fire.pull();
+    expect(press(fire)).toBe(1);                                        // LATER 1147: the round at the second read (was: `pull`)
     fire.release();
     for (let i = 0; i < 600 && fire.state().kick.state !== 2; i++) fire.update(1 / 60);
     expect(fire.state().kick.state).toBe(2);
@@ -1175,7 +1185,7 @@ describe('M4: each class\'s lock, reload, pellets and launched rounds on the pag
     fire.update(1);
     expect(events.some((e) => e.type === 'reloadStart' || e.type === 'reloadPress')).toBe(false);
     expect(fire.state().magazine).toMatchObject({ rounds: 0, reloading: false });
-    expect(fire.pull()).toBeNull();
+    expect(press(fire)).toBe(0);                           // LATER 1147: the dry branch at the press's second read (was: `pull`)
     expect(events.at(-1)).toMatchObject({ type: 'reloadStart', family: 'shotgun' });
   });
 
@@ -1364,7 +1374,7 @@ describe('M4: each class\'s lock, reload, pellets and launched rounds on the pag
     for (let i = 0; i < 6; i++) ring.fire();
     const { fire, events } = rig(m4203);
     fire.setRound({ id: 175, round: frag, ring });
-    expect(fire.pull()).toBeNull();
+    expect(press(fire)).toBe(0);                           // LATER 1147: the dry branch at the press's second read (was: `pull`)
     expect(events.at(-1)).toMatchObject({ type: 'dry' });
   });
 });
@@ -1696,7 +1706,7 @@ describe.skipIf(zweaponPar87 === null)(`PAR-87: a round mode's reload by hand, t
     expect(ring.rounds()).toBe(0);
     expect(events.filter((e) => e.type === 'afterShot')).toHaveLength(5);      // none after the sixth (rounds left 0)
     expect(started(events)).toEqual([]);
-    expect(fire.pull()).toBeNull();
+    expect(press(fire)).toBe(0);                           // LATER 1147: the dry branch at the press's second read (was: `pull`)
     expect(events.at(-1)).toMatchObject({ type: 'dry' });
     fire.release();
     fire.update(1);
@@ -1868,10 +1878,11 @@ describe('NET-REFILL N3: the page\'s reload doors refill the last magazine onlin
     expect(r.starts()).toBe(2);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 0, reloading: false });
     expect(r.events.some((e) => e.type === 'reloadPress')).toBe(false);           // no ReloadDelay armed, ever
-    r.fire.update(RELOAD_DELAY + 0.001);                                          // the 36th round's own frame
+    // LATER 1147: the dry branch runs at the kit's steps (`DRY_CLICK_FRAME_READING`); was: a 1/60 s page frame each.
+    r.fire.update(GAME_FRAME_DT);                                                 // the 36th round's own kit frame
     expect(r.starts()).toBe(2);
     const before = r.events.length;
-    r.fire.update(1 / 60);                                                        // the next: the click and the refill
+    r.fire.update(GAME_FRAME_DT);                                                 // the next: the click and the refill
     expect(r.events.slice(before).map((e) => e.type)).toEqual(['dry', 'reloadStart']);
     expect(r.starts()).toBe(3);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 12, capacity: 12, spare: 0, reloading: true });
@@ -1901,7 +1912,7 @@ describe('NET-REFILL N3: the page\'s reload doors refill the last magazine onlin
     r.fire.update(1);
     expect(r.starts()).toBe(2);
     expect(r.fire.reload()).toBe(false);
-    expect(r.fire.pull()).toBeNull();
+    expect(press(r.fire)).toBe(0);                                                 // LATER 1147: the click at the second read (was: `pull`)
     r.fire.release();
     r.fire.update(1);
     expect(r.starts()).toBe(2);
@@ -1922,8 +1933,8 @@ describe('NET-REFILL N3: the page\'s reload doors refill the last magazine onlin
     expect(classic.events.some((e) => e.type === 'dry')).toBe(false);
     const respawn = pistol({ respawn: true }, DEFAULT_RIFLE);
     respawn.shootN(90);                                                           // LATER 48: each magazine by the unpressed path
-    respawn.fire.update(RELOAD_DELAY + 0.001);                                    // the 90th round's own frame
-    respawn.fire.update(1 / 60);                                                  // the dry branch: the refill
+    respawn.fire.update(GAME_FRAME_DT);                                           // the 90th round's own kit frame (LATER 1147: a step)
+    respawn.fire.update(GAME_FRAME_DT);                                           // the dry branch: the refill, the next step
     expect(respawn.fire.state().magazine).toMatchObject({ rounds: 30, spare: 0 });
   });
 
@@ -1934,14 +1945,16 @@ describe('NET-REFILL N3: the page\'s reload doors refill the last magazine onlin
     r.shootN(36);
     r.air.on = true;
     const air = r.events.length;
-    r.fire.update(RELOAD_DELAY + 0.001);                                          // the 36th round's own frame: nothing
-    r.fire.update(1 / 60); r.fire.update(1 / 60);                                  // the unpressed path, refused in the air
+    // LATER 1147: the dry branch runs at the kit's steps (`DRY_CLICK_FRAME_READING`); was: a 1/60 s page frame each.
+    r.fire.update(GAME_FRAME_DT);                                                 // the 36th round's own kit frame: nothing
+    r.fire.update(GAME_FRAME_DT); r.fire.update(GAME_FRAME_DT);                   // the unpressed path, refused in the air
     expect(r.events.slice(air).map((e) => e.type)).toEqual(['dry', 'dry']);
     expect(r.starts()).toBe(2);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 0, reloading: false });
     r.air.on = false;
     const before = r.events.length;
-    expect(r.fire.pull()).toBeNull();                                              // no round in the same frame
+    r.fire.pull();
+    expect(r.fire.update(GAME_FRAME_DT)).toBe(0);                                  // LATER 1147: the next kit step (was: `pull`); no round
     expect(r.events.slice(before).map((e) => e.type)).toEqual(['dry', 'reloadStart']);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 12, reloading: true });
     r.fire.update(0.25);
@@ -1954,13 +1967,13 @@ describe('NET-REFILL N3: the page\'s reload doors refill the last magazine onlin
   it('a refill weapon online with another magazine holding rounds: the dry pull walks at once; offline, and a non-refill weapon online, at once too (PAR-93: the pressed path, D:L476621-476622)', () => {
     const online = pistol({ respawn: false });
     online.fire.takeWeapon(MARK_23_N3, [0, 12]);
-    expect(online.fire.pull()).toBeNull();
+    expect(press(online.fire)).toBe(0);                                            // LATER 1147: at the kit's steps (was: `pull`)
     expect(online.events.map((e) => e.type)).toEqual(['dry', 'reloadStart']);
     expect(online.fire.state().magazine).toMatchObject({ rounds: 12, spare: 0 });
     for (const [rule, record] of [[null, MARK_23_N3], [{ respawn: false }, DEFAULT_RIFLE]] as const) {
       const r = pistol(rule, record);
       r.fire.takeWeapon(record, [0, record.magazine]);
-      expect(r.fire.pull()).toBeNull();
+      expect(press(r.fire)).toBe(0);                                               // LATER 1147: the second read (was: `pull`)
       expect(r.events.map((e) => e.type)).toEqual(['dry', 'reloadStart']);
       r.fire.update(RELOAD_DELAY + 0.001);
       expect(r.events.map((e) => e.type)).toEqual(['dry', 'reloadStart']);
@@ -1971,8 +1984,8 @@ describe('NET-REFILL N3: the page\'s reload doors refill the last magazine onlin
     const r = pistol({ respawn: false });
     r.fire.takeWeapon(MARK_23_N3, [1]);
     r.fire.shoot();
-    r.fire.update(RELOAD_DELAY + 0.001);                                          // the round's own frame (LATER 179)
-    r.fire.update(1 / 60);                                                        // the dry branch's refill (LATER 48)
+    r.fire.update(GAME_FRAME_DT);                                                 // the round's own kit frame (LATER 179; LATER 1147: a step)
+    r.fire.update(GAME_FRAME_DT);                                                 // the dry branch's refill (LATER 48), the next step
     expect(r.fire.state().magazine.rounds).toBe(12);
     expect(r.fire.undoReload()).toBe(true);
     expect(r.fire.state().magazine).toMatchObject({ rounds: 0, reloading: false });
@@ -1981,8 +1994,8 @@ describe('NET-REFILL N3: the page\'s reload doors refill the last magazine onlin
     s.fire.takeWeapon(MARK_23_N3, [1]);
     s.fire.shoot();
     const shot = (s.events.find((e) => e.type === 'round') as Extract<FireEvent, { type: 'round' }>).shot!;
-    s.fire.update(RELOAD_DELAY + 0.001);
-    s.fire.update(1 / 60);
+    s.fire.update(GAME_FRAME_DT);                                                 // LATER 1147: kit steps (was: page frames)
+    s.fire.update(GAME_FRAME_DT);
     const reload = (s.events.find((e) => e.type === 'reloadStart') as Extract<FireEvent, { type: 'reloadStart' }>).reload!;
     expect(s.fire.refundRound(shot)).toBe(true);                                   // the ring without that round: [1], then the reload replayed
     expect(s.fire.state().magazine.rounds).toBe(12);
@@ -2005,15 +2018,15 @@ describe.skipIf(zweaponN3 === null)(`NET-REFILL N3: never in a round mode (the r
     for (let i = 0; i < 6; i++) { expect(fire.shoot()).not.toBeNull(); for (let k = 0; k < 4; k++) fire.update(1); }
     expect(ring.rounds()).toBe(0);
     expect(fire.reload()).toBe(false);
-    expect(fire.pull()).toBeNull();
+    expect(press(fire)).toBe(0);                                                    // LATER 1147: the dry pull at its second read (was: `pull`)
     fire.release();
     fire.update(1);
     expect(events.filter((e) => e.type === 'reloadStart')).toEqual([]);
     expect(ring.rounds()).toBe(0);
     fire.setRound(null);
     for (let i = 0; i < 90; i++) { let k = 0; while (!fire.shoot() && k++ < 100) fire.update(0.25); }
-    fire.update(RELOAD_DELAY + 0.001);                                              // the 90th round's own frame (LATER 179)
-    fire.update(1 / 60);                                                            // the dry branch's refill (LATER 48)
+    fire.update(GAME_FRAME_DT);                                                     // the 90th round's own kit frame (LATER 179; LATER 1147: a step)
+    fire.update(GAME_FRAME_DT);                                                     // the dry branch's refill (LATER 48), the next step
     expect(fire.state().magazine).toMatchObject({ rounds: 30, spare: 0 });
   });
 });
@@ -2046,7 +2059,7 @@ describe.skipIf(zweaponPar93 === null)(`PAR-93: the dry pull reloads at once, of
     const r = rig(id, null);
     expect([r.record.name, reloadDelayOf(r.record)]).toEqual([name, delay]);
     r.fire.takeWeapon(r.record, [0, r.record.magazine]);
-    expect(r.fire.pull()).toBeNull();                                              // no round on the dry frame
+    expect(press(r.fire)).toBe(0);                                                 // no round on the dry frame (LATER 1147: the second read, was `pull`)
     expect(r.events.map((e) => e.type)).toEqual(['dry', 'reloadStart']);
     expect(r.fire.state().magazine).toMatchObject({ rounds: r.record.magazine, spare: 0, reloading: true });
     r.fire.update(delay + 0.001);
@@ -2058,7 +2071,7 @@ describe.skipIf(zweaponPar93 === null)(`PAR-93: the dry pull reloads at once, of
     for (const rule of [{ respawn: false }, { respawn: true }]) {
       const r = rig(id, rule);
       r.fire.takeWeapon(r.record, [0, r.record.magazine]);
-      expect(r.fire.pull()).toBeNull();
+      expect(press(r.fire)).toBe(0);                                               // LATER 1147: the second read (was: `pull`)
       expect([rule.respawn, r.events.map((e) => e.type)]).toEqual([rule.respawn, ['dry', 'reloadStart']]);
     }
   });
@@ -2076,21 +2089,21 @@ describe.skipIf(zweaponPar93 === null)(`PAR-93: the dry pull reloads at once, of
   // (DRY_PULL_RETRY_READING 'the press only')". The dry branch runs each frame the trigger is held (D:L476591-476592),
   // the count not raised on the reload's path (D:L476621-476631), so the click repeats and the reload lands on landing.
   it('refused at FUN_005c2a90\'s gate (in the air): the click each frame the trigger is held, and the reload on the first frame on the ground -- no new press (DRY_CLICK_FRAME_READING)', () => {
-    expect(DRY_CLICK_FRAME_READING).toBe('each page frame');
+    // LATER 1147 (research 443): the dry branch at the kit's steps, the press read held at its second (was: 'each page
+    // frame', the press's own click at `pull` and one each 1/60 s frame).
+    expect(DRY_CLICK_FRAME_READING).toBe('each kit step');
     const r = rig(81, null);
     r.fire.takeWeapon(r.record, [0, r.record.magazine]);
     r.air.on = true;
-    expect(r.fire.pull()).toBeNull();
+    expect(press(r.fire)).toBe(0);                                                 // the second read: the click, the reload refused
     expect(r.events.map((e) => e.type)).toEqual(['dry']);
-    r.fire.update(1 / 60);                                                         // the press's own frame: run once (`pull`)
-    expect(r.events.map((e) => e.type)).toEqual(['dry']);
-    r.fire.update(1 / 60);                                                         // held in the air: asked again, refused
+    r.fire.update(GAME_FRAME_DT);                                                  // held in the air: asked again, refused
     expect(r.events.map((e) => e.type)).toEqual(['dry', 'dry']);
     r.air.on = false;
-    r.fire.update(1 / 60);                                                         // the landing frame: the click and the reload
+    r.fire.update(GAME_FRAME_DT);                                                  // the landing step: the click and the reload
     expect(r.events.map((e) => e.type)).toEqual(['dry', 'dry', 'dry', 'reloadStart']);
     expect(r.fire.state().magazine).toMatchObject({ rounds: r.record.magazine, reloading: true });
-    r.fire.update(1 / 60);
+    r.fire.update(GAME_FRAME_DT);
     expect(r.events.map((e) => e.type)).toEqual(['dry', 'dry', 'dry', 'reloadStart']);
   });
 });
@@ -2443,12 +2456,12 @@ describe("LATER 326: the kit's timer is set at a round and runs down a game fram
     const { fire } = rig(world([wallAt(-30)]), [0, 0, -1], { ...DEFAULT_RIFLE, magazine: 1000 });
     if (interval !== undefined) fire.setGun({ trigger: () => {}, roundsPerPull: () => Infinity, interval: () => interval, round: (d) => d });
     const times: number[] = [], frames: number[] = [];
-    let now = 0, frame = -1;                                           // the press's round: before the first frame
+    let now = 0, frame = -1;                                           // the kit's clock from its first frame
     // The kit runs every frame before the press (a live page's: `matchFirearm` steps it each frame), so its game-frame
     // clock carries part of a frame when the press comes (the review's F1).
-    for (let i = 0; i < 7; i++) fire.update(1 / fps);
+    for (let i = 0; i < 7; i++) { now += 1 / fps; fire.update(1 / fps); }
     fire.subscribe((e) => { if (e.type === 'round') { times.push(now); frames.push(frame); } });
-    fire.pull();                                                       // the press: a round at once, the timer clear
+    fire.pull();                                                       // LATER 1147: its round at the kit's second read (was: at once)
     for (frame = 0; frame < Math.round(seconds * fps); frame++) { now += 1 / fps; fire.update(1 / fps); }
     return { times, frames };
   };
@@ -2496,10 +2509,14 @@ describe("LATER 326: the kit's timer is set at a round and runs down a game fram
     expect(n).toBeLessThanOrEqual(Math.floor(given / Q + 1e-9) + 1);
   });
 
-  it('the press fires at once when the timer is clear -- on the browser frame, at most a game frame before the next', () => {
+  // LATER 1147 (research 443 §1; reading, pending review): was "the press fires at once when the timer is clear -- on the
+  // browser frame" (`pull` non-null). The press is read through the pad layer once a kit step: no round on its first read.
+  it("the press fires at the kit's second read of it when the timer is clear, never at the press (FUN_002d9ff0, FUN_002c60c0)", () => {
     const { fire } = rig(world([wallAt(-30)]));
-    expect(fire.pull()).not.toBeNull();
-    expect(fire.pull()).toBeNull();                                    // the timer set: nothing again before it runs down
+    expect(fire.pull()).toBeNull();                                    // no round at the press
+    expect(fire.update(GAME_FRAME_DT)).toBe(0);                        // read 1: state 1, not held
+    expect(fire.update(GAME_FRAME_DT)).toBe(1);                        // read 2: held, the timer clear
+    expect(fire.update(GAME_FRAME_DT)).toBe(0);                        // the timer set: nothing again before it runs down
   });
 });
 
@@ -2899,31 +2916,40 @@ describe('TRIGGER-SWAP: a trigger held into the firearm from another item carrie
     return fire;
   };
   it('count 0: the round at once, as a press; count 1: single refused until the release, burst two more, automatic runs on', () => {
-    expect(armed(1).pull(0)).not.toBeNull();
+    // LATER 1147 (research 443): a hand-over's trigger is the pad's button held through (state 2): its round at the next kit
+    // step, not at `pull` (was: `pull(0)` non-null); a press's own at its second read.
+    const first = armed(1);
+    expect(first.pull(0)).toBeNull();
+    expect(first.update(GAME_FRAME_DT)).toBe(1);
     const single = armed(1);
     expect(single.pull(1)).toBeNull();
     for (let i = 0; i < 20; i++) single.update(DEFAULT_RIFLE.fireWait);
     expect(single.state().shots).toBe(0);
     single.release();
     single.update(1);
-    expect(single.pull()).not.toBeNull();                 // the next press's own round
+    expect(press(single)).toBe(1);                        // the next press's own round (LATER 1147: at its second read)
     const burst = armed(3);
-    expect(burst.pull(1)).not.toBeNull();
+    expect(burst.pull(1)).toBeNull();
+    expect(burst.update(GAME_FRAME_DT)).toBe(1);          // LATER 1147: at the next step
     for (let i = 0; i < 20; i++) burst.update(DEFAULT_RIFLE.fireWait);
     expect(burst.state().shots).toBe(2);
     const auto = armed(Infinity);
-    expect(auto.pull(1)).not.toBeNull();
+    expect(auto.pull(1)).toBeNull();
+    expect(auto.update(GAME_FRAME_DT)).toBe(1);           // LATER 1147: at the next step
     for (let i = 0; i < 9; i++) auto.update(pastRate(DEFAULT_RIFLE.fireWait));
     expect(auto.state().shots).toBe(10);
   });
   it('an empty single held in with count 1 asks no click and no reload (FUN_005c0fd0 D:L476591, D:L476616: the count under the limit); count 0 clicks', () => {
     const dry = (count: number): string[] => {
       const fire = armed(1);
-      while (fire.state().magazine.rounds > 0) { fire.release(); fire.update(1); fire.pull(); }
+      // LATER 1147 (research 443): a press's round leaves at the kit's second read of it, not at `pull` -- each press held
+      // through a step (`update(1)`), then let go (was: `pull` fired, an unguarded loop on it).
+      for (let k = 0; fire.state().magazine.rounds > 0 && k < 200; k++) { fire.pull(); fire.update(1); fire.release(); fire.update(1); }
       fire.release(); fire.update(5);
       const seen: string[] = [];
       fire.subscribe((e) => { seen.push(e.type); });
       fire.pull(count);
+      fire.update(GAME_FRAME_DT);                           // LATER 1147: the dry branch is the kit step's (D:L476591-476592)
       return seen;
     };
     expect(dry(1)).not.toContain('dry');
@@ -2944,17 +2970,18 @@ describe('TRIGGER-SWAP fold: the kit pull count and rate timer kept through a fi
   };
   it('a single fired, held through setWeapon: the count stays at its limit -- nothing until the release', () => {
     const fire = armed(1);
-    expect(fire.pull()).not.toBeNull();
+    expect(press(fire)).toBe(1);                          // LATER 1147: at the second read (was: `pull`)
     fire.setWeapon(PISTOL);
     expect(fire.triggerHeld()).toBe(true);
     for (let i = 0; i < 20; i++) fire.update(1);
     expect(fire.state().shots).toBe(1);
     fire.release();
-    expect(fire.pull()).not.toBeNull();
+    fire.update(GAME_FRAME_DT);                           // LATER 1147: the let-go read (3) clears the count (D:L476399-476400)
+    expect(press(fire)).toBe(1);
   });
   it('an automatic fired, held through setWeapon: the rate timer runs on, the next round no sooner than it allows', () => {
     const fire = armed(Infinity);
-    expect(fire.pull()).not.toBeNull();
+    expect(press(fire)).toBe(1);                          // LATER 1147: at the second read (was: `pull`)
     fire.setWeapon(PISTOL);
     fire.update(GAME_FRAME_DT + 1e-6);
     expect(fire.state().shots).toBe(1);                   // was: the wait zeroed, a round at once
@@ -2970,20 +2997,21 @@ describe('TRIGGER-SWAP fold: the kit pull count and rate timer kept through a fi
     ['another weapon', 'TEST PICKUP'],
   ] as const)('a single fired, held through takeWeapon of %s: the count stays at its limit -- nothing until the release', (_what, name) => {
     const fire = armed(1);
-    expect(fire.pull()).not.toBeNull();
+    expect(press(fire)).toBe(1);                          // LATER 1147: at the second read (was: `pull`)
     fire.takeWeapon({ ...DEFAULT_RIFLE, name, magazine: 100 }, [100, 100]);
     expect(fire.triggerHeld()).toBe(true);
     for (let i = 0; i < 20; i++) fire.update(1);
     expect(fire.state().shots).toBe(1);
     fire.release();
-    expect(fire.pull()).not.toBeNull();
+    fire.update(GAME_FRAME_DT);                           // LATER 1147: the let-go read (3) clears the count (D:L476399-476400)
+    expect(press(fire)).toBe(1);
   });
   it.each([
     ['the same weapon', DEFAULT_RIFLE.name],
     ['another weapon', 'TEST PICKUP'],
   ] as const)('an automatic fired, held through takeWeapon of %s: the rate timer runs on', (_what, name) => {
     const fire = armed(Infinity);
-    expect(fire.pull()).not.toBeNull();
+    expect(press(fire)).toBe(1);                          // LATER 1147: at the second read (was: `pull`)
     fire.takeWeapon({ ...DEFAULT_RIFLE, name, magazine: 100 }, [100, 100]);
     fire.update(GAME_FRAME_DT + 1e-6);
     expect(fire.state().shots).toBe(1);                   // was (the same weapon): the wait zeroed, a round at once
@@ -3072,17 +3100,120 @@ describe("LATER 330: the kit's other timer (+0x820: a reload's delay, a bolt's o
   it.each(FPS)("a bolt's lock (0.5 s) ends on its 15th game frame after the round at %i fps", (fps) => {
     const m40: WeaponRecord = { ...DEFAULT_RIFLE, name: 'M40A1', id: 102, fireModes: [1], maxFireMode: 1, fireWait: 0.5, magazine: 25, mags: 1, reloadAfterShot: true, reloadDelayAfterShot: 0.5 };
     const { fire } = rig(world([wallAt(-30)]), [0, 0, -1], m40);
-    // A press's round starts the kit's frame clock (LATER 326's F1; `shoot` alone does not).
-    const r = until(fire, fps, () => { expect(fire.pull()).not.toBeNull(); fire.release(); }, 'afterShot', 5);
-    onStep(r.at, fps, 15);
+    // LATER 1147 (research 443): the press's round at the kit's second read, on the clock as it runs (was: at `pull`, the
+    // clock started there, the lock's end its 15th step); the lock ends on the 15th step after the round's: the 17th.
+    const r = until(fire, fps, () => { expect(fire.pull()).toBeNull(); }, 'afterShot', 5);
+    onStep(r.at, fps, 2 + 15, r.phase);
   });
 
   it.each(FPS)("the fire timer is held through a bolt's lock: a held M40A1's next round 15 + 15 game frames on at %i fps (D:L476643-476647)", (fps) => {
     const m40: WeaponRecord = { ...DEFAULT_RIFLE, name: 'M40A1', id: 102, fireModes: [1], maxFireMode: 1, fireWait: 0.5, magazine: 25, mags: 1, reloadAfterShot: true, reloadDelayAfterShot: 0.5 };
     const { fire } = rig(world([wallAt(-30)]), [0, 0, -1], m40);   // no clip (no `reloadSeconds`): the lock alone holds
+    // LATER 1147 (research 443): the press's round at the kit's second read, the clock running on (was: at `pull`, the
+    // clock from 0): rounds on steps 2 and 2 + 30 after the press.
+    const rounds: number[] = [];
+    let now = 0;
+    fire.subscribe((e) => { if (e.type === 'round') rounds.push(now); });
     for (let i = 0; i < 4; i++) fire.update(1 / fps);
-    expect(fire.pull()).not.toBeNull();                             // the press's round: the kit's frame clock from 0
-    const r = until(fire, fps, () => {}, 'round');
-    onStep(r.at, fps, 30);                                          // was 15: the timer run down through the lock
+    const phase = 4 / fps - Math.floor((4 / fps + 1e-9) / GAME_FRAME_DT) * GAME_FRAME_DT;   // the clock's carry at the press
+    expect(fire.pull()).toBeNull();
+    for (let i = 0; i < 3 * fps && rounds.length < 2; i++) { now += 1 / fps; fire.update(1 / fps); }
+    onStep(rounds[0]!, fps, 2, phase);
+    onStep(rounds[1]!, fps, 2 + 30, phase);                         // was 15: the timer run down through the lock
+  });
+});
+
+describe('LATER 1141 (way (a), research 441; reading, pending review): the cone rolls on the firepoint-to-aim line', () => {
+  /** The eye at (0, 20, 0) looking down -z; the muzzle 3 right, 5 down, 8 ahead; a wall at z -60. */
+  const eye: V3 = [0, 20, 0], muzzle: V3 = [3, 15, -8];
+  const source = (extra: Partial<FireSource> = {}): FireSource => ({
+    grid: () => world([wallAt(-60)]), aim: () => ({ eye, far: [0, 20, -1000] }), muzzle: () => muzzle, ...extra,
+  });
+  const unitOf = (v: readonly number[]): V3 => { const l = Math.hypot(v[0]!, v[1]!, v[2]!); return [v[0]! / l, v[1]! / l, v[2]! / l]; };
+
+  it('asks the gun once a round with the muzzle-to-aim direction and f = (d_aim - d_fire) / d_aim (FUN_005aa6e0, FUN_00592260)', () => {
+    const calls: { dir: V3; depth: number | null | undefined }[] = [];
+    const fire = new Fire(source(), DEFAULT_RIFLE, undefined, () => 0.5);
+    fire.setGun({ trigger: () => {}, roundsPerPull: () => 1, interval: (w) => w, round: (dir, depth) => { calls.push({ dir: [...dir] as V3, depth }); return dir; } });
+    fire.shoot();
+    expect(calls).toHaveLength(1);
+    const want = unitOf([0 - 3, 20 - 15, -60 + 8]);
+    for (let i = 0; i < 3; i++) expect(calls[0]!.dir[i]).toBeCloseTo(want[i]!, 9);
+    // d along the look (0, 0, -1): the aim point 60 deep, the firepoint 8: (60 - 8) / 60.
+    expect(calls[0]!.depth).toBeCloseTo(52 / 60, 9);
+  });
+
+  it('the error is an angle at the muzzle: a gun offset lands off the aim point along the muzzle\'s line', () => {
+    const fire = new Fire(source(), DEFAULT_RIFLE, undefined, () => 0.5);
+    fire.setGun({ trigger: () => {}, roundsPerPull: () => 1, interval: (w) => w, round: (d) => [d[0] + 0.1, d[1], d[2]] });
+    const shot = fire.shoot()!;
+    const d = unitOf((() => { const u = unitOf([-3, 5, -52]); return [u[0] + 0.1, u[1], u[2]]; })());
+    const t = (-60 - muzzle[2]) / d[2];
+    expect(shot.from).toEqual(muzzle);
+    expect(shot.hit!.point[0]).toBeCloseTo(muzzle[0] + d[0] * t, 5);
+    expect(shot.hit!.point[1]).toBeCloseTo(muzzle[1] + d[1] * t, 5);
+  });
+
+  it('the round event carries the bare look as `aim` and the aim point P1 as `at`', () => {
+    const events: FireEvent[] = [];
+    const fire = new Fire(source(), DEFAULT_RIFLE, undefined, () => 0.5);
+    fire.setGun({ trigger: () => {}, roundsPerPull: () => 1, interval: (w) => w, round: (d) => [d[0] + 0.05, d[1], d[2]] });
+    fire.subscribe((e) => events.push(e));
+    fire.shoot();
+    const r = events.find((e) => e.type === 'round') as Extract<FireEvent, { type: 'round' }>;
+    expect(r.aim).toEqual([0, 0, -1]);
+    expect(r.at!.map((v) => Math.round(v * 1e6) / 1e6)).toEqual([0, 20, -60]);
+  });
+
+  it('a body under the reticle nearer than the wall is P1: f from the body (10 deep), not the wall', () => {
+    const calls: (number | null | undefined)[] = [];
+    // The body 10 ahead of the eye on its look (the eye's query only); nothing on the round's own leg.
+    const fire = new Fire(source({ targetDistance: (from) => (from[2] === 0 && from[1] === 20 ? 10 : null) }), DEFAULT_RIFLE, undefined, () => 0.5);
+    fire.setGun({ trigger: () => {}, roundsPerPull: () => 1, interval: (w) => w, round: (d, depth) => { calls.push(depth); return d; } });
+    const events: FireEvent[] = [];
+    fire.subscribe((e) => events.push(e));
+    fire.shoot();
+    expect(calls[0]).toBeCloseTo((10 - 8) / 10, 9);
+    const r = events.find((e) => e.type === 'round') as Extract<FireEvent, { type: 'round' }>;
+    expect(r.at!.map((v) => Math.round(v * 1e6) / 1e6)).toEqual([0, 20, -10]);
+  });
+
+  it('without a muzzle the eye stands in for the firepoint: the gun takes the look and no depth, as before', () => {
+    const calls: { dir: V3; depth: number | null | undefined }[] = [];
+    const fire = new Fire(source({ muzzle: () => null }), DEFAULT_RIFLE, undefined, () => 0.5);
+    fire.setGun({ trigger: () => {}, roundsPerPull: () => 1, interval: (w) => w, round: (dir, depth) => { calls.push({ dir: [...dir] as V3, depth }); return dir; } });
+    const events: FireEvent[] = [];
+    fire.subscribe((e) => events.push(e));
+    fire.shoot();
+    expect(calls[0]!.dir).toEqual([0, 0, -1]);
+    expect(calls[0]!.depth).toBeUndefined();
+    const r = events.find((e) => e.type === 'round') as Extract<FireEvent, { type: 'round' }>;
+    expect(r.at).toBeUndefined();                                   // the eye's own round names no aim point: judged as before 19
+  });
+});
+
+describe('LATER 1141, the review\'s finding 1: a walled muzzle (LATER 366) takes its depth from the head it leaves', () => {
+  // LATER 366's set-up (`fireStartWalled.test.ts`): the body at the origin facing -z, the eye over it, the muzzle 3 right,
+  // 6 down, 8 ahead; a post's face at z -5 from x 1 to 10 across the head's line to the muzzle; a far wall at z -60.
+  const body = { feet: [0, 0, 0] as V3, yaw: 0, posture: 'stand' as const, moveRoot: null, peek: 0 };
+  const eye: V3 = [0, 20, 0], muzzle: V3 = [3, 14, -8];
+  const post = quad([1, 0, -5, 10, 0, -5, 10, 50, -5, 1, 50, -5]);
+
+  it('the gun\'s f is depthRatio from the round\'s own start (the kept head), so the room\'s claimDepth -- from `from` -- is the same', () => {
+    const depths: (number | null | undefined)[] = [];
+    const source: FireSource & { startBody(): typeof body } = {
+      grid: () => world([wallAt(-60), post]), aim: () => ({ eye, far: [0, 20, -1000] }), muzzle: () => [...muzzle], startBody: () => body,
+    };
+    const fire = new Fire(source, DEFAULT_RIFLE, undefined, () => 0.5);
+    fire.setGun({ trigger: () => {}, roundsPerPull: () => 1, interval: (w) => w, round: (d, depth) => { depths.push(depth); return d; } });
+    const events: FireEvent[] = [];
+    fire.subscribe((e) => events.push(e));
+    const shot = fire.shoot()!;
+    expect(shot.from).not.toEqual(muzzle);                          // walled: the round left the head (LATER 366)
+    const r = events.find((e) => e.type === 'round') as Extract<FireEvent, { type: 'round' }>;
+    // The room's own function on the round's wire claim (the re-review's finding 2): page and room on one f.
+    const want = claimDepth({ eye: r.eye!, aim: r.aim!, at: r.at!, from: shot.from, dir: shot.from });
+    expect(want).toBeCloseTo(depthRatio(eye, [0, 0, -1], r.at!, shot.from)!, 12);
+    expect(depths[0]).toBeCloseTo(want!, 9);
   });
 });

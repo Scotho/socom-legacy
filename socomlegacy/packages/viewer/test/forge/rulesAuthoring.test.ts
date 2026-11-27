@@ -253,3 +253,22 @@ describe('FCW-32 export: the rules as a v2 rules pack, and back', () => {
     expect(l.requires).toEqual([l.rules!.pack]);
   });
 });
+
+// FN-4 (the Forge lane's FN.R5; a browser adaptation): the record's version 4 keeps a piece's angles on a hundredth of a
+// degree. The agent's `layout.import` (`agent/commands.ts` `importedLayout`, through the planner as the facade runs it)
+// takes one. Written, NOT RUN (the host rule).
+describe('FN-4: the agent\'s layout.import takes a version-4 record', () => {
+  it('FN-4, RED: a record whose piece is turned 58.67 / 38.93 / 27.03 imports, the piece at that turn', () => {
+    // Expected RED at the RED commit: `importedLayout`'s `checkRecord` refuses version 4 (INVALID_LAYOUT, "not a forge
+    // record of version 2 or 3"). Still RED at the readers' commit, at the write-back line (it imports, but the writer
+    // puts the angles on whole degrees: 59 / 39 / 27, version 3). GREEN from the writer's commit: the same text back.
+    const fine = {
+      schema: 'forge-layout', version: 4, name: 'Fine', base: 'MP2', assets: ['MP2:crate'],
+      pieces: [[0, 1, 0, 2, 58.67]], poses: [[0, 38.93, 27.03, 1, 1, 1]], spawns: [['A', 1, 0, 2, 0]], ids: { pieces: ['p0'], spawns: ['s0'] },
+    };
+    const l = planForgeLayout(blank(), 'layout.import', { layout: fine }, []);
+    expect(l.pieces).toHaveLength(1);
+    expect(checkCreatorRecord(recordOfLayout(l, 'Fine'))).toBeNull();
+    expect(JSON.stringify(recordOfLayout(l, 'Fine'))).toBe(JSON.stringify(fine));
+  });
+});

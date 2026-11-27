@@ -90,8 +90,8 @@ describe.skipIf(!MP2 || !PACK || !READERC)(`FL-1: the room's hit pose lays the F
   const same = (a: readonly BoneBox[], b: readonly BoneBox[]): boolean =>
     a.length === b.length && a.every((x, i) => x.bone === b[i]!.bone && Array.from(x.w).every((v, k) => Object.is(v, b[i]!.w[k])));
 
-  it("the clips: every Fire version the page lays is among the room's clips (HIT_POSE_CLIPS and the server skeleton's motion); the reading is 'fire'", () => {
-    expect(HIT_POSE_LAYERS_READING).toBe('fire');
+  it("the clips: every Fire version the page lays is among the room's clips (HIT_POSE_CLIPS and the server skeleton's motion); the reading is 'fire-throw-reload' (the Fire set and, PRONE-THROW-HITBOX, the throw layer; RELOAD-HITPOSE, the reload)", () => {
+    expect(HIT_POSE_LAYERS_READING).toBe('fire-throw-reload');
     const held = new Set(skeletons.seal[0]!.motion!.clips.map((c) => c.name));
     for (const name of new Set(Object.values(FIRE_VERSIONS))) {
       expect(HIT_POSE_CLIPS, name).toContain(name);

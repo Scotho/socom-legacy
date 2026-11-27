@@ -39,7 +39,7 @@ const kit = (...ids: number[]): Loadout => ids as unknown as Loadout;
 function setup(eqLimit: number) {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 300, cellsX: 4, cellsZ: 4, originX: -600, originZ: -600 };
   const floor: WorldPoly = { modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25,
-    ptcount: 4, cameratype: 0, points: Float32Array.from([-600, 0, -600, 600, 0, -600, 600, 0, 600, -600, 0, 600]) };
+    ptcount: 4, cameratype: 0, points: Float32Array.from([-600, 0, 600, 600, 0, 600, 600, 0, -600, -600, 0, -600]) };
   const ground = packGround(params, [floor], [{ modelName: 'worldmodel', path: floor.path, first: 0, count: 1 }]);
   const slots: SpawnSlot[] = [0, 1].flatMap((side) => Array.from({ length: 8 }, (_, index) => ({ side, index,
     position: [side ? 300 : 50, 0, index * 30], onFloor: true, step: side ? 6 : 2,

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeAgentApi } from '../../src/forge/agent/api';
 import type { LoadedMap } from '../../src/loadMap';
 // FC2-4: found and pressed through the contributor's editor (`./helpers/EDITOR-MAP.md`).
-import { menuOpen, openMenu, toolbarButton } from './helpers/editor';
+import { menuOpen, openMenu } from './helpers/editor';
 
 const archiveLoad = vi.hoisted(() => vi.fn<(stem: string) => Promise<LoadedMap>>());
 // Only the GPU and disc I/O are replaced (as `./operations.test.ts`): the editor, its notifier and its menu are real.
@@ -16,13 +16,16 @@ vi.mock('../../src/forge/archives', () => ({ Archives: class {
   clips = async () => null;
   list = async () => ({ entries: [], problems: [] });
   load = archiveLoad;
+  census = async () => null;
+  props = async () => null;
+  scriptNames = async () => null;
   sourceRequest = () => ({ kind: 'http', baseUrl: '/maps' });
 }, labelOf: (_entries: unknown, _stem: string, fallback: string) => fallback }));
 
 /**
  * FUI.R19 (the batch review of 2026-10-26, R8-3; a browser adaptation, FG.R2): a refusal of the page's own is the
  * notifier's refused path -- a toast of kind refusal AND the assertive status line -- on the basic paths as `refuseEdit`
- * gives it: Place with no prop chosen, and the Outliner sub-screen's locked placement.
+ * gives it: the Outliner sub-screen's locked placement (Place with no prop chosen retired with place mode, PR #5).
  */
 describe('FUI.R19: the page\'s own refusals give the toast and the line', () => {
   beforeEach(() => {
@@ -47,18 +50,8 @@ describe('FUI.R19: the page\'s own refusals give the toast and the line', () => 
     expect([line().textContent, line().dataset['kind'], line().classList.contains('is-bad')]).toEqual([words, 'refusal', true]);
   };
 
-  it('Place with no prop chosen: a refused toast and the line', async () => {
-    await mount();
-    const input = document.querySelector<HTMLElement>('.fx-input')!;
-    input.getBoundingClientRect = () => ({ left: 0, top: 0, width: 200, height: 100, right: 200, bottom: 100, x: 0, y: 0, toJSON: () => ({}) });
-    Object.assign(input, { setPointerCapture: () => undefined, releasePointerCapture: () => undefined, hasPointerCapture: () => false });
-    // The Place tool: its button (`keys.ts`, the Forge Overhaul: the Place tool has no key; the number keys are the
-    // placing tools'). Map T6: found by its word, Place (its title is the contributor's own now).
-    toolbarButton(document, 'Place').click();
-    input.dispatchEvent(new MouseEvent('pointerdown', { button: 0, clientX: 100, clientY: 50, bubbles: true }));
-    input.dispatchEvent(new MouseEvent('pointerup', { button: 0, clientX: 100, clientY: 50, bubbles: true }));
-    refusedBoth('choose a prop in the assets first');
-  }, 90_000);
+  // RETIRED with PR #5 (seat-forge, item A7): 'Place with no prop chosen' -- the Forge's owner removed place mode (OT.R112);
+  // a toolbar button spawns at once and selects (`./spawnAtOnce.test.ts`), so no Place press remains to refuse.
 
   it('the Outliner\'s locked placement: Cross selects it and looks (his rule); its Delete still gives the toast and the line', async () => {
     // The contributor's rule (MISSION OT.R112: the Forge's UI is his) replaces FUI.R19's refusal for this one press: Cross

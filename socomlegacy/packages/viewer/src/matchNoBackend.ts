@@ -1,3 +1,4 @@
+import { pageSoftwareProbe } from './softwareRenderer';
 /**
  * NO-BACKEND-NOTICE (#790, 2026-11-14; a browser adaptation, no original; product track): a match whose renderer never
  * comes up says so. Two players on Xbox Edge (2026-11-13) were in matches with no renderer -- central's inputdiag rows
@@ -147,9 +148,13 @@ export class RendererRetryFailed extends Error {
  * The no-backend row's extra fields (`contextdiag`'s `x`): the creation error the canvas heard (`cce`), and the
  * rejection's message (`err`) -- a failed retry's two (`err`, `err2`) and `retry: 'fail'`. A timeout has no rejection.
  */
-export function noBackendExtra(reason: unknown, cce: string | null): Record<string, string | null> {
-  if (reason instanceof RendererRetryFailed) return { err: errText(reason.first), err2: errText(reason.second), cce, retry: 'fail' };
-  return { err: errText(reason), cce };
+export function noBackendExtra(reason: unknown, cce: string | null, probe: () => { webgl2?: boolean } = () => pageSoftwareProbe()): Record<string, string | null> {
+  // LATER 1265 (its review's F4): the page probe's WebGL2 verdict ('1' made, '0' not, null unknown) -- the one memoised
+  // probe the page already made (never a second context beside a live one).
+  let w2: string | null = null;
+  try { const v = probe().webgl2; w2 = v === true ? '1' : v === false ? '0' : null; } catch { /* no verdict */ }
+  if (reason instanceof RendererRetryFailed) return { err: errText(reason.first), err2: errText(reason.second), cce, retry: 'fail', w2 };
+  return { err: errText(reason), cce, w2 };
 }
 
 /** The canvas's last `webglcontextcreationerror` status message (the browser's reason it made no context), capped. */

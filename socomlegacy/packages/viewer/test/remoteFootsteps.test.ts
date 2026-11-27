@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { Group, PerspectiveCamera, Scene } from 'three';
-import { FOOTFALL_CAP_READING, FOOTFALL_NEAREST_READING, RemotePlayers, remoteFootfall } from '../src/remotePlayers';
+import { FOOTFALL_CAP_READING, FOOTFALL_NEAREST_READING, FOOTFALL_UNBOUND_PLACEHOLDER, RemotePlayers, remoteFootfall } from '../src/remotePlayers';
 import type { LoadedMap } from '../src/loadMap';
 import type { PlayEvent } from '../src/play';
 import type { PlaySnapshot } from '../src/mover';
@@ -129,6 +132,57 @@ describe('the footfall cap: the page hears at most three others within 500 u (PF
     const far = [at(2, 50), at(3, 100), at(4, 200), at(5, 300), at(6, 10000), at(7, 20000, false)];
     expect(heardOf(far, null)).toEqual([2, 3, 4, 5, 6]);
     expect(heardOf(far, null, false)).toEqual([2, 3, 4, 5, 6]);
+  });
+
+  /**
+   * LATER 1051 (simulation track; reading, pending review): off the own body the cap's listener is the camera's bound
+   * actor. `FUN_00551ec0` (the SEAL's frame update, its table 0x6691a0 +0x14; it runs dead too, state 8 being taken only
+   * after) calls `FUN_00552850` on the actor it updates when that actor is the camera's `+0xbc` (D:L418506-418507), and
+   * `FUN_00552850` sets the three-step bit on that actor's own `+0xd8` list (D:L418846-418853) and on the actor itself
+   * (D:L418860). The camera's `+0xbc` is the watched teammate for a dead player who cycled to one (research 314 s5.6
+   * items 2-4) and the followed player for a spectator in follow (314 W5): the page's `SpectatorView.boundId()`.
+   */
+  const heardBound = (bodies: BodyState[], listener: [number, number, number] | null, bound: number | null): number[] => {
+    plays.listeners.length = 0;
+    const heard: number[] = [];
+    const remote = new RemotePlayers(new Scene(), (id) => { heard.push(id); });
+    remote.setMap({ body: {} } as LoadedMap, DEFAULT_LIGHTING, null);
+    remote.setListener(listener);
+    remote.setBound(bound);
+    remote.frame(1 / 60, bodies, new PerspectiveCamera());
+    for (const l of plays.listeners) l(step('right'));
+    return heard.sort((a, b) => a - b);
+  };
+
+  it('LATER 1051: a dead player watching a teammate hears that teammate and the three nearest others to it, not to his own corpse (FUN_00551ec0 D:L418506-418507 -> FUN_00552850 on the camera\'s +0xbc)', () => {
+    // The page off its body (fly: no listener of its own); the watched teammate 9 at x = 1000, four others about it and
+    // one beside the page's corpse at the origin.
+    const bodies = [at(2, 5), at(9, 1000), at(3, 1010), at(4, 1020), at(5, 1030), at(6, 1040)];
+    expect(heardBound(bodies, null, 9)).toEqual([3, 4, 5, 9]);
+    // The bound body is always heard (D:L418860) and takes no slot of the three (D:L418846-418853 count the list's others).
+    expect(heardBound([at(9, 0), at(3, 10), at(4, 20), at(5, 30)], null, 9)).toEqual([3, 4, 5, 9]);
+    // Bound, the page's own feet are not the listener: the body by the corpse is out of the teammate's 500 u.
+    expect(heardBound(bodies, [0, 0, 0], 9)).toEqual([3, 4, 5, 9]);
+  });
+
+  it('LATER 1051: a watched teammate who has died is still the listener (the camera keeps him bound, research 314 s5.6 item 3); his own steps are none', () => {
+    expect(heardBound([at(9, 1000, false), at(3, 1010), at(4, 1020), at(5, 1030), at(6, 1040), at(2, 5)], null, 9)).toEqual([3, 4, 5]);
+  });
+
+  it('LATER 1051: a bound body not in the list (gone) leaves the page\'s own listener -- none off the body (FOOTFALL_UNBOUND_PLACEHOLDER)', () => {
+    const bodies = [at(2, 5), at(3, 10), at(4, 20), at(5, 30), at(6, 40)];
+    expect(heardBound(bodies, [0, 0, 0], 77)).toEqual([2, 3, 4]);
+    expect(heardBound(bodies, null, 77)).toEqual([2, 3, 4, 5, 6]);
+    expect(FOOTFALL_UNBOUND_PLACEHOLDER).toBe('every living body');
+  });
+
+  it('LATER 1051: the page hands the cap its bound body each frame before the bodies play (NetPage.frame -> RemotePlayers.setBound?.(SpectatorView.boundId()): a stand-in remote without it is passed by)', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const page = readFileSync(resolve(here, '../src/netPage.ts'), 'utf-8');
+    const frame = page.slice(page.indexOf('  frame(dt: number, camera: PerspectiveCamera'));
+    const bound = frame.indexOf('this.deps.remote.setBound?.(this.spectator.boundId());');
+    expect(bound).toBeGreaterThan(0);
+    expect(bound).toBeLessThan(frame.indexOf('this.deps.remote.frame('));
   });
 
   it("a hostage takes no footfall slot: three standing escortees nearer than three players leave the players heard (HX-2; whether FUN_00552850's +0xd8 list counts them is unread, research 238 s7)", () => {

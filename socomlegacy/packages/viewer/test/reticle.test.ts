@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { DoubleSide, LinearFilter, NearestFilter, Mesh, Vector2, type MeshBasicMaterial, type Scene } from 'three';
 import { parseZdb, zdbMember, Zar } from '@s2u/archive';
 import { parseTextureRecord } from '@s2u/gs';
+import { GAME_FRAME_DT } from '@s2u/scene';
 import { readReticle } from '../src/hudBitmaps';
 import { UI_SAMPLING_DEFAULTS } from '../src/experimentalUiSampling';
 import {
@@ -342,7 +343,9 @@ describe('LATER 164: the scope\'s tube over set 0\'s cross in view state 2', () 
     expect(cross(on).length).toBe(cross(off).length);                 // the ring and the arms as without it
     expect(cross(on).length).toBeGreaterThan(0);
     expect(tubes(off)).toEqual([]);
-    // Laid as the scope's (`scopeLayout`): 320 PS2 pixels a side about the frame's centre.
+    // Laid as the scope's (`scopeLayout`): 320 PS2 pixels a side about the frame's centre -- drawn linear (the scope's
+    // bilinear without a record), unmoved: its half-texel correction is in its UVs (B-77, the UV form, delta review 3's
+    // finding 1; research 321 section 7.9).
     expect(tubes(on).map((m) => [m.position.x, m.position.y, Math.abs(m.scale.x)]).sort()).toEqual(
       [[160, 64, 320], [160, 384, 320], [480, 64, 320], [480, 384, 320]].sort());
   });
@@ -457,7 +460,9 @@ describe.skipIf(scopeMaps.length === 0)('SCUV-1: scope sampling over every multi
       r.setMode('reticle');
       for (const mesh of render()) {
         const unscoped = (mesh.material as MeshBasicMaterial).map;
-        if (unscoped) expect([unscoped.minFilter, unscoped.magFilter]).toEqual([NearestFilter, NearestFilter]);
+        // B-77 (research 321 s7.9): every reticle part samples as its record says -- linear on every MP map
+        // (reticleFilter.devdisc.test.ts) -- not nearest. 1003/1006 in a failure here are three's Nearest/LinearFilter.
+        if (unscoped) expect([unscoped.minFilter, unscoped.magFilter]).toEqual([LinearFilter, LinearFilter]);
       }
       r.setBitmaps(null);
     }
@@ -603,7 +608,11 @@ describe('PAR-94 B3: pageSpawned -- no kit drawn under the offline ARMORY, none 
     expect(main).toMatch(/firearm\.showReticle\(created\.renderer, walking, tacMap\.isOpen\(\), scoreboard, spawned\);/);
     expect(main).toMatch(/hud\.setVisible\(walking && spawned\);/);
     expect(main).toMatch(/respawned: \(\) => \{ ownSpawned = true;/);
-    expect(mount).toMatch(/firearm\.showReticle\(renderer\.renderer, walking, false, scoreboard, spawned\);/);
+    // PR #5 (crispy's import, 0ed80a521b): the third argument was `false` (no tactical map on the match); the match mounts
+    // `./main`'s tactical map for a `kbm` page only (the Forge's Play), null otherwise, so `false` still for every other
+    // match. The spawned gate, the fifth, is the same.
+    expect(mount).toMatch(/firearm\.showReticle\(renderer\.renderer, walking, tacMap\?\.isOpen\(\) \?\? false, scoreboard, spawned\);/);
+    expect(mount).toMatch(/if \(o\.kbm !== undefined\) tacMap = new TacMap\(/);
     expect(mount).toMatch(/hud\.setVisible\(walking && spawned\);/);
     expect(mount).toMatch(/respawned: \(\) => \{ spawned = true;/);
     for (const [f, text] of [['main.ts', main], ['matchMount.ts', mount]] as const) expect(text, f).not.toMatch(/hud\.setVisible\(walking\);/);
@@ -890,7 +899,7 @@ describe('NU-2 G3: the power fed each frame; no size, no knock, no move under se
     expect(render().filter((m) => m.userData.meter === undefined)).toEqual([]);
   });
 
-  it('over a throw: 0 at the press, rising as 1 - 0.95^n, held at the release\'s power, 0 once the thrower clears it', () => {
+  it('over a throw: 0 at the press, rising with the chase (LATER 1027: its exact per-second law), held at the release\'s power, 0 once the thrower clears it', () => {
     const { r, render } = meterReticle();
     const snap = {
       feet: [100, 50, 200], yaw: 90, pitch: 0, vx: 0, vz: 0, vy: 0, airborne: false, crouched: false, stance: 'stand',
@@ -910,7 +919,9 @@ describe('NU-2 G3: the power fed each frame; no size, no knock, no move under se
     g.pull();
     const fills: number[] = [];
     for (let n = 1; n <= 30; n++) fills.push(frame());
-    fills.forEach((f, i) => expect(f).toBeCloseTo(32 * (1 - 0.95 ** (i + 1)), 9));
+    // LATER 1027 re-pin: the power after n updates of 1/60 s is the chase's exact per-second law, 1 - (1 - 3G)^(n / 60G)
+    // (was the 60 Hz Euler step's 1 - 0.95^n).
+    fills.forEach((f, i) => expect(f).toBeCloseTo(32 * (1 - (1 - 3 * GAME_FRAME_DT) ** ((i + 1) / 60 / GAME_FRAME_DT)), 9));
     const atRelease = g.stats().power;
     g.release();
     let held = 0;

@@ -58,35 +58,40 @@ export const DROP_SAME_TICK_READING = FIRST_REQUEST_WINS_READING;
 export const PICKUP_PROMPT_COOLDOWN_READING = 3;
 
 /**
- * NU-5 L1 (web research 323 R323.5, §1.6; F1 of its review): a rocket launcher on the ground (class 0x91: the LAW 145,
- * the RPG-7 146) is offered, and claimable, only by a kit carrying **no** launcher-list item and holding a slot 2-4 free
- * or replaceable. `FUN_005a9c70` / `FUN_005a9f40` pass `FUN_005bac30(kit) == 0` to `FUN_00541d40` (D:L463675, D:L463693;
- * D:L463751, D:L463769), which then refuses a candidate of class 0x91 (D:L409249-409253); `FUN_005bac30`
- * (D:L473023-473084) answers false on finding any slot with an item of `FUN_003c5d80`'s list (D:L473027,
- * D:L473033-473035; the list D:L317287-317299: `launcherListed`), else true for the first of slots 2-4 that
- * `launcherSlotOf`'s test takes. The claim installs the launcher there (`FUN_0059f0c0` D:L458238-458292 through
- * `FUN_005bae60`) and its round with one round (`PICKUP_LAUNCHER_ROUNDS_READING`); no launcher is exchanged (a kit
- * carrying one is offered none). [reading] Owed: capture NU5-5.
+ * NU-5 L1; R4P-103 (r0004: the reading `docs/atlas/readings/r4p-103-launcher-pickup-placement.md` as re-filed by Q103C,
+ * agent/spc-atlas dcd314b4bd (first filed ab07d4e025), reviewed; held by the captures Q-103 / Q103B a1e119affd and Q103C
+ * dcd314b4bd, the weapons register): a rocket launcher on the ground (class 0x91: the LAW 145, the RPG-7 146) is
+ * offered, and claimable, only by a kit holding **no** launcher (ids 145-150) and a slot 2-4 empty or spent --
+ * `FUN_005c1760` (D4:L514677, used at D4:L449559 by `FUN_00546790`), whose record test is 0x3e7e20, class 0x91 only.
+ * It is placed by `FUN_005a4b70` (D4:L499171; r0001 `FUN_0059f0c0`) through
+ * `FUN_005c1990(kit, -1)` (D4:L499279: `launcherSlotOf`), its old item overwritten (`FUN_005c2fc0`: nothing displaced is
+ * saved or dropped), and its round appended with one round (`PICKUP_LAUNCHER_ROUND_SLOT_READING`,
+ * `PICKUP_LAUNCHER_ROUNDS_READING`). Q-103 (r0004): the M203 carrier is offered and takes a LAW and an RPG-7; a launcher
+ * in hand refuses. *Was* (r0001, research 323 §1.6 -- right for r0001): its gate `FUN_005bac30` calls 0x3c5d80, which
+ * also answers for the carriers 52, 61, 142, 143 and 63 (the M203 rifles, the MGL, the M79, the F2000), so r0001 refused
+ * a kit carrying any of them; r0004 replaced that callee with 0x3e7e20 (class 0x91 only). The two builds differ here; the
+ * build follows r0004 (OT.R97). [reading]
  */
 export const PICKUP_LAUNCHER_READING = 'claimable with one round, by a kit carrying no launcher' as const;
 
 /**
- * NU-5 L1: the round a claimed rocket launcher arrives with -- `FUN_0059f0c0` installs item 0xb9 (LAW HEAT), or 0xba
- * for item 146 (`-0x6e`), at the kit's count (`FUN_005bdfb0` D:L474716-474731) and gives it one round
- * (`FUN_005ba3d0(kit, slot, 1)` D:L458285-458291). The accept carries no count of it (`FUN_002ba1f0`
- * D:L159823-159836: the pickup, the taker, the request's entry count, the accepted mask): every console installs the
- * one round by this rule (`FUN_002ba1a0` D:L159807-159817 -> `FUN_0059dfb0` D:L457694-457706 -> `FUN_0059f0c0`).
- * [reading]
+ * NU-5 L1; R4P-103: the round a claimed rocket launcher arrives with -- `FUN_005a4b70` installs item 0xb9 (LAW HEAT), or
+ * 0xba when the picked id is 146, and gives it one round (D4:L499303-499309; r0001 `FUN_005ba3d0(kit, slot, 1)`
+ * D:L458285-458291). The accept carries no count of it (`FUN_002ba1f0` D:L159823-159836: the pickup, the taker, the
+ * request's entry count, the accepted mask): every console installs the one round by this rule (`FUN_002ba1a0`
+ * D:L159807-159817 -> `FUN_0059dfb0` D:L457694-457706 -> `FUN_0059f0c0`). [reading]
  */
 export const PICKUP_LAUNCHER_ROUNDS_READING = 1;
 
 /**
- * `FUN_005bae60`'s and `FUN_005bac30`'s ten ids an empty-ringed slot 2-4 keeps (D:L473062-473066, D:L473128-473132):
- * 0xff EQUIP_NONE, 0xfe FULL_SLOT, 0xc3 the Thermal Scope, 0xc2 the 2X, 0x91 the LAW, 0x8d the M203, 0x92 the RPG-7,
- * 0x0b the Designator, 0xc1 the Detonator, 0xbe the Binoculars. What "kept" means for each (which equipment item a
- * launcher displaces) is not read further (`PICKUP_LAUNCHER_SLOT_PLACEHOLDER`, research 323 §8). [reading]
+ * R4P-103: the ten ids a spent slot 2-4 keeps -- never taken by the launcher's slot search (`FUN_005c1990` D4:L499279,
+ * the reading at agent/spc-atlas dcd314b4bd; r0001 `FUN_005bae60` D:L473128-473132) nor by a bundle's equipment take
+ * (`FUN_005bb000` D:L473246-473276, `../../../match/src/pickups.ts`): 0xff EQUIP_NONE, 0xfe FULL_SLOT, 0xc3 the Thermal
+ * Scope, 0xc2 the 2X, 0x91 the LAW, 0x8d the M203, 0x92 the RPG-7, 0x0b the Designator, 0xc1 the Detonator, 0xbe the
+ * Binoculars. Q103C held the slot rule by capture; this list was not exercised there and stays a reading. Renamed
+ * from the launcher slot's "kept" list (the same ten: one constant carries them, research 323 §8). [reading]
  */
-export const LAUNCHER_SLOT_KEPT_READING: readonly number[] = [
+export const PICKUP_SPENT_EXEMPT_IDS_READING: readonly number[] = [
   EMPTY_ITEM, FULL_SLOT, ITEM.THERMAL, ITEM.DOUBLE_AMMO, ITEM.LAW, ITEM.M203, ITEM.RPG7, 11, ITEM.DETONATOR, 190,
 ];
 
@@ -94,61 +99,59 @@ export const LAUNCHER_SLOT_KEPT_READING: readonly number[] = [
 export interface PickupKitSlot { item: number; rounds: number }
 
 /**
- * `FUN_003c5d80` (D:L317287-317299): the M16A2-M203 (52), the M4A1-M203 (61), the OICW (63), the MGL (142), the M79
- * (143), or an item of class 0x91 (`FUN_003d1e10`; the rocket launchers, ids 145-150).
- */
-export function launcherListed(item: number): boolean {
-  return item === ITEM.M16_203 || item === ITEM.M4_203 || item === ITEM.F2000 || item === ITEM.MGL || item === ITEM.M79
-    || itemClass(item) === 'rocketLauncher';
-}
-
-/**
- * `FUN_005bae60(kit, -1)` (D:L473101-473152): the first of slots 2-4 whose ring holds no round and whose item is not one
- * of `LAUNCHER_SLOT_KEPT_READING`'s ten, or whose item is 0xff (`EMPTY_ITEM`); null for none. The original's third
- * answer -- a slot past the kit's count, which answers the count (D:L473106-473107) -- does not arise in the port's
- * five-slot kit, whose every slot holds an item (`EMPTY_ITEM` the original's 0xff record, research 94's EQUIP_NONE).
+ * `FUN_005c1990(kit, -1)` (D4:L499279; the reading at agent/spc-atlas dcd314b4bd; r0001 `FUN_005bae60`
+ * D:L473101-473152): the first of slots 2-4, scanning from 2, that is empty (0xff, `EMPTY_ITEM`, whatever its ring) or
+ * spent (its ring holds no round and its item is not one of `PICKUP_SPENT_EXEMPT_IDS_READING`'s ten); null for none.
+ * 0xfe and a null record are never taken. Q103B / Q103C: free at 2 -> 2; three free -> 2; 2 and 3 holding rounds, 4 free
+ * -> 4; slot 3 spent before a free 4 -> 3 (the carrier's spent 203 FRAG too); slot 2 spent before a free 3 -> 2. The
+ * original's third answer -- a slot past the kit's count, taken as an append -- does not arise in the port, whose kit
+ * holds at least five records (`EMPTY_ITEM` the original's 0xff record, research 94's EQUIP_NONE).
  */
 export function launcherSlotOf(kit: readonly PickupKitSlot[]): number | null {
   for (let s = 2; s <= 4 && s < kit.length; s++) {
     const { item, rounds } = kit[s]!;
-    if (!(rounds > 0) && !LAUNCHER_SLOT_KEPT_READING.includes(item)) return s;
     if (item === EMPTY_ITEM) return s;
+    if (!(rounds > 0) && !PICKUP_SPENT_EXEMPT_IDS_READING.includes(item)) return s;
   }
   return null;
 }
 
-/** `FUN_005bac30` (D:L473023-473084): no slot holds a launcher-list item (`launcherListed`), and `launcherSlotOf` finds one. */
+/**
+ * `FUN_005c1760` (D4:L514677; its record test 0x3e7e20, class 0x91 only): false when the kit holds a launcher (class
+ * 0x91, ids 145-150) or `launcherSlotOf` finds no slot. Not r0001's: `FUN_005bac30`'s test 0x3c5d80 also refused the
+ * carriers (`PICKUP_LAUNCHER_READING`'s *was*). The `param_4` branch of its caller `FUN_00546790` (bit 1 of the item's `+0xd`) skips
+ * the launcher filter; what it feeds is not traced (the reading), so this is the main branch's offer.
+ */
 export function launcherOffered(kit: readonly PickupKitSlot[]): boolean {
-  if (kit.some((k) => launcherListed(k.item))) return false;
+  if (kit.some((k) => itemClass(k.item) === 'rocketLauncher')) return false;
   return launcherSlotOf(kit) !== null;
 }
 
 /**
- * NU-5 L1 (research 323 §1.6; the gameplay controller's decision (i), 2026-10-14): where the claimed launcher's round
- * goes in the port's five-slot kit. The original installs it at the kit's count (`FUN_005be030` then `FUN_005bdfb0`,
- * D:L458285-458289) -- a slot past the five (the kit holds up to 30, D:L474724) -- so it never displaces an item. The
- * port's kit has five slots: the round goes into the first slot 2-4 holding `EMPTY_ITEM` other than the launcher's;
- * with none the claim is refused `'family'` and the launcher not offered (`launcherClaimSlots` null) -- a refused offer
- * rather than a launcher with no round. Settles: a kit of more than five slots (the original's count), or capture NU5-5
- * with a kit whose only free slot is a spent grenade's. [placeholder]
+ * R4P-103: where the claimed launcher's round goes -- appended at the kit's record count after the launcher is placed
+ * (D4:L499303-499309; the reading at agent/spc-atlas dcd314b4bd), never searched into slots 2-4: a five-record kit gets
+ * it at index 5 (Q103B: the LAW HEAT 185 always at the kit's sixth entry, x2 and x4 trials). One free slot suffices
+ * (Q-103). It replaces the port's five-slot stand-in (the first other empty slot 2-4, else refused; research 323
+ * §8). [reading]
  */
-export const PICKUP_LAUNCHER_ROUND_SLOT_PLACEHOLDER = 'the first empty slot 2-4; none: refused' as const;
+export const PICKUP_LAUNCHER_ROUND_SLOT_READING = "appended at the kit's record count" as const;
 
-/** The round a claimed launcher gets: 0xba for the RPG-7 (146, `-0x6e`), else 0xb9 the LAW HEAT (D:L458286-458289). */
+/** The round a claimed launcher gets: 0xba for the RPG-7 (146), else 0xb9 the LAW HEAT (D4:L499303-499309). */
 export function launcherRoundOf(launcher: number): number {
   return launcher === ITEM.RPG7 ? ITEM.RPG_ROUND : ITEM.LAW_HEAT;
 }
 
 /**
- * The port's launcher claim (`PICKUP_LAUNCHER_READING`, `PICKUP_LAUNCHER_ROUND_SLOT_PLACEHOLDER`): the launcher's slot
- * (`launcherSlotOf`, when `launcherOffered`) and its round's (the first other slot 2-4 holding `EMPTY_ITEM`), or null --
- * one function for the room's claim (`match/src/pickups.ts`) and the page's offer (`../drops`).
+ * The launcher claim (`PICKUP_LAUNCHER_READING`, `PICKUP_LAUNCHER_ROUND_SLOT_READING`): the launcher's slot
+ * (`launcherSlotOf`, when `launcherOffered`) and its round's (the record count after the launcher is placed), or null --
+ * one function for the room's claim (`match/src/pickups.ts`) and the page's offer (`../drops`). Still open:
+ * `PICKUP_LAUNCHER_SLOT_PLACEHOLDER` (research 323 §8: a round carried with no launcher beside the appended one, and
+ * `FUN_00589900` past its first answer).
  */
 export function launcherClaimSlots(kit: readonly PickupKitSlot[]): { launcher: number; round: number } | null {
   if (!launcherOffered(kit)) return null;
   const launcher = launcherSlotOf(kit)!;
-  for (let s = 2; s <= 4 && s < kit.length; s++) if (s !== launcher && kit[s]!.item === EMPTY_ITEM) return { launcher, round: s };
-  return null;
+  return { launcher, round: Math.max(kit.length, launcher + 1) };
 }
 
 /**

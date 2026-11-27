@@ -223,7 +223,7 @@ function beginScrub(input: HTMLInputElement, e: Event, options: ScrubOptions): v
   };
   const m = e as MouseEvent;
   if (m.button !== 0 || input.disabled || input.readOnly || doc.activeElement === input) return;
-  // A press on the field's own up / down arrows is theirs (the owner, 2026-11-17: "When I click on these little spinners
+  // A press on the field's own up / down arrows is theirs (the Forge's owner (crispy, OT.R112), 2026-11-17: "When I click on these little spinners
   // it is a bit buggy. It clicks and selects every other click. it should not select, just click it"): the browser steps
   // the value -- its `input` and `change` as a typed one's -- never a scrub nor a click to type.
   const box = input.getBoundingClientRect();

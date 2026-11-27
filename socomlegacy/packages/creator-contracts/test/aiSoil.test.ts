@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { checkCreatorRecord, layoutOfRecord, onlineLayoutRefusal, parseLayout, recordOfLayout, type Layout } from "../src/layout";
 
 /**
- * The layout's painted AI cells (`Layout.aiSoil`; the owner, 2026-11-16; a browser adaptation, FG.R2): each stored cell
+ * The layout's painted AI cells (`Layout.aiSoil`; the Forge's owner (crispy, OT.R112), 2026-11-16; a browser adaptation, FG.R2): each stored cell
  * of the base's AI grid by `map:x:z` to the soil it takes (bits 0-4 of its word, research 200 section 2). Kept by the
  * file and the v3 record; refused online (the room plays the disc's own grid).
  */

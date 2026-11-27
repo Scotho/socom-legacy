@@ -1,6 +1,7 @@
 import type { ViewerHook } from './hook';
-import { COMBAT_REPORT_RING } from './net/client';
+import { COMBAT_REPORT_RING, type RefusedReport } from './net/client';
 import type { CombatReport } from './net/protocol';
+import { joinShotLedger, type PageShotReport, type ShotLedgerSection } from './net/shotLedger';   // SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game)
 import { mountPlaytestSession, wsSocket } from './playtestSession';
 import { pagePerfLine } from './perfLine';
 
@@ -151,7 +152,21 @@ export interface ReportLabels {
 }
 
 /** What the page's net client kept of the room's combat reports (`NetClient.combatReport()`, research 127 §5). */
-export interface CombatRing { events: readonly CombatReport[]; dropped: number }
+export interface CombatRing { events: readonly CombatReport[]; dropped: number; refused?: RefusedReport; pageShots?: PageShotReport }
+
+/**
+ * SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game): the saved join of the room's fire rows that
+ * name a seq with the page's own expectation of each round (`./net/shotLedger` `joinShotLedger`) -- the rows by seq, the
+ * count by class, and how many of the page's own rows its ring let go (`pageDropped`).
+ */
+export type ShotLedgerReport = ShotLedgerSection & { pageDropped: number };
+
+/**
+ * [adaptation] LATER 876 (the owner's B2, 2026-11-22: a refused round is COUNTED): the saved refused rounds -- the rows
+ * the net client kept (seq, request, why; oldest first), how many older ones it let go, the count by reason (every one
+ * told) and the rows' bound (`COMBAT_REPORT_RING`).
+ */
+export interface RefusedSection { events: RefusedReport['events']; dropped: number; byReason: Record<string, number>; limit: number }
 
 /**
  * The saved combat section, his names: the reports oldest first (each as the room sent it, research 127 §3), how many
@@ -159,7 +174,7 @@ export interface CombatRing { events: readonly CombatReport[]; dropped: number }
  */
 export interface CombatSection { events: CombatReport[]; dropped: number; limit: number }
 
-export type PlaytestReport = { format: string } & ReportLabels & TrackerReport & { notes: string[]; combat?: CombatSection };
+export type PlaytestReport = { format: string } & ReportLabels & TrackerReport & { notes: string[]; combat?: CombatSection; refused?: RefusedSection; shotLedger?: ShotLedgerReport };
 
 const NOTES = [
   'A developer playtest report (?devmode), saved in the browser; the page sent it nowhere.',
@@ -176,6 +191,12 @@ const COMBAT_NOTES = [
   "damageApplied and totalBodyPartHealthChange sum the health taken over the six body parts, limb caps included; struckPartHealthChange is the struck part's alone. Null means not known, not zero. Neither is the HUD's health gauge; how they relate to it is not measured.",
 ];
 
+/** LATER 876 (an adaptation, the playtest instrument's): the refused section's note, added only with the section. */
+const REFUSED_NOTE = 'Refused: the rounds of this player the match server refused and told this page of (LATER 876; a server adaptation with no original). The round stays spent and nothing is drawn for it. "events" are the last ones kept (seq, request, the reason the server gave), oldest first; "dropped" counts the older ones let go; "byReason" counts every one told.';
+
+/** SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game): the ledger section's note, added only with the section. */
+const SHOT_LEDGER_NOTE = "shotLedger: the SHOT-LEDGER playtest instrument (an adaptation with no original; B-16; it changes nothing the game does). Each round this page sent, by seq, beside what the match server did with it (a room started with COMBAT_REPORT=1): \"page\" is the body, bone and part this page's own cast on the bodies it drew expected (null: none), \"room\" the server's row -- its status and reason, the body and part it struck, the tick it rewound the bodies to, the lead of the shown picture, the rewind class a-e, a miss's distance from the nearest rewound body (missBy, world units) and the first world surface's distance along the round (worldAt). Classes: OK; PART-DIFFERS (another body or part than the page expected); POSE-MISS (the page's cast met a body, the server missed); MISS-NO-PAGE (the server missed and this page kept no expectation for the round); WORLD (the server's walk met the world before that body); NO-DAMAGE-BONE (only bones that take nothing); REFUSED:<reason>; ROOM-MISS:<reason>; UNANSWERED (no server row kept for it -- not proof the server never decided it: a refusal the server reports without a seq (a malformed round, too many waiting, the action gate, mounted, the turret) joins only when a refused round was told for it, and the server's per-tick cap on refusal rows can drop one). A press that sent no round is not counted. \"byClass\" counts the rows; \"pageDropped\" the page's rows let go.";
+
 /**
  * The report: the listed labels, the tracker's report and the notes -- nothing else, whatever `labels` carries -- and,
  * when the client kept any combat report, the combat section (a copy) and its notes. An empty ring or none adds nothing.
@@ -189,6 +210,17 @@ export function buildReport(labels: ReportLabels, data: TrackerReport, combat?: 
   if (combat && combat.events.length) {
     report.notes.push(...COMBAT_NOTES);
     report.combat = { events: structuredClone([...combat.events]), dropped: combat.dropped, limit: COMBAT_REPORT_RING };
+  }
+  const refused = combat?.refused;
+  if (refused && (refused.events.length || refused.dropped)) {
+    report.notes.push(REFUSED_NOTE);
+    report.refused = { events: structuredClone(refused.events), dropped: refused.dropped, byReason: { ...refused.byReason }, limit: COMBAT_REPORT_RING };
+  }
+  // SHOT-LEDGER, an adaptation: a playtest instrument (B-16; it never changes the game): only when a combat row names a seq.
+  const ledger = combat && combat.events.length ? joinShotLedger(combat.events, refused?.events ?? [], combat.pageShots?.events ?? []) : null;
+  if (ledger) {
+    report.notes.push(SHOT_LEDGER_NOTE);
+    report.shotLedger = { ...ledger, pageDropped: combat?.pageShots?.dropped ?? 0 };
   }
   return report;
 }

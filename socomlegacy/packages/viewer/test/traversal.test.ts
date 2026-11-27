@@ -4,16 +4,16 @@ import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
 import { FsAssetSource } from '@s2u/archive/node';
 import { parseZdb, Zar, zdbMember } from '@s2u/archive';
-import { buildGrid, findLadders, GAME_FRAME_DT, polygonNormal, PROBE_LIFT, readSkeleton, SEAL_TUNING, type CollisionOwner, type Grid, type GridParams, type WorldPoly } from '@s2u/scene';
+import { buildGrid, findLadders, GAME_FRAME_DT, GameFrameAccumulator, polygonNormal, PROBE_LIFT, readSkeleton, SEAL_TUNING, type CollisionOwner, type Grid, type GridParams, type MotionClip, type WorldPoly } from '@s2u/scene';
 import { fixture, FIXTURES_ABSENT } from '../../archive/test/fixtures';
 import { loadMap } from '../src/loadMap';
-import { clipsFromPack, motionTableFromArchive } from '../src/motionTable';
+import { clipsFromPack, motionTableFromArchive, type MotionEntry, type MotionTable } from '../src/motionTable';
 import { CLIMB_COLUMN_END_READING, contactFromHits, CORNER_HITS_READING, cornerDrop, planClimb, type ClimbContact } from '../src/climb';
 import { ACTION_CLIPS, ACTION_SECONDS, EYE_HEIGHT, groundGrid, groundPolygons, moverSnapshot, TICK, Walker, type Stance, type WalkInput } from '../src/walk';
-import { rootY as stanceRootY, STANCE_WORD_ACTION_CROUCH_READING, STANCE_WORD_CROUCH_FALLBACK_READING, STANCE_WORD_DIVE_REQUEST_READING } from '../src/mover';
+import { rootY as stanceRootY, throttleFrameEnds, STANCE_WORD_ACTION_CROUCH_READING, STANCE_WORD_CROUCH_FALLBACK_READING, STANCE_WORD_DIVE_REQUEST_READING } from '../src/mover';
 import { Animator, blendWeight, PLAY_CLIPS } from '../src/animator';
 import { BLEND_TIME_DEFAULT } from '../src/locomotion';
-import { rootAt } from '../src/clipPath';
+import { blendShapes, rootAt } from '../src/clipPath';
 import { simClipsFromBytes } from '../src/simMap';
 import { MoverSim } from '../src/net/moverSim';
 import { Button, type Command } from '../src/net/protocol';
@@ -22,6 +22,7 @@ import {
   CLIMB_CROUCH_END_READING, CLIMB_STEER_READING, CLIMB_STEP_UP_STICK_READING, CLIMB_TOP_FLOOR_READING, CLIMB_CUT_READING, CLIMB_NO_INTERRUPT, CLIMB_RESUME_STICK_READING, LADDER_STANDOFF, PISTOL_CLIMB_CLIPS_READING, rippleAnimation,
   DIVE_END_BLEND_READING, DIVE_ROOT_FALL_READING, DIVE_ROOT_SEED_READING, Traversal, TRAVERSAL_CLIPS, type TraversalEvent,
   CLIMB_BODY_CLIPS, CLIMB_HIT_CANCELS_READING, CLIMB_OFFER_GATE_READING, CLIMB_PENDING_STANCE_READING, CLIMB_USEVELY_READING, climbOffered,
+  CLIMB_OVER_AXES_READING, CLIMB_OVER_FALL_READING, CLIMB_STEER_TILT_READING,
 } from '../src/traversal';
 
 /**
@@ -37,6 +38,27 @@ const PACK = fixture('RUN/MOTION_P.ZAR');
 let packClips: ReturnType<typeof clipsFromPack> | null = null;
 const PACK_CLIPS = (): ReturnType<typeof clipsFromPack> => (packClips ??= clipsFromPack(PACK!, TRAVERSAL_CLIPS));
 
+/**
+ * LATER 1222: `seal_climb_over` as the disc holds it -- skel_root's x y z per key, 19 keys (`RUN/MOTION_P.ZAR` through
+ * `clipsFromPack`, decoded, RS.R8; research 313 s8.17's read) -- with its `motion.rdr` row (playback 1, `NoInterrupt` 0.8,
+ * `BlendTime` unset), so the tests without the disc run the clip's own keys.
+ */
+const OVER_ROOT = [
+  2.9609375, 10.9609375, 13.484375, 2.87109375, 10.8125, 12.91796875, 2.80859375, 10.62109375, 12.2265625, 2.77734375, 10.44140625, 11.3671875,
+  2.76171875, 10.3046875, 10.421875, 2.7265625, 10.2265625, 9.47265625, 2.67578125, 10.515625, 8.53515625, 2.671875, 11.46484375, 7.6171875,
+  2.76171875, 12.6796875, 6.8046875, 2.828125, 14.3359375, 6.25, 2.83984375, 15.28515625, 5.58203125, 2.8359375, 15.58984375, 4.9453125,
+  2.8671875, 15.41796875, 4.23046875, 2.9140625, 14.9375, 3.36328125, 2.953125, 14.15234375, 2.296875, 2.97265625, 13.13671875, 1.05859375,
+  2.96484375, 11.98828125, -0.34375, 2.91796875, 10.8125, -1.765625, 2.875, 10.00390625, -2.79296875,
+];
+const overClip = (): MotionClip => ({
+  name: 'seal_climb_over', version: 0, duration: 19 / 30, frameCount: 19, rate: 30, unknown10: -1, unknown14: 1,
+  parts: [{ index: 0, name: 'skel_root', flags: 0, translations: Float32Array.from(OVER_ROOT) } as unknown as MotionClip['parts'][number]],
+});
+const OVER_ENTRY: MotionEntry = {
+  looped: false, playback: 1, maxVelocity: -1, blendTime: null, transitionA: null, transitionB: null, noInterrupt: 0.8, noFire: 1, callbacks: [{ name: 'climb_up', time: 0.1 }], normalize: [1, 1], refPt: [0, -0.96, -10.28],
+};
+const OVER_TABLE: MotionTable = new Map([['seal_climb_over', OVER_ENTRY]]);
+
 const FORWARD: WalkInput = { forward: 1, right: 0, boost: false };
 const BACK: WalkInput = { forward: -1, right: 0, boost: false };
 const STILL: WalkInput = { forward: 0, right: 0, boost: false };
@@ -44,7 +66,7 @@ const STILL: WalkInput = { forward: 0, right: 0, boost: false };
 const quad = (pts: number[], ditype: number, appflags = 0, path = 'worldmodel/q'): WorldPoly => ({
   modelName: 'worldmodel', path, region: 0, ditype, material: 25, ptcount: 4, cameratype: 0, appflags, points: Float32Array.from(pts),
 });
-const floor = (x0: number, z0: number, x1: number, z1: number, y: number): WorldPoly => quad([x0, y, z0, x1, y, z0, x1, y, z1, x0, y, z1], 3);
+const floor = (x0: number, z0: number, x1: number, z1: number, y: number): WorldPoly => quad([x0, y, z1, x1, y, z1, x1, y, z0, x0, y, z0], 3);
 
 function world(polys: WorldPoly[]): Grid {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 100, cellsX: 4, cellsZ: 4, originX: -200, originZ: -200 };
@@ -245,9 +267,12 @@ describe('the ladder on a synthetic wall (research 86 section 2)', () => {
       run(w, FORWARD, () => false, 120);                              // on to the rungs (the offer came from ~19 out)
       const z = w.state.z;
       expect(z).toBeLessThan(8);
-      w.place(21, 0, z); w.state.yaw = 0;                             // 21 along the face, ~6.5 out: the offset's dot ~0.29, 22 off (< 24)
+      // 21 along the face, 6.3 out: the offset's dot ~0.29, 22 off (< 24). LATER 1194B (the walls trial, 2026-11-21): was
+      // the walk-in's stop z (~6.5 at 60 Hz walls); met once a game frame the walk-in stops up to a frame's move further out
+      // (~7.0, a dot of 0.318 over the 0.3 under test), so the spot is set, not taken from the walk.
+      w.place(21, 0, 6.3); w.state.yaw = 0;
       w.tick(STILL);
-      const front = z / Math.hypot(21, z);
+      const front = w.state.z / Math.hypot(21, w.state.z);
       expect(front).toBeGreaterThan(0); expect(front).toBeLessThan(0.3);
       expect(t.climbPrompt()?.kind, 'offered: in front, > 0').toBe('ladder');
       t.action(); w.tick(STILL);
@@ -438,7 +463,10 @@ describe('the climb on a synthetic box (research 86 section 3)', () => {
   it('NU-1c B12: the automatic step-up needs no stick into the face -- the contact made, the stick let go, it steps up (RED before B12: nothing)', () => {
     const { grid, polys } = climbWorld(8, 4);
     const { w, t, events } = climber(polys, grid);
-    run(w, FORWARD, () => w.wallHits().length > 0, 200);                 // the walk's hit on the face: the contact next tick
+    // LATER 1194B (the walls trial, 2026-11-21): the contact is stored once a game frame, at its end (FUN_005483d0; the
+    // second read of LATER 1334), so the walk runs until the frame's hit has made the contact (was: the first tick with a
+    // hit, which can now fall between two frame ends).
+    run(w, FORWARD, () => w.storedContact() !== null, 200);              // the walk's hit on the face: the contact made
     expect(events).toEqual([]);
     w.tick(STILL);
     expect(events[0]).toEqual({ type: 'climbStart', kind: 'step' });
@@ -473,6 +501,350 @@ describe('the climb on a synthetic box (research 86 section 3)', () => {
     run(w, STILL, () => events.at(-1)?.type === 'climbEnd', 400);
     expect(w.state.y).toBe(0);
     expect(w.state.z).toBeLessThan(-2);                               // over the wall
+  });
+
+  // LATER 278 (research 313 s8.13 G1; CLIMB_OVER_RISE_READING, note only): the original's `Climb over` hand-off writes no
+  // position (`FUN_00589aa0` D:L446538-446542) -- the actor carries the clip's vertical and the steer's (D:L438910,
+  // D:L456435, D:L468933-468941) and the floor pick is made from there. The port ended the climb over at
+  // `floorUnder(x, start y, z, 6.5)`, so a class-5 face whose top lies more than 12.48 over the start left the body on the
+  // floor inside the obstacle's footprint. A block 16 tall and 20 deep, its top a floor: the end 6.0 past the edge is on it.
+  const insideBlock = (w: Walker): boolean => w.state.x > -10 && w.state.x < 10 && w.state.z > -20 && w.state.z < 0 && w.state.y < 16 - 1e-6;
+  const overBlock = (h = 16): { grid: Grid; polys: WorldPoly[] } => {
+    const polys = [floor(-100, -100, 100, 100, 0), ...box(-10, -20, 10, 0, h, 5)];
+    return { grid: world(polys), polys };
+  };
+
+  // The review of the build (finding 1): the pick's reject (`REJECT_ABOVE` 20, `scene/src/probe.ts`) was measured from
+  // the feet left on the start line, so a class-5 top more than 20 over the start was refused and the body stayed inside.
+  // The original's reject is from the actor, which the clip has carried (the same inference as G1's): measured from the
+  // carried height, a 22-tall block's top is taken.
+  it('LATER 278 G1b: a climb over a block 22 tall (over REJECT_ABOVE from the start) also ends on its top (RED before: y 0 inside)', () => {
+    const { grid, polys } = overBlock(22);
+    const { w, t, events } = climber(polys, grid);
+    run(w, FORWARD, () => t.climbPrompt() !== null, 120);
+    expect(t.climbPrompt()?.kind).toBe('over');
+    t.action();
+    run(w, STILL, () => events.at(-1)?.type === 'climbEnd', 400);
+    for (let i = 0; i < 30; i++) w.tick(STILL);
+    expect(w.state.x > -10 && w.state.x < 10 && w.state.z > -20 && w.state.z < 0 && w.state.y < 22 - 1e-6, `feet at (${w.state.x}, ${w.state.y}, ${w.state.z})`).toBe(false);
+    expect(w.state.y).toBeCloseTo(22, 6);
+  });
+
+  it('LATER 278 G1: a climb over a block 16 tall and 20 deep ends on its top, not inside it; the walk away never enters it (RED before: y 0 inside)', () => {
+    const { grid, polys } = overBlock();
+    const { w, t, events } = climber(polys, grid);
+    run(w, FORWARD, () => t.climbPrompt() !== null, 120);
+    expect(t.climbPrompt()?.kind).toBe('over');
+    t.action();
+    run(w, STILL, () => events.at(-1)?.type === 'climbEnd', 400);
+    expect(events.at(-1)).toEqual({ type: 'climbEnd', kind: 'over' });
+    for (let i = 0; i < 30; i++) w.tick(STILL);
+    expect(insideBlock(w), `feet at (${w.state.x}, ${w.state.y}, ${w.state.z})`).toBe(false);
+    expect(w.state.y).toBeCloseTo(16, 6);                              // on the top
+    const [x0, z0] = [w.state.x, w.state.z];
+    let entered = false;
+    for (let i = 0; i < 120; i++) { w.tick(FORWARD); entered ||= insideBlock(w); }
+    expect(entered).toBe(false);
+    expect(Math.hypot(w.state.x - x0, w.state.z - z0)).toBeGreaterThanOrEqual(10);
+  });
+
+  // LATER 1223 (rewrites LATER 278's G2, which asserted the cut; research 313 s8.16, CLIMB_OVER_AXES_READING): the
+  // original takes no stick cut of `Climb over`. `FUN_005af930` -- called by the driver before its cut test (D:L418169)
+  // -- sets the airborne bit for any action outside its suspended list (D:L466805-466806), skips the floor routine that
+  // clears it under `Climb over` (D:L466808-466810) and, the bit set, zeroes the move axes and the turn (D:L466811-466815)
+  // the cut then reads (D:L418182-418185). PROVEN on r0004 (l278-climbover F1/F2): the stick held forward from the press,
+  // action 189 runs its full clip, then the run (action 2): F1 from its first action-189 row to its first other row is
+  // 0.901 s of game clock (48.3831 to 49.2840; T1 the same), against the port's (18/19)^2 = 0.8975 s at 1/60 s ticks --
+  // the tolerance 0.02 s around 0.901. The stick held and the stick at rest end
+  // on the same tick, past the clip's last key, on the block top; the walk then takes the held stick.
+  it('LATER 1223 (was LATER 278 G2): the stick held forward from the press does not cut the climb over -- its full length, then the walk on the top', () => {
+    const climbOver = (input: WalkInput): { ticks: number; w: Walker; events: TraversalEvent[] } => {
+      const { grid, polys } = overBlock();
+      const { w, t, events } = climber(polys, grid);
+      run(w, FORWARD, () => t.climbPrompt() !== null, 120);
+      t.action();
+      w.tick(input);
+      expect(events[0]).toEqual({ type: 'climbStart', kind: 'over' });
+      // LATER 1222: the ticks from the press's to the end's -- the elapsed time; the climb over now ends on the 60 Hz tick its
+      // 28th game frame (the end test's, after 27 frames of the clip from the push's own) falls on, so the press's own tick
+      // is not counted twice (was: 1 + these, the clip ending on the 60 Hz clock).
+      const ticks = run(w, input, () => events.at(-1)?.type === 'climbEnd', 400);
+      return { ticks, w, events };
+    };
+    const still = climbOver(STILL);
+    const held = climbOver(FORWARD);
+    expect(CLIMB_NO_INTERRUPT.seal_climb_over).toBe(0.8);              // the clip's NoInterrupt stands; the axes it reads are zero
+    expect(held.ticks).toBe(still.ticks);                             // RED before LATER 1223: the cut past 0.8, 47 ticks against 55
+    expect(held.ticks * TICK).toBeGreaterThanOrEqual((18 / 19) ** 2 - 1e-9);   // no cut before the clip's last key
+    expect(held.ticks * TICK).toBeGreaterThan(0.901 - 0.02);           // the capture's clip, first 189 row to first other row, 0.901 s
+    expect(held.ticks * TICK).toBeLessThan(0.901 + 0.02);
+    expect(held.events.at(-1)).toEqual({ type: 'climbEnd', kind: 'over' });
+    expect(insideBlock(held.w), `feet at (${held.w.state.x}, ${held.w.state.y}, ${held.w.state.z})`).toBe(false);
+    expect(held.w.state.y).toBeCloseTo(16, 6);                         // on the top
+    const z0 = held.w.state.z;
+    for (let i = 0; i < 10; i++) held.w.tick(FORWARD);
+    expect(held.w.state.z).toBeLessThan(z0 - 1);                       // the walk, on the held stick
+    expect(held.w.state.z).toBeGreaterThan(-20);                       // still over the top (20 deep), not off its far edge
+    expect(held.w.state.y).toBeCloseTo(16, 6);
+    expect(CLIMB_OVER_AXES_READING).toBe('zeroed');
+  });
+
+  // LATER 1223's guard (green before and after): the other climbs keep the driver's cut -- the crate is suspended
+  // (`FUN_005af930` D:L466760-466787: its floor copy, no airborne bit, no zeroing), so the stick past its NoInterrupt cuts.
+  it('LATER 1223 guard: the stick held through a crate climb still cuts it before its last key', () => {
+    const { grid, polys } = climbWorld(12, 4);
+    const { w, t, events } = climber(polys, grid);
+    run(w, FORWARD, () => t.climbPrompt() !== null, 120);
+    expect(t.climbPrompt()?.kind).toBe('low');
+    t.action();
+    w.tick(FORWARD);
+    const ticks = 1 + run(w, FORWARD, () => events.at(-1)?.type === 'climbEnd', 400);
+    expect(ticks * TICK).toBeLessThan(1.25 * (29 / 30) ** 2);          // seal_climbcrate's whole run: cut before it
+  });
+
+  // LATER 278, the review's F3 guard, rewritten by LATER 1222 (research 313 s8.18 (d), (g)): a low class-5 fence, 7 tall
+  // and 2 deep with no top -- one the walk does not step over (a 4-tall one is under the step height, 6.5, and is walked
+  // over with no offer). Its climb over ends on the floor beyond it. It first asserted "the feet never under the floor"
+  // and "the drawn root back at standing": the original contradicts both (l278-climbover, proven): on the 7.26 low fence
+  // the feet go 2.90 under the start at clip frame 6 and 3.56 at frame 25 (MP81's cap: L1 0.69 at row 5 and 0.90 at 25, L2 0.80), while the root's
+  // world height (the feet + skel_root) stays at least 6.57 over the start and ends there (`+0xfac`). So the guard now
+  // holds the measured dip -- under the floor, within 0.3 of the low fence's -3.56 (the 7 fence's lift is 0.26 under the
+  // 7.26's: the law dips it 0.23 deeper) -- and the drawn root (the feet plus `Traversal.pose().rootY`, what the camera,
+  // the remote draw and the room's hit pose stand on) never under 6 over the floor.
+  it('LATER 278 F3 guard (rewritten by LATER 1222): a climb over a low fence (7 tall) dips the feet as the original does, keeps the root up and ends on the floor', () => {
+    const polys = [floor(-100, -100, 100, 100, 0), ...box(-10, -2, 10, 0, 7, 5).slice(0, 4)];
+    const grid = world(polys);
+    const { w, t, events } = climber(polys, grid);
+    t.setClips([overClip()], OVER_TABLE);
+    run(w, FORWARD, () => t.climbPrompt() !== null, 120);
+    expect(t.climbPrompt()?.kind).toBe('over');
+    t.action();
+    let lowFeet = Infinity, lowDrawn = Infinity;
+    for (let i = 0; i < 400 && events.at(-1)?.type !== 'climbEnd'; i++) {
+      w.tick(STILL);
+      const p = t.pose();
+      if (events.at(-1)?.type === 'climbEnd') break;
+      lowFeet = Math.min(lowFeet, w.state.y);
+      if (p?.rootY != null) lowDrawn = Math.min(lowDrawn, w.state.y + p.rootY);
+    }
+    expect(events.at(-1)).toEqual({ type: 'climbEnd', kind: 'over' });
+    expect(w.state.y).toBe(0);
+    expect(w.state.z).toBeLessThan(-2);
+    expect(lowFeet).toBeLessThan(0);                                    // the original's dip: RED before LATER 1222 (0)
+    expect(Math.abs(lowFeet - -3.56)).toBeLessThanOrEqual(0.3);
+    expect(lowDrawn).toBeGreaterThan(6);
+  });
+
+  // LATER 1222 (research 313 s8.15-8.18; CLIMB_OVER_BLEND_READING, CLIMB_OVER_FRAME_ORDER_READING): the original's climb
+  // over carries the body's vertical mid-clip -- PROVEN on r0004 (l278-climbover, shadow PC 3, `rows.csv`: the feet rise
+  // with the clip while skel_root's local y stays 10.0-11.487). The law (s8.18 (a), read at its source: the phase
+  // `FUN_0028c4f0`, the root's velocity from the key slopes `FUN_0028c250`/`FUN_00289bb0`, the steer `FUN_005b3340` on the
+  // root node's last capped y, the node blended over 0.4 s `FUN_00576860` and capped `FUN_0059afd0`), run once a game
+  // frame with the push's own frame advancing (pairing (B), the review's F1), is scored against every row. One synthetic
+  // class-5 face a measured trial, its top the capture's top less the start (the fence 64.27 - 47.0594; MP81's cap 130.15 -
+  // 120.0039; the low fence 56.49 - 49.2313, its floor beyond at the walk-away's 48.6609); `seal_climb_over`'s root is the
+  // disc's, decoded below (`overClip`). The rows (decoded, RS.R8) are the feet less the start at each action-189 row
+  // (T2's/F2's stale recorder row dropped), skel_root's y beside them; the law's values are the scratch scoring's
+  // (`law.py`/`built.py`, research 313 s8.18 (c), not committed). Tolerances: each trial's scored maximum under (B) plus
+  // 0.07 (s8.18 (g)): T1 0.40 (0.33), F1 0.46 (0.39 from the port's standing snapshot, the capture's running 11.3587 not
+  // in the simulation), L1 0.47 at its rows' own clock (0.40; its clock steps half a frame at row 6), L1x 0.10 (0.03).
+  // The row after the clip: on the fence `+0xfac` less the revealed (standing) root, held one game frame, 0.66 (scored
+  // 0.58: the original's revealed node is action 9's first frame, 10.60, unread -- CLIMB_OVER_FALL_READING), then the
+  // floor beyond; on the low faces the floor beyond at once.
+  // LATER 1244 (research 313 s8.20 (f), s8.21): each face now leans by its disc polygon's first-triangle normal y `ny`
+  // (the fence `alaska4d_fence01` 0.05614, the low fence 0.00521, MP81's cap -0.00301; `CLIMB_STEER_TILT_READING`), the law
+  // with the tilt (the scratch `l278arr.py`, not committed), and the tolerances tightened to each trial's scored maximum
+  // under it plus a margin: T1 0.06 (0.037), F1 0.06 (0.039), L1 0.46 at its rows' own clock (0.385: its short frames,
+  // the ruled known departure), L1x 0.03 (0.006); the fence's row after the clip `+0xfac` less `Jump fall`'s root
+  // (`CLIMB_OVER_FALL_READING`), 0.06 (0.034; was 0.66 on the standing root).
+  interface OverTrial { h: number; ny: number; far: number; input: WalkInput; tol: number; obs: number[]; law?: number[]; skel?: number[]; clock?: number[]; rows?: number; hand: number | null; handTol: number; handNode?: number }
+  const L1222: Record<'T1' | 'F1' | 'L1' | 'L1x', OverTrial> = {
+    T1: {
+      h: 17.2106, ny: 0.05614, far: 0, input: STILL, tol: 0.06, hand: 5.652, handTol: 0.06,
+      obs: [0.266, 0.827, 1.636, 2.576, 3.565, 4.522, 5.359, 6.274, 7.398, 8.268, 8.875, 9.649, 10.565, 11.101, 11.254, 11.419, 11.285, 10.954, 10.619, 10.09, 9.409, 8.722, 7.95, 7.156, 6.361, 6.153, 6.246],
+      skel: [11.4757, 11.4434, 11.3761, 11.2651, 11.105, 10.8927, 10.6782, 10.5845, 10.6549, 11.1896, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.13, 10.4898, 10.0039],
+      law: [0.268, 0.833, 1.647, 2.593, 3.587, 4.549, 5.389, 6.307, 7.433, 8.304, 8.912, 9.686, 10.602, 11.138, 11.291, 11.455, 11.321, 10.990, 10.655, 10.126, 9.445, 8.757, 7.985, 7.191, 6.395, 6.187, 6.280],
+    },
+    F1: {
+      h: 17.2106, ny: 0.05614, far: 0, input: FORWARD, tol: 0.06, hand: 5.651, handTol: 0.06,
+      obs: [0.272, 0.845, 1.669, 2.624, 3.625, 4.588, 5.423, 6.329, 7.44, 8.296, 8.891, 9.654, 10.566, 11.1, 11.253, 11.418, 11.284, 10.953, 10.618, 10.089, 9.408, 8.72, 7.949, 7.155, 6.36, 6.152, 6.244],
+      law: [0.268, 0.833, 1.647, 2.593, 3.587, 4.549, 5.389, 6.307, 7.433, 8.304, 8.912, 9.686, 10.602, 11.138, 11.291, 11.455, 11.321, 10.990, 10.655, 10.126, 9.445, 8.757, 7.985, 7.191, 6.395, 6.187, 6.280],
+    },
+    L1: {
+      h: 10.1461, ny: -0.00301, far: 0, input: STILL, tol: 0.46, hand: null, handTol: 0,
+      obs: [-0.115, -0.274, -0.434, -0.586, -0.683, -0.694, -0.62, -0.318, 0.035, 0.736, 1.406, 1.794, 2.667, 3.198, 3.775, 3.962, 3.853, 3.745, 3.442, 2.946, 2.45, 1.808, 1.082, 0.357, -0.386, -0.895, -0.682],
+      clock: [0, 1, 2, 3, 4, 5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5],
+      law: [-0.114, -0.274, -0.433, -0.586, -0.683, -0.693, -0.636, -0.288, 0.469, 1.132, 1.643, 2.389, 3.307, 3.859, 4.038, 4.228, 4.119, 3.816, 3.513, 3.017, 2.375, 1.733, 1.008, 0.265, -0.478, -0.633, -0.503],
+    },
+    L1x: {
+      h: 7.2587, ny: 0.00521, far: 48.6609 - 49.2313, input: STILL, tol: 0.03, hand: null, handTol: 0,
+      obs: [-0.255, -0.68, -1.2, -1.761, -2.269, -2.651, -2.9, -2.78, -2.181, -1.617, -1.163, -0.448, 0.455, 1.0, 1.173, 1.359, 1.247, 0.939, 0.632, 0.131, -0.516, -1.164, -1.896, -2.646, -3.396, -3.559, -3.434],
+      skel: [11.4757, 11.4434, 11.3761, 11.2651, 11.105, 10.8927, 10.6782, 10.5845, 10.6549, 11.1896, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.13, 10.4898, 10.0039],
+      law: [-0.254, -0.679, -1.198, -1.759, -2.266, -2.647, -2.895, -2.775, -2.176, -1.612, -1.157, -0.442, 0.460, 1.005, 1.178, 1.364, 1.252, 0.945, 0.637, 0.136, -0.511, -1.159, -1.891, -2.641, -3.391, -3.554, -3.429],
+    },
+  };
+
+  /**
+   * LATER 1244: a class-5 fence `h` tall and 2 deep across x -10..10 (four sides, no top) whose near face leans back so its
+   * first-triangle normal (`(p2 - p1) x (p0 - p1)`, the hull's hit normal, research 281 s4.3) has y `ny` -- the disc face's
+   * measured slope -- its top edge `h ny / sqrt(1 - ny^2)` behind its foot.
+   */
+  function leanFence(h: number, ny: number): WorldPoly[] {
+    const [x0, x1, z0] = [-10, 10, -2], lean = -(h * ny) / Math.sqrt(1 - ny * ny);
+    return [
+      quad([x0, 0, 0, x1, 0, 0, x1, h, lean, x0, h, lean], 2, 5),
+      quad([x0, 0, z0, x1, 0, z0, x1, h, z0, x0, h, z0], 2, 5),
+      quad([x0, 0, z0, x0, 0, 0, x0, h, lean, x0, h, z0], 2, 5),
+      quad([x1, 0, z0, x1, 0, 0, x1, h, lean, x1, h, z0], 2, 5),
+    ];
+  }
+
+  /**
+   * One trial: the face `h` tall and 2 deep (four class-5 sides, no top; LATER 1244: its near face leaning by `ny`), the
+   * floor at 0 and, where `far` is given, the floor beyond it at `far`; the walker at the start, Action pressed. Each game frame from the press's (frame 0, the push's
+   * own advance, pairing (B)) is sampled on the 60 Hz tick it falls on (a `GameFrameAccumulator` fed each tick after the
+   * press's): the feet less the start and the drawn root over the feet.
+   */
+  function overTrial(o: OverTrial): { feet: number[]; drawn: number[]; events: TraversalEvent[] } {
+    const fence = leanFence(o.h, o.ny);
+    const polys = o.far === 0 ? [floor(-100, -100, 100, 100, 0), ...fence] : [floor(-100, -2, 100, 100, 0), floor(-100, -100, 100, -2, o.far), ...fence];
+    const grid = world(polys);
+    const { w, t, events } = climber(polys, grid);
+    t.setClips([overClip()], OVER_TABLE);
+    run(w, FORWARD, () => t.climbPrompt() !== null, 120);
+    expect(t.climbPrompt()?.kind).toBe('over');
+    const y0 = w.state.y;
+    const feet: number[] = [], drawn: number[] = [];
+    const sample = (): void => { feet.push(w.state.y - y0); drawn.push(t.pose()?.rootY ?? Number.NaN); };
+    t.action();
+    w.tick(o.input);
+    expect(events[0]).toEqual({ type: 'climbStart', kind: 'over' });
+    sample();
+    const clock = new GameFrameAccumulator();
+    for (let i = 0; i < 200 && feet.length < 29; i++) {
+      w.tick(o.input);
+      if (clock.advance(TICK) > 0) sample();
+    }
+    return { feet, drawn, events };
+  }
+
+  // LATER 1222: a climb over popped mid-clip by a flinch (`flinchPop`, CLIMB_HIT_CANCELS_READING) runs the end handler from
+  // the actor's own height -- the carried feet and node (`+0xfac`), the pick taken from there as the hand-off's is
+  // (`FUN_00589aa0` D:L446538-446542; s8.18 (f) 5) -- not from the start line: on the 16-tall, 20-deep block, popped with
+  // the body over the top (game frame 25, past the edge) it stands on the top; popped before the face (game frame 3) on
+  // the floor in front.
+  it('LATER 1222: a flinch mid-clip settles the climb over from its carried height -- on the top past the edge, on the floor before it', () => {
+    const popAt = (frame: number): Walker => {
+      const { grid, polys } = overBlock();
+      const { w, t } = climber(polys, grid);
+      t.setClips([overClip()], OVER_TABLE);
+      run(w, FORWARD, () => t.climbPrompt() !== null, 120);
+      t.action();
+      w.tick(STILL);
+      const clock = new GameFrameAccumulator();
+      for (let n = 1; n <= frame;) { w.tick(STILL); if (clock.advance(TICK) > 0) n++; }
+      expect(t.state().kind).toBe('climb');
+      expect(t.flinchPop(w)).toBe(true);
+      return w;
+    };
+    const past = popAt(25);
+    expect(past.state.z).toBeLessThan(-2);
+    expect(past.state.y).toBeCloseTo(16, 6);
+    const before = popAt(3);
+    expect(before.state.z).toBeGreaterThan(0);
+    expect(before.state.y).toBeCloseTo(0, 6);
+  });
+
+  for (const [name, o] of Object.entries(L1222)) {
+    it(`LATER 1222 ${name}: the climb over carries the feet as the original's do, each game frame within ${o.tol} of l278-climbover's rows (RED before: on ClipPath's line)`, () => {
+      const { feet, drawn, events } = overTrial(o);
+      expect(feet.length).toBe(29);
+      const at = (x: number): number => { const j = Math.floor(x + 1e-9), f = x - j; return feet[j]! + (feet[j + 1]! - feet[j]!) * f; };
+      const misses = o.obs.map((y, i) => Math.abs(at(o.clock?.[i] ?? i) - y));
+      expect(Math.max(...misses), `per frame: ${misses.map((m) => m.toFixed(2)).join(' ')}`).toBeLessThanOrEqual(o.tol);
+      // The port is the law: its frames the scratch scoring's within its rounding.
+      const off = o.law!.map((y, i) => Math.abs(feet[i]! - y));
+      expect(Math.max(...off), `against the law: ${off.map((m) => m.toFixed(3)).join(' ')}`).toBeLessThan(0.005);
+      if (o.skel) {
+        // The drawn root over the feet is the blended, capped node (CLIMB_OVER_BLEND_READING): skel_root's row within 0.01.
+        const node = o.skel.map((y, i) => Math.abs(drawn[i]! - y));
+        expect(Math.max(...node), `node: ${node.map((m) => m.toFixed(4)).join(' ')}`).toBeLessThan(0.01);
+      }
+      // The row after the clip (game frame 27, the end test's): on the fence +0xfac less the revealed node (LATER 1244:
+      // `Jump fall`'s root; was the standing root), held one frame, then the floor beyond; on the low faces the floor
+      // beyond at once.
+      if (o.hand !== null) {
+        expect(Math.abs(feet[27]! - o.hand)).toBeLessThanOrEqual(o.handTol);
+        expect(feet[28]).toBeCloseTo(o.far, 6);
+      } else {
+        expect(feet[27]).toBeCloseTo(o.far, 6);
+      }
+      expect(events.at(-1)).toEqual({ type: 'climbEnd', kind: 'over' });
+    });
+  }
+
+  // LATER 1244 (research 313 s8.20, s8.21; CLIMB_STEER_TILT_READING, CLIMB_OVER_FALL_READING): the climb over's steer turns
+  // the stored `refPt` each frame by the shortest arc from `+0x9c` (0, 0, -1) onto the contact's reversed normal in the
+  // body's frame, its vertical kept (`FUN_005b1a10` D:L467927-467932, `FUN_005b3340` D:L468840-468844, D:L468892-468893),
+  // and the hand-off over the pick stands on `+0xfac` less the node the end reveals -- `Jump fall`'s root, 10.59765625
+  // (`FUN_0059afd0` D:L456368-456371). PROVEN on r0004 (l1222-climbover2, shadow PC 3, per-frame PINE reads; research 313
+  // s8.20): the gap-free trials S1b (MP1 `alaska4d_fence01`, 17.1652 over the start, ny 0.05614), S3b (MP1's low fence,
+  // 7.2536, ny 0.00521; its floor at the hand-off row, 0.2531 over the start) and S2 (MP81 `cell3_drydockcap1`, 10.1452,
+  // ny -0.00301). The rows (decoded, RS.R8) are the feet less the start at each action-189 row, scored on the rows before
+  // the console's short frame (S3b's clip frame 23, S2's 9: the ruled known departure, research 313 s8.20 (b) 2): the
+  // source law with the tilt matches them within 0.0022 / 0.0007 / 0.0000 at the port's fixed frame (the scratch
+  // `rows.py`, not committed), so 0.01. The fence's hand-off row 63.2992 - 10.5977 less the start (5.6421; the law 5.6405)
+  // within 0.01 (achieved 0.0016), its drawn node `Jump fall`'s root; the low faces' the floor beyond at once. RED before: the flat `refPt`
+  // misses S1b by 0.358, and the standing root leaves its hand-off row 0.62 under.
+  const L1244: Record<'S1b' | 'S3b' | 'S2', OverTrial> = {
+    S1b: {
+      h: 17.1652, ny: 0.05614, far: 0, input: STILL, tol: 0.01, hand: 5.6421, handTol: 0.01, handNode: 10.5977,   // far 0: a synthetic floor beyond (the capture's next row is +1.336), not compared
+      obs: [0.2651, 0.8254, 1.6333, 2.5722, 3.5595, 4.5156, 5.351, 6.2651, 7.3885, 8.2583, 8.8652, 9.639, 10.5549, 11.091, 11.2446, 11.4092, 11.275, 10.9443, 10.6091, 10.0802, 9.3991, 8.712, 7.9404, 7.146, 6.351, 6.1433, 6.2359],
+      skel: [11.4757, 11.4434, 11.3761, 11.2651, 11.105, 10.8927, 10.6782, 10.5845, 10.6549, 11.1896, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.487, 11.13, 10.4898, 10.0039],
+    },
+    S3b: {
+      h: 7.2536, ny: 0.00521, far: 49.4844 - 49.2313, input: STILL, tol: 0.01, rows: 23, hand: null, handTol: 0,
+      obs: [-0.2545, -0.6798, -1.1997, -1.7612, -2.269, -2.6511, -2.8996, -2.7803, -2.1811, -1.6175, -1.163, -0.448, 0.4549, 0.9995, 1.1726, 1.3588, 1.2465, 0.9393, 0.6319, 0.1312, -0.5161, -1.1641, -1.8962],
+    },
+    S2: {
+      h: 10.1452, ny: -0.00301, far: 0, input: STILL, tol: 0.01, rows: 9, hand: null, handTol: 0,
+      obs: [-0.1145, -0.2737, -0.4337, -0.5862, -0.6834, -0.694, -0.6371, -0.2884, 0.4682],
+    },
+  };
+
+  for (const [name, o] of Object.entries(L1244)) {
+    it(`LATER 1244 ${name}: the steer's tilt carries the feet within ${o.tol} of l1222-climbover2's rows, and the hand-off stands on the revealed node (RED before: the flat refPt, the standing root)`, () => {
+      const { feet, drawn, events } = overTrial(o);
+      expect(feet.length).toBe(29);
+      const misses = o.obs.slice(0, o.rows ?? o.obs.length).map((y, i) => Math.abs(feet[i]! - y));
+      expect(Math.max(...misses), `per frame: ${misses.map((m) => m.toFixed(4)).join(' ')}`).toBeLessThanOrEqual(o.tol);
+      if (o.skel) {
+        const node = o.skel.map((y, i) => Math.abs(drawn[i]! - y));
+        expect(Math.max(...node), `node: ${node.map((m) => m.toFixed(4)).join(' ')}`).toBeLessThan(0.01);
+      }
+      if (o.hand !== null) {
+        expect(Math.abs(feet[27]! - o.hand), `hand-off row ${feet[27]}`).toBeLessThanOrEqual(o.handTol);
+        expect(Math.abs(drawn[27]! - o.handNode!), `hand-off node ${drawn[27]}`).toBeLessThan(0.001);   // skel_root on the action-9 row
+        expect(feet[28]).toBeCloseTo(o.far, 6);
+      } else {
+        expect(feet[27]).toBeCloseTo(o.far, 6);
+      }
+      expect(events.at(-1)).toEqual({ type: 'climbEnd', kind: 'over' });
+    });
+  }
+
+  // LATER 1244: the two readings' values. `+0x9c` is set at run time (zero in the ELF's file image); the capture measures it
+  // as the body's forward (0, 0, -1) (research 313 s8.20 (b) 1). `Jump fall`'s Seal clip `seal_runningjump_in_air` holds one
+  // skel_root key, its y the node the hand-off subtracts -- pinned against the disc's pack where the fixture is present.
+  it("LATER 1244: the tilt turns from the body's forward, and the revealed node is seal_runningjump_in_air's one root key", () => {
+    expect(CLIMB_STEER_TILT_READING).toEqual([0, 0, -1]);
+    expect(CLIMB_OVER_FALL_READING).toBe(10.59765625);
+  });
+  it.skipIf(!PACK)("LATER 1244: CLIMB_OVER_FALL_READING is the disc pack's Jump fall root (RUN/MOTION_P.ZAR, seal_runningjump_in_air)", () => {
+    const [fall] = clipsFromPack(PACK!, ['seal_runningjump_in_air']);
+    const root = fall!.parts.find((q) => q.name === 'skel_root')!.translations;
+    expect(root.length).toBe(3);                                       // one key
+    expect(root[1]).toBe(CLIMB_OVER_FALL_READING);
   });
 
   it('hangs from a 30-high ledge, and the stick ahead pulls up onto it', () => {
@@ -590,32 +962,87 @@ describe('the climb on a synthetic box (research 86 section 3)', () => {
   // only `FUN_005b3890`'s drop (D:L413859-413862: within 24, in front, faced -- held), and the contact the weapon line
   // stored on the way in stands: offered at 30 and 90 too. The 0.9 itself is held where the centre meets a face in a
   // corner (`climbFacing.test.ts` (e2), `mp6DeckClimb.parity.test.ts` (3)). *Was:* 30 and 90 nothing.
-  it('PAR-21a C2: an inside corner of two crate faces -- turned 20, 30 or 90 degrees, only side records meet them, the weapon line\'s contact holds and the climb is offered', () => {
-    const corner = (deg: number): string | null => {
-      const a = (deg * Math.PI) / 180, dx = Math.cos(a), dz = Math.sin(a);
-      // A: z 0 from x -10 to 4, facing +z. B: from (4, 0) along (cos, sin) for 20, facing (-sin, cos), toward the walker.
-      const A = quad([-10, 0, 0, 4, 0, 0, 4, 12, 0, -10, 12, 0], 2, 4, 'worldmodel/a');
-      const B = quad([4, 0, 0, 4 + 20 * dx, 0, 20 * dz, 4 + 20 * dx, 12, 20 * dz, 4, 12, 0], 2, 4, 'worldmodel/b');
-      const nb = polygonNormal(B.points)!, na = polygonNormal(A.points)!;
-      expect(na[2]).toBeCloseTo(1, 6);
-      expect(nb[0]).toBeCloseTo(-Math.sin(a), 6);                       // B faces the walker inside the corner
-      expect(nb[0] * na[0] + nb[2] * na[2]).toBeCloseTo(Math.cos(a), 6);
-      const polys = [floor(-100, -100, 100, 100, 0), A, B];
-      const grid = world(polys);
-      const { w, t } = climber(polys, grid);
-      w.place(deg === 90 ? 0.6 : 4, 10, 12);
-      const along: WalkInput = { forward: 1, right: 0.3, boost: false };  // into the corner
-      for (let i = 0; i < 90; i++) w.tick(along);
-      // Settled in the corner: the last move met both faces (B alone, on the way in, is a climb face of its own).
-      // SEGMENT-BODY (re-judged): at 30 and 90 the last move meets both; at 20 the segments hold the body 9.4 off A where
-      // B is out of their reach, and the move meets A alone (B met on the way in) -- the offer is A's either way.
-      const met = new Set(w.wallHits().map((h) => h.poly.path));
-      expect(met, `${deg}: the faces met`).toEqual(deg === 20 ? new Set(['worldmodel/a']) : new Set(['worldmodel/a', 'worldmodel/b']));
-      return t.climbPrompt()?.kind ?? null;
-    };
-    expect(corner(20)).toBe('low');
-    expect(corner(30)).toBe('low');                                     // part 2: was null (no contact formed on the way in)
-    expect(corner(90)).toBe('low');                                     // part 2: was null
+  const insideCorner = (deg: number, startDz?: number, onTick?: (w: Walker, n: number) => void): string | null => {
+    const a = (deg * Math.PI) / 180, dx = Math.cos(a), dz = Math.sin(a);
+    // A: z 0 from x -10 to 4, facing +z. B: from (4, 0) along (cos, sin) for 20, facing (-sin, cos), toward the walker.
+    const A = quad([-10, 0, 0, 4, 0, 0, 4, 12, 0, -10, 12, 0], 2, 4, 'worldmodel/a');
+    const B = quad([4, 0, 0, 4 + 20 * dx, 0, 20 * dz, 4 + 20 * dx, 12, 20 * dz, 4, 12, 0], 2, 4, 'worldmodel/b');
+    const nb = polygonNormal(B.points)!, na = polygonNormal(A.points)!;
+    expect(na[2]).toBeCloseTo(1, 6);
+    expect(nb[0]).toBeCloseTo(-Math.sin(a), 6);                       // B faces the walker inside the corner
+    expect(nb[0] * na[0] + nb[2] * na[2]).toBeCloseTo(Math.cos(a), 6);
+    const polys = [floor(-100, -100, 100, 100, 0), A, B];
+    const grid = world(polys);
+    const { w, t } = climber(polys, grid);
+    // LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): settled in the corner, the body alternates every tick between {a} and
+    // {a,b}, and whether the offer survives depends on where the settle lands against the centre line's reach on A (a
+    // stored centre hit on A is dropped by B's side hit). So the met set and the 30-degree offer are a phase of the
+    // walk-in, and the ramp read half a tick ahead moves that phase. Start swept z +0..+0.6 in 0.05 steps:
+    // - 30 degrees: the trunk offered at 1 of 13 starts (+0, the start pinned here before), the head at 10 of 13
+    //   (+0.10..+0.55). Met {a,b} and offered at the head at +0.10, +0.25, +0.40 and +0.45: the start is +0.25,
+    //   inside the head's offer range with margin.
+    // - 90 degrees: the offer holds at every start in both settings. Met {a,b} only at +0, +0.05 at the trunk and at
+    //   +0.30..+0.40 at the head: the start is +0.35, the middle of the head's range.
+    // - 20 degrees: unchanged (met {a}, offered, at +0 in both).
+    // LATER 1194B (the walls trial, 2026-11-21; the walls met once a game frame), the same sweep (+0..+0.6, 0.05 steps;
+    // a hub scratch probe): 20 degrees offered at 13 of 13 (met {a,b}); 90 at 13 of 13 ({a,b} to +0.40, {b} beyond);
+    // 30 at 4 of 13 (+0.35..+0.50, met {a}; {a,b} and nothing at +0.55, +0.60): a departure from the reading, held by the
+    // GAP below (LATER 1334), not by moving the start. 20 and 90 unchanged.
+    const START_DZ: Record<number, number> = { 20: 0, 30: 0.25, 90: 0.35 };
+    w.place(deg === 90 ? 0.6 : 4, 10, 12 + (startDz ?? START_DZ[deg]!));
+    const along: WalkInput = { forward: 1, right: 0.3, boost: false };  // into the corner
+    for (let i = 0; i < 90; i++) { w.tick(along); onTick?.(w, i + 1); }
+    // Settled in the corner: the last move met both faces (B alone, on the way in, is a climb face of its own).
+    // SEGMENT-BODY (re-judged): at 30 and 90 the last move meets both; at 20 the segments hold the body 9.4 off A where
+    // B is out of their reach, and the move meets A alone (B met on the way in) -- the offer is A's either way.
+    // LATER 1194B (the walls trial, 2026-11-21): which faces the last move meets is the walk-in's phase (above), and with
+    // the walls met once a game frame the frame's whole move reaches B at 20 degrees too ({a, b}; was {a} at 60 Hz). A,
+    // the climb face, is met at every angle; the offer below is the reading's claim and is held unchanged.
+    const met = new Set(w.wallHits().map((h) => h.poly.path));
+    expect(met.has('worldmodel/a'), `${deg}: A met (${[...met].join(', ')})`).toBe(true);
+    return t.climbPrompt()?.kind ?? null;
+  };
+  it('PAR-21a C2: an inside corner of two crate faces -- turned 20 or 90 degrees, only side records meet them, the weapon line\'s contact holds and the climb is offered', () => {
+    expect(insideCorner(20)).toBe('low');
+    expect(insideCorner(90)).toBe('low');                               // part 2: was null
+  });
+
+  // The walls trial's second read of LATER 1334 (Fable, 2026-11-21): FUN_005483d0 resolves its segments and stores or
+  // drops the contact ONCE a game frame (D:L413823-413901, one pass over one hit table; r0004 0x54df00-0x54e204 the same).
+  // With the walls met once a frame the port also resolves on the tick between two frame ends, on the frame's predicted
+  // move, and stored or dropped the contact there too: a drop the original never evaluates. The contact changes only on
+  // a frame's end (the frames end on odd ticks counted from the placing: `throttleFrameEnds`). The segment store only:
+  // `Traversal.keepContact` still asks `holdContact` every tick (research 281 s4.1's named departure), another path.
+  it("the stored contact changes only on a game frame's end (FUN_005483d0 stores once a frame): an inside corner at 30 degrees, every start", () => {
+    const changes: string[] = [];
+    for (let k = 0; k <= 12; k++) {
+      let last: string | null | undefined;
+      insideCorner(30, k * 0.05, (w, n) => {
+        const c = w.storedContact()?.poly.path ?? null;
+        if (last !== undefined && c !== last && !throttleFrameEnds(n)) changes.push(`+${(k * 0.05).toFixed(2)} tick ${n}: ${last} -> ${c}`);
+        last = c;
+      });
+    }
+    expect(changes, 'contact changes on a tick between two frame ends').toEqual([]);
+  });
+
+  // GAP (LATER 1334, a NAMED LIMIT -- the main controller's ruling, 2026-11-21, on a Fable second read): at 30 degrees the
+  // offer holds at 4 of the sweep's 13 starts (+0.35..+0.50; 10 of 13 with the ramp lead before, 1 before that). Traced:
+  // where it fails, the centre record reaches B during the slide along it and a record on A, 30 degrees off (0.866 < 0.9),
+  // drops the contact: the ORIGINAL's own rule (FUN_005483d0 D:L413823-413901, one pass over one hit table; r0004
+  // 0x54df00-0x54e204 the same). "Offered at 30 at every start" was the port's phase, never the original's; which starts
+  // the original's phase gives is uncaptured (CAPTURE-BACKLOG, LANE-WALLS). Passes when the climb is offered at every start.
+  // The floor beside the GAP (the main controller's ruling, 2026-11-21; the fold review's F4): the PORT'S OWN count of the
+  // 30-degree offer over the sweep, 4 of 13 (+0.35..+0.50) at the walls head -- not the original's (uncaptured, the GAP
+  // above), pinned so a fall to fewer fails loudly while the GAP holds the full claim.
+  it("PAR-21a C2 at 30 degrees, the port's own count: the climb is offered from 4 of the sweep's 13 starts (a floor beside LATER 1334)", () => {
+    const offered = Array.from({ length: 13 }, (_, k) => insideCorner(30, k * 0.05));
+    expect(offered.filter((o) => o !== null).length, `30 degrees: ${offered.join(' ')}`).toBe(4);
+  });
+
+  it.fails('GAP (LATER 1334): PAR-21a C2 at 30 degrees: the climb is offered from every start of the walk-in sweep (+0 to +0.6)', () => {
+    const offered = Array.from({ length: 13 }, (_, k) => insideCorner(30, k * 0.05));
+    expect(offered.filter((o) => o === null).length, `30 degrees: ${offered.join(' ')}`).toBe(0);
   });
 
   // PAR-21a C2, `CORNER_HITS_READING` 'span' (research 281 s4.1, s6): at an outside corner the slide's disc meets both
@@ -786,6 +1213,302 @@ describe("NU-1c B10: the climb's steer concurrent with its clip (FUN_005b3340, r
     for (let i = 0; i < 200; i++) steer.advance(0, TICK);
     expect(oneShotPhase(steer.run, steer.seconds, 30)).toBeCloseTo(29 / 30, 12);   // held at the one-shot's end
     expect(CLIMB_STEER_READING).toBe('concurrent');
+  });
+});
+
+/**
+ * LATER 1250 (research 313 s8.23; `CLIMB_STEER_TILT_READING`): `FUN_005b3340` turns a copy of the stored `refPt` by the
+ * shortest arc from `+0x9c` onto the play's `+0x7c` taken into the body's frame (D:L468840-468844, D:L468892-468893) for
+ * every one-shot play with a steer record -- and `FUN_005b2620` records it for every climb kind through `FUN_005b1a10`
+ * (D:L468504, the stored contact's normal `pfVar13 + 4`), which keeps it negated, whole (D:L467927-467932), for `Stand ->
+ * Hang` (0x21), `Climb medium`, `Climb over`, `Step up` and `Climb crate` (0x2a) (D:L467888-467899). LATER 1244 built the
+ * turn for the climb over only; the step-up, crate, medium and hang kept the flat `refPt`. Each kind is climbed head on
+ * at a box whose near face leans by the measured slope of MP1's `alaska4d_fence01` (first-triangle ny 0.05614, research
+ * 313 s8.20 (b) 1), and at its twin -- an upright face (ny 0) standing at the leaning face's z where the offer's ray meets
+ * it (the leaning run's target; s8.23 (e)), so both plans take one target and one press, and the upright face's arc is
+ * the level turn the flat steer already lays: every other input (the walk, the contact, the plan, the track) the same. The
+ * law the difference must follow is computed here, apart from the port: the rotation by Rodrigues' formula (axis a x b,
+ * angle atan2(|a x b|, a . b)) rather than the port's half-vector quaternion; the phase, the weight sqrt(ease) and the
+ * root's key-slope velocity written out; the stored `refPt` (`motion.rdr`, research 86 section 1: x 0) less the root's
+ * velocity x dt each command (D:L468947-468951). The steer's step is k (the target less the turned `refPt` less the
+ * root), so against the flat twin the root's offset D follows D' = (1 - k) D - k d, d the turned `refPt` less the one
+ * turned onto the flattened normal (in y, the turned less the stored; through the body's yaw in x and z). The vertical
+ * lands on the drawn root (the feet plus `Traversal.rootY`), as the flat steer's does; x and z on the feet. No capture
+ * measures these climbs: the level is a reading, pending review (s8.23's capture spec). RED before: the twins agree.
+ */
+describe('LATER 1250: the other climbs steer on the tilted refPt (FUN_005b3340, research 313 s8.23)', () => {
+  const NY = 0.05614;
+  type V = [number, number, number];
+  const sub = (a: V, b: V): V => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const cross = (a: V, b: V): V => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const dot = (a: V, b: V): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  /** `v` turned about the unit axis of `a x b` by the angle between the unit `a` and `b` (Rodrigues). */
+  const rodrigues = (a: V, b: V, v: V): V => {
+    const c = cross(a, b), s = Math.hypot(...c), co = dot(a, b);
+    if (s < 1e-15) return [...v];
+    const k: V = [c[0] / s, c[1] / s, c[2] / s], th = Math.atan2(s, co), cs = Math.cos(th), sn = Math.sin(th), kv = cross(k, v), kd = dot(k, v);
+    return [0, 1, 2].map((i) => v[i]! * cs + kv[i]! * sn + k[i]! * kd * (1 - cs)) as V;
+  };
+  /** World to the body's frame at `yaw` (degrees; x right, z behind), and back. */
+  const toBody = (v: V, yaw: number): V => { const a = yaw * DEG, c = Math.cos(a), s = Math.sin(a); return [v[0] * c - v[2] * s, v[1], v[0] * s + v[2] * c]; };
+  const toWorld = (v: V, yaw: number): V => { const a = yaw * DEG, c = Math.cos(a), s = Math.sin(a); return [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c]; };
+  const DEG = Math.PI / 180;
+
+  /**
+   * A box `h` tall (appflags `app`) from x -10 to 10, z -30 to `at`, its near face's top edge at z `at` and its foot
+   * `h ny / sqrt(1 - ny^2)` out in front, so the face's first triangle has normal y `ny`. The twin (ny 0) is upright at the
+   * leaning face's z where the offer's ray meets it (the leaning run's target), so both plans take one target.
+   */
+  function leanBox(h: number, app: number, ny: number, at = 0): { grid: Grid; polys: WorldPoly[] } {
+    const [x0, x1, z0] = [-10, 10, -30], lean = at + (h * ny) / Math.sqrt(1 - ny * ny);
+    const polys = [
+      floor(-100, -100, 100, 100, 0),
+      quad([x0, 0, lean, x1, 0, lean, x1, h, at, x0, h, at], 2, app),
+      quad([x0, 0, z0, x1, 0, z0, x1, h, z0, x0, h, z0], 2, app),
+      quad([x0, 0, z0, x0, 0, lean, x0, h, at, x0, h, z0], 2, app),
+      quad([x1, 0, z0, x1, 0, lean, x1, h, at, x1, h, z0], 2, app),
+      floor(x0, z0, x1, at, h),
+    ];
+    return { grid: world(polys), polys };
+  }
+  interface Row { kind: string; x: number; y: number; z: number; yaw: number; body: number | null }
+  type Plan = { kind: string; h: number; yaw: number; target: number[]; blend?: { clip: string; weight: number } | null; contact: { top: number; nx: number; nz: number } };
+  /**
+   * The climb pressed at the leaning box (or, `flat` its z, its upright twin): walked into head on, then stood at (0, `z`) turned to
+   * `yaw`, still (a still body keeps its contact), so both twins press from one place on one plan; each command's row.
+   */
+  function tiltRows(h: number, app: number, flat: number | null, yaw = 0, z = 12, blend = false): { rows: Row[]; t: Traversal; kind: string; plan: Plan } {
+    const { grid, polys } = flat === null ? leanBox(h, app, NY) : leanBox(h, app, 0, flat);
+    const { w, t } = climber(polys, grid);
+    run(w, FORWARD, () => t.climbPrompt() !== null, 120);
+    w.state.x = 0; w.state.z = z; w.state.yaw = yaw;
+    w.tick(STILL);
+    const prompt = t.climbPrompt();
+    expect(prompt, `h ${h}`).not.toBeNull();
+    const plan = (t as unknown as { plan: Plan }).plan;
+    if (blend) expect(plan.blend ?? null).not.toBeNull();                  // the crate/medium blend's two nodes
+    else expect(plan.blend ?? null).toBeNull();                            // one node: no crate/medium blend
+    t.action();
+    const rows: Row[] = [];
+    const row = (): void => {
+      const root = t.rootY();
+      rows.push({ kind: t.state().kind, x: w.state.x, y: w.state.y, z: w.state.z, yaw: w.state.yaw, body: root === null ? null : w.state.y + root });
+    };
+    row();
+    for (let i = 0; i < 400 && (rows.length < 2 || rows.at(-1)!.kind === 'climb'); i++) { w.tick(STILL); row(); }
+    for (let i = 0; i < 3; i++) { w.tick(STILL); row(); }
+    return { rows, t, kind: prompt!.kind, plan: { kind: plan.kind, h: plan.h, yaw: plan.yaw, target: [...plan.target], blend: plan.blend ?? null, contact: { top: plan.contact.top, nx: plan.contact.nx, nz: plan.contact.nz } } };
+  }
+  /** The twins share every input of the flat steer: the press's place, the plan's target, facing, top and normal. */
+  function sameInputs(a: ReturnType<typeof tiltRows>, b: ReturnType<typeof tiltRows>): void {
+    expect(a.rows[0]).toEqual(b.rows[0]);
+    expect(a.plan.kind).toBe(b.plan.kind);
+    expect(a.plan.yaw).toBeCloseTo(b.plan.yaw, 9);
+    for (let i = 0; i < 3; i++) expect(a.plan.target[i]!, `target ${i}`).toBeCloseTo(b.plan.target[i]!, 7);   // the points are f32
+    expect(a.plan.contact.top).toBeCloseTo(b.plan.contact.top, 9);
+    expect(a.plan.contact.nx).toBeCloseTo(b.plan.contact.nx, 9);
+    expect(a.plan.contact.nz).toBeCloseTo(b.plan.contact.nz, 9);
+    expect(b.rows.length).toBe(a.rows.length);
+  }
+  /** `motion.rdr`'s `refPt` of each kind's clip (research 86 section 1; `Step up` + 1 in y, `FUN_005b1a10` D:L467905). */
+  const KINDS = {
+    step: { h: 8, app: 1, clip: 'seal_step_up', ref: [0, -3.48 + 1, -8] as V },
+    low: { h: 11, app: 1, clip: 'seal_climbcrate', ref: [0, 1.48, -8.92] as V },
+    med: { h: 27, app: 3, clip: 'seal_climb_medium', ref: [0, 9.98, -8.92] as V },
+    high: { h: 30, app: 1, clip: 'seal_stand2hang', ref: [0, 18.51, -5.65] as V },
+  } as const;
+
+  /**
+   * The law's offsets against the flat twin at each steered command i (1 from the command after the press's): the drawn
+   * root's vertical `dy[i]` and the feet's `dx[i]`, `dz[i]`, from the yaws the run took (`yaws[i]` the body's yaw at the
+   * command's start: the turn's input, D:L468840-468844) and the clip's shape (its keys and root: the data, not the law).
+   */
+  function law(shape: { keys: number; seconds: number; root: ArrayLike<number> }, ref0: V, yaws: number[], dt = TICK, from = 1): { dy: number[]; dx: number[]; dz: number[] } {
+    // `dt`: the command's (60 Hz, or the over's game frame); `from`: the first command the twins part on (the offsets 0 before).
+    const TICK = dt;
+    const n = shape.keys, e = (n - 1) / n, playback = shape.seconds / (e * e);
+    const ease = (p: number): number => (p <= 0.5 ? 2 * p * p : 1 - 2 * (p - 1) * (p - 1));
+    const normal: V = [0, -NY, -Math.sqrt(1 - NY * NY)];                    // the face's normal (0, ny, +) reversed, world
+    const fwd: V = [0, 0, -1];                                              // `+0x9c`, CLIMB_STEER_TILT_READING
+    let ref: V = [...ref0], Dy = 0, Dx = 0, Dz = 0;
+    const out = { dy: [0], dx: [0], dz: [0] };
+    for (let i = 1; i < yaws.length; i++) {
+      const phase = Math.min(e, (i * TICK) / (playback * e));
+      const k = Math.sqrt(ease(phase));
+      const nb = toBody(normal, yaws[i]!), hl = Math.hypot(nb[0], nb[2]);
+      const turned = rodrigues(fwd, nb, ref), level = rodrigues(fwd, [nb[0] / hl, 0, nb[2] / hl], ref);
+      const dw = toWorld(sub(turned, level), yaws[i]!);
+      if (i >= from) {
+        Dy = (1 - k) * Dy - k * (turned[1] - ref[1]);
+        Dx = (1 - k) * Dx - k * dw[0];
+        Dz = (1 - k) * Dz - k * dw[2];
+      }
+      out.dy.push(Dy); out.dx.push(Dx); out.dz.push(Dz);
+      let a = Math.min(n - 1, Math.floor(phase * n + 1e-9)), b = a + 1;
+      if (b >= n) { b = n - 1; a = n - 2; }
+      const r = shape.root, v = [0, 1, 2].map((j) => ((r[b * 3 + j]! - r[a * 3 + j]!) * n) / playback);
+      ref = [ref[0] - v[0]! * TICK, ref[1] - v[1]! * TICK, ref[2] - v[2]! * TICK];
+    }
+    return out;
+  }
+
+  for (const [kind, o] of Object.entries(KINDS)) {
+    it(`LATER 1250 ${kind}: on a face leaning ny ${NY} the steer's aim turns onto the reversed normal each command -- the drawn root and the feet off the flat twin by the source law (RED before: the twins agree)`, () => {
+      const tilted = tiltRows(o.h, o.app, null), flat = tiltRows(o.h, o.app, tilted.plan.target[2]!);
+      expect(tilted.kind).toBe(kind);
+      sameInputs(tilted, flat);                                            // the same press: the twin differs only in the steer
+      const shape = tilted.t.shapes.get(o.clip);
+      const steered = tilted.rows.slice(2).filter((r) => r.kind === 'climb').length;
+      expect(steered).toBeGreaterThan(20);
+      const yaws = [tilted.rows[0]!.yaw, ...tilted.rows.slice(1, 1 + steered).map((r) => r.yaw)];
+      const want = law(shape, o.ref, yaws);
+      let most = 0;
+      for (let i = 1; i <= steered; i++) {
+        const a = tilted.rows[i + 1]!, b = flat.rows[i + 1]!;
+        expect(a.body! - b.body!, `command ${i}: the drawn root`).toBeCloseTo(want.dy[i]!, 6);
+        expect(a.x - b.x, `command ${i}: x`).toBeCloseTo(want.dx[i]!, 6);
+        expect(a.z - b.z, `command ${i}: z`).toBeCloseTo(want.dz[i]!, 6);
+        expect(a.y - b.y, `command ${i}: the feet's y, the track's`).toBeCloseTo(0, 9);
+        most = Math.max(most, Math.abs(want.dy[i]!), Math.abs(want.dz[i]!));
+      }
+      expect(most, 'the tilt is no rounding: its offset reaches over 0.1').toBeGreaterThan(0.1);
+      if (kind === 'high') {
+        // "Stand -> Hang"'s uncut end reveals the hang where the clip and the steer left the root: the tilt's open vertical
+        // kept in the hang's root (`hangRoot`), held through the hang.
+        const end = tilted.rows.findIndex((r, i) => i > 1 && r.kind !== 'climb');
+        expect(tilted.rows[end]!.kind).toBe('hang');
+        expect(flat.rows[end]!.kind).toBe('hang');
+        // The end's own command steers too (its advance, then the end): the hang's root keeps that command's open vertical.
+        const last = law(shape, o.ref, tilted.rows.slice(0, end).map((r) => r.yaw));
+        expect(tilted.rows[end]!.body! - flat.rows[end]!.body!).toBeCloseTo(last.dy[end - 1]!, 6);
+        expect(tilted.rows[end + 2]!.body! - flat.rows[end + 2]!.body!).toBeCloseTo(last.dy[end - 1]!, 6);
+      }
+    });
+  }
+
+  it('LATER 1250 low, turned 60 degrees off the face: the turn onto the flattened normal is the flat steer already, only the lean is added (x and z through the yaw)', () => {
+    const tilted = tiltRows(11, 1, null, 60), flat = tiltRows(11, 1, tilted.plan.target[2]!, 60);
+    sameInputs(tilted, flat);
+    const steered = tilted.rows.slice(2).filter((r) => r.kind === 'climb').length;
+    const yaws = [tilted.rows[0]!.yaw, ...tilted.rows.slice(1, 1 + steered).map((r) => r.yaw)];
+    expect(Math.abs(yaws[1]!)).toBeGreaterThan(30);                         // the body is yawed off the face
+    const want = law(tilted.t.shapes.get('seal_climbcrate'), KINDS.low.ref, yaws);
+    for (let i = 1; i <= steered; i++) {
+      const a = tilted.rows[i + 1]!, b = flat.rows[i + 1]!;
+      expect(a.yaw, `command ${i}: the turn is the flat one`).toBeCloseTo(b.yaw, 9);
+      expect(a.body! - b.body!, `command ${i}: the drawn root`).toBeCloseTo(want.dy[i]!, 6);
+      expect(a.x - b.x, `command ${i}: x`).toBeCloseTo(want.dx[i]!, 6);
+      expect(a.z - b.z, `command ${i}: z`).toBeCloseTo(want.dz[i]!, 6);
+    }
+  });
+
+  // The review's F3: the crate/medium blend (12 < h <= 26.5, `climbClass`; research 86 section 3: `FUN_00581110` plays the
+  // crate and the medium as one play's two nodes, the crate's weight 1 - (h - 12) / 14.5). `FUN_005b1a10` stores the first
+  // node's (the crate's) `refPt` with its y weighed by the first node's weight against the medium's (D:L467914-467919) and
+  // the same whole normal (D:L467927-467932), so the blend's tilt is the law above on that `refPt`: x 0, y w 1.48 +
+  // (1 - w) 9.98, z the crate's -8.92. The root's velocity the stored `refPt` loses each command (`+0x2c`, D:L468947-468951)
+  // is the play's root, here the port's model of the two-node play (`blendShapes`, research 86 section 3) -- taken as the
+  // data the law runs on, as the one-node kinds take their clip's shape; no capture measures the blend's root.
+  it('LATER 1250 blend (h 20, the crate and the medium as two nodes): the weighed refPt turned onto the reversed normal by the same law', () => {
+    const tilted = tiltRows(20, 1, null, 0, 12, true), flat = tiltRows(20, 1, tilted.plan.target[2]!, 0, 12, true);
+    sameInputs(tilted, flat);
+    const b = tilted.plan.blend!;
+    expect(b.clip).toBe('seal_climb_medium');
+    const w = 1 - (tilted.plan.h - 12) / 14.5;
+    expect(b.weight).toBeCloseTo(w, 9);
+    expect(w).toBeGreaterThan(0.2);
+    expect(w).toBeLessThan(0.8);
+    const shape = blendShapes(tilted.t.shapes.get('seal_climbcrate'), tilted.t.shapes.get('seal_climb_medium'), b.weight);
+    const ref: V = [0, w * KINDS.low.ref[1] + (1 - w) * KINDS.med.ref[1], KINDS.low.ref[2]];
+    const steered = tilted.rows.slice(2).filter((r) => r.kind === 'climb').length;
+    expect(steered).toBeGreaterThan(20);
+    const yaws = [tilted.rows[0]!.yaw, ...tilted.rows.slice(1, 1 + steered).map((r) => r.yaw)];
+    const want = law(shape, ref, yaws);
+    let most = 0;
+    for (let i = 1; i <= steered; i++) {
+      const a = tilted.rows[i + 1]!, c = flat.rows[i + 1]!;
+      expect(a.body! - c.body!, `command ${i}: the drawn root`).toBeCloseTo(want.dy[i]!, 6);
+      expect(a.x - c.x, `command ${i}: x`).toBeCloseTo(want.dx[i]!, 6);
+      expect(a.z - c.z, `command ${i}: z`).toBeCloseTo(want.dz[i]!, 6);
+      most = Math.max(most, Math.abs(want.dy[i]!), Math.abs(want.dz[i]!));
+    }
+    expect(most, 'the tilt is no rounding').toBeGreaterThan(0.1);
+  });
+
+  /**
+   * The review's F1: the climb over's x/z tilt (`overFrame`, LATER 1244). `FUN_005b3340` makes one turn of the stored
+   * `refPt` (D:L468840-468844, D:L468892-468893); the flat steer already lays the level part of it (the turn onto the
+   * normal made level: the record's facing), so the over's x/z aim moves by the turned `refPt` less the level-turned one,
+   * as `climbTilt` takes it for the other climbs -- not less the stored one, which adds k M (R_level - I) refPt when the body
+   * is yawed off the face (head on R_level is I, so l1222-climbover2's head-on trials cannot see it). A class-5 fence 17.1652
+   * tall (S1b's) whose near face leans by ny 0.05614, the climb over pressed with the body 30 degrees off the face, against
+   * its twin: the same run with the carry's stored normal cleared after the push's frame (`OverCarry.normal` null: the
+   * port's flat `refPt`, as a degenerate first triangle leaves it) -- the plan, the yaws and the track the same. A
+   * degenerate polygon cannot stand in: the hull's hit reads the same first triangle (research 281 s4.3), so the walk
+   * meets the fence's far face instead. Each game frame's feet off the twin by the law above on the over's game-frame clock
+   * (the push's own frame the first, `CLIMB_OVER_FRAME_ORDER_READING`; the twins one through it), its `refPt` `motion.rdr`'s
+   * (0, -0.96, -10.28): x and z, and the carried feet's y (its step is k of the target less the turned `refPt`,
+   * D:L468933-468941). Reading, pending review: no capture measures an over pressed off the face. RED before: the x/z
+   * term subtracted the stored `refPt`.
+   */
+  it('LATER 1250 F1: the climb over pressed 30 degrees off a leaning face -- its x/z aim moves by the turned refPt less the level-turned one (RED before: less the stored refPt)', () => {
+    const H = 17.1652;
+    const [x0, x1, z0] = [-10, 10, -2], lean = -(H * NY) / Math.sqrt(1 - NY * NY);
+    const polys = [
+      floor(-100, -100, 100, 100, 0),
+      quad([x0, 0, 0, x1, 0, 0, x1, H, lean, x0, H, lean], 2, 5),
+      quad([x0, 0, z0, x1, 0, z0, x1, H, z0, x0, H, z0], 2, 5),
+      quad([x0, 0, z0, x0, 0, 0, x0, H, lean, x0, H, z0], 2, 5),
+      quad([x1, 0, z0, x1, 0, 0, x1, H, lean, x1, H, z0], 2, 5),
+    ];
+    const overRows = (cleared: boolean): { rows: Row[]; t: Traversal; plan: Plan } => {
+      const { w, t } = climber(polys, world(polys));
+      t.setClips([overClip()], OVER_TABLE);
+      run(w, FORWARD, () => t.climbPrompt() !== null, 120);
+      w.state.x = 0; w.state.yaw = 30;
+      w.tick(STILL);
+      expect(t.climbPrompt()?.kind).toBe('over');
+      const plan = (t as unknown as { plan: Plan }).plan;
+      const snap: Plan = { kind: plan.kind, h: plan.h, yaw: plan.yaw, target: [...plan.target], contact: { top: plan.contact.top, nx: plan.contact.nx, nz: plan.contact.nz } };
+      const rows: Row[] = [];
+      const row = (): void => { rows.push({ kind: t.state().kind, x: w.state.x, y: w.state.y, z: w.state.z, yaw: w.state.yaw, body: null }); };
+      row();                                                              // the yaw the push's frame turns from
+      t.action();
+      w.tick(STILL);                                                      // the push's own game frame (frame 0)
+      row();
+      const carry = (t as unknown as { climbing: { over?: { normal: unknown } } | null }).climbing?.over;
+      expect(carry?.normal).not.toBeNull();                               // the leaning face's normal, stored at the push
+      if (cleared) carry!.normal = null;
+      const clock = new GameFrameAccumulator();
+      for (let i = 0; i < 200 && rows.length < 28; i++) {
+        w.tick(STILL);
+        if (clock.advance(TICK) > 0) row();
+      }
+      return { rows, t, plan: snap };
+    };
+    const tilted = overRows(false), flat = overRows(true);
+    expect(tilted.rows[0]).toEqual(flat.rows[0]);
+    expect(tilted.plan.yaw).toBeCloseTo(flat.plan.yaw, 9);
+    for (let i = 0; i < 3; i++) expect(tilted.plan.target[i]!).toBeCloseTo(flat.plan.target[i]!, 7);
+    expect(tilted.plan.contact.top).toBeCloseTo(flat.plan.contact.top, 9);
+    const shape = tilted.t.shapes.get('seal_climb_over');
+    // Frames 0..25 steer (frame 26 the clip's last, 27 the hand-off): row i is after frame i - 1, its yaw the next's input.
+    const frames = 26;
+    // Law command i is frame i - 1; its yaw the body's before that frame's turn, row i - 1's (`yaws[0]` unused).
+    const yaws = [tilted.rows[0]!.yaw, ...tilted.rows.slice(0, frames).map((r) => r.yaw)];
+    expect(Math.abs(yaws[2]!)).toBeGreaterThan(15);                        // the body is still yawed off the face
+    const want = law(shape, [0, -0.96, -10.28], yaws, GAME_FRAME_DT, 2);   // the twins part from frame 1 (law command 2)
+    let most = 0;
+    for (let i = 1; i <= frames; i++) {
+      const a = tilted.rows[i]!, b = flat.rows[i]!;
+      expect(a.kind, `frame ${i - 1}`).toBe('climb');
+      expect(a.yaw, `frame ${i - 1}: the turn is the flat one`).toBeCloseTo(b.yaw, 9);
+      expect(a.x - b.x, `frame ${i - 1}: x`).toBeCloseTo(want.dx[i]!, 6);
+      expect(a.z - b.z, `frame ${i - 1}: z`).toBeCloseTo(want.dz[i]!, 6);
+      expect(a.y - b.y, `frame ${i - 1}: the carried feet`).toBeCloseTo(want.dy[i]!, 6);
+      most = Math.max(most, Math.abs(want.dx[i]!), Math.abs(want.dz[i]!));
+    }
+    expect(most, 'the x/z tilt is no rounding').toBeGreaterThan(0.1);
   });
 });
 
@@ -1074,15 +1797,18 @@ describe("NU-1b B1: the climb's offer asks the original's gates (research 313 se
   // LATER 509 (research 369 §1 term 4): the common gate's throw term holds the rifle's throws and the four tosses -- the
   // pistol's throws and peek tosses are not among its words (D:L462622-462626 on D:L495211-495237), the port playing the
   // rifle's clips for them: with the pistol in hand (`Walker.pistolHand`) a throw on the ground leaves the climb offered.
-  it("LATER 509: on the ground a pistol-hand throw or lean toss leaves the climb offered; a rifle's throw and the pistol's toss refuse it", () => {
+  // LATER 1442's review F2 (the sidearm's standing throw plays the rifle's `Throw grenade`) and R4P-211 (L368: r0004's
+  // IsThrowing(actor, 0) holds the pistol peek tosses, D4:L503648-503650, D4:L503688): every pistol-hand throw refuses.
+  it("LATER 509, LATER 1442, R4P-211: on the ground every throw refuses the climb, either hand -- the pistol's standing throw, its lean tosses and its toss", () => {
     const offered = (clip: string, pistol: boolean): boolean => {
       const { w } = atCrate();
       w.pistolHand = () => pistol;
       expect(w.hold(clip), clip).toBe(true);
       return climbOffered(w);
     };
-    expect(offered('seal_throwgrenade', true), 'the pistol\'s throw').toBe(true);
-    expect(offered('seal_toss_rlean', true), 'the pistol\'s peek toss').toBe(true);
+    expect(offered('seal_throwgrenade', true), "the pistol's throw (LATER 1442: the rifle's type)").toBe(false);
+    expect(offered('seal_toss_rlean', true), "the pistol's peek toss (R4P-211: refused)").toBe(false);
+    expect(offered('seal_toss_llean', true), "the pistol's left peek toss (R4P-211: refused)").toBe(false);
     expect(offered('seal_throwgrenade', false), 'the rifle\'s throw').toBe(false);
     expect(offered('seal_toss_rlean', false), 'the rifle\'s peek toss').toBe(false);
     expect(offered('seal_p_tossgrenade', true), 'the pistol\'s toss').toBe(false);

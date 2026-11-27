@@ -8,7 +8,8 @@
  * - at the zip's root, or inside exactly one top folder (a zip of a folder, as the pack import tolerates). The root's
  *   envelope is preferred when there is one: a `<folder>/forge-bundle.json` under a declared pack root is that pack's
  *   member; two envelopes neither under a declared root are two roots, refused;
- * - `layout` is a Forge layout record version 3, read by `layout.ts`'s `readCreatorRecord`;
+ * - `layout` is a Forge layout record version 3, or 4 when a piece's angle is off the whole degree (FN-4), read by
+ *   `layout.ts`'s `readCreatorRecord`;
  * - each `packs[i]` is `{ref, root}`: a `PackRef` and the folder (ending `/`) under the envelope that holds that pack
  *   whole, `s2u-pack.json` at its top, validated by `packs.ts`'s `validatePack` as any v2 pack is. Its validated
  *   reference must equal `ref`: the same id and version, and the hash `packDigest` (`digest.ts`) gives -- SHA-256 over
@@ -29,7 +30,10 @@ import { checkPackRef, missingPackRefs, packRefKey, samePackRef, sortPackRefs } 
 import { diagnostic, reportStatus, type Diagnostic, type DiagnosticInput } from "./diagnostics.js";
 import type { Sha256 } from "./digest.js";
 import { CONTENT_MAP_VERSIONS, contentMapMemberPath, readContentMapDefinition } from "./maps.js";
-import { RECORD_LIMITS, RECORD_SCHEMA, RECORD_VERSION, readCreatorRecord, type CheckRecordOptions, type CreatorLayoutRecord } from "./layout.js";
+import {
+  isNewerRecordVersion, RECORD_LIMITS, RECORD_SCHEMA, RECORD_VERSION, RECORD_VERSION_FINE_ANGLES, readCreatorRecord, recordVersionRefusal,
+  type CheckRecordOptions, type CreatorLayoutRecord,
+} from "./layout.js";
 import {
   ENGINE_CONTRACT_VERSIONS, PACK_BYTES_ADAPTATION, PACK_MANIFEST_BYTES_ADAPTATION, PACK_MANIFEST_FILE, PACK_TARGET_US, packPath, validatePack,
   type AvailablePack, type EngineContract, type PackHandlerCapability, type PackManifest, type PackRef,
@@ -284,12 +288,16 @@ export async function validateForgeBundle(entries: readonly BundleEntry[], optio
     }
   }
 
-  // The layout: a record v3, read by the record's own reader.
+  // The layout: a record v3 (FN-4: or v4, a piece's angles on a hundredth of a degree), read by the record's own reader.
   const layout = raw["layout"];
   let record: CreatorLayoutRecord | null = null;
   let warnings: Diagnostic[] = [];
-  if (!isObject(layout) || layout["schema"] !== RECORD_SCHEMA || layout["version"] !== RECORD_VERSION) {
-    f.error(BUNDLE_CODES.layoutInvalid, `The bundle's layout is a ${RECORD_SCHEMA} record version ${RECORD_VERSION}.`, { file: envelope.path, field: "layout" });
+  if (!isObject(layout) || layout["schema"] !== RECORD_SCHEMA || (layout["version"] !== RECORD_VERSION && layout["version"] !== RECORD_VERSION_FINE_ANGLES)) {
+    // FN-4, fix round 2 (a browser adaptation): a later build's layout is named as one (`recordVersionRefusal`), the code the same
+    const text = isObject(layout) && layout["schema"] === RECORD_SCHEMA && isNewerRecordVersion(layout["version"])
+      ? recordVersionRefusal(layout["version"])
+      : `The bundle's layout is a ${RECORD_SCHEMA} record version ${RECORD_VERSION} or ${RECORD_VERSION_FINE_ANGLES}.`;
+    f.error(BUNDLE_CODES.layoutInvalid, text, { file: envelope.path, field: "layout" });
   } else {
     try {
       const read = readCreatorRecord(JSON.stringify(layout), options.modes ? { modes: options.modes } : {});

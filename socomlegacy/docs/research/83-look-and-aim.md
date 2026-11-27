@@ -161,10 +161,44 @@ to 90 or 270 (x) and 0 or 180 (y), a coin each — so a shake starts centred.
   D:L418108, and the three floats read 10000, 40000, 360000 in `socom2_game.elf`'s data at 0x64fc88/90/98 -- so a
   point at exactly 100 takes preset 1, at 200 preset 0, at 600 none; `viewer/test/bombBlastShakeChain.test.ts`.)
 
+  (R4P-220, 2026-11-24, **reading, pending review**; the reader's account is
+  `docs/atlas/readings/r4p-phase2-reads-216-220-227.md`, "R4P-220": **r0004 adds the local body's alive bit** (actor
+  `+0xe1` bit 0x10) to this test in its body tick `FUN_00556050` (D4:L456790-456802); r0001's `FUN_00550ef0` has none
+  (D:L418097-418109, before its dead return at D:L418112). So in r0004 a blast by a dead player's body shakes nothing.
+  The port takes r0004's: `viewer/src/matchThrow.ts` `blastShakeFor(distance, alive)`, `alive` the page's own body as
+  the match server has it (`WalkMode.isDead`), on both doors -- a grenade's `explode` and a script round's blast point;
+  `viewer/test/deadCameraShake.test.ts`. A spectator has no human body of its own, so neither build shakes its camera
+  (inferred by the reader, not traced through a spectator's session; the port's spectator page is held in the walk, and
+  whether a blast reaches its camera is unread -- `SPECTATOR_SHAKE_READING`, named in the atlas reading only, *note only*:
+  no constant in the port, which adds no spectator gate; to be settled with capture Q-220's spectator leg). The xbox prototype's door (`viewer/src/xboxPrototype/walkingGrenades.ts`) and the developers'
+  hook `shake` (`main.ts`) are not gated (outside this task's claim; the xbox prototype is the owner's frozen fork, fixed
+  only where he ruled, OT.R148 -- the deferral recorded with the controller). **Open, note only (the fresh review's F1):
+  a blast that KILLS the local player** -- the port's page is still alive at the blast (`WalkMode.isDead` flips at the
+  server's `kill`, after the `explode`), so it shakes; whether r0004 clears `+0xe1` bit 0x10 before the body tick's test
+  (0x556170, its `lbu`/shift pair read at the bytes by the review) is unread -- a leg of capture Q-220 settles it.
+  **The Player View's exception -- an adaptation, the owner's ruling** (POV_SHAKE_ADAPTATION; product track, a browser
+  adaptation with no original): the owner's criterion, verbatim in the reading, "INCLUDE, but make exceptions for the
+  "Player View" mode that we've added, which should receive all of the same player events that a living player does
+  necessary to drive the parallel view." The view drawn on a living watched body (`viewer/src/matchNet.ts`
+  `spectatePov` hands `FlyCamera.setSubjectFeet` its feet; a dead body is never drawn) takes the same bands by THAT
+  body's distance on a shake of its own (`FlyCamera.shakeSubject`, the same `ScreenShake` law), added to the view's
+  offset, whatever the watcher's own state. It changes nothing the game does on the watcher's own camera.)
+
 - **Rounds** (`FUN_005c5340`, 479245-479263): the stance record of the firing weapon (`FUN_003c5a50`, `+0x4c..0x68`) when both its
   rates are set — `zweapon.rdr`'s `ScreenShake` `xaxis` / `yaxis` (`base`, `rand`, `decr`, `dps`; the reader `FUN_003cda30` at
   322327-322370). Only the **M60E3, the M63A, the PKM and LMG turrets** carry one: 1, 1, 1, 1600 / 1, 1, 1, 2400. The
   M4A1 has none.
+  **The port** (BUG-L250, 2026-11-24, reading, pending review): `@s2u/scene` `weaponStances` reads each stance's
+  `screenShake` (null for the constructor's zeros), stance n a copy of n-1, a key present overwriting (D:L322327-322370);
+  the parser's three lookups go through `FUN_0032f0d0` (a depth-first search, D:L230212-230245) on the record's node
+  (`param_2`), not the stance's, so each stance takes the record's first block -- the same on the disc, whose twelve
+  blocks all sit under `Reticule_Modifiers` and are alike in each record's three stances (`scene/test/weapons.test.ts`).
+  `viewer/src/matchFirearm.ts` `roundShake` starts `fly.shakeScreen` on each own round as D:L479251-479265 gates it: the
+  slot record's id of a primary class (`FUN_003d1d10`) or the pistol class (`FUN_003d1ce0`), not 0x0b, its row at
+  `FUN_0058a720(body, 1)` (`WalkMode.stanceInUse`), both `dps` non-zero (`viewer/test/shotShake.test.ts`). A turret's id
+  (205-229, class 0xcd, `FUN_003d1a60` D:L324331-324352) passes neither class test, so a mounted round starts none: the
+  PKM's and the LMG's blocks are data r0001's round path never reads (`FUN_002994e0`'s only weapon caller is
+  D:L479261).
 - Also through the same two offsets in the scoped modes: the sniper sway (`FUN_005bd100`, `SniperDist*` in the
   weapon's stance) — the weapon workstream's.
 
@@ -225,9 +259,9 @@ fov (`FUN_00294070` D:L138944-138945, `FUN_002915f0`'s 320 / tan(hfov); was 4:3 
 
 **Placeholders and readings**: the game frame was taken as 60 Hz for the ramp and the shake's fall (both at the game's
 30 Hz frame since PF-02, 2026-10-04: research 180 §0, U4, research 208); the recentre, the
-prone slope lean, the scope itself (the zoom modes, the FOV), the sniper sway, the blast event and the machine guns'
-per-round shake are exposed (`setZoom`, `shakeScreen`, `MACHINE_GUN_SHAKE`, `explosionShake`) but not triggered by
-the viewer yet.
+prone slope lean, the scope itself (the zoom modes, the FOV), the sniper sway, the blast event are exposed (`setZoom`, `shakeScreen`, `explosionShake`); the
+machine guns' per-round shake is started by the viewer's own round from the record's `ScreenShake` since BUG-L250
+(§5, reading, pending review; `MACHINE_GUN_SHAKE` stays the hand-copied preset).
 
 ### 8.1 Readings (named in the code)
 

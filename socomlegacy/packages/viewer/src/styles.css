@@ -38,7 +38,12 @@ html { touch-action: manipulation; }
  * on a 4:3 box, the biggest that fits, as `body.ps2-look #view` -- on the match's canvas alone (its placement is inline,
  * so the box overrides it), never the body's class.
  */
-canvas.s2u-match.s2u-picture-ps2 {
+/*
+ * VIDEO-SHAPE (`./shape.ts` SHAPE_43_CLASS, a browser adaptation): the Modern picture's 4:3 shape takes the same box --
+ * real width and height, so the canvas's client size is the 4:3 box (`./matchMount.ts` `fit`); 4:3 stretched has no class.
+ */
+canvas.s2u-match.s2u-picture-ps2,
+canvas.s2u-match.s2u-shape-43 {
   left: 50% !important; top: 50% !important; transform: translate(-50%, -50%);
   width: min(100vw, calc(100dvh * 4 / 3)) !important; height: min(100dvh, calc(100vw * 3 / 4)) !important;
 }
@@ -233,6 +238,8 @@ body.chrome-hidden #panel, body.chrome-hidden #fps, body.chrome-hidden #fullscre
    12px and 200px are measured from the 4:3 frame, so the chip sits inside it. */
 #dev-badge { position: fixed; left: 12px; top: 200px; z-index: 19001; pointer-events: none; }
 #dev-badge[hidden] { display: none; }
+/* LATER 1219's press-timing chip (`pressFrameSwitch.ts`, a development build's playtest instrument): the bottom-right corner. */
+#press-frame-badge { position: fixed; right: 12px; bottom: 12px; z-index: 19001; pointer-events: none; margin: 0; }
 body:has(#original-loading:not([hidden])) #dev-badge { display: none; }
 body.ps2-look #dev-badge {
   left: calc((100vw - min(100vw, 100dvh * 4 / 3)) / 2 + 12px);
@@ -516,6 +523,17 @@ body.armory-open #toast { display: none !important; }
    pad hides with INV in it; `is-inv-shown` (`./matchTouch` `weaponsFrame`) shows INV alone of it over the fly camera's layer. */
 .touch.is-inv-shown:not(.is-walking) #touch-walk { display: block; }
 .touch.is-inv-shown:not(.is-walking) #touch-walk > :not(#tw-weapons) { display: none; }
+/* SEAT_CLAIM_ADAPTATION (a service adaptation with no original; the owner's word, 2026-11-25): a spectator's claim line
+   names R1 ("R1 HOLD: JOIN") and the fly camera's layer has none; `is-claim-shown` (`./matchTouch` `claimShown`) shows
+   the walk pad's R1 alone of it, at its own place under the compass -- beside INV when that shows too. */
+.touch.is-claim-shown:not(.is-walking) #touch-walk { display: block; }
+.touch.is-claim-shown:not(.is-walking):not(.is-inv-shown) #touch-walk > :not(#tw-r1) { display: none; }
+.touch.is-claim-shown.is-inv-shown:not(.is-walking) #touch-walk > #tw-r1 { display: grid; }
+/* Its place there: the walk pad's (under the compass) is the fullscreen button's on the fly camera's layer, which would
+   cover it -- so it heads the layer's own column, over the trigger (`#touch-fire`, 66px a step) and as wide as it. */
+.touch.is-claim-shown:not(.is-walking) #tw-r1 {
+  top: auto; right: 78px; bottom: calc(16px + 132px + env(safe-area-inset-bottom, 0px)); width: 56px;
+}
 /* The fullscreen button, while walking: the HUD owns the bottom right (the range strip), so it stands at the left edge. */
 body.is-walking #fullscreen { right: auto; bottom: auto; left: calc(8px + env(safe-area-inset-left, 0px)); top: calc(72px + env(safe-area-inset-top, 0px)); width: 36px; height: 36px; }
 /* Held upright the HUD's bottom strip is taller: the two clusters stand on the bottom row, above it, and the page asks for a turn. */

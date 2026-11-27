@@ -21,6 +21,7 @@ it('drops stale reports and removes listeners on disconnect', async () => {
   let report: ((e: { reportId: number; data: DataView }) => void) | undefined;
   const d = { vendorId: 0x054c, productId: 0x0268, opened: false,
     async open() { this.opened = true; }, async close() { this.opened = false; },
+    async receiveFeatureReport() { return new DataView(new ArrayBuffer(8)); }, async sendReport() {},
     addEventListener(_type: 'inputreport', cb: NonNullable<typeof report>) { report = cb; },
     removeEventListener() { report = undefined; } };
   const hid = { requestDevice: async () => [d], addEventListener() {}, removeEventListener() {} };
@@ -61,6 +62,7 @@ it('a report stall cancels pressure and requires real button release before acce
   let send: (e: { reportId: number; data: DataView }) => void = () => {};
   const device = { vendorId: 0x054c, productId: 0x0268, opened: false,
     async open() { this.opened = true; }, async close() { this.opened = false; },
+    async receiveFeatureReport() { return new DataView(new ArrayBuffer(8)); }, async sendReport() {},
     addEventListener(_type: 'inputreport', cb: typeof send) { send = cb; }, removeEventListener() {} };
   await input.connect({ requestDevice: async () => [device], addEventListener() {}, removeEventListener() {} });
   const report = (pressure: number) => { const data = new DataView(new ArrayBuffer(48)); data.setUint8(21, pressure); if (pressure) data.setUint8(2, 0x10); send({ reportId: 1, data }); };
@@ -102,6 +104,7 @@ it('retains the identified adapter layout for captured SELECT, START, L3 and R3 
   const input = new PressurePad(() => 0);
   const device = { vendorId: 0x054c, productId: 0x0268, opened: false,
     async open() { this.opened = true; }, async close() { this.opened = false; },
+    async receiveFeatureReport() { return new DataView(new ArrayBuffer(8)); }, async sendReport() {},
     addEventListener(_t: 'inputreport', cb: typeof send) { send = cb; }, removeEventListener() {} };
   await input.connect({ requestDevice: async () => [device], addEventListener() {}, removeEventListener() {} });
   const emit = (bits: number, triangle = 0) => {

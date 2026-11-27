@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bootConsole, type ConsolePage } from '../../src/console/app';
 import { sampleAdapters } from '../../src/console/sampleAdapters';
 import {
-  drawScene, PHASE_EASE, PHASE_PER_CAT, SHEET_BASE, SheetBackdrop, sheetBottom, SHEETS, sheetTop, STILL_T, type Ctx2D,
+  drawScene, PHASE_EASE, PHASE_PER_CAT, resetSheetsRetiredForTest, retireSheetsForTest, SHEET_BASE, SHEET_DRAW_FAILURE_LIMIT_ADAPTATION, SheetBackdrop,
+  sheetBottom, SHEETS, sheetTop, STILL_T, type Ctx2D,
 } from '../../src/console/render/sheets';
 import { THEMES } from '../../src/console/render/theme';
 import { mountShell } from './shell';
@@ -204,7 +205,7 @@ describe('the page', () => {
     W.requestAnimationFrame = () => 0;                              // a frame that never comes: the mount is what is read
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation((() => recorder()) as never);
   });
-  afterEach(() => { page?.dispose(); page = null; delete W.CanvasRenderingContext2D; W.requestAnimationFrame = raf; vi.restoreAllMocks(); });
+  afterEach(() => { page?.dispose(); page = null; delete W.CanvasRenderingContext2D; W.requestAnimationFrame = raf; vi.restoreAllMocks(); resetSheetsRetiredForTest(); });
 
   it('the launcher mounts one sheet backdrop in #backdrop, across draws', () => {
     page = bootConsole(document, window, sampleAdapters(), { keymap: false });
@@ -212,8 +213,93 @@ describe('the page', () => {
     expect(document.querySelectorAll('#backdrop canvas.cx-sheets')).toHaveLength(1);
     expect(document.getElementById('backdrop')!.classList.contains('has-sheets')).toBe(true);
   });
+  // LATER 1271's review F1: the page's next draw neither rebuilds a retired backdrop nor puts `has-sheets` back (which would
+  // hide the Appearance picture under a flat sky for the session).
+  it('LATER 1271: once the sheets are retired, later draws mount nothing and leave the backdrop without has-sheets', () => {
+    page = bootConsole(document, window, sampleAdapters(), { keymap: false });
+    const host = document.getElementById('backdrop')!;
+    expect(host.querySelector('canvas.cx-sheets')).not.toBeNull();
+    retireSheetsForTest();
+    host.querySelector('canvas.cx-sheets')!.remove();
+    host.classList.remove('has-sheets');
+    page.render(); page.render();
+    expect(host.querySelector('canvas')).toBeNull();
+    expect(host.classList.contains('has-sheets')).toBe(false);
+  });
   it('the overlay draws none (its game is the background, OT.R60 (d))', () => {
     page = bootConsole(document, window, sampleAdapters(), { keymap: false, mode: 'overlay', page: { gameHolds: () => false, roundRunning: () => false, gamePage: () => true } });
     expect(document.querySelector('#backdrop canvas')).toBeNull();
+  });
+});
+
+/**
+ * LATER 1271 (v0.4.27's field, one Firefox page: "setTransform: Canvas could not create basic draw target" in `draw`, from
+ * the frame loop, which then stopped for good): a frame whose draw throws is skipped and the next one asked for; after
+ * `SHEET_DRAW_FAILURE_LIMIT_ADAPTATION` failures in a row the backdrop is retired for the session -- its canvas gone, the
+ * page carrying on without it -- and told once as a `uigpufallback` diagnostic headed "sheet retired:" (the main
+ * controller's ruling, 2026-11-20, product track). A browser adaptation.
+ */
+describe('LATER 1271: a draw the browser refuses', () => {
+  let frames: ((ts: number) => void)[];
+  let host: HTMLElement;
+  let ctx: ReturnType<typeof recorder>;
+  let failing: number;
+  let told: string[];
+  const make = () => new SheetBackdrop(host, {
+    context: () => ctx, frame: (cb) => { frames.push(cb); return frames.length; }, cancel: () => { frames.length = 0; },
+    reduced: () => false, idle: () => false, retired: (why) => { told.push(why); },
+  });
+  const run = (ts: number) => { const f = frames.shift(); f?.(ts); return !!f; };
+  beforeEach(() => {
+    resetSheetsRetiredForTest();
+    frames = []; told = []; failing = 0; ctx = recorder();
+    const set = ctx.setTransform;
+    (ctx as unknown as { setTransform: (...a: unknown[]) => void }).setTransform = (...a: unknown[]) => {
+      if (failing > 0) { failing--; throw new DOMException('Canvas could not create basic draw target.', 'InvalidStateError'); }
+      (set as (...b: unknown[]) => void)(...a);
+    };
+    document.body.innerHTML = '<div id="backdrop"><img alt=""></div>';
+    host = document.getElementById('backdrop')!;
+  });
+  afterEach(() => { resetSheetsRetiredForTest(); });
+
+  it('the limit is three', () => { expect(SHEET_DRAW_FAILURE_LIMIT_ADAPTATION).toBe(3); });
+
+  it('a failed frame is skipped and the next asked for, even when still; a good draw clears the count', () => {
+    const b = make();
+    b.set({ cat: 1, theme: THEMES[0]!, motion: false, picture: false });
+    failing = 2;
+    expect(() => run(0)).not.toThrow();
+    expect(frames).toHaveLength(1);                         // still, but the failed frame asks again
+    run(16);
+    expect(frames).toHaveLength(1);
+    run(32);                                                // drawn: still, so no frame follows
+    expect(frames).toHaveLength(0);
+    expect(host.contains(b.canvas)).toBe(true);
+    failing = 2;
+    b.set({ cat: 2, theme: THEMES[0]!, motion: false, picture: false });
+    run(48); run(64);
+    expect(host.contains(b.canvas)).toBe(true);             // two after a good draw: not three in a row
+    expect(told).toEqual([]);
+  });
+
+  it('three in a row retire it for the session: the canvas gone, no frame asked, told once, and a new backdrop mounts nothing', () => {
+    const b = make();
+    b.set({ cat: 1, theme: THEMES[0]!, motion: true, picture: false });
+    failing = 99;
+    run(0); run(16); run(32);
+    expect(frames).toHaveLength(0);
+    expect(host.querySelector('canvas')).toBeNull();
+    expect(host.classList.contains('has-sheets')).toBe(false);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toMatch(/^sheet retired: /);
+    expect(told[0]).toMatch(/basic draw target/);
+    b.set({ cat: 2, theme: THEMES[0]!, motion: true, picture: false });
+    expect(frames).toHaveLength(0);
+    const again = make();
+    again.set({ cat: 1, theme: THEMES[0]!, motion: true, picture: false });
+    expect(host.querySelector('canvas')).toBeNull();
+    expect(frames).toHaveLength(0);
+    expect(told).toHaveLength(1);
   });
 });

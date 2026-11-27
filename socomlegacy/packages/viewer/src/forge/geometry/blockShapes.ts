@@ -3,22 +3,22 @@ import { meshOf, type PrimitiveOptions } from './primitives';
 
 /**
  * The block tool's shapes (a browser adaptation, after a level editor's block tool: drag a rectangle out on the
- * workplane, then pull its height; the owner, 2026-11-17: "implement a Drag-out block tool on the grid. and remove the
+ * workplane, then pull its height; the Forge's owner (crispy, OT.R112), 2026-11-17: "implement a Drag-out block tool on the grid. and remove the
  * fixed cube/plane/sphere/cylinder ... There is dropdown for various shapes"). Each is built in the plane's own frame --
  * across its `u` and `v`, up its `n` -- filling the dragged rectangle and the pulled height, then carried into the world
  * and made a mesh (`./primitives` `meshOf`: shared points, flat faces, world-aligned texturing). Each reads its own
- * settings (`SHAPE_SETTINGS`; the owner, 2026-11-17: "would be nice for each shape to have some settings we can
+ * settings (`SHAPE_SETTINGS`; the Forge's owner (crispy, OT.R112), 2026-11-17: "would be nice for each shape to have some settings we can
  * predefine ... I leave it up to you to define all the nice settings that make it easy for a user to start creating").
  */
 export type BlockShape = 'block' | 'quad' | 'ramp' | 'cylinder' | 'pipe' | 'spike' | 'pyramid' | 'sphere' | 'torus'
   | 'stairs' | 'ladder' | 'railing' | 'column' | 'arch' | 'doorway' | 'window' | 'room' | 'roof' | 'polygon';
 
-/** Create's shape groups, in the menu's order (the owner, 2026-11-17: "it is categorized better? right now it is one giant list"). */
+/** Create's shape groups, in the menu's order (the Forge's owner (crispy, OT.R112), 2026-11-17: "it is categorized better? right now it is one giant list"). */
 export type BlockShapeGroup = 'Basic' | 'Round' | 'Architecture';
 export const BLOCK_SHAPE_GROUPS: readonly BlockShapeGroup[] = ['Basic', 'Round', 'Architecture'];
 
 /**
- * The shapes in Create's menu, by group: Box (not Block: the owner, 2026-11-17, "it should be called box instead of
+ * The shapes in Create's menu, by group: Box (not Block: the Forge's owner (crispy, OT.R112), 2026-11-17, "it should be called box instead of
  * block"), Quad, Ramp (a wedge: "call wedge, ramp") and Pyramid; the round ones; and the architectural ones -- Stairs
  * ("a stair geometry ... a smooth collision box for it"), Ladder ("it should also set bit flag for the ladder"), Arch,
  * Doorway (a wall with a doorway) and Room (a hollow box: "add wedge, hollow box, and wall with doorway ... pyramid,
@@ -29,7 +29,7 @@ export const BLOCK_SHAPES: readonly { shape: BlockShape; label: string; group: B
   { shape: 'quad', label: 'Quad', group: 'Basic' },
   { shape: 'ramp', label: 'Ramp', group: 'Basic' },
   { shape: 'pyramid', label: 'Pyramid', group: 'Basic' },
-  // Polygon (the owner, 2026-11-17: "move the polygon inside the create menu as well under basic"): its outline clicked point by point (`polygonMesh`), not dragged.
+  // Polygon (the Forge's owner (crispy, OT.R112), 2026-11-17: "move the polygon inside the create menu as well under basic"): its outline clicked point by point (`polygonMesh`), not dragged.
   { shape: 'polygon', label: 'Polygon', group: 'Basic' },
   { shape: 'cylinder', label: 'Cylinder', group: 'Round' },
   { shape: 'pipe', label: 'Pipe', group: 'Round' },
@@ -267,7 +267,7 @@ function runBuilder(x0: number, x1: number, z0: number, z1: number, run: Run, un
     }
   };
   /**
-   * The boxes kept (`unite`) as one solid (the owner, 2026-11-18: every tool on a doorway, a window or a room failed: its
+   * The boxes kept (`unite`) as one solid (the Forge's owner (crispy, OT.R112), 2026-11-18: every tool on a doorway, a window or a room failed: its
    * slabs touched face to face, each keeping its own face, so the shape was not one solid): space cut along every box's
    * sides into cells, a cell solid where a box holds it, and a face wherever a solid cell meets an empty one or the
    * outside -- the union's outside, no face inside it, every edge met once each way.
@@ -529,7 +529,7 @@ function pipeParts(x0: number, x1: number, z0: number, z1: number, h: number, s:
 /**
  * Torus: a ring `sides` round, its tube `tubeSides` round, the tube as thick as the height -- at most under half the
  * narrower radius, so its hole stays open (at half, the tube met itself across the narrow side: points of its inside on
- * top of each other, which every tool then tore open -- the owner, 2026-11-18, every tool tested).
+ * top of each other, which every tool then tore open -- the Forge's owner (crispy, OT.R112), 2026-11-18, every tool tested).
  */
 /** The torus's tube at most this share of its narrower radius (its hole a tenth of it at least): a Forge choice, no original. */
 const TORUS_TUBE_MAX = 0.45;
@@ -577,7 +577,7 @@ function stairParts(x0: number, x1: number, z0: number, z1: number, h: number, r
   const n = asked > 0 ? asked : Math.max(1, Math.round(h / STAIR_STEP_RISE_ADAPTATION));
   const xr = (k: number): number => (L * k) / n, yr = (k: number): number => (h * k) / n;
   if (c_(s, 'style', 'solid') === 'floating') {
-    // Each step a slab of its own (the owner, 2026-11-18, every tool tested): steps touching along an edge shared their
+    // Each step a slab of its own (the Forge's owner (crispy, OT.R112), 2026-11-18, every tool tested): steps touching along an edge shared their
     // points there, four faces on one edge, which no tool could work on.
     for (let k = 0; k < n; k++) { b.separate(); b.cuboid(xr(k), xr(k + 1), yr(k), yr(k + 1), 0, W); }
     return { points: b.points, rings: b.rings };
@@ -730,7 +730,7 @@ export function blockMesh(shape: BlockShape, f: BlockFrame, a: readonly [number,
 
 /**
  * Stairs' collision: the ramp from the foot of the first step to the top of the last, as wide and as deep -- one slope,
- * not the steps (the owner, 2026-11-17: "a smooth collision box for it (not jagged)"; the disc's stairs collide as ramps,
+ * not the steps (the Forge's owner (crispy, OT.R112), 2026-11-17: "a smooth collision box for it (not jagged)"; the disc's stairs collide as ramps,
  * `./hullGeometry` `COLLISION_TYPES`' floor note). Its faces' collision words by their slope, as any made collision's.
  */
 export function stairsRampMesh(f: BlockFrame, a: readonly [number, number], b: readonly [number, number], h: number, opts: PrimitiveOptions,
@@ -740,7 +740,7 @@ export function stairsRampMesh(f: BlockFrame, a: readonly [number, number], b: r
 }
 
 /**
- * The Polygon tool's outline cleaned (the owner, 2026-11-17: a Polygon tool to draw custom shapes
+ * The Polygon tool's outline cleaned (the Forge's owner (crispy, OT.R112), 2026-11-17: a Polygon tool to draw custom shapes
  * line by line; a browser adaptation, after a level editor's
  * Polygon tool): its points in the plane's frame ([along u, along v]), a point the same as the one before dropped (and
  * the last where it closes on the first), a point on the straight line between its neighbours dropped.

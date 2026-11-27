@@ -19,7 +19,7 @@ import { cardOptionStore } from '../src/modern/settings/store';
  *
  * Each cell is one of: `reads` -- a source pin on the line that honours it (file and text, read here); `todo` -- a gap,
  * owned by the replay batch's task that closes it (RB-10 the Forge's Play, RB-15 the mouse rows, RB-16 the test room's
- * gaps, RB-23 the VS lane's V2 rows), drawn as an `it.todo` so the census reads red on each gap until its task flips it
+ * gaps, RB-23 the VS lane's V2 rows, VIDEO-SHAPE the test room's Shape), drawn as an `it.todo` so the census reads red on each gap until its task flips it
  * to `reads`; `none` -- the main game honours it nowhere either, so no surface owes it. A launcher row added without a
  * census row fails the completeness case below.
  */
@@ -27,11 +27,12 @@ import { cardOptionStore } from '../src/modern/settings/store';
 const here = dirname(fileURLToPath(import.meta.url));
 const src = (f: string): string => readFileSync(resolve(here, '../src', f), 'utf-8');
 
-type Owner = 'RB-10' | 'RB-15' | 'RB-16' | 'RB-23';
+type Owner = 'RB-10' | 'RB-15' | 'RB-16' | 'RB-23' | 'VIDEO-SHAPE';
 type Cell = { reads: [file: string, text: string] } | { todo: Owner; why: string } | { none: string };
 interface Row { id: string; label: string; main: Cell; testRoom: Cell; forgePlay: Cell }
 
-const MM = 'matchMount.ts', TR = 'main.ts', FE = 'frontEnd.ts', PS = 'playerSettings.ts';
+const MM = 'matchMount.ts', TR = 'main.ts', FE = 'frontEnd.ts', PS = 'playerSettings.ts', AU = 'audio.ts';
+const AMBIENCE_READ = 'this.ambienceVolume = options.ambienceVolume ?? ((): number => ambienceGainOf(readAmbienceVolume()));';
 /** The Forge's Play mounts the front end's match; a `reads` there is `matchMount.ts`'s own read, with no session dep. */
 const viaMount = (text: string): Cell => ({ reads: [MM, text] });
 
@@ -66,10 +67,15 @@ const PLAYER_SETTINGS_CENSUS: readonly Row[] = [
     testRoom: { reads: [TR, 'const { x, y } = screenOriginOf(pageOptions?.valves ?? cardReads.valves());'] },
     forgePlay: { todo: 'RB-10', why: 'RB-10 landed without it: `PageMatchMountDeps` carries no SCREEN POSITION and the Forge lays no origin on its match\'s canvas (`forge/match.ts`)' },
   })),
-  { id: 'video-picture', label: 'Video (Modern / PS2)', main: { reads: [MM, 'let picture: VideoPicture = o.picture?.get() ?? VIDEO_PICTURE_DEFAULT;'] },
+  { id: 'video-picture', label: 'Sharpness (Modern / PS2 pixels)', main: { reads: [MM, 'let picture: VideoPicture = o.picture?.get() ?? VIDEO_PICTURE_DEFAULT;'] },
     testRoom: { reads: [TR, 'ui.onLook(SHARE.view, (view) => updateAddress({ view }), pagePicture())'] },
     forgePlay: FORGE_DEPS },
-  { id: 'render-scale', label: 'Render scale', main: { reads: [MM, 'renderCapForV2(renderPct, renderCeiling,'] },
+  // VIDEO-SHAPE phase A (a browser adaptation): the match canvas's shape, the page's key `s2u.viewer.shape`, read at the
+  // mount (the main game; the Forge's Play through `pageMatchDeps`); the test room's own `fit` is not in phase A
+  { id: 'video-shape', label: 'Shape (Fill / 4:3 / 4:3 stretched)', main: { reads: [MM, 'let shape: VideoShape = o.shape?.get() ?? VIDEO_SHAPE_DEFAULT;'] },
+    testRoom: { todo: 'VIDEO-SHAPE', why: "phase A leaves the test room's own `fit` (`main.ts`) on the picture alone" },
+    forgePlay: { reads: [PS, 'shape: pageShape(),'] } },
+  { id: 'render-scale', label: 'Resolution scale', main: { reads: [MM, 'renderCapForV2(renderPct, renderCeiling,'] },
     testRoom: { reads: [TR, 'renderCapFor(videoSettings.get().renderScale,'] }, forgePlay: viaMount('renderCapForV2(renderPct, renderCeiling,') },
   { id: 'detail-distance', label: 'Detail distance', main: { reads: [MM, 'detailDistanceFor(picture, detailDistance.get())'] },
     testRoom: { reads: [TR, 'readDetailDistance()'] }, forgePlay: viaMount('detailDistanceFor(picture, detailDistance.get())') },
@@ -77,23 +83,36 @@ const PLAYER_SETTINGS_CENSUS: readonly Row[] = [
     testRoom: { reads: [TR, "ui.setToggle('shadows', v.shadows)"] }, forgePlay: viaMount('if (v.shadows !== shadowsOn)') },
   { id: 'show-fps', label: 'Show FPS', main: { reads: [MM, 'v.showFps !== fpsReadout.shown()'] },
     testRoom: { reads: [TR, 'ui.setFpsShown(v.showFps || DEV.tools)'] }, forgePlay: viaMount('v.showFps !== fpsReadout.shown()') },
+  // PSR-5 (R4P.R11, a browser adaptation): this browser's key `s2u.viewer.clanTagsInLabels`, read live where each label is drawn (`taggedName`, `speakerText`), so every surface that draws a label honours it
+  { id: 'clan-tags', label: 'Clan tags in names', main: { reads: ['hudLayout.ts', 'labelTag(tag)'] },
+    testRoom: { reads: ['hudLayout.ts', 'labelTag(tag)'] }, forgePlay: { reads: ['hudLayout.ts', 'labelTag(tag)'] } },
   { id: 'name-tags', label: 'Name tags', main: { reads: [MM, "hud.setTeammateNames(teamNames !== 0, readNameTags() === 'original');"] },
     testRoom: { reads: [TR, "hud.setTeammateNames(teamNames !== 0, readNameTags() === 'original');"] }, forgePlay: viaMount("hud.setTeammateNames(teamNames !== 0, readNameTags() === 'original');") },
   // HUD-ALIVE C (OT.R117, a browser adaptation): this browser's key `s2u.viewer.rangeReadout`, read beside Name tags --
   // at the mount (the main game and the Forge's Play) and each frame in the test room
   { id: 'range-readout', label: 'Range readout', main: { reads: [MM, "hud.setRangeReadout(readRangeReadout() === 'on');"] },
     testRoom: { reads: [TR, "hud.setRangeReadout(readRangeReadout() === 'on');"] }, forgePlay: viaMount("hud.setRangeReadout(readRangeReadout() === 'on');") },
-  { id: 'graphics-backend', label: 'Graphics mode', main: { reads: [MM, "import('./renderer').then((r) => r.createRenderer("] },
-    testRoom: { reads: [TR, 'await createRenderer(canvas!)'] }, forgePlay: viaMount("import('./renderer').then((r) => r.createRenderer(") },
+  // PRS-888 (JOIN-LEAVE-LINE, a browser adaptation): this browser's key `s2u.viewer.joinLeaveLine`, read at the mount into
+  // the net page's deps (the main game and the Forge's Play through `matchMount.ts`, the test room through `main.ts`)
+  { id: 'join-leave-line', label: 'Join/leave lines', main: { reads: [MM, "joinLeaveLines: readJoinLeaveLine() === 'on',"] },
+    testRoom: { reads: [TR, "joinLeaveLines: readJoinLeaveLine() === 'on',"] }, forgePlay: viaMount("joinLeaveLines: readJoinLeaveLine() === 'on',") },
+  // LATER 1177(b) (a browser adaptation): this browser's key `s2u.viewer.ambienceVolume`, read by `GameAudio` itself at each
+  // ambience start -- one read for every surface that plays a map's ambience (the main game, the test room, the Forge's Play)
+  { id: 'ambience-volume', label: 'Ambience volume', main: { reads: [AU, AMBIENCE_READ] }, testRoom: { reads: [AU, AMBIENCE_READ] }, forgePlay: { reads: [AU, AMBIENCE_READ] } },
+  { id: 'graphics-backend', label: 'Renderer', main: { reads: [MM, "import('./renderer').then((r) => r.createRenderer("] },
+    testRoom: { reads: [TR, 'await createRenderer(canvas!, '] }, forgePlay: viaMount("import('./renderer').then((r) => r.createRenderer(") },
   // The VS page's V2 rows (RB-23): the main game and the Forge's Play read them through `matchMount.ts`; the test room's adoption is the VS lane's
   { id: 'video-preset', label: 'Preset', main: { reads: [MM, "autoAdaptiveOptions(videoV2.get().preset)"] },
     testRoom: { todo: 'RB-23', why: "the test room has no Automatic floor or first-match probe (`autoAdaptiveOptions`, `firstMatchProbe`)" }, forgePlay: viaMount("autoAdaptiveOptions(videoV2.get().preset)") },
-  { id: 'video-ceiling', label: 'Resolution ceiling', main: { reads: [MM, "renderCapForV2(renderPct, renderCeiling,"] },
+  { id: 'video-ceiling', label: 'Max resolution', main: { reads: [MM, "renderCapForV2(renderPct, renderCeiling,"] },
     testRoom: { todo: 'RB-23', why: "the test room sizes through the v1 render scale (`renderCapFor`); the ceiling needs its v1-to-v2 render-scale source swap" }, forgePlay: viaMount("renderCapForV2(renderPct, renderCeiling,") },
   { id: 'video-frame-cap', label: 'Frame cap', main: { reads: [MM, "frameCapGate(videoV2.get().frameCap)"] },
     testRoom: { todo: 'RB-23', why: "the test room's frame loop has no draw skip (`frameCapGate`'s `shouldDraw`)" }, forgePlay: viaMount("frameCapGate(videoV2.get().frameCap)") },
   { id: 'video-antialias', label: 'Antialias', main: { reads: [MM, "antialias: graphics !== 'xbox' && v.antialias"] },
     testRoom: { todo: 'RB-23', why: "applies at the next match (VS.R4, at `createRenderer`); the test room's renderer reads no V2 row" }, forgePlay: viaMount("antialias: graphics !== 'xbox' && v.antialias") },
+  // WM-R20-FOLDS fold (b): the Colour filter row is drawn under every preset since it is no preset's (it was Custom-only)
+  { id: 'video-colour-filter', label: 'Colour filter', main: { reads: [MM, 'colourFilter(canvas, v.colourFilter);'] },
+    testRoom: { todo: 'RB-23', why: "the test room's canvas takes no colour filter (no `colourFilter` call in main.ts)" }, forgePlay: viaMount('colourFilter(canvas, v.colourFilter);') },
   // Controller (this browser's rows, then the card's CONTROLLER OPTIONS)
   { id: 'stance-mode', label: 'Stance mode', main: { reads: [MM, 'walk.setStanceMode(controllerStanceMode());'] },
     testRoom: { reads: [TR, 'walk.setStanceMode(controllerStanceMode());'] }, forgePlay: viaMount('walk.setStanceMode(controllerStanceMode());') },
@@ -137,6 +156,10 @@ const PLAYER_SETTINGS_CENSUS: readonly Row[] = [
   ...(['mic-on', 'mic-device'] as const).map((id): Row => ({
     id, label: id, main: { reads: [MM, 'mountVoice('] }, testRoom: { reads: [TR, 'mountVoice({'] }, forgePlay: viaMount('mountVoice('),
   })),
+  // STREAMER-P1 (OT.R152, a browser adaptation): this browser's `s2u.viewer.streamer.*`, read live where GAME DETAILS is
+  // drawn (`shownDetailLines`), one draw for every surface; its sub-rows show only while it is On
+  { id: 'streamer-mode', label: 'Streamer mode', main: { reads: ['scoreboard.ts', 'const details = shownDetailLines('] },
+    testRoom: { reads: ['scoreboard.ts', 'const details = shownDetailLines('] }, forgePlay: { reads: ['scoreboard.ts', 'const details = shownDetailLines('] } },
   // The card's fives (MPTAUNTMSG1-5, MPLOCALSOP1-5): ONLINE > OPTIONS' editors, not a Settings row
   { id: 'taunts', label: 'TAUNTS', main: { reads: [MM, 'custom: () => o.taunts?.() ?? []'] },
     testRoom: { reads: [TR, 'custom: () => cardTaunts'] }, forgePlay: FORGE_DEPS },
@@ -164,6 +187,8 @@ const NOT_SETTINGS = new Set([
   'video-restore',     // Restore defaults (the VS page): an action, nothing stored
   'device-memory',     // This device's memory (the VS page): a read-only diagnostic
   'device-detected',   // This device's detected class (the VS page): a read-only diagnostic
+  'texture-pack',      // WM-PACKS-SETTING: stored by MODS (StoredModsState.texture), outside the card census; each surface applies it through MODS's pack runtime
+  'texture-pack-mods', // WM-PACKS-SETTING: Add or remove packs in Mods -- an action (a link that opens Mods), nothing stored
 ]);
 
 function launcherRows(): string[] {

@@ -586,6 +586,19 @@ describe('OPT-15: ONLINE OPTIONS\' description over POST /lobby/owner-fields, th
     expect(await run(null, 200)).toEqual({ sent: 0, lost: [], text: { type: 'string', value: 'typed' } });
     expect(await run('T2', 401)).toEqual({ sent: 1, lost: ['T2'], text: { type: 'string', value: 'typed' } });
   });
+
+  it('R4P-324: the mount posts the description with every #C rewritten to "#" + 0xb2 (r0004 Censor 0x00311fc0, research 263 §3a)', async () => {
+    const host = new UiCommandHost(), uiVars = new UiVarManager(), valves = new ValveStore(), calls: Call[] = [];
+    connectWorldOfSocom(host, {
+      uiVars, valves: () => valves, event: () => {}, ownerFields: fetchOwnerFieldsService('http://own', fetching(200, { description: '#\u00b2abc' }, calls)),
+      ticket: () => 'T1', sessionLost: () => {},
+    });
+    uiVars.set(uiVars.add('PlayerDescription', null, 1), { type: 'string', value: '#Cabc' });
+    expect(host.dispatch(cmd('SetPlayerDescription')).kind).toBe('table');
+    await flush();
+    expect(calls.map((c) => c.init.body)).toEqual(['{"description":"#\u00b2abc"}']);
+    expect(uiVars.find('PlayerDescription')!.value).toEqual({ type: 'string', value: '#\u00b2abc' });
+  });
 });
 
 describe('SVC-15a: the own-stats read over POST /lobby/player-info at state 11\'s entry, the session\'s ticket its bearer (research 268 §1.7)', () => {

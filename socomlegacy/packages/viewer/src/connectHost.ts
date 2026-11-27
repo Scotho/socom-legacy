@@ -1,5 +1,6 @@
+import { seatKeptInThisUnload } from './seatKeep';
 import {
-  ConnectCommands, LobbyClient, MEDIUS_STATUS, PLAYER_PASSWORD_VAR, SECURE_PASSWORD_VALVE, lobbyEventInto, locTextOf,
+  BANNED_PERMANENT_ADAPTATION, ConnectCommands, LobbyClient, MEDIUS_STATUS, PLAYER_BANNED_STATUS, PLAYER_PASSWORD_VAR, shownBanOf, SECURE_PASSWORD_VALVE, lobbyEventInto, locTextOf,
   type AcctDb, type CaptionSource, type DialogPartsHost, type FrontEndMachine, type LobbyLoginReply, type LobbyService, type SoftKeyboardFrontEnd,
   type UiCommandHost, type UiVarManager, type ValveStore,
 } from '@s2u/ui';
@@ -230,11 +231,23 @@ export const SIGNED_IN_ELSEWHERE_ADAPTATION = 'this account signed in elsewhere,
 /** `SIGNED_IN_ELSEWHERE_ADAPTATION`'s line's element id (one line at most on the page). */
 export const SIGNED_IN_ELSEWHERE_LINE_ID = 'signed-in-elsewhere' as const;
 
-/** Where `SIGNED_IN_ELSEWHERE_ADAPTATION`'s line is shown: `show` once the session was taken over, `clear` at a login's answer. */
+/**
+ * Where `SIGNED_IN_ELSEWHERE_ADAPTATION`'s line is shown: `show` once the session was taken over, `clear` at a login's answer.
+ * OPS-A3 (`ACCOUNT_BANNED_LINE_ADAPTATION`): `show(words)` says `words` there instead -- a session a ban ended.
+ */
 export interface SignedInElsewhereLine {
-  show(): void;
+  show(words?: string): void;
   clear(): void;
 }
+
+/**
+ * ACCOUNT_BANNED_LINE_ADAPTATION (OPS-A3, the owner's row H464; product track, a browser adaptation -- a service ban has
+ * no original): a session central ended for a ban (the dead ticket's 401 `{ reason: "banned" }`, central's
+ * `ACCOUNT_BANNED_REASON`; `LobbyService.sessionEndedWhy` answers `banned`) is said on the same line, in the same place and
+ * for the same lifetime as SIGNED_IN_ELSEWHERE_ADAPTATION's, with `@s2u/ui`'s `BANNED_PERMANENT_ADAPTATION` (the 401
+ * carries no date). As text, never markup. The original's own flow is unchanged: state 2, UIMnLOC 450.
+ */
+export const ACCOUNT_BANNED_LINE_ADAPTATION = 'a session a ban ended says the ban on the signed-in-elsewhere line' as const;
 
 /**
  * `SIGNED_IN_ELSEWHERE_ADAPTATION`'s line on the page: as `accountServiceAbsentLine`'s -- one `<p>` over the canvas, the
@@ -243,14 +256,13 @@ export interface SignedInElsewhereLine {
  */
 export function signedInElsewhereLine(doc: Document): SignedInElsewhereLine {
   return {
-    show: () => {
+    show: (words?: string) => {
       let el = doc.getElementById(SIGNED_IN_ELSEWHERE_LINE_ID);
       if (!el) {
         el = doc.createElement('p');
         el.id = SIGNED_IN_ELSEWHERE_LINE_ID;
         el.className = 's2u-notice';
         el.setAttribute('role', 'status');
-        el.dataset['adaptation'] = 'SIGNED_IN_ELSEWHERE_ADAPTATION';
         el.style.position = 'fixed';
         el.style.top = '8px';
         el.style.right = '8px';
@@ -261,9 +273,11 @@ export function signedInElsewhereLine(doc: Document): SignedInElsewhereLine {
         el.style.pointerEvents = 'none';
         doc.body.append(el);
       }
+      // OPS-A3: the words given (a ban's) or the takeover's; a text node either way, never parsed as markup.
+      el.dataset['adaptation'] = words === undefined ? 'SIGNED_IN_ELSEWHERE_ADAPTATION' : 'ACCOUNT_BANNED_LINE_ADAPTATION';
       const label = doc.createElement('b');
       label.textContent = ACCOUNT_SERVICE_ABSENT_LABEL;
-      el.replaceChildren(label, SIGNED_IN_ELSEWHERE_ADAPTATION);
+      el.replaceChildren(label, words ?? SIGNED_IN_ELSEWHERE_ADAPTATION);
     },
     clear: () => { doc.getElementById(SIGNED_IN_ELSEWHERE_LINE_ID)?.remove(); },
   };
@@ -889,7 +903,7 @@ export type GameTokenReply = { status: number; door?: unknown; token?: unknown }
 /** What a reconnect does next (`GameSeatProvider.reseat`, `GAME_RETOKEN_ADAPTATION`). */
 export type Reseat =
   | { readonly kind: 'open'; readonly seat: GameSeat }
-  | { readonly kind: 'ended'; readonly close: 4007 | 4008 }
+  | { readonly kind: 'ended'; readonly close: 4007 | 4008; /** LATER 359b, NET-RES-3: -972 PlayerBanned named apart from 4008's freed seat. */ readonly why?: 'removed' }
   | { readonly kind: 'signed-out' }
   | { readonly kind: 'backoff' };
 
@@ -919,6 +933,8 @@ const SIGNED_OUT: Reseat = { kind: 'signed-out' };
 const FREED: Reseat = { kind: 'ended', close: 4008 };
 /** Central's GameNotFound (`packages/central/src/lobby.ts` `LOBBY_STATUS`, `RETOKEN_STATUS.gameGone`): the game gone. */
 const GAME_GONE_STATUS = -977;
+/** Central's PlayerBanned (-972, `PLAYER_BANNED_STATUS`): still the 4008 end, its line NET-RES-3's 'removed' (LATER 359b). */
+const REMOVED: Reseat = { kind: 'ended', close: 4008, why: 'removed' };
 
 /**
  * SA-6c (`GAME_RETOKEN_ADAPTATION`, the merge controller's condition): whether a re-tokened seat `v` is a `GameSeat` of
@@ -945,7 +961,7 @@ export function gameSeatProvider(o: GameSeatProviderOptions): GameSeatProvider {
   const local = (): Reseat => { const ticket = o.ticket(); return ticket === null ? SIGNED_OUT : { kind: 'open', seat: { pinned: o.pinned, ticket } }; };
   const read = (reply: GameTokenReply, ticket: string): Reseat => {
     if (reply === 'session-lost') { o.sessionLost(ticket); return SIGNED_OUT; }
-    if (reply.status !== 0) return reply.status === GAME_GONE_STATUS ? { kind: 'ended', close: 4007 } : FREED;
+    if (reply.status !== 0) return reply.status === GAME_GONE_STATUS ? { kind: 'ended', close: 4007 } : reply.status === PLAYER_BANNED_STATUS ? REMOVED : FREED;
     if (reply.door === undefined && reply.token === undefined) { placed = false; return local(); }
     const door = pinnedGameDoor(reply.door, o.game, o.pinned.devDoors);
     return door && isGameToken(reply.token) ? { kind: 'open', seat: { pinned: door, token: reply.token } } : FREED;
@@ -1074,21 +1090,28 @@ export function fetchAccountService(base: string, fetchFn: typeof fetch = (...a)
         ? await asked('/account/login', password ? { name, password, savePassword: true } : { name, savePassword: true }, 'include')
         : await asked('/account/login', { name, password, savePassword: false });
       const ticket = body?.['ticket'];
-      return status === MEDIUS_STATUS.Success && typeof ticket === 'string' && ticket !== '' ? { status, ticket } : { status };
+      if (status === MEDIUS_STATUS.Success && typeof ticket === 'string' && ticket !== '') return { status, ticket };
+      // OPS-A3: a banned refusal carries what central shows of the ban (`shownBanOf`); out of shape or absent, none.
+      const ban = status === PLAYER_BANNED_STATUS ? shownBanOf(body?.['ban']) : null;
+      return ban ? { status, ban } : { status };
     },
     register: async ({ name, password }) => ({ status: (await asked('/account/create', { name, password })).status }),
     // NU-16b (PAGEHIDE_LOGOUT_ADAPTATION): keepalive, so the pagehide's logout outlives the page's unload.
     // OT.R61: with `forget` Forget this device (the contract's step 6); else the plain logout, the token kept (step 5).
-    logout: async (ticket) => ({ status: (await statusOf(await post('/account/logout', forget ? { ticket, forget: true } : { ticket }, true, forget ? 'include' : 'omit'))).status }),
+    // LATER 896 part 2 (`./seatKeep`): a "Reload and rejoin" unload sends no logout -- its session ends with the parked seat
+    // and the next login takes it over (central lobbyGameParkedResume.test.ts: a logout heard first frees the seat).
+    logout: async (ticket) => (seatKeptInThisUnload() ? { status: MEDIUS_STATUS.Success } : { status: (await statusOf(await post('/account/logout', forget ? { ticket, forget: true } : { ticket }, true, forget ? 'include' : 'omit'))).status }),
     // N3 (LOBBY_KEEPALIVE_MS): the bridge's session renewed -- KEEPALIVE_REFUSAL_IS_LOSS_ADAPTATION reads the answer.
     keepAlive: async (ticket) => keepAliveAnswer((await renew(ticket)).status),
-    // SIGNED_IN_ELSEWHERE_ADAPTATION: the dead ticket's renewal once more -- its 401's `reason`, the server's takeover or nothing.
+    // SIGNED_IN_ELSEWHERE_ADAPTATION: the dead ticket's renewal once more -- its 401's `reason`, the server's takeover,
+    // a ban (OPS-A3, ACCOUNT_BANNED_LINE_ADAPTATION) or nothing.
     sessionEndedWhy: async (ticket) => {
       try {
         const res = await renew(ticket);
         if (res.status !== 401) return null;
         const body: unknown = await res.json();
-        return typeof body === 'object' && body !== null && (body as Record<string, unknown>)['reason'] === 'taken-over' ? 'taken-over' : null;
+        const reason = typeof body === 'object' && body !== null ? (body as Record<string, unknown>)['reason'] : undefined;
+        return reason === 'taken-over' || reason === 'banned' ? reason : null;
       } catch { return null; }
     },
   };
@@ -1264,7 +1287,9 @@ export function connectLobby(host: UiCommandHost, o: ConnectHostOptions): LobbyC
     if (!elsewhere || !o.service.sessionEndedWhy) return;
     const asked = connection;
     o.service.sessionEndedWhy(ticket).then((why) => {
-      if (why === 'taken-over' && asked === connection && lobby.up) elsewhere.show();
+      if (asked !== connection || !lobby.up) return;
+      if (why === 'taken-over') elsewhere.show();
+      else if (why === 'banned') elsewhere.show(BANNED_PERMANENT_ADAPTATION);   // OPS-A3, ACCOUNT_BANNED_LINE_ADAPTATION
     }, () => { /* no answer: no line */ });
   };
   const gone = (): void => { connection++; held?.line.clear(); elsewhere?.clear(); };

@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs';
+import { menuTextureLifetime } from '../src/frontEndSleep';
 import { describe, expect, it, vi } from 'vitest';
+
 import type { MovieEndMessage, MovieFrame, MovieStreamHandle } from '@s2u/fmv';
 import { UI_TICK_SECONDS, type DialogDesign } from '@s2u/ui';
 import { FrontEndSession, type FrontEndDisc } from '../src/frontEnd';
@@ -215,5 +217,25 @@ describe('the page\'s wiring (frontEnd.ts)', () => {
     const returned = src.split('\n').filter((l) => /^\s*returned: \(\) => \{ roundLine = null;/.test(l));
     expect(returned).toHaveLength(1);
     expect(returned[0]).toContain('matchUp = false;');
+  });
+});
+
+describe('Xbox decoded menu image lifetime', () => {
+  it('does not restart prefetch when teardown returns from loading or a match', () => {
+    for (const phase of ['loading', 'match']) {
+      let running = true; const calls: string[] = [];
+      const lifetime = menuTextureLifetime({ active: () => running, enabled: () => true,
+        stop: () => calls.push('stop'), release: () => calls.push('release'), start: () => calls.push('start') });
+      lifetime.start(); lifetime.leave(); running = false; lifetime.returned(); lifetime.start();
+      expect(calls, phase).toEqual(['stop', 'start', 'stop', 'release']);
+    }
+  });
+
+  it('resumes once after a real release even if the saved renderer preference changes', () => {
+    let enabled = true; const calls: string[] = [];
+    const lifetime = menuTextureLifetime({ active: () => true, enabled: () => enabled,
+      stop: () => calls.push('stop'), release: () => calls.push('release'), start: () => calls.push('start') });
+    lifetime.leave(); enabled = false; lifetime.returned(); lifetime.returned(); lifetime.leave();
+    expect(calls).toEqual(['stop', 'release', 'stop', 'start']);
   });
 });

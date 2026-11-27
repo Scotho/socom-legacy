@@ -1,0 +1,24 @@
+{
+ "what": "DAY-P1a Abandoned (Day) builder output (a browser adaptation; product track, DAY.R1)",
+ "generated": "2026-11-24T04:07:03.003Z",
+ "baseCommit": "0433128afba4f89fa28d1f927154fc809a6fa8c0",
+ "socom2": {
+  "file": "RUN/MP5.ZDB",
+  "sha256": "91bc90d4966b26b99c661523e2993f7dd09c00a6308ea238297547ff79964bec",
+  "load": "loadMap(FsAssetSource(SOCOM_DISC), \"RUN/MP5.ZDB\"), no LoadMapOptions"
+ },
+ "socom1": {
+  "dir": "SOCOM1_MP5_DIR",
+  "files": {
+   "s1-MP5.world-verts.f32": "9b65fb56f75171eca47c05198430c4a06be9ff2f04c21603d012e48c65c193e3",
+   "s1-MP5.world-attrs.f32": "24bbc907391572a2c5e30979ab7f26457a65116ee0ab399e946299124e351f15",
+   "s1-MP5.world-tex.u16": "d2b22b7d44cd890d6da5ac44e85c92fa0accd98bc2ce7398125ae3d6b7b50d24",
+   "s1-MP5.world-flags.u8": "a9d57d327aee3725e0fab08a4971fe6a8b5a0bf08272c0c5462a55d60170b615",
+   "s1-MP5.world-idx.u32": "dac36cdbfc884f4ea68e1ee04dffaa9c20fb47a4badaa06d45e229c67c8fef3f",
+   "s1-MP5.geom.json": "af664a9f7ac633046313945935a6fdfbbe98bbbf5ce1888a4b30c84dfe4062cb",
+   "s1-MP5.json": "e54202d5807a5d61584e8c4c77f734078863da805a5605277b9730d69234f059",
+   "day-mode/dumps/s1-MP5.render.json": "c2b8c6365f8b60ef00b537e9cef9c730b16bf90bc4063127969dbfeebf36139f",
+   "day-mode/dumps/s1-MP5.render.bin": "660c3c80fc43440c0f879cd446e8a580b88eaf54fc487720a6f5a66f7199c30e"
+  }
+ }
+}

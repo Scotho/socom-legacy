@@ -176,6 +176,62 @@ describe('GetFriendsList (FUN_00301750, its reply FUN_003017a0, the draw FUN_003
   });
 });
 
+/**
+ * LATER 1505 (Streamer mode's social set, a browser adaptation): the list counts its answers, an empty one (NoResult
+ * only) included, and keeps the list as each left it, so a reader outside the page can tell "answered, none" from "asked,
+ * not answered yet" and never reads a re-ask's emptied records as an answer. Changes nothing the page draws.
+ */
+describe('LATER 1505: FriendListCommands.answered counts the list’s answers', () => {
+  it('0 before any answer; asked, still 0; answered with none (NoResult only), 1; asked again and answered, 2', async () => {
+    const r = rows();
+    expect(r.c.answered).toEqual({ count: 0, records: [] });
+    r.run('GetFriendsList');
+    expect(r.c.answered.count).toBe(0);
+    await flush();
+    expect([r.c.answered, r.c.records()]).toEqual([{ count: 1, records: [] }, []]);
+    r.run('GetFriendsList');
+    await flush();
+    expect(r.c.answered.count).toBe(2);
+  });
+  it('the answer keeps its list while a re-ask empties the records (the review’s F1)', async () => {
+    const r = rows({ friends: [{ id: 42, name: 'bob' }] });
+    r.run('GetFriendsList');
+    await flush();
+    r.run('GetFriendsList');                                                    // asked again: records emptied, not answered
+    expect([r.c.records().length, r.c.answered.count, r.c.answered.records.map((x) => x.accountName)]).toEqual([0, 1, ['bob']]);
+  });
+  it('a reply dropped (a ticket no longer held) is no answer', async () => {
+    let ticket: string | null = 'T1';
+    const r = rows({ friends: [{ id: 42, name: 'bob' }] }, { ticket: () => ticket });
+    r.run('GetFriendsList');
+    ticket = 'T2';
+    await flush();
+    expect(r.c.answered.count).toBe(0);
+  });
+  it('a reply dropped (a newer request made: FRIEND_LIST_LATEST_REPLY_ADAPTATION) is no answer (the review’s F3)', async () => {
+    const r = rows({ friends: [{ id: 42, name: 'bob' }] });
+    r.run('GetFriendsList');
+    r.run('GetFriendsList');                                                    // the first reply lands after the second ask
+    await flush();
+    expect(r.c.answered.count).toBe(1);
+  });
+  /**
+   * The controller's CALL 1 (2026-11-24, redotcom-b0): an ERROR-only reply (a status neither Success nor NoResult) is an
+   * answer too, with the list as it left it -- empty, the re-ask having emptied it, as the console's list is
+   * (`FUN_003017a0` draws what is held). Kept by choice: Streamer mode's social set then takes no friends until the next
+   * answer, which fails safe (a friend hidden, never a stranger shown). Pinned here (the re-review's finding 1).
+   */
+  it('CALL 1: an error-only reply counts as an answer with the emptied list (kept by choice, fails safe)', async () => {
+    const r = rows({ friends: [{ id: 42, name: 'bob' }] });
+    r.run('GetFriendsList');
+    await flush();
+    expect(r.c.answered).toMatchObject({ count: 1, records: [{ accountName: 'bob' }] });
+    r.run('GetFriendsList');                                                    // asked again: the list emptied
+    r.c.listReply([{ ...NO_FRIENDS, status: -1 }]);                             // answered with an error row only
+    expect(r.c.answered).toEqual({ count: 2, records: [] });
+  });
+});
+
 describe('GetFriendInfo (FUN_00301140): local, from the list', () => {
   it('the name, the game and the lobby of the row\'s account; MAIN MENU and " " for a lobby named "Medius..."; an account not listed empties all three; nothing sent', async () => {
     const r = rows({ friends: [{ id: 42, name: 'bob', state: IN_GAME }, { id: 44, name: 'dave', state: ON_MENUS }, { id: 45, name: 'eve', state: OFF }] }, { input: '42' });

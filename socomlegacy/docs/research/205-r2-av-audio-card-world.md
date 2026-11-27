@@ -399,8 +399,9 @@ The rest of S8 is answered statically above.
     linear gain falls under 1/3.
 - **Implementation:** `vol7 = min(127, floor(cmd * gain * 127))` before squaring. Test: a 3.0 emitter at gain 0.5
   equals one at gain 1/3.
-- **Lead, not settled:** the positional play's start (`FUN_003428a0` D:L242072, D:L242135) multiplies by the entry's
-  `+4` twice, while the per-frame update multiplies once. Worth a check by whoever ports the emitter start.
+- **Lead, not settled:** the positional play's start (`FUN_00342b20` D:L242072, D:L242135; not `FUN_003428a0`, which
+  only removes the voice id from the headset and the vocal queue, D:L241960-241973) multiplies by the entry's `+4`
+  twice, while the per-frame update multiplies once. Worth a check by whoever ports the emitter start.
 
 ### 2.4 The HQ duck: which lines carry HQ, and what releases it (C7 §5) -- RESOLVED, STRONG
 - **What I did:** read the stream-key parser and the duck's release path, and listed the disc's HQ entries.

@@ -21,8 +21,8 @@ function world(polys: WorldPoly[]): Grid {
 }
 /** A floor at 0 and a plank 20 over it with no face (a floor polygon alone) from z -50 to -150: only the pick reaches it. */
 const plankWorld = (): Grid => world([
-  quad([-200, 0, -200, 200, 0, -200, 200, 0, 200, -200, 0, 200], 3, 'worldmodel/floor'),
-  quad([-50, 20, -150, 50, 20, -150, 50, 20, -50, -50, 20, -50], 3, 'worldmodel/plank'),
+  quad([-200, 0, 200, 200, 0, 200, 200, 0, -200, -200, 0, -200], 3, 'worldmodel/floor'),
+  quad([-50, 20, -50, 50, 20, -50, 50, 20, -150, -50, 20, -150], 3, 'worldmodel/plank'),
 ]);
 const RUN = { forward: 1, right: 0, boost: false };
 const STILL = { forward: 0, right: 0, boost: false };

@@ -42,7 +42,7 @@ Five findings change the synthesis materially:
 | 5 | Leader disconnect (H3 §8.3) | RESOLVED | PROVEN (release) / STRONG (stranding) | **Released on the host.** The deletion callback calls `FUN_005998b0`, which calls `FUN_005477a0(0, body)`. That kills the body, and its OnDeath `FUN_00547af0` calls `ControlHostageAction(ai,0)` for every hostage it leads. The follow state then ends; the driver pops it. **But the hostage stays in the departed (or dead) leader's unit.** FOLLOW is offered only for a hostage in unit 0x11, and HOLD only to that unit's members, so nobody can order it again (no path back to unit 0x11 found). |
 | 6 | Doors and the jail (H2 U2) | RESOLVED | PROVEN (data) / STRONG (effect) | `nohostagerescue` and `okhostagerescue` are the **same 9 wall polygons** (the bars around the cell door, AI column 102, z cells 5-11, doorway rows 9-10). They differ only in **material: 28 METAL_GRATE vs 3 INVISIBLE_DI**. Walkability is unchanged. The swap makes the bars opaque or transparent to the **crosshair pick**: penetration ≥ 0.98 is ignored, and METAL_GRATE has 0.4. With the door shut, you cannot target (order) a hostage through the bars, and bullets meet METAL_GRATE. The AI map is static: no `ai::PAINT` in the door animations. Bars cells are type 9; the doorway cell is type 1. Followers never open doors. |
 | 7 | Who starts `Hostage_start` / "Cower" (H1 U3) | RESOLVED | STRONG | `<entity>_start` / `<entity>_ambient` are looked up only by `FUN_00562ad0` (`"%s_%s"` + "start"/"ambient"). It is called only from CSealCtrlAi slot +0x5c, which is reached two ways: (a) AI init when ctrl+0x171 bit 6 is set, which only the AI **respawn** sets (`FUN_005994a0`, offline-only through `FUN_00547350`); (b) the deferred spawner for records with the **`recycle`** key. The hostages have neither. **Online it never runs**; the crouch comes from CAiSHostage sub 3 → 2. |
-| 8 | Missing CHRSND entries (V2 owed #2) | RESOLVED | PROVEN | **Silent; no fallback.** Tables start zeroed and are copied from the parent; `mp_hostage_extract` has no parent and no sounds; a null handle plays nothing (`FUN_0053b710`). `mp_fem1-3` have only DEATH, DAMAGE and YES. **WAIT_UP (0x31), NO, RESTRAINED, HELPME and PANIC are silent.** |
+| 8 | Missing CHRSND entries (V2 owed #2) | RESOLVED | PROVEN | **Silent; no fallback but for DAMAGE and DEATH.** Tables start zeroed and are copied from the parent; `mp_hostage_extract` has no parent and no sounds; a null handle plays nothing (`FUN_0053b710`). Only slots 0x3b `CHRSND_DAMAGE` and 0x3c `CHRSND_DEATH` (the character type's +0x254, +0x258; the type at body+0x540) fall back, to `MALE_DAMAGE` and `DEATH_SOUNDS`, when their handle is null (`FUN_0053c200` D:L405765-405777). `mp_fem1-3` have only DEATH, DAMAGE and YES; on MP6 neither their own DAMAGE and DEATH names nor the two fallbacks are filed, so the fallback gives nothing there (research 238 §1.4). **WAIT_UP (0x31), NO, RESTRAINED, HELPME and PANIC are silent.** |
 | 9 | What a remote console shows (H3 §8.5) | RESOLVED | STRONG | AI word bits 28/29 drive no animation. Bit 29 creates or removes the type-4 "FRIENDLY" compass mark (`FUN_005434b0`/`FUN_00543480`); bit 28 mirrors body+0x105d bit 0. Bits 24-27 are the **node opacity**, not an animation blend. The clip comes from the replicated requested stance (byte 0x7f → body+0x374) and the sticks/speed, through the `No_weapon` set. Spawn: civ_stand. After 2 s: civ_stand2crouch → civ_crouch. Following: stand + civ_walk/jog/run by speed. Rescued: stands, stops, fades out over ≤ 1.33 s, then hidden. |
 
 ---
@@ -239,6 +239,18 @@ inverse pair is used for exactly that, but the generic AI move loop was not trac
 
 **Owed.** The SEAL leader's top speed (its anim set's Run B × 10) is needed for the 1.2 rule. Same script, other set.
 
+**A consequence for a fleeing hostage (LATER 1258, 2026-11-20):** with no crouch or prone movement clip in this set,
+the original's hostage cannot run crouched: a hostage that moves at the flight's throttle 1 (65 u/s) is upright. The
+port's hostage running crouched at full speed (the owner's playtest of the v0.4.27 RC) is a body the original cannot
+show. By reading, neither the flight (0x1b, `FUN_0055ac20`: a stand ask only from prone, D:L423101-423107) nor its run
+(state 0x18, tick `FUN_005f1160`) asks a stand, while the idle hostage crouches (`FUN_00563100(-1, actor, 1)`,
+D:L511897) -- so what makes the original's hostage upright on the run (standing still at the throw, stood on the run, or
+a standing clip under a crouched stance) is unread. The flight itself also crouches or prones a hostage at its end (case 6 to
+8: a crouch ask, D:L423511-423516; or 7: prone, D:L423504-423509), and its other stand asks are prone-only too (D:L423116-423119,
+D:L423221-423225 in case 3, which pushes the run), so a hostage fleeing a SECOND time starts crouched as an idle one
+does (the batch review's 1-a). The rig job `l1258-flee-stance` (a first flight from idle and a second) settles it
+(`agent-mail/evidence/weekend-mega-2026-11-14/later1258-read-2026-11-20T06:29Z.md`). [reading, pending review]
+
 **Change to the synthesis.**
 - §4.3: "matches 1.2× the leader's speed" becomes "throttle = 1.2 × leaderSpeed / leaderTopSpeed (leader's set and
   stance), floor min(leader cap, 0.25) = 0.25 for players, max 1; hostage speed = throttle × 65 u/s".
@@ -426,9 +438,14 @@ port it for MP."
 
 Handles are made only for non-null names (`FUN_0053c200` D:L405752-405755).
 
-**The play path.** The voice call is ctrl vtable +0x24 = `FUN_0055ff60` (D:L425495-425565) →
-`FUN_0053b710(body+0x540 table, id, …)`. That plays nothing and returns 0 when the handle is null
-(D:L405260-405266). There is no default bank and no global fallback.
+**The play path.** The voice call is ctrl vtable +0x24 = `FUN_0055ff60` (D:L425495-425565) → `FUN_0053b710(body+0x540
+table, id, …)`. That plays nothing and returns 0 when the handle is null (D:L405260-405266). There is no default bank
+and no global fallback. The one exception is in `FUN_0053c200` (`CCharacterType::AcquireSoundHandles`): after its
+loop, a null handle in slot 0x3b `CHRSND_DAMAGE` (the character type's +0x254; the type at body+0x540) gets one for
+`MALE_DAMAGE` (string 0x65b378) and a null one in slot 0x3c `CHRSND_DEATH` (+0x258) one for `DEATH_SOUNDS` (0x65b388)
+(D:L405765-405777; the ids' names at D:L405972-405977). The test is on the handle, not the name: on MP6 the hostages'
+`.FEMALE_DAMAGE` and `.FEMALE_DEATH` and both fallbacks are filed by no block the map loads, so the fallback gives
+nothing and no hostage cue changes (research 238 §1.4).
 
 **The data** (`q8_chrsnd.py` → `out_q8_chrsnd.txt`):
 - `mp_hostage_extract` has no parent and no `sounds`;

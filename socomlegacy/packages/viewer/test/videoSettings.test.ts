@@ -404,3 +404,83 @@ describe('VS-7 re-review: set({ graphics: \'auto\' }) under Automatic', () => {
     expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBeNull();
   });
 });
+
+/**
+ * WM-R20-FOLDS item 3 (the controller's ruling, seat 8f; the saved-settings audit's R4; a browser adaptation): the colour
+ * filter is an accessibility setting, not a quality row -- no preset writes it, and choosing one keeps it as the player
+ * saved it. Every preset's own value for it is 'off' (`PRESET_VALUES`, the class starts), so a player with no filter
+ * saved still reads 'off' under every preset. Restore defaults still sets it Off: the button's text is "Every row above
+ * back to Automatic", and the filter is a row above it.
+ */
+describe('WM-R20-FOLDS item 3: no preset writes the colour filter', () => {
+  const NAMED = ['auto', 'performance', 'balanced', 'quality', 'lite'] as const;
+
+  it('a saved filter (made under Custom) stays through each named preset in turn; each preset is still itself, not Custom', () => {
+    const k = videoSettingsKeeperV2();
+    k.set({ preset: 'custom' });
+    k.set({ colourFilter: 'deuteranopia' });
+    for (const p of NAMED) {
+      k.set({ preset: p });
+      expect([k.get().preset, k.get().colourFilter], p).toEqual([p, 'deuteranopia']);
+      expect(readVideoSettingsV2().colourFilter, `${p}: a later load`).toBe('deuteranopia');
+      expect(isCustom(k.get()), p).toBe(false);
+    }
+  });
+
+  it('a filter chosen under a named preset or Automatic keeps the preset, and a later load reads it back', () => {
+    const k = videoSettingsKeeperV2();
+    for (const p of NAMED) {
+      k.set({ preset: p });
+      k.set({ colourFilter: 'tritanopia' });
+      expect([k.get().preset, readVideoSettingsV2().preset, readVideoSettingsV2().colourFilter], p).toEqual([p, p, 'tritanopia']);
+      k.set({ colourFilter: 'off' });
+      expect(readVideoSettingsV2().colourFilter, p).toBe('off');
+    }
+  });
+
+  it("no filter saved: every preset's own value is Off, and every preset reads Off", () => {
+    for (const p of ['performance', 'balanced', 'quality', 'lite'] as const) expect(PRESET_VALUES[p].colourFilter, p).toBe('off');
+    const k = videoSettingsKeeperV2();
+    for (const p of NAMED) { k.set({ preset: p }); expect(k.get().colourFilter, p).toBe('off'); }
+  });
+
+  it('Restore defaults (its text: "Every row above back to Automatic") sets the filter Off with the other rows', () => {
+    const k = videoSettingsKeeperV2();
+    k.set({ preset: 'custom' });
+    k.set({ colourFilter: 'protanopia' });
+    k.restoreDefaults();
+    expect([k.get().preset, k.get().colourFilter, readVideoSettingsV2().colourFilter]).toEqual(['auto', 'off', 'off']);
+  });
+});
+
+/**
+ * LATER 1275 (the main controller's ruling, 2026-11-20: rides v0.4.29; a browser adaptation): on the Xbox class with the
+ * Xbox pick saved, under Automatic, the rows read the pick's own WebGL2 (`./deviceClass` `XBOX_GRAPHICS_ADAPTATION`); a
+ * change of one other row made a Custom carrying it, and the commit wrote 'webgl2' over the pick -- the page left the Xbox
+ * class (and its lightweight opt-in). A row change that does not ask for a renderer keeps the pick; an explicit renderer
+ * choice still moves it.
+ */
+describe('LATER 1275: a saved Xbox pick survives a change of another row', () => {
+  const picked = () => {
+    localStorage.setItem(GRAPHICS_BACKEND_KEY, 'xbox');
+    const keeper = videoSettingsKeeperV2();
+    expect(keeper.get().preset).toBe('auto');
+    return keeper;
+  };
+  it('Automatic, then Shadows changed: Custom, the pick kept', () => {
+    const keeper = picked();
+    keeper.set({ shadows: keeper.get().shadows === 'off' ? 'low' : 'off' });
+    expect(keeper.get().preset).toBe('custom');
+    expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('xbox');
+  });
+  it('Automatic, then the frame cap changed: the pick kept', () => {
+    const keeper = picked();
+    keeper.set({ frameCap: keeper.get().frameCap === 30 ? 60 : 30 });
+    expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('xbox');
+  });
+  // (An explicit WebGL2 under Automatic with the pick is already what the pick draws, and has always written nothing.)
+  it('an explicit renderer choice still moves the key off the pick', () => {
+    picked().set({ graphics: 'webgpu' });
+    expect(localStorage.getItem(GRAPHICS_BACKEND_KEY)).toBe('webgpu');
+  });
+});

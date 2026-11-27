@@ -67,6 +67,11 @@ export function effectMaterial(texture: EffectTexture | null, options: { cull?: 
   m.transparent = state.transparent;
   m.depthWrite = state.depthWrite;
   Object.assign(m, blendFactorsFor(state.factors));
+  // MP64-CREATURES (the owner's playtest 2026-11-22; research 89 section 22): a texture whose bind packet sets the GS alpha
+  // test (`TEST.ATE`, `AREF / 128`: `GsState.alphaTest`) is a cutout -- the particle's own packet (`FUN_003251b0`,
+  // D:L224000-224010; r0004 0x34296c-0x342978) chains the texture's and writes no TEST of its own; reading, pending review -- `materialSpec` reads it into `spec.alphaTest`, as the world applies it
+  // (`./world`); without it a cutout particle (Shadow Falls' dragonflies, the `bugs_flying` effect) drew as an opaque quad.
+  if (texture) m.alphaTest = spec.alphaTest;
   m.side = options.cull ? FrontSide : DoubleSide;
   m.fog = options.fog ?? true;
   m.toneMapped = false;

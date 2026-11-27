@@ -32,6 +32,8 @@ export function readStills(dir: string): Still[] {
   const files = readdirSync(dir).filter((f) => /\.json$/i.test(f) && f.toLowerCase() !== 'manifest.json').sort();
   for (const file of files) {
     const raw: unknown = JSON.parse(readFileSync(join(dir, file), 'utf8'));
+    // DAY-STILLS (a browser adaptation): a variant's still (`MP5-abandoned-day.json`) is not a Forge start -- the Forge opens the map's base.
+    if (isObj(raw) && raw['variant'] !== undefined) continue;
     if (!isObj(raw) || typeof raw['mapId'] !== 'string' || !/^MP\d+$/.test(raw['mapId'])) throw new Error(`${file}: no mapId like "MP1"`);
     const cam = raw['camera'];
     if (!isObj(cam)) throw new Error(`${file}: no camera`);

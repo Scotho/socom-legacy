@@ -521,12 +521,16 @@ async function netRig(o: {
   await advance(2000);
   const tp = map.turrets!.find((p) => p.root === 'worldmodel/mp51_turret01')!;
   const player = () => match.room.player(client.id!)!;
+  // L208: as a networked explicit placement runs -- the room places the body (`place`'s pick), and the page, told the spawn
+  // with no seed, adopts the room's point (`respawn(at, yaw, [], {})`, `Walker.adopt`; net/client.ts' spawn paths). An
+  // untold `respawn` is the page-initiated seed (the solo dev teleport, the Forge walk-at: no room behind it), whose seeded
+  // first frame the room's `place` does not run -- page and room would start the trip apart (box/l208ab-910fe1c5d: 0.767).
   const teleport = (at: V3, yaw: number): boolean => {
-    if (!walk.respawn(at, yaw)) return false;
     const body = player();
-    body.sim.walker.place(at[0], at[1] + probeLiftOf('stand'), at[2]);
+    if (!body.sim.walker.place(at[0], at[1] + probeLiftOf('stand'), at[2])) return false;
     body.sim.walker.state.yaw = yaw;
-    return true;
+    const s = body.sim.walker.state;
+    return walk.respawn([s.x, s.y, s.z], yaw, [], {});
   };
   const steering = (): boolean => (player() as unknown as { seat: unknown }).seat !== null;
   const key = (code: string, down: boolean): void => { globalThis.dispatchEvent(new KeyboardEvent(down ? 'keydown' : 'keyup', { code, key: code === 'KeyW' ? 'w' : code })); };

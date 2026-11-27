@@ -4,7 +4,7 @@ import type { ShortcutScope } from '../../src/forge/shortcuts';
 
 /**
  * Geometry mode's keys: while it is on, the page answers only the General commands (`../../src/forge/shortcuts`), and
- * never a key Geometry mode has a command on in its mode or tool now (the owner, 2026-11-20: V, P and M given to the
+ * never a key Geometry mode has a command on in its mode or tool now (the Forge's owner (crispy, OT.R112), 2026-11-20: V, P and M given to the
  * geometry modes). Off, the page's map is as it was.
  */
 const state: ForgeKeyState = { typing: false, match: false, menu: false, card: false, playing: false, pointerLocked: false, leased: false };

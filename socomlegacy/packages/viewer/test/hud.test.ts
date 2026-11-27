@@ -1456,7 +1456,7 @@ describe("LATER 117: a dead player watching a teammate draws the box's panel and
   const icon = (id: number): string | null => ICONS[id] ?? null;
   const SIZES_117 = { ...SIZES, 'sigcommando_icon.tif': { width: 128, height: 32 } };
   const deadAway = { mode: () => 'fly', isDead: () => true }, deadOwn = { mode: () => 'walk', isDead: () => true };
-  type Body = { id: number; flags: number; weapon?: number };
+  type Body = { id: number; flags: number; weapon?: number; hand?: number };
   const source = (bodies?: readonly Body[], s: Partial<SpectatorHudSource['spectator']> = {}): SpectatorHudSource => ({
     client: { role: 'player', ...(bodies ? { bodies: () => bodies } : {}) }, rows: [{ id: 4, kills: 0, deaths: 0, score: 0 }],
     nameOf: (id) => `P${id}`, spectator: { mode: 'free', target: null, scenic: -1, watching: 4, benched: true, ...s },
@@ -1473,6 +1473,17 @@ describe("LATER 117: a dead player watching a teammate draws the box's panel and
     expect(watched([{ id: 3, flags: ALIVE, weapon: M4 }, { id: 4, flags: ALIVE, weapon: SIG }]).weaponIcon).toBe('sigcommando_icon.tif');
     // A dead watched teammate (LATER 69 keeps him watched): the snapshot's item (DEAD_WATCH_HELD_ICON_READING).
     expect(watched([{ id: 4, flags: 0, weapon: M4 }]).weaponIcon).toBe('m4carbine_icon.tif');
+  });
+
+  it("WM-DATA-17 (protocol 17): the watched body's hand (`BodyState.hand`) names the icon when non-zero, else the kit's item (`weapon`)", () => {
+    const M67 = 121, C4 = 151;
+    const iconsHand: Record<number, string> = { ...ICONS, [M67]: 'm67_icon.tif', [C4]: 'c4_icon.tif' };
+    const byHand = (id: number): string | null => iconsHand[id] ?? null;
+    expect(watched([{ id: 4, flags: ALIVE, weapon: M4, hand: M67 }], byHand).weaponIcon).toBe('m67_icon.tif');
+    expect(watched([{ id: 4, flags: ALIVE, weapon: M4, hand: C4 }], byHand).weaponIcon).toBe('c4_icon.tif');
+    // 0 (nothing but the firearm or the launcher in the hand; a protocol 16 replay's frozen decoder) and absent: as before.
+    expect(watched([{ id: 4, flags: ALIVE, weapon: SIG, hand: 0 }], byHand).weaponIcon).toBe('sigcommando_icon.tif');
+    expect(watched([{ id: 4, flags: ALIVE, weapon: SIG }], byHand).weaponIcon).toBe('sigcommando_icon.tif');
   });
 
   it.each([
@@ -1794,6 +1805,20 @@ describe('NU-9 (c) T3: the HUD draws the over-head tags (research 329 §5 T3)', 
     expect(of(quads, 'teamTalk')).toEqual([]);                   // no talker, no sprites
   });
 
+  it('NAME-TAGS-AT-HEAD (a browser adaptation): an atHead view draws its tags back to front -- the nearest last, so a dimmed farther name never paints over it', () => {
+    // The points come nearest first (`./hudTags`); the farther name, covered by the nearer one, is dimmed by the layout.
+    const near: TeamTagsView = { points: [{ id: 2, text: 'NEAR', alpha: 100, u: 0.5, y: 200 }, { id: 3, text: 'FAR', alpha: 60, u: 0.5, y: 200 }], holder: null, self: 1, atHead: true };
+    const laid = teamTagLayout(near).tags;
+    expect(laid.map((t) => t.id)).toEqual([2, 3]);                 // laid nearest first
+    const ink = glyphs(drawn({ teamTags: near })).filter((q) => q.rgba[0] > 0);
+    expect(ink.length).toBe('NEAR'.length + 'FAR'.length);
+    expect(ink.slice(0, 3).every((q) => q.rgba[3] === laid[1]!.alpha / 128)).toBe(true);   // the farther drawn first
+    expect(ink.slice(3).every((q) => q.rgba[3] === 100 / 128)).toBe(true);                 // the nearest drawn last, whole
+    // The Original look (no mark) keeps the laid order.
+    const orig = glyphs(drawn({ teamTags: { ...near, atHead: undefined } })).filter((q) => q.rgba[0] > 0);
+    expect(orig[0]!.rgba[3]).toBe(100 / 128);
+  });
+
   it('the sprites over the holder\'s tag: the arrow flipped (its y0 below its y1), the icon over it, their colours at 64 over 128', () => {
     const talk = of(drawn({ teamTags: mates }), 'teamTalk');
     const [arrow, icon] = teamTagLayout(mates).sprites;
@@ -1864,6 +1889,9 @@ describe('NU-9 (c) T3: the HUD draws the over-head tags (research 329 §5 T3)', 
     hud.setTeamTags(view);
     view.points[0]!.text = 'CHANGED';
     expect(hud.state().model.teamTags!.points[0]!.text).toBe('BRAVO');
+    expect(hud.state().model.teamTags!.atHead).toBeUndefined();   // NAME-TAGS-AT-HEAD: the Original look's view carries no mark
+    hud.setTeamTags({ ...view, scale: 0.7, atHead: true });
+    expect(hud.state().model.teamTags).toMatchObject({ scale: 0.7, atHead: true });   // the Modern look's mark is copied with its scale
     hud.setTeammateNames(false);
     hud.setCommandMenu(true);
     expect(hud.state().model).toMatchObject({ teammateNames: false, commandMenu: true });
@@ -2370,5 +2398,122 @@ describe('CPS: the HUD uploads a batch only when its vertices changed', () => {
     hud.render(frame);
     expect(all()).toEqual(once);
     clock.mockRestore();
+  });
+});
+
+/**
+ * LATER 1040: a round started across a gap in the HUD's frames. The page's frames can stop for seconds -- a prepared match
+ * waits at its gate through the loading hold (`./matchMount`) -- and the room's buffered `roundStart` is replayed at the
+ * attach, just before the frames go on. The round start's banner is scheduled from the round's start on the HUD's clock
+ * (`roundFrom`; "STARTING ROUND" in from 0.36 s, `ROUND_START`); that start is the moment `startRound` runs, so the time
+ * before it -- the gap since the last drawn frame -- is not the round's. Was: the round stamped at the clock's last frame
+ * and the whole gap counted into the round at the next frame, so a gap past ~8.07 s swallowed the banner.
+ */
+describe("LATER 1040: the round's banner across a gap in the HUD's frames", () => {
+  const frame = { autoClear: true, getDrawingBufferSize: (v: Vector2) => v.set(640, 448), render: () => {} };
+  const texts = (hud: Hud): string[] => hud.state().model.banner.map((b) => b.lines.map((l) => l.text).join('/'));
+  const ROUND = { round: 1, rounds: 1, objective: [] };
+
+  /** A HUD on, drawn for 1 s at 10 fps, then no frame for `gap` s with the round started `startAt` s into it; then 10 s at 10 fps. */
+  function run(gap: number, startAt: number): string[][] {
+    let now = 1000;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const hud = new Hud();
+    hud.setVisible(true);
+    for (let i = 0; i <= 10; i++) { hud.render(frame); now += 100; }
+    now += startAt * 1000 - 100;
+    hud.startRound(ROUND);
+    now += (gap - startAt) * 1000;
+    const seen: string[][] = [];
+    for (let i = 0; i < 100; i++) { hud.render(frame); seen.push(texts(hud)); now += 100; }
+    clock.mockRestore();
+    return seen;
+  }
+
+  it("LATER 1040: a round started at the end of a 12 s gap plays STARTING ROUND 1 OF 1 from 0.36 s of the round", () => {
+    const seen = run(12, 12);
+    const shown = seen.map((l) => l.includes('STARTING ROUND 1 OF 1'));
+    expect(shown.some(Boolean)).toBe(true);
+    expect(shown.indexOf(true)).toBe(4);                                  // the frame 0.4 s in: the first past 0.36 s
+    expect(shown.slice(4, 70).every(Boolean)).toBe(true);                 // held to 7 s
+    expect(shown.at(-1)).toBe(false);                                     // gone by 10 s
+  });
+
+  it("LATER 1040: a round started 6 s into a 12 s gap is 6 s old at the next frame: its banner drawn, the gap before it not counted", () => {
+    const seen = run(12, 6);
+    expect(seen[0]).toEqual(['STARTING ROUND 1 OF 1']);
+    expect(seen.at(-1)).toEqual([]);
+  });
+
+  /**
+   * The page's own path (the fresh review's finding 4): a prepared match draws the HUD while it is off (`./matchMount`'s
+   * `setVisible(walking && spawned)`, no net yet, so not spawned), the frames stop at the gate, and at the attach the
+   * room's buffered `roundStart` is replayed while the HUD is still off, then the replayed spawn turns it on and the
+   * frames go on. The banner plays from 0.36 s of the round as above; the level's fader (`ROUND_START.fader`) and the
+   * ammo box's fade (`SPAWN_FADE`) play from the first frame back at their own durations, the gap not counted into them.
+   */
+  it("LATER 1040: the page's path -- drawn off, a 12 s gap, the round started off, then on: banner, fader and box fade from the first frame", () => {
+    let now = 1000;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const hud = new Hud();
+    hud.setVisible(false);                                                // walking, not yet spawned
+    for (let i = 0; i <= 10; i++) { hud.render(frame); now += 100; }
+    now += 12000 - 100;
+    hud.startRound(ROUND);                                                // the buffered roundStart, the HUD still off
+    hud.setVisible(true);                                                 // the replayed spawn
+    const seen: { banner: string[]; fader: number; fade: number }[] = [];
+    for (let i = 0; i < 100; i++) {
+      hud.render(frame);
+      const s = hud.state();
+      seen.push({ banner: texts(hud), fader: s.model.fader, fade: s.timing.fade });
+      now += 100;
+    }
+    clock.mockRestore();
+    const shown = seen.map((s) => s.banner.includes('STARTING ROUND 1 OF 1'));
+    expect(shown.indexOf(true)).toBe(4);                                  // the frame 0.4 s in: the first past 0.36 s
+    expect(shown.slice(4, 70).every(Boolean)).toBe(true);                 // held to 7 s
+    expect(shown.at(-1)).toBe(false);                                     // gone by 10 s
+    const F = hudModule.ROUND_START.fader;
+    expect(seen[0]!.fader).toBe(1);                                       // the fade-up from black from the first frame back
+    expect(seen[0]!.fade).toBe(0);
+    expect(seen[6]!.fader).toBeCloseTo(1 - 0.6 / F, 9);
+    expect(seen[10]!.fade).toBeCloseTo(0, 9);                              // held SPAWN_FADE.hold
+    expect(seen[12]!.fade).toBeCloseTo((1.2 - SPAWN_FADE.hold) / SPAWN_FADE.ramp, 9);
+    expect(seen[16]!.fader).toBe(0);
+    expect(seen[16]!.fade).toBe(1);
+  });
+
+  /** A HUD on, drawn for `lead` s at 10 fps, `before` at its last frame, no frame for 12 s, `at` at the gap's end; then 10 s at 10 fps. */
+  function gap(lead: number, before: (hud: Hud) => void, at: (hud: Hud) => void, read: (hud: Hud) => unknown): unknown[] {
+    let now = 1000;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const hud = new Hud();
+    hud.setVisible(true);
+    for (let i = 0; i <= lead * 10; i++) { hud.render(frame); now += 100; }
+    before(hud);
+    now += 12000 - 100;
+    at(hud);
+    const seen: unknown[] = [];
+    for (let i = 0; i < 100; i++) { hud.render(frame); seen.push(read(hud)); now += 100; }
+    clock.mockRestore();
+    return seen;
+  }
+
+  it("LATER 1040: a message posted at the end of a 12 s gap is on the window from the first frame back for its whole life", () => {
+    let life = 0;
+    while (messageAlpha(life) !== null) life += 0.01;                     // ~7.36 s
+    const seen = gap(1, () => {}, (h) => { h.postMessage('LATER1040'); },
+      (h) => h.state().model.banner.some((m) => m.lines.some((l) => l.text === 'LATER1040')));
+    expect(seen[0]).toBe(true);                                           // age 0: fading in, not already spent
+    expect(seen.slice(0, Math.floor(life * 10)).every(Boolean)).toBe(true);
+    expect(seen[Math.ceil(life * 10)]).toBe(false);
+  });
+
+  it("LATER 1040: the tactical map closed at the end of a 12 s gap restarts the box's fade from the first frame back", () => {
+    const seen = gap(3, (h) => { h.setTacMapOpen(true); }, (h) => { h.setTacMapOpen(false); }, (h) => h.timing().fade) as number[];
+    expect(seen[0]).toBe(0);                                              // the fade from the close, not spent in the gap
+    expect(seen[10]).toBeCloseTo(0, 9);                                  // held SPAWN_FADE.hold
+    expect(seen[12]).toBeCloseTo((1.2 - SPAWN_FADE.hold) / SPAWN_FADE.ramp, 9);
+    expect(seen[16]).toBe(1);
   });
 });

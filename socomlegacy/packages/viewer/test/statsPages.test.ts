@@ -158,10 +158,14 @@ describe('LCM-16: own documents, no launcher module', () => {
 
   it('the page modules import only the shell and the name helper: no console, net, renderer, @s2u/ui index or match module', () => {
     const imports = (src: string): string[] => [...src.matchAll(/^\s*import\s+(?:type\s+)?(?:[^'"]*from\s+)?['"]([^'"]+)['"]/gm)].map((m) => m[1]!);
-    const allowed = new Set(['./site/playerLink', './projectSite/components', '../site/playerLink', '../projectSite/components', './matchPage']);
+    // WM-DATA-EV: the EVENTS tab's logic, a leaf -- held to importing nothing but the page's own types below, so the
+    // page still reaches no game module through it
+    const allowed = new Set(['./site/playerLink', './projectSite/components', '../site/playerLink', '../projectSite/components', './matchPage', './matchEvents']);
     for (const file of ['src/matchPage.ts', 'src/playerPage.ts', 'src/leaderboard/leaderboardPage.ts']) {
       for (const spec of imports(read(file))) expect(allowed.has(spec), `${file} imports ${spec}`).toBe(true);
     }
+    expect(imports(read('src/matchEvents.ts'))).toEqual(['./matchPage']);
+    expect(read('src/matchEvents.ts')).toMatch(/^import type \{ MatchPageData \} from '\.\/matchPage';$/m);
   });
 
   it('console/main.ts no longer boots the match or the player page; the lobby\'s live link stays', () => {

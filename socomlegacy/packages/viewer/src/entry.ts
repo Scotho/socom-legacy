@@ -18,4 +18,12 @@ import { startPwa } from './pwa/boot';
 installClientErrorBeacon(window, pageClientErrorBeacon());
 installInputSources(window);   // XBOX-DIAG (`./inputSources`): which input drove the menus and the match, counts only
 startPwa(window);
-void bootPage(location.pathname + location.search).catch(bootFailure);
+const boot = (): Promise<unknown> => bootPage(location.pathname + location.search).catch(bootFailure);
+// Browser adaptation: install the bounded local recorder before any load only on the explicit diagnostic URL.
+// An unavailable diagnostic chunk must not prevent the game from booting. Ordinary visits import no diagnostic UI.
+if (new URLSearchParams(location.search).get('xboxdiag') === '1') {
+  void import('./xboxDiagnostics').then(m => { m.installXboxDiagnostics(window); })
+    .catch(() => undefined).then(boot);
+} else {
+  void boot();
+}

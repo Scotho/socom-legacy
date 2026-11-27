@@ -736,8 +736,9 @@ service only. The proven level is ONL-32's transcript of the same action compare
 - *([2026-10-10, SVC-13] built on `agent/online` at b978c377d -- web research 261 §9, §6, §7; reading, reviewed
   2026-10-09 (pass 1 FAIL, pass 2 PASS); owed: the proven level, the console beside a seeded local Horizon and ONL-32;
   ~~`countsForLadder` applied to results (SVC-07);~~ *(2026-10-11, struck at sprint 22's close review: applied by
-  SVC-07, 2026-10-10, before a result is computed; research 264 §2.3)* the banned off the board once a ban state exists
-  (`LADDER_BANNED_SOURCE_PLACEHOLDER`, SVC-23a/b); ~~the clan total (`LADDER_CLAN_TOTAL_PLACEHOLDER` 0, the clan ladder
+  SVC-07, 2026-10-10, before a result is computed; research 264 §2.3)* ~~the banned off the board once a ban state exists
+  (`LADDER_BANNED_SOURCE_PLACEHOLDER`, SVC-23a/b);~~ *(2026-11-15: retired by OPS-A2 on the OPS lane -- the ladder's
+  banned set is the store's account bans, `bannedAccountIds`)* ~~the clan total (`LADDER_CLAN_TOTAL_PLACEHOLDER` 0, the clan ladder
   parked); the clan roster's ladder fields (`ROSTER_LADDER_READING`).~~ *[2026-10-15: the clan total retired by
   CLAN-BOARD-SERVER (merged at 053e82417, research 310 §6.2: `/lobby/total-rankings` type 1 the ranked clans' count);
   the roster's ladder fields by CLAN-ROSTER-LADDER (merged at 590c109bd, research 310 §6.1).]*)*
@@ -1571,7 +1572,8 @@ sprint 22's, built.)*
   D:L76080-76081), OT.R33's five at the start, a password game counted (the ruling; the placeholder's other value
   excluding it), a quitter's match kept (call 7 (b)) -- each excluded result leaving a ledger line naming the limit and
   why; the banned off the board and out of the total through one seam (`bannedAccounts`, no writer until SVC-23's
-  account ban, `LADDER_BANNED_SOURCE_PLACEHOLDER`) the board and the void read; the board's entry from a one-way
+  account ban -- *since OPS-A2, 2026-11-15, the store's account bans, `bannedAccountIds`; the placeholder retired*) the
+  board and the void read; the board's entry from a one-way
   "rated once as a non-ghost" flag the queue sets (the store's version 3, schema 4, a schema 3 database backed up to
   `services.v2.backup` and migrated once, each flag from the audit ledger), `LADDER_ENTRY_OWNER` = 'from the first
   counted round' (OT.R33 call 5 (b)); the void of a named match from the ledger (`stats/void.ts`), newest first, exact

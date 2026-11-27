@@ -118,6 +118,16 @@ export function forgeTypeUnplayable(gameType: number, objectives: ForgeObjective
   }
 }
 
+/**
+ * FN-5 (a browser adaptation, FG.R2; FG-51 as kept, FN.R4): whether the layout plays Demolition on the BASE's bomb --
+ * type 2, no bomb start of its own, and the map playable so (`forgeTypeUnplayable` case 2's second branch: the base's
+ * StartBomb and a site for each team). `applyForgeObjectives` then keeps the base's StartBomb and plant sites, and the
+ * layout's own placed sites are unused. The page's map check says so from this, so the words and the rule cannot drift.
+ */
+export function usesBaseBomb(objectives: ForgeObjectives | undefined, map: ObjectiveMap): boolean {
+  return objectives?.gameType === 2 && !objectives.bomb?.start && forgeTypePlayable(2, objectives, map);
+}
+
 /** `forgeTypeUnplayable` as a yes or no. */
 export function forgeTypePlayable(gameType: number, objectives: ForgeObjectives | undefined, map: ObjectiveMap): boolean {
   return forgeTypeUnplayable(gameType, objectives, map) === null;

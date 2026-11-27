@@ -59,11 +59,14 @@ export class Skeleton {
   private readonly byName: Map<string, number>;
   /** CPS bodies (a browser adaptation): `update`'s one product, copied into the part's world matrix. */
   private readonly product = new Float32Array(16);
+  /** LATER 1221: `updateChain`'s scratch, a node and its ancestors. */
+  private readonly chain: Int32Array;
 
   constructor(readonly model: string, readonly modelMatrix: Float32Array, readonly parts: readonly SkeletonPart[]) {
     this.byName = new Map(parts.map((p) => [p.name, p.index]));
     this.local = parts.map((p) => Float32Array.from(p.bindLocal));
     this.world = parts.map(() => new Float32Array(16));
+    this.chain = new Int32Array(parts.length);
     this.update();
     this.bindWorld = this.world.map((m) => Float32Array.from(m));
   }
@@ -100,6 +103,22 @@ export class Skeleton {
    */
   update(): void {
     for (const p of this.parts) {
+      const parent = p.parent < 0 ? this.modelMatrix : this.world[p.parent]!;
+      this.world[p.index]!.set(multiplyInto(this.local[p.index]!, parent, this.product));
+    }
+  }
+
+  /**
+   * LATER 1221 (a browser adaptation, the same floats): composes one part and its ancestors only, root first, with
+   * `update`'s own product -- what a mid-step read of that part's world needs (the original walks a node's parents on
+   * demand, `FUN_002869d0`); the other parts' world is left as it was until the next `update`.
+   */
+  updateChain(index: number): void {
+    const chain = this.chain;
+    let n = 0;
+    for (let i = index; i >= 0; i = this.parts[i]!.parent) chain[n++] = i;
+    for (let k = n - 1; k >= 0; k--) {
+      const p = this.parts[chain[k]!]!;
       const parent = p.parent < 0 ? this.modelMatrix : this.world[p.parent]!;
       this.world[p.index]!.set(multiplyInto(this.local[p.index]!, parent, this.product));
     }

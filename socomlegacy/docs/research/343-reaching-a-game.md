@@ -197,8 +197,10 @@ either log. Whether Sony's DME checked the same pair is not observable (§7).
 ### 3.3 `CheckJoinMP`, `JoinGameServer` and the host's admission
 
 `CheckJoinMP` (`FUN_0027e2b0`, D:L126379-126404) writes `mp_join_game` 10 when two of the library's reads over the
-session both answer 1 (`FUN_0030d510`, `FUN_0030cdd0`; D:L126387-126402); what they count is not decoded (research 159
-§8's `ABANDON_BELOW_PLAYERS_READING` row on the same `FUN_0030d510`).
+session both answer 1 (`FUN_0030d510`, `FUN_0030cdd0`; D:L126387-126402). `FUN_0030cdd0` yields the valid clients
+(those with +0x28 = 1) at out+4 and that count plus conn+0x440 at out+8, the word `CheckJoinMP` tests
+(D:L209686-209690 -> `FUN_00623138` -> `FUN_00615200`; D:L523211-523229, D:L523248-523255, D:L126391-126396); what
++0x440 holds stays open (research 159 §8's `ABANDON_BELOW_PLAYERS_READING` row on the same `FUN_0030d510`).
 
 `JoinGameServer` (`FUN_0027e380`, D:L126409-126428), outside a late join (game `+0xcc`, the `late_joiner` setting,
 research 206 §1), runs `FUN_002b83e0` (D:L158829-158890): it joins the DME session (`FUN_0030d060`,

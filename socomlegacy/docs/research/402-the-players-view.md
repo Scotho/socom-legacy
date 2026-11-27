@@ -46,7 +46,7 @@ on-screen camera against that, and what this design does about it.
 | the head or scope eye, the prone tilt | `walk.ts:2903-2922`; the floor's normal at `:2909` | not drawn | **rebuilt**: posture, peek and look are on the wire; the floor is probed on the watcher's grid as `remotePlayers.ts:888-906` does |
 | the peek's ease | eased (`traversal.ts:1086-1092`) | the held side -1/0/1, snapping | **rebuilt** by the same ease |
 | the recoil's kick | `fly.addPitch` (`matchFirearm.ts:410`) | in the command's pitch | covered |
-| the camera's pull at walls | the pass's history (`cameraRig.ts:217-256`) | a fresh rig per bind (`matchNet.ts:177-180`) | **rebuilt**, warmed while the follow is shown; the first seconds after a bind may differ |
+| the camera's pull at walls | the pass's history (`cameraRig.ts:217-268`) | a fresh rig per bind (`matchNet.ts:177-180`) | **rebuilt**, warmed while the follow is shown; the first seconds after a bind may differ |
 | the window's aspect | the owner's (`walk.ts:2846-2848`) | the watcher's | the watcher's own (H309 must hold on its screen): the instrument compares equal viewports |
 | the posed root inside a stance or landing blend | its own animator | the remote animator's (`remotePlayers.ts:677-679`) | **rebuilt**; a tolerance the instrument measures |
 | the first-person bob, the screen shake | local stick and random phase (`camera.ts:938-971`, `look.ts:496-556`) | none | **rebuilt in kind**, not in phase; said on the HUD's label, never called exact |
@@ -162,7 +162,7 @@ of the adaptation, no claim about the original:
   gave 6107 the chord's midpoint (752.94, 558.38): 0.44 units from the owner's, across the corner; the yaw (44.14), the
   root (10.305), the pass's distance (12.13) and its hold (0.033) were equal on all three pages after 6106. At 6107 the
   hold had 0.017 s left: on the owner's page the boom let out anyway (12.13 to 12.35) and the hold went back to 1.5 --
-  `cameraRig.ts` `cameraPass` lets out under a running hold only when its main probe meets a surface (`any`, :250-256),
+  `cameraRig.ts` `cameraPass` lets out under a running hold only when its main probe meets a surface (`any`, :262-268),
   and a kept hit beyond the boom sets the hold without shortening it (:266-271). On the disc's MP2 at those inputs
   (`viewer/test/povPassCorner.test.ts`) the main probe from the owner's target meets `container_blue01`'s climb face
   26.24 units out, at the far end of its 26.52 reach -- a graze; from the chord's target it meets nothing, and along the

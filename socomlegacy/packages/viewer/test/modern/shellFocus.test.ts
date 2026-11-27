@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountOverlay, type Overlay } from '../../src/modern/overlay/index';
+import { padRows } from '../../src/console/grammar';
 import { CATS, homeItems } from '../../src/console/state';
 import type { PadLike } from '../../src/gamepad';
 import { fakeLauncher, fakeSession, settle } from './lobbies/fixtures';
@@ -51,7 +52,9 @@ describe('the overlay\'s focus order on the pad: top-down, one visible focus, no
       const target = CATS.findIndex((c) => c.id === id);
       for (let n = 0; n < CATS.length && ctl.S.cat !== target; n++) o.press(ctl.S.cat < target ? R1 : L1);
       expect(CATS[ctl.S.cat]!.id).toBe(id);
-      const items = homeItems(id, ctl.S, ctl.A).length;
+      // The owner, 2026-11-19: "remove github and discord from the selection for controller" -- the pad walks Home's rows
+      // before the community links (`padRows`); the header icons and their rows are the pointer's and Tab's.
+      const items = padRows(homeItems(id, ctl.S, ctl.A));
       expect(items).toBeGreaterThan(0);
       const stops: HTMLElement[] = [];
       const ringed = (): HTMLElement[] => {
@@ -67,20 +70,11 @@ describe('the overlay\'s focus order on the pad: top-down, one visible focus, no
         if (stops.at(-1) !== at[0]) stops.push(at[0]!);
         o.press(DOWN);
       }
-      expect(stops.length, 'every action reached').toBe(items);
-      // Top-down: each stop follows the one before in the page's order. The desktop Discord icon sits in the
-      // header and is Home's action after the list; GitHub's icon beside it (the owner, 2026-11-12) the last, after it.
+      expect(stops.length, 'every pad action reached').toBe(items);
+      expect(stops.some((e) => e.matches('.cx-discord, .cx-github, .cx-discord-row *, .cx-github-row *')), 'no community link is a pad stop').toBe(false);
+      // Top-down: each stop follows the one before in the page's order.
       for (let i = 1; i < stops.length; i++) {
         const cur = stops[i]!;
-        if (cur.classList.contains('cx-discord')) {
-          expect(i, 'the Discord icon is Home\'s stop before the last').toBe(stops.length - 2);
-          continue;
-        }
-        if (cur.classList.contains('cx-github')) {
-          expect(i, 'the GitHub icon is Home\'s last stop').toBe(stops.length - 1);
-          expect(stops[i - 1]!.classList.contains('cx-discord'), 'right after the Discord icon').toBe(true);
-          continue;
-        }
         const following = stops[i - 1]!.compareDocumentPosition(cur) & Node.DOCUMENT_POSITION_FOLLOWING;
         expect(following, `${stops[i - 1]!.outerHTML.slice(0, 80)} then ${cur.outerHTML.slice(0, 80)}`).toBeTruthy();
       }

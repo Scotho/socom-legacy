@@ -81,7 +81,7 @@ const WIRE: Readonly<Record<string, WireEntry>> = {
     returns: 'A page {revision, section, items, total, nextCursor}; view and metadata answer one object.' },
   'forge.catalogue': { summary: 'Read the catalogue by section (operations, palette, saves...)', area: 'forge', args: objectOf({ section: { type: 'string', maxLength: 64 }, cursor }, []),
     example: { section: 'palette' }, examples: [{ section: 'saves' }],   // REVIEW-2 20: the call that runs saves.list
-    description: 'Read the loaded catalogue by section: operations (default; the page\'s inner operations with their schemas, the same as this manual\'s nested entries), saves (named browser saves), archives, palette, characters, absent, favourites, basePlacements, hidden.' + PAGED,
+    description: 'Read the loaded catalogue by section: operations (default; the page\'s inner operations with their schemas, the same as this manual\'s nested entries), saves (named browser saves), archives, palette, characters, absent, favourites, basePlacements, hidden, objectivePoints (the named points of the base map that camera.objective frames: {name, kind, team, at}).' + PAGED,
     runs: ['saves.list'], returns: 'A page {revision, section, items, total, nextCursor}.' },
   'forge.issues': { summary: "Read the last map check's issues, paged", area: 'forge', args: objectOf({ cursor }, []), example: {},
     description: 'Read the issues of the last map check (forge.check runs one).' + PAGED, returns: 'A page of issues.' },

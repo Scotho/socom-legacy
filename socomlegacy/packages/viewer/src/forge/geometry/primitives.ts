@@ -4,7 +4,7 @@ import {
 import { refreshUvs, worldAligned, type TextureSize } from './texturing';
 
 /**
- * New geometry from primitives (a browser adaptation, after a level editor's block tool; the owner, 2026-11-14: "create new
+ * New geometry from primitives (a browser adaptation, after a level editor's block tool; the Forge's owner (crispy, OT.R112), 2026-11-14: "create new
  * geometry from cubes, spheres, planes"). Each is a mesh of its own in world space -- shared points, a corner each face
  * so each face shades flat and maps its own texture -- textured world-aligned at `scaleTexel` world units a texel (the
  * map's own density, `./texturing` `medianTexelScale`, when the caller has it). Faces wind CCW seen from outside.
@@ -13,14 +13,14 @@ import { refreshUvs, worldAligned, type TextureSize } from './texturing';
 /**
  * The material colour a new face's corners carry: the PS2's unity, the texel unchanged before the light
  * (`MeshData.colors`). The disc's prelit worlds average about 0.29 of it; no disc value stands behind a hand-made face,
- * so this is named, not chosen to match.
+ * so this is named, not chosen to match: an editor default, a browser adaptation (FG.R2).
  */
-export const NEW_GEOMETRY_COLOR_PLACEHOLDER: readonly [number, number, number, number] = [1, 1, 1, 1];
+export const NEW_GEOMETRY_COLOR_ADAPTATION: readonly [number, number, number, number] = [1, 1, 1, 1];
 /**
- * A blank map's floor plane's vertex colour, untextured (the owner, 2026-11-17: "make the ground floor a mid gray color
+ * A blank map's floor plane's vertex colour, untextured (the Forge's owner (crispy, OT.R112), 2026-11-17: "make the ground floor a mid gray color
  * then so that it doesnt blow out the grid"; "make it a darker gray"): a dark grey, drawn so in the Forge and in a match alike. A browser adaptation
  * with no original (the disc has no untextured floor); a texture laid on it puts the face back to
- * `NEW_GEOMETRY_COLOR_PLACEHOLDER` (`./texturing` `applyTexture`).
+ * `NEW_GEOMETRY_COLOR_ADAPTATION` (`./texturing` `applyTexture`).
  */
 export const UNTEXTURED_FLOOR_COLOR_ADAPTATION: readonly [number, number, number, number] = [0.15, 0.15, 0.15, 1];
 
@@ -28,7 +28,7 @@ export interface PrimitiveOptions {
   textureName: string | null;
   size: TextureSize;
   scaleTexel: number;
-  /** Every corner's vertex colour (`NEW_GEOMETRY_COLOR_PLACEHOLDER` unless given). */
+  /** Every corner's vertex colour (`NEW_GEOMETRY_COLOR_ADAPTATION` unless given). */
   color?: readonly [number, number, number, number];
 }
 
@@ -38,7 +38,7 @@ export function meshOf(points: readonly Vec3[], rings: readonly number[][], opts
   const vs = points.map((p) => addVert(m, p));
   const faces: number[] = [];
   for (const ring of rings) {
-    const corners = ring.map((i) => addCorner(m, vs[i]!, { uv: [0, 0], color: opts.color ?? NEW_GEOMETRY_COLOR_PLACEHOLDER, normal: [0, 1, 0] }));
+    const corners = ring.map((i) => addCorner(m, vs[i]!, { uv: [0, 0], color: opts.color ?? NEW_GEOMETRY_COLOR_ADAPTATION, normal: [0, 1, 0] }));
     const f = addFace(m, corners, 0);
     const n = faceNormal(m, f);
     for (const c of corners) m.cNormal.splice(c * 3, 3, n[0], n[1], n[2]);

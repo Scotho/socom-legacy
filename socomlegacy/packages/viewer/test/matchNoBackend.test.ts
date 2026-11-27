@@ -90,3 +90,14 @@ describe('NO-BACKEND-NOTICE: a match with no renderer says so, offers the leave,
     expect(src).toMatch(/noBackend\?\.\(\);/);
   });
 });
+
+// LATER 1265 (its review's F4): the no-backend row carries the page probe's WebGL2 verdict, so the next case in the field
+// says whether WebGL2 was made (the M1 Max's rows could not tell WebGL1 from WebGL2).
+describe('LATER 1265 F4: noBackendExtra carries the probe\'s WebGL2 verdict', () => {
+  it('w2 "1" / "0" from the probe, null with no verdict', async () => {
+    const { noBackendExtra } = await import('../src/matchNoBackend');
+    expect(noBackendExtra(new Error('x'), null, () => ({ webgl2: false })).w2).toBe('0');
+    expect(noBackendExtra(new Error('x'), null, () => ({ webgl2: true })).w2).toBe('1');
+    expect(noBackendExtra(new Error('x'), null, () => ({})).w2).toBeNull();
+  });
+});

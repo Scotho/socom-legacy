@@ -1,4 +1,5 @@
 import { MATCH_NAME_MAX, NEW_NAME_MAX, PERSONA_WORDS } from '../adapters/profile';
+import { ownNameShown } from '../../streamerMode';
 import { SHARE_CODE_LEAD, SHARE_CODE_TITLE } from '../../discShareWords';
 import { DISCSHARE_CODE_LENGTH } from '../../discShareWire';
 import { esc, ico, type IconName } from '../icons';
@@ -49,7 +50,7 @@ export function personaItems(a: Adapters): PersonaItem[] {
   if (!P) return [];
   const v = P.personas();
   const lock = P.locked();
-  const name = P.matchName();
+  const name = ownNameShown(P.matchName());                         // STREAMER-P1: YOU while details are Hidden
   const match: PersonaItem = {
     // Locked, the row says why on itself, as New persona's does (OT.R60's refinement: each locked row in one line).
     kind: 'match-name', icon: lock ? 'lock' : 'display', title: 'Match name', sub: lock ?? `${name || 'Not set'} · ${PERSONA_WORDS.matchNameSub}`, verb: lock ? null : 'Edit',
@@ -57,10 +58,10 @@ export function personaItems(a: Adapters): PersonaItem[] {
   };
   if (v.kind === 'unreadable') return [{ kind: 'note', icon: 'card', title: 'Memory card', sub: v.line, verb: null }, match];
   const out: PersonaItem[] = [];
-  if (v.signedIn !== null && !v.held) out.push({ kind: 'session', icon: 'user', title: v.signedIn, sub: 'Signed in on this server · not on this memory card', state: SIGNED_IN, verb: null });
+  if (v.signedIn !== null && !v.held) out.push({ kind: 'session', icon: 'user', title: ownNameShown(v.signedIn), sub: 'Signed in on this server · not on this memory card', state: SIGNED_IN, verb: null });
   for (const p of v.rows) {
     out.push({
-      kind: 'persona', icon: 'user', title: p.name, sub: `Server: ${p.host === '' ? 'this server' : p.host}`, verb: lock ? 'Open' : 'Edit', id: p.id,
+      kind: 'persona', icon: 'user', title: ownNameShown(p.name), sub: `Server: ${p.host === '' ? 'this server' : p.host}`, verb: lock ? 'Open' : 'Edit', id: p.id,
       ...(p.signedIn ? { state: SIGNED_IN } : {}),
     });
   }

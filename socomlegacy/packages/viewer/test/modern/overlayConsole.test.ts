@@ -131,6 +131,131 @@ describe('OVERLAY-CONSOLE: the console in the overlay\'s frame', () => {
     expect(dialog.hidden).toBe(true);
     expect(o.isOpen()).toBe(true);
   });
+
+  it('Circle on Home, every button and stick at rest from the open, closes the overlay (WM.R7; the control for WM-7)', async () => {
+    const o = mount();
+    o.open();
+    await settle();
+    expect(o.console()!.ctl.S.screen).toBe('home');
+    step(); step();
+    step([1]); step();
+    expect(o.isOpen()).toBe(false);
+    expect(o.console()).toBeNull();
+  });
+
+  // WM-7 (plan WM.R7: Circle on the launcher's Home closes it). The reading: the grammar closes on Circle at overlay Home
+  // (src/console/grammar.ts:2308, `this.host.close?.()`), but the press never reaches it. Every open builds a new live pad
+  // reader (src/modern/overlay/index.ts:609-625, `mountContent`: `overlayAdapters` -> src/console/adapters/index.ts:152
+  // `livePad` -> src/console/adapters/pad.ts:39, a new `GamePad` whose `ControllerInput.waitForRest` was true), and `ControllerInput.poll` returns null while any
+  // button is down or any axis -- the right stick's included -- is past 0.45 (src/controllerInput.ts:396-399, `neutral &&
+  // waitForRest`). A player who opens the launcher while still holding the look stick (axes 2-3, which the console's walker
+  // does not read) had every press withheld until the stick came to rest, so the first Circle on Home was lost. The fix
+  // (WM.R7, below): the overlay's pad is read at once (`livePad`'s `heldSpent`), what is held then spent by `settle`.
+  it('Circle on Home with the right stick held from before the open through the press still closes the overlay (WM-7)', async () => {
+    pad.axes = [0, 0, 0, 0.9];
+    const o = mount();
+    step();
+    o.open();
+    await settle();
+    expect(o.console()!.ctl.S.screen).toBe('home');
+    step(); step();
+    step([1]); step();
+    expect(o.isOpen()).toBe(false);
+    expect(o.console()).toBeNull();
+  });
+});
+
+/**
+ * WM-7's fix (WM.R7, the main controller's ruling of 2026-11-15 on the owner's report): "a control held at the launcher's
+ * open is spent until it is let go; every control not held is live at once." Over a game the overlay's pad is read from
+ * its first poll (`livePad`'s `heldSpent`, so `GamePad`'s `waitForRest` is off), and the console's `settle`
+ * (`src/console/input.ts`) marks every control held in the first frame that reads a pad spent -- no press, no repeat --
+ * until it is let go. It refines the menus' rest rule (`src/setupPad.ts`) for the overlay only. A browser adaptation
+ * (OT.R28).
+ */
+describe('WM-7: a control held at the launcher\'s open is spent until let go; every other control is live at once', () => {
+  const L2 = 6;
+
+  it('L2 held from before the open through the press: a fresh Circle on Home closes the overlay', async () => {
+    const o = mount();
+    step([L2]);
+    o.open();
+    await settle();
+    expect(o.console()!.ctl.S.screen).toBe('home');
+    step([L2]); step([L2]);
+    step([L2, 1]); step([L2]);
+    expect(o.isOpen()).toBe(false);
+    expect(o.console()).toBeNull();
+  });
+
+  it('the left stick held from before the open through the press: a fresh Circle on Home closes the overlay', async () => {
+    pad.axes = [0, 0.9, 0, 0];
+    const o = mount();
+    step();
+    o.open();
+    await settle();
+    expect(o.console()!.ctl.S.screen).toBe('home');
+    step(); step();
+    step([1]); step();
+    expect(o.isOpen()).toBe(false);
+    expect(o.console()).toBeNull();
+  });
+
+  it('the left stick held at the open moves nothing, past the repeat, until it rests; then one push moves one step', async () => {
+    pad.axes = [0, 0.9, 0, 0];
+    const o = mount();
+    step();
+    o.open();
+    await settle();
+    const S = o.console()!.ctl.S;
+    const cat = S.cat, item = S.item[S.cat]!;
+    for (let i = 0; i < 60; i++) step();                       // 960 ms held: past the 400 ms first repeat
+    expect(S.cat).toBe(cat);
+    expect(S.item[S.cat]).toBe(item);
+    pad.axes = [0, 0, 0, 0];
+    step(); step();
+    expect(S.item[S.cat]).toBe(item);
+    pad.axes = [0, 0.9, 0, 0];
+    step();
+    pad.axes = [0, 0, 0, 0];
+    step(); step();
+    expect(S.cat).toBe(cat);
+    expect(S.item[S.cat]).toBe(item + 1);
+  });
+
+  it('Cross held at the open does not fire while held; let go and pressed again, it fires once', async () => {
+    const o = mount();
+    step([CROSS]);
+    o.open();
+    await settle();
+    const ctl = o.console()!.ctl;
+    const press = vi.spyOn(ctl, 'padPress');
+    for (let i = 0; i < 40; i++) step([CROSS]);
+    expect(press).not.toHaveBeenCalled();
+    expect(ctl.S.screen).toBe('home');
+    step(); step();
+    expect(press).not.toHaveBeenCalled();
+    step([CROSS]); step();
+    expect(press.mock.calls.filter(([b]) => b === 'cross')).toHaveLength(1);
+  });
+
+  it('a pad first read late (none at the open, then one with Cross held): that Cross is spent too until let go', async () => {
+    let present = false;
+    nav = { getGamepads: () => (present ? [pad] : []) };
+    const o = mount();
+    o.open();
+    await settle();
+    const ctl = o.console()!.ctl;
+    const press = vi.spyOn(ctl, 'padPress');
+    step(); step(); step();                                     // no pad read: the settle waits
+    present = true;
+    for (let i = 0; i < 40; i++) step([CROSS]);
+    expect(press).not.toHaveBeenCalled();
+    expect(ctl.S.screen).toBe('home');
+    step(); step();
+    step([CROSS]); step();
+    expect(press.mock.calls.filter(([b]) => b === 'cross')).toHaveLength(1);
+  });
 });
 
 describe("OVERLAY-CONSOLE: the opening button on the console's Options > Controller (MU2-16, OT.R51)", () => {

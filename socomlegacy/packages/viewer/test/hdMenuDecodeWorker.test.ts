@@ -8,6 +8,8 @@ import {decodePngAsync} from '../src/png';
 import {answerHdDecode,serveHdDecode,type HdDecodeReply,type HdDecodeRequest,type HdDecodeServePort} from '../src/hdMenuDecodeWorker';
 import {HdMenuDecoder,pageHdDecodeWorker,type HdDecodeWorkerPort} from '../src/hdMenuTextures';
 import {encodePng} from '../../../tools/png';
+import {writeKtx2} from '../../../tools/hdPackKtx2';
+import {blocksOf,decodeKtx2} from '../src/hdPackBlocks';
 
 /**
  * GM-13b (plan 2026-11-01-gpu-menus, row GM-13b): the menus' HD decode off the main thread -- `decodePngAsync` and
@@ -293,5 +295,27 @@ describe('GM-13d: HdMenuDecoder.dds and .alpha, the worker or the main thread',(
   it('an alpha waiting when the worker dies is refused (its pixels went with the worker)',async()=>{
     const d=new HdMenuDecoder(()=>fakeWorker({failAfter:0}),frames().next);
     await expect(d.alpha(image(4,4,()=>128))).rejects.toThrow(/the worker died/);
+  });
+});
+
+/**
+ * WM-PACK-2 RUNTIME (a browser adaptation): a KTX2 payload through the page's decoder -- its BC level 0 decoded in the
+ * worker as the DDS of the same blocks, its key seeded, its blocks held beside the decode -- the bytes the main thread's
+ * own decodeKtx2 gives, on both paths.
+ */
+describe('WM-PACK-2 runtime: the decoder reads a KTX2 payload',()=>{
+  const blocks=Uint8Array.from({length:4*16},(_,i)=>(i*29+7)&255);
+  it('in the worker and on the main thread, the same bytes as decodeKtx2, the blocks held beside, the key seeded',async()=>{
+    const k=writeKtx2('bc7',8,8,[blocks]),main=decodeKtx2(k,{width:8,height:8});
+    const worker=fakeWorker(),d=new HdMenuDecoder(()=>worker,frames().next);
+    const got=await d.ktx2(k.slice(),{width:8,height:8});
+    expect(worker.requests).toEqual(['dds']);expect(bytesOf(got)).toEqual(bytesOf(main));
+    expect(blocksOf(got)?.kind).toBe('bc7');expect(Array.from(blocksOf(got)!.levels[0]!.data)).toEqual(Array.from(blocks));
+    expect(await hdKeyOf(got)).toBe(await hdKeyOf({...main,data:new Uint8ClampedArray(main.data)}));
+    const off=new HdMenuDecoder(()=>null,frames().next),there=await off.ktx2(k.slice(),{width:8,height:8});
+    expect(off.mode).toBe('main');expect(bytesOf(there)).toEqual(bytesOf(main));expect(blocksOf(there)?.kind).toBe('bc7');
+    await expect(d.ktx2(k,{width:16,height:8})).rejects.toThrow(/the entry says 16x8/);
+    await expect(d.ktx2(new Uint8Array(100),{width:8,height:8})).rejects.toThrow(/not a KTX2 file/);
+    d.close();
   });
 });

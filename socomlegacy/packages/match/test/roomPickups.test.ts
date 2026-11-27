@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  arsenalOf, DEFAULT_RIFLE, EMPTY_ITEM, HELD_RIFLE, HELD_SIDEARM, M67, type CollisionOwner, type GridParams, type Loadout, type SpawnSlot,
+  arsenalOf, CLAYMORE, DEFAULT_RIFLE, EMPTY_ITEM, HE, HELD_RIFLE, HELD_SIDEARM, M67, type CollisionOwner, type GridParams, type Loadout, type SpawnSlot,
   type WorldPoly,
 } from '@s2u/scene';
 import {
@@ -13,7 +13,6 @@ import { ACTION_CLIPS, playedOutCommand } from '../../viewer/src/mover';
 import { clipsFromPack } from '../../viewer/src/motionTable';
 import { simClipsFromBytes, type SimClips } from '../../viewer/src/simMap';
 import { remoteBodyAction } from '../../viewer/src/remotePlayers';
-import { PICKUP_LAUNCHER_ROUND_SLOT_PLACEHOLDER } from '../../viewer/src/net/pickupRules';
 import { parseRdr, rdrGet, Zar, type RdrNode } from '@s2u/archive';
 import { fixture } from '../../archive/test/fixtures';
 import { DROP_SAME_TICK_READING, PICKUP_MOTION_GATE_READING, PICKUP_REACH_READING, PICKUP_SPEED_READING } from '../../viewer/src/net/pickupRules';
@@ -40,7 +39,7 @@ function flatMap(): SimMap {
   const params: GridParams = { atomCount: 8192, posts: 16, cellDim: 200, cellsX: 10, cellsZ: 10, originX: -1000, originZ: -1000 };
   const floor: WorldPoly = {
     modelName: 'worldmodel', path: 'worldmodel/floor', region: 0, ditype: 3, material: 25, ptcount: 4, cameratype: 0,
-    points: Float32Array.from([-1000, 0, -1000, 1000, 0, -1000, 1000, 0, 1000, -1000, 0, 1000]),
+    points: Float32Array.from([-1000, 0, 1000, 1000, 0, 1000, 1000, 0, -1000, -1000, 0, -1000]),
   };
   const owners: CollisionOwner[] = [{ modelName: 'worldmodel', path: 'worldmodel/floor0', first: 0, count: 1 }];
   const ground = packGround(params, [floor], owners);
@@ -61,18 +60,18 @@ class Client implements Conn {
 
 const kit = (...ids: number[]): Loadout => ids as unknown as Loadout;
 const item = (name: string, id: number): unknown[] => ['InternalName', [name], 'ID', [String(id)], 'Ammo_Capacity', ['1'], 'NumMags', ['1'], 'AMMO_TYPES', [[]]];
-const arsenal = arsenalOf(['ZAMMO', [], 'ZWEAPON', [item('M67', 121), item('LAW', 145), item('LAW HEAT', 185)] as never]);
+const arsenal = arsenalOf(['ZAMMO', [], 'ZWEAPON', [item('M67', 121), item('HE', 126), item('Claymore', 153), item('LAW', 145), item('LAW HEAT', 185)] as never]);
 /** The Terrorist carries the M4A1 SD (62) and the Mark 23 (15); the SEAL the M4A1 (54) and the Mark 23. */
 const TERRORIST = kit(HELD_RIFLE.id, HELD_SIDEARM.id, 121, EMPTY_ITEM, EMPTY_ITEM), SEAL = kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, EMPTY_ITEM, EMPTY_ITEM);
-function kits(): SimKits {
+function kits(seal: Loadout = SEAL, terrorist: Loadout = TERRORIST): SimKits {
   return {
     table: {
       arsenal, records: new Map([DEFAULT_RIFLE, HELD_RIFLE, HELD_SIDEARM].map((x) => [x.id, x])), rounds: new Map(),
-      throwables: new Map([[M67.id, { record: M67, piercing: 4 }]]),
+      throwables: new Map([[M67.id, { record: M67, piercing: 4 }], [HE.id, { record: HE, piercing: 4 }], [CLAYMORE.id, { record: CLAYMORE, piercing: 0 }]]),
     },
     map: {
       valves: new Map(), selectable: { seal: [], terrorist: [] },
-      kits: { seal: [{ type: 'S', character: 's', loadout: SEAL }], terrorist: [{ type: 'T', character: 't', loadout: TERRORIST }] },
+      kits: { seal: [{ type: 'S', character: 's', loadout: seal }], terrorist: [{ type: 'T', character: 't', loadout: terrorist }] },
     },
   };
 }
@@ -80,9 +79,9 @@ function kits(): SimKits {
 type V3 = [number, number, number];
 interface Seat { next: Loadout | null; mounted: number | null; weapon: 0 | 1 }
 
-function setup(opts: Partial<ConstructorParameters<typeof Room>[2]> = {}, clips: SimClips | null = null) {
+function setup(opts: Partial<ConstructorParameters<typeof Room>[2]> = {}, clips: SimClips | null = null, k: SimKits = kits()) {
   let now = 0;
-  const room = new Room(flatMap(), clips, { now: () => now, random: () => 0.5, launchCountdownS: 0, rules: 'classic', ...opts }, null, kits());
+  const room = new Room(flatMap(), clips, { now: () => now, random: () => 0.5, launchCountdownS: 0, rules: 'classic', ...opts }, null, k);
   const clients = new Map<number, Client>();
   const join = (id: number): Client => {
     const c = new Client();
@@ -102,7 +101,13 @@ function setup(opts: Partial<ConstructorParameters<typeof Room>[2]> = {}, clips:
   };
   const place = (id: number, at: V3): void => { room.player(id)!.sim.walker.place(at[0], at[1] + 20, at[2]); };
   const feet = (id: number): V3 => { const s = room.player(id)!.sim.walker.state; return [s.x, s.y, s.z]; };
-  const kill = (id: number): void => {
+  /**
+   * Seat `id`'s death (the room's `kill`). R142: a body's throwable and charge rings join its bundle (`dropsOf`,
+   * `bundleEquipment.test.ts`); the PF-34 cases here are the firearm rings', so the victim has thrown his grenades first
+   * (his rings emptied) unless `grenades` keeps them -- the first case does, and pins the M67's entry.
+   */
+  const kill = (id: number, grenades = false): void => {
+    if (!grenades) room.player(id)!.equipmentSlots.restoreLegacy({});
     (room as unknown as { kill(v: unknown, k: null, w: null, how: string, cause: number): void }).kill(room.player(id), null, null, 'fall', 0);
   };
   const claim = (id: number, did: number, seq = room.player(id)!.sim.seq): void => room.text(id, { type: 'pickup', seq, did });
@@ -124,8 +129,8 @@ type WritableSeat = Omit<NonNullable<ReturnType<Room['player']>>, 'loadout' | 'r
 };
 const writable = (room: Room, id: number): WritableSeat => room.player(id)! as unknown as WritableSeat;
 
-function fourInRound(opts: Partial<ConstructorParameters<typeof Room>[2]> = {}, clips: SimClips | null = null) {
-  const s = setup(opts, clips);
+function fourInRound(opts: Partial<ConstructorParameters<typeof Room>[2]> = {}, clips: SimClips | null = null, k: SimKits = kits()) {
+  const s = setup(opts, clips, k);
   const c = [1, 2, 3, 4].map((id) => s.join(id));
   s.step();
   for (let i = 0; i < 10 * TICK_HZ && c[0]!.of('roundStart').length === 0; i++) s.step();
@@ -151,16 +156,19 @@ describe('PF-34: death drops and in-round pickup in the room (PF.R54; research 2
     setRing(g.room, 1, 0, [0, 17, 30, 0, 4], 1);
     setRing(g.room, 1, 1, [3, 0, 12]);
     const at = g.feet(1), yaw = g.room.player(1)!.sim.walker.state.yaw;
-    g.kill(1);
+    expect(g.room.player(1)!.grenades).toEqual({ M67: 3 });
+    g.kill(1, true);
     const drops = g.b.of('drop');
+    // R142: his M67 slot, 3 left, joins the bundle with its record (`BUNDLE_SLOTS_PLACEHOLDER`, FUN_005ba040 D:L472580-472626).
     expect(drops).toEqual([
-      { type: 'drop', did: 0, kind: 'ammo', entries: [{ ammo: '5.56 x 45mm', count: 51 }, { ammo: '45 ACP', count: 15 }], at, yaw, from: 1 },
+      { type: 'drop', did: 0, kind: 'ammo', entries: [{ ammo: '5.56 x 45mm', count: 51 }, { ammo: '45 ACP', count: 15 }, { ammo: M67.ammo, item: M67.id, count: 3 }], at, yaw, from: 1 },
       { type: 'drop', did: 1, kind: 'weapon', item: HELD_RIFLE.id, at, yaw, from: 1 },
       { type: 'drop', did: 2, kind: 'weapon', item: HELD_SIDEARM.id, at, yaw, from: 1 },
     ]);
     // Every page is told the same, the victim's too; the body keeps no round.
     for (const c of [g.a, g.c3, g.d]) expect(c.of('drop')).toEqual(drops);
     expect(total(g.room, [1])).toBe(0);
+    expect(g.room.player(1)!.grenades).toEqual({ M67: 0 });
     // The corpse's ticks lay nothing more.
     g.step(2 * TICK_HZ);
     expect(g.b.of('drop')).toHaveLength(3);
@@ -431,6 +439,66 @@ describe('PF-34: death drops and in-round pickup in the room (PF.R54; research 2
     h.drive(4, 3);
     expect(h.room.player(4)!.mags[0].total()).toBe(30);
     expect(h.b.of('taken')).toEqual([]);
+  });
+
+  it("R142 head A in the room (the build's fresh review, finding 3): a body's M67 entry walked over by a living taker with a part-spent M67 through the room's own tick -- his M67 back to its capacity, the entry granted and cleared (the bundle empties: taken), nothing else of his kit changed (PICKUP_EQUIPMENT_TAKE_READING: FUN_005bb990 D:L473590-473605 -> FUN_005ba770, FUN_0059e580 D:L457845-457846, FUN_005bb000 D:L473212-473238, FUN_003cfc40 D:L323024-323047)", () => {
+    const g = fourInRound();
+    g.place(2, [200, 0, 0]); g.drive(2, 2);                      // the taker out of reach while the body falls
+    setRing(g.room, 1, 0, []); setRing(g.room, 1, 1, []);        // a dry body: the bundle is his M67 alone
+    const taker = g.room.player(2)!;
+    expect(taker.loadout, 'harness: the SEAL kit, the M67 in slot 2').toEqual([...SEAL]);
+    expect(taker.equipmentSlots.spend('M67', 2), 'harness: one M67 thrown from slot 2').toBe(2);
+    expect(taker.grenades, 'harness: the taker at M67 2 of 3').toEqual({ M67: 2 });
+    const before = {
+      loadout: [...taker.loadout], rifle: taker.mags[0].state(), pistol: taker.mags[1].state(), rounds: taker.rounds,
+      slots: taker.equipmentSlots.state().map((s) => s.slot),
+    };
+    expect(g.room.player(1)!.grenades, 'harness: the victim spawned with M67 3').toEqual({ M67: 3 });
+    g.kill(1, true);                                             // his grenades KEPT: they join the bundle
+    const bundle = g.room.joinWire().drops?.find((d) => d.kind === 'ammo');
+    expect(bundle?.entries, 'harness: the body\'s bundle, his M67 entry alone').toEqual([{ ammo: M67.ammo, item: M67.id, count: 3 }]);
+    expect(g.room.player(2)!.grenades, 'harness: nothing taken out of reach').toEqual({ M67: 2 });
+    const marks = g.b.events.length;
+    g.place(2, [10, 0, 0]);                                      // 10 units off the body: in reach (PICKUP_REACH_READING)
+    g.drive(2, 2);
+    const p = g.room.player(2)!;
+    expect(p.grenades).toEqual({ M67: 3 });                      // the same-item slot topped up to its capacity
+    expect(p.equipmentSlots.state().find((s) => s.slot === 2)?.rounds.reduce((n, r) => n + r, 0)).toBe(3);
+    // The entry granted and cleared: the bundle is empty and gone, told once as taken.
+    expect(g.room.joinWire().drops?.some((d) => d.did === bundle!.did) ?? false).toBe(false);
+    expect(g.b.events.slice(marks).filter((e) => e.type === 'taken' && e.did === bundle!.did)).toEqual([{ type: 'taken', did: bundle!.did, by: 2 }]);
+    // Nothing else of his kit: the loadout, both firearm rings, the launcher rounds, the equipment slots held.
+    expect([...p.loadout]).toEqual(before.loadout);
+    expect(p.mags[0].state()).toEqual(before.rifle);
+    expect(p.mags[1].state()).toEqual(before.pistol);
+    expect(p.rounds).toBe(before.rounds);
+    expect(p.equipmentSlots.state().map((s) => s.slot)).toEqual(before.slots);
+  });
+
+  it("LATER 1129 (reading, pending review): the case that sank head A, through the room -- a SEAL sets a claymore down and has none left; walking over a Terrorist's body he takes its HE into the spent Claymore slot (FUN_005bb000 D:L473239-473285); his Detonator still sets the claymore off -- FUN_005c74e0 (D:L480156-480202) only adds 0xc1, FUN_005bdc30 (D:L474637-474641) asks claymores down alone; his `kit` says so", () => {
+    const g = fourInRound({}, null, kits(kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, CLAYMORE.id, EMPTY_ITEM), kit(HELD_RIFLE.id, HELD_SIDEARM.id, 121, HE.id, EMPTY_ITEM)));
+    g.place(2, [200, 0, 0]); g.drive(2, 2);                      // the SEAL out of reach while the body falls
+    const seq = (): number => g.room.player(2)!.sim.seq;
+    g.room.text(2, { type: 'throw', seq: seq(), kind: 'Claymore', from: [208, 0, 0], velocity: [1, 0, 0] });
+    expect(g.a.of('grenade').filter((e) => e.kind === 'Claymore'), 'harness: one claymore set down').toHaveLength(1);
+    const p = g.room.player(2)!;
+    while (p.equipmentSlots.spend('Claymore', 3) !== null) { /* harness: the rest set down elsewhere -- the slot spent */ }
+    expect(p.grenades, 'harness: the M67 full, the Claymore slot spent').toEqual({ M67: 3, Claymore: 0 });
+    setRing(g.room, 1, 0, []); setRing(g.room, 1, 1, []);        // a dry body: its bundle is its M67 and HE
+    g.kill(1, true);
+    const marks = g.b.events.length;
+    g.place(2, [10, 0, 0]); g.drive(2, 2);                       // over the body: the HE installed, the M67 slot full
+    expect([...g.room.player(2)!.loadout]).toEqual([DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, HE.id, EMPTY_ITEM]);
+    const told = g.b.events.slice(marks).filter((e) => e.type === 'kit').at(-1) as { detonator?: boolean; equipment?: { slot: number; kind: string }[] } | undefined;
+    expect(told?.detonator).toBe(true);
+    expect(told?.equipment?.map((e) => [e.slot, e.kind])).toEqual([[3, 'HE']]);
+    g.room.takeDrops();
+    const w = g.room.player(2)!.sim.walker.state;
+    g.room.text(2, { type: 'throw', seq: seq(), kind: 'Detonator', from: [w.x, w.y + 60, w.z], velocity: [0, 0, 0] });
+    expect(Object.keys(g.room.takeDrops() ?? {}).filter((k) => k.startsWith('throw'))).toEqual([]);
+    expect(g.a.of('grenade').at(-1)).toMatchObject({ id: 2, kind: 'Detonator' });
+    g.step(3);
+    expect(g.b.of('blast').length).toBeGreaterThan(0);           // the resting claymore gone off (told to the living SEAL)
   });
 
   it("a joiner's welcome carries join.drops as the room has them (did, kind, item, entries, at, yaw); a new round and an abandon clear every drop and reset the serial (DROP_LIFETIME_PLACEHOLDER 'round')", () => {
@@ -719,10 +787,10 @@ describe('NU-6 P1: a taker\'s body item after a pick-up, for a SEAL and a Terror
 /**
  * NU-5 L1, X1 and research 324 P2's room half (research 323 R323.4, R323.5, §1.5, §1.6, §7 L1 and X1; research 324 §1.4
  * step 3, §6 P2), through the room's event path -- the `pickup` event (`room.text`), the commands (`binary` -> `step`).
- * - L1: a rocket launcher (class 0x91) is claimed by a kit carrying no launcher-list item with a slot 2-4 free or
- *   replaceable (`FUN_005bac30` D:L473023-473084), into `FUN_005bae60`'s slot, its round beside it with one round
- *   (`FUN_0059f0c0` D:L458238-458292); no exchange (no drop at the taker's feet); `'family'` otherwise, and in the port's
- *   five slots without an empty one for the round (`PICKUP_LAUNCHER_ROUND_SLOT_PLACEHOLDER`, decision (i)).
+ * - L1, R4P-103 (r0004: the reading agent/spc-atlas dcd314b4bd; captures Q-103 / Q103B a1e119affd, Q103C dcd314b4bd):
+ *   a rocket launcher (class 0x91) is claimed by a kit holding no launcher (145-150) with a slot 2-4 empty or spent
+ *   (`FUN_005c1760` D4:L514677), into the first such slot (`FUN_005c1990` D4:L499279), its round APPENDED at the kit's
+ *   record count with one round (D4:L499303-499309); no exchange (no drop at the taker's feet); `'family'` otherwise.
  * - X1: an exchange pushes `Swap rifle` (`DAT_003dec78`: NoFire, NoInterrupt; research 211) on the taker
  *   (`FUN_00588bc0` D:L458209-458211, the taker's own console, D:L458199) -- `swapRifleExchange` on the room's mover from
  *   the claim's command + 1, a fire under it refused (its `NoFire ()` bare, over the tracked `motion.rdr`); none when
@@ -757,15 +825,16 @@ describe('NU-5 L1, X1 and 324 P2: the launcher taken, the exchange\'s clip, the 
     g.room.text(2, { type: 'throw', seq: p.sim.seq, kind: 'LAW', from: [w.x, w.y + 60, w.z], velocity: [0, 0, 0] });
   };
 
-  it("L1: a SEAL with no launcher and two empty slots takes the LAW into FUN_005bae60's slot, the LAW HEAT beside it with one round; no exchange is laid; the kit to him (no firearm slot, no ring written) and taken to all", () => {
+  it("L1, R4P-103: a SEAL with no launcher and two empty slots takes the LAW into the first, the LAW HEAT appended at index 5 with one round; no exchange is laid; the kit to him (no firearm slot, no ring written) and taken to all", () => {
     const g = fourInRound();
     const did = lawCorpse(g);
     const marks = g.b.events.length;
     g.claim(2, did); g.step();
     expect(g.room.takeDrops()).toBeNull();
     const p = g.room.player(2)!;
-    // The SEAL's kit: the M4A1, the Mark 23, the M67 (its grenades left: kept), two empty slots -- the LAW into 3, its round into 4.
-    expect([...p.loadout]).toEqual([DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, 145, 185]);
+    // The SEAL's kit: the M4A1, the Mark 23, the M67 (its grenades left: kept), two empty slots -- the LAW into 3, its
+    // round appended after the fifth record (Q103B: 185 at index 5), slot 4 left empty.
+    expect([...p.loadout]).toEqual([DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, 145, EMPTY_ITEM, 185]);
     expect(p.rounds.ring(185)?.total()).toBe(1);
     const after = g.b.events.slice(marks);
     expect(after.filter((e) => e.type === 'taken')).toEqual([{ type: 'taken', did, by: 2, kit: [...p.loadout] }]);
@@ -773,36 +842,46 @@ describe('NU-5 L1, X1 and 324 P2: the launcher taken, the exchange\'s clip, the 
     expect(after.filter((e) => e.type === 'kit')).toEqual([{ type: 'kit', loadout: [...p.loadout], rounds: [p.mags[0].state().slots, p.mags[1].state().slots], filled: [[], []] }]);
   });
 
-  it("L1: refused 'family' to a kit carrying an M203 rifle, the MGL or a LAW, to one with no slot 2-4 free or replaceable, and (PICKUP_LAUNCHER_ROUND_SLOT_PLACEHOLDER) to one with a slot for the launcher and none for its round; the LAW stays", () => {
-    expect(PICKUP_LAUNCHER_ROUND_SLOT_PLACEHOLDER).toBe('the first empty slot 2-4; none: refused');
-    for (const k of [kit(61, HELD_SIDEARM.id, 121, EMPTY_ITEM, EMPTY_ITEM), kit(142, HELD_SIDEARM.id, 121, EMPTY_ITEM, EMPTY_ITEM),
-      kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 145, 185, EMPTY_ITEM), kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, 121, 121),
-      kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, 121, EMPTY_ITEM)]) {
-      const g = fourInRound();
-      const did = lawCorpse(g);
-      const p = writable(g.room, 2);
-      p.loadout = k;
-      p.rounds = new KitRounds(kits().table, k);
-      p.equipmentSlots = equipmentSlotsOf(k, kits().table);
-      g.room.takeDrops();
-      g.claim(2, did); g.step();
+  /** Seat 2 given kit `k` (its rings full, its pouch the kit's), then its claim of the LAW seat 1 laid. */
+  const claimWith = (k: Loadout, spend?: (p: ReturnType<typeof writable>) => void) => {
+    const g = fourInRound();
+    const did = lawCorpse(g);
+    const p = writable(g.room, 2);
+    p.loadout = k;
+    p.rounds = new KitRounds(kits().table, k);
+    p.equipmentSlots = equipmentSlotsOf(k, kits().table);
+    spend?.(p);
+    g.room.takeDrops();
+    g.claim(2, did); g.step();
+    return { g, did, p };
+  };
+
+  it("R4P-103: refused 'family' to a kit holding a LAW or an RPG-7 (Q-103: a launcher in hand), and to one with no slot 2-4 empty or spent; the LAW stays", () => {
+    for (const k of [kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 145, 185, EMPTY_ITEM), kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 146, 186, EMPTY_ITEM),
+      kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, 121, 121)]) {
+      const { g, did, p } = claimWith(k);
       expect(g.room.takeDrops(), k.join(',')).toEqual({ 'pickup: family': 1 });
       expect([...p.loadout]).toEqual([...k]);
       expect(g.room.joinWire().drops?.some((d) => d.did === did)).toBe(true);
     }
   });
 
-  it('MLS-EQ: a spent duplicate slot accepts the launcher and preserves the other stack without refilling it', () => {
-    const g = fourInRound(), did = lawCorpse(g), p = writable(g.room, 2);
-    p.loadout = kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, 121, EMPTY_ITEM);
-    p.rounds = new KitRounds(kits().table, p.loadout);
-    p.equipmentSlots = equipmentSlotsOf(p.loadout, kits().table);
-    for (let n = 0; n < 3; n++) p.equipmentSlots.spend('M67', 2);
-    p.equipmentSlots.spend('M67', 3);
-    g.room.takeDrops();
-    g.claim(2, did); g.step();
+  it("R4P-103 (Q-103): the M203 carrier and the MGL carrier are offered and take the LAW; one free slot suffices -- the round appended at 5", () => {
+    for (const primary of [61, 142]) {
+      const { g, p } = claimWith(kit(primary, HELD_SIDEARM.id, 121, 121, EMPTY_ITEM));
+      expect(g.room.takeDrops(), String(primary)).toBeNull();
+      expect([...p.loadout]).toEqual([primary, HELD_SIDEARM.id, 121, 121, 145, 185]);
+      expect(p.rounds.ring(185)?.total()).toBe(1);
+    }
+  });
+
+  it('MLS-EQ, R4P-103 (Q103C): a spent duplicate slot takes the launcher, the other stack kept and not refilled, the round appended', () => {
+    const { g, p } = claimWith(kit(DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, 121, EMPTY_ITEM), (q) => {
+      for (let n = 0; n < 3; n++) q.equipmentSlots!.spend('M67', 2);
+      q.equipmentSlots!.spend('M67', 3);
+    });
     expect(g.room.takeDrops()).toBeNull();
-    expect([...p.loadout]).toEqual([DEFAULT_RIFLE.id, HELD_SIDEARM.id, 145, 121, 185]);
+    expect([...p.loadout]).toEqual([DEFAULT_RIFLE.id, HELD_SIDEARM.id, 145, 121, EMPTY_ITEM, 185]);
     expect(p.equipmentSlots.state().map(s => [s.slot, s.kind, s.rounds[0]])).toEqual([[3, 'M67', 2]]);
     expect(p.grenades.M67).toBe(2);
   });

@@ -22,7 +22,7 @@ these loaders are the ones that run ([What a pack is](/what-is-a-pack/)).
 
 All four follow the rules on [What a pack is](/what-is-a-pack/): opt-in, kept in your browser, checked before use,
 data only. None runs code: each changes only the files, textures or meshes it names. How to load each one, and the
-overlay you see while a texture pack applies, are on [Testing a pack locally](/guides/test-locally/).
+loading chip you see while a texture pack applies, are on [Testing a pack locally](/guides/test-locally/).
 
 ## Bare, or as a Thunderstore package
 
@@ -124,9 +124,9 @@ its row ("HD texture pack by GoE SouL") and on the button that downloads it.
 - **Loading it.** Drop its zip, or its Thunderstore zip, into Mods; Mods finds `experimental-packs/hd/current.json`
   anywhere in the zip. Your browser keeps one HD pack at a time: a new one replaces the old one (the viewer's
   `hdTexturePackStore.ts`). Its row gives its size decoded, the size of its images once unpacked.
-- **Switching it on.** Choose it as the texture pack in Mods. It applies at once on every open page, behind the
-  "Applying pack..." overlay, under both pictures, MODERN and PS2; the menus draw their HD art while it is chosen.
-  Choosing Original puts every original back.
+- **Switching it on.** Choose it as the texture pack in Mods. It applies at once on every open page, while the
+  loading chip shows ("LOADING HD TEXTURES", *n* of *N* and a thin bar, top right), under both pictures, MODERN and
+  PS2; the menus draw their HD art while it is chosen. Choosing Original puts every original back.
 - **What it may change.** What your screen draws, and nothing else. In a match of the main game, and in the test room
   joined to a server room, a replacement for an image that is opaque in the original is drawn opaque (the fairness
   guard, `opaqueGuard`); in the test room offline and in the Forge's editor it is drawn as made.

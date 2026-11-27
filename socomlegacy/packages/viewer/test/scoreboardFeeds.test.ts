@@ -93,13 +93,13 @@ describe('both matches feed it (OT.R43; the mounts\' text)', () => {
   it('the front end\'s match: the session\'s UI variables and valve, through the mount, after each map\'s `setGame`', () => {
     const mount = src('matchMount.ts');
     expect(mount).toMatch(/gameVars\?: \{ uiVar\(name: string\): string \| null; valve\(name: string\): number \| null \}/);
-    expect(mount).toMatch(/hud\.setGame\(m\.name, o\.gameMode \?\? rankOf\(m\.name\)\?\.mode \?\? ''\);\s*\n\s*hud\.setGameDetails\(o\.gameVars \? \(\) => sessionGameDetails\(o\.gameVars!\) : null\);/);
+    expect(mount).toMatch(/hud\.setGame\(variantGameName\(m\.name, m\.archive, o\.handOff\?\.welcome\?\.variant\), o\.gameMode \?\? rankOf\(m\.name\)\?\.mode \?\? ''\);\s*\n\s*hud\.setGameDetails\(o\.gameVars \? \(\) => sessionGameDetails\(o\.gameVars!\) : null\);/);
     const front = src('frontEnd.ts');
     expect(front).toMatch(/gameVars: \{ uiVar: \(n\) => \{ const v = session_\?\.uiVars\.find\(n\)\?\.value; return v\?\.type === 'string' \? v\.value : null; \}, valve: \(n\) => session_\?\.opener\.valves\.find\(n\)\?\.value \?\? null \}/);
     expect(front).not.toMatch(/from '\.\/scoreboard'/);   // OT.R12: the front end's bundle takes no board
   });
 
-  it('/testroom\'s served round: its server\'s name and map while online; the walk the fill', () => {
-    expect(src('main.ts')).toMatch(/hud\.setGame\(map\.name, rankOf\(map\.name\)\?\.mode \?\? ''\);\s*\n\s*hud\.setGameDetails\(\(\) => \(net && !solo \? servedRoomDetails\(net\.serverName\(\), map\.name\) : null\)\);/);
+  it('/testroom\'s served round: its server\'s name and map while online -- a replay world\'s named match over them (E17); the walk the fill', () => {
+    expect(src('main.ts')).toMatch(/hud\.setGame\(variantGameName\(map\.name, map\.archive, variantOf\(map\)\?\.split\(' '\)\[1\]\), rankOf\(map\.name\)\?\.mode \?\? ''\);\s*\n\s*hud\.setGameDetails\(\(\) => \(net && !solo \? servedRoomDetails\(net\.serverName\(\), map\.name, REPLAY_WORLD\?\.details\?\.\(\) \?\? null\) : null\)\);/);
   });
 });

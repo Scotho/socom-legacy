@@ -71,19 +71,19 @@ describe('PF-34 review: takeKit, one function for both pages (research 234 s6)',
  * and the HUD renewed (`FUN_005bc410` sets the weapon panel's redraw bit, D:L473845; again D:L458295-458296).
  */
 describe('NU-5 L1: takeKit takes an equipment slot and its round (research 323 §7 L1)', () => {
-  it("a LAW claimed into the spent M67's slot with its LAW HEAT in the empty slot: launcherTaken(2, 4, 1) and the HUD renewed; the firearm rings untouched (filled empty), no firearm mode changed", () => {
+  it("a LAW claimed into the spent M67's slot with its LAW HEAT appended at index 5 (R4P-103, Q103B): launcherTaken(2, 5, 1) and the HUD renewed; the firearm rings untouched (filled empty), no firearm mode changed", () => {
     const r = rig('rifle', [DEFAULT_RIFLE, HELD_SIDEARM], [DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, 126, 255]);
-    takeKit(r.deps, [DEFAULT_RIFLE.id, HELD_SIDEARM.id, 145, 126, 185], null, [ring(30), ring(12)], [[], []]);
+    takeKit(r.deps, [DEFAULT_RIFLE.id, HELD_SIDEARM.id, 145, 126, 255, 185], null, [ring(30), ring(12)], [[], []]);
     expect(r.log).toEqual([
-      'take 54,15,145,126,185',
+      'take 54,15,145,126,255,185',
       'setRing M4A1 30,0,0,0,0,0,0,0,0,0 - ', 'setRing Mark 23 12,0,0,0,0,0,0,0,0,0 - ',
-      'launcherTaken 2 4 1', 'renew',
+      'launcherTaken 2 5 1', 'renew',
     ]);
     expect(r.modes).toEqual({ rifle: 99, pistol: 98 });
     // The RPG-7 with its RPG round: the same, the round's slot by its item.
     const q = rig('pistol', [DEFAULT_RIFLE, HELD_SIDEARM], [DEFAULT_RIFLE.id, HELD_SIDEARM.id, 255, 126, 255]);
-    takeKit(q.deps, [DEFAULT_RIFLE.id, HELD_SIDEARM.id, 146, 126, 186], null, [ring(30), ring(12)], [[], []]);
-    expect(q.log.filter((l) => !l.startsWith('setRing'))).toEqual(['take 54,15,146,126,186', 'launcherTaken 2 4 1', 'renew']);
+    takeKit(q.deps, [DEFAULT_RIFLE.id, HELD_SIDEARM.id, 146, 126, 255, 186], null, [ring(30), ring(12)], [[], []]);
+    expect(q.log.filter((l) => !l.startsWith('setRing'))).toEqual(['take 54,15,146,126,255,186', 'launcherTaken 2 5 1', 'renew']);
     // A walk-over that changes no equipment slot takes no launcher and renews nothing (the existing rule).
     const w = rig('rifle');
     takeKit(w.deps, [DEFAULT_RIFLE.id, HELD_SIDEARM.id, 121, 255, 255], null, [ring(30), ring(12)], [[0], []]);
@@ -145,17 +145,18 @@ describe('research 323 F1: a picked-up weapon\'s fire mode (FUN_005bc410 zeroes 
     expect(take('pistol', 1, 'Model 18')).toBe(3);
   });
 
-  it('taken into the slot not in the hand: the first mode it enables, the swap\'s one step from 0 -- automatic where it has it (OT.R100)', () => {
-    // The original's first mode is `pickupFireMode`'s (pinned over every record in weapons.parity.test.ts); the page lays
-    // DEFAULT_FIRE_MODE_FULL_AUTO_ADAPTATION over it, so a weapon with automatic comes up on it.
-    expect(['AK-47', 'M16A2', 'M14', 'M60E3', 'M40A1'].map((n) => [n, take('pistol', 0, n)]))
-      .toEqual([['AK-47', 3], ['M16A2', 1], ['M14', 3], ['M60E3', 3], ['M40A1', 1]]);
+  it('taken into the slot not in the hand: the weapon\'s fastest mode (OT.R100 as extended 2026-11-22), not the original\'s first', () => {
+    // The original's first mode is `pickupFireMode`'s (pinned over every record in weapons.parity.test.ts): an M16A2 taken
+    // with the pistol out came up on single. The page lays PICKUP_FASTEST_FIRE_MODE_ADAPTATION over it (`fastestFireMode`):
+    // the fastest mode the weapon has -- automatic, else burst, else single.
+    expect(['AK-47', 'M16A2', 'M16A2-M203', 'M14', 'M60E3', 'M40A1'].map((n) => [n, take('pistol', 0, n)]))
+      .toEqual([['AK-47', 3], ['M16A2', 2], ['M16A2-M203', 2], ['M14', 3], ['M60E3', 3], ['M40A1', 1]]);
   });
 
-  it('taken with an item or a launcher up (the selected slot `+0x824` an equipment slot): no firearm slot is the hand\'s, so the first mode at the swap', () => {
-    // The last firearm (`kitItem`) is the rifle, but a grenade is up: an M16A2 exchanged into the rifle slot is stepped
-    // once at the swap back to it (FUN_005c4b10 D:L478930-478931), single -- not the hand's cycle up to burst.
-    expect(take('rifle', 0, 'M16A2', true)).toBe(1);
+  it('taken with an item or a launcher up (the selected slot `+0x824` an equipment slot): the fastest mode too (PICKUP_FASTEST_FIRE_MODE_ADAPTATION)', () => {
+    // The last firearm (`kitItem`) is the rifle, but a grenade is up: in the original an M16A2 exchanged into the rifle slot
+    // is stepped once at the swap back to it (FUN_005c4b10 D:L478930-478931), single; the page's adaptation puts it on burst.
+    expect(take('rifle', 0, 'M16A2', true)).toBe(2);
     expect(take('rifle', 0, 'M16A2', false)).toBe(2);
     expect(take('rifle', 0, 'M40A1', true)).toBe(1);
   });

@@ -6,7 +6,7 @@ import { parseZdb, Zar, zdbMember, type AssetSource } from '@s2u/archive';
 import { FsAssetSource } from '@s2u/archive/node';
 import { parseAnimSets } from '@s2u/scene';
 import { buildZar } from '../../scene/test/syntheticZar';
-import { parseStreamEntries, soundHash, type RenderedSound } from '@s2u/sound';
+import { parseStreamEntries, soundHash, type RenderedSound, type StoredStream } from '@s2u/sound';
 import { GameAudio, type AudioOut } from '../src/audio';
 import { RoundAudioHost } from '../src/roundAudioHost';
 import {
@@ -185,7 +185,7 @@ describe.skipIf(!HAVE_STREAMS)('round streams on the dev disc (SOCOM_DISC; resea
         ]);
         let now = 0;
         const heard: { at: number; name: string | undefined; slot: string }[] = [];
-        const record = (slot: string, sound: RenderedSound): void => {
+        const record = (slot: string, sound: StoredStream): void => {
           heard.push({ at: now, name: d.streams!.find(s => s.sound === sound)?.name, slot });
         };
         const out: AudioOut = {

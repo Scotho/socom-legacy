@@ -158,9 +158,14 @@ describe.skipIf(!HAVE_MP1)(`CLT-2: Blizzard's ${TREE} in the hull${HAVE_MP1 ? ''
    * -x, the stick held forward 3 s. Head-on (z 1239.5) the original STOPS: closest 13.41 u, the end (1887.85, 60.52,
    * 1238.22), z drift 2.0 or less. Beside (z 1245.5) it slides round and passes: closest 12.05 / 12.58 / 12.59, pushed
    * to z 1252.06 and on west. [proven: a trace of the original, three runs each]
-   * The port differs on both (LATER 1018; research 422 s7.1): head-on it slides south along the bough face and round;
-   * beside it jams at the skirt's east corner. Held as `it.fails` -- the original's numbers asserted, the port known
-   * not to meet them -- until the solver's rule is read and built (v0.4.22); then `it.fails` goes red and comes off.
+   * The port differed on both (LATER 1018; research 422 s7.1): head-on it slid south along the bough face and round;
+   * beside it jammed at the skirt's east corner -- held as `it.fails`. FLE-2 (2026-11-19; the fall-leave-edge plan,
+   * research 151 s9.1): the floor here is SNOW (byte 17, -0.8), so the body stands 0.8 under it as the original's does.
+   * (b2) is CURED by that height (an A/B with the mover's offset forced to 0, a dev-disc run: with it the body stops at
+   * (1888.33, 1237.65), closest 13.29, record 2 lying on the bough face 141 times; bare it slides round to x 1769, record
+   * 2 44 times) -- not the segment solver's rule LATER 1018 suspected. (b3) is NOT cured by it: it passes round in both
+   * arms, its end z 1251.56 with the offset and 1251.53 bare against the original's 1252.06 (tol 0.5) -- a pass by 0.003
+   * u, LATER 1254's residual (the lateral end ~0.5 short of the original). Both off `it.fails` (the register's rows gone).
    */
   const RIG_CENTRE: [number, number] = [1874.5, 1239.5];
   const rigWalk = (z: number): { path: [number, number, number][]; said: string } => {
@@ -168,6 +173,14 @@ describe.skipIf(!HAVE_MP1)(`CLT-2: Blizzard's ${TREE} in the hull${HAVE_MP1 ? ''
     const w = new Walker(m.grid);
     expect(w.place(1919.5, 68, z), `placed at (1919.5, 68, ${z})`).toBe(true);
     w.state.yaw = 90;                                       // facing -x
+    // LATER 1194B (the walls trial, 2026-11-21): the SEAL stands, then the stick (the rig's: placed, then held). Pressed on
+    // the first tick after the placing, inside the port's first frame -- three ticks counted from a placing
+    // (`GROUND_FRAME_TICKS_READING`) -- the walk ran half a frame ahead of the original and slid round the bough to x 1770.
+    // After rest ticks the press is read at a frame's start (LATER 1219, `Walker.idleRead`), the original's one read and
+    // one move a frame; any number of rest ticks gives the same walk (the narrow review of 3117bcb733, F3). Head-on it then
+    // stops at (1887.93, 1238.53) against the original's (1887.85, 1238.22). The port's own case this test no longer
+    // walks -- a body placed with the stick ALREADY held, half a frame ahead -- is LATER 1320 (named, not measured).
+    for (let k = 0; k < 3; k++) w.tick({ forward: 0, right: 0, boost: false });
     const path: [number, number, number][] = [];
     const log: string[] = [];
     for (let k = 0; k < 180; k++) {                          // 3 s at the port's 60 Hz tick
@@ -188,7 +201,7 @@ describe.skipIf(!HAVE_MP1)(`CLT-2: Blizzard's ${TREE} in the hull${HAVE_MP1 ? ''
     for (const z of [1239.5, 1245.5]) expect(new Walker(load().m.grid).place(1919.5, 68, z), `placed at (1919.5, 68, ${z})`).toBe(true);
   });
 
-  it.fails('(b2) head-on from 45 u east (z 1239.5), standing, the stick forward 3 s: the original stops at x 1887.85 and never passes', () => {
+  it('(b2) head-on from 45 u east (z 1239.5), standing, the stick forward 3 s: the original stops at x 1887.85 and never passes', () => {
     const { path, said } = rigWalk(1239.5);
     const end = path[path.length - 1]!;
     expect(Math.abs(end[0] - 1887.85), `ends at the original's x 1887.85: ${said}`).toBeLessThan(0.5);
@@ -196,7 +209,8 @@ describe.skipIf(!HAVE_MP1)(`CLT-2: Blizzard's ${TREE} in the hull${HAVE_MP1 ? ''
     expect(Math.min(...path.map((p) => p[0])), `never passes the fir: ${said}`).toBeGreaterThan(RIG_CENTRE[0] + 12);
   });
 
-  it.fails('(b3) 6 u beside the axis (z 1245.5), standing, the stick forward 3 s: the original slides round at 12.05-12.59 and passes on z ~1252.06', () => {
+  // LATER 1254: passes by 0.003 u (end z 1251.56 for 1252.06, tol 0.5); the lateral end ~0.5 short in both arms of FLE-2's A/B.
+  it('(b3) 6 u beside the axis (z 1245.5), standing, the stick forward 3 s: the original slides round at 12.05-12.59 and passes on z ~1252.06', () => {
     const { path, said } = rigWalk(1245.5);
     const end = path[path.length - 1]!;
     const closest = Math.min(...path.map((p) => Math.hypot(p[0] - RIG_CENTRE[0], p[2] - RIG_CENTRE[1])));

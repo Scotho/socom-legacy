@@ -3,9 +3,9 @@ import type { RdrNode } from '@s2u/archive';
 import { applyPicks, arsenalOf, type Loadout, type Pick } from '@s2u/scene';
 import type { MenuContext } from '../src/weaponSelectState';
 import {
-  compactPicks, frameOfPoint, menuTap, padButtonsDown, WeaponExchange, type MatchGate,
+  compactPicks, frameOfClientPoint, frameOfPoint, menuTap, padButtonsDown, WeaponExchange, type MatchGate,
 } from '../src/weaponExchange';
-import { WEAPON_SELECT_ELEMENT } from '../src/weaponSelect';
+import { drawWeaponSelect, LIST_LAYOUT, WEAPON_SELECT_ELEMENT, type WeaponSelectItem } from '../src/weaponSelect';
 import { SPECTATE_KIT_CHANGE_OWNER } from '../src/weaponSelectState';
 
 /**
@@ -237,6 +237,65 @@ describe('the touch control inside the menu (WEAPON_SELECT_TOUCH_READING: rows a
       const [fx, fy] = frameOfPoint(px, py, { width: w, height: h });
       expect(fx).toBeCloseTo(320, 9);
       expect(fy).toBeCloseTo(224, 9);
+    }
+  });
+
+  it('a canvas narrower than the 640 layout: the menu stands on its left edge, and a point reads back there (EXCHANGE_NARROW_FRAME_ADAPTATION)', () => {
+    // The Shape row's 4:3 picture and the reported window: s = height / 448, the frame under 640 units wide.
+    for (const [w, h] of [[1440, 1080], [1473, 1105], [1024, 768]] as const) {
+      const s = h / 448;
+      expect(frameOfPoint(0, 0, { width: w, height: h })).toEqual([0, 0]);
+      // The list's title panel as drawn (x -10..160, y 105..140): its middle on the canvas reads its middle on the frame.
+      const panel: WeaponSelectItem = { kind: 'sprite', part: 'titlePanel', texture: 'newweapnbkrnd.tif', ...LIST_LAYOUT.titlePanel, turn: 0, flipU: false, flipV: false, rgb: [80, 80, 80], alpha: 100 };
+      const [quad] = drawWeaponSelect({ width: w, height: h }, { items: [panel] }, { 'newweapnbkrnd.tif': { width: 128, height: 64 } }).quads;
+      const [fx, fy] = frameOfPoint(quad!.x, quad!.y, { width: w, height: h });
+      expect(fx).toBeCloseTo(75, 9);
+      expect(fy).toBeCloseTo(122.5, 9);
+      // The second row's bar (y 166..184) tapped where it is drawn: the cursor stepped to it and Action.
+      const { x } = exchange();
+      x.key('KeyI', DEAD);
+      const [rx, ry] = frameOfPoint(60 * s, 175 * s, { width: w, height: h });
+      expect(menuTap(seal, x.state(), rx, ry)).toEqual(['down', 'action']);
+    }
+    // A canvas 640 units wide or wider reads about the centre line, as before.
+    expect(frameOfPoint(960, 540, { width: 1920, height: 1080 })[0]).toBeCloseTo(320, 9);
+    expect(frameOfPoint(0, 0, { width: 1920, height: 1080 })[0]).toBeCloseTo(320 - 960 / (1080 / 448), 9);
+  });
+
+  // The menu is drawn on the drawing buffer, which the page may show on a box of another shape: a tap is read on the buffer.
+  /** Where a frame point is DRAWN on the canvas's box: `drawWeaponSelect`'s rule on the buffer, then the box's stretch. */
+  const drawnAt = (fx: number, fy: number, box: { width: number; height: number }, buffer: { width: number; height: number }): [number, number] => {
+    const s = buffer.height / 448, bx = buffer.width * 448 < 640 * buffer.height ? fx * s : buffer.width / 2 + (fx - 320) * s;
+    return [(bx * box.width) / buffer.width, (fy * s * box.height) / buffer.height];
+  };
+  it.each([
+    ['the PS2 picture: its 640 x 448 buffer on a 4:3 box', { width: 1440, height: 1080 }, { width: 640, height: 448 }],
+    ['the PS2 picture on a window narrower than 4:3', { width: 1024, height: 768 }, { width: 640, height: 448 }],
+    ['4:3 stretched: a 4:3 buffer over a 16:9 window', { width: 1920, height: 1080 }, { width: 1440, height: 1080 }],
+    ['4:3: the buffer the box\'s own shape', { width: 1440, height: 1080 }, { width: 1440, height: 1080 }],
+    ['fill on a dense screen: the buffer twice the box', { width: 1920, height: 1080 }, { width: 3840, height: 2160 }],
+    ['fill under a render scale: the buffer 0.75 of the box', { width: 1920, height: 1080 }, { width: 1440, height: 810 }],
+  ] as const)('a tap on the canvas\'s box reads the frame point drawn under it -- %s', (_what, box, buffer) => {
+    // The list's second row, the picker's right category arrow and its bottom card: each tapped where it is drawn.
+    for (const [fx, fy] of [[60, 175], [321, 121], [250, 320], [0, 0], [-10, 105]] as const) {
+      const [px, py] = drawnAt(fx, fy, box, buffer);
+      const [rx, ry] = frameOfClientPoint(px, py, box, buffer);
+      expect(rx, `x of (${fx}, ${fy})`).toBeCloseTo(fx, 9);
+      expect(ry, `y of (${fx}, ${fy})`).toBeCloseTo(fy, 9);
+    }
+    const { x } = exchange();
+    x.key('KeyI', DEAD);
+    expect(menuTap(seal, x.state(), ...frameOfClientPoint(...drawnAt(60, 175, box, buffer), box, buffer))).toEqual(['down', 'action']);
+    x.key('KeyX', DEAD);
+    expect(menuTap(seal, x.state(), ...frameOfClientPoint(...drawnAt(321, 121, box, buffer), box, buffer))).toEqual(['right']);
+  });
+
+  it('a box that is its own buffer reads exactly as frameOfPoint (no number moves where nothing is stretched)', () => {
+    for (const [w, h] of [[640, 448], [1280, 720], [1920, 1080], [2560, 1080], [1440, 1080], [844, 390]] as const) {
+      for (const [px, py] of [[0, 0], [w / 3, h / 5], [w - 1, h - 1], [0.1, 0.7]] as const) {
+        expect(frameOfClientPoint(px, py, { width: w, height: h })).toEqual(frameOfPoint(px, py, { width: w, height: h }));
+        expect(frameOfClientPoint(px, py, { width: w, height: h }, { width: w, height: h })).toEqual(frameOfPoint(px, py, { width: w, height: h }));
+      }
     }
   });
 });

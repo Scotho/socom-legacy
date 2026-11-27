@@ -143,11 +143,16 @@ export interface SceneNode {
   visualParams: number[];
   /**
    * Byte 7 of each visual's `vparams`: its entry in the world root's `Material_Palette`, 1-based, 0 for none. The
-   * EE reads it to decide the environment-map pass (`FUN_003b6a00`'s `*(byte *)(visual + 7)`, the table at
-   * `0x45c380+0x5a4`, stride 0x3c) -- set on the water, the glass and the icy terrain, the surfaces whose entry
+   * EE reads it to decide the environment-map pass (`FUN_003b4580`: the byte `*(visual + 7)` at D:L306891, the table at
+   * `0x45c380+0x5a4`, stride 0x3c, D:L306900, the gate on its entry's `+0x14 == 2` at D:L306902) -- set on the water, the glass and the icy terrain, the surfaces whose entry
    * names a reflection texture (`parseMaterialPalette`).
    */
   visualMaterials: number[];
+  /**
+   * Byte 5 of each visual's `vparams`: its band in the world root's `LOD_Object`, 1-based, 0 for none
+   * (`LOD_VISUAL_BAND_READING`, research 439: `FUN_003374c0` D:L235459). Absent on a node built by hand.
+   */
+  visualBands?: number[];
   /**
    * PF-30: each visual's centroid in the node's model space, `vparams` +0x0c..+0x17 (`DETAIL_CENTROID_READING`), or
    * null where the record is shorter. Absent on a node built by hand.
@@ -261,6 +266,10 @@ function readNode(geo: Zar, key: ZarKey): SceneNode {
     visualMaterials: (visuals?.children ?? []).map((v) => {
       const vp = geo.child(v, 'vparams');
       return vp && vp.size >= 8 ? geo.data(vp)[7]! : 0;
+    }),
+    visualBands: (visuals?.children ?? []).map((v) => {
+      const vp = geo.child(v, 'vparams');
+      return vp && vp.size >= 6 ? geo.data(vp)[5]! : 0;
     }),
     visualCentres: (visuals?.children ?? []).map((v) => {
       const vp = geo.child(v, 'vparams');

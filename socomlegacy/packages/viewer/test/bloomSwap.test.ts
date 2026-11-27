@@ -146,3 +146,90 @@ describe.skipIf(table === null)(`BLOOM-SWAP: the grenade slot's own tick closes 
     }
   });
 });
+
+/**
+ * SWAP-FIRE P1 (keyjob SWAP-FIRE (i) sections 4.2 and 7 "P1"; reading, pending review). A hand grenade's launch is not a
+ * quiet frame: the launch tick (r4 0x5c8860's countdown branch) counts the pull +1 (r4 0x5c93c8; r0001 D:L477025) and
+ * calls the round function (r4 0x5cc9d0, r0001 `FUN_005c5340`), which adds 0.35 to the exertion (r4 0x5cd5c8-0x5cd5d4;
+ * D:L479407) and ends in the round's reticle step on the GRENADE's own record (r4 0x5cdbb4-0x5cdbc4 -> 0x5ca830, r0001
+ * `FUN_005c3360` D:L477714-477808; D:L479541-479543): the knock by the record's `KnockCount` rule clamped to its
+ * `ReticuleKnockMax`, and the size set to clamp(size + DilateUponFire x (1 + burst), the record's own TargetMin,
+ * TargetMax) -- loaded from the record's getters (r4 0x5ca8e8, 0x5ca8f4; stored 0x5caba0, 0x5cabb4), the file's 2 to 6,
+ * not the tick's category range 0 to 0. Then the grenade's tick closes it again at 60 a second while it stays up.
+ */
+describe.skipIf(table === null)(`SWAP-FIRE P1: the grenade's launch runs the round's reticle step on the item's record (r4 0x5ca830)${table ? '' : ` (${FIXTURES_ABSENT})`}`, () => {
+  const nade = (): ItemReticle => itemReticleOf(table!, MK141)!;
+  /** The M4A1 SD bloomed, the Mk141 up and closed to 0 (bloomSwap's 13 frames). */
+  const closed = (): Accuracy => {
+    const a = bloomed();
+    a.setItem(nade());
+    framesUntil(a, RUN, (s) => s <= 0);
+    expect(a.state().size).toBe(0);
+    return a;
+  };
+
+  it('(i) the size jumps from 0 to clamp(0 + DilateUponFire x (1 + 0), TargetMin, TargetMax) = 6 on the launch: at least the record\'s TargetMin 2, never the category\'s 0', () => {
+    const a = closed();
+    const s = nade().stances.stand;
+    a.launch(1, 'stand', nade());
+    expect(a.state().size).toBe(Math.min(Math.max(0 + s.dilateFire, s.targetMin), s.targetMax));
+    expect(a.state().size).toBe(6);                                   // zweapon.rdr Mark141: 13 clamped to [2, 6]
+    expect(a.state().size).toBeGreaterThanOrEqual(2);
+  });
+
+  it('(ii) the pull count goes up by one (r4 0x5c93c8)', () => {
+    const a = closed();
+    const before = a.rounds();
+    a.launch(1, 'stand', nade());
+    expect(a.rounds()).toBe(before + 1);
+  });
+
+  it('(iii) the exertion goes up 0.35 from a value under 1 (r4 0x5cd5d4, FUN_005c5340 D:L479407)', () => {
+    const a = closed();
+    a.load({ ...a.save(), exertion: 0.2 });
+    a.launch(1, 'stand', nade());
+    expect(a.state().exertion).toBeCloseTo(0.55, 9);
+  });
+
+  it("(iv) the knock by the item's KnockCount rule (3), clamped to its ReticuleKnockMax (70)", () => {
+    const s = nade().stances.stand;
+    expect([s.knock, s.knockCount, s.knockEntry, s.knockMax]).toEqual([13, 3, 1, 70]);
+    // The pull's first or second count: under KnockCount, no knock.
+    const a = closed();
+    a.launch(1, 'stand', nade());
+    expect(a.state().offset[1]).toBe(0);
+    // The count equal to KnockCount: ReticuleKnock x KnockEntryStrength, up (y down).
+    const b = closed();
+    b.load({ ...b.save(), burst: 2, offY: 0 });
+    b.launch(1, 'stand', nade());
+    expect(b.state().offset[1]).toBe(-13);
+    // Past it: the plain knock, clamped at ReticuleKnockMax.
+    const c = closed();
+    c.load({ ...c.save(), burst: 5, offY: -65 });
+    c.launch(1, 'stand', nade());
+    expect(c.state().offset[1]).toBe(-70);
+  });
+
+  it('(v) the grenade still up: down 60 x TICK a game frame from 6, 0 within 3 frames (0.1 s)', () => {
+    const a = closed();
+    a.launch(1, 'stand', nade());
+    a.tick(TICK, RUN);
+    expect(a.state().size).toBeCloseTo(6 - 60 * TICK, 9);
+    expect(1 + framesUntil(a, RUN, (s) => s <= 0)).toBe(3);           // 6 / (60 x TICK) = 2.997
+  });
+
+  it('(vi) the rifle back on the frame after the launch: its tick starts from the remainder (6 -> 7 running), not from 0 (-> 2)', () => {
+    const a = closed();
+    a.launch(1, 'stand', nade());
+    a.setItem(null);
+    a.tick(TICK, RUN);
+    expect(a.state().size).toBe(7);
+  });
+
+  it('the firearm round is not changed: round() still runs on the firearm record (the SD +7 from the walk target)', () => {
+    const a = new Accuracy(HELD_RIFLE);
+    const before = a.state().size;
+    a.round(1, 'stand');
+    expect(a.state().size).toBe(Math.min(Math.max(before + HELD_RIFLE.stances.stand.dilateFire, HELD_RIFLE.stances.stand.targetMin), HELD_RIFLE.stances.stand.targetMax));
+  });
+});

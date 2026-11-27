@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setUiVarDisplayText } from '../../src/text/displayText';
 import { DIALOG_EVENTS } from '../../src/dialog';
 import { UiCommandHost, UI_COMMAND_TABLE, uiCommandRowByName } from '../../src/uiCommands';
 import { UiVarManager, type UiVarValue } from '../../src/uiVars';
@@ -385,5 +386,22 @@ describe.skipIf(!HAVE)(`CREATE CLAN over the machine${HAVE ? '' : ' (no disc and
     r.press('TRIANGLE', 6);
     for (let i = 0; i < 120 && r.current() !== WORLD; i++) await r.settle(1);
     expect([r.current(), sounds(r, sound), requests]).toEqual([WORLD, ['SND_DINK'], []]);
+  });
+});
+
+/**
+ * STREAMER-P1 (product track, a browser adaptation; the delta glance's finding): the dialog's name reaches the page's
+ * display rule through the real front end -- the machine's build and `built`, `DialogPartsHost`, the widget set -- as
+ * the disc's SwitchMenu names it, so Streamer mode can leave CREATE CLAN's clan name as typed.
+ */
+describe.skipIf(!HAVE)(`STREAMER-P1: the display rule is told the dialog over the machine${HAVE ? '' : ' (no disc and no fixtures)'}`, () => {
+  afterEach(() => setUiVarDisplayText(null));
+  it("CREATE CLAN's txtClanName (CLANNAMEVAR) is drawn through a rule told the dialog dlgCreateClan.rdr, at the build and at a change", async () => {
+    setUiVarDisplayText((name, widget, dialog) => (name.toUpperCase() === 'CLANNAMEVAR' ? `${widget}@${dialog ?? 'none'}` : null));
+    const { r } = await createPage();
+    expect(r.builds.at(-1)).toBe(CREATE_CLAN);
+    expect(r.text('txtClanName')).toEqual([`txtClanName@${CREATE_CLAN}`]);
+    r.uiVars.set('CLANNAMEVAR', { type: 'string', value: 'Changed' });
+    expect(r.text('txtClanName')).toEqual([`txtClanName@${CREATE_CLAN}`]);
   });
 });

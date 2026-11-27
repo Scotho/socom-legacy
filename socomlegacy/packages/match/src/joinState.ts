@@ -39,7 +39,24 @@ export const CORPSE_AGE_WIRE_READING = 'room clock' as const;
  */
 export const SMOKE_PHASE_ON_WIRE_READING = 'flying until removal' as const;
 
-/** A projectile as the room flies it: its pid, its owner's id, its kind and its `Grenade`'s state. */
+/**
+ * LATER 931's fix after review B-F1 (research 235, "LATER 931"): the owner the envelope names for a projectile whose
+ * thrower has left the room -- -2, a value no page ever holds as its own id: the server hands members 1..`MEMBER_ID_CAP`
+ * (`server.ts` `freeId`), a page's id is 0 before its welcome (viewer `net/client.ts` `NetClient.id`) and the replay
+ * page's is -1 (viewer `replay/replayClient.ts` `REPLAY_WATCHER_ID`, which runs the same `joinSinks(id)`); -1 was the
+ * first build's value and collided with the watcher's (the re-review's F1). Held by match `test/joinState.test.ts`
+ * "LATER 931 F1". The replay fold builds its own envelope from the recorded `grenade` events (viewer `replay/fold.ts`,
+ * `owner: ev.id`), so a replay names a departed thrower's recorded id where the room names this value; no reader is
+ * affected today (the watcher is neither id; the re-review's F6). The room names
+ * a projectile's owner only while its thrower is that live seat (`Room.thrower`): a departed player's charges and rounds
+ * are no one's (`DEPARTED_CHARGES_READING`), and a new page handed his recycled id must not read them as its own (the
+ * page's `owner === self`, `netPage.joinSinks`). A takeover's are re-pointed to the seat first (`Room.seat`), so they
+ * still name it. The field's shape is unchanged (a number); this is the room's policy, a browser design, not the game's
+ * (the original keys an object's owner by its body, research 195 s4).
+ */
+export const JOIN_ORPHAN_OWNER = -2;
+
+/** A projectile as the room flies it: its pid, its owner's id (`JOIN_ORPHAN_OWNER` when he has left), its kind and its `Grenade`'s state. */
 export interface JoinFlyer {
   pid: number; owner: number; kind: string;
   g: { pos: readonly number[]; vel: readonly number[]; state: 'flight' | 'rest' | 'detonated' | 'removed'; age: number; fuse: number; removal: number; bounces: number; dud: boolean };

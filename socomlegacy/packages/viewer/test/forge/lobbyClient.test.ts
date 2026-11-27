@@ -4,12 +4,13 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ArmoryData } from '../../src/armoryData';
-import type { WebSocketLike } from '../../src/net/client';
+import type { NetWalk, WebSocketLike } from '../../src/net/client';
 import type { ServerEvent } from '../../src/net/protocol';
 import { emptyLayout, serializeLayout, type Layout } from '../../src/forge/layout';
 import { FORGE_LOBBY_WINDOW_KEY } from '../../src/forge/lobby/window';
 import {
-  addressWithLobby, askForgeSeat, askGuest, closeLobby, createLobby, enterLocked, fetchLobby, FORGE_BASE_MISSING_WORDS, FORGE_LOBBY_KICKED_CODE, FORGE_SEAT_RETRY_ADAPTATION,
+  addressWithLobby, askForgeSeat, askGuest, closeLobby, createLobby, enterLocked, fetchLobby, FORGE_ARCHIVE_REFUSED_WORDS, FORGE_BASE_MISSING_WORDS,
+  FORGE_LAYOUT_REFUSED_WORDS, FORGE_LAYOUT_WORDS_MAX_ADAPTATION, FORGE_LOBBY_KICKED_CODE, FORGE_SEAT_RETRY_ADAPTATION,
   ForgeLobbySession, GUEST_PASS_LAPSED, handOnLobby, isForgeToken, kickSeat, LOBBY_KICKED_WORDS, lobbyEndWords, lobbyIdOf, loadoutOf, missingArchives, openLobbySocket, setListed,
   setPassword,
 } from '../../src/forge/lobbyClient';
@@ -117,6 +118,47 @@ describe('FORGE lobby client: the HTTP routes (forgeLobbyHttp.ts)', () => {
     const odd = await createLobby(BASE, 'BOXES', layout(), null, fakeFetch([{ status: 400, body: { refused: 'base', map: '<b>x</b>' } }]).fetch);
     expect(odd).toMatchObject({ ok: false, status: 400 });
     if (!odd.ok) expect(odd.words).not.toContain('<b>');
+  });
+
+  /**
+   * FN-1a, fix round 1 (product track; a page's words, an adaptation with no original): central's 400
+   * `{ refused: 'layout', words }` (`forgeLobbyHttp.ts`; the words `forgeLobby.ts` `arsenalNameRefusal`'s) is said as the
+   * server's refusal with those words -- only when they are 1 to 200 printable ASCII characters; anything else, and a
+   * 400 with no body (an older central), keeps the table's 400 words. At the RED commit the first case is RED (the page
+   * reads no `layout` body: the table's words); the CONTROLs pass before and after.
+   */
+  const GENERIC_400 = 'the server refused the layout or its name, or does not hold its base map';
+  const SENTENCE = "the layout's arsenal sets the valve Enable_M4A1, which enables no item";
+  const create400 = async (body?: unknown) => {
+    const a = await createLobby(BASE, 'BOXES', layout(), null, fakeFetch([{ status: 400, ...(body === undefined ? {} : { body }) }]).fetch);
+    expect(a).toMatchObject({ ok: false, status: 400 });
+    return a.ok ? '' : a.words;
+  };
+
+  it("FN-1a fix 1, RED: a 400 { refused: 'layout', words } says the server's refusal with its sentence", async () => {
+    expect(await create400({ refused: 'layout', words: SENTENCE })).toBe(`the server refused the layout: ${SENTENCE}`);
+    const longest = 'a'.repeat(200);                                  // FORGE_LAYOUT_WORDS_MAX_ADAPTATION, at the bound
+    expect(await create400({ refused: 'layout', words: longest })).toBe(`the server refused the layout: ${longest}`);
+    expect(FORGE_LAYOUT_WORDS_MAX_ADAPTATION).toBe(200);
+    expect(FORGE_LAYOUT_REFUSED_WORDS(SENTENCE)).toBe(`the server refused the layout: ${SENTENCE}`);
+  });
+
+  it("FN-1a fix 1, CONTROL: a 400 with no body, or words not 1 to 200 printable ASCII characters, says the table's 400 words", async () => {
+    expect(await create400()).toBe(GENERIC_400);                      // an older central: no body
+    expect(await create400({ refused: 'layout' })).toBe(GENERIC_400);
+    expect(await create400({ refused: 'layout', words: 42 })).toBe(GENERIC_400);
+    expect(await create400({ refused: 'layout', words: ['x'] })).toBe(GENERIC_400);
+    expect(await create400({ refused: 'layout', words: '' })).toBe(GENERIC_400);
+    expect(await create400({ refused: 'layout', words: 'a'.repeat(201) })).toBe(GENERIC_400);
+    expect(await create400({ refused: 'layout', words: 'the valve\x07Enable_x' })).toBe(GENERIC_400);
+    expect(await create400({ refused: 'layout', words: 'line one\nline two' })).toBe(GENERIC_400);
+    expect(await create400({ refused: 'layout', words: 'caf\xe9' })).toBe(GENERIC_400);
+  });
+
+  it("FN-1a fix 1, CONTROL: the base and archive refusals' words are unchanged", async () => {
+    expect(await create400({ refused: 'base', map: 'M51' })).toBe(FORGE_BASE_MISSING_WORDS('M51'));
+    expect(await create400({ refused: 'archive', map: 'mp54' })).toBe(FORGE_ARCHIVE_REFUSED_WORDS('MP54'));
+    expect(await create400({ refused: 'archive', map: '<b>' })).toBe(FORGE_ARCHIVE_REFUSED_WORDS(null));
   });
 
   it('fetches a lobby: GET /lobby/forge/lobby/<id>, its layout read by parseLayout, its state and missing', async () => {
@@ -935,5 +977,158 @@ describe('LATER 275: a placed lobby\'s door and forge token', () => {
     expect(local.sock.url).toBe('wss://forge.test/ws');
     expect(local.sock.sent[0]).toMatchObject({ forge: { id: 'L1', ticket: 'HT' }, ticket: LOGIN });
     expect('token' in (local.sock.sent[0] as object)).toBe(false);
+  });
+});
+
+/**
+ * H460 fix round 2 (the main controller, 2026-11-15: "BUILD THE PAGE's RETURN under H460 as fix round 2, for the FULL GAME
+ * only"; a browser adaptation, product track): after a full game the room reopens its lobby and tells every seat a
+ * `gameLobby` with `launched: false` (`match/src/forgeGame.ts` `onMatchReturn`). The page takes the client back from the
+ * match (`../../src/forge/match` `ForgeMatch.release`) and gives it to the session again (`resume`), as the briefing
+ * room's lobby socket takes its client back (`../../src/lobbyMatch` `matchOver`, `GameSocketHost.adopt`): the welcome
+ * kept, nothing of the last match's launch kept. And the slow page: a launch the room took back while this page still
+ * composed its map (no hand-off yet) is no longer a launch, and a later one is told again.
+ */
+describe('H460 fix 2: the session takes the client back after a full game', () => {
+  type LobbyEv = Extract<ServerEvent, { type: 'gameLobby' }>;
+  const session = () => {
+    const s = seated({ hostTicket: 'HT' });
+    const lobby = new ForgeLobbySession(s.client, { title: () => ({ name: 'BOXES', map: 'MP72', players: 8 }) });
+    const deps = lobby.deps(document, () => {});
+    let launches = 0;
+    lobby.onLaunch(() => { launches++; });
+    const views: LobbyEv[] = [];
+    lobby.onLobby((ev) => { views.push(ev); });
+    return { ...s, lobby, deps, views, launches: () => launches };
+  };
+  const view = (launched: boolean, hostTeam: 'seal' | 'terrorist' = 'seal'): LobbyEv => ({
+    type: 'gameLobby', seats: [seat(1, 'Guest-1', hostTeam, true), seat(2, 'Guest-2', hostTeam === 'seal' ? 'terrorist' : 'seal')], countdown: launched ? 0 : null, launched,
+  });
+  const roundStart = (round: number): ServerEvent => ({ type: 'roundStart', round, seconds: 30, wins: { seal: 0, terrorist: 0 }, rounds: 1, epoch: 1, startTick: 0 } as unknown as ServerEvent);
+  const gameOver: ServerEvent = { type: 'roundOver', round: 1, winner: 'seal', wins: { seal: 1, terrorist: 0 }, matchOver: true, screens: [] } as ServerEvent;
+
+  it('H460: resume holds the client again, tells the returned view, keeps the welcome and hears the socket again', () => {
+    const { sock, lobby, deps, views, client, launches } = session();
+    sock.emit(welcome(1, 'seal'));
+    sock.emit(view(true));
+    sock.emit(roundStart(1));
+    expect(launches()).toBe(1);
+    const h = lobby.handOff();
+    expect(h).not.toBeNull();
+    expect(deps.net()).toBeNull();
+    // The match plays on the handed client; the room returns to its lobby (heard by the match, not by the session).
+    sock.emit(gameOver);
+    const back = view(false);
+    sock.emit(back);
+    expect(views).toHaveLength(1);
+    expect(typeof (lobby as unknown as { resume?: unknown }).resume).toBe('function');
+    lobby.resume(h!.client, back);
+    expect(lobby.net()).toBe(client);
+    expect(deps.net()).toBe(client);
+    expect(deps.lobby()).toBe(back);
+    expect(views).toHaveLength(2);
+    expect(views.at(-1)).toBe(back);
+    expect(lobby.isLaunched()).toBe(false);
+    expect(deps.me()).toEqual({ id: 1, host: true });                    // the welcome kept across the match
+    const lines: unknown[] = [];
+    deps.onChat((l) => lines.push(l));
+    sock.emit({ type: 'chat', sender: 2, name: 'Guest-2', text: 'again' });   // `team` is absent or true on the wire
+    expect(lines).toEqual([{ from: 'Guest-2', text: 'again', team: false }]);
+    deps.send('lobbyReady');
+    expect(sock.sent.at(-1)).toEqual({ type: 'lobbyReady' });
+  });
+
+  // H460 fix round 3 (the fresh review's finding 2): `resume` rebinds the client to the lobby's idle walk, as the
+  // briefing room's socket does when it takes its client back (`../../src/gameLobbyHost` `adopt`) -- the torn-down
+  // match's walk and its net tap let go, a waiting-room spawn held as before a first match (LATER 498).
+  it('H460 fix 3: resume rebinds the client to the idle walk -- the match walk and its net tap are let go', () => {
+    const { sock, lobby, client } = session();
+    sock.emit(welcome(1, 'seal'));
+    sock.emit(view(true));
+    sock.emit(roundStart(1));
+    const h = lobby.handOff()!;
+    const taps: unknown[] = [];
+    const matchWalk: NetWalk = { setNetTap: (tap) => { taps.push(tap); }, respawn: () => true, nudge: () => {}, setLocked: () => {} };
+    h.client.rebind(matchWalk);                                           // the match takes the client on with its walk
+    expect(typeof taps.at(-1)).toBe('function');
+    sock.emit(gameOver);
+    const back = view(false);
+    sock.emit(back);
+    const rebinds: NetWalk[] = [];
+    const real = client.rebind.bind(client);
+    client.rebind = (w: NetWalk): void => { rebinds.push(w); real(w); };   // the stand-in records the call
+    lobby.resume(h.client, back);
+    expect(rebinds).toHaveLength(1);
+    expect(rebinds[0]).not.toBe(matchWalk);
+    expect(taps.at(-1)).toBeNull();                                       // the match's walk is no longer tapped
+  });
+
+  it('H460: the second launch is told again; its hand-off gives the kept welcome on its new side and no stale roundStart', () => {
+    const { sock, lobby, client, launches } = session();
+    sock.emit(welcome(1, 'seal'));
+    sock.emit(view(true));
+    sock.emit(roundStart(1));
+    const h = lobby.handOff()!;
+    sock.emit(gameOver);
+    const back = view(false);
+    sock.emit(back);
+    expect(typeof (lobby as unknown as { resume?: unknown }).resume).toBe('function');
+    lobby.resume(h.client, back);
+    sock.emit(view(true, 'terrorist'));                                   // SWITCH SIDES in the lobby, then LAUNCH
+    expect(launches()).toBe(2);
+    const h2 = lobby.handOff();
+    expect(h2).not.toBeNull();
+    expect(h2!.client).toBe(client);
+    expect(h2!.welcome?.id).toBe(1);
+    expect(h2!.welcome?.team).toBe('terrorist');
+    expect(h2!.roundStart).toBeNull();                                    // the first match's round 1 is not this one's
+    expect(h2!.events[0]?.type).toBe('welcome');
+    expect(h2!.events.filter((e) => e.type === 'roundStart' || e.type === 'roundOver')).toEqual([]);
+  });
+
+  it('H460: the slow page -- a launch the room took back before the hand-off is no longer a launch, and the next is told again', () => {
+    const { sock, lobby, client, launches } = session();
+    sock.emit(welcome(1, 'seal'));
+    sock.emit(view(true));
+    expect(launches()).toBe(1);
+    expect(lobby.isLaunched()).toBe(true);
+    // The page still composes its map (no hand-off); the room plays its match to a full game without it and returns.
+    sock.emit(roundStart(1));
+    sock.emit(gameOver);
+    sock.emit(view(false));
+    expect(lobby.isLaunched()).toBe(false);
+    expect(lobby.net()).toBe(client);                                     // still the session's
+    sock.emit(view(true));
+    expect(launches()).toBe(2);
+    expect(lobby.isLaunched()).toBe(true);
+    const h = lobby.handOff();
+    expect(h).not.toBeNull();
+    expect(h!.roundStart).toBeNull();
+    expect(h!.events.filter((e) => e.type === 'roundStart' || e.type === 'roundOver')).toEqual([]);
+  });
+
+  it('H460 (control): an abandon the room took back before the hand-off stays a launch -- the abandon keeps its leave (FG-26 / FG-48)', () => {
+    const { sock, lobby, launches } = session();
+    sock.emit(welcome(1, 'seal'));
+    sock.emit(view(true));
+    sock.emit(roundStart(1));
+    sock.emit({ type: 'abandoned' });
+    sock.emit(view(false));
+    expect(lobby.isLaunched()).toBe(true);
+    expect(launches()).toBe(1);
+    const h = lobby.handOff();
+    expect(h!.events.some((e) => e.type === 'abandoned')).toBe(true);      // the match hears it, and ends as today
+  });
+
+  it('H460 (control): a gameLobby not launched before any launch changes nothing; one launch is told once', () => {
+    const { sock, lobby, launches } = session();
+    sock.emit(welcome(1, 'seal'));
+    sock.emit(view(false));
+    sock.emit(view(false));
+    expect(launches()).toBe(0);
+    expect(lobby.isLaunched()).toBe(false);
+    sock.emit(view(true));
+    sock.emit(view(true));
+    expect(launches()).toBe(1);
   });
 });

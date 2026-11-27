@@ -273,20 +273,30 @@ describe('SEP-POP: the refusal by id -- the bots (IsAi) keep main\'s held transi
 });
 
 describe('SEP-POP / COMBINED-CUT: the bots are main but for H392\'s drop and pop (a pin of main 60b9d7b49\'s positions)', () => {
-  /** Recorded on main 60b9d7b49's mover before SEP-POP: every 10th tick's x, z, stance and action. */
-  const MAIN = [[10, 4.965, 0, 'stand', '-'], [20, 15.708, 0, 'stand', '-'], [30, 18.042, 0, 'crouch', '-'], [40, 20.375, 0, 'crouch', '-'],
-    [50, 20.375, 0, 'crouch', '-'], [60, 20.375, 0, 'crouch', '-'], [70, 20.375, 0, 'crouch', '-'], [80, 22.027, 0.195, 'prone', 'crouchToProne'],
-    [90, 23.68, 0.39, 'prone', 'crouchToProne'], [100, 25.332, 0.585, 'prone', 'crouchToProne'], [110, 26.984, 0.78, 'prone', 'crouchToProne'],
-    [120, 28.637, 0.975, 'prone', 'crouchToProne'], [130, 28.637, 1.25, 'prone', '-'], [140, 28.637, 1.525, 'prone', '-'],
-    [150, 26.984, 1.33, 'crouch', 'crouchToProne'], [160, 25.332, 1.135, 'crouch', 'crouchToProne'], [170, 23.68, 0.94, 'crouch', 'crouchToProne'],
-    [180, 22.027, 0.745, 'crouch', 'crouchToProne'], [190, 20.375, 0.55, 'crouch', 'crouchToProne'], [200, 20.375, 0.55, 'crouch', '-'],
-    [210, 20.375, 0.55, 'crouch', '-'], [220, 20.726, 0.882, 'stand', 'standToCrouch'], [230, 21.077, 1.214, 'stand', 'standToCrouch'],
-    [240, 21.429, 1.545, 'stand', 'standToCrouch'], [250, 22.506, 1.745, 'stand', '-'], [260, 24.673, 1.745, 'stand', '-'],
-    [270, 25.274, 1.464, 'prone', 'standToProne'], [280, 25.875, 1.184, 'prone', 'standToProne'], [290, 26.476, 0.903, 'prone', 'standToProne'],
-    [300, 27.078, 0.623, 'prone', 'standToProne'], [310, 27.679, 0.343, 'prone', 'standToProne'], [320, 28.04, 0.219, 'prone', '-'],
-    [330, 28.04, 0.329, 'prone', '-'], [340, 27.438, 0.609, 'stand', 'standToProne'], [350, 26.837, 0.889, 'stand', 'standToProne'],
-    [360, 26.236, 1.17, 'stand', 'standToProne'], [370, 25.635, 1.45, 'stand', 'standToProne'], [380, 25.033, 1.73, 'stand', 'standToProne'],
-    [390, 29.006, 1.899, 'stand', '-'], [400, 39.839, 1.899, 'stand', '-'], [410, 50.673, 1.899, 'stand', '-']];
+  /**
+   * Recorded on main 60b9d7b49's mover before SEP-POP: every 10th tick's x, z, stance and action.
+   * LATER 1164 (RAMP_LEAD; strafeRamp.test.ts; 2026-11-18): the move reads the stick ramp half a tick ahead, so the
+   * opening 20 ticks of full forward from rest cover 0.4965 more (walkSpeed's 1 s total; 0.452 at row 10) and every
+   * later row carries that x. Every x here is carried by the head's measured per-row shift of the default walker's trace
+   * (+0.452 at row 10, +0.496/+0.497 from row 20). z, every stance and every clip on top are unchanged, so the rows
+   * 80-190 relation `x70 + (x - x70) x ratio` holds with the new x70, 20.872. These are the port's own positions, not a
+   * capture.
+   */
+  const MAIN = [
+    [10, 5.417, 0, 'stand', '-'], [20, 16.205, 0, 'stand', '-'], [30, 18.538, 0, 'crouch', '-'],
+    [40, 20.872, 0, 'crouch', '-'], [50, 20.872, 0, 'crouch', '-'], [60, 20.872, 0, 'crouch', '-'],
+    [70, 20.872, 0, 'crouch', '-'], [80, 22.523, 0.195, 'prone', 'crouchToProne'], [90, 24.177, 0.39, 'prone', 'crouchToProne'],
+    [100, 25.828, 0.585, 'prone', 'crouchToProne'], [110, 27.481, 0.78, 'prone', 'crouchToProne'], [120, 29.133, 0.975, 'prone', 'crouchToProne'],
+    [130, 29.133, 1.25, 'prone', '-'], [140, 29.133, 1.525, 'prone', '-'], [150, 27.481, 1.33, 'crouch', 'crouchToProne'],
+    [160, 25.828, 1.135, 'crouch', 'crouchToProne'], [170, 24.177, 0.94, 'crouch', 'crouchToProne'], [180, 22.523, 0.745, 'crouch', 'crouchToProne'],
+    [190, 20.872, 0.55, 'crouch', 'crouchToProne'], [200, 20.872, 0.55, 'crouch', '-'], [210, 20.872, 0.55, 'crouch', '-'],
+    [220, 21.223, 0.882, 'stand', 'standToCrouch'], [230, 21.574, 1.214, 'stand', 'standToCrouch'], [240, 21.925, 1.545, 'stand', 'standToCrouch'],
+    [250, 23.002, 1.745, 'stand', '-'], [260, 25.169, 1.745, 'stand', '-'], [270, 25.77, 1.464, 'prone', 'standToProne'],
+    [280, 26.372, 1.184, 'prone', 'standToProne'], [290, 26.973, 0.903, 'prone', 'standToProne'], [300, 27.574, 0.623, 'prone', 'standToProne'],
+    [310, 28.175, 0.343, 'prone', 'standToProne'], [320, 28.536, 0.219, 'prone', '-'], [330, 28.536, 0.329, 'prone', '-'],
+    [340, 27.935, 0.609, 'stand', 'standToProne'], [350, 27.334, 0.889, 'stand', 'standToProne'], [360, 26.732, 1.17, 'stand', 'standToProne'],
+    [370, 26.131, 1.45, 'stand', 'standToProne'], [380, 25.53, 1.73, 'stand', 'standToProne'], [390, 29.502, 1.899, 'stand', '-'],
+    [400, 40.336, 1.899, 'stand', '-'], [410, 51.169, 1.899, 'stand', '-']];
 
   function trace(who: Who | undefined): (string | number)[][] {
     const r = flat(), w = r.walker;
@@ -317,27 +327,25 @@ describe('SEP-POP / COMBINED-CUT: the bots are main but for H392\'s drop and pop
   /**
    * H392's default walker and bots, recorded byte for byte by a unit-test run on the hub (f88cb14742, the v0422 merge
    * of da8a071948, 2026-11-14; seat 67, `h392-hub-probe.sh`); the derivation below holds it too.
+   * LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): re-recorded byte for byte at the head (coreB, the hub, one file,
+   * agent/later-1164). Every x is +0.4965 from row 20 on (+0.452 at row 10), from the opening 20 ticks of full forward
+   * read half a tick ahead. z, the stances and the clips are identical on all 41 rows.
    */
   const H392_MAIN = [
-    [10, 4.965, 0, 'stand', '-'], [20, 15.708, 0, 'stand', '-'], [30, 18.042, 0, 'crouch', '-'],
-    [40, 20.375, 0, 'crouch', '-'], [50, 20.375, 0, 'crouch', '-'], [60, 20.375, 0, 'crouch', '-'],
-    [70, 20.375, 0, 'crouch', '-'], [80, 20.5, 0.195, 'prone', 'crouchToProne'],
-    [90, 20.624, 0.39, 'prone', 'crouchToProne'], [100, 20.749, 0.585, 'prone', 'crouchToProne'],
-    [110, 20.873, 0.78, 'prone', 'crouchToProne'], [120, 20.998, 0.975, 'prone', 'crouchToProne'],
-    [130, 20.998, 1.25, 'prone', '-'], [140, 20.998, 1.525, 'prone', '-'],
-    [150, 20.873, 1.33, 'crouch', 'crouchToProne'], [160, 20.749, 1.135, 'crouch', 'crouchToProne'],
-    [170, 20.624, 0.94, 'crouch', 'crouchToProne'], [180, 20.5, 0.745, 'crouch', 'crouchToProne'],
-    [190, 20.375, 0.55, 'crouch', 'crouchToProne'], [200, 20.375, 0.55, 'crouch', '-'],
-    [210, 20.375, 0.55, 'crouch', '-'], [220, 20.726, 0.882, 'stand', 'standToCrouch'],
-    [230, 21.077, 1.214, 'stand', 'standToCrouch'], [240, 21.429, 1.545, 'stand', 'standToCrouch'],
-    [250, 22.506, 1.745, 'stand', '-'], [260, 24.673, 1.745, 'stand', '-'],
-    [270, 25.274, 1.464, 'prone', 'standToProne'], [280, 25.875, 1.184, 'prone', 'standToProne'],
-    [290, 26.476, 0.903, 'prone', 'standToProne'], [300, 27.078, 0.623, 'prone', 'standToProne'],
-    [310, 27.679, 0.343, 'prone', 'standToProne'], [320, 28.04, 0.219, 'prone', '-'],
-    [330, 28.04, 0.329, 'prone', '-'], [340, 27.438, 0.609, 'stand', 'standToProne'],
-    [350, 26.837, 0.889, 'stand', 'standToProne'], [360, 26.236, 1.17, 'stand', 'standToProne'],
-    [370, 25.635, 1.45, 'stand', 'standToProne'], [380, 25.033, 1.73, 'stand', 'standToProne'],
-    [390, 29.006, 1.899, 'stand', '-'], [400, 39.839, 1.899, 'stand', '-'], [410, 50.673, 1.899, 'stand', '-']];
+    [10, 5.417, 0, 'stand', '-'], [20, 16.205, 0, 'stand', '-'], [30, 18.538, 0, 'crouch', '-'],
+    [40, 20.872, 0, 'crouch', '-'], [50, 20.872, 0, 'crouch', '-'], [60, 20.872, 0, 'crouch', '-'],
+    [70, 20.872, 0, 'crouch', '-'], [80, 20.996, 0.195, 'prone', 'crouchToProne'], [90, 21.121, 0.39, 'prone', 'crouchToProne'],
+    [100, 21.245, 0.585, 'prone', 'crouchToProne'], [110, 21.37, 0.78, 'prone', 'crouchToProne'], [120, 21.494, 0.975, 'prone', 'crouchToProne'],
+    [130, 21.494, 1.25, 'prone', '-'], [140, 21.494, 1.525, 'prone', '-'], [150, 21.37, 1.33, 'crouch', 'crouchToProne'],
+    [160, 21.245, 1.135, 'crouch', 'crouchToProne'], [170, 21.121, 0.94, 'crouch', 'crouchToProne'], [180, 20.996, 0.745, 'crouch', 'crouchToProne'],
+    [190, 20.872, 0.55, 'crouch', 'crouchToProne'], [200, 20.872, 0.55, 'crouch', '-'], [210, 20.872, 0.55, 'crouch', '-'],
+    [220, 21.223, 0.882, 'stand', 'standToCrouch'], [230, 21.574, 1.214, 'stand', 'standToCrouch'], [240, 21.925, 1.545, 'stand', 'standToCrouch'],
+    [250, 23.002, 1.745, 'stand', '-'], [260, 25.169, 1.745, 'stand', '-'], [270, 25.77, 1.464, 'prone', 'standToProne'],
+    [280, 26.372, 1.184, 'prone', 'standToProne'], [290, 26.973, 0.903, 'prone', 'standToProne'], [300, 27.574, 0.623, 'prone', 'standToProne'],
+    [310, 28.175, 0.343, 'prone', 'standToProne'], [320, 28.536, 0.219, 'prone', '-'], [330, 28.536, 0.329, 'prone', '-'],
+    [340, 27.935, 0.609, 'stand', 'standToProne'], [350, 27.334, 0.889, 'stand', 'standToProne'], [360, 26.732, 1.17, 'stand', 'standToProne'],
+    [370, 26.131, 1.45, 'stand', 'standToProne'], [380, 25.53, 1.73, 'stand', 'standToProne'], [390, 29.502, 1.899, 'stand', '-'],
+    [400, 40.336, 1.899, 'stand', '-'], [410, 51.169, 1.899, 'stand', '-']];
 
   it('H392: the default walker and the bots (stanceCut off) run main\'s trace but for the drop and the pop, now about 1.17 u', () => {
     const c2p = ACTION_CLIPS.crouchToProne, period = (c2p.playback * (c2p.frames - 1)) / c2p.frames;
@@ -380,20 +388,25 @@ describe('SEP-POP / COMBINED-CUT: the bots are main but for H392\'s drop and pop
    * snap from the last game frame's value, so it ramps on (0.883, 0.967, 1): 0.15 of a stick-tick less at the strafe's
    * 65, 0.15 x 65 / 60 = 0.1625 u, every later row carried over on the flat floor. Re-pinned to b0's box ft1 at
    * da0f756c8e (data view), which ran the stateless numbering's frames (baadb10904: the same for direct ticks).
+   * LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): carried by the head's measured per-row shift of COMBINED's trace, so the
+   * `x - shift` relation below still reads it. The shift is x +0.496 from row 20 (the opening full forward), z +0.352
+   * from row 150 (the crouch-run press at tick 140: its full-stick lateral ramp read half a tick ahead), and x +0.082 more
+   * from row 220 (the stand at 210 under the stick 0.2, its ramp read half a tick ahead). The cut structure is unchanged:
+   * no clip on top at rows 80-260, standToProne at 270-310 and 340-380.
    */
-  const COMBINED_CUT = [...MAIN.slice(0, 7), [80, 20.705, 0.259, 'prone', '-'], [90, 20.705, 0.534, 'prone', '-'],
-    [100, 20.705, 0.809, 'prone', '-'], [110, 20.705, 1.084, 'prone', '-'], [120, 20.705, 1.359, 'prone', '-'],
-    [130, 20.705, 1.634, 'prone', '-'], [140, 20.705, 1.909, 'prone', '-'], [150, 20.705, 9.926, 'crouch', '-'],
-    [160, 20.705, 20.759, 'crouch', '-'], [170, 20.705, 31.592, 'crouch', '-'], [180, 20.705, 42.426, 'crouch', '-'],
-    [190, 20.705, 42.426, 'crouch', '-'], [200, 20.705, 42.426, 'crouch', '-'], [210, 20.705, 42.426, 'crouch', '-'],
-    [220, 22.682, 42.426, 'stand', '-'], [230, 24.849, 42.426, 'stand', '-'], [240, 27.016, 42.426, 'stand', '-'],
-    [250, 29.182, 42.426, 'stand', '-'], [260, 31.349, 42.426, 'stand', '-'], [270, 31.95, 42.145, 'prone', 'standToProne'],
-    [280, 32.552, 41.865, 'prone', 'standToProne'], [290, 33.153, 41.585, 'prone', 'standToProne'],
-    [300, 33.754, 41.304, 'prone', 'standToProne'], [310, 34.355, 41.024, 'prone', 'standToProne'], [320, 34.596, 40.978, 'prone', '-'],
-    [330, 34.596, 41.088, 'prone', '-'], [340, 33.995, 41.368, 'stand', 'standToProne'], [350, 33.393, 41.648, 'stand', 'standToProne'],
-    [360, 32.792, 41.929, 'stand', 'standToProne'], [370, 32.191, 42.209, 'stand', 'standToProne'],
-    [380, 31.59, 42.49, 'stand', 'standToProne'], [390, 35.562, 42.658, 'stand', '-'], [400, 46.395, 42.658, 'stand', '-'],
-    [410, 57.229, 42.658, 'stand', '-']];
+  const COMBINED_CUT = [...MAIN.slice(0, 7),
+    [80, 21.201, 0.259, 'prone', '-'], [90, 21.201, 0.534, 'prone', '-'], [100, 21.201, 0.809, 'prone', '-'],
+    [110, 21.201, 1.084, 'prone', '-'], [120, 21.201, 1.359, 'prone', '-'], [130, 21.201, 1.634, 'prone', '-'],
+    [140, 21.201, 1.909, 'prone', '-'], [150, 21.201, 10.278, 'crouch', '-'], [160, 21.201, 21.111, 'crouch', '-'],
+    [170, 21.201, 31.944, 'crouch', '-'], [180, 21.201, 42.778, 'crouch', '-'], [190, 21.201, 42.778, 'crouch', '-'],
+    [200, 21.201, 42.778, 'crouch', '-'], [210, 21.201, 42.778, 'crouch', '-'], [220, 23.043, 42.778, 'stand', '-'],
+    [230, 25.210, 42.778, 'stand', '-'], [240, 27.377, 42.778, 'stand', '-'], [250, 29.543, 42.778, 'stand', '-'],
+    [260, 31.710, 42.778, 'stand', '-'], [270, 32.310, 42.497, 'prone', 'standToProne'], [280, 32.913, 42.217, 'prone', 'standToProne'],
+    [290, 33.514, 41.937, 'prone', 'standToProne'], [300, 34.114, 41.656, 'prone', 'standToProne'], [310, 34.716, 41.376, 'prone', 'standToProne'],
+    [320, 34.957, 41.33, 'prone', '-'], [330, 34.957, 41.44, 'prone', '-'], [340, 34.356, 41.72, 'stand', 'standToProne'],
+    [350, 33.754, 42.001, 'stand', 'standToProne'], [360, 33.152, 42.281, 'stand', 'standToProne'], [370, 32.552, 42.561, 'stand', 'standToProne'],
+    [380, 31.951, 42.842, 'stand', 'standToProne'], [390, 35.922, 43.01, 'stand', '-'], [400, 46.756, 43.01, 'stand', '-'],
+    [410, 57.590, 43.01, 'stand', '-']];
 
   /**
    * SEPARATE on the same script since MOVE-1 and MOVE-2 (B196; a regression pin, not a capture, recorded on agent/move):
@@ -404,25 +417,26 @@ describe('SEP-POP / COMBINED-CUT: the bots are main but for H392\'s drop and pop
    * THROTTLE-FRAME (2026-11-14, R8.1): option B's frame-end snap moves the crouch-run press at tick 140 by 0.1625 in z
    * from row 150 on (a regression pin, not a capture). Re-recorded exactly on the box at dd3923dbca (ft5's probe, the
    * trace printed whole); rows 150-180 equal COMBINED's z, as they did before B.
+   * LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): re-recorded at the head (coreB, the hub, one file). It moves the same as
+   * COMBINED's trace: x +0.496 from row 20, z +0.352 from row 150, x +0.082 more from row 220. Stances and clips are
+   * unchanged, and it still agrees with COMBINED to row 180 and parts at 190.
    */
+  /** LATER 1219 (the walls trial, 2026-11-21): from row 220 x 0.2167 less, as COMBINED's (below): the stand at 210, cut by the stick 0.2, starts its ground state inside a frame and the press from rest is read a tick later. Re-recorded on the hub. */
   const SEPARATE_MOVE = [
-    [10, 4.965, 0, 'stand', '-'], [20, 15.708, 0, 'stand', '-'], [30, 18.042, 0, 'crouch', '-'],
-    [40, 20.375, 0, 'crouch', '-'], [50, 20.375, 0, 'crouch', '-'], [60, 20.375, 0, 'crouch', '-'],
-    [70, 20.375, 0, 'crouch', '-'], [80, 20.4, 0.259, 'prone', '-'], [90, 20.4, 0.534, 'prone', '-'],
-    [100, 20.4, 0.809, 'prone', '-'], [110, 20.4, 1.084, 'prone', '-'], [120, 20.4, 1.359, 'prone', '-'],
-    [130, 20.4, 1.634, 'prone', '-'], [140, 20.4, 1.909, 'prone', '-'], [150, 20.4, 9.926, 'crouch', '-'],
-    [160, 20.4, 20.759, 'crouch', '-'], [170, 20.4, 31.592, 'crouch', '-'], [180, 20.4, 42.426, 'crouch', '-'],
-    [190, 20.084, 42.127, 'crouch', 'standToCrouch'], [200, 19.733, 41.795, 'crouch', 'standToCrouch'],
-    [210, 19.382, 41.463, 'crouch', 'standToCrouch'], [220, 21.358, 41.463, 'stand', '-'],
-    [230, 23.525, 41.463, 'stand', '-'], [240, 25.692, 41.463, 'stand', '-'], [250, 27.858, 41.463, 'stand', '-'],
-    [260, 30.025, 41.463, 'stand', '-'], [270, 30.626, 41.183, 'prone', 'standToProne'],
-    [280, 31.228, 40.903, 'prone', 'standToProne'], [290, 31.829, 40.622, 'prone', 'standToProne'],
-    [300, 32.43, 40.342, 'prone', 'standToProne'], [310, 33.031, 40.062, 'prone', 'standToProne'],
-    [320, 33.272, 40.015, 'prone', '-'], [330, 33.272, 40.125, 'prone', '-'],
-    [340, 32.671, 40.406, 'stand', 'standToProne'], [350, 32.069, 40.686, 'stand', 'standToProne'],
-    [360, 31.468, 40.967, 'stand', 'standToProne'], [370, 30.867, 41.247, 'stand', 'standToProne'],
-    [380, 30.266, 41.527, 'stand', 'standToProne'], [390, 34.238, 41.695, 'stand', '-'],
-    [400, 45.071, 41.695, 'stand', '-'], [410, 55.905, 41.695, 'stand', '-']];
+    [10, 5.417, 0, 'stand', '-'], [20, 16.205, 0, 'stand', '-'], [30, 18.538, 0, 'crouch', '-'],
+    [40, 20.872, 0, 'crouch', '-'], [50, 20.872, 0, 'crouch', '-'], [60, 20.872, 0, 'crouch', '-'],
+    [70, 20.872, 0, 'crouch', '-'], [80, 20.896, 0.259, 'prone', '-'], [90, 20.896, 0.534, 'prone', '-'],
+    [100, 20.896, 0.809, 'prone', '-'], [110, 20.896, 1.084, 'prone', '-'], [120, 20.896, 1.359, 'prone', '-'],
+    [130, 20.896, 1.634, 'prone', '-'], [140, 20.896, 1.909, 'prone', '-'], [150, 20.896, 10.278, 'crouch', '-'],
+    [160, 20.896, 21.111, 'crouch', '-'], [170, 20.896, 31.944, 'crouch', '-'], [180, 20.896, 42.778, 'crouch', '-'],
+    [190, 20.58, 42.479, 'crouch', 'standToCrouch'], [200, 20.229, 42.147, 'crouch', 'standToCrouch'], [210, 19.878, 41.815, 'crouch', 'standToCrouch'],
+    [220, 21.719, 41.815, 'stand', '-'], [230, 23.886, 41.815, 'stand', '-'], [240, 26.053, 41.815, 'stand', '-'],
+    [250, 28.219, 41.815, 'stand', '-'], [260, 30.386, 41.815, 'stand', '-'], [270, 30.987, 41.535, 'prone', 'standToProne'],
+    [280, 31.589, 41.255, 'prone', 'standToProne'], [290, 32.19, 40.974, 'prone', 'standToProne'], [300, 32.791, 40.694, 'prone', 'standToProne'],
+    [310, 33.392, 40.414, 'prone', 'standToProne'], [320, 33.633, 40.368, 'prone', '-'], [330, 33.633, 40.478, 'prone', '-'],
+    [340, 33.032, 40.758, 'stand', 'standToProne'], [350, 32.43, 41.038, 'stand', 'standToProne'], [360, 31.829, 41.319, 'stand', 'standToProne'],
+    [370, 31.228, 41.599, 'stand', 'standToProne'], [380, 30.627, 41.879, 'stand', 'standToProne'], [390, 34.599, 42.048, 'stand', '-'],
+    [400, 45.433, 42.048, 'stand', '-'], [410, 56.266, 42.048, 'stand', '-']];
 
   /**
    * H392 (the owner, 2026-11-14: "Always the original's (Recommended)"): COMBINED's drop carries MOVE-1's push too. Its
@@ -439,24 +453,32 @@ describe('SEP-POP / COMBINED-CUT: the bots are main but for H392\'s drop and pop
   /**
    * COMBINED under H392 and THROTTLE-FRAME, recorded byte for byte by the same hub run as `H392_MAIN`; the derivation
    * below holds it too.
+   * LATER 1164 (RAMP_LEAD; strafeRamp.test.ts): re-recorded byte for byte at the head (coreB, the hub, one file). The
+   * changes are x +0.496 from row 20, z +0.352 from row 150 (the crouch-run press at tick 140 read half a tick ahead) and
+   * x +0.082 more from row 220 (the stand under the stick 0.2). The cut structure is unchanged.
+   */
+  /**
+   * LATER 1219 (the walls trial, 2026-11-21; box/walls-trial-91c233c6c, red only with the press read at a frame's start,
+   * the cause-split box): from row 220 every x is 0.2167 less (13 u/s x one 60 Hz tick: the stick 0.2's walk). COMBINED's
+   * stand at tick 210 is cut by that stick at once, so its ground state starts at tick 211, inside a game frame, and the
+   * press from rest is read at the next frame's start, a tick later (`Walker.idleRead`). z, stances and clips unchanged.
+   * Re-recorded on the hub at agent/walls (this commit's parent + the clip read). The port's own trace.
    */
   const H392_COMBINED = [
-    [10, 4.965, 0, 'stand', '-'], [20, 15.708, 0, 'stand', '-'], [30, 18.042, 0, 'crouch', '-'],
-    [40, 20.375, 0, 'crouch', '-'], [50, 20.375, 0, 'crouch', '-'], [60, 20.375, 0, 'crouch', '-'],
-    [70, 20.375, 0, 'crouch', '-'], [80, 20.4, 0.259, 'prone', '-'], [90, 20.4, 0.534, 'prone', '-'],
-    [100, 20.4, 0.809, 'prone', '-'], [110, 20.4, 1.084, 'prone', '-'], [120, 20.4, 1.359, 'prone', '-'],
-    [130, 20.4, 1.634, 'prone', '-'], [140, 20.4, 1.909, 'prone', '-'], [150, 20.4, 9.926, 'crouch', '-'],
-    [160, 20.4, 20.759, 'crouch', '-'], [170, 20.4, 31.592, 'crouch', '-'], [180, 20.4, 42.426, 'crouch', '-'],
-    [190, 20.4, 42.426, 'crouch', '-'], [200, 20.4, 42.426, 'crouch', '-'], [210, 20.4, 42.426, 'crouch', '-'],
-    [220, 22.377, 42.426, 'stand', '-'], [230, 24.543, 42.426, 'stand', '-'], [240, 26.71, 42.426, 'stand', '-'],
-    [250, 28.877, 42.426, 'stand', '-'], [260, 31.043, 42.426, 'stand', '-'],
-    [270, 31.645, 42.145, 'prone', 'standToProne'], [280, 32.246, 41.865, 'prone', 'standToProne'],
-    [290, 32.847, 41.585, 'prone', 'standToProne'], [300, 33.449, 41.304, 'prone', 'standToProne'],
-    [310, 34.05, 41.024, 'prone', 'standToProne'], [320, 34.29, 40.978, 'prone', '-'],
-    [330, 34.29, 41.088, 'prone', '-'], [340, 33.689, 41.368, 'stand', 'standToProne'],
-    [350, 33.088, 41.648, 'stand', 'standToProne'], [360, 32.487, 41.929, 'stand', 'standToProne'],
-    [370, 31.885, 42.209, 'stand', 'standToProne'], [380, 31.284, 42.49, 'stand', 'standToProne'],
-    [390, 35.257, 42.658, 'stand', '-'], [400, 46.09, 42.658, 'stand', '-'], [410, 56.923, 42.658, 'stand', '-']];
+    [10, 5.417, 0, 'stand', '-'], [20, 16.205, 0, 'stand', '-'], [30, 18.538, 0, 'crouch', '-'],
+    [40, 20.872, 0, 'crouch', '-'], [50, 20.872, 0, 'crouch', '-'], [60, 20.872, 0, 'crouch', '-'],
+    [70, 20.872, 0, 'crouch', '-'], [80, 20.896, 0.259, 'prone', '-'], [90, 20.896, 0.534, 'prone', '-'],
+    [100, 20.896, 0.809, 'prone', '-'], [110, 20.896, 1.084, 'prone', '-'], [120, 20.896, 1.359, 'prone', '-'],
+    [130, 20.896, 1.634, 'prone', '-'], [140, 20.896, 1.909, 'prone', '-'], [150, 20.896, 10.278, 'crouch', '-'],
+    [160, 20.896, 21.111, 'crouch', '-'], [170, 20.896, 31.944, 'crouch', '-'], [180, 20.896, 42.778, 'crouch', '-'],
+    [190, 20.896, 42.778, 'crouch', '-'], [200, 20.896, 42.778, 'crouch', '-'], [210, 20.896, 42.778, 'crouch', '-'],
+    [220, 22.738, 42.778, 'stand', '-'], [230, 24.905, 42.778, 'stand', '-'], [240, 27.071, 42.778, 'stand', '-'],
+    [250, 29.238, 42.778, 'stand', '-'], [260, 31.405, 42.778, 'stand', '-'], [270, 32.006, 42.497, 'prone', 'standToProne'],
+    [280, 32.607, 42.217, 'prone', 'standToProne'], [290, 33.208, 41.937, 'prone', 'standToProne'], [300, 33.81, 41.656, 'prone', 'standToProne'],
+    [310, 34.411, 41.376, 'prone', 'standToProne'], [320, 34.651, 41.33, 'prone', '-'], [330, 34.651, 41.44, 'prone', '-'],
+    [340, 34.05, 41.72, 'stand', 'standToProne'], [350, 33.449, 42.001, 'stand', 'standToProne'], [360, 32.848, 42.281, 'stand', 'standToProne'],
+    [370, 32.246, 42.561, 'stand', 'standToProne'], [380, 31.645, 42.842, 'stand', 'standToProne'], [390, 35.618, 43.01, 'stand', '-'],
+    [400, 46.451, 43.01, 'stand', '-'], [410, 57.284, 43.01, 'stand', '-']];
 
   it('COMBINED: main\'s rows 10-70, then the cut\'s from row 80 (the first cut), with MOVE-1\'s push (H392)', () => {
     const t = trace('combined');
@@ -501,8 +523,8 @@ describe('SEP-POP: the command carries the mode (the room\'s mover resolves it a
     }
   });
 
-  it('the bit came with protocol 12 (B1: a per-tick binary field bumps the version, PF.R33) and stays in 13 (PLANT-AIM bumped it for the JSON alone) and 14 (ER-2: the raise in bit 7 of the same byte) and 15 (PROTO-15: the rules of the mover, the frames of 14) and 16 (WIRE-16: the view\'s three bytes after the same byte)', () => {
-    expect(PROTOCOL_VERSION).toBe(16);
+  it('the bit came with protocol 12 (B1: a per-tick binary field bumps the version, PF.R33) and stays in 13 (PLANT-AIM bumped it for the JSON alone) and 14 (ER-2: the raise in bit 7 of the same byte) and 15 (PROTO-15: the rules of the mover, the frames of 14) and 16 (WIRE-16: the view\'s three bytes after the same byte) and 17 (WM-DATA-17: the body\'s hand byte, the command unchanged)', () => {
+    expect(PROTOCOL_VERSION).toBe(19);   // LATER 1141 (the round's `at`, research 441)
   });
 
   it('N1: a SEPARATE command\'s pop code (3) is ignored -- SEPARATE has no pop (STM.R2a); COMBINED\'s still pops', () => {

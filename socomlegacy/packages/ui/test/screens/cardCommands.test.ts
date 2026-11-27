@@ -7,17 +7,18 @@ import { ValveStore } from '../../src/valves';
 import type { ZAnimUiCommand } from '../../src/zanimRuntime';
 import { MenuCommands } from '../../src/screens/menuCommands';
 import {
-  CARD_COMMAND_ROWS, CARD_STATE, CardCommands, CONFIG_FILE_PLACEHOLDER, ICON_SYS_BYTES, LIST_ICO_BYTES_READING,
-  MEMCARD_ERROR_CODE_VALVE, MEMCARD_STATUS_VALVE, SAVE_GAME_DUMMY_BYTES_READING, type CardCommandsOptions,
-  type CardConfigFile, type CardFileIo,
+  CARD_COMMAND_ROWS, CARD_PATHS, CARD_STATE, CardCommands, CONFIG_FILE_PLACEHOLDER, ICON_SYS_BYTES, LIST_ICO_BYTES_READING,
+  MEMCARD_ERROR_CODE_VALVE, MEMCARD_STATUS_VALVE, SAVE_GAME_DUMMY_BYTES_READING, SAVE_SPACE_NO_PATCH_KB,
+  type CardCommandsOptions, type CardConfigFile, type CardFileIo,
 } from '../../src/screens/cardCommands';
 
 /**
  * OPT-05i (web research 143): the card UI commands the online path's card prompts dispatch that MENU-01a did not
- * answer -- IsSpaceForSaveGameFile `FUN_0027b3d0`, IsMemcardSaveOK 0x27e120 (instructions), LoadConfig `FUN_0027b0e0`,
- * SaveConfig `FUN_0027b000`, MC_CreateIconFiles `FUN_0027b190` -- each against its transcription, over PLAT-26a's
+ * answer -- IsSpaceForSaveGameFile (r0004 `r0004:0x0027c520`, r0001 `FUN_0027b3d0`'s tail), IsMemcardSaveOK 0x27e120
+ * (instructions), LoadConfig `FUN_0027b0e0`, SaveConfig `FUN_0027b000` (with r0004's PATCHFILE.DAT / APACHE00.ZDB block,
+ * `r0004:0x003c2318`-`0x003c24ac`), MC_CreateIconFiles `FUN_0027b190` -- each against its transcription, over PLAT-26a's
  * `Libmc` on a card built in the test (its result codes, research 134 §2) and, for a boundary the card cannot be made to
- * hit exactly, over a made-up libmc. Nothing here is measured on the original running.
+ * hit exactly, over a made-up libmc. Nothing here is measured on the original running (R4P-249: reading, pending review).
  */
 
 class MapStorage implements CardStorage {
@@ -83,21 +84,65 @@ const LOADED = DIALOG_EVENTS.LOADED_FROM_MEMCARD!;
 const STATUS = DIALOG_EVENTS.MEMCARD_STATUS!;
 const { Succeed, NoEntry, NoFormat, FullDevice } = MC_RESULT;
 
-/** A made-up libmc: GetInfo's answers in turn, GetDir's counts and sizes by path. */
+/**
+ * A made-up libmc: GetInfo's answers in turn, GetDir's counts and sizes by path; Delete takes a path out of the table
+ * (Succeed) or answers NoEntry, and is recorded.
+ */
 function fakeIo(info: { result: number; type: number; free: number; format: number }[], dirs: Record<string, number[]> = {}) {
   const calls: string[] = [];
+  const table: Record<string, number[]> = { ...dirs };
   let i = 0;
   const io: CardFileIo = {
     getInfo: (p, s) => { calls.push(`getInfo ${p}/${s}`); return info[Math.min(i++, info.length - 1)]!; },
     getDir: (p, s, path, max) => {
       calls.push(`getDir ${path} ${max}`);
-      const sizes = dirs[path];
+      const sizes = table[path];
       return sizes ? { result: sizes.length, entries: sizes.map((size) => ({ size })) } : { result: NoEntry, entries: [] };
     },
-    open: () => NoEntry, close: () => NoEntry, seek: () => NoEntry, read: () => ({ result: NoEntry }), write: () => NoEntry, delete: () => NoEntry,
+    open: () => NoEntry, close: () => NoEntry, seek: () => NoEntry, read: () => ({ result: NoEntry }), write: () => NoEntry,
+    delete: (_p, _s, path) => {
+      calls.push(`delete ${path}`);
+      if (!table[path]) return NoEntry;
+      delete table[path];
+      return Succeed;
+    },
   };
-  return { io, calls };
+  return { io, calls, table };
 }
+
+/** r0004's two names (`r0004:0x0041a270` / `0x00427ca8`; `r0004:0x0041a280` / `0x00427cc8`). */
+const PATCH = 'PATCHFILE.DAT';
+const ARCHIVE = 'APACHE00.ZDB';
+/** The made-up libmc's commands before GetInfo (research 143 §2's table; each Exists one GetDir, max 1). */
+const NEITHER = [`getDir ${PATCH} 1`, `getDir ${PATCH} 1`, `getDir ${ARCHIVE} 1`];
+const PATCH_ALONE = [`getDir ${PATCH} 1`, `getDir ${ARCHIVE} 1`, `getDir ${PATCH} 1`];
+const BOTH_CLOSED = [`getDir ${PATCH} 1`, `getDir ${ARCHIVE} 1`, `delete ${PATCH}`, `getDir ${PATCH} 1`, `getDir ${ARCHIVE} 1`];
+const BOTH_OPEN = [`getDir ${PATCH} 1`, `getDir ${ARCHIVE} 1`, `getDir ${PATCH} 1`];
+const FOLDER_COUNT = ['getDir .. 1', 'getDir ./* 20'];
+
+/**
+ * IsSpaceForSaveGameFile over a made-up libmc: `free` KB, the folder's `./*` sizes (with `..` there), the names the
+ * card's folder holds (1 KB each), and whether the object holds a file open (the test seam `holdFileOpenForTest`).
+ */
+function space(free: number, sizes: number[], holds: readonly string[] = [], open = false) {
+  const dirs: Record<string, number[]> = { '..': [0], './*': sizes };
+  for (const name of holds) dirs[name] = [1024];
+  const f = fakeIo([{ result: 0, type: 2, free, format: 1 }], dirs);
+  const c = new CardCommands({ valves: () => new ValveStore(), uiVars: new UiVarManager(), card: f.io, io: () => ({ port: 0, slot: 0 }) });
+  if (open) c.holdFileOpenForTest(5);
+  return { answer: c.IsSpaceForSaveGameFile(cmd('IsSpaceForSaveGameFile'), UI_COMMAND_TABLE[59]!, undefined), calls: f.calls, table: f.table };
+}
+
+/** The Libmc card's folder made and entered, `files` written into it; libmc re-reads the card; the log cleared. */
+function inFolder(s: ReturnType<typeof setup>, files: Record<string, number>): void {
+  s.answer('MC_MkDir', FOLDER);
+  s.answer('MC_ChDir', FOLDER);
+  for (const [name, size] of Object.entries(files)) expect(s.slot1.writeFile(`${FOLDER}/${name}`, size, null, s.rev()).ok).toBe(true);
+  s.mc.getInfo(0, 0);                                  // libmc reads the card as it now is (no ChangedCard, research 134 §4)
+  s.ops.length = 0;
+  s.events.length = 0;
+}
+const dir = (name: string, n: number): string => `getDir(0,0,${name},1) -> ${n}`;
 
 describe('the rows (W9.R4: PLAT-08\'s host is a registry; no table edit)', () => {
   it('names its rows of the table, each at its index, id and function', () => {
@@ -115,25 +160,29 @@ describe('the rows (W9.R4: PLAT-08\'s host is a registry; no table edit)', () =>
   });
 });
 
-describe('IsSpaceForSaveGameFile (FUN_0027b3d0: free KB, plus the folder\'s below 3001, not below 3000)', () => {
-  it('an empty formatted card: 8000 KB free, true; GetInfo once (Succeed)', () => {
+describe('IsSpaceForSaveGameFile (r0004:0x0027c520: the two names, then FUN_0027b3d0\'s free KB, plus the folder\'s below 3001, not below 3000)', () => {
+  it('an empty formatted card (neither file): GetDir PATCHFILE.DAT, PATCHFILE.DAT, APACHE00.ZDB, then GetInfo once: 8000 KB free, true', () => {
     const s = setup();
     expect(s.answer('IsSpaceForSaveGameFile')).toBe(true);
-    expect(s.ops).toEqual(['getInfo(0,0) -> 0']);
+    expect(s.ops).toEqual([dir(PATCH, 0), dir(PATCH, 0), dir(ARCHIVE, 0), 'getInfo(0,0) -> 0']);
   });
 
-  it('no card: GetInfo NoEntry (above -10: one try), free 0; the folder GetDir NoEntry: false', () => {
+  it('no card: the three GetDir NoEntry (absent, nothing posted), GetInfo NoEntry (above -10: one try), free 0; the folder GetDir NoEntry: false', () => {
     const s = setup();
     s.slot1.remove(s.rev());
     expect(s.answer('IsSpaceForSaveGameFile')).toBe(false);
-    expect(s.ops).toEqual([`getInfo(0,0) -> ${NoEntry}`, `getDir(0,0,..,1) -> ${NoEntry}`]);
+    expect(s.ops).toEqual([
+      `getDir(0,0,${PATCH},1) -> ${NoEntry}`, `getDir(0,0,${PATCH},1) -> ${NoEntry}`, `getDir(0,0,${ARCHIVE},1) -> ${NoEntry}`,
+      `getInfo(0,0) -> ${NoEntry}`, `getDir(0,0,..,1) -> ${NoEntry}`,
+    ]);
+    expect(s.events).toEqual([]);
   });
 
   it('unformatted: NoFormat, free 0: false', () => {
     const s = setup();
     s.slot1.unformat(s.rev());
     expect(s.answer('IsSpaceForSaveGameFile')).toBe(false);
-    expect(s.ops[0]).toBe(`getInfo(0,0) -> ${NoFormat}`);
+    expect(s.ops.find((o) => o.startsWith('getInfo'))).toBe(`getInfo(0,0) -> ${NoFormat}`);
   });
 
   it('a card full of foreign files: below 3001 free, the folder (none here) adds nothing: false', () => {
@@ -145,24 +194,77 @@ describe('IsSpaceForSaveGameFile (FUN_0027b3d0: free KB, plus the folder\'s belo
     expect(s.answer('IsSpaceForSaveGameFile')).toBe(false);
   });
 
-  it('the boundary: free + folder KB 2999 false, 3000 true; free 3001 skips the folder', () => {
-    const at = (free: number, sizes: number[]) => {
-      const f = fakeIo([{ result: 0, type: 2, free, format: 1 }], { '..': [0], './*': sizes });
-      const c = new CardCommands({ valves: () => new ValveStore(), uiVars: new UiVarManager(), card: f.io, io: () => ({ port: 0, slot: 0 }) });
-      return { answer: c.IsSpaceForSaveGameFile(cmd('IsSpaceForSaveGameFile'), UI_COMMAND_TABLE[59]!, undefined), calls: f.calls };
-    };
+  it('the boundary on a card holding PATCHFILE.DAT alone (r0004:0x0027c524-0x0027c58c): r0001\'s bar -- free + folder KB 2999 false, 3000 true; free 3001 skips the folder; nothing deleted', () => {
     // 2 entries of 1 KB: 2 + (2 >> 1) + 1 = 4 KB.
-    expect(at(2995, [1024, 1024]).answer).toBe(false);
-    expect(at(2996, [1024, 1024]).answer).toBe(true);
-    expect(at(3001, []).calls).toEqual(['getInfo 0/0']);
-    expect(at(3000, []).calls).toEqual(['getInfo 0/0', 'getDir .. 1', 'getDir ./* 20']);
+    expect(space(2995, [1024, 1024], [PATCH]).answer).toBe(false);
+    expect(space(2996, [1024, 1024], [PATCH]).answer).toBe(true);
+    expect(space(3001, [], [PATCH]).calls).toEqual([...PATCH_ALONE, 'getInfo 0/0']);
+    expect(space(3000, [], [PATCH]).calls).toEqual([...PATCH_ALONE, 'getInfo 0/0', ...FOLDER_COUNT]);
+    expect(space(2995, [1024, 1024], [PATCH]).table[PATCH]).toEqual([1024]);
+  });
+
+  it('neither file (r0004:0x0027c578-0x0027c5ac): SAVE_SPACE_NO_PATCH_KB first -- free + folder KB 2999 true, 2998 false; free 3000 counts no folder', () => {
+    // 2 entries of 1 KB: 4 KB of folder. 1 + 2995 + 4 = 3000 (true); 1 + 2994 + 4 = 2999 (false).
+    expect(space(2995, [1024, 1024]).answer).toBe(true);
+    expect(space(2994, [1024, 1024]).answer).toBe(false);
+    expect(space(2995, [1024, 1024]).calls).toEqual([...NEITHER, 'getInfo 0/0', ...FOLDER_COUNT]);
+    // 1 + 3000 = 3001: not below 3001, so the folder's two GetDir are not issued.
+    const at3000 = space(3000, []);
+    expect(at3000.answer).toBe(true);
+    expect(at3000.calls).toEqual([...NEITHER, 'getInfo 0/0']);
+  });
+
+  it('APACHE00.ZDB alone (r0004:0x0027c548, 0x0027c590): GetDir PATCHFILE.DAT, PATCHFILE.DAT, APACHE00.ZDB; no 1 KB (2999 false); nothing deleted', () => {
+    const r = space(2995, [1024, 1024], [ARCHIVE]);
+    expect(r.answer).toBe(false);
+    expect(r.calls).toEqual([...NEITHER, 'getInfo 0/0', ...FOLDER_COUNT]);
+    expect(Object.keys(r.table).sort()).toEqual(['./*', '..', ARCHIVE].sort());
+    expect(space(2996, [1024, 1024], [ARCHIVE]).answer).toBe(true);
+  });
+
+  it('both, no file open (r0004:0x0027c560 -> r0004:0x003c0d20): Delete PATCHFILE.DAT between the two pairs; APACHE00.ZDB left, so no 1 KB (2999 false)', () => {
+    const r = space(2995, [1024, 1024], [PATCH, ARCHIVE]);
+    expect(r.calls).toEqual([...BOTH_CLOSED, 'getInfo 0/0', ...FOLDER_COUNT]);
+    expect(r.answer).toBe(false);
+    expect(r.table[PATCH]).toBeUndefined();
+    expect(r.table[ARCHIVE]).toEqual([1024]);
+  });
+
+  it('both, no file open, on a card: PATCHFILE.DAT gone from the folder, APACHE00.ZDB kept; the five commands before GetInfo', () => {
+    const s = setup();
+    inFolder(s, { [PATCH]: 2_048_000, [ARCHIVE]: 1024 });
+    s.answer('IsSpaceForSaveGameFile');
+    expect(s.ops.slice(0, 6)).toEqual([
+      dir(PATCH, 1), dir(ARCHIVE, 1), `delete(0,0,${PATCH}) -> ${Succeed}`, dir(PATCH, 0), dir(ARCHIVE, 1), 'getInfo(0,0) -> 0',
+    ]);
+    expect(s.files()).toEqual({ [ARCHIVE]: 1024 });
+  });
+
+  it('both, a file of the object\'s open (r0004:0x003c0d4c: DeleteFile issues nothing): GetDir PATCHFILE.DAT, APACHE00.ZDB, PATCHFILE.DAT; both kept; no 1 KB', () => {
+    const r = space(2995, [1024, 1024], [PATCH, ARCHIVE], true);
+    expect(r.calls).toEqual([...BOTH_OPEN, 'getInfo 0/0', ...FOLDER_COUNT]);
+    expect(r.answer).toBe(false);
+    expect(r.table[PATCH]).toEqual([1024]);
+    expect(r.table[ARCHIVE]).toEqual([1024]);
+    const s = setup();
+    inFolder(s, { [PATCH]: 2_048_000, [ARCHIVE]: 1024 });
+    s.card.holdFileOpenForTest(99);
+    s.answer('IsSpaceForSaveGameFile');
+    expect(s.ops.slice(0, 4)).toEqual([dir(PATCH, 1), dir(ARCHIVE, 1), dir(PATCH, 1), 'getInfo(0,0) -> 0']);
+    expect(s.ops.some((o) => o.startsWith('delete('))).toBe(false);
+    expect(s.files()).toEqual({ [PATCH]: 2_048_000, [ARCHIVE]: 1024 });
+  });
+
+  it('the names and the 1 KB are r0004\'s (r0004:0x0041a280 APACHE00.ZDB, r0004:0x00427ca0 *.ZDB, r0004:0x0027c5ac)', () => {
+    expect(CARD_PATHS).toMatchObject({ patch: PATCH, patchArchive: ARCHIVE, patchGlob: '*.ZDB' });
+    expect(SAVE_SPACE_NO_PATCH_KB).toBe(1);
   });
 
   it('GetInfo is asked again only while the result is below -9 (D:L295790-295805)', () => {
     const f = fakeIo([{ result: -10, type: 0, free: 0, format: 0 }, { result: 0, type: 2, free: 5000, format: 1 }]);
     const c = new CardCommands({ valves: () => new ValveStore(), uiVars: new UiVarManager(), card: f.io, io: () => ({ port: 1, slot: 0 }) });
     expect(c.IsSpaceForSaveGameFile(cmd('x'), UI_COMMAND_TABLE[59]!, undefined)).toBe(true);
-    expect(f.calls).toEqual(['getInfo 1/0', 'getInfo 1/0']);
+    expect(f.calls).toEqual([...NEITHER, 'getInfo 1/0', 'getInfo 1/0']);
   });
 });
 
@@ -300,23 +402,23 @@ describe('SaveConfig (FUN_0027b000: the scratch deleted, the file saved, the dum
     expect(s.events.filter((e) => e === ERROR)).toEqual([]);
   });
 
-  it('its commands in order: Delete SCRATCHPAD; the file (Delete, Open WRONLY|CREAT, Write, Close); each dummy; the fillers', () => {
+  it('its commands in order: Delete SCRATCHPAD; GetDir PATCHFILE.DAT (none: r0004:0x003c2318); the file (Delete, Open WRONLY|CREAT, Write, Close); each dummy; the fillers (*.ZDB)', () => {
     const s = setup();
     s.answer('MC_MkDir', FOLDER);
     s.answer('MC_ChDir', FOLDER);
     s.ops.length = 0;
     s.answer('SaveConfig', FOLDER);
-    expect(s.ops.slice(0, 5)).toEqual([
-      `delete(0,0,SCRATCHPAD.DAT) -> ${NoEntry}`,
+    expect(s.ops.slice(0, 6)).toEqual([
+      `delete(0,0,SCRATCHPAD.DAT) -> ${NoEntry}`, dir(PATCH, 0),
       `delete(0,0,${FOLDER}) -> ${NoEntry}`, `open(0,0,${FOLDER},514) -> fd`, `write(fd,${CONFIG_FILE_PLACEHOLDER.size},null) -> ${CONFIG_FILE_PLACEHOLDER.size}`, 'close(fd) -> 0',
     ]);
-    expect(s.ops.slice(5, 10)).toEqual([
+    expect(s.ops.slice(6, 11)).toEqual([
       'getDir(0,0,SaveGame0,1) -> 0', `delete(0,0,SaveGame0) -> ${NoEntry}`, 'open(0,0,SaveGame0,514) -> fd',
       `write(fd,${SAVE_GAME_DUMMY_BYTES_READING},null) -> ${SAVE_GAME_DUMMY_BYTES_READING}`, 'close(fd) -> 0',
     ]);
-    const tail = s.ops.slice(5 + 7 * 5);
+    const tail = s.ops.slice(6 + 7 * 5);
     expect(tail.slice(0, 6)).toEqual([
-      'getDir(0,0,*.zdb,1) -> 0', 'getDir(0,0,PATCHFILE.DAT,1) -> 0', 'open(0,0,PATCHFILE.DAT,514) -> fd',
+      'getDir(0,0,*.ZDB,1) -> 0', 'getDir(0,0,PATCHFILE.DAT,1) -> 0', 'open(0,0,PATCHFILE.DAT,514) -> fd',
       `seek(fd,${1999 * 1024},0) -> ${1999 * 1024}`, 'write(fd,1024) -> 1024', 'close(fd) -> 0',
     ]);
     // The folder's 11 entries (`.`, `..`, the file, seven dummies, PATCHFILE.DAT; no icons in this test):
@@ -332,9 +434,45 @@ describe('SaveConfig (FUN_0027b000: the scratch deleted, the file saved, the dum
     s.ensureDirs();
     s.ops.length = 0;
     s.answer('SaveConfig', FOLDER);
-    expect(s.ops[0]).toBe(`delete(0,0,SCRATCHPAD.DAT) -> ${Succeed}`);
+    // r0004:0x003c2318-0x003c2430: PATCHFILE.DAT found, so APACHE00.ZDB asked; none, so nothing deleted.
+    expect(s.ops.slice(0, 3)).toEqual([`delete(0,0,SCRATCHPAD.DAT) -> ${Succeed}`, dir(PATCH, 1), dir(ARCHIVE, 0)]);
+    expect(s.ops.some((o) => o.startsWith(`delete(0,0,${PATCH})`))).toBe(false);
+    expect(s.ops).toContain('getDir(0,0,*.ZDB,1) -> 0');
     expect(s.ops.filter((o) => o.startsWith('open('))).toEqual([`open(0,0,${FOLDER},514) -> fd`, 'open(0,0,SCRATCHPAD.DAT,514) -> fd']);
     expect(s.files()['SCRATCHPAD.DAT']).toBe(944_128);
+  });
+
+  it('both names, no file open (r0004:0x003c2318-0x003c24ac): after the scratch, GetDir PATCHFILE.DAT, APACHE00.ZDB, Delete PATCHFILE.DAT; *.ZDB found: no filler', () => {
+    const s = setup();
+    inFolder(s, { [PATCH]: 2_048_000, [ARCHIVE]: 1024 });
+    expect(s.answer('SaveConfig', FOLDER)).toBe(true);
+    expect(s.ops.slice(0, 4)).toEqual([`delete(0,0,SCRATCHPAD.DAT) -> ${NoEntry}`, dir(PATCH, 1), dir(ARCHIVE, 1), `delete(0,0,${PATCH}) -> ${Succeed}`]);
+    expect(s.ops).toContain('getDir(0,0,*.ZDB,1) -> 1');
+    expect(s.ops.some((o) => o.startsWith(`open(0,0,${PATCH},`))).toBe(false);
+    expect(PATCH in s.files()).toBe(false);
+    expect(s.files()[ARCHIVE]).toBe(1024);
+  });
+
+  it('both names, a file of the object\'s open: the two GetDir still issued (r0004:0x003c2318, 0x003c23a4), the two deletes not (r0004:0x003c22a0, 0x003c2438)', () => {
+    const s = setup();
+    inFolder(s, { [PATCH]: 2_048_000, [ARCHIVE]: 1024 });
+    s.card.holdFileOpenForTest(99);
+    expect(s.answer('SaveConfig', FOLDER)).toBe(true);
+    expect(s.ops.slice(0, 3)).toEqual([dir(PATCH, 1), dir(ARCHIVE, 1), `delete(0,0,${FOLDER}) -> ${NoEntry}`]);
+    expect(s.ops.some((o) => o.startsWith(`delete(0,0,${PATCH})`) || o.startsWith('delete(0,0,SCRATCHPAD.DAT)'))).toBe(false);
+    expect(s.files()[PATCH]).toBe(2_048_000);
+    expect(s.files()[ARCHIVE]).toBe(1024);
+  });
+
+  it('the filler\'s glob is r0004\'s *.ZDB (r0004:0x00427ca0): a card holding APACHE00.ZDB alone gets no PATCHFILE.DAT filler', () => {
+    const s = setup();
+    inFolder(s, { [ARCHIVE]: 1024 });
+    expect(s.answer('SaveConfig', FOLDER)).toBe(true);
+    // PATCHFILE.DAT absent: APACHE00.ZDB is not asked (r0004:0x003c23a0) and nothing is deleted.
+    expect(s.ops.slice(0, 3)).toEqual([`delete(0,0,SCRATCHPAD.DAT) -> ${NoEntry}`, dir(PATCH, 0), `delete(0,0,${FOLDER}) -> ${NoEntry}`]);
+    expect(s.ops).toContain('getDir(0,0,*.ZDB,1) -> 1');
+    expect(PATCH in s.files()).toBe(false);
+    expect(s.files()[ARCHIVE]).toBe(1024);
   });
 
   it('the file\'s contents are the modules\' (CardConfigFile), written whole', () => {
@@ -355,7 +493,7 @@ describe('SaveConfig (FUN_0027b000: the scratch deleted, the file saved, the dum
     s.mc.getInfo(0, 0);
     s.ops.length = 0;
     expect(s.answer('SaveConfig', FOLDER)).toBe(true);
-    expect(s.ops[3]).toBe(`write(fd,${CONFIG_FILE_PLACEHOLDER.size},null) -> ${FullDevice}`);
+    expect(s.ops[4]).toBe(`write(fd,${CONFIG_FILE_PLACEHOLDER.size},null) -> ${FullDevice}`);   // after the scratch Delete and GetDir PATCHFILE.DAT
     expect(s.events.filter((e) => e === ERROR)).toEqual([]);
   });
 

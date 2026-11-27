@@ -7,12 +7,6 @@ import { expectBase, newLayoutOn, openSaves, placingTool, showTab, TOOLBAR_CONTR
  * keep the markers and the type. Needs the served tree (`public/maps`, `?devmode`); skipped, and said, without it.
  */
 
-/** A point on the floor. Separate clicks: the gizmo on the marker just placed swallows a click on the same spot. */
-async function clickFloor(page: Page, xFrac: number): Promise<void> {
-  const box = await page.locator('.fx-input').boundingBox();
-  if (!box) throw new Error('the forge viewport is not up');
-  await page.mouse.click(box.x + box.width * xFrac, box.y + box.height * 0.62);
-}
 
 /** Every toolbar control, Play included, lies inside the window, nothing scrolled. A control past the edge is the bug at 1280. */
 async function expectToolbarInside(page: Page): Promise<void> {
@@ -91,18 +85,17 @@ test('the blank floor plays Demolition from a placed bomb start and two sites', 
   await showTab(page, 'object');
   // OT.R112: the Demolition tools are on the placing tools' row, named by their shown labels (`./forgeBase` `placingTool`;
   // their titles, "Place the bomb's start" and the sites', are descriptions now).
+  // PR #5: a placing tool's button spawns at the view's centre at once and selects it (test/forge/spawnAtOnce.test.ts):
+  // no armed tool with its BOMB / SITE label, and no floor click after. Each button is one edit, so the Undo below still
+  // takes out the last one. Where they stand does not matter here: the Outliner, the file and the match read them.
   await placingTool(page, 'Bomb').click();
-  await expect(page.getByText('BOMB', { exact: true })).toBeVisible();
-  await clickFloor(page, 0.5);
+  await expect(page.locator('.fx-outliner')).toContainText('Bomb start');
   await placingTool(page, 'Site SEAL').click();
-  await expect(page.getByText('SITE SEAL', { exact: true })).toBeVisible();
-  await clickFloor(page, 0.32);
+  await expect(page.locator('.fx-outliner')).toContainText('Site · SEAL');
   await placingTool(page, 'Site Terrorist').click();
-  await expect(page.getByText('SITE TERRORIST', { exact: true })).toBeVisible();
-  await clickFloor(page, 0.68);
+  await expect(page.locator('.fx-outliner')).toContainText('Site · Terrorist');
   await expect(page.locator('.fx-outliner')).toContainText('Bomb start');
   await expect(page.locator('.fx-outliner')).toContainText('Site · SEAL');
-  await expect(page.locator('.fx-outliner')).toContainText('Site · Terrorist');
 
   await page.getByRole('button', { name: 'Undo' }).click();
   await expect(page.locator('.fx-outliner')).not.toContainText('Site · Terrorist');

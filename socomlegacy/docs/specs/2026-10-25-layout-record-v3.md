@@ -20,7 +20,7 @@ a v2 record by its own check, unchanged, and a v3 record strictly. A server's po
 
 | field | rule |
 |---|---|
-| `schema`, `version` | `"forge-layout"`, `3` (`RECORD_SCHEMA`, `RECORD_VERSION`) |
+| `schema`, `version` | `"forge-layout"`, `3` (`RECORD_SCHEMA`, `RECORD_VERSION`); FN-4: or `4` (`RECORD_VERSION_FINE_ANGLES`, "Version 4" below) |
 | `name`, `base` | as v2: 1-48 printable characters; an archive stem, `blank:<stem>` or `blank:floor`; and (FCW-10, S3b) `content:<stem>`, an authored map with `<stem>` its library |
 | `contentBase?` | `{ref: PackRef, mapId}`: the authored map a `content:<stem>` base stands on, present exactly then (the layout's `ContentLayoutBase {kind: "content", ref, mapId, library}`); its pack is among `requires`, derived as a piece's pack is; a v2 record never carries it |
 | `assets` | each once, first-use order: a disc id `<ARCHIVE>:<prototype>`, or a `ContentRef` `{kind: "pack", pack: {id, version, hash}, assetId}` |
@@ -44,6 +44,34 @@ a game type outside 1..5; a mode not in the catalogue; an id that is not 1-64 of
 anywhere in the record (across kinds); an `ids` list that is not one per row; a content asset whose pack `requires`
 does not name with the same id, version and hash; a `requires` naming one id and version twice; a carry naming a key
 this build reads or a site that is not there. No revision ref is persisted.
+
+## Version 4 -- a piece's angles on a hundredth of a degree (FN-4)
+
+Product adaptation, FN-4 (the Forge lane's plan `docs/plans/2026-11-14-forge-next.md`, FN.R5: the owner, "agreed with
+your suggestion" -- save angles more finely so a turn typed relative to a parent reads back as typed). Nothing the game
+does changes: no standard match reads a record, and a Forge lobby's wire is the page's layout (matrices), not a record.
+
+- **What it is.** Version 3's fields and rules, with one difference: a PIECE's angles -- its row's yaw (`PieceRow[4]`)
+  and its pose row's pitch and roll (`PoseRow[1]`, `[2]`) -- are multiples of one hundredth of a degree
+  (`RECORD_ANGLE_DENOMINATOR`, 100): yaw and roll in 0..359.99, pitch in -90..90, the gimbal's one form decided on that
+  lattice (a pitch the record reads at the vertical -- 89.98 and up on that lattice, either sign, where the sine
+  reaches the reader's gimbal threshold -- has roll 0, its turn in the yaw; version 3's only such whole degrees are 90
+  and -90). Every other yaw (spawns, NPCs, hostages, doors, gates, barriers, turrets,
+  switches, objects, respawns, the rules entities, the bomb's sites) stays a whole degree, as in version 3.
+- **When it is written.** `recordOfLayout` writes version 4 exactly when some piece's yaw, pitch or roll is off the
+  whole degree, and version 3 otherwise, so a layout whose piece angles are all whole writes the text it always wrote,
+  byte for byte. The editor's commit puts a piece's world turn on this lattice (`viewer` `forge/transformStubs.ts`
+  `recordTurn`), so the piece kept is the piece a save gives back.
+- **How it is read.** `checkCreatorRecord` takes version 3 (unchanged and strict: a fractional angle is refused) and
+  version 4 (a piece's angles on the hundredth, every other field as version 3); it refuses a record of this schema
+  whose version is a whole number above 4 as a newer build's, in the words `this layout was saved by a newer build
+  (record version N): update the game to open it` (`recordVersionRefusal`, FN-4 fix round 2), and any other version in
+  the words `not a forge record of version 2, 3 or 4`. A version-4 record whose angles all happen to be whole is read and
+  given back by `readCreatorRecord` as version 3. A forge-map bundle's layout and a map pack's layout member may be
+  either version.
+- **An older build.** A build before FN-4 refuses a version-4 record by its version, in its words
+  `not a forge record of version 2 or 3` (a map pack's member: `mapPack.LAYOUT_INVALID`); it never reads one as whole
+  degrees. A version-3 record reads in every build as before.
 
 ## Stable authored ids and the migration
 

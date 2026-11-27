@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ACTION_CONTEXT_BITS, ACTION_CONTEXT_ORDER, ActionLifecycle, ActionSelection, contextPrompt, isHoldContext, pickContext,
+  ACTION_CONTEXT_BITS, ACTION_CONTEXT_ORDER, ACTION_CONTEXT_ORDER_READING, ActionLifecycle, ActionSelection, contextPrompt, isHoldContext, pickContext,
   type ActionContext, type ContextInputs,
 } from '../src/actionContext';
 import { DEFUSE_PROMPT_ICON_READING } from '../src/bombPage';
@@ -24,25 +24,29 @@ const FUN_0021F850_ORDER = [
 ] as const;
 
 describe('the action context (XR-06; research 214 s4)', () => {
-  it("AD-6: the contexts sit in FUN_0021f850's order of their bits -- the turret (0x80000 mount, 0x100000 release) first, the victory point (0x200000) before the pickups (0x10, 0x20), the pickups before a hostage's order (0x4000, 0x8000), the drop (0x40) last", () => {
+  it("AD-6: the contexts sit in FUN_0021f850's order of their bits -- the turret (0x80000 mount, 0x100000 release) first, the victory point (0x200000) before the pickups (0x10, 0x20), the pickups before a hostage's order (0x4000, 0x8000), the drop (0x40) last -- the reading; the port's order moves the hostage's order ahead of the pickups (OT.R128)", () => {
     expect(ACTION_CONTEXT_BITS).toEqual({
       turret: [0x80000, 0x100000], bombPlant: [0x80], bombDefuse: [0x80], traversal: [0x10000, 0x4], door: [0x2000], switch: [0x2000],
       c4: [0x40000], victory: [0x200000], pickup: [0x10], pickup2: [0x20], escortee: [0x4000, 0x8000], bombDrop: [0x40],
     });
     // Every context's bits are among the list's, and the contexts follow their first bit's place in it.
     const at = (bit: number) => FUN_0021F850_ORDER.indexOf(bit as (typeof FUN_0021F850_ORDER)[number]);
-    for (const c of ACTION_CONTEXT_ORDER) for (const b of ACTION_CONTEXT_BITS[c]) expect(at(b), `${c} 0x${b.toString(16)}`).toBeGreaterThanOrEqual(0);
-    const first = (c: (typeof ACTION_CONTEXT_ORDER)[number]) => at(ACTION_CONTEXT_BITS[c][0]!);
-    expect([...ACTION_CONTEXT_ORDER].sort((a, b) => first(a) - first(b))).toEqual([...ACTION_CONTEXT_ORDER]);
-    expect(ACTION_CONTEXT_ORDER).toEqual(['turret', 'bombPlant', 'bombDefuse', 'traversal', 'door', 'switch', 'c4', 'victory', 'pickup', 'pickup2', 'escortee', 'bombDrop']);   // LkPaioX5 (c): the two TAKE actions
+    for (const c of ACTION_CONTEXT_ORDER_READING) for (const b of ACTION_CONTEXT_BITS[c]) expect(at(b), `${c} 0x${b.toString(16)}`).toBeGreaterThanOrEqual(0);
+    const first = (c: (typeof ACTION_CONTEXT_ORDER_READING)[number]) => at(ACTION_CONTEXT_BITS[c][0]!);
+    // The original's order (the reading) is the bits' order; the port's order is the owner's ruling OT.R128 against it.
+    expect([...ACTION_CONTEXT_ORDER_READING].sort((a, b) => first(a) - first(b))).toEqual([...ACTION_CONTEXT_ORDER_READING]);
+    expect(ACTION_CONTEXT_ORDER_READING).toEqual(['turret', 'bombPlant', 'bombDefuse', 'traversal', 'door', 'switch', 'c4', 'victory', 'pickup', 'pickup2', 'escortee', 'bombDrop']);   // LkPaioX5 (c): the two TAKE actions
+    expect(ACTION_CONTEXT_ORDER).toEqual(['turret', 'bombPlant', 'bombDefuse', 'traversal', 'door', 'switch', 'c4', 'escortee', 'victory', 'pickup', 'pickup2', 'bombDrop']);   // OT.R128 (amended 2026-11-15): escortee moved ahead of the victory dance and the TAKEs, nothing else
+    expect([...ACTION_CONTEXT_ORDER].sort()).toEqual([...ACTION_CONTEXT_ORDER_READING].sort());   // the same contexts
     // Offered together (chunk 08: the order of what is offered together, not a claim the original offers these at once),
-    // the earlier bit is the head: the turret over C4 and over the plant; the victory point over a pickup; a pickup over a
-    // hostage's order and over the drop.
+    // the earlier bit is the head: the turret over C4 and over the plant; the victory point over a pickup; a pickup over
+    // the drop. OT.R128: a hostage's order over a pickup (the original's has the pickup first).
     expect(pickContext({ turret: true, c4: true })).toBe('turret');
     expect(pickContext({ turret: true, bombPlant: true, door: true })).toBe('turret');
     expect(pickContext({ victory: true, pickup: true })).toBe('victory');
     expect(pickContext({ c4: true, victory: true, pickup: true })).toBe('c4');
-    expect(pickContext({ pickup: true, escortee: true, bombDrop: true })).toBe('pickup');
+    expect(pickContext({ pickup: true, escortee: true, bombDrop: true })).toBe('escortee');   // OT.R128
+    expect(pickContext({ pickup: true, bombDrop: true })).toBe('pickup');
   });
 
   it("the context is the head of the picker's list in its build order: the turret (0x80000, 0x100000), the bomb's plant or defuse (0x80), the traversal (0x10000 the ladder slide, 0x4 the climb), a door or switch (0x2000), C4 (0x40000), the drop (0x40) last -- FUN_0021d9d0 D:L73370-73404, FUN_0021f850", () => {
@@ -54,7 +58,7 @@ describe('the action context (XR-06; research 214 s4)', () => {
     const order: ActionContext[] = [];
     const left: ContextInputs = { ...all };
     for (let c = pickContext(left); c !== null; c = pickContext(left)) { order.push(c); left[c] = false; }
-    expect(order).toEqual(['turret', 'bombPlant', 'bombDefuse', 'traversal', 'door', 'switch', 'c4', 'victory', 'pickup', 'pickup2', 'escortee', 'bombDrop']);   // AD-6; PF-34's pickup, HX-4a's escortee, research 303's victory
+    expect(order).toEqual(['turret', 'bombPlant', 'bombDefuse', 'traversal', 'door', 'switch', 'c4', 'escortee', 'victory', 'pickup', 'pickup2', 'bombDrop']);   // AD-6; PF-34's pickup, HX-4a's escortee (OT.R128, amended 2026-11-15: ahead of the victory dance and the pickups), research 303's victory
     expect(order).toEqual([...ACTION_CONTEXT_ORDER]);
     // The cases the game meets: the carrier at the tent with a ledge beside it plants; beside a planted bomb with C4's
     // target in reach the defuse wins; carrying, aimed down, at a C4 target: C4 -- the drop (0x40) is the list's last;
@@ -170,10 +174,11 @@ describe('the action context (XR-06; research 214 s4)', () => {
 });
 
 describe('PF-34: the pickup context (research 234 s5; ruling PF.R54)', () => {
-  it("pickup is a context after the victory point (0x200000) and before a hostage's order -- its bits 0x10 / 0x20, the candidates +0x14c / +0x150 (FUN_005937c0 D:L452427-452434) -- with the HUD's pickup prompt, and a chosen pickup holds the weapon prompt 3 s (00592d50 D:L452158-452175, PICKUP_PROMPT_COOLDOWN_READING)", () => {
+  it("pickup is a context after the victory point (0x200000) and, by OT.R128, after a hostage's order (the original's has it before) -- its bits 0x10 / 0x20, the candidates +0x14c / +0x150 (FUN_005937c0 D:L452427-452434) -- with the HUD's pickup prompt, and a chosen pickup holds the weapon prompt 3 s (00592d50 D:L452158-452175, PICKUP_PROMPT_COOLDOWN_READING)", () => {
     expect(PICKUP_PROMPT_COOLDOWN_READING).toBe(3);
-    expect(ACTION_CONTEXT_ORDER.indexOf('pickup')).toBe(ACTION_CONTEXT_ORDER.indexOf('victory') + 1);
-    expect(ACTION_CONTEXT_ORDER.indexOf('escortee')).toBe(ACTION_CONTEXT_ORDER.indexOf('pickup') + 2);   // LkPaioX5 (c): pickup2 between
+    expect(ACTION_CONTEXT_ORDER.indexOf('pickup')).toBe(ACTION_CONTEXT_ORDER.indexOf('victory') + 1);   // OT.R128, amended 2026-11-15: escortee ahead of both
+    expect(ACTION_CONTEXT_ORDER.indexOf('escortee')).toBe(ACTION_CONTEXT_ORDER.indexOf('pickup') - 2);   // OT.R128, amended (the reading: pickup + 2, pickup2 between)
+    expect(ACTION_CONTEXT_ORDER_READING.indexOf('escortee')).toBe(ACTION_CONTEXT_ORDER_READING.indexOf('pickup') + 2);   // LkPaioX5 (c): pickup2 between
     expect(pickContext({ pickup: true, c4: true })).toBe('c4');
     expect(pickContext({ pickup: true, turret: true, bombDrop: true })).toBe('turret');
     expect(pickContext({ pickup: true, bombDrop: true })).toBe('pickup');
@@ -323,5 +328,91 @@ describe('LkPaioX5 (c): the two TAKE entries', () => {
     life.press();
     expect(life.release().fire).toBe('pickup');
     expect(life.pickupHeld()).toBe(true);
+  });
+});
+
+/**
+ * OT.R128 (the owner's ruling, 2026-11-14; the plan's WM.R3): a hostage's order (`escortee`, FOLLOW! and HOLD POSITION,
+ * `./hostagePage`) is offered ahead of a weapon's pickup, so a player beside both does not take a weapon he did not mean
+ * to -- a departure from the original's order (`FUN_0021f850` D:L74050-74293 puts the pickups' 0x10 / 0x20 before the
+ * order's 0x4000 / 0x8000; research 214 s4), which stays the reading. Only `escortee` moved; the plant and the defuse
+ * still outrank it, and every other context keeps its place.
+ */
+describe("OT.R128: a hostage's order outranks a weapon's pickup (the owner's ruling against the original's order)", () => {
+  it("with a hostage's order and a weapon's pickup both offered, the head is the hostage's order", () => {
+    expect(pickContext({ escortee: true, pickup: true })).toBe('escortee');
+    expect(pickContext({ escortee: true, pickup2: true })).toBe('escortee');
+    expect(pickContext({ pickup: true, pickup2: true, escortee: true, bombDrop: true })).toBe('escortee');
+    expect(new ActionSelection().pick({ escortee: true, pickup: true })).toBe('escortee');
+  });
+  it('with both pickups and the order offered the list is [escortee, pickup, pickup2], and the d-pad still reaches each TAKE', () => {
+    const s = new ActionSelection(), inputs: ContextInputs = { pickup: true, pickup2: true, escortee: true };
+    expect(s.pick(inputs)).toBe('escortee');
+    expect(s.list()).toEqual(['escortee', 'pickup', 'pickup2']);
+    s.rotate('left');
+    expect(s.pick(inputs)).toBe('pickup');
+    s.rotate('left');
+    expect(s.pick(inputs)).toBe('pickup2');
+    s.rotate('left');
+    expect(s.pick(inputs)).toBe('escortee');
+    s.rotate('right');
+    expect(s.pick(inputs)).toBe('pickup2');
+    // Rotated to a TAKE while Action is held, its release takes the weapon (the order is not forced).
+    const t = new ActionSelection();
+    const life = new ActionLifecycle(() => t.pick(inputs));
+    life.press();
+    expect(life.heldContext()).toBe('escortee');
+    t.rotate('left'); life.reselect();
+    expect(life.release().fire).toBe('pickup');
+  });
+  it("the bomb's plant and defuse still outrank the hostage's order", () => {
+    expect(pickContext({ bombPlant: true, escortee: true, pickup: true })).toBe('bombPlant');
+    expect(pickContext({ bombDefuse: true, escortee: true, pickup: true })).toBe('bombDefuse');
+    expect(ACTION_CONTEXT_ORDER.indexOf('bombPlant')).toBeLessThan(ACTION_CONTEXT_ORDER.indexOf('escortee'));
+    expect(ACTION_CONTEXT_ORDER.indexOf('bombDefuse')).toBeLessThan(ACTION_CONTEXT_ORDER.indexOf('escortee'));
+  });
+  it("the turret, traversal, door, switch and C4 keep their places relative to each other, all ahead of the order; the victory dance after it (OT.R128, amended 2026-11-15); the drop stays last", () => {
+    const kept = ACTION_CONTEXT_ORDER.filter((c) => ['turret', 'traversal', 'door', 'switch', 'c4'].includes(c));
+    expect(kept).toEqual(['turret', 'traversal', 'door', 'switch', 'c4']);
+    for (const c of kept) expect(ACTION_CONTEXT_ORDER.indexOf(c), c).toBeLessThan(ACTION_CONTEXT_ORDER.indexOf('escortee'));
+    expect(ACTION_CONTEXT_ORDER.indexOf('escortee')).toBe(ACTION_CONTEXT_ORDER.indexOf('victory') - 1);
+    expect(ACTION_CONTEXT_ORDER.indexOf('escortee')).toBe(ACTION_CONTEXT_ORDER.indexOf('pickup') - 2);
+    expect(ACTION_CONTEXT_ORDER[ACTION_CONTEXT_ORDER.length - 1]).toBe('bombDrop');
+  });
+});
+
+/**
+ * OT.R128, amended 2026-11-15 (the owner's words, typed by him in seat redotcom-8f: "only weapon pickups
+ * and hopefully victory dance, but if it has to override laters to do that understood"): a hostage's order is also taken
+ * ahead of the victory dance (the original's 0x200000 comes before the order's 0x4000 / 0x8000, `FUN_0021f850`
+ * D:L74050-74293; `ACTION_CONTEXT_ORDER_READING` keeps that record). Nothing else moved: the turret, the plant, the
+ * defuse, the traversal, a door, a switch and C4 stay ahead of the order.
+ */
+describe("OT.R128 amended: a hostage's order is taken ahead of the victory dance", () => {
+  it("OT.R128 amended: a hostage's order is taken ahead of the victory dance; turret, plant, defuse, traversal, door, switch and C4 still ahead of it", () => {
+    expect(pickContext({ victory: true, escortee: true })).toBe('escortee');
+    expect(pickContext({ victory: true, escortee: true, pickup: true, pickup2: true, bombDrop: true })).toBe('escortee');
+    for (const c of ['turret', 'bombPlant', 'bombDefuse', 'traversal', 'door', 'switch', 'c4'] as const) {
+      expect(pickContext({ escortee: true, [c]: true }), c).toBe(c);
+      expect(pickContext({ escortee: true, victory: true, [c]: true }), c).toBe(c);
+    }
+    const s = new ActionSelection(), inputs: ContextInputs = { victory: true, escortee: true, pickup: true };
+    expect(s.pick(inputs)).toBe('escortee');
+    expect(s.list()).toEqual(['escortee', 'victory', 'pickup']);
+    s.rotate('left');
+    expect(s.pick(inputs)).toBe('victory');   // the rotation still reaches the victory dance
+    s.rotate('left');
+    expect(s.pick(inputs)).toBe('pickup');
+    s.rotate('left');
+    expect(s.pick(inputs)).toBe('escortee');
+    s.rotate('right');
+    expect(s.pick(inputs)).toBe('pickup');
+    // Rotated to the victory dance while Action is held, its release dances (the order is not forced).
+    const t = new ActionSelection(), two: ContextInputs = { victory: true, escortee: true };
+    const life = new ActionLifecycle(() => t.pick(two));
+    life.press();
+    expect(life.heldContext()).toBe('escortee');
+    t.rotate('left'); life.reselect();
+    expect(life.release().fire).toBe('victory');
   });
 });

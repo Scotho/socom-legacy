@@ -223,8 +223,8 @@ item says which:
   long by the held model (D:L416892-416902; the M4A1 SD's 22.930 proven by ac's RDRAM read), plus the displacement
   (D:L416904), level (D:L416905), the nearest non-VOLUMETRIC, non-LIQUID polygon at any slope; `Walker.storeContact`
   takes it by the three rules (D:L413627-413668), and the climb's offer reads the Walker's one stored contact
-  (`Traversal.keepContact`). Named: `WEAPON_LINE_ONE_SIDED_PLACEHOLDER`, `WEAPON_LINE_POLYGON_SET_PLACEHOLDER`,
-  `WEAPON_LINE_ITEM_MODEL_PLACEHOLDER` and `WEAPON_LINE_BOTS_READING` (was `WEAPON_LINE_BOTS_PLACEHOLDER`; research 86
+  (`Traversal.keepContact`). Named: `WEAPON_LINE_ONE_SIDED_READING` and `WEAPON_LINE_POLYGON_SET_READING` (placeholders until 2026-11-23),
+  `WEAPON_LINE_ITEM_MODEL_READING` (a placeholder until 2026-11-23) and `WEAPON_LINE_BOTS_READING` (was `WEAPON_LINE_BOTS_PLACEHOLDER`; research 86
   s7.2). *Was:* "The port has no weapon line: a tick with no wall hit keeps the contact under `contactHolds`."
 - **The corner drop -- built (PAR-21a C2).** When the stored hit is climbable (`FUN_0059d9f0`: appflags 1, 3, 4, 5,
   D:L457424-457426), any other hit of the move -- of every record, the side segments too (the loop at D:L413880) -- on
@@ -368,18 +368,33 @@ direction and HUD-range positions, most likely a HUD element rather than a colli
 front**: the move solver keeps no contact on a face approached from behind. (Not read: a hull collider whose `+0x80`
 bit 1 is set by a path not found here.)
 
+**Correction (LATER 1087's decode review, F1, 2026-11-19):** a line queued through `FUN_0031dd90` (the blast's lines, a
+round's segment) is drained by `FUN_002d3cf0` into the BATCHED `FUN_002d3030` (D:L175276-175282), not `FUN_002d4780` ->
+`FUN_002d2890`, which serve the synchronous `+0x14c` queries (D:L220096-220167); both twins take the same bit-1 -> 0x30 /
+0x20 rule, so the conclusion above (one-sided on the hull) stands.
+
 **Built for the throw clearance (LATER 250, 2026-10-21; reading, reviewed: its fresh review decoded micro 279-363 from the ELF):** the release request's clearance
 (`FUN_005499e0` through `FUN_0031e250`, research 256 §5) runs the same per-collider `FUN_002d2890`, so on the hull it
 counts a face only entered from its front. Scene `segment.ts`' `segmentHits` takes a `frontOnly` flag (`crossing`:
 `n . d < 0`, a start in front of the polygon's own normal and an end behind it), which viewer `throwCommit.ts`
 `throwClear` alone passes; every other caller (the mover, fire, doors, the camera, climb, traversal, the rocket,
-effects, the room's queries) stays two-sided as before. (Since then the walk's segment body and the overhead casts
-below ask it too.) The one-sided test takes the micro's own sides (micro 290-321:
-the raw normal, an end behind only below -1e-5), so an end exactly on a face is no hit (the review's F1); its review
+effects, the room's queries) stays two-sided as before. (Since then the walk's segment body, the overhead casts
+below and the third-person camera's pass, LATER 1057 below, ask it too. The camera's lead probe does not: viewer
+`playerCamera.ts` ~:541, `FUN_0029cbb0` -> `FUN_0031e0a0` D:L143688 -> `FUN_002d4780` -> `FUN_002d2890`, the same path,
+stays two-sided -- LATER 1066.) The one-sided test takes the micro's own sides (micro 290-321: the raw normal, an end behind only below -1e-5), so an end exactly on a face is no hit (the review's F1); its review
 decoded micro 279-363 from the ELF's bytes and confirmed the normal's sign, the front-only mode and that the edge
 test cannot turn a rejected crossing into a hit (the EE routine at 0x2dd150 returns before it). Pinned: `segment.test.ts` and `grenade.test.ts` ("LATER 250",
 RED first at a wall wound so the clearance enters it from behind); Frostfire's yaw-90 container (a front entry) still
-refuses. Not read: what `FUN_0032ad20`'s two-sided collider (D:L227611) makes, and whether any is in the port's grid.
+refuses. *Was:* "Not read: what `FUN_0032ad20`'s two-sided collider (D:L227611) makes, and whether any is in the
+port's grid." **Read since (LATER 1057, 2026-11-15; a reading from the decompilation, re-read at the source by its
+fresh re-review at 80478ffe5d):** `FUN_0032ad20` sets bit 1 on a node it names by the string at 0x3f6fe0 (D:L227596,
+"PARTICLE DI NODE"): a particle effect's node only. Every node the level reader builds goes through `FUN_00316e30`
+(`FUN_00311520`: types 1 and 5 D:L212597-212602; type 2 D:L212604-212608 via `FUN_00310da0` -> `FUN_00317d90`
+D:L212356; types 8 and 9 call it first, D:L214771, D:L222316; the other branch D:L212652), and the `& 0xfd | 2`
+writers of `+0x80` are exactly three (D:L227610-227611, the SEAL's body D:L419731, `FUN_001ff8a0` D:L59846 above).
+Still not settled: an instance's node is copied by `FUN_00316e10` (D:L216411 -> D:L215801), a virtual call through
+the prototype's vtable `+0xc` the decompilation does not resolve (the instance below, MP51's `access1`, captured at
+0x41); clutter nodes and r0004's nodes are not covered. Research 382 s8 holds the whole reading.
 
 **Built for the overhead casts (INV-WATER-CROUCH, 2026-11-07; reading, pending review):** the stand's headroom
 (`FUN_0057efe0` D:L441190-441245: the stance's hips + 2 to the feet + 19, or + 12 from prone) and the jump's
@@ -405,6 +420,22 @@ facing down. Re-pinned: `bridgeWedge.test.ts`'s LATER 687 case (MP9's `congo2_tr
 player's route reaches): the up-ray met the trunk's own leaning faces from behind, so the stand press there is now taken
 and the body walks out at 0, 90 and 270 (was: forgotten, stuck). The bot graphs' hashes (`navigationGraphIdentity`) are
 unchanged. No constant added or renamed.
+
+**Built for the third-person camera's pass (LATER 1057, issue #812, 2026-11-15; reading, pending review):** this note
+left the camera two-sided "as before", with no reading of its own. Its pass (`FUN_0029bf70`) runs the same per-collider
+tests: the main probe through `FUN_0031e0a0` (D:L143385; D:L220080-220099) -> `FUN_002d4780` (D:L220094) ->
+`FUN_002d2890` (D:L175777-175788), the four side probes through `FUN_0031de90` (D:L143549; D:L219994-219999) ->
+`FUN_002d3cf0` (D:L219997) -> `FUN_002d3030` (D:L175698-175710), whose own start word is set the same way (0x30 when
+`+0x80` bit 1 is set, 0x20 otherwise; type 2's D:L175277-175282). So on the hull the pass too counts a face
+only entered from its front. Viewer `cameraRig.ts` `cameraPass` now asks `segmentHits(.., accept, ALL_LAYERS, true)`
+for the main probe and the side probes; the room's reproduction of the pass (`net/shotCone.ts` `reproducedEye`) calls
+the same function. The finding it closes: MP72's gray tent valance (one-sided, facing out, camera-class), met from
+inside by a standing SEAL's boom, pulled it 26.80 -> 0.75 in one tick and held it 1.5 s (the playtest
+PT-20261115-4a3a-1; the investigation's dev-disc simulation, `agent-mail/evidence/pt-tent-eave/camera/`). The hold, the
+let-out and the drawn camera's own two-sided adaptations (H309) are unchanged. The reading and what is unsettled:
+research 382 s8. Pinned: viewer `cameraPassFrontOnly.test.ts` (unit), `shotConeViewLine.test.ts` ("LATER 1057", the
+room's reproduction), `cameraPassTentDisc.test.ts` (the dev disc); the camera tests' synthetic walls re-wound to face
+the boom they stop (research 382 s8).
 
 **The behind test.** `FUN_005b3890` D:L468985-468989: `FUN_00309200` (a subtract) of the actor's position `+0x1c` and
 the stored hit point `+0x1090`, its y zeroed, dotted with the stored normal `+0x10a0..+0x10a8` (the slot's
@@ -492,8 +523,8 @@ The values pinned by the probe are readings of the disc through the repository's
 behaviour (s3); the original's offer is the reading of s2, pending review. s4.1 and s4.2 are built (PB-3b, reading,
 pending review); of the departures s4.1 names, any hit replacing the contact and the corner drop are built (PAR-21a,
 reading, pending review); the weapon line's slot is built (SEGMENT-BODY part 2, 2026-11-04; reading, pending review; its
-constants `WEAPON_LINE_LENGTH_READING`, `WEAPON_LINE_ONE_SIDED_PLACEHOLDER`, `WEAPON_LINE_POLYGON_SET_PLACEHOLDER`,
-`WEAPON_LINE_ITEM_MODEL_PLACEHOLDER` and `WEAPON_LINE_BOTS_READING` are listed in research 86 s7.2), the moving tick's drop check is named, not built, and the reach and s4.3's one-sided walk are
+constants `WEAPON_LINE_LENGTH_READING`, `WEAPON_LINE_ONE_SIDED_READING`, `WEAPON_LINE_POLYGON_SET_READING`,
+`WEAPON_LINE_ITEM_MODEL_READING` (a placeholder until 2026-11-23) and `WEAPON_LINE_BOTS_READING` are listed in research 86 s7.2), the moving tick's drop check is named, not built, and the reach and s4.3's one-sided walk are
 PAR-21's. *Was:* "the weapon line's slot, the moving tick's drop check and the reach are named, not built". Was: "No constant is added (PB-3b adds none either). ... the
 departures s4.1 names (any hit replacing the contact, the corner drop, the reach) and s4.3's one-sided walk are
 PAR-21's."

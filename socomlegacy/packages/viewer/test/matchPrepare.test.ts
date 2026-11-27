@@ -41,7 +41,7 @@ vi.mock('three/webgpu', async (original) => {
     samples = 4; stencil = false; outputColorSpace = ''; autoClear = true; target: import('three').RenderTarget | null = null;
     backend = { isWebGLBackend: true, createRenderPipeline() {} };
     constructor(parameters: Record<string, unknown>) { constructed.params.push(parameters); }
-    async init() {} setPixelRatio() {} setSize() {} setClearColor() {}
+    async init() {} setPixelRatio() {} setSize() {} setDrawingBufferSize() {} setClearColor() {}
     getRenderTarget() { return this.target; } setRenderTarget(t: import('three').RenderTarget | null) { this.target = t; }
     getDrawingBufferSize(v: { set(x: number, y: number): unknown }) { return v.set(640, 448); }
     render() {} async dispose() { constructed.disposed++; }

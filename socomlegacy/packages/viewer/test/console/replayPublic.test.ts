@@ -107,6 +107,19 @@ describe('LCM-RP (RB-6): the public entry as the page reads it', () => {
     expect(publicReplayEntryOf(entry({ matchId: null })).matchId).toBeUndefined();
     for (const bad of [7, '', {}]) expect(() => publicReplayEntryOf(entry({ matchId: bad })), String(bad)).toThrow();
   });
+
+  // E17 (B-83): the named match's region and lobby name, for the replay's GAME DETAILS; an older central's entry has
+  // neither, and a value not a non-empty string is dropped, never the answer refused (the board's stand-ins remain)
+  it('E17: region and lobbyName kept when non-empty strings; null, absent or another shape dropped, the entry kept', () => {
+    const e = publicReplayEntryOf(entry({ region: 'us-east', lobbyName: 'Night Ops' }));
+    expect([e.region, e.lobbyName, e.matchId]).toEqual(['us-east', 'Night Ops', MATCH]);
+    const old = publicReplayEntryOf(entry());
+    expect('region' in old || 'lobbyName' in old).toBe(false);
+    for (const odd of [null, '', 7, {}]) {
+      const o = publicReplayEntryOf(entry({ region: odd, lobbyName: odd }));
+      expect([o.id, 'region' in o, 'lobbyName' in o], String(odd)).toEqual([ID, false, false]);
+    }
+  });
 });
 
 describe('LCM-RP (RB-12): the page', () => {

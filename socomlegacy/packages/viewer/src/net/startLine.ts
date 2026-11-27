@@ -16,7 +16,10 @@ import { headPoint, targetHeight, type AimFrame } from './shotCone';
 type V3 = [number, number, number];
 
 /** The body a start is measured from: the server's mover at the command (`room.ts` `startBody`), or the page's. */
-export type StartBody = Pick<AimFrame, 'feet' | 'yaw' | 'posture' | 'moveRoot' | 'peek' | 'groundNormalY'>;
+export type StartBody = Pick<AimFrame, 'feet' | 'yaw' | 'posture' | 'moveRoot' | 'peek' | 'groundNormalY' | 'aimProne'> & {
+  /** PRONE_EYE_LOOK: the look's pitch (degrees, up positive) the prone eye rises by; absent, level. */
+  pitch?: number;
+};
 
 /**
  * The two points a start's lines leave from: the head (`headPoint`) kept on the body's side of a wall along the page's
@@ -24,7 +27,7 @@ export type StartBody = Pick<AimFrame, 'feet' | 'yaw' | 'posture' | 'moveRoot' |
  * reaches), and the body's axis at the look-at target's height (BL-3's second line).
  */
 export function startLines(grid: Grid, b: StartBody): { head: V3; axis: V3 } {
-  const head = headEye(grid, b.feet, headPoint(b), () => true);
+  const head = headEye(grid, b.feet, headPoint({ ...b, pitch: 0 }), () => true);   // PRONE_EYE_LOOK: the start tolerance's head is level (room.ts startRefused)
   const [x, y, z] = b.feet;
   return { head, axis: [x, y + targetHeight(b.posture, b.moveRoot), z] };
 }

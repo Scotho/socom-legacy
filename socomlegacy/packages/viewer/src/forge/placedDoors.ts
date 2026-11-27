@@ -1,5 +1,5 @@
 import { Matrix4, Vector3 } from 'three';
-import type { CollisionOwner, Footprint, WorldPoly } from '@s2u/scene';
+import { movedWalk, type CollisionOwner, type Footprint, type WorldPoly } from '@s2u/scene';
 import type { DoorSpec } from '../doors';
 import type { LoadedMap } from '../loadMap';
 import type { MapAction } from '../mapActions';
@@ -107,8 +107,9 @@ export function copiedDoor(t: DoorTemplate, m: Matrix4, name: string, index: num
   const owners: CollisionOwner[] = [];
   const polys: WorldPoly[] = [];
   for (const { owner, polys: own } of t.owners) {
-    const { frame: _f, restFrame: _r, ...rest } = owner as CollisionOwner & { restFrame?: unknown };
-    owners.push({ ...rest, path: rename(owner.path), first: -1, count: own.length, sweep });
+    // LATER 1094 (the review of fc0cb0622b, B1): the template's walk is the template's place; the copy's is moved by `m`.
+    const { frame: _f, restFrame: _r, nodes: _n, filed: _fd, filedByCover: _fc, filedWithPolys: _fw, ...rest } = owner as CollisionOwner & { restFrame?: unknown };
+    owners.push({ ...rest, ...movedWalk(owner, Float32Array.from(m.elements)), path: rename(owner.path), first: -1, count: own.length, sweep });
     for (const { frame: _pf, ...poly } of own as (WorldPoly & { frame?: unknown })[]) polys.push({ ...poly, path: rename(owner.path), points: movedPoints(m, poly.points) });
   }
   const spec: DoorSpec = {
@@ -169,7 +170,7 @@ export function withPlacedDoors(map: LoadedMap, placed: readonly DoorMarker[] | 
     props.push(...copy.props);
     if (copy.action) actions.push(copy.action);
   });
-  const ground = packGround(map.ground.grid, polys, owners);
+  const ground = packGround(map.ground.grid, polys, owners, map.ground.defaultMaterial);   // FLE-2 (F4)
   const meta = map.meta ? { ...map.meta, actions } : map.meta;
   return {
     map: { ...map, ground, props, doors, actions, textures, textureFlags, ...(textureMips ? { textureMips } : {}), ...(meta ? { meta } : {}) },

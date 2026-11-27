@@ -1,5 +1,5 @@
 import { Vector3, type Camera } from 'three';
-import { taggedName } from './hud';
+import { taggedName } from './hudLayout';
 import { heardTalker } from './hudVoice';
 import type { Team } from './net/protocol';
 import { botDisplayName } from './botPresentation';
@@ -114,8 +114,11 @@ export interface TeamTagPoint {
  * What `Hud.setTeamTags` takes (`./hud` `teamTagLayout` lays it out): the points in order, the talker, the page's own id;
  * `scale`, the text's (LATER 671: the adaptation's or the original's 0.9 -- one value for the layout's width, its
  * bounds and overlap push, and the draw); absent, 0.9.
+ * `atHead` (NAME-TAGS-AT-HEAD, `./hud` `TEAMMATE_NAME_AT_HEAD_ADAPTATION`; a browser adaptation): the Modern look's
+ * overlap rule -- the points nearest first, none moved, a tag covered by an earlier one dimmed; absent, the original's
+ * (`FUN_00227130`).
  */
-export interface TeamTagsView { points: TeamTagPoint[]; holder: number | null; self: number | null; scale?: number }
+export interface TeamTagsView { points: TeamTagPoint[]; holder: number | null; self: number | null; scale?: number; atHead?: boolean }
 
 const scratch = new Vector3();
 const eyeAt = new Vector3();
@@ -150,6 +153,9 @@ function headInView(camera: Camera, head: readonly number[]): boolean {
  * LATER 671 (`TEAMMATE_NAME_DISTANCE_ADAPTATION`, a browser adaptation, OT.R101): unless `i.original`, the alpha is
  * multiplied by the head's distance factor (`teamTagDistanceFactor`) and the view's scale is the adaptation's; with it,
  * the points are the original's and the scale 0.9. Each point carries its distance either way.
+ * NAME-TAGS-AT-HEAD (`./hud` `TEAMMATE_NAME_AT_HEAD_ADAPTATION`, a browser adaptation): unless `i.original`, the view
+ * is marked `atHead` and its points come nearest first -- the layout lays each at its own head, moves none, and dims
+ * one covered by a nearer. With `i.original` the points keep the actor list's order.
  */
 export function teamTags(i: TeamTagInput): TeamTagsView {
   const self = i.self, points: TeamTagPoint[] = [];
@@ -165,7 +171,12 @@ export function teamTags(i: TeamTagInput): TeamTagsView {
     const alpha = i.original ? fade : fade * teamTagDistanceFactor(distance);
     points.push({ id: b.id, text: taggedName(b.clan, botDisplayName(b.name, b.bot === true)), alpha, u: p.u, y: p.y, distance });
   }
-  return { points, holder: i.holder, self: self?.id ?? null, scale: i.original ? ORIGINAL_SCALE : TEAMMATE_NAME_DISTANCE_ADAPTATION.scale };
+  // NAME-TAGS-AT-HEAD: the Modern look's points nearest first (a stable sort: equal distances keep the actor list's order).
+  if (!i.original) points.sort((a, b) => a.distance! - b.distance!);
+  return {
+    points, holder: i.holder, self: self?.id ?? null, scale: i.original ? ORIGINAL_SCALE : TEAMMATE_NAME_DISTANCE_ADAPTATION.scale,
+    ...(i.original ? {} : { atHead: true }),   // NAME-TAGS-AT-HEAD: the Modern look's names keep their heads (`./hud` `teamTagLayout`)
+  };
 }
 
 /** What `teamTagInput` reads of a page's `NetPage` (structural). */

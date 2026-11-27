@@ -345,9 +345,15 @@ describe('the modding wiki holds HD texture packs at one status, the MODS loader
       expect(mods + read(join(VIEWER, 'console', 'render', 'mods.ts')), w).toContain(`'${w}'`);
       expect(text, w).toContain(`"${w}"`);
     }
-    // the overlay's words (ML-4) and the pacing's constants (ML-9), as the code names them
-    expect(read(join(VIEWER, 'packApplyOverlay.ts'))).toContain('`Applying pack... ${p.applied}/${p.total}`');
-    expect(text).toContain('"Applying pack... *n*/*N*"');
+    // the loading chip's words (WM-PACKS-CHIP, the owner's 8B; LATER 1082 (b)) and the pacing's constants (ML-9), as the code names them
+    const chip = read(join(VIEWER, 'packApplyChip.ts'));
+    expect(chip).toContain("export const PACK_APPLY_CHIP_TEXT = { hd: 'LOADING HD TEXTURES', other: 'LOADING TEXTURES' } as const;");
+    expect(chip).toContain('return `${n(applied)} of ${n(total)}`;');
+    for (const w of ['"LOADING HD TEXTURES"', '"LOADING TEXTURES"', '"*n* of *N*"']) expect(text, w).toContain(w);
+    expect(read(join(VIEWER, 'packApplyOverlay.ts'))).toContain('`${p.name}: not applied -- ${p.refused}`');
+    expect(text).toContain('"*name*: not applied -- *why*"');
+    expect(chip).toMatch(/^export const PACK_APPLY_CHIP_ADAPTATION =/m);
+    expect(text).toContain('`PACK_APPLY_CHIP_ADAPTATION`');
     const hd = read(join(VIEWER, 'hdTexturePack.ts'));
     for (const c of ['MODS_APPLY_FRAME_BUDGET_MS_ADAPTATION', 'HD_DRAW_TEXELS_PER_SLICE_ADAPTATION']) {
       expect(hd, c).toMatch(new RegExp(`^export const ${c}=`, 'm'));
@@ -359,6 +365,13 @@ describe('the modding wiki holds HD texture packs at one status, the MODS loader
     const refusals = table(raw, '| refusal | what to do |').map(([r]) => /^"(.*?)(?: …)?"$/.exec(r!)?.[1] ?? r!);
     expect(refusals.length).toBeGreaterThanOrEqual(6);
     for (const r of refusals) expect(said.includes(r.replace(/'/g, "\\'")) || said.includes(r), r).toBe(true);
+  });
+
+  it('describes the texture pack\'s loading chip, not the "Applying pack..." strip it replaced, on every page (WM-PACKS-CHIP; LATER 1082 (b))', () => {
+    expect(read(join(VIEWER, 'packApplyChip.ts'))).toContain("hd: 'LOADING HD TEXTURES'");
+    // the Changelog is dated history: its 2026-11-07 entry says what shipped then, the strip, and stays as written
+    expect(allPages().filter((rel) => rel !== 'changelog.mdx' && flat(page(rel)).includes('Applying pack'))).toEqual([]);
+    expect(flat(page('kinds/earlier-formats.mdx'))).toContain('"LOADING HD TEXTURES"');
   });
 
   it('cites the registry\'s v2 refusal at the lines that hold it, on every page', () => {

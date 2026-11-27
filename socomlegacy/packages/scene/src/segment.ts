@@ -1,5 +1,5 @@
 import { polygonNormal, surfaceWord, SURFACE_SIDE, type WorldPoly } from './collision';
-import { cellsCovering, type CollisionObject, type CollisionOwner, type Grid } from './grid';
+import { cellRange, cellsCovering, chopF32, cvtW, type CellRange, type CollisionObject, type CollisionOwner, type Footprint, type Grid, type NodeBox } from './grid';
 import { modelGate, ALL_LAYERS } from './probe';
 
 /**
@@ -81,6 +81,26 @@ function frontSides(points: Float32Array, a: V3, d: V3): boolean {
   const start = nx * (a[0] - p1x) + ny * (a[1] - p1y) + nz * (a[2] - p1z);
   const end = nx * (a[0] + d[0] - p1x) + ny * (a[1] + d[1] - p1y) + nz * (a[2] + d[2] - p1z);
   return start + 1e-5 >= 0 && end + 1e-5 < 0;
+}
+
+/**
+ * GRENADE-ONE-SIDED: whether a crossing the two-sided test found from `a` along `d` enters the polygon from its FRONT,
+ * decided on the plane the crossing was found on -- the Newell normal `n` (`polygonNormal`, the hit's own) through p0,
+ * `crossing`'s -- so every hit the two-sided cast lists is front or back, never neither: `n . d < 0` (a crossing has its
+ * ends on opposite sides of that plane, within its t tolerances). For a caller that keeps the two-sided list and sorts
+ * the one-sided hits out of it per hit (`projectile.ts` `gridCast`, the grenade's flight; its only caller).
+ * The drop sweep's cause B (seat-kill, 2026-11-25; `viewer/test/helpers/grenadeDropSweep.ts`): this took the side on the
+ * micro's plane (`frontSides`, `(p2 - p1) x (p0 - p1)` through p1) while the crossing is on the Newell plane through p0;
+ * on a WARPED face (0.05-0.38 u on the disc's hulls) a frame ending in the sliver between the two planes met the face in
+ * neither frame (1,534 real-map throws). One plane is a port fix, not a value: the original's VU0 test finds its crossing
+ * and its sides on one plane. Left on the Newell plane: the micro's "an end exactly on the face is not behind"
+ * (`frontSides`' 1e-5) -- on the crossing's plane it would reopen a 1e-5 u sliver (the next frame's start then behind by
+ * more than `crossing`'s t tolerance), so an end within it is met that frame, at the same point, not the next.
+ * `crossing(.., true)` (the hull's one-sided test for every other caller: the throw clearance, `segmentHits(.., true)`)
+ * is unchanged and keeps `frontSides`.
+ */
+export function entersFront(n: V3, d: V3): boolean {
+  return n[0] * d[0] + n[1] * d[1] + n[2] * d[2] < 0;
 }
 
 /**
@@ -274,8 +294,14 @@ export function segmentHit(
 /** The pad on `segmentHits`' box reject: wider than `crossing`'s own tolerances (its t range, `inside`'s 1e-7). */
 const BOX_PAD = 1e-3;
 const polyBoxes = new WeakMap<WorldPoly, Float32Array>();
-/** A static polygon's box (min x, y, z, max x, y, z), computed once. */
-function polyBox(poly: WorldPoly): Float32Array {
+/**
+ * A static polygon's box (min x, y, z, max x, y, z), computed once: its points and, on the axis `inside` drops (the
+ * normal `n`'s largest), its plane through p0 at each corner -- `crossing`'s plane, which on a WARPED polygon leaves the
+ * points' range (GRENADE-ONE-SIDED's drop sweep, cause B: a 0.2 u warp puts it 0.08 u under every vertex; the points'
+ * box alone dropped hits the uncached code finds). On that plane the crossing's dropped coordinate is linear in the two
+ * kept ones, so over the polygon (within `inside`'s tolerance, under `BOX_PAD`) its extremes are at the corners.
+ */
+function polyBox(poly: WorldPoly, n: V3 | null): Float32Array {
   let b = polyBoxes.get(poly);
   if (b) return b;
   const p = poly.points;
@@ -283,19 +309,409 @@ function polyBox(poly: WorldPoly): Float32Array {
   for (let i = 0; i < p.length; i += 3) {
     for (let k = 0; k < 3; k++) { b[k] = Math.min(b[k]!, p[i + k]!); b[k + 3] = Math.max(b[k + 3]!, p[i + k]!); }
   }
+  if (n !== null) {
+    const ax = Math.abs(n[0]), ay = Math.abs(n[1]), az = Math.abs(n[2]);
+    const [iu, iv]: [0 | 1 | 2, 0 | 1 | 2] = ax >= ay && ax >= az ? [1, 2] : ay >= az ? [0, 2] : [0, 1];
+    const iw = 3 - iu - iv;
+    for (let i = 0; i < p.length; i += 3) {
+      const w = p[iw]! - (n[iu] * (p[i + iu]! - p[iu]!) + n[iv] * (p[i + iv]! - p[iv]!)) / n[iw]!;
+      b[iw] = Math.min(b[iw]!, w); b[iw + 3] = Math.max(b[iw + 3]!, w);
+    }
+  }
   polyBoxes.set(poly, b);
   return b;
 }
 
 /**
+ * WM-29 (research 430 s3.1, s7; simulation track, READING, pending review): the blast's ray query as 8f read the
+ * original's VU0 microprogram (instructions 288-333 and the edge program 336-361, identical in r0001 and r0004; r1 file
+ * 0x2c6b50, r4 file 0x2f1cf0; hub reviews/research-430-micro-boundaries-addendum.md and -redecode-addendum-2.md). Per
+ * polygon, with n the UNNORMALISED (p2-p1)x(p0-p1) of its first three vertices (280-286, as `frontSides`) and L its LAST
+ * vertex: ds = n.(start-L), de = n.(end-L). One-sided ('blast'), a hit iff ds + 9.99999975e-6 >= 0 (the start in front,
+ * inclusive: 0xb727c5ac at 290) and de + 1.0013580322e-5 < 0 (the end behind, strict: 0xbf800054 + 1.0 at 296, 307).
+ * t = ds / (ds - de) (318, 324) used as computed: NO window, NO clamp -- it lies in (-Bs / (Be - Bs), 1). The point is then tested per edge in vertex order: (point - the edge's first vertex) . (n x edge) +
+ * 9.99999975e-6 >= 0, the edge normal unnormalised. Kept apart, named: the port computes in doubles where the original
+ * rounds single precision toward zero (8f's re-decode s5); the edge test measures from each edge's START vertex where the
+ * original measures from its END vertex on edges 2 to n (the same in exact arithmetic; 8f's check of 6a7587928a, note 4);
+ * no hit when ds - de = 0 (no infinite t). Every blast line is this one-sided rule (LATER 1087 (b): the scene's too, the
+ * batch's 0x20 on the hull, `FUN_002d3030` D:L175277-175282; research 430 s3.1). The port's two-sided departure,
+ * 'blast-scene', was retired by LATER 1252; the original's 0x30 mode (bit-1 colliders only, its per-edge flip at micro
+ * 354-358) is not built, the port having no bit-1 collider on a blast line.
+ *
+ * WHICH POLYGONS ARE ASKED (LATER 1094, research 430 s8; it replaces the ruling "build B" of 2026-11-15, s7): the
+ * original's own walk -- the cells the line marks and the node boxes on the way down (`blastCells`, `nodeRefuses`; the
+ * block above `blastHits`). Not the port's default broad phase: for any polygon the points this rule can report are a
+ * convex region of the plane through its LAST vertex, bounded by the half-planes of its edges PROJECTED along n -- not the
+ * box of its vertices (on the disc 4950 of 201608 collision polygons have the last vertex more than 1e-3 off the plane of
+ * the first three, the largest 28.89; s7.5, measured) -- and the original does not bound that region either: it refuses a
+ * line by its CELLS and its NODES' boxes, and asks the rule of every polygon of an owner they let through. B (the rule
+ * of every polygon of the grid) is the oracle the walk is tested against. Within an admitted owner, what is refused is
+ * refused by the rule's own sums (`modelGate` as the default path asks it). A
+ * static object's raw normals and last vertices are kept flat, and the start's sums while the start is the same
+ * (`BlastKept`): the same numbers the sums would take, so the sums are bit for bit the rule's; n.L is NOT kept -- a kept
+ * constant would round the sums otherwise than the rule does. A moving owner (`sweep`: its points change in place) keeps
+ * nothing: its numbers and its polygon normals are reckoned each call, as the default path reckons its normals. `accept` is asked after the plane test and before the edge test,
+ * an owner's polygons in the owner's order (the blast lines keep an owner's first OFFERED polygon). The default path
+ * (`frontOnly` true or false) never comes here: `segmentHits` branches before its scratch is taken. As the default
+ * path, it does not guard a start or end that is not a number: two-sided, such a line passes both tests on every
+ * polygon (every comparison with NaN is false) -- the callers pass finite points.
+ */
+const BLAST_START_BIAS = 9.99999975e-6;
+const BLAST_END_BIAS = 1.0013580322e-5;
+/**
+ * WM-29 (research 430 s6; the review of 720e78fd46, Q1) [placeholder]: what a blast hit reports as its NORMAL. The
+ * original's ray record holds something at +0x10 (the record's layout: `FUN_002d2890` D:L174876-174884; the point at
+ * +0, the polygon at +0xc, the owner at +0x1c), written by the polygon class's ray function, which is not in the
+ * decompilation -- UNREAD. The vertical-column test beside it writes the unit normal of the first three vertices there
+ * (`FUN_002dd8e0` D:L181111-181113, `FUN_002dd030` D:L180713-180763), which suggests, without showing, the same of the
+ * ray. The port reports the polygon's own normal (`polygonNormal`, as its default path does) and, for a polygon that has
+ * none, the raw normal's direction: the port's own choice, not a reading. Nothing reads it: neither the original's
+ * blast (`FUN_003c80e0` D:L319096-319143, `FUN_005a0e70` D:L459142-459186: the point, the polygon's material, the
+ * owner) nor the port's (`blastSeen`, `blastExposed`, `blastLine1`, `blastLine`). A consumer added later (a decal at a
+ * blast hit) must read the original first. [These lines are the reviewer's finding, not yet re-read by a second reader.]
+ */
+export const BLAST_HIT_NORMAL_PLACEHOLDER = 'the polygon normal, else the raw normal\'s direction' as const;
+/**
+ * What is kept for a STATIC object's polygons (the controller's ruling of 2026-11-15 after the measured gate was missed,
+ * research 430 s7.7: B kept, made cheaper with NO geometric reject):
+ * - `flat`, six doubles a polygon, made once: the raw normal (p2 - p1) x (p0 - p1) and the LAST vertex -- the very
+ *   numbers the rule's sums take from the polygon's points, read in one pass instead of from each point array;
+ * - for the START the sums were last asked from (`ax`, `ay`, `az`): `ds` of every polygon, and `front`, the polygons
+ *   whose start is in front (ds + 9.99999975e-6 >= 0), in the object's order. Every line of one blast starts at the same
+ *   lifted point, so the start's sum is reckoned once a blast point; one-sided, a polygon whose start is not in front is
+ *   out for every line of that blast.
+ * The sums are the same expressions on the same numbers as when nothing is kept, bit for bit. The start's sums are used
+ * only by the outermost blast query (`blastDepth` 1): a query made from inside another's `accept` reckons its own and
+ * writes nothing, so it cannot disturb the outer's. A moving owner (`sweep`) keeps nothing.
+ */
+interface BlastKept { flat: Float64Array; ax: number; ay: number; az: number; ds: Float64Array; front: Int32Array; fronts: number }
+const blastKeptOf = new WeakMap<CollisionObject, BlastKept>();
+let blastDepth = 0;
+/** The raw normal and the last vertex of each polygon, six doubles a polygon. */
+function blastFlat(polys: readonly WorldPoly[]): Float64Array {
+  const out = new Float64Array(polys.length * 6);
+  for (let i = 0; i < polys.length; i++) {
+    const p = polys[i]!.points;
+    const p1x = p[3]!, p1y = p[4]!, p1z = p[5]!;
+    const ux = p[6]! - p1x, uy = p[7]! - p1y, uz = p[8]! - p1z;  // p2 - p1
+    const vx = p[0]! - p1x, vy = p[1]! - p1y, vz = p[2]! - p1z;  // p0 - p1
+    const o = i * 6, last = p.length - 3;
+    out[o] = uy * vz - uz * vy; out[o + 1] = uz * vx - ux * vz; out[o + 2] = ux * vy - uy * vx;
+    out[o + 3] = p[last]!; out[o + 4] = p[last + 1]!; out[o + 5] = p[last + 2]!;   // the plane through the LAST vertex
+  }
+  return out;
+}
+function blastKept(object: CollisionObject): BlastKept {
+  let k = blastKeptOf.get(object);
+  if (!k) {
+    const n = object.polys.length;
+    k = { flat: blastFlat(object.polys), ax: NaN, ay: NaN, az: NaN, ds: new Float64Array(n), front: new Int32Array(n), fronts: 0 };
+    blastKeptOf.set(object, k);
+  }
+  return k;
+}
+/** The start's sums for this object, reckoned when the start is not the one they were last asked from. */
+function blastStart(k: BlastKept, a: V3): void {
+  // The SAME start: the same three numbers, to the sign of a zero (`Object.is`: +0 is not -0 -- from x = -0 the sum of
+  // a polygon in the plane x = 0 is the other zero, and t and the point carry its sign; the review of 79d589a7e0).
+  if (Object.is(k.ax, a[0]) && Object.is(k.ay, a[1]) && Object.is(k.az, a[2])) return;
+  const flat = k.flat, ds = k.ds, front = k.front, n = ds.length;
+  let fronts = 0;
+  for (let i = 0; i < n; i++) {
+    const o = i * 6;
+    const s = flat[o]! * (a[0] - flat[o + 3]!) + flat[o + 1]! * (a[1] - flat[o + 4]!) + flat[o + 2]! * (a[2] - flat[o + 5]!);
+    ds[i] = s;
+    if (s + BLAST_START_BIAS >= 0) front[fronts++] = i;
+  }
+  k.fronts = fronts; k.ax = a[0]; k.ay = a[1]; k.az = a[2];
+}
+
+/**
+ * LATER 1094 (research 430 s8; the controller's ruling of 2026-11-18 after the review of 79d589a7e0 FAILED; reading,
+ * pending review): WHICH collision objects a blast line is asked of -- the original's batch walk, `FUN_002d3cf0`, for
+ * the line's own record, and the node box, `FUN_003124f0`, on the way down to each owner's polygons. B (every polygon of
+ * the grid) stays the ORACLE: what this asks is B's rule on a subset of B's polygons.
+ *
+ * THE CELLS (`blastCells`). A segment record (type 2) is handed to `FUN_002d6800` with a count of 2 and the flag 1 (the
+ * call in `FUN_002d3cf0`, D:L175582: Ghidra drops both arguments; the disassembly sets $a2 = 2 at 0x2d41a8 and $a3 = 1 at
+ * 0x2d4178), which sets the line up (`FUN_002d6c40`: each end's cell `(int)(invCellDim x (p - origin + 0.0001))`, clamped
+ * to the grid, D:L177260-177297; the two edges a->b and b->a, each with its unit normal in x-z, D:L177104-177111) and
+ * marks each cell of the ends' cell box (x outer, z inner: `FUN_002d6430`) unless `FUN_002d66b0` refuses it: the cell's
+ * centre lies more than `grid+0x40` from the line on either side (D:L177059-177067; the flag 1 asks the far side).
+ * `grid+0x40` is half a cell's diagonal (research 204: 127.279 on 180-unit cells, 113.137 on 160;
+ * `GRID_COVER_HALF_WIDTH_READING`). All in float32, each step chopped toward zero as the EE rounds (`chopF32`, research
+ * 25; the review of fc0cb0622b, N1); the products' sums are FUSED (`mula.s` + `madd.s`: the refusal's dot product at 0x2d6770-0x2d6774, each
+ * normal's squared length at 0x2d68a0-0x2d68a4 and 0x2d6a10-0x2d6a14; the second review of 1094, F2), and how the EE rounds
+ * inside `madd.s` is not read: the port chops each product and the sum apart (`BLAST_COVER_MADD_READING`). An end-on line
+ * (its two ends one point in x-z) has normals of 0 and every cell of its box. The marked cells are then WALKED z outer,
+ * x inner (D:L175613-175720), the order `blastCells` returns.
+ *
+ * THE OBJECTS. Each marked cell's atoms in order, each atom once a walk (`+0xa4` against the walk's count,
+ * D:L175631), an owner found in the cells its FILED node covers (`CollisionOwner.filed`, turned into cells by the grid
+ * insert's rule or, for clutter, `FUN_002d6c40`'s: `filedByCover`; else the object's own footprint). The port asks each
+ * owner once; the original walks a CLUTTER instance once per marked cell it is filed in (`BLAST_CLUTTER_PER_CELL_READING`).
+ * The frame's other records are named, not built: `BLAST_BATCH_CELLS_READING`.
+ *
+ * THE NODE BOX (`nodeRefuses`). On each node of `CollisionOwner.nodes`, the line's two ends are put into the node's frame
+ * (the node's matrix pushed and the stack's top inverted, D:L175103-175108; `FUN_003085c0`, D:L175248). The inverse is
+ * `FUN_00308160`'s (D:L206756-206800, VU0): the 3x3 transposed and divided by the squared length of its FIRST row, the
+ * translation carried through it -- exact for a turn times a uniform scale, not for any other frame, and the port takes
+ * the same (`inverseOf`; the review of fc0cb0622b, S1). The record is refused when both lie
+ * strictly below a face's minimum or strictly above its maximum on one axis (D:L213184-213239), unless the node's flag
+ * bit 30 is set (D:L213184). A refused record is done for the node's whole subtree (marked at D:L175249-175275, cleared only when that node's walk
+ * ends, D:L175396-175402; a node whose every record is done is not walked into at all, D:L175102), so a refusal on
+ * any node of the chain refuses the owner. The port puts the ends into the frame in doubles where the original rounds
+ * in float32 (a line within float32's rounding of a face can differ). A MOVING owner (`sweep`: a door, a gate, a crane)
+ * is asked no box: its frame turns with it and the port keeps none live (`BLAST_SWEEP_NODE_BOX_READING`).
+ */
+export const GRID_COVER_HALF_WIDTH_READING = 'half a cell diagonal: f32(f32(cellDim / 2) x f32(sqrt 2))' as const;
+/**
+ * LATER 1094 [reading]: the queue (`FUN_0031dd90`) is flushed ONCE A FRAME (`FUN_0031de30`, a periodic task registered at
+ * D:L152100), so every segment queued that frame -- each body's step, each round's line, each blast's line -- is ONE
+ * batch, and its cells are the union of every record's marks. The cell's mask of records is loaded and never applied
+ * (the disassembly at 0x2d30c0-0x2d30e8 tests `1 << i` alone, which is never 0; Ghidra prints the same), so every object
+ * of every marked cell is offered to every record of the frame. The port walks the line's OWN cells only: a line can
+ * meet an owner the original found through another record's cell, where the node box lets it pass. Settling it is the
+ * frame's whole batch, not this query.
+ */
+export const BLAST_BATCH_CELLS_READING = 'the line\'s own cells; the frame\'s other records\' cells not added' as const;
+/** LATER 1094 [placeholder]: a moving owner's node boxes are not asked (the port keeps no live frame for them). */
+export const BLAST_SWEEP_NODE_BOX_READING = 'no node box asked of a moving owner' as const;
+/**
+ * LATER 1094 (the review of fc0cb0622b, S4) [reading]: a clutter instance is linked into EVERY cell its box covers, through
+ * each cell's own holder (`FUN_002d55c0` adds it to each, D:L176344 on), and the `+0xa4` stamp is on the cell's atom, the
+ * holder (D:L175631), so a batch walks one instance once per marked cell it is filed in, and each walk can add its hits
+ * again (D:L175353-175371). The port asks each owner once. The blast keeps the first offered polygon an owner
+ * (`REACH_HITS_READING`), so a repeat changes nothing there; a consumer that counts every hit would differ.
+ */
+export const BLAST_CLUTTER_PER_CELL_READING = 'each owner asked once a line' as const;
+/**
+ * LATER 1094 (the second review, F2) [reading]: `FUN_002d66b0`'s dot product and `FUN_002d6800`'s squared lengths are fused
+ * multiply-adds on the EE (`mula.s` + `madd.s`); how the EE rounds inside them is not read, and the port chops each product
+ * and the sum apart. A cell centre within float32's last place of the half-width could be marked by one and not the other.
+ */
+export const BLAST_COVER_MADD_READING = 'each product and the sum chopped apart' as const;
+/**
+ * LATER 1094 (the second review's F1; the main controller's yes of 2026-11-18) -- a BROWSER ADAPTATION: a Forge copy (a
+ * placed gate, barrier, switch look, turret or door: `movedWalk`, `CollisionOwner.filedWithPolys`) has no original. Filed
+ * by its first node's box carried by two corners alone (a world node's rule), a copy turned near 45 degrees is filed in
+ * fewer cells than its polygons stand in, and a blast line in one of those cells would pass a placed barrier. So a copy
+ * is also found in the cells its polygons cover (the object's own `cells`). A world node and clutter keep the original's
+ * filing alone.
+ */
+export const FORGE_COPY_POLY_CELLS_ADAPTATION = 'a Forge copy is found in its polygons\' cells as well as its filed node\'s' as const;
+
+const f32 = Math.fround;
+const c = chopF32;
+const COVER_EPS = f32(0.0001);
+/** `FUN_002d6c40`'s cell of one coordinate: `(int)` truncates (`cvt.w.s`; a NaN or an overflow reads 0x7fffffff); clamped to 0..n-1. */
+function coverIndex(p: number, origin: number, inv: number, n: number): number {
+  const i = cvtW(c(inv * c(c(p - origin) + COVER_EPS)));
+  return i < 0 ? 0 : i > n - 1 ? n - 1 : i;
+}
+/** The cells a footprint covers by `FUN_002d6c40`'s rule (a clutter instance's filing, `filedByCover`). */
+function coverRange(grid: Grid, f: Footprint): CellRange {
+  const { cellsX, cellsZ, originX, originZ } = grid.params, inv = grid.invCellDim;
+  const ax = coverIndex(f32(f.minX), f32(originX), inv, cellsX), bx = coverIndex(f32(f.maxX), f32(originX), inv, cellsX);
+  const az = coverIndex(f32(f.minZ), f32(originZ), inv, cellsZ), bz = coverIndex(f32(f.maxZ), f32(originZ), inv, cellsZ);
+  return { x0: Math.min(ax, bx), x1: Math.max(ax, bx), z0: Math.min(az, bz), z1: Math.max(az, bz) };
+}
+/** The cells a blast line marks (`FUN_002d6c40`, `FUN_002d6800`, `FUN_002d66b0` with the count 2 and the flag 1), z outer and x inner. */
+export function blastCells(grid: Grid, a: V3, b: V3): number[] {
+  const { cellsX, cellsZ, cellDim } = grid.params;
+  const ox = f32(grid.params.originX), oz = f32(grid.params.originZ), inv = grid.invCellDim, cell = f32(cellDim);
+  const px = [f32(a[0]), f32(b[0])], pz = [f32(a[2]), f32(b[2])];
+  const xa = coverIndex(px[0]!, ox, inv, cellsX), xb = coverIndex(px[1]!, ox, inv, cellsX);
+  const za = coverIndex(pz[0]!, oz, inv, cellsZ), zb = coverIndex(pz[1]!, oz, inv, cellsZ);
+  const x0 = Math.min(xa, xb), x1 = Math.max(xa, xb), z0 = Math.min(za, zb), z1 = Math.max(za, zb);
+  // Each edge's normal (D:L177104-177111): its x factor (+0x8c) = z' - z, its z factor (+0x94) = x - x', unit when not 0.
+  const nx: number[] = [], nz: number[] = [];
+  for (let e = 0; e < 2; e++) {
+    const o = 1 - e;
+    let fz = c(px[e]! - px[o]!), fx = c(pz[o]! - pz[e]!);
+    const len = c(Math.sqrt(c(c(fz * fz) + c(fx * fx))));
+    if (len !== 0) { const r = c(1 / len); fz = c(fz * r); fx = c(fx * r); }
+    nx.push(fx); nz.push(fz);
+  }
+  const w = f32(f32(cell * 0.5) * f32(Math.SQRT2));                 // grid+0x40: GRID_COVER_HALF_WIDTH_READING
+  const half = c(cell * 0.5);
+  const out: number[] = [];
+  for (let z = z0; z <= z1; z++) {
+    const cz = c(half + c(oz + c(z * cell)));                     // half + (origin + i x cell): 0x2d6730-0x2d6744
+    for (let x = x0; x <= x1; x++) {
+      const cx = c(half + c(ox + c(x * cell)));                   // 0x2d670c-0x2d671c (the second review's N-a)
+      let refused = false;
+      for (let e = 0; e < 2 && !refused; e++) {
+        const v = c(c(c(cz - pz[e]!) * nz[e]!) + c(c(cx - px[e]!) * nx[e]!));
+        if (v < -w || w < v) refused = true;
+      }
+      if (!refused) out.push(x + z * cellsX);
+    }
+  }
+  return out;
+}
+
+/** Per grid: each cell's collision objects as the blast walk files them (`CollisionOwner.filed`), in the grid's order. */
+const blastFilings = new WeakMap<Grid, CollisionObject[][]>();
+function blastFiling(grid: Grid): CollisionObject[][] {
+  let cells = blastFilings.get(grid);
+  if (cells) return cells;
+  const made: CollisionObject[][] = grid.cells.map(() => []);
+  for (const object of grid.objects) {
+    if (object.kind !== 'collision') continue;
+    const o = object.owner;
+    const r: CellRange = o.filed && !o.sweep ? (o.filedByCover ? coverRange(grid, o.filed) : cellRange(grid, o.filed)) : object.cells;
+    const filedHere = new Set<number>();
+    for (let z = r.z0; z <= r.z1; z++) for (let x = r.x0; x <= r.x1; x++) { const c = x + z * grid.params.cellsX; filedHere.add(c); made[c]!.push(object); }
+    // FORGE_COPY_POLY_CELLS_ADAPTATION: a Forge copy is also found in its polygons' own cells.
+    if (o.filedWithPolys && o.filed && !o.sweep) {
+      const q = object.cells;
+      for (let z = q.z0; z <= q.z1; z++) for (let x = q.x0; x <= q.x1; x++) { const c = x + z * grid.params.cellsX; if (!filedHere.has(c)) made[c]!.push(object); }
+    }
+  }
+  blastFilings.set(grid, made);
+  return made;
+}
+/** Each nesting depth's seen-stamps (a query from inside another's `accept` takes the next). */
+const blastSeenAt: { seen: WeakMap<CollisionObject, number>; stamp: number }[] = [];
+/** The objects a blast line is asked of: its marked cells' objects, each once, in the walk's order. */
+function blastWalk(grid: Grid, a: V3, b: V3, depth: number): CollisionObject[] {
+  const filing = blastFiling(grid);
+  const scratch = blastSeenAt[depth] ??= { seen: new WeakMap(), stamp: 0 };
+  if (scratch.stamp >= SEGMENT_STAMP_LIMIT) { scratch.seen = new WeakMap(); scratch.stamp = 0; }
+  const stamp = ++scratch.stamp;
+  const out: CollisionObject[] = [];
+  for (const c of blastCells(grid, a, b)) {
+    for (const object of filing[c]!) {
+      if (scratch.seen.get(object) === stamp) continue;
+      scratch.seen.set(object, stamp);
+      out.push(object);
+    }
+  }
+  return out;
+}
+
+/**
+ * A node's frame inverted as `FUN_00308160` inverts it (D:L206756-206800): Q = 1 / |first row|^2, the 3x3 TRANSPOSED times
+ * Q, the translation carried through it -- local = (world - T) x M^T x Q for row vectors. Nine numbers, then T; kept per
+ * frame array. Exact for a turn times a uniform scale; for any other frame it is the original's answer, not the inverse.
+ */
+const inverses = new WeakMap<Float32Array, Float64Array>();
+function inverseOf(m: Float32Array): Float64Array {
+  let r = inverses.get(m);
+  if (r) return r;
+  const q = 1 / (m[0]! * m[0]! + m[1]! * m[1]! + m[2]! * m[2]!);
+  r = Float64Array.from([
+    m[0]! * q, m[4]! * q, m[8]! * q,
+    m[1]! * q, m[5]! * q, m[9]! * q,
+    m[2]! * q, m[6]! * q, m[10]! * q,
+    m[12]!, m[13]!, m[14]!,
+  ]);
+  inverses.set(m, r);
+  return r;
+}
+/** Whether a node box on the owner's chain refuses the line (`FUN_003124f0`): both ends beyond one face, in the node's frame. */
+export function nodeRefuses(owner: CollisionOwner, a: V3, b: V3): boolean {
+  const nodes = owner.nodes;
+  if (!nodes || owner.sweep) return false;                          // BLAST_SWEEP_NODE_BOX_READING
+  for (const node of nodes) if (boxRefuses(node, a, b)) return true;
+  return false;
+}
+function boxRefuses(node: NodeBox, a: V3, b: V3): boolean {
+  if (node.free) return false;
+  const r = inverseOf(node.world), box = node.bbox;
+  const ax = a[0] - r[9]!, ay = a[1] - r[10]!, az = a[2] - r[11]!, bx = b[0] - r[9]!, by = b[1] - r[10]!, bz = b[2] - r[11]!;
+  for (let k = 0; k < 3; k++) {
+    const la = ax * r[k]! + ay * r[3 + k]! + az * r[6 + k]!, lb = bx * r[k]! + by * r[3 + k]! + bz * r[6 + k]!;
+    if ((la < box[k]! && lb < box[k]!) || (box[k + 3]! < la && box[k + 3]! < lb)) return true;
+  }
+  return false;
+}
+
+function blastHits(grid: Grid, a: V3, b: V3, accept: (p: WorldPoly) => boolean, layers: number): SegmentHit[] {
+  const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+  const ex = b[0], ey = b[1], ez = b[2];                       // the end itself: the rule's second sum is of the end point
+  const out: SegmentHit[] = [];
+  // One polygon past the plane test: `accept`, then t, the edge program, the hit. `ds` and `de` are the rule's two sums.
+  const rest = (object: CollisionObject, cache: OwnerCache | null, i: number, nx: number, ny: number, nz: number, ds: number, de: number): void => {
+    if (ds - de === 0) return;                                 // no infinite t, no not-a-number point
+    const poly = object.polys[i]!, p = poly.points;
+    if (!accept(poly)) return;
+    const t = ds / (ds - de);
+    const qx = a[0] + dx * t, qy = a[1] + dy * t, qz = a[2] + dz * t;
+    // The edge program (336-361): per edge in vertex order, its normal n x edge (unnormalised); no test of t.
+    const count = p.length / 3;
+    for (let j = 0; j < count; j++) {
+      const j0 = j * 3, j1 = ((j + 1) % count) * 3;
+      const gx = p[j1]! - p[j0]!, gy = p[j1 + 1]! - p[j0 + 1]!, gz = p[j1 + 2]! - p[j0 + 2]!;
+      const mx = ny * gz - nz * gy, my = nz * gx - nx * gz, mz = nx * gy - ny * gx;
+      if ((qx - p[j0]!) * mx + (qy - p[j0 + 1]!) * my + (qz - p[j0 + 2]!) * mz + BLAST_START_BIAS < 0) return;
+    }
+    // A polygon with no polygon normal (`polygonNormal` null, its Newell length 1e-9 or less: 16 on the disc, research
+    // 430 s7.5) is still a polygon to the rule, which is handed only the first three vertices (`FUN_002dd130`
+    // D:L180767-180781, called at D:L174866-174868; no test of a degenerate polygon before it, D:L174845-174868): it
+    // is NOT skipped (the review of dee83b8f95, Q1). What its hit reports as a normal is BLAST_HIT_NORMAL_PLACEHOLDER.
+    // A raw normal of 0 never comes here: both sums are 0 and the end is never behind.
+    const kept = cache ? cache.normals[i]! : polygonNormal(p);
+    const length = Math.hypot(nx, ny, nz);
+    const normal: [number, number, number] = kept ? [kept[0], kept[1], kept[2]] : [nx / length, ny / length, nz / length];
+    out.push({ point: [qx, qy, qz], t, normal, poly, owner: object.owner });
+  };
+  blastDepth++;
+  try {
+    const outermost = blastDepth === 1;
+    for (const object of blastWalk(grid, a, b, blastDepth)) {         // LATER 1094: the line's cells, not the whole grid
+      if (!modelGate(object.owner, layers)) continue;
+      if (nodeRefuses(object.owner, a, b)) continue;                  // LATER 1094: a node box on the way down refuses it
+      const cache = cacheOf(object);
+      // A moving owner: nothing kept, its six numbers a polygon reckoned from its points as they stand now.
+      const k = object.owner.sweep ? null : blastKept(object);
+      const flat = k ? k.flat : blastFlat(object.polys);
+      const n = object.polys.length;
+      if (k && outermost) {
+        blastStart(k, a);
+        const sums = k.ds;
+        // Only the polygons whose start is in front, in the object's order; a hit needs the end behind.
+        const front = k.front, fronts = k.fronts;
+        for (let f = 0; f < fronts; f++) {
+          const i = front[f]!, o = i * 6;
+          const nx = flat[o]!, ny = flat[o + 1]!, nz = flat[o + 2]!;
+          const de = nx * (ex - flat[o + 3]!) + ny * (ey - flat[o + 4]!) + nz * (ez - flat[o + 5]!);
+          if (de + BLAST_END_BIAS < 0) rest(object, cache, i, nx, ny, nz, sums[i]!, de);
+        }
+        continue;
+      }
+      // A moving owner, or a query made from inside another's `accept`: both sums reckoned here, nothing kept or read.
+      for (let i = 0; i < n; i++) {
+        const o = i * 6;
+        const nx = flat[o]!, ny = flat[o + 1]!, nz = flat[o + 2]!;
+        const ds = nx * (a[0] - flat[o + 3]!) + ny * (a[1] - flat[o + 4]!) + nz * (a[2] - flat[o + 5]!);
+        const de = nx * (ex - flat[o + 3]!) + ny * (ey - flat[o + 4]!) + nz * (ez - flat[o + 5]!);
+        const startFront = ds + BLAST_START_BIAS >= 0, endBehind = de + BLAST_END_BIAS < 0;
+        if (startFront && endBehind) rest(object, cache, i, nx, ny, nz, ds, de);
+      }
+    }
+  } finally {
+    blastDepth--;
+  }
+  return out.sort(byT);
+}
+
+/** `segmentHits`' sides: false two-sided, true the hull's one-sided test (`crossing`), 'blast' the blast's own one-sided rule (`blastHits`). */
+export type SegmentSides = boolean | 'blast';
+
+/**
  * Every polygon the segment a->b crosses, nearest `a` first (`segmentHit`'s candidates). `frontOnly` (LATER 250): only a
  * face entered from its front (`crossing`) -- the hull's one-sided test, asked by the throw clearance (`throwCommit.ts`
- * `throwClear`), the walk's segment body and the overhead camera-class casts (viewer `mover.ts`: `cameraClassClear`,
- * INV-WATER-CROUCH); every other caller, and `segmentHit`, stays two-sided.
+ * `throwClear`), the walk's segment body, the overhead camera-class casts (viewer `mover.ts`: `cameraClassClear`,
+ * INV-WATER-CROUCH) and the third-person pass's probes (viewer `cameraRig.ts` `cameraPass`, LATER 1057); every other
+ * caller, and `segmentHit`, stays two-sided. WM-29: 'blast' is the blast lines' own one-sided rule (LATER 1087, 1252), asked of the
+ * polygons the original's cell walk and node boxes let through (`blastHits`).
  */
 export function segmentHits(
-  grid: Grid, a: V3, b: V3, accept: (p: WorldPoly) => boolean = ACCEPT_ALL, layers: number = ALL_LAYERS, frontOnly = false,
+  grid: Grid, a: V3, b: V3, accept: (p: WorldPoly) => boolean = ACCEPT_ALL, layers: number = ALL_LAYERS, frontOnly: SegmentSides = false,
 ): SegmentHit[] {
+  if (frontOnly === 'blast') return blastHits(grid, a, b, accept, layers);   // WM-29
   // PAGE-ALLOC-A: this call's scratch, one set a nesting depth (`SEGMENT_SCRATCH`), given back however the call ends.
   const scratch = SEGMENT_SCRATCH[segmentDepth] ??= { seen: new WeakMap(), stamp: 0, box: { minX: 0, minZ: 0, maxX: 0, maxZ: 0 }, d: [0, 0, 0] };
   segmentDepth++;
@@ -355,7 +771,7 @@ function segmentHitsWith(
         // A polygon whose box misses the segment's cannot be crossed: rejected before the plane test (SEGMENT-BODY's cost;
         // the same hits in the same order). A moving owner (no cache) has its points changed in place, so its boxes are not kept.
         if (cache) {
-          const pb = polyBox(poly);
+          const pb = polyBox(poly, cache.normals[i] ?? null);
           if (pb[0]! > box.maxX + BOX_PAD || pb[3]! < box.minX - BOX_PAD || pb[2]! > box.maxZ + BOX_PAD || pb[5]! < box.minZ - BOX_PAD
             || pb[1]! > Math.max(a[1], b[1]) + BOX_PAD || pb[4]! < Math.min(a[1], b[1]) - BOX_PAD) continue;
         }

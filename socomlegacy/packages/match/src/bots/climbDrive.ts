@@ -4,7 +4,8 @@ import {Traversal} from '../../../viewer/src/traversal';
 import {CLIMBABLE,type ClimbClass} from '../../../viewer/src/climb';
 import {SEAL_TUNING_DEFAULTS} from '../../../viewer/src/physics';
 import {MAX_YAW_RATE} from '../../../viewer/src/look';
-import {RUNNING_JUMP_SPEED} from '../../../viewer/src/mover';
+import {RUNNING_JUMP_SPEED,TICK} from '../../../viewer/src/mover';
+import {GAME_FRAME_DT} from '@s2u/scene';
 import {shortTurn,wrapYaw} from '../../../viewer/src/yaw';
 import type {Point} from './navigationShape';
 
@@ -25,6 +26,15 @@ export interface BotClimbLink {entry:Point;exit:Point;yaw:number;path:string;kin
  * the speed is reached) botClimbNavigation's 40/4 move and link fail, at 0.5 they pass, the bots casting the weapon line
  * or not.
  */
+/**
+ * BOT ADAPTATION (the walls trial, 2026-11-21; match/test/botClimbDisc.test.ts's red at agent/walls f7a1735982): how many
+ * ticks the climb drive lets the body press an un-offered climb face before calling the climb refused. The contact is stored
+ * once a game frame, at its end (FUN_005483d0; LATER 1194B, the second read of LATER 1334), and Traversal consumes it the
+ * tick after, so a first hit between two frame ends can go up to a whole frame's ticks without its offer showing. So the
+ * drive waits one game frame's ticks (the frame over the tick, rounded up: 3 at 30 Hz frames and 60 Hz ticks), where it
+ * waited one tick while the contact was stored every tick. No original: the bots' own climb input.
+ */
+const CONTACT_OFFER_WAIT_TICKS=Math.ceil(GAME_FRAME_DT/TICK);
 const CLIMB_INPUT_ADAPTATION={alignDegrees:2,entryTolerance:0.25,entrySpeed:1,approachGain:0.15,approachDamping:0.03,timeoutTicks:20*TICK_HZ,runup:20,jumpFrom:0.5};
 export class BotClimbDrive {
  private body:MoverSim|null=null;
@@ -61,7 +71,12 @@ export class BotClimbDrive {
   if(sim.walker.stance==='prone')return {command:command(0,0,Button.Stance,turn),done:false,failed:false};
   if(!this.approached){
    const dx=this.link.entry[0]-s.x,dz=this.link.entry[2]-s.z;
-   if(Math.hypot(dx,dz)<=CLIMB_INPUT_ADAPTATION.entryTolerance&&Math.hypot(s.vx,s.vz)<=CLIMB_INPUT_ADAPTATION.entrySpeed)this.approached=true;
+   const inside=Math.hypot(dx,dz)<=CLIMB_INPUT_ADAPTATION.entryTolerance;
+   if(inside&&Math.hypot(s.vx,s.vz)<=CLIMB_INPUT_ADAPTATION.entrySpeed)this.approached=true;
+   // SETTLE-AT-ENTRY (LATER 1173, a bot adaptation, OT.R81): inside the tolerance the stick is released, so the
+   // pad's rest stops the body (`FUN_00586f00`, 0.03) and the speed gate opens -- the PD's damping alone limit-cycled
+   // about the entry once the body answers the stick within the tick (RAMP_LEAD, LATER 1164).
+   else if(inside)return {command:command(0,0,0,turn),done:false,failed:false};
    else{
     const yaw=(s.yaw+turn)*Math.PI/180,fx=-Math.sin(yaw),fz=-Math.cos(yaw),rx=Math.cos(yaw),rz=-Math.sin(yaw);
     const stick=(x:number,z:number)=>Math.max(-1,Math.min(1,(dx*x+dz*z)*CLIMB_INPUT_ADAPTATION.approachGain-(s.vx*x+s.vz*z)*CLIMB_INPUT_ADAPTATION.approachDamping));
@@ -81,7 +96,9 @@ export class BotClimbDrive {
   if(this.runup){
    if(!this.running){
     const dx=this.runup[0]-s.x,dz=this.runup[2]-s.z;
-    if(Math.hypot(dx,dz)<=CLIMB_INPUT_ADAPTATION.entryTolerance&&Math.hypot(s.vx,s.vz)<=CLIMB_INPUT_ADAPTATION.entrySpeed)this.running=true;
+    const inside=Math.hypot(dx,dz)<=CLIMB_INPUT_ADAPTATION.entryTolerance;
+    if(inside&&Math.hypot(s.vx,s.vz)<=CLIMB_INPUT_ADAPTATION.entrySpeed)this.running=true;
+    else if(inside)return {command:command(0,0,0,turn),done:false,failed:false};   // SETTLE-AT-ENTRY, as the approach
     else {
      const yaw=this.link.yaw*Math.PI/180,fx=-Math.sin(yaw),fz=-Math.cos(yaw);
      const stick=Math.max(-1,Math.min(1,(dx*fx+dz*fz)*CLIMB_INPUT_ADAPTATION.approachGain-(s.vx*fx+s.vz*fz)*CLIMB_INPUT_ADAPTATION.approachDamping));
@@ -93,9 +110,10 @@ export class BotClimbDrive {
    if(toward>=RUNNING_JUMP_SPEED&&back<=CLIMB_INPUT_ADAPTATION.runup*CLIMB_INPUT_ADAPTATION.jumpFrom){this.jumped=true;return {command:command(1,0,Button.Jump|Button.ActionHeld,turn),done:false,failed:false};}
    return {command:command(1,0,0,turn),done:false,failed:false};
   }
-  // The move's contact is consumed by Traversal on its next tick. Do not reject the first wall-hit frame.
+  // The move's contact is stored at a frame's end and consumed by Traversal on its next tick: do not reject a hit before the
+  // frame has had its store and the offer its tick (`CONTACT_OFFER_WAIT_TICKS`).
   this.refusedContact=aligned&&!busy&&!prompt&&sim.walker.wallHits().some(hit=>hit.poly.path===this.link.path)?this.refusedContact+1:0;
-  if(this.refusedContact>1){
+  if(this.refusedContact>CONTACT_OFFER_WAIT_TICKS){
    if(!sim.walker.airborne&&sim.walker.wallHits().some(hit=>hit.poly.path===this.link.path&&CLIMBABLE.has(hit.poly.appflags??0))){
     const yaw=this.link.yaw*Math.PI/180;
     const from:Point=[s.x,s.y,s.z],back:Point=[s.x+Math.sin(yaw)*CLIMB_INPUT_ADAPTATION.runup,s.y,s.z+Math.cos(yaw)*CLIMB_INPUT_ADAPTATION.runup];

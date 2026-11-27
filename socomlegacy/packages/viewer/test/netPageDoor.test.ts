@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PerspectiveCamera } from 'three';
 import { HELD_RIFLE, HELD_SIDEARM } from '@s2u/scene';
 import { Hud } from '../src/hud';
-import { NetPage, type NetPageDeps } from '../src/netPage';
+import { NetPage, RESUME_ATTEMPT_WAIT_MS_ADAPTATION, type NetPageDeps } from '../src/netPage';
 import type { WebSocketLike } from '../src/net/client';
 import { pinnedGameDoor, pinnedMatchSocket } from '../src/connectHost';
 import type { ServerEvent } from '../src/net/protocol';
@@ -120,7 +120,7 @@ describe('SA-6b: NetPage refuses a seat that is not one (isGameSeat)', () => {
 });
 
 describe('PT195-4: a reached match reconnects at once (LATER 329)', () => {
-  it('opens the next socket on the frame after the drop, and the next failure still waits 2 s', () => {
+  it('opens the next socket on the frame after the drop, and the next failure still waits 1.5 s (LATER 359)', () => {
     const p = page({ pinned: PINNED, ticket: TICKET });
     p.server(welcome);
     p.socket().onclose?.({ code: 1006, reason: '' });
@@ -129,15 +129,38 @@ describe('PT195-4: a reached match reconnects at once (LATER 329)', () => {
     p.socket().onclose?.({ code: 1006, reason: '' });
     p.run(0);
     expect(p.sockets).toHaveLength(2);
-    p.run(1_900);
+    p.run(1_400);
     expect(p.sockets).toHaveLength(2);
     p.run(200);
     expect(p.sockets).toHaveLength(3);
   });
 });
 
+describe('LATER 359a F2: a resume attempt whose socket hangs is cut at 3 s, so an outage ending at 16 s resumes before 20 s', () => {
+  it('sockets made during the outage never open; one made after it opens and is welcomed inside the 20 s hold', () => {
+    const p = page({ pinned: PINNED, ticket: TICKET });
+    p.server(welcome);
+    p.run(50);
+    const start = performance.now();
+    p.socket().onclose?.({ code: 1006, reason: '' });
+    let welcomedAt: number | null = null;
+    for (let ms = 0; ms < 20_000 && welcomedAt === null; ms += 100) {
+      const before = p.sockets.length;
+      p.run(100);
+      if (p.sockets.length > before && performance.now() - start >= 16_000) {   // the link back: this socket opens
+        p.socket().onopen?.({} as Event);
+        p.server(welcome);
+        welcomedAt = performance.now() - start;
+      }
+    }
+    expect(welcomedAt, 'welcomed inside the 20 s hold').not.toBeNull();
+    expect(welcomedAt!).toBeLessThan(20_000);
+    expect(RESUME_ATTEMPT_WAIT_MS_ADAPTATION).toBe(3_000);
+  });
+});
+
 describe('PT195-4: one immediate reconnect per 10 s window (the takeover review F4)', () => {
-  it('welcome, drop, the immediate reconnect, welcome, drop: the second wait is 2 s; past the window, at once again', () => {
+  it('welcome, drop, the immediate reconnect, welcome, drop: the second wait is 1.5 s (LATER 359); past the window, at once again', () => {
     const p = page({ pinned: PINNED, ticket: TICKET });
     p.server(welcome);
     p.socket().onclose?.({ code: 1006, reason: '' });
@@ -148,10 +171,10 @@ describe('PT195-4: one immediate reconnect per 10 s window (the takeover review 
     p.socket().onclose?.({ code: 1006, reason: '' });
     p.run(0);
     expect(p.sockets).toHaveLength(2);                             // a server that welcomes and drops is not rejoined at once
-    p.run(1_900);
+    p.run(1_400);
     expect(p.sockets).toHaveLength(2);
     p.run(200);
-    expect(p.sockets).toHaveLength(3);                             // the 2 s step
+    expect(p.sockets).toHaveLength(3);                             // the 1.5 s step
     p.socket().onopen?.({} as Event);
     p.server(welcome);
     p.run(10_000);                                                 // past the window since the immediate one

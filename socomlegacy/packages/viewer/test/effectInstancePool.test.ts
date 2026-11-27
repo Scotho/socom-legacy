@@ -21,7 +21,8 @@ const quad = (texture: string): EffectMesh => ({
   indices: new Uint32Array([0, 1, 2]), normals: null, faceNormals: null, textureName: texture, fog: false, cull: false,
 } as unknown as EffectMesh);
 
-const program = (name: string, ops: EffectOp[]): EffectProgram => ({ name, root: 1, flags: 0, nodes: ['NA', 'flash', 'rotate'], sequences: [{ name: 's0', activation: 1, ops }] });
+// R4P-255: 0xa2, the disc's usual flags (a copy whenever all are busy, no limit): this test starts one program more than once, which a no-copy animation's single instance would refuse (`effectInstanceLimit`).
+const program = (name: string, ops: EffectOp[]): EffectProgram => ({ name, root: 1, flags: 0xa2, nodes: ['NA', 'flash', 'rotate'], sequences: [{ name: 's0', activation: 1, ops }] });
 
 /** `muzzle`: shown, moved 5 along x and scaled 1 -> 3 over 0.05 s; `peek`: shown and held 0.05 s, its nodes untouched. */
 const data = (modelName = 'flash'): EffectData => ({

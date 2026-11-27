@@ -110,7 +110,10 @@ one -- MP1's door `dipoly` -- lands on the shared model, which only the two door
   46.02, 2038.16), and MP73's six `room_chair01` under `comm_low`, `mywc20` and `wall_breaker/good` -- not `comm_hi`'s
   two, and not `mywc20` or `good` themselves (G1b's correction).
 - **The hull grows** per level: MP11 11, MP10 1, MP12 9, MP1 5, MP51 112, MP52 5, MP5 2, MP61 75, MP62 19, MP64 3, MP6
-  15, MP71 1, MP72 18, MP73 4, MP81 2, MP82 18, MP83 8, MP2 3, MP8 11, MP9 6, M52 8, M61 0, M73 1.
+  15, MP71 1, MP72 18, MP73 4, MP81 2, MP82 18, MP83 8, MP2 3, MP8 11, MP9 6, M52 8, M61 0, M73 1. **MP72 grows by 16
+  in the port (2026-11-14):** the owner's OT.R127 keeps out the node at r4 0x2d8500 (its two INVISIBLE_DI quads, y
+  60-80, across the two gray tents' front eaves), an intended departure from r0004; the table keeps it as read and
+  `applyR0004MapPatch` skips it (`R0004_REJECTED_BY_RULING`; `r0004MapPatch.test.ts`, the disc test's MP72 cases).
 
 ## 5. Not ported here (LATER 707)
 
@@ -135,10 +138,16 @@ one -- MP1's door `dipoly` -- lands on the shared model, which only the two door
   and landing, which `borrowMissing` (its own placeholder) lends from MP71's ambience bank.
 - m73's region shifts (r4 0x2e8224, 0x2e8274, 0x2e82c4, 0x2e83cc; `m_region_shift` 2 -> 4, guarded by the node's own
   bits; LATER 415) and the texture paints on m61, mp61 and mp12 (r4 0x373550; purpose unknown): render-side.
-- The +0x80 byte is recorded on the node and read by nothing: `FUN_002d3030` takes it as a type-2 (column) query's
-  "stop at this node's first hit" (D:L175276, D:L175372) -- a type-1 (vertical) query stops at a node's first hit
-  whatever the byte (D:L175318-175348), which is the port's `firstHit`; the cluster's "a type-1 query stops at the first
-  polygon" is this note's correction -- and the port has no type-2 query that walks a node's polygons in order.
+- The +0x80 byte is recorded on the node (`SceneNode.stopAtFirstHit`) and read by no port query: `FUN_002d3030` takes
+  its bit 0 as a type-2 (column) query's "stop at this node's first hit" (D:L175276, D:L175372) -- a type-1 (vertical)
+  query stops at a node's first hit whatever the byte (D:L175318-175348), which is the port's `firstHit`; the cluster's
+  "a type-1 query stops at the first polygon" is this note's correction -- and its bit 1 as the crossing's side mode
+  (D:L175276-175282). *Amended 2026-11-25 (GRENADE-ONE-SIDED, research 85 §5.1)*: the projectile's per-frame query IS
+  a type-2 query (`FUN_0031dd90` D:L219868-219903), so bit 0 is the byte behind the port's known one-hit-per-node
+  divergence there (research 85 §5.1, LATER NNN): the original records at most one hit per node, the first in surface
+  order, where the port takes the nearest -- except on the five MP1 nodes r0004 clears bit 0 on (`land49`, `land58`,
+  `invis25`, `invis29`, `land59`; the table of §9), which in r0004 record every hit, as the port does. No port query
+  walks a node's polygons in order.
 
 ## 6. Walk impact, and the capture ac should take
 
